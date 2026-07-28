@@ -1,0 +1,1 @@
+ALTER TABLE status_pages ADD COLUMN IF NOT EXISTS dashboard_style VARCHAR(30) NOT NULL DEFAULT 'full';

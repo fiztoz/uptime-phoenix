@@ -1,0 +1,3 @@
+-- SQLite down migration intentionally leaves dashboard_style in place.
+-- Older SQLite versions used by some dev environments do not support DROP COLUMN;
+-- the extra column is harmless and ignored by older code.

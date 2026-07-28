@@ -1,0 +1,3 @@
+-- MariaDB migration: Placeholder
+-- This directory will contain versioned .up.sql and .down.sql files.
+-- Run with: bun/migrate

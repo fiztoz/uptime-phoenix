@@ -1,0 +1,553 @@
+// Package handlers contains Echo HTTP handlers for the Phoenix REST API.
+package handlers
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
+	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
+	"github.com/fiztoz/uptime-phoenix/internal/core/services"
+)
+
+// MonitorHandlers groups the monitor CRUD endpoints behind a single receiver.
+//
+// access answers both authorization questions these handlers ask, and they are
+// different questions:
+//
+//	"which monitors may this caller SEE?"    — every read path; scoping, not rejection.
+//	"may this caller CHANGE this monitor?"   — requireMonitorEditAccess; admin or creator.
+//
+// Creating is gated in the router by the create_monitors capability. Editing an
+// existing monitor is gated HERE, not in the router, because it depends on who
+// owns the target.
+//
+// tags is used to embed each monitor's tags in the wire shape. It is optional:
+// when nil, monitors serialize with an empty tags array rather than failing.
+type MonitorHandlers struct {
+	svc    *services.MonitorService
+	access *services.AccessService
+	tags   *services.TagService
+}
+
+// NewMonitorHandlers creates a MonitorHandlers bound to the supplied services.
+func NewMonitorHandlers(svc *services.MonitorService, access *services.AccessService, tags *services.TagService) *MonitorHandlers {
+	return &MonitorHandlers{svc: svc, access: access, tags: tags}
+}
+
+// --- Request / response DTOs ---------------------------------------------
+
+// CreateMonitorRequest is the body of POST /api/monitors.
+type CreateMonitorRequest struct {
+	Name                string         `json:"name"`
+	Description         string         `json:"description"`
+	Type                string         `json:"type"`
+	Active              *bool          `json:"active"`
+	Interval            int            `json:"interval"`
+	RetryInterval       int            `json:"retry_interval"`
+	MaxRetries          int            `json:"max_retries"`
+	Timeout             float64        `json:"timeout"`
+	Config              map[string]any `json:"config"`
+	AcceptedStatusCodes []string       `json:"accepted_statuscodes"`
+	UpsideDown          bool           `json:"upside_down"`
+	// TLSIgnore skips TLS certificate verification on https checks
+	// (self-signed / internal CAs). Honored by the http checker.
+	TLSIgnore bool `json:"tls_ignore"`
+	// CertExpiryNotify opts into fixed 30/14/7 day certificate-expiry alerts.
+	// Only meaningful for HTTP(S) monitors; defaults false.
+	CertExpiryNotify bool `json:"cert_expiry_notify"`
+	ResendInterval   int  `json:"resend_interval"`
+	// GroupID files this monitor under a MonitorGroup (folder). nil/omitted
+	// means top-level (not in any group). Replaces the old ParentID, which
+	// nested a monitor under another *monitor*.
+	GroupID *int64 `json:"group_id"`
+	// ProxyID routes this monitor's checks through an outbound proxy owned
+	// by the same user (see internal/adapters/http/handlers/proxy.go).
+	// nil/omitted means no proxy.
+	ProxyID *int64 `json:"proxy_id"`
+}
+
+// UpdateMonitorRequest is the body of PUT /api/monitors/:id.
+type UpdateMonitorRequest struct {
+	Name                string         `json:"name"`
+	Description         string         `json:"description"`
+	Active              *bool          `json:"active"`
+	Interval            int            `json:"interval"`
+	RetryInterval       int            `json:"retry_interval"`
+	MaxRetries          int            `json:"max_retries"`
+	Timeout             float64        `json:"timeout"`
+	Config              map[string]any `json:"config"`
+	AcceptedStatusCodes []string       `json:"accepted_statuscodes"`
+	UpsideDown          bool           `json:"upside_down"`
+	// TLSIgnore mirrors UpsideDown's semantics: always applied on update,
+	// so omitting it resets the flag to false.
+	TLSIgnore bool `json:"tls_ignore"`
+	// CertExpiryNotify mirrors UpsideDown: always applied on update so
+	// omitting it resets the flag to false.
+	CertExpiryNotify bool `json:"cert_expiry_notify"`
+	ResendInterval   int  `json:"resend_interval"`
+	// GroupID files this monitor under a MonitorGroup (folder). Always
+	// applied on update: null/omitted clears the group (moves the monitor
+	// back to top level).
+	GroupID *int64 `json:"group_id"`
+	// ProxyID routes this monitor's checks through an outbound proxy owned
+	// by the same user. Always applied on update: null/omitted clears the
+	// proxy (mirrors GroupID's semantics).
+	ProxyID *int64 `json:"proxy_id"`
+}
+
+// MonitorTagView is one tag as it appears on a monitor: the tag definition
+// joined with this monitor's value for it. `id` is the TAG's id (not the
+// assignment row's) — that is what a tag filter matches on.
+type MonitorTagView struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+	Value string `json:"value"`
+}
+
+// MonitorView is the wire shape of domain.Monitor.
+//
+// Tags is ALWAYS a non-nil slice, so the field serializes as [] and never null:
+// the dashboard's tag filter iterates it unconditionally.
+type MonitorView struct {
+	ID                  int64            `json:"id"`
+	UserID              int64            `json:"user_id"`
+	Name                string           `json:"name"`
+	Description         string           `json:"description"`
+	Type                string           `json:"type"`
+	Active              bool             `json:"active"`
+	Interval            int              `json:"interval"`
+	RetryInterval       int              `json:"retry_interval"`
+	MaxRetries          int              `json:"max_retries"`
+	Timeout             float64          `json:"timeout"`
+	Config              map[string]any   `json:"config"`
+	AcceptedStatusCodes []string         `json:"accepted_statuscodes"`
+	UpsideDown          bool             `json:"upside_down"`
+	TLSIgnore           bool             `json:"tls_ignore"`
+	CertExpiryNotify    bool             `json:"cert_expiry_notify"`
+	ResendInterval      int              `json:"resend_interval"`
+	GroupID             *int64           `json:"group_id"`
+	ProxyID             *int64           `json:"proxy_id"`
+	Tags                []MonitorTagView `json:"tags"`
+	CreatedAt           string           `json:"created_at"`
+	UpdatedAt           string           `json:"updated_at"`
+}
+
+// toMonitorView projects a domain.Monitor to the public DTO. tags may be nil —
+// it is normalized to an empty slice so the JSON is [] rather than null.
+func toMonitorView(m *domain.Monitor, tags []services.MonitorTagDetail) *MonitorView {
+	if m == nil {
+		return nil
+	}
+	return &MonitorView{
+		ID:                  m.ID,
+		UserID:              m.UserID,
+		Name:                m.Name,
+		Description:         m.Description,
+		Type:                m.Type,
+		Active:              m.Active,
+		Interval:            m.Interval,
+		RetryInterval:       m.RetryInterval,
+		MaxRetries:          m.MaxRetries,
+		Timeout:             m.Timeout,
+		Config:              m.Config,
+		AcceptedStatusCodes: m.AcceptedStatusCodes,
+		UpsideDown:          m.UpsideDown,
+		TLSIgnore:           m.TLSIgnore,
+		CertExpiryNotify:    m.CertExpiryNotify,
+		ResendInterval:      m.ResendInterval,
+		GroupID:             m.GroupID,
+		ProxyID:             m.ProxyID,
+		Tags:                toMonitorTagViews(tags),
+		CreatedAt:           m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:           m.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+	}
+}
+
+func toMonitorTagViews(tags []services.MonitorTagDetail) []MonitorTagView {
+	out := make([]MonitorTagView, 0, len(tags))
+	for _, t := range tags {
+		out = append(out, MonitorTagView{ID: t.TagID, Name: t.Name, Color: t.Color, Value: t.Value})
+	}
+	return out
+}
+
+// monitorTags fetches one monitor's tags for the wire shape. A tag-lookup failure
+// degrades to "no tags" rather than failing the whole request: tags are display
+// metadata, and blanking a monitor because its labels could not be read would be
+// a worse outcome than showing it unlabeled.
+func (h *MonitorHandlers) monitorTags(c echo.Context, monitorID int64) []services.MonitorTagDetail {
+	if h.tags == nil {
+		return nil
+	}
+	tags, err := h.tags.TagsForMonitor(c.Request().Context(), monitorID)
+	if err != nil {
+		slog.Warn("monitor: tag lookup failed", "monitor_id", monitorID, "error", err)
+		return nil
+	}
+	return tags
+}
+
+// validateMonitorConfig looks up the checker for the given type and calls
+// Validate on the config. Returns the first validation error, if any.
+func validateMonitorConfig(monitorType string, config map[string]any) error {
+	if config == nil {
+		config = make(map[string]any)
+	}
+	chk, ok := checker.Get(monitorType)
+	if !ok {
+		return domain.ErrValidation // unknown type validation handled elsewhere
+	}
+	return chk.Validate(config)
+}
+
+// --- Handlers -----------------------------------------------------------
+
+// grantCreatorAccess gives the creator a view grant on the monitor they just
+// made, so it appears in their list and in the admin permission editor.
+//
+// Only meaningful for a non-admin: an admin already sees every monitor, and
+// AccessService.VisibleMonitorIDs short-circuits before grants are consulted, so
+// the row changes nothing for them today. It is still written for everyone, and
+// that is deliberate — it is the record of "this user was given sight of this",
+// and it is what makes a LATER demotion from admin behave sanely instead of
+// blinding someone to their own monitors.
+//
+// Failure is logged, never returned. The monitor exists by the time this runs;
+// turning a grant write into a 500 would tell the caller their monitor was not
+// created when it was, and there is no rollback here to make that true. The
+// degradation is visible and repairable (an admin re-grants in the UI), which is
+// the right trade against a lie. It cannot silently under-permit an admin, who
+// needs no grant.
+func (h *MonitorHandlers) grantCreatorAccess(c echo.Context, userID, monitorID int64) {
+	if h.access == nil {
+		return
+	}
+	if err := h.access.GrantMonitor(c.Request().Context(), userID, monitorID); err != nil {
+		slog.ErrorContext(c.Request().Context(), "auto-grant creator view access to new monitor failed",
+			"user_id", userID, "monitor_id", monitorID, "error", err)
+	}
+}
+
+// Create handles POST /api/monitors. Requires the create_monitors capability
+// (router-gated); admins always hold it.
+//
+// The creator becomes the monitor's owner via Monitor.UserID — that is what
+// later lets them edit and delete it — and is auto-granted a view of it.
+func (h *MonitorHandlers) Create(c echo.Context) error {
+	userID, ok := userIDFromContext(c)
+	if !ok {
+		return unauthenticated(c)
+	}
+
+	var req CreateMonitorRequest
+	if err := c.Bind(&req); err != nil {
+		return badRequest(c, "invalid request body")
+	}
+	if req.Name == "" {
+		return badRequest(c, "name is required")
+	}
+	if req.Type == "" {
+		return badRequest(c, "type is required")
+	}
+
+	if req.Config == nil {
+		req.Config = make(map[string]any)
+	}
+
+	// Validate the monitor config against the checker.
+	if err := validateMonitorConfig(req.Type, req.Config); err != nil {
+		return badRequest(c, "invalid config: "+err.Error())
+	}
+
+	if req.Interval <= 0 {
+		req.Interval = 60
+	}
+	if req.Timeout <= 0 {
+		req.Timeout = 30
+	}
+
+	active := true
+	if req.Active != nil {
+		active = *req.Active
+	}
+
+	acceptedCodes := req.AcceptedStatusCodes
+	if len(acceptedCodes) == 0 {
+		acceptedCodes = []string{"200-299"}
+	}
+
+	monitor := &domain.Monitor{
+		UserID:              userID,
+		Name:                req.Name,
+		Description:         req.Description,
+		Type:                req.Type,
+		Active:              active,
+		Interval:            req.Interval,
+		RetryInterval:       req.RetryInterval,
+		MaxRetries:          req.MaxRetries,
+		Timeout:             req.Timeout,
+		Config:              req.Config,
+		AcceptedStatusCodes: acceptedCodes,
+		UpsideDown:          req.UpsideDown,
+		TLSIgnore:           req.TLSIgnore,
+		CertExpiryNotify:    req.CertExpiryNotify,
+		ResendInterval:      req.ResendInterval,
+		GroupID:             req.GroupID,
+		ProxyID:             req.ProxyID,
+	}
+	if req.Type == "push" {
+		if token, ok := req.Config["push_token"].(string); ok && token != "" {
+			monitor.PushToken = token
+		}
+	}
+
+	if err := h.svc.Create(c.Request().Context(), monitor); err != nil {
+		return mapMonitorError(c, err)
+	}
+	h.grantCreatorAccess(c, userID, monitor.ID)
+
+	// A monitor has no tags the instant it is created, so skip the lookup.
+	return c.JSON(http.StatusCreated, toMonitorView(monitor, nil))
+}
+
+// List handles GET /api/monitors.
+//
+// RBAC: an admin lists every monitor in the install; a non-admin lists exactly
+// the monitors granted to them. The restriction is applied through the repository
+// filter, NOT by post-filtering the result, so limit/offset stay meaningful.
+//
+// Note the deliberate absence of a UserID filter: ownership is no longer the
+// visibility rule. An admin must see monitors owned by other users, and a
+// non-admin must see monitors owned by the admin who granted them.
+func (h *MonitorHandlers) List(c echo.Context) error {
+	userID, ok := userIDFromContext(c)
+	if !ok {
+		return unauthenticated(c)
+	}
+	if h.access == nil {
+		return c.JSON(http.StatusForbidden, errorBody("access control unavailable"))
+	}
+
+	all, visibleIDs, err := h.access.VisibleMonitorIDs(c.Request().Context(), userID)
+	if err != nil {
+		return mapMonitorError(c, err)
+	}
+
+	filter := ports.MonitorFilter{
+		Search: c.QueryParam("search"),
+		Type:   c.QueryParam("type"),
+	}
+	if !all {
+		// RestrictToIDs, not len(visibleIDs) > 0: a user with zero grants must get
+		// zero monitors, not every monitor. See ports.MonitorFilter.
+		filter.RestrictToIDs = true
+		filter.MonitorIDs = visibleIDs
+	}
+
+	if activeParam := c.QueryParam("active"); activeParam != "" {
+		active := activeParam == "true" || activeParam == "1"
+		filter.Active = &active
+	}
+
+	monitors, err := h.svc.List(c.Request().Context(), filter)
+	if err != nil {
+		return mapMonitorError(c, err)
+	}
+
+	// One batched tag lookup for the whole page instead of one per monitor.
+	tagsByMonitor := map[int64][]services.MonitorTagDetail{}
+	if h.tags != nil && len(monitors) > 0 {
+		ids := make([]int64, len(monitors))
+		for i, m := range monitors {
+			ids[i] = m.ID
+		}
+		if fetched, tagErr := h.tags.TagsForMonitors(c.Request().Context(), ids); tagErr != nil {
+			// Degrade to unlabeled monitors rather than failing the list — see
+			// monitorTags for the rationale.
+			slog.Warn("monitor list: batch tag lookup failed", "error", tagErr)
+		} else {
+			tagsByMonitor = fetched
+		}
+	}
+
+	views := make([]*MonitorView, len(monitors))
+	for i, m := range monitors {
+		views[i] = toMonitorView(m, tagsByMonitor[m.ID])
+	}
+	return c.JSON(http.StatusOK, views)
+}
+
+// GetByID handles GET /api/monitors/:id.
+func (h *MonitorHandlers) GetByID(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return badRequest(c, "invalid monitor id")
+	}
+
+	// 404-not-403 for a monitor the caller cannot see: never confirm it exists.
+	if err := requireMonitorViewAccess(c, h.access, id); err != nil {
+		return err
+	}
+
+	monitor, err := h.svc.GetByID(c.Request().Context(), id)
+	if err != nil {
+		return mapMonitorError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toMonitorView(monitor, h.monitorTags(c, id)))
+}
+
+// Update handles PUT /api/monitors/:id. Admins, or the user who created this
+// monitor. Being granted a view of a monitor confers nothing here.
+//
+// There is no router middleware on this route: whether the caller may edit
+// depends on who owns THIS monitor, which only the handler knows. The check
+// below is the gate, not a backstop behind one.
+func (h *MonitorHandlers) Update(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return badRequest(c, "invalid monitor id")
+	}
+	if err := requireMonitorEditAccess(c, h.access, id); err != nil {
+		return err
+	}
+
+	existing, err := h.svc.GetByID(c.Request().Context(), id)
+	if err != nil {
+		return mapMonitorError(c, err)
+	}
+
+	var req UpdateMonitorRequest
+	if err := c.Bind(&req); err != nil {
+		return badRequest(c, "invalid request body")
+	}
+
+	// Validate the config if a new one is provided.
+	if req.Config != nil {
+		if err := validateMonitorConfig(existing.Type, req.Config); err != nil {
+			return badRequest(c, "invalid config: "+err.Error())
+		}
+	}
+
+	// Apply partial updates from the request.
+	if req.Name != "" {
+		existing.Name = req.Name
+	}
+	if req.Description != "" {
+		existing.Description = req.Description
+	}
+	if req.Active != nil {
+		existing.Active = *req.Active
+	}
+	if req.Interval > 0 {
+		existing.Interval = req.Interval
+	}
+	if req.RetryInterval >= 0 {
+		existing.RetryInterval = req.RetryInterval
+	}
+	if req.MaxRetries >= 0 {
+		existing.MaxRetries = req.MaxRetries
+	}
+	if req.Timeout > 0 {
+		existing.Timeout = req.Timeout
+	}
+	if req.Config != nil {
+		existing.Config = req.Config
+	}
+	if req.AcceptedStatusCodes != nil {
+		existing.AcceptedStatusCodes = req.AcceptedStatusCodes
+	}
+	existing.UpsideDown = req.UpsideDown
+	existing.TLSIgnore = req.TLSIgnore
+	existing.CertExpiryNotify = req.CertExpiryNotify
+	if req.ResendInterval >= 0 {
+		existing.ResendInterval = req.ResendInterval
+	}
+	// GroupID is always applied (not gated on non-zero) so the client can
+	// explicitly clear a monitor's group by sending group_id: null.
+	existing.GroupID = req.GroupID
+	// ProxyID mirrors GroupID: always applied so the client can explicitly
+	// clear a monitor's proxy by sending proxy_id: null.
+	existing.ProxyID = req.ProxyID
+
+	if err := h.svc.Update(c.Request().Context(), existing); err != nil {
+		return mapMonitorError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, toMonitorView(existing, h.monitorTags(c, id)))
+}
+
+// Delete handles DELETE /api/monitors/:id. Admins, or the user who created this
+// monitor. Gated in the handler for the same reason as Update.
+func (h *MonitorHandlers) Delete(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return badRequest(c, "invalid monitor id")
+	}
+	if err := requireMonitorEditAccess(c, h.access, id); err != nil {
+		return err
+	}
+
+	// Confirm it exists so a delete of an unknown id is still a 404, not a 204.
+	if _, err := h.svc.GetByID(c.Request().Context(), id); err != nil {
+		return mapMonitorError(c, err)
+	}
+
+	if err := h.svc.Delete(c.Request().Context(), id); err != nil {
+		return mapMonitorError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// Clone handles POST /api/monitors/:id/clone — duplicates monitor config.
+//
+// Two gates, and note that the second is VIEW, not edit: cloning creates a new
+// monitor (the create_monitors capability, checked by the router) out of config
+// the caller must be allowed to read (checked here). Requiring ownership of the
+// SOURCE would be stricter than the secret it protects — a user who can view a
+// monitor can already read its config field-by-field from GET /api/monitors/:id
+// and POST it back as a new one, so refusing to do it in one step would buy
+// nothing. The clone belongs to the caller, not to the source's owner.
+func (h *MonitorHandlers) Clone(c echo.Context) error {
+	userID, ok := userIDFromContext(c)
+	if !ok {
+		return unauthenticated(c)
+	}
+
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return badRequest(c, "invalid monitor id")
+	}
+	if err := requireMonitorViewAccess(c, h.access, id); err != nil {
+		return err
+	}
+
+	cloned, err := h.svc.Clone(c.Request().Context(), id, userID)
+	if err != nil {
+		return mapMonitorError(c, err)
+	}
+	h.grantCreatorAccess(c, userID, cloned.ID)
+	return c.JSON(http.StatusCreated, toMonitorView(cloned, nil))
+}
+
+// --- Error translation helper -------------------------------------------
+
+func mapMonitorError(c echo.Context, err error) error {
+	switch {
+	case errors.Is(err, domain.ErrNotFound) || errors.Is(err, ports.ErrNotFound):
+		return c.JSON(http.StatusNotFound, errorBody("monitor not found"))
+	case errors.Is(err, domain.ErrValidation):
+		return c.JSON(http.StatusBadRequest, errorBody(err.Error()))
+	default:
+		slog.Error("monitor handler error", "error", err)
+		return c.JSON(http.StatusInternalServerError, errorBody("internal error"))
+	}
+}

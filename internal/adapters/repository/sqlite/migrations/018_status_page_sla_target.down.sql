@@ -1,0 +1,3 @@
+-- SQLite down migration intentionally leaves sla_target in place.
+-- Older SQLite versions used by some dev environments do not support DROP COLUMN;
+-- the nullable extra column is harmless and ignored by older code.
