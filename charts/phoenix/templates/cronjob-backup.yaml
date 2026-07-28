@@ -1,0 +1,64 @@
+{{- if and .Values.cronJobs.backup.enabled (eq (include "phoenix.dbEngine" .) "mariadb") }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "phoenix.fullname" . }}-backup
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronJobs.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "phoenix.selectorLabels" . | nindent 12 }}
+            component: backup
+        spec:
+          restartPolicy: OnFailure
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: mysqldump
+              image: {{ .Values.cronJobs.backup.image | quote }}
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: DB_HOST
+                  value: {{ include "phoenix.mariadbHost" . | quote }}
+                - name: DB_USER
+                  value: {{ .Values.cronJobs.backup.username | quote }}
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "phoenix.fullname" . }}
+                      key: {{ .Values.cronJobs.backup.passwordSecretKey }}
+                - name: DB_NAME
+                  value: {{ .Values.cronJobs.backup.database | quote }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  ts=$(date -u +%Y%m%dT%H%M%SZ)
+                  out="/backup/phoenix-${ts}.sql.gz"
+                  mkdir -p /backup
+                  mysqldump -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASSWORD" --single-transaction --routines --triggers "$DB_NAME" | gzip -c > "$out"
+                  echo "backup written to $out"
+                  find /backup -name 'phoenix-*.sql.gz' -mtime +{{ .Values.cronJobs.backup.retentionDays }} -delete || true
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: backup
+              {{- if .Values.cronJobs.backup.persistence.enabled }}
+              persistentVolumeClaim:
+                claimName: {{ include "phoenix.fullname" . }}-backup
+              {{- else }}
+              emptyDir: {}
+              {{- end }}
+{{- end }}

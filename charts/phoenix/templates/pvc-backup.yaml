@@ -1,0 +1,17 @@
+{{- if and .Values.cronJobs.backup.enabled .Values.cronJobs.backup.persistence.enabled (eq (include "phoenix.dbEngine" .) "mariadb") }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "phoenix.fullname" . }}-backup
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.cronJobs.backup.persistence.size | quote }}
+  {{- if .Values.cronJobs.backup.persistence.storageClass }}
+  storageClassName: {{ .Values.cronJobs.backup.persistence.storageClass | quote }}
+  {{- end }}
+{{- end }}

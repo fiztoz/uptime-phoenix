@@ -1,0 +1,153 @@
+{{- if eq .Values.mode "all" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "phoenix.deploymentName" . }}
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+spec:
+  {{- if eq .Values.mode "worker" }}
+  replicas: 1
+  {{- else if eq .Values.mode "api" }}
+  replicas: {{ .Values.api.replicas | default 2 }}
+  {{- else if eq .Values.scaling.mode "single" }}
+  replicas: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "phoenix.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "phoenix.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: phoenix
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: DB_ENGINE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: db-engine
+            - name: DB_DSN
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: db-dsn
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: jwt-secret
+            - name: JWT_EXPIRE_HOURS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: jwt-expire-hours
+            - name: TOTP_ISSUER
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: totp-issuer
+            {{- include "phoenix.envAppConfig" . | nindent 12 }}
+            - name: HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: host
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: port
+            - name: MODE
+              value: {{ .Values.mode | quote }}
+            {{- if .Values.bootstrap.enabled }}
+            - name: BOOTSTRAP_USERNAME
+              value: {{ .Values.bootstrap.username | quote }}
+            - name: BOOTSTRAP_PASSWORD
+              {{- if .Values.bootstrap.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.bootstrap.existingSecret }}
+                  key: bootstrap-password
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phoenix.fullname" . }}-bootstrap
+                  key: bootstrap-password
+              {{- end }}
+            {{- end }}
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: redis-url
+            {{- end }}
+            {{- with .Values.config.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- if or .Values.database.persistence.enabled .Values.mariadb.enabled }}
+            - name: data
+              mountPath: /data
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 10"]
+      volumes:
+        {{- if .Values.database.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "phoenix.fullname" . }}-data
+        {{- end }}
+        {{- if .Values.mariadb.enabled }}
+        - name: mariadb-data
+          persistentVolumeClaim:
+            claimName: {{ include "phoenix.fullname" . }}-mariadb
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 40
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

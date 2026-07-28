@@ -1,0 +1,120 @@
+{{- if or (eq .Values.mode "api") (eq .Values.mode "split") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "phoenix.fullname" . }}-api
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+    component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      {{- include "phoenix.selectorLabels" . | nindent 6 }}
+      component: api
+  template:
+    metadata:
+      labels:
+        {{- include "phoenix.selectorLabels" . | nindent 8 }}
+        component: api
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: phoenix-api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: MODE
+              value: "api"
+            - name: DB_ENGINE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: db-engine
+            - name: DB_DSN
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: db-dsn
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: redis-url
+            {{- end }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: jwt-secret
+            - name: JWT_EXPIRE_HOURS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: jwt-expire-hours
+            - name: TOTP_ISSUER
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: totp-issuer
+            - name: HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: host
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: port
+            {{- if .Values.bootstrap.enabled }}
+            - name: BOOTSTRAP_USERNAME
+              value: {{ .Values.bootstrap.username | quote }}
+            - name: BOOTSTRAP_PASSWORD
+              {{- if .Values.bootstrap.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.bootstrap.existingSecret }}
+                  key: bootstrap-password
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phoenix.fullname" . }}-bootstrap
+                  key: bootstrap-password
+              {{- end }}
+            {{- end }}
+            {{- include "phoenix.envAppConfig" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /api/health/live
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

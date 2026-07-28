@@ -1,0 +1,20 @@
+# Grafana dashboard provider provisioning for Phoenix.
+# Loads every *.json dashboard from the mounted dashboards folder.
+apiVersion: 1
+
+providers:
+  - name: Phoenix
+    orgId: 1
+    folder: Phoenix
+    folderUid: phoenix
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      # Path inside the Grafana container. The docker-compose stack mounts
+      # ./dashboards here. Keep foldersFromFilesStructure false so all
+      # dashboards land in the "Phoenix" folder above.
+      path: /var/lib/grafana/dashboards/phoenix
+      foldersFromFilesStructure: false

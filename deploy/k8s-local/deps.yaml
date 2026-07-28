@@ -1,0 +1,154 @@
+# Local K8s dependencies for Phoenix split-mode deployment.
+# MariaDB + Redis are not bundled in the Helm chart — deploy these first.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: phoenix-mariadb
+  namespace: phoenix
+type: Opaque
+stringData:
+  root-password: phoenix-dev-secret
+  password: phoenix-dev-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: phoenix-mariadb
+  namespace: phoenix
+  labels:
+    app: phoenix-mariadb
+spec:
+  ports:
+    - port: 3306
+      targetPort: 3306
+      name: mysql
+  selector:
+    app: phoenix-mariadb
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: phoenix-mariadb
+  namespace: phoenix
+  labels:
+    app: phoenix-mariadb
+spec:
+  serviceName: phoenix-mariadb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: phoenix-mariadb
+  template:
+    metadata:
+      labels:
+        app: phoenix-mariadb
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:11
+          ports:
+            - containerPort: 3306
+              name: mysql
+          env:
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: phoenix-mariadb
+                  key: root-password
+            - name: MARIADB_DATABASE
+              value: phoenix
+            - name: MARIADB_USER
+              value: phoenix
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: phoenix-mariadb
+                  key: password
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+          readinessProbe:
+            exec:
+              command:
+                - mariadb-admin
+                - ping
+                - -h
+                - localhost
+                - -uroot
+                - -pphoenix-dev-secret
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - mariadb-admin
+                - ping
+                - -h
+                - localhost
+                - -uroot
+                - -pphoenix-dev-secret
+            initialDelaySeconds: 30
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-master
+  namespace: phoenix
+  labels:
+    app: redis
+spec:
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+  selector:
+    app: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: phoenix
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+              name: redis
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 10
+            periodSeconds: 10

@@ -1,0 +1,53 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "phoenix.fullname" . }}
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "phoenix.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    # DNS
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Monitor checks (HTTP/HTTPS)
+    - ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+    {{- if or .Values.mariadb.enabled .Values.mariadbExternal.host }}
+    - ports:
+        - protocol: TCP
+          port: 3306
+    {{- end }}
+    {{- if .Values.redis.enabled }}
+    - ports:
+        - protocol: TCP
+          port: {{ int (default 6379 .Values.redis.port) }}
+    {{- end }}
+    {{- if .Values.cloudflareTunnel.enabled }}
+    # cloudflared dials phoenix-api/web (3000/80) in-cluster and egresses to
+    # Cloudflare's edge over 443 (already allowed by the HTTP/HTTPS rule above).
+    - ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 80
+    {{- end }}
+{{- end }}

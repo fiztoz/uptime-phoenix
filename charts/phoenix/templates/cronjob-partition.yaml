@@ -1,0 +1,60 @@
+{{- if and .Values.cronJobs.partition.enabled (eq (include "phoenix.dbEngine" .) "mariadb") }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "phoenix.fullname" . }}-partition
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronJobs.partition.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "phoenix.selectorLabels" . | nindent 12 }}
+            component: partition
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: partition
+              image: {{ .Values.cronJobs.partition.image | quote }}
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: DB_HOST
+                  value: {{ include "phoenix.mariadbHost" . | quote }}
+                - name: DB_USER
+                  value: {{ .Values.cronJobs.partition.username | quote }}
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "phoenix.fullname" . }}
+                      key: {{ .Values.cronJobs.partition.passwordSecretKey }}
+                - name: DB_NAME
+                  value: {{ .Values.cronJobs.partition.database | quote }}
+                - name: RETENTION_MONTHS
+                  value: {{ .Values.cronJobs.partition.retentionMonths | quote }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  next_month=$(date -u -d "$(date -u +%Y-%m-01) +1 month" +%Y-%m-01)
+                  part_name="p$(date -u -d "${next_month}" +%Y%m)"
+                  export MYSQL_PWD="${DB_PASSWORD}"
+                  exists=$(mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -N -e "SELECT COUNT(*) FROM information_schema.PARTITIONS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='heartbeats' AND PARTITION_NAME='${part_name}'")
+                  if [ "$exists" = "0" ]; then
+                    mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -e "ALTER TABLE heartbeats ADD PARTITION (PARTITION ${part_name} VALUES LESS THAN (UNIX_TIMESTAMP('${next_month} 00:00:00')))"
+                    echo "added partition ${part_name}"
+                  else
+                    echo "partition ${part_name} exists"
+                  fi
+                  cutoff=$(date -u -d "$(date -u +%Y-%m-01) -${RETENTION_MONTHS} months" +%Y%m)
+                  for old in $(mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -N -e "SELECT PARTITION_NAME FROM information_schema.PARTITIONS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='heartbeats' AND PARTITION_NAME LIKE 'p%' AND PARTITION_NAME < 'p${cutoff}'" || true); do
+                    mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -e "ALTER TABLE heartbeats DROP PARTITION ${old}" || true
+                    echo "dropped ${old}"
+                  done
+{{- end }}

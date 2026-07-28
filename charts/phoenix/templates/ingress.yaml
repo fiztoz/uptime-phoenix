@@ -1,0 +1,54 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "phoenix.fullname" . }}
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tlsSecretName | default (printf "%s-tls" (include "phoenix.fullname" .)) }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "phoenix.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "phoenix.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+          - path: /
+            pathType: Prefix
+            backend:
+              {{- if .Values.web.split }}
+              service:
+                name: {{ include "phoenix.fullname" . }}-web
+                port:
+                  number: 80
+              {{- else }}
+              service:
+                name: {{ include "phoenix.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+              {{- end }}
+{{- end }}

@@ -1,0 +1,354 @@
+# ─── Phoenix Helm values ──────────────────────────────────────────────────────
+# Default: minimal-dependency, single pod, zero external services.
+# `helm install phoenix ./charts/phoenix` just works.
+
+# ── Image ─────────────────────────────────────────────────────────────────────
+image:
+  repository: ghcr.io/fiztoz/phoenix
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# ── Scaling / Component mode (Phase 3) ────────────────────────────────────────
+# all     = single binary, all components (default, Phase 1/2)
+# api     = HTTP + WS only (stateless, HPA-scalable) — renders only the API tier
+# worker  = scheduler + checkers + notifier only — renders only the worker tier
+# split   = TRULY SPLIT: renders BOTH api + worker Deployments in one release.
+#           Requires database.engine=mariadb (shared DB) and redis.enabled=true
+#           (cross-pod EventBus). The worker waits for the API via an initContainer.
+# scaling.mode single/multi kept for backward compat with existing templates
+mode: all
+scaling:
+  mode: single
+
+# Per-mode defaults (used when mode=api or mode=worker)
+api:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+worker:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  # Sharded mode: when WORKER_ID is set, each worker claims its own batch of
+  # monitors via DB leases. Set replicas>1 and each pod gets a unique WORKER_ID.
+  shards:
+    enabled: false
+    batchSize: 200
+    leaseTTL: 300
+    pollEvery: 30
+
+# ── Database (zero external deps default: sqlite on single PVC) ──────────────
+# engine: sqlite (default, CGO-free, single pod) | mariadb (opt-in)
+# DB_ENGINE and DB_DSN are derived from this.
+database:
+  engine: sqlite
+  # Override DSN if needed (for sqlite: file:/data/phoenix.db ; for mariadb use external or mariadb subchart)
+  dsn: ""
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+
+# ── MariaDB (opt-in when database.engine=mariadb) ─────────────────────────────
+mariadb:
+  enabled: false
+  # Auto-generated if rootPassword is empty
+  rootPassword: ""
+  persistence:
+    size: 10Gi
+    storageClass: ""
+
+# ── External MariaDB (when mariadb.enabled=false) ─────────────────────────────
+mariadbExternal:
+  host: ""
+  port: 3306
+  database: phoenix
+  username: phoenix
+  password: ""
+
+# ── Redis (opt-in, only for scaling.mode=multi) ───────────────────────────────
+redis:
+  enabled: false
+  host: ""
+  port: 6379
+  password: ""
+
+# ── Frontend delivery ─────────────────────────────────────────────────────────
+# false = embedded in Go binary (default, zero-dependency)
+# true  = separate phoenix-web Deployment (nginx serving static build)
+web:
+  split: false
+  image:
+    repository: ghcr.io/fiztoz/phoenix-web
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  service:
+    type: ClusterIP
+    port: 80
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  host: phoenix.example.com
+  tls: true
+  tlsSecretName: phoenix-tls
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+# ── Cloudflare Tunnel (optional — expose Phoenix without external ingress) ────
+# When enabled, the chart runs a `cloudflared` Deployment that dials out to
+# Cloudflare and tunnels traffic to the in-cluster phoenix-api (or phoenix-web)
+# Service. No inbound ports, LoadBalancer, or public Ingress controller needed.
+#
+# Token model (named tunnel):
+#   1. In the Cloudflare Zero Trust dashboard (or `cloudflared tunnel create`),
+#      create a NAMED tunnel and a Public Hostname route pointing at the
+#      phoenix Service (e.g. http://<release>-api:3000 or <release>:3000).
+#   2. Cloudflare gives you a single connector TOKEN. That token encodes the
+#      tunnel credentials and config — no certs or config files needed here.
+#   3. Provide the token via `cloudflareTunnel.token` (templated into a Secret)
+#      OR reference an existing Secret with `existingSecret` + `secretKey`.
+#
+# When using the tunnel you typically set `ingress.enabled=false`, since
+# Cloudflare terminates TLS and routes traffic for you.
+cloudflareTunnel:
+  enabled: false
+  image:
+    repository: cloudflare/cloudflared
+    tag: "2024.12.2"
+    pullPolicy: IfNotPresent
+  # 1 is fine; set 2 for HA (Cloudflare load-balances across connectors).
+  replicas: 2
+  # Tunnel connector token. Provide EITHER an inline token (templated into a
+  # Secret by the chart) OR reference an existing Secret you manage yourself.
+  #   existingSecret: my-cf-tunnel   # name of a pre-created Secret
+  #   secretKey: token               # key within that Secret holding the token
+  token: ""
+  existingSecret: ""
+  secretKey: token
+  # Extra flags appended to `cloudflared tunnel run`, e.g.:
+  #   - --loglevel
+  #   - debug
+  extraArgs: []
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ── Resource limits ───────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+# ── Security context ──────────────────────────────────────────────────────────
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# ── Pod Disruption Budget ─────────────────────────────────────────────────────
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ── Health probes ─────────────────────────────────────────────────────────────
+livenessProbe:
+  httpGet:
+    path: /api/health/live
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/health/ready
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# ── Application config (env vars passed to Go binary) ─────────────────────────
+config:
+  logLevel: info
+  logFormat: json
+  host: "0.0.0.0"
+  port: 3000
+  jwtExpireHours: 24
+  totpIssuer: "Phoenix"
+  # Absolute public origin (https://status.example.com) used in status-page
+  # subscription confirmation/unsubscribe links and OIDC post-login redirects.
+  # Empty disables email subscriptions and requires OIDC_REDIRECT_URL when SSO is on.
+  publicUrl: ""
+  # Additional env vars for the Go binary
+  env: []
+
+# ── OIDC SSO (Phase 5 Sprint 13) ──────────────────────────────────────────────
+# Opt-in. When enabled, operators sign in via the internal IdP. Local password
+# + TOTP/passkey login remains available for bootstrap and break-glass recovery.
+# Client secret is stored in a Kubernetes Secret — never commit it to values.
+oidc:
+  enabled: false
+  issuer: ""
+  clientId: ""
+  # clientSecret is templated into the chart Secret when non-empty.
+  # Prefer existingSecret for production.
+  clientSecret: ""
+  existingSecret: ""
+  secretKey: oidc-client-secret
+  # Absolute callback URL registered with the IdP. Empty derives from
+  # config.publicUrl + /api/auth/oidc/callback.
+  redirectUrl: ""
+  scopes: "openid,profile,email"
+  groupsClaim: groups
+  jitEnabled: true
+  linkByEmail: false
+  # Comma-separated IdP group names. Empty allowedGroups = any authenticated subject.
+  allowedGroups: ""
+  adminGroups: ""
+  capNotificationsGroups: ""
+  capMaintenanceGroups: ""
+  capCreateMonitorsGroups: ""
+  capCreateGroupsGroups: ""
+  # idp-group:group:<id> or idp-group:monitor:<id>[,shallow]
+  grantMap: ""
+
+# ── Bootstrap user (first launch only) ───────────────────────────────────────
+# When enabled, the first user is created automatically on startup.
+# The password is stored in a Kubernetes Secret — never in values.yaml directly.
+# After first login, remove these values and delete the secret for security.
+bootstrap:
+  enabled: false
+  username: admin
+  # password is read from an existing Secret via bootstrap.existingSecret,
+  # or from bootstrap.password if no existing secret is provided.
+  password: ""
+  existingSecret: ""
+
+# ── Service ───────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 3000
+  annotations: {}
+
+# ── Node selector / tolerations / affinity ─────────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ── Horizontal Pod Autoscaler (scaling.mode=multi only) ───────────────────────
+hpa:
+  minReplicas: 2
+  maxReplicas: 10
+  cpuTargetAverageUtilization: 70
+  # Per-pod average for phoenix_ws_connections_active (Prometheus custom metric)
+  wsConnectionsAverageValue: "200"
+
+# ── NetworkPolicy (optional hardening) ────────────────────────────────────────
+networkPolicy:
+  enabled: false
+
+# ── Prometheus Operator PodMonitor (optional) ─────────────────────────────────
+prometheus:
+  # API key for scraping /metrics (stored in Secret when podMonitor enabled)
+  apiKey: ""
+  podMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+
+# ── CronJobs (MariaDB only) ───────────────────────────────────────────────────
+cronJobs:
+  backup:
+    enabled: false
+    schedule: "0 2 * * *"
+    image: mariadb:11
+    username: root
+    passwordSecretKey: mariadb-root-password
+    database: phoenix
+    retentionDays: 14
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: ""
+  partition:
+    enabled: false
+    schedule: "0 3 1 * *"
+    image: mariadb:11
+    username: root
+    passwordSecretKey: mariadb-root-password
+    database: phoenix
+    retentionMonths: 12
+  rollup:
+    enabled: false
+    schedule: "* * * * *"
+    image: mariadb:11
+    username: root
+    passwordSecretKey: mariadb-root-password
+    database: phoenix
+
+# ── HTTP hardening / observability (ConfigMap → env) ──────────────────────────
+security:
+  production: false
+  corsAllowOrigins: ""
+  rateLimitRPS: 50
+  rateLimitBurst: 100
+
+observability:
+  otelExporterEndpoint: ""
+  otelServiceName: phoenix
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+tests:
+  enabled: true

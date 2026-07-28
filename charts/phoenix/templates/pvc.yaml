@@ -1,0 +1,35 @@
+{{- if .Values.database.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "phoenix.fullname" . }}-data
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.database.persistence.size }}
+  {{- if .Values.database.persistence.storageClass }}
+  storageClassName: {{ .Values.database.persistence.storageClass | quote }}
+  {{- end }}
+{{- end }}
+{{- if .Values.mariadb.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "phoenix.fullname" . }}-mariadb
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.mariadb.persistence.size }}
+  {{- if .Values.mariadb.persistence.storageClass }}
+  storageClassName: {{ .Values.mariadb.persistence.storageClass | quote }}
+  {{- end }}
+{{- end }}

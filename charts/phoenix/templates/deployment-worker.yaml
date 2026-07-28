@@ -1,0 +1,88 @@
+{{- if or (eq .Values.mode "worker") (eq .Values.mode "split") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "phoenix.fullname" . }}-worker
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+    component: worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      {{- include "phoenix.selectorLabels" . | nindent 6 }}
+      component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "phoenix.selectorLabels" . | nindent 8 }}
+        component: worker
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 60
+      {{- if eq .Values.mode "split" }}
+      # The migration runner is not concurrency-safe. In split mode the API owns
+      # migrations, so block the worker until the API Service is serving traffic.
+      initContainers:
+        - name: wait-for-api
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - 'until wget -q -O /dev/null http://{{ include "phoenix.fullname" . }}:{{ .Values.service.port }}/api/health/ready; do echo "waiting for phoenix-api migrations..."; sleep 2; done'
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+      {{- end }}
+      containers:
+        - name: phoenix-worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: MODE
+              value: "worker"
+            - name: DB_ENGINE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: db-engine
+            - name: DB_DSN
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: db-dsn
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: redis-url
+            {{- end }}
+            {{- if .Values.worker.shards.enabled }}
+            - name: WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SHARD_BATCH_SIZE
+              value: {{ .Values.worker.shards.batchSize | quote }}
+            - name: SHARD_LEASE_TTL
+              value: {{ .Values.worker.shards.leaseTTL | quote }}
+            - name: SHARD_POLL_EVERY
+              value: {{ .Values.worker.shards.pollEvery | quote }}
+            {{- end }}
+            {{- include "phoenix.envAppConfig" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

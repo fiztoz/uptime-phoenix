@@ -1,0 +1,87 @@
+{{- if .Values.cloudflareTunnel.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "phoenix.fullname" . }}-cloudflared
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+    component: cloudflared
+spec:
+  replicas: {{ .Values.cloudflareTunnel.replicas }}
+  selector:
+    matchLabels:
+      {{- include "phoenix.selectorLabels" . | nindent 6 }}
+      component: cloudflared
+  template:
+    metadata:
+      labels:
+        {{- include "phoenix.selectorLabels" . | nindent 8 }}
+        component: cloudflared
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.cloudflareTunnel.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cloudflareTunnel.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cloudflareTunnel.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: cloudflared
+          image: "{{ .Values.cloudflareTunnel.image.repository }}:{{ .Values.cloudflareTunnel.image.tag }}"
+          imagePullPolicy: {{ .Values.cloudflareTunnel.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          args:
+            - tunnel
+            - --no-autoupdate
+            # Expose cloudflared's metrics/health endpoint for probes.
+            - --metrics
+            - 0.0.0.0:2000
+            {{- with .Values.cloudflareTunnel.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            - run
+          env:
+            # Named-tunnel connector token. cloudflared reads TUNNEL_TOKEN and
+            # derives the tunnel id, credentials and ingress config from it.
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phoenix.cloudflared.secretName" . }}
+                  key: {{ .Values.cloudflareTunnel.secretKey }}
+          ports:
+            - name: metrics
+              containerPort: 2000
+              protocol: TCP
+          # cloudflared serves /ready and /healthcheck on the metrics port.
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.cloudflareTunnel.resources | nindent 12 }}
+{{- end }}

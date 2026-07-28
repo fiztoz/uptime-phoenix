@@ -1,0 +1,153 @@
+{{- if and .Values.cronJobs.rollup.enabled (eq (include "phoenix.dbEngine" .) "mariadb") }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "phoenix.fullname" . }}-rollup
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronJobs.rollup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "phoenix.selectorLabels" . | nindent 12 }}
+            component: rollup
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: rollup
+              image: {{ .Values.cronJobs.rollup.image | quote }}
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: DB_HOST
+                  value: {{ include "phoenix.mariadbHost" . | quote }}
+                - name: DB_USER
+                  value: {{ .Values.cronJobs.rollup.username | quote }}
+                - name: DB_NAME
+                  value: {{ .Values.cronJobs.rollup.database | quote }}
+                - name: MYSQL_HISTFILE
+                  value: /dev/null
+              volumeMounts:
+                - name: db-credentials
+                  mountPath: /etc/db-creds
+                  readOnly: true
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  DB_PASS=$(cat /etc/db-creds/{{ .Values.cronJobs.rollup.passwordSecretKey }})
+
+                  run_sql() {
+                    mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "$1"
+                  }
+
+                  echo "=== 1-minute rollup ==="
+                  run_sql "
+                    INSERT INTO heartbeat_1m (monitor_id, bucket, up_count, down_count, pending_count, maint_count, avg_ping, min_ping, max_ping, total_checks)
+                    SELECT
+                      monitor_id,
+                      DATE_FORMAT(time, '%Y-%m-%d %H:%i:00') AS bucket,
+                      SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS up_count,
+                      SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS down_count,
+                      SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS pending_count,
+                      SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) AS maint_count,
+                      AVG(ping) AS avg_ping,
+                      MIN(ping) AS min_ping,
+                      MAX(ping) AS max_ping,
+                      COUNT(*) AS total_checks
+                    FROM heartbeats
+                    WHERE time >= NOW() - INTERVAL 3 MINUTE
+                      AND time < NOW() - INTERVAL 1 MINUTE
+                    GROUP BY monitor_id, DATE_FORMAT(time, '%Y-%m-%d %H:%i:00')
+                    ON DUPLICATE KEY UPDATE
+                      up_count = VALUES(up_count),
+                      down_count = VALUES(down_count),
+                      pending_count = VALUES(pending_count),
+                      maint_count = VALUES(maint_count),
+                      avg_ping = VALUES(avg_ping),
+                      min_ping = VALUES(min_ping),
+                      max_ping = VALUES(max_ping),
+                      total_checks = VALUES(total_checks)
+                  "
+                  echo "1m rollup done"
+
+                  # Only run hourly rollup at minute 0
+                  MINUTE=$(date -u +%M)
+                  if [ "$MINUTE" = "00" ]; then
+                    echo "=== 1-hour rollup ==="
+                    run_sql "
+                      INSERT INTO heartbeat_1h (monitor_id, bucket, up_count, down_count, pending_count, maint_count, avg_ping, min_ping, max_ping, total_checks)
+                      SELECT
+                        monitor_id,
+                        DATE_FORMAT(time, '%Y-%m-%d %H:00:00') AS bucket,
+                        SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS up_count,
+                        SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS down_count,
+                        SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS pending_count,
+                        SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) AS maint_count,
+                        AVG(ping) AS avg_ping,
+                        MIN(ping) AS min_ping,
+                        MAX(ping) AS max_ping,
+                        COUNT(*) AS total_checks
+                      FROM heartbeats
+                      WHERE time >= NOW() - INTERVAL 3 HOUR
+                        AND time < NOW() - INTERVAL 1 HOUR
+                      GROUP BY monitor_id, DATE_FORMAT(time, '%Y-%m-%d %H:00:00')
+                      ON DUPLICATE KEY UPDATE
+                        up_count = VALUES(up_count),
+                        down_count = VALUES(down_count),
+                        pending_count = VALUES(pending_count),
+                        maint_count = VALUES(maint_count),
+                        avg_ping = VALUES(avg_ping),
+                        min_ping = VALUES(min_ping),
+                        max_ping = VALUES(max_ping),
+                        total_checks = VALUES(total_checks)
+                    "
+                    echo "1h rollup done"
+                  fi
+
+                  # Only run daily rollup at 00:05
+                  HOUR=$(date -u +%H)
+                  if [ "$MINUTE" = "05" ] && [ "$HOUR" = "00" ]; then
+                    echo "=== 1-day rollup ==="
+                    run_sql "
+                      INSERT INTO heartbeat_1d (monitor_id, bucket, up_count, down_count, pending_count, maint_count, avg_ping, min_ping, max_ping, total_checks)
+                      SELECT
+                        monitor_id,
+                        DATE(time) AS bucket,
+                        SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS up_count,
+                        SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS down_count,
+                        SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS pending_count,
+                        SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) AS maint_count,
+                        AVG(ping) AS avg_ping,
+                        MIN(ping) AS min_ping,
+                        MAX(ping) AS max_ping,
+                        COUNT(*) AS total_checks
+                      FROM heartbeats
+                      WHERE time >= CURDATE() - INTERVAL 3 DAY
+                        AND time < CURDATE()
+                      GROUP BY monitor_id, DATE(time)
+                      ON DUPLICATE KEY UPDATE
+                        up_count = VALUES(up_count),
+                        down_count = VALUES(down_count),
+                        pending_count = VALUES(pending_count),
+                        maint_count = VALUES(maint_count),
+                        avg_ping = VALUES(avg_ping),
+                        min_ping = VALUES(min_ping),
+                        max_ping = VALUES(max_ping),
+                        total_checks = VALUES(total_checks)
+                    "
+                    echo "1d rollup done"
+                  fi
+
+                  echo "All rollups complete"
+          volumes:
+            - name: db-credentials
+              secret:
+                secretName: {{ include "phoenix.fullname" . }}
+{{- end }}

@@ -1,0 +1,51 @@
+# Sample Prometheus scrape_config snippet for Phoenix /metrics.
+#
+# Drop the job below into the `scrape_configs:` list of your prometheus.yml.
+# The bundled docker-compose.yaml already wires an equivalent job for you.
+#
+# AUTH — read this carefully. Phoenix protects /metrics with its API-key
+# middleware (internal/adapters/http/middleware/apikey.go). The middleware:
+#   * accepts `Authorization: ApiKey <plaintext>`  -> SHA-256(plaintext) lookup  (WORKS)
+#   * its `Basic ` branch uses the RAW base64 blob after "Basic " as the key
+#     WITHOUT decoding it, so a standard HTTP Basic Auth client will NOT match
+#     the stored hash. Prefer the `authorization` (ApiKey) form below.
+#
+# A Phoenix API key looks like `phx_<base64url>`. Mint one with:
+#   curl -s -X POST http://<phoenix-host>:3000/api/api-keys \
+#        -H "Authorization: Bearer <session-jwt>" \
+#        -H "Content-Type: application/json" \
+#        -d '{"name":"prometheus-scrape","scopes":["metrics"]}'
+# (the plaintext key is returned ONCE — store it safely).
+
+scrape_configs:
+  # --- RECOMMENDED: ApiKey header (matches the Phoenix middleware exactly) ---
+  - job_name: phoenix
+    metrics_path: /metrics
+    scheme: http               # use https + tls_config in production
+    scrape_interval: 30s       # align with the chart PodMonitor interval
+    authorization:
+      type: ApiKey             # produces: Authorization: ApiKey phx_xxxxx
+      credentials: phx_REPLACE_WITH_YOUR_PHOENIX_API_KEY
+      # Or load from a file so the key is not inlined in prometheus.yml:
+      # credentials_file: /etc/prometheus/phoenix-api-key
+    static_configs:
+      - targets:
+          - phoenix:3000       # host:port of the Phoenix HTTP service
+        labels:
+          service: phoenix
+
+  # --- FALLBACK (documented, generally does NOT authenticate): basic_auth ---
+  # Phoenix does not base64-decode the Basic credentials, so this normally
+  # fails the hash lookup. Kept here only because basic_auth is the most
+  # common pattern people reach for. Use the `authorization` job above instead.
+  #
+  # - job_name: phoenix-basicauth
+  #   metrics_path: /metrics
+  #   scheme: http
+  #   scrape_interval: 30s
+  #   basic_auth:
+  #     username: phx_REPLACE_WITH_YOUR_PHOENIX_API_KEY   # API key as username
+  #     password: ""                                       # password ignored by Phoenix
+  #   static_configs:
+  #     - targets:
+  #         - phoenix:3000

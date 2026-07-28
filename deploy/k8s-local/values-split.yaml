@@ -1,0 +1,53 @@
+# Phoenix TRULY SPLIT values for local Colima/k3s/kind clusters.
+# api + worker + web (nginx) + MariaDB + Redis — mirrors docker-compose.split.yml
+mode: split
+
+image:
+  repository: phoenix
+  tag: local
+  pullPolicy: IfNotPresent
+
+web:
+  split: true
+  image:
+    repository: phoenix-web
+    tag: local
+    pullPolicy: IfNotPresent
+  replicas: 1
+
+database:
+  engine: mariadb
+  persistence:
+    enabled: false
+
+# MariaDB is deployed separately via deploy/k8s-local/deps.yaml
+mariadb:
+  enabled: false
+  rootPassword: phoenix-dev-secret
+
+mariadbExternal:
+  host: phoenix-mariadb
+  port: 3306
+  database: phoenix
+  username: phoenix
+
+redis:
+  enabled: true
+  host: redis-master
+
+api:
+  replicas: 2
+
+worker:
+  replicas: 1
+
+ingress:
+  enabled: false
+
+bootstrap:
+  enabled: true
+  username: admin
+  password: ChangeMe123!
+
+service:
+  type: ClusterIP

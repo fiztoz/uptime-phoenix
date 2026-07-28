@@ -1,0 +1,22 @@
+{{- if .Values.tests.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "phoenix.fullname" . }}-test-connection"
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: curl
+      image: curlimages/curl:8.7.1
+      command: ['curl', '-sf', '--max-time', '10']
+      args:
+        {{- if .Values.web.split }}
+        - 'http://{{ include "phoenix.fullname" . }}-web:{{ .Values.web.service.port }}/api/health/live'
+        {{- else }}
+        - 'http://{{ include "phoenix.fullname" . }}:{{ .Values.service.port }}/api/health/live'
+        {{- end }}
+  restartPolicy: Never
+{{- end }}

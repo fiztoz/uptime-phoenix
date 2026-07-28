@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "phoenix.fullname" . }}
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+data:
+  db-engine: {{ include "phoenix.dbEngine" . | quote }}
+  db-dsn: {{ include "phoenix.dbDSN" . | quote }}
+  log-level: {{ .Values.config.logLevel | quote }}
+  host: {{ .Values.config.host | quote }}
+  port: {{ .Values.config.port | quote }}
+  jwt-expire-hours: {{ .Values.config.jwtExpireHours | quote }}
+  totp-issuer: {{ .Values.config.totpIssuer | quote }}
+  public-url: {{ .Values.config.publicUrl | default "" | quote }}
+  production: {{ .Values.security.production | quote }}
+  cors-allow-origins: {{ .Values.security.corsAllowOrigins | quote }}
+  rate-limit-rps: {{ .Values.security.rateLimitRPS | quote }}
+  rate-limit-burst: {{ .Values.security.rateLimitBurst | quote }}
+  otel-exporter-endpoint: {{ .Values.observability.otelExporterEndpoint | quote }}
+  otel-service-name: {{ .Values.observability.otelServiceName | quote }}

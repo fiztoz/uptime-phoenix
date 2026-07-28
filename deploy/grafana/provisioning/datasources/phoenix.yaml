@@ -1,0 +1,79 @@
+# Grafana data source provisioning for Phoenix.
+#
+# Two topologies are supported (see deploy/grafana/README.md):
+#
+#   1. PROMETHEUS-IN-THE-MIDDLE (recommended, primary path below):
+#      Prometheus scrapes Phoenix /metrics (with the Phoenix API key) and
+#      Grafana points at Prometheus. Grafana never needs the Phoenix API key.
+#      This is what the bundled docker-compose.yaml wires up.
+#
+#   2. DIRECT SCRAPE (commented variant at the bottom):
+#      Grafana's Prometheus data source points straight at Phoenix /metrics.
+#      Only viable for users without a separate Prometheus. Requires the
+#      Phoenix API key to be passed on every query. NOTE: Phoenix's API-key
+#      middleware authenticates on `Authorization: ApiKey <plaintext>`. Its
+#      "Basic " branch treats the *raw base64 blob* after "Basic " as the key
+#      (it does NOT base64-decode to a username), so a normal HTTP Basic Auth
+#      client will NOT match. Prefer the ApiKey header via httpHeaderName/Value.
+#
+apiVersion: 1
+
+# ---------------------------------------------------------------------------
+# PRIMARY: Grafana -> Prometheus (Prometheus scrapes Phoenix). Recommended.
+# ---------------------------------------------------------------------------
+datasources:
+  - name: Phoenix-Prometheus
+    uid: phoenix-prometheus
+    type: prometheus
+    access: proxy
+    # In the bundled docker-compose stack this is the Prometheus service.
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 30s    # match Prometheus scrape_interval / PodMonitor interval
+
+# ---------------------------------------------------------------------------
+# OPTIONAL DIRECT-SCRAPE VARIANT (no separate Prometheus).
+# Grafana's Prometheus data source queries Phoenix /metrics directly.
+# Uncomment ONE of the two auth styles below and adjust the URL.
+# ---------------------------------------------------------------------------
+#
+# Variant A (RECOMMENDED for direct mode) — ApiKey header.
+# Matches the Phoenix middleware exactly: Authorization: ApiKey <plaintext>.
+#
+#  - name: Phoenix-Direct
+#    uid: phoenix-direct
+#    type: prometheus
+#    access: proxy
+#    url: http://phoenix:3000        # Phoenix base URL; /metrics is appended by the metrics path
+#    isDefault: false
+#    editable: true
+#    jsonData:
+#      httpMethod: GET
+#      timeInterval: 30s
+#      # Phoenix only exposes Prometheus exposition at /metrics. The Prometheus
+#      # data source appends /api/v1/... so direct mode only works if a real
+#      # Prometheus query API sits in front. For a bare Phoenix /metrics endpoint
+#      # use the Prometheus-in-the-middle topology instead (it is the supported path).
+#      httpHeaderName1: 'Authorization'
+#    secureJsonData:
+#      httpHeaderValue1: 'ApiKey phx_REPLACE_WITH_YOUR_PHOENIX_API_KEY'
+#
+# Variant B — basicAuth (documented for completeness; see caveat in the header).
+# Phoenix's "Basic " branch uses the raw post-"Basic " blob as the key without
+# decoding, so this generally will NOT authenticate. Kept here only so the
+# topology is documented; prefer Variant A.
+#
+#  - name: Phoenix-Direct-BasicAuth
+#    uid: phoenix-direct-basic
+#    type: prometheus
+#    access: proxy
+#    url: http://phoenix:3000
+#    basicAuth: true
+#    basicAuthUser: 'phx_REPLACE_WITH_YOUR_PHOENIX_API_KEY'   # API key as username
+#    isDefault: false
+#    editable: true
+#    secureJsonData:
+#      basicAuthPassword: ''   # password ignored by Phoenix

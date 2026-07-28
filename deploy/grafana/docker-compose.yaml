@@ -1,0 +1,69 @@
+# Minimal Prometheus + Grafana stack for Phoenix, fully provisioned.
+#
+# Quickstart:
+#   1. Run Phoenix (e.g. `make run` -> http://localhost:3000).
+#   2. Mint a Phoenix API key (see README.md) -> phx_xxxxx.
+#   3. From this directory:
+#        PHOENIX_API_KEY=phx_xxxxx docker compose up
+#   4. Open Grafana at http://localhost:3001 (admin / admin) — the
+#      "Phoenix — Overview" dashboard is auto-provisioned under the Phoenix folder.
+#
+# Topology: Prometheus (this stack) scrapes Phoenix /metrics with the API key,
+# and Grafana queries Prometheus. Grafana itself never needs the Phoenix key.
+#
+# host.docker.internal lets the Prometheus container reach Phoenix on the host.
+# On Linux (non-Docker-Desktop) the extra_hosts mapping below provides it.
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: phoenix-prometheus
+    restart: unless-stopped
+    # Write the API key into a credentials file, then exec Prometheus.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        printf '%s' "$${PHOENIX_API_KEY}" > /etc/prometheus/phoenix-api-key
+        exec /bin/prometheus \
+          --config.file=/etc/prometheus/prometheus.yml \
+          --storage.tsdb.path=/prometheus \
+          --web.enable-lifecycle
+    environment:
+      PHOENIX_API_KEY: ${PHOENIX_API_KEY:-}
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: phoenix-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      # Anonymous read-only access so the dashboard is visible without login.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: dark
+    volumes:
+      # Data source + dashboard provider provisioning.
+      - ./provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      # Dashboard JSON files (path referenced by provisioning/dashboards/phoenix.yaml).
+      - ./dashboards:/var/lib/grafana/dashboards/phoenix:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  prometheus-data:
+  grafana-data:

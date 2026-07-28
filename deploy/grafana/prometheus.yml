@@ -1,0 +1,28 @@
+# Prometheus config used by the bundled docker-compose stack.
+# It scrapes Phoenix /metrics with the Phoenix API key, then Grafana queries
+# this Prometheus (Prometheus-in-the-middle topology).
+#
+# The API key is read from a file (credentials_file). The docker-compose stack
+# writes ${PHOENIX_API_KEY} into /etc/prometheus/phoenix-api-key at startup, so
+# run the stack like:
+#   PHOENIX_API_KEY=phx_xxxxx docker compose up
+#
+# By default the target is host.docker.internal:3000 — Phoenix running on the
+# host (Docker Desktop). If Phoenix runs inside this compose network instead,
+# change the target to its service name and port.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: phoenix
+    metrics_path: /metrics
+    scheme: http
+    authorization:
+      type: ApiKey
+      credentials_file: /etc/prometheus/phoenix-api-key
+    static_configs:
+      - targets:
+          - host.docker.internal:3000
+        labels:
+          service: phoenix

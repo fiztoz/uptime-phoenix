@@ -1,0 +1,20 @@
+# Phoenix Helm Chart
+apiVersion: v2
+name: phoenix
+description: A self-hosted, K8s-native, minimal-dependency monitoring tool
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+annotations:
+  artifacthub.io/license: MIT
+keywords:
+  - monitoring
+  - uptime
+  - health-check
+  - kubernetes
+home: https://github.com/Fiztoz/phoenix
+sources:
+  - https://github.com/Fiztoz/phoenix
+maintainers:
+  - name: Phoenix Team
+    email: team@phoenix.dev
