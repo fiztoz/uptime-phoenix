@@ -1,0 +1,72 @@
+# Phoenix — Docker dependencies for local split development.
+#
+# Run MariaDB + Redis (+ optional worker) in Docker while developing the API
+# and frontend on the host:
+#
+#   make dev-split-up          # MariaDB :3306 + Redis :6379
+#   make dev-split-api         # local API :3000 (runs migrations)
+#   make dev-split-worker      # Docker worker (after API is ready)
+#   make dev-split-frontend    # local Vite :5173
+#
+# Or all at once:
+#   make dev-split
+#
+# Override secrets via .env or the shell (same vars as docker-compose.split.yml).
+
+name: phoenix-deps
+
+services:
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-change_me_root}
+      MARIADB_DATABASE: phoenix
+      MARIADB_USER: phoenix
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-change_me_app}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Scheduler + checkers + notifier. Start AFTER the local API has migrated
+  # (make dev-split-api or make dev-split). The API container from the full
+  # split stack is intentionally omitted here.
+  phoenix-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.split
+      target: worker
+    restart: unless-stopped
+    environment:
+      DB_ENGINE: mariadb
+      DB_DSN: "phoenix:${MARIADB_PASSWORD:-change_me_app}@tcp(mariadb:3306)/phoenix?parseTime=true&loc=UTC&multiStatements=true"
+      REDIS_URL: "redis://redis:6379/0"
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  mariadb_data:
+    driver: local

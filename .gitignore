@@ -1,0 +1,73 @@
+# Secrets / env
+.secrets/
+.env
+.env.*
+
+# Compiled binaries
+app
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Go
+vendor/
+
+# Node
+node_modules/
+web/.svelte-kit/
+web/build/
+web/dist/
+
+# Release dry-run artifacts (scripts/release/dry-run.sh → dist/release-*)
+dist/
+
+# Playwright
+web/test-results/
+web/playwright-report/
+web/blob-report/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Air (hot reload)
+tmp/
+phoenix.db-shm
+phoenix.db-wal
+.claude/worktrees/
+
+# Agent tooling (local only)
+.claude/
+.pi/
+.secrets/
+
+# Local progress / agent handoff docs (not published)
+docs/HANDOFF-*.md
+docs/*HANDOFF*.md
+docs/SPRINT-*-HANDOFF.md
+docs/CODE_REVIEW-*.md
+docs/EFFECT-AUDIT.md
+docs/QA_REPORT.md
+docs/I18N-*-REVIEW.md
+docs/*-AUDIT.md
+docs/PROJECT-REVIEW-AND-ROADMAP.md
+docs/*-CONTRACT-REPORT.md
+docs/F*-CONTRACTS.md
+docs/F2.*.md
+docs/F3.*.md
+docs/F5-*.md

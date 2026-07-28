@@ -1,0 +1,51 @@
+# Phoenix — Docker build context exclusions
+
+# Version control
+.git
+.gitignore
+
+# Node
+node_modules
+web/node_modules
+web/.svelte-kit
+web/.output
+web/.netlify
+web/build
+# web/dist is allowed so release builds can USE_PREBUILT_WEB=1
+!.env.example
+
+# Go build artifacts
+bin/
+*.exe
+*.test
+*.out
+
+# Local release dry-run output (can be hundreds of MB)
+dist/
+
+# IDE / editor
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation (keep AGENTS.md for CI context)
+*.md
+!AGENTS.md
+
+# Research (not needed in image)
+research/
+
+# Pi agent config (not needed in image)
+.pi/
+
+# CI/CD (not needed in image)
+.github/
+
+# Kubernetes (not needed in image — built into binary)
+charts/
+Makefile
+docker-compose.yml
+.dockerignore

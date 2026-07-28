@@ -1,0 +1,32 @@
+# Air hot-reload config for Phoenix backend (make dev-backend).
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  bin = "./tmp/phoenix"
+  cmd = "CGO_ENABLED=0 go build -trimpath -o ./tmp/phoenix ./cmd/app"
+  delay = 1000
+  exclude_dir = ["web", "charts", "docs", "research", "bin", "tmp", ".git"]
+  exclude_regex = ["_test\\.go$"]
+  include_ext = ["go", "sql"]
+  kill_delay = "500ms"
+  send_interrupt = true
+  stop_on_error = true
+
+[log]
+  time = false
+
+[misc]
+  clean_on_exit = true
+
+[run]
+  args_bin = []
+  env = [
+    "DB_ENGINE=sqlite",
+    "DB_DSN=file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)",
+    "BOOTSTRAP_USERNAME=admin",
+    "BOOTSTRAP_PASSWORD=ChangeMe123!",
+    "MODE=all",
+    "LOG_LEVEL=info",
+    "PORT=3000",
+  ]

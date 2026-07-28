@@ -1,0 +1,53 @@
+# Phoenix — local development stack
+# Usage:
+#   docker compose up
+#
+# Zero manual setup required. Override defaults in .env if needed.
+
+services:
+  # ── MariaDB ─────────────────────────────────────────────────────────────
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-change_me_root}
+      MARIADB_DATABASE: phoenix
+      MARIADB_USER: phoenix
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-change_me_app}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Phoenix application ────────────────────────────────────────────────
+  phoenix:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DB_ENGINE: mariadb
+      DB_DSN: "phoenix:${MARIADB_PASSWORD:-change_me_app}@tcp(mariadb:3306)/phoenix?parseTime=true&loc=UTC&multiStatements=true"
+      LOG_LEVEL: debug
+      JWT_SECRET: ${JWT_SECRET:-change_me_jwt}
+      JWT_EXPIRE_HOURS: "168"
+      TOTP_ISSUER: Phoenix
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-admin}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-ChangeMe123!}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+volumes:
+  mariadb_data:
+    driver: local

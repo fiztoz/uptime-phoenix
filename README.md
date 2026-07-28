@@ -1,0 +1,163 @@
+# Phoenix
+
+Phoenix is a self-hosted uptime monitoring platform in the Uptime Kuma class, built as a
+single static Go binary with an embedded Svelte 5 frontend. It follows a strict hexagonal
+architecture (domain core, ports, adapters), runs on SQLite for zero-dependency setups or
+MariaDB for production, and is Kubernetes-native via a Helm chart that scales from one
+zero-dependency pod to a split API + worker deployment with Redis fan-out.
+
+## Features
+
+| Area | What you get |
+|---|---|
+| 11 monitor types | http, tcp, ping, dns, websocket, push (HMAC ingest), docker, mqtt, grpc, snmp, database |
+| 11 notification providers | bark, discord, feishu, gotify, line, mattermost, slack, smtp, teams, telegram, webhook — with shared retry/backoff |
+| Alerting pipeline | Retry-confirm (PENDING to DOWN after max retries), resend interval, recovery notices, maintenance suppression |
+| Folder alerting | Monitor groups (folders) alert on their own rollup transition, not per child |
+| Status pages | Slug + custom domain resolution, password gate, custom CSS, three dashboard styles (full / pills / grid), three-level public health, response-time charts, 90-day uptime, incidents with severity |
+| Badges | Embeddable SVG status badges (viewBox-scalable) |
+| RBAC | Per-monitor/group grants, capability flags (create monitors/groups, manage notifications/maintenance), admin grant UI, RBAC-scoped WebSocket hub |
+| Auth | JWT sessions, TOTP 2FA, WebAuthn passkeys, scoped API keys (hashed at rest); open registration disabled by design — first admin via bootstrap env vars |
+| Maintenance windows | Single and cron strategies with real alert suppression (cron evaluates UTC) |
+| Backup | Full config export/import with ID remapping |
+| Proxies | Outbound HTTP/HTTPS/SOCKS5, assignable per monitor |
+| Observability | Prometheus `/metrics` (API-key protected), health endpoints, heartbeat retention + 1m/1h/1d rollups |
+| i18n | English and Thai (`web/messages/en.json`, `web/messages/th.json`) |
+| Deployment | Single binary, Docker Compose (all-in-one or truly split), Helm chart with `all` / `split` / `api` / `worker` modes |
+
+## Quickstart
+
+Requires Docker with the Compose plugin:
+
+```bash
+docker compose up
+```
+
+The first run builds the image, starts MariaDB, and boots Phoenix. Then open
+**http://localhost:3000** and log in with the default bootstrap credentials:
+
+| Field | Value |
+|---|---|
+| Username | `admin` |
+| Password | `ChangeMe123!` |
+
+Override the defaults (`MARIADB_PASSWORD`, `JWT_SECRET`, `BOOTSTRAP_USERNAME`,
+`BOOTSTRAP_PASSWORD`, ...) via a `.env` file next to `docker-compose.yml`.
+
+Without Docker (Go 1.25+ and Bun required — SQLite, embedded UI, zero external
+dependencies):
+
+```bash
+make run
+# open http://localhost:3000 — same login as above
+```
+
+## Development
+
+Prerequisites: Go 1.25+ (per `go.mod`) and Bun 1.0+. Bun is the only supported frontend
+toolchain — never npm.
+
+```bash
+make dev-split
+```
+
+`dev-split` is the standard dev loop: it starts MariaDB and Redis in Docker, runs the API
+locally on **:3000** with hot reload (air), the Vite dev server on **http://localhost:5173**
+(proxies `/api` and `/ws` to the API), and the Docker worker once the API reports ready.
+Login on a fresh DB: `admin / ChangeMe123!`.
+
+Other loops: `make dev` (all-in-one, SQLite, hot reload) and `make help` for everything else.
+
+Before finishing any change, run the gate:
+
+```bash
+make gate        # go build + vet + gofmt + race tests + web check/test/build
+make gate-fast   # same, without the race detector
+make gate-full   # the complete pre-merge gate: adds golangci-lint, frontend lint + e2e,
+                  # helm lint/template, govulncheck, and git diff --check
+```
+
+**There is no CI.** `.github/` was deliberately removed (`9de75e9`, 2026-07-25) and is not
+coming back — Phoenix is a **locally-gated** project now. Nothing runs `make gate`,
+`golangci-lint`, `govulncheck`, the MariaDB repository contract, or the `-race` suite for
+you on push; a human (the person landing the change) is responsible for running `make
+gate-full` and the MariaDB contract/smoke suites before merging. See
+`docs/TESTING.md` for the full manual checklist and `docs/RELEASING.md` for the
+local, owner-triggered release procedure.
+
+## Deployment
+
+All modes are documented in detail in `docs/DEPLOYMENT_MODES.md`.
+
+**Docker Compose, all-in-one** (MariaDB + Phoenix on :3000):
+
+```bash
+docker compose up
+```
+
+**Docker Compose, truly split** (MariaDB + Redis + API + worker + nginx web tier):
+
+```bash
+docker compose -f docker-compose.split.yml up --build
+# open http://localhost:8080   (login: admin / ChangeMe123!)
+```
+
+**Helm, single pod** (zero external dependencies — SQLite on a PVC, embedded UI,
+in-process event bus):
+
+```bash
+helm install phoenix ./charts/phoenix
+```
+
+**Helm, split mode** (API + worker in one release; requires shared MariaDB + Redis):
+
+```bash
+helm install phoenix ./charts/phoenix \
+  --set mode=split \
+  --set database.engine=mariadb \
+  --set database.persistence.enabled=false \
+  --set mariadbExternal.host=mariadb.internal \
+  --set mariadbExternal.username=phoenix \
+  --set mariadbExternal.password=$MARIADB_PASSWORD \
+  --set redis.enabled=true \
+  --set redis.host=redis-master \
+  --set api.replicas=3 \
+  --set worker.replicas=1
+```
+
+Key runtime configuration (source of truth: `internal/bootstrap/config.go`): `DB_ENGINE`
+(`sqlite`|`mariadb`), `DB_DSN`, `JWT_SECRET`, `BOOTSTRAP_USERNAME`/`BOOTSTRAP_PASSWORD`,
+`PORT` (default 3000), `MODE` (`all`|`api`|`worker`), `REDIS_URL` (opt-in event bus for
+split mode), `HEARTBEAT_RETENTION_DAYS` (default 180, 0 disables), `LOG_LEVEL`.
+
+## Screenshots
+
+<!-- TODO: add screenshots — the premium dark UI is a selling point. Capture at least:
+     dashboard, monitor detail, a public status page (grid style), and the admin
+     settings/RBAC grant UI. Do not commit placeholders; add real captures. -->
+
+Screenshots coming soon.
+
+## Documentation
+
+| Document | What it covers | Freshness |
+|---|---|---|
+| [AGENTS.md](AGENTS.md) | Canonical rules: architecture boundaries, stack lock, plugin conventions, gate | Live |
+| [docs/PROJECT-REVIEW-AND-ROADMAP.md](docs/PROJECT-REVIEW-AND-ROADMAP.md) | Entry point: full project review, refinement plan (Wave R), forward roadmap (Wave F) | Live (2026-07-18) |
+| [docs/HANDOFF-NEXT.md](docs/HANDOFF-NEXT.md) | Last sprint handoff: permission model, sharp edges, MariaDB smoke recipe | Live (Jul 13) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 15-section technical design, source of truth for the hexagonal layout | Live |
+| [docs/TESTING.md](docs/TESTING.md) | Test commands, manual checklists, regression areas | Current |
+| [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) | Local dev setup, env vars, troubleshooting | Current |
+| [docs/DEPLOYMENT_MODES.md](docs/DEPLOYMENT_MODES.md) | All-in-one vs split, compose files, Helm modes, Cloudflare Tunnel | Current |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Phase plans 0-5 | Status table stale (Jun 28) |
+| [docs/PLAN.md](docs/PLAN.md) | Original goal, scope, and locked decisions | Reference |
+| [docs/DESIGN.md](docs/DESIGN.md) | Design system for the premium dark UI | Historical (complete) |
+| [docs/HANDOFF-REDESIGN.md](docs/HANDOFF-REDESIGN.md) | Redesign wave handoff | Historical (complete) |
+| [docs/QA_REPORT.md](docs/QA_REPORT.md) | QA audit (Jul 6) | Historical — closures tracked in the roadmap doc §2.3 |
+| [docs/UPTIME_KUMA_PARITY_AUDIT.md](docs/UPTIME_KUMA_PARITY_AUDIT.md) | Feature parity audit vs Uptime Kuma (Jul 11) | Historical — closures tracked in the roadmap doc §2.3 |
+| [docs/CODE_REVIEW-status-page-dashboard.md](docs/CODE_REVIEW-status-page-dashboard.md) | Status-page dashboard review findings | Historical (closed) |
+
+## License
+
+Phoenix is licensed under the [MIT License](LICENSE).
+
