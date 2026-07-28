@@ -561,7 +561,7 @@ func MonitorNotificationFromDomain(mn *domain.MonitorNotification) *MonitorNotif
 	}
 }
 
-// MonitorNotificationModelToDomain converts a MonitorNotificationModel to a domain.MonitorNotification.
+// ToDomainMonitorNotification converts a MonitorNotificationModel to a domain.MonitorNotification.
 func (m *MonitorNotificationModel) ToDomainMonitorNotification() *domain.MonitorNotification {
 	return &domain.MonitorNotification{
 		ID:             m.ID,
@@ -579,7 +579,7 @@ func StatusPageCnameModelFromDomain(cname *domain.StatusPageCNAME) *StatusPageCn
 	}
 }
 
-// StatusPageCnameModelToDomain converts a StatusPageCnameModel to a domain.StatusPageCNAME.
+// ToDomainCNAME converts a StatusPageCnameModel to a domain.StatusPageCNAME.
 func (m *StatusPageCnameModel) ToDomainCNAME() *domain.StatusPageCNAME {
 	return &domain.StatusPageCNAME{
 		ID:           m.ID,
@@ -598,7 +598,7 @@ func StatusPageMonitorModelFromDomain(spm *domain.StatusPageMonitor) *StatusPage
 	}
 }
 
-// StatusPageMonitorModelToDomain converts a StatusPageMonitorModel to a domain.StatusPageMonitor.
+// ToDomainSPMonitor converts a StatusPageMonitorModel to a domain.StatusPageMonitor.
 func (m *StatusPageMonitorModel) ToDomainSPMonitor() *domain.StatusPageMonitor {
 	return &domain.StatusPageMonitor{
 		ID:           m.ID,
@@ -618,7 +618,7 @@ func NotificationSentHistoryModelFromDomain(nsh *domain.NotificationSentHistory)
 	}
 }
 
-// NotificationSentHistoryModelToDomain converts a NotificationSentHistoryModel to domain.NotificationSentHistory.
+// ToDomainSentHistory converts a NotificationSentHistoryModel to domain.NotificationSentHistory.
 func (m *NotificationSentHistoryModel) ToDomainSentHistory() *domain.NotificationSentHistory {
 	return &domain.NotificationSentHistory{
 		ID:             m.ID,

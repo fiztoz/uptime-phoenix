@@ -66,8 +66,8 @@ type OIDCPolicy struct {
 
 // OIDCGrantMapping is one IdP-group → Phoenix scoped-grant rule.
 type OIDCGrantMapping struct {
-	// IdPGroup is the group name from the IdP groups claim.
-	IdPGroup string
+	// IDPGroup is the group name from the IdP groups claim.
+	IDPGroup string
 	// ResourceType is "group" (monitor group) or "monitor".
 	ResourceType string
 	// ResourceID is the Phoenix monitor or monitor-group id.
@@ -418,7 +418,7 @@ func (s *AuthService) syncOIDCGrants(ctx context.Context, userID int64, groups [
 	}
 
 	for _, m := range s.oidcPolicy.GrantMap {
-		key := strings.ToLower(strings.TrimSpace(m.IdPGroup))
+		key := strings.ToLower(strings.TrimSpace(m.IDPGroup))
 		if key == "" || m.ResourceID <= 0 {
 			continue
 		}
@@ -565,7 +565,7 @@ func ParseOIDCGrantMap(raw string) ([]OIDCGrantMapping, error) {
 			return nil, fmt.Errorf("oidc grant map entry %q: invalid id", part)
 		}
 		m := OIDCGrantMapping{
-			IdPGroup:           strings.TrimSpace(fields[0]),
+			IDPGroup:           strings.TrimSpace(fields[0]),
 			ResourceType:       strings.TrimSpace(fields[1]),
 			ResourceID:         id,
 			IncludeDescendants: true,

@@ -130,7 +130,8 @@ func run(args []string) int {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintf(w, `Usage:
+	// Best-effort write to stderr/stdout; CLI usage text failures are not actionable.
+	_, _ = fmt.Fprintf(w, `Usage:
   phoenix-config validate --file <config.yaml>
   phoenix-config plan     --file <config.yaml> [--prune]
   phoenix-config apply    --file <config.yaml> [--prune] [--yes]
@@ -145,6 +146,11 @@ Common flags / env:
 Auth requires an admin principal. Prefer env vars over flags so secrets stay out of shell history.
 Never commit real webhook URLs or passwords in the config document.
 `, defaultURL)
+}
+
+// writeOut writes to stdout, ignoring write errors (broken pipe on head/less).
+func writeOut(format string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stdout, format, args...)
 }
 
 // authHeader is the Authorization header value (scheme + credential).
@@ -207,12 +213,12 @@ func cmdValidate(ctx context.Context, client *http.Client, base string, auth aut
 		return 1
 	}
 	if result.Valid {
-		fmt.Fprintln(os.Stdout, "valid: true")
+		writeOut("valid: true\n")
 		return 0
 	}
-	fmt.Fprintln(os.Stdout, "valid: false")
+	writeOut("valid: false\n")
 	for _, e := range result.Errors {
-		fmt.Fprintf(os.Stdout, "  - %s\n", e)
+		writeOut("  - %s\n", e)
 	}
 	return 1
 }
@@ -235,9 +241,9 @@ func cmdPlan(ctx context.Context, client *http.Client, base string, auth authHea
 	pretty, err := prettyJSON(respBody)
 	if err != nil {
 		// Fall back to raw body if not JSON.
-		fmt.Fprintln(os.Stdout, string(respBody))
+		writeOut("%s\n", respBody)
 	} else {
-		fmt.Fprintln(os.Stdout, string(pretty))
+		writeOut("%s\n", pretty)
 	}
 	// Exit 1 when the plan reports invalid even on HTTP 200.
 	var plan struct {
@@ -265,16 +271,16 @@ func cmdApply(ctx context.Context, client *http.Client, base string, auth authHe
 		// Still print body as JSON to stdout when present so CI can inspect plan.
 		if len(respBody) > 0 {
 			if pretty, err := prettyJSON(respBody); err == nil {
-				fmt.Fprintln(os.Stdout, string(pretty))
+				writeOut("%s\n", pretty)
 			}
 		}
 		return 1
 	}
 	pretty, err := prettyJSON(respBody)
 	if err != nil {
-		fmt.Fprintln(os.Stdout, string(respBody))
+		writeOut("%s\n", respBody)
 	} else {
-		fmt.Fprintln(os.Stdout, string(pretty))
+		writeOut("%s\n", pretty)
 	}
 	return 0
 }
@@ -295,7 +301,7 @@ func cmdExport(ctx context.Context, client *http.Client, base string, auth authH
 			return 1
 		}
 		if len(respBody) > 0 && respBody[len(respBody)-1] != '\n' {
-			fmt.Fprintln(os.Stdout)
+			writeOut("\n")
 		}
 		return 0
 	}
@@ -355,7 +361,7 @@ func doRequest(ctx context.Context, client *http.Client, method, url string, aut
 	if err != nil {
 		return 0, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return resp.StatusCode, nil, fmt.Errorf("read response: %w", err)

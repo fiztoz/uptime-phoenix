@@ -65,9 +65,10 @@ jobs:
         run: go test -race -count=1 ./... -timeout 20m
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v1.64.8
+          # v1.x binaries are built with older Go and refuse to lint go1.25 modules.
+          version: v2.12.2
           args: --timeout=10m
 
       - name: govulncheck

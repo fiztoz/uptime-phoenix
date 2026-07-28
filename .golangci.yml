@@ -1,19 +1,19 @@
+# golangci-lint v2 config (required for Go 1.25+).
+version: "2"
+
 run:
-  timeout: 5m
+  timeout: 10m
   tests: true
   modules-download-mode: readonly
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
-    - gofmt
-    - goimports
     - misspell
     - unconvert
     - unparam
@@ -21,26 +21,41 @@ linters:
     - copyloopvar
     - nilerr
     - whitespace
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
+    errcheck:
+      check-type-assertions: false
+      check-blank: false
+    misspell:
+      locale: US
+    staticcheck:
+      # QF* are "quick fix" style suggestions (De Morgan, remove embedded
+      # selector, …). Keep analysis checks (SA/S/ST) without blocking CI.
+      checks:
+        - all
+        - "-QF*"
+  exclusions:
+    paths:
+      - web
+      - charts
+      - research
+      - third_party$
+      - builtin$
+      - examples$
 
-linters-settings:
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment
-      - shadow
-  errcheck:
-    check-type-assertions: false
-    check-blank: false
-  goimports:
-    local-prefixes: phoenix
-  misspell:
-    locale: US
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/fiztoz/uptime-phoenix
 
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-  exclude-use-default: false
-  exclude-dirs:
-    - web
-    - charts
-    - research

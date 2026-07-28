@@ -352,7 +352,7 @@ func runRepositoryContract(t *testing.T, factory repositoryFactory) {
 		if persisted.SLATarget == nil || *persisted.SLATarget != slaTarget {
 			t.Fatalf("status page SLA target = %v; want %v", persisted.SLATarget, slaTarget)
 		}
-		var ids []int64
+		ids := make([]int64, 0, 3)
 		for _, name := range []string{"one", "two", "three"} {
 			monitor := createMonitor(t, ctx, repos, user.ID, name)
 			ids = append(ids, monitor.ID)
