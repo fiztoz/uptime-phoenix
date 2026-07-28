@@ -71,3 +71,6 @@ docs/F*-CONTRACTS.md
 docs/F2.*.md
 docs/F3.*.md
 docs/F5-*.md
+
+# Local progress docs (handoffs, contracts kept for operators only)
+docs/local/
