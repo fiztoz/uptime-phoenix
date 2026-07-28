@@ -1,0 +1,79 @@
+# Phoenix declarative configuration (config-as-code)
+# apiVersion: phoenix.dev/v1
+#
+# Apply path (admin session JWT or write-scoped API key):
+#   curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/yaml" \
+#     --data-binary @phoenix-config.example.yaml \
+#     "$PHOENIX_URL/api/config/validate"
+#   curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/yaml" \
+#     --data-binary @phoenix-config.example.yaml \
+#     "$PHOENIX_URL/api/config/plan"
+#   curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/yaml" \
+#     --data-binary @phoenix-config.example.yaml \
+#     "$PHOENIX_URL/api/config/apply"
+#
+# Export (secrets redacted to __REDACTED__):
+#   curl -sS -H "Authorization: Bearer $TOKEN" "$PHOENIX_URL/api/config/export"
+#
+# Prune deletes KEYED resources missing from this document only:
+#   wrap as { document: <this file>, prune: true } in JSON/YAML.
+#
+# Secrets: never commit real webhook URLs or passwords. On apply, omit a secret
+# field or set it to __REDACTED__ to keep the currently stored value.
+# See docs/F5-S14-CONFIG-AS-CODE-CONTRACTS.md and docs/RUNBOOK.md.
+
+apiVersion: phoenix.dev/v1
+kind: Config
+spec:
+  tags:
+    - key: env-prod
+      name: production
+      color: "#16a34a"
+
+  notifications:
+    - key: slack-ops
+      name: Slack Ops
+      type: slack
+      active: true
+      config:
+        # Supply the real URL via a sealed secret overlay in CI, or set once
+        # via the UI and leave __REDACTED__ here after export.
+        webhook_url: "__REDACTED__"
+
+  monitor_groups:
+    - key: core
+      name: Core services
+      condition: worst_of_children
+
+  monitors:
+    - key: api-health
+      name: API Health
+      type: http
+      active: true
+      interval: 60
+      timeout: 30
+      group: core
+      config:
+        url: https://api.example.com/health
+      accepted_statuscodes:
+        - "200-299"
+
+  monitor_notifications:
+    - monitor: api-health
+      notification: slack-ops
+
+  monitor_tags:
+    - monitor: api-health
+      tag: env-prod
+
+  status_pages:
+    - key: public
+      slug: public
+      title: Example Status
+      published: true
+      theme: dark
+
+  status_page_monitors:
+    - status_page: public
+      monitor: api-health
+      display_order: 0
