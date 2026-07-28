@@ -4,7 +4,7 @@
 .env.*
 
 # Compiled binaries
-app
+/app
 bin/
 *.exe
 *.exe~
