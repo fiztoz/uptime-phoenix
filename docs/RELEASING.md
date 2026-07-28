@@ -1,43 +1,42 @@
-# Releasing Phoenix (local dry-run first)
+# Releasing Phoenix
 
-> **There is no CI.** `.github/` was deliberately removed (`9de75e9`, 2026-07-25) and is not
-> coming back — this document previously described a GitHub Actions workflow
-> (`release-dry-run.yml`) that no longer exists. Release is now a **local, manual,
-> owner-triggered** procedure end to end: a human runs the script below on their own
-> machine, inspects the output, and decides whether to promote it. Nothing runs
-> automatically on push, on a schedule, or on tag creation.
+> **CI is restored (owner, 2026-07-28).** `.github/workflows/ci.yml` gates PRs and
+> `main`. Release automation lives in `.github/workflows/release.yml`: every run
+> **dry-runs** first; **publish** only happens when explicitly gated (see below).
+> The local script `./scripts/release/dry-run.sh` remains the offline equivalent
+> and **never publishes**.
 
-This document describes how Phoenix **prepares** release artifacts without
-publishing them. Publishing (GHCR push, Helm OCI push, GitHub Release, git tag) is
-intentionally out of scope until the owner gives an explicit go-ahead — see
-"Promotion blockers" below. `LICENSE` (MIT) landed 2026-07-25, closing the license
-blocker that previously existed here.
+This document describes how Phoenix prepares release artifacts and how optional
+publish to GHCR / Helm OCI / GitHub Releases is owner-gated. `LICENSE` (MIT) is
+present at the repo root.
 
 ## Hard rules
 
-1. **No publish from dry-run.** The dry-run script never pushes images, never pushes
-   Helm charts, never creates git tags, and never opens a GitHub Release.
-2. **No automatic trigger of any kind.** The script is run by hand, by the owner (or an
-   agent the owner explicitly asks to run it), on demand. There is no workflow file, no
-   cron, no push hook.
-3. **LICENSE is resolved.** `LICENSE` (MIT) is present at the repo root and referenced
-   from `README.md` and `charts/phoenix/Chart.yaml`. The remaining promotion blockers
-   (below) are explicit human approvals, not missing artifacts.
+1. **No publish from dry-run.** The dry-run script and the `dry-run` job never push
+   images, never push Helm charts, never create git tags, and never open a GitHub
+   Release.
+2. **Publish is owner-gated.** Publish requires either a `v*` tag push or
+   `workflow_dispatch` with `publish=true`, plus approval on the GitHub Environment
+   named `release` (configure required reviewers in repo settings).
+3. **This workflow never creates git tags on `workflow_dispatch`.** The owner creates
+   and pushes tags by hand. Publish on dispatch requires that `v<version>` already
+   exists.
+4. **LICENSE is resolved.** MIT at the repo root; remaining blockers are human
+   approvals (signing policy, package naming, etc.).
 
 ## Snapshot version flow
 
-Supply one snapshot version string for the entire dry-run (example
-`0.0.0-snapshot.1` or `0.1.0-rc.0`). That exact string is stamped into:
+Supply one version string for the entire dry-run (example `0.0.0-snapshot.1`,
+`0.1.0-rc.0`, or `0.1.0`). That exact string is stamped into:
 
 | Surface | Mechanism |
 |---|---|
 | Go binaries | `-ldflags "-X github.com/fiztoz/uptime-phoenix/internal/version.Version=<v>"` |
 | Container image labels | `org.opencontainers.image.version=<v>` build-arg `VERSION` |
-| Image tags (local only) | `phoenix:<v>-linux-<arch>` |
+| Image tags (local only for dry-run) | `phoenix:<v>-linux-<arch>` |
 | Helm chart | `appVersion: "<v>"` on a **copy** of the chart before `helm package` |
 
-No git tag is created for a dry-run. Semver tags remain a future, explicitly approved
-promotion step — the owner creates and pushes them by hand; no automation does it.
+No git tag is created for a dry-run. Semver tags are an explicit owner step.
 
 ## Local dry-run
 
@@ -57,13 +56,98 @@ Requirements:
 - optional `syft` for SBOMs (`SKIP_SBOM=1` to skip)
 - optional `file(1)` for architecture proof
 
-Run this **before every release decision**, on the machine (or a machine) the owner
-trusts to publish from. There is no second, automated copy of this check running
-anywhere — if the dry-run isn't run, nothing has verified the release artifacts.
+Run this before every release decision on a machine you trust. CI dry-run is a
+second copy of the same script; local runs remain fully supported offline.
+
+## GitHub Actions — release workflow
+
+Workflow file: [`.github/workflows/release.yml`](../.github/workflows/release.yml).
+
+### Triggers
+
+| Trigger | Behaviour |
+|---|---|
+| `workflow_dispatch` | Always runs **dry-run**. Inputs: `version` (required), `publish` (default `false`), `skip_docker` (default `false`). |
+| `push` of tags matching `v*` | Dry-run for version = tag with leading `v` stripped, then **publish**. |
+
+### Dry-run job
+
+1. Checkout, setup Go / Bun / Helm / Docker buildx + QEMU (unless `skip_docker`).
+2. Build `web/dist` for `//go:embed` and `USE_PREBUILT_WEB=1`.
+3. Run `VERSION=<version> ./scripts/release/dry-run.sh` (sets `SKIP_DOCKER=1` when
+   the dispatch input asks for it).
+4. Upload `dist/release-<version>/` as a workflow artifact (14-day retention).
+5. Fail if dry-run fails.
+
+Dry-run permissions are read-only (`contents: read`, `packages: read`). Nothing is
+pushed.
+
+### How to trigger a dry-run only
+
+**GitHub UI:** Actions → **Release** → Run workflow → set `version`, leave
+`publish` unchecked. Optionally set `skip_docker` for a faster binary/helm-only run.
+
+**CLI:**
+
+```bash
+gh workflow run release.yml -f version=0.0.0-snapshot.2 -f publish=false
+# Faster (no Docker multi-arch):
+gh workflow run release.yml -f version=0.0.0-snapshot.2 -f publish=false -f skip_docker=true
+```
+
+Download the artifact from the run summary when it finishes.
+
+### Publish job (optional, owner-gated)
+
+Runs only when:
+
+1. Dry-run succeeded, **and**
+2. Either the event was a `v*` tag push, **or** dispatch had `publish=true`, **and**
+3. The GitHub Environment **`release`** is approved (configure **required
+   reviewers** on that environment in Settings → Environments), **and**
+4. Git tag `v<version>` already exists (enforced in the job; never created by
+   dispatch).
+
+Publish steps:
+
+1. Log in to GHCR with `GITHUB_TOKEN`.
+2. Multi-arch (`linux/amd64,linux/arm64`) buildx **push**:
+   - `ghcr.io/<owner>/phoenix:<version>` and `:latest` (all-in-one `Dockerfile`)
+   - `ghcr.io/<owner>/phoenix-{api,worker,web}:<version>` and `:latest` (`Dockerfile.split`)
+   - `<owner>` is `github.repository_owner` lowercased (chart defaults use
+     `ghcr.io/fiztoz/...`; forks publish under their own namespace).
+3. `helm push` the dry-run chart package to `oci://ghcr.io/<owner>/charts`.
+4. Create/update a GitHub Release for tag `v<version>`, attaching binaries,
+   `SHA256SUMS`, chart `.tgz`, and `INVENTORY.md` from the dry-run artifact.
+
+**How to publish:**
+
+```bash
+# 1. Owner creates and pushes the tag by hand (workflow never does this on dispatch)
+git tag v0.1.0
+git push origin v0.1.0
+# Tag push alone triggers dry-run + publish (after Environment approval).
+
+# Or: tag already exists, re-run dispatch with publish:
+gh workflow run release.yml -f version=0.1.0 -f publish=true
+```
+
+No secrets beyond `GITHUB_TOKEN` are required for public GHCR packages in the same
+repo. The workflow never force-pushes and never commits to `main`.
+
+### Environment protection (required setup)
+
+Create a GitHub Environment named **`release`** and enable:
+
+- Required reviewers (owner or trusted maintainers)
+- Optional: deployment branches limited to tags / default branch
+
+Without that, anyone with `workflow_dispatch` rights could publish when `publish=true`
+if a tag already exists. Protect the environment before the first real release.
 
 ## Artifact inventory
 
-Under `dist/release-<version>/`:
+Under `dist/release-<version>/` (local or CI artifact):
 
 | Path | Contents |
 |---|---|
@@ -78,7 +162,6 @@ Under `dist/release-<version>/`:
 | `images/phoenix-from-image-linux-<arch>` | Binary extracted from a local image for arch proof |
 | `image-arch-proof.txt` | `file(1)` output proving arm64/amd64 match |
 | `binary-arch.txt` | `file(1)` listing for cross-compiled binaries |
-| `oci/*.oci.tar` | Multi-arch OCI layouts from buildx (local only, no push) |
 | `INVENTORY.md` | Human-readable summary of the run |
 
 ### Binary matrix
@@ -99,8 +182,8 @@ platforms that actually produce a binary are checksummed.
   `TARGETOS`/`TARGETARCH` and `VERSION` ldflags. An arm64 buildx target must contain
   an arm64 binary (proved by extracting `/phoenix` and running `file`).
 - **Split** (`Dockerfile.split`): `api`, `worker`, and `web` targets, same
-  multi-arch args. The dry-run exports multi-arch OCI tarballs locally without
-  pushing.
+  multi-arch args. Dry-run loads images locally without pushing; publish pushes
+  multi-arch manifests to GHCR.
 
 ## Multi-arch proof (not just manifest acceptance)
 
@@ -115,37 +198,37 @@ Dockerfile hardcodes `GOARCH=amd64` (historical bug). The dry-run:
 
 ## Promotion blockers
 
-Do **not** promote dry-run artifacts to a public release until every item is
-cleared. All of these are now human, manual decisions — there is no workflow
-gating them:
+Do **not** promote dry-run artifacts to a public release until every item is cleared:
 
 | Blocker | Owner | Status |
 |---|---|---|
 | Choose and add a `LICENSE` file | User | **Done — MIT, 2026-07-25** |
-| Explicit approval to publish packages | User | Open |
-| Create a real semver git tag | User | Open — created and pushed by hand, never by an agent |
-| GHCR push permissions + package names | User | Open |
-| Helm OCI repository + push | User | Open |
-| GitHub Releases + checksum attach | User | Open |
-| Image repository rename from placeholders (`ghcr.io/fiztoz/...` in values) | Chart consumers / User | Open |
+| Explicit approval to publish packages | User | Open — use Environment `release` reviewers |
+| Create a real semver git tag | User | Open — created and pushed by hand |
+| GHCR push permissions + package names | User | Workflow uses `GITHUB_TOKEN` + `packages: write` |
+| Helm OCI repository + push | User | Workflow pushes `oci://ghcr.io/<owner>/charts` |
+| GitHub Releases + checksum attach | User | Workflow attaches dry-run binaries/chart |
+| Image repository rename from placeholders (`ghcr.io/fiztoz/...` in values) | Chart consumers / User | Open — publish uses current repo owner |
 | Provenance / cosign signing policy | User | Open |
 
-## Release procedure (local, manual, owner-triggered)
+## Release procedure (recommended)
 
-1. Owner (or an agent explicitly instructed by the owner) runs `make gate-full`
-   (see `docs/TESTING.md`) on the exact commit being considered for release, and
-   the MariaDB repository contract + fresh-DB smoke suites against a throwaway
-   database. Record the results — do not claim a pass that wasn't observed.
-2. Owner runs the local dry-run script (above) with the intended version string
-   and inspects `dist/release-<version>/INVENTORY.md`.
-3. Owner decides, by hand, whether to clear the promotion blockers above.
-4. If cleared: owner creates and pushes the git tag themselves, and runs whatever
-   publish steps they choose (no publish automation exists yet — see the
-   "future publish workflow" language below, which remains unimplemented and,
-   given CI is gone for good, would also have to be a local script, not a
-   GitHub Actions workflow).
-5. No agent creates or pushes a tag, publishes an image, or publishes a Helm
-   chart under any circumstance, regardless of how the dry-run looks.
+1. Run `make gate-full` (see `docs/TESTING.md`) on the commit being released, and the
+   MariaDB repository contract against a throwaway DB if CI did not already cover that
+   commit.
+2. Dry-run:
+   - **Local:** `VERSION=0.1.0 ./scripts/release/dry-run.sh` and inspect
+     `dist/release-0.1.0/INVENTORY.md`, **or**
+   - **CI:** `gh workflow run release.yml -f version=0.1.0 -f publish=false` and
+     download the artifact.
+3. Clear promotion blockers above.
+4. Owner creates and pushes `git tag v0.1.0 && git push origin v0.1.0` (or re-runs
+   dispatch with `publish=true` against an existing tag).
+5. Approve the `release` Environment deployment when GitHub prompts.
+6. Verify GHCR tags, Helm OCI package, and the GitHub Release assets.
+
+No agent should create or push a tag, publish an image, or publish a Helm chart
+outside this owner-gated path.
 
 ## Cleanup local dry-run artifacts
 
@@ -172,24 +255,22 @@ Dry-run creates no cluster or registry state. Rollback is:
 1. Run `./scripts/release/clean.sh` (or delete local `dist/release-<version>/`).
 2. No git tag to delete; no registry cleanup required.
 
-If a **future** publish step is ever used and must be rolled back:
+If a **published** release must be rolled back:
 
-1. Untag / delete the erroneous GHCR tags.
+1. Untag / delete the erroneous GHCR tags (and Helm OCI package if needed).
 2. Delete the GitHub Release and git tag **only** with human approval.
 3. Restore the previous Helm chart version in environments that upgraded.
 4. Prefer database restore from the pre-upgrade snapshot (see `docs/RUNBOOK.md`)
    over partial configuration re-import.
 
-## Explicit no-publish checklist
+## Explicit publish checklist
 
-Before any future publish step is added, verify it:
+Before each publish:
 
-- [ ] Runs locally, by hand, at the owner's initiation — not on a schedule or a push
-      (there is no CI to hook it into, by design)
-- [ ] Is gated on an explicit human approval step, not an automated one
-- [ ] Requests only the minimum credentials for that publish step, entered by the
-      person running it
-- [ ] Creates tags only after artifacts are verified
-- [ ] Documents how to roll back tags and registry packages
+- [ ] Dry-run inventory inspected (local or CI artifact)
+- [ ] Tag `v<version>` created and pushed by the owner (not by an agent ad hoc)
+- [ ] Environment `release` has required reviewers enabled
+- [ ] Chart `image.repository` / consumers accept `ghcr.io/<owner>/phoenix`
+- [ ] Rollback steps above are understood
 
-Until then: **dry-run only.**
+Until publish is intentionally triggered: **dry-run only.**

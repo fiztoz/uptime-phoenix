@@ -201,6 +201,40 @@ func (r *EscalationAssignmentRepo) PolicyIDForGroup(ctx context.Context, groupID
 	return m.PolicyID, nil
 }
 
+// ListMonitorsByPolicy returns monitor IDs directly assigned to the policy.
+func (r *EscalationAssignmentRepo) ListMonitorsByPolicy(ctx context.Context, policyID int64) ([]int64, error) {
+	var models []repository.EscalationPolicyMonitorModel
+	if err := r.db.NewSelect().
+		Model(&models).
+		Where("policy_id = ?", policyID).
+		OrderExpr("monitor_id ASC").
+		Scan(ctx); err != nil {
+		return nil, translateError(err)
+	}
+	ids := make([]int64, len(models))
+	for i, m := range models {
+		ids[i] = m.MonitorID
+	}
+	return ids, nil
+}
+
+// ListGroupsByPolicy returns group IDs directly assigned to the policy.
+func (r *EscalationAssignmentRepo) ListGroupsByPolicy(ctx context.Context, policyID int64) ([]int64, error) {
+	var models []repository.EscalationPolicyGroupModel
+	if err := r.db.NewSelect().
+		Model(&models).
+		Where("policy_id = ?", policyID).
+		OrderExpr("group_id ASC").
+		Scan(ctx); err != nil {
+		return nil, translateError(err)
+	}
+	ids := make([]int64, len(models))
+	for i, m := range models {
+		ids[i] = m.GroupID
+	}
+	return ids, nil
+}
+
 // AlertEscalationRepo implements ports.AlertEscalationRepository on SQLite.
 type AlertEscalationRepo struct{ db *bun.DB }
 

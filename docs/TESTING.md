@@ -3,24 +3,20 @@
 > **Purpose:** This document tells any agent (AI or human) exactly how to verify
 > Phoenix changes before marking a task complete. Follow every applicable gate.
 
-> **There is no CI.** `.github/` was deliberately removed (`9de75e9`, 2026-07-25) and
-> stays gone. Every gate below is **manual** — nothing runs it on push, on a schedule,
-> or on merge. `golangci-lint`, `govulncheck`, the MariaDB repository contract, and the
-> `-race` suite only run when a human (or an agent acting for one) runs `make gate-full`
-> (or the individual commands) by hand. Treat that as a standing responsibility, not a
-> one-time task.
+> **CI is restored (owner, 2026-07-28).** `.github/workflows/ci.yml` runs the gate on
+> every `pull_request` and push to `main` (backend, frontend, e2e, MariaDB contract,
+> Helm, Docker, actionlint). Local `make gate-full` remains **required for thoroughness**
+> and works fully offline — do not treat a green CI check as a substitute for running the
+> local gate before you merge your own work.
 >
 > **As of 2026-07-25, running the full gate end-to-end surfaces real, pre-existing debt**
-> that a CI pipeline would previously have caught on the commit that introduced it:
-> `golangci-lint run` currently reports **133 findings** (misspellings, `nilerr`,
+> that CI will now re-surface on PR/main until cleared:
+> `golangci-lint run` previously reported **133 findings** (misspellings, `nilerr`,
 > deprecated `bun.In` usage, `govet` shadow warnings, unchecked errors, unparam, etc.)
-> across `internal/` and `cmd/`; `govulncheck ./...` currently reports **16
-> vulnerabilities**, almost all from the pinned Go toolchain's standard library being
-> behind (`go1.25.7`; fixes ship in `go1.25.8`–`.10`); and `cd web && bun run lint`
-> currently fails formatting on **42 files**. None of this is new — it is the backlog
-> that accumulated while nothing enforced these checks automatically. Fixing it is a
-> separate, cross-cutting task, not something this doc's author does silently; it is
-> reported here so a reader does not assume `make gate-full` is currently green.
+> across `internal/` and `cmd/`; `govulncheck ./...` reported toolchain/stdlib backlog
+> on older pin points; and `cd web && bun run lint` failed formatting on many files.
+> Fixing that debt is a separate, cross-cutting task. Do not assume `make gate-full` or
+> CI is currently green until those findings are addressed.
 
 ---
 
@@ -93,11 +89,11 @@ make gate-full
 `make gate-full` does **not** include the MariaDB repository contract (needs
 `TEST_MARIADB_DSN` against a real database), the fresh-DB smoke suites under
 `scripts/`, or the k6 load ramp — those need external services and are documented
-separately (§2 and §7 below, and `docs/SPRINT-D-HANDOFF.md` §7). Run them too before
-a release.
+separately (§2 and §7 below). CI runs the MariaDB contract in the `mariadb-contract`
+job (`phoenix_ci` throwaway DB). Run the smoke suites and k6 before a release.
 
-**Do NOT report a task complete until all applicable gates pass.** Nothing else will
-catch a failure for you — see the "no CI" banner above.
+**Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
+you still own the local gate for work-in-progress and offline verification.
 
 ---
 
@@ -603,8 +599,9 @@ before the Go build stage. Check the Dockerfile multi-stage setup.
 
 ## Checklist for Agents
 
-Before reporting ANY task complete, run through this. **There is no CI to catch what
-you skip** — this list is the entire safety net.
+Before reporting ANY task complete, run through this. CI catches failures on PR/main,
+but you still own this list for local work and for areas CI does not cover (smoke
+suites, load, manual UI).
 
 - [ ] `go build ./...` passes
 - [ ] `go test -race -count=1 ./...` passes (all tests)

@@ -1,0 +1,246 @@
+# Phoenix CI — PR / main gate
+#
+# Mirrors the local `make gate-full` surface as parallel jobs, plus the MariaDB
+# repository contract and Docker image builds that gate-full leaves optional.
+# Local `make gate-full` remains the offline/dev gate; CI is the automated one.
+#
+# Restored 2026-07-28 at owner request (`.github/` was previously removed).
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  # docker job uses type=gha build cache
+  actions: write
+
+jobs:
+  backend:
+    name: backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./internal/...
+
+      - name: gofmt
+        run: |
+          out="$(gofmt -l internal/)"
+          if [ -n "$out" ]; then
+            echo "gofmt needed on:"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: Test (race)
+        run: go test -race -count=1 ./... -timeout 20m
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.8
+          args: --timeout=10m
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Check, test, build, lint
+        working-directory: web
+        run: bun run check && bun run test && bun run build && bun run lint
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install frontend deps
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: web
+        run: bunx playwright install --with-deps chromium
+
+      - name: Playwright e2e
+        working-directory: web
+        env:
+          CI: true
+          GOTOOLCHAIN: go1.25.12
+        # start-e2e-server.sh builds web + Go binary and serves on :3100
+        run: bun run test:e2e
+
+  mariadb-contract:
+    name: mariadb-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: phoenix_ci
+          MYSQL_USER: phoenix
+          MYSQL_PASSWORD: phoenix
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      # Dedicated throwaway DB — contract rejects DB name "phoenix" (dev DB).
+      TEST_MARIADB_DSN: phoenix:phoenix@tcp(127.0.0.1:3306)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Repository contract tests
+        run: go test -race -count=1 ./internal/adapters/repository/... -timeout 15m
+
+  helm:
+    name: helm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: helm lint
+        run: helm lint charts/phoenix
+
+      - name: helm template
+        run: helm template phoenix charts/phoenix > /dev/null
+
+  docker:
+    name: docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build frontend (USE_PREBUILT_WEB=1)
+        working-directory: web
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+          test -f dist/index.html
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build all-in-one image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: phoenix:ci
+          build-args: |
+            USE_PREBUILT_WEB=1
+            VERSION=ci
+            TARGETOS=linux
+            TARGETARCH=amd64
+          cache-from: type=gha,scope=phoenix-aio
+          cache-to: type=gha,mode=max,scope=phoenix-aio
+
+      - name: Build split targets (no push)
+        run: |
+          for target in api worker web; do
+            docker buildx build \
+              --platform linux/amd64 \
+              --target "$target" \
+              --build-arg USE_PREBUILT_WEB=1 \
+              --build-arg VERSION=ci \
+              --build-arg TARGETOS=linux \
+              --build-arg TARGETARCH=amd64 \
+              -t "phoenix-${target}:ci" \
+              --load \
+              -f Dockerfile.split \
+              .
+          done
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download and run actionlint
+        run: |
+          bash <(curl --silent --show-error --location \
+            https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color

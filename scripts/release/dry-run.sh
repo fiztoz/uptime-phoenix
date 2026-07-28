@@ -50,7 +50,7 @@ else
 fi
 
 # ── Binary matrix (only combinations that actually cross-compile) ───────────
-# Default matrix: linux/darwin/windows × amd64/arm64 for cmd/app + kuma-import.
+# Default matrix: linux/darwin/windows × amd64/arm64 for cmd/app + helpers.
 DEFAULT_PLATFORMS=(
   "linux/amd64"
   "linux/arm64"
@@ -97,6 +97,7 @@ for plat in "${MATRIX[@]}"; do
   goarch="${plat#*/}"
   build_one "$goos" "$goarch" ./cmd/app "phoenix"
   build_one "$goos" "$goarch" ./cmd/kuma-import "kuma-import"
+  build_one "$goos" "$goarch" ./cmd/phoenix-config "phoenix-config"
   build_one "$goos" "$goarch" ./cmd/api "phoenix-api"
   build_one "$goos" "$goarch" ./cmd/worker "phoenix-worker"
 done

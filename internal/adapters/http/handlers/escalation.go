@@ -61,6 +61,34 @@ type EscalationAssignmentView struct {
 	PolicyID int64 `json:"policy_id"`
 }
 
+// EscalationEntityRefView is a slim id+name pair used by reverse assignment
+// listings (policy → monitors/groups). Secrets never live here.
+type EscalationEntityRefView struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// EscalationPolicyAssignmentsView is the wire shape of
+// GET /api/escalation-policies/:id/assignments — only direct assignments.
+type EscalationPolicyAssignmentsView struct {
+	Monitors []EscalationEntityRefView `json:"monitors"`
+	Groups   []EscalationEntityRefView `json:"groups"`
+}
+
+func toEscalationPolicyAssignmentsView(v *services.PolicyAssignmentView) EscalationPolicyAssignmentsView {
+	out := EscalationPolicyAssignmentsView{
+		Monitors: make([]EscalationEntityRefView, 0, len(v.Monitors)),
+		Groups:   make([]EscalationEntityRefView, 0, len(v.Groups)),
+	}
+	for _, m := range v.Monitors {
+		out.Monitors = append(out.Monitors, EscalationEntityRefView{ID: m.ID, Name: m.Name})
+	}
+	for _, g := range v.Groups {
+		out.Groups = append(out.Groups, EscalationEntityRefView{ID: g.ID, Name: g.Name})
+	}
+	return out
+}
+
 func toEscalationPolicyView(p *domain.EscalationPolicy) EscalationPolicyView {
 	v := EscalationPolicyView{
 		ID:          p.ID,
@@ -212,6 +240,23 @@ func (h *EscalationHandlers) Delete(c echo.Context) error {
 		return mapEscalationError(c, err)
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// ListAssignments handles GET /api/escalation-policies/:id/assignments.
+//
+// Auth matches policy List (can_manage_notifications / admin). Write-side
+// assign/unassign stays on the existing monitor/group PUT routes, which are
+// admin-only.
+func (h *EscalationHandlers) ListAssignments(c echo.Context) error {
+	id, err := escalationPathID(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorBody("invalid policy id"))
+	}
+	view, err := h.svc.ListAssignments(c.Request().Context(), id)
+	if err != nil {
+		return mapEscalationError(c, err)
+	}
+	return c.JSON(http.StatusOK, toEscalationPolicyAssignmentsView(view))
 }
 
 // GetMonitorAssignment handles GET /api/monitors/:id/escalation-policy.

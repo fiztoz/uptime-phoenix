@@ -90,13 +90,11 @@ make gate-full   # the complete pre-merge gate: adds golangci-lint, frontend lin
                   # helm lint/template, govulncheck, and git diff --check
 ```
 
-**There is no CI.** `.github/` was deliberately removed (`9de75e9`, 2026-07-25) and is not
-coming back — Phoenix is a **locally-gated** project now. Nothing runs `make gate`,
-`golangci-lint`, `govulncheck`, the MariaDB repository contract, or the `-race` suite for
-you on push; a human (the person landing the change) is responsible for running `make
-gate-full` and the MariaDB contract/smoke suites before merging. See
-`docs/TESTING.md` for the full manual checklist and `docs/RELEASING.md` for the
-local, owner-triggered release procedure.
+**CI is restored** (owner, 2026-07-28): `.github/workflows/ci.yml` runs the gate on every
+PR and push to `main` (backend, frontend, e2e, MariaDB contract, Helm, Docker). Local
+`make gate-full` remains required for thoroughness and works offline — do not rely on CI
+alone. See `docs/TESTING.md` for the full checklist and `docs/RELEASING.md` for release
+dry-run / publish (`.github/workflows/release.yml`).
 
 ## Deployment
 
@@ -163,7 +161,7 @@ Screenshots coming soon.
 | [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) | Local dev setup, env vars, troubleshooting |
 | [docs/DEPLOYMENT_MODES.md](docs/DEPLOYMENT_MODES.md) | Compose / Helm modes, Cloudflare Tunnel |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Operator runbook |
-| [docs/RELEASING.md](docs/RELEASING.md) | Local release procedure (no CI) |
+| [docs/RELEASING.md](docs/RELEASING.md) | Release dry-run and optional publish (local + GitHub Actions) |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phase plans (historical; may be stale) |
 | [docs/PLAN.md](docs/PLAN.md) | Original goal, scope, and locked decisions |
 | [docs/DESIGN.md](docs/DESIGN.md) | Design system for the UI |
@@ -180,8 +178,8 @@ This is **hobby / vibe-coded software**, not a product with a vendor behind it.
 - **Self-hosted trust model.** An authenticated operator can create monitors and
   notifications that reach arbitrary hosts and webhooks — that is intentional for an
   uptime tool, and it is also an SSRF-class capability if an admin account is compromised.
-- **No CI.** Quality is gated locally via `make gate-full`. Treat unreviewed contributions
-  with caution.
+- **CI + local gate.** PRs run GitHub Actions (`ci.yml`); `make gate-full` is still the
+  offline quality bar. Treat unreviewed contributions with caution.
 
 If you adopt Phoenix in a real environment, you own hardening, upgrades, and incident
 response.

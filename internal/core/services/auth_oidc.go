@@ -78,9 +78,12 @@ type OIDCGrantMapping struct {
 
 // oidcStatePayload is the HMAC-signed blob carried in the OAuth state parameter.
 // No server-side store is required, so any API pod can complete the callback.
+// CodeVerifier is the PKCE verifier (RFC 7636) — carried in the signed blob so
+// multi-pod API deployments can finish the exchange without sticky sessions.
 type oidcStatePayload struct {
-	Nonce string `json:"n"`
-	Exp   int64  `json:"e"`
+	Nonce        string `json:"n"`
+	Exp          int64  `json:"e"`
+	CodeVerifier string `json:"v"`
 }
 
 // WithOIDC wires the OIDC authenticator, identity repository, permission
@@ -107,7 +110,8 @@ func (s *AuthService) OIDCEnabled() bool {
 	return s.oidc != nil && s.oidc.Enabled()
 }
 
-// BeginOIDCLogin mints a signed state + nonce and returns the IdP authorize URL.
+// BeginOIDCLogin mints a signed state (nonce + PKCE code_verifier) and returns
+// the IdP authorize URL with code_challenge (S256).
 func (s *AuthService) BeginOIDCLogin(_ context.Context) (authURL, state string, err error) {
 	if !s.OIDCEnabled() {
 		return "", "", fmt.Errorf("%w", ErrOIDCNotConfigured)
@@ -116,14 +120,20 @@ func (s *AuthService) BeginOIDCLogin(_ context.Context) (authURL, state string, 
 	if err != nil {
 		return "", "", fmt.Errorf("auth service: oidc begin: nonce: %w", err)
 	}
+	verifier, err := generateCodeVerifier()
+	if err != nil {
+		return "", "", fmt.Errorf("auth service: oidc begin: pkce verifier: %w", err)
+	}
+	challenge := s256CodeChallenge(verifier)
 	state, err = s.signOIDCState(oidcStatePayload{
-		Nonce: nonce,
-		Exp:   s.clock.Now().Add(s.oidcPolicy.StateTTL).Unix(),
+		Nonce:        nonce,
+		Exp:          s.clock.Now().Add(s.oidcPolicy.StateTTL).Unix(),
+		CodeVerifier: verifier,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("auth service: oidc begin: state: %w", err)
 	}
-	return s.oidc.AuthCodeURL(state, nonce), state, nil
+	return s.oidc.AuthCodeURL(state, nonce, challenge), state, nil
 }
 
 // CompleteOIDCLogin validates state, exchanges the code, links or provisions
@@ -136,7 +146,7 @@ func (s *AuthService) CompleteOIDCLogin(ctx context.Context, code, state string)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w", ErrOIDCInvalidState)
 	}
-	claims, err := s.oidc.Exchange(ctx, code, payload.Nonce)
+	claims, err := s.oidc.Exchange(ctx, code, payload.Nonce, payload.CodeVerifier)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: %v", ErrOIDCExchange, err)
 	}
@@ -494,7 +504,7 @@ func (s *AuthService) verifyOIDCState(state string) (*oidcStatePayload, error) {
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return nil, err
 	}
-	if p.Nonce == "" || p.Exp == 0 {
+	if p.Nonce == "" || p.Exp == 0 || p.CodeVerifier == "" {
 		return nil, errors.New("incomplete state")
 	}
 	if s.clock.Now().Unix() > p.Exp {
@@ -509,6 +519,23 @@ func randomToken(n int) (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// pkceUnreserved is the RFC 7636 unreserved charset for code_verifier:
+// ALPHA / DIGIT / "-" / "." / "_" / "~". base64url uses a subset of this.
+var pkceUnreserved = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
+
+// generateCodeVerifier returns a cryptographically random PKCE code_verifier.
+// Uses 32 random octets → 43-character base64url string (RFC 7636 recommended).
+func generateCodeVerifier() (string, error) {
+	// 32 octets base64url-encoded without padding → 43 characters.
+	return randomToken(32)
+}
+
+// s256CodeChallenge returns BASE64URL(SHA256(verifier)) without padding (S256).
+func s256CodeChallenge(verifier string) string {
+	sum := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 func urlQueryEscape(s string) string {

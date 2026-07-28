@@ -236,6 +236,80 @@ func (s *EscalationService) UnassignGroup(ctx context.Context, groupID int64) er
 	return s.assignments.UnassignGroup(ctx, groupID)
 }
 
+// PolicyAssignmentRef is one monitor or group that is directly assigned to a
+// policy. Names are resolved for the reverse-assignment UI; only entities that
+// still exist are returned (a dangling link after a hard delete is skipped).
+type PolicyAssignmentRef struct {
+	ID   int64
+	Name string
+}
+
+// PolicyAssignmentView lists the monitors and folders that use a policy
+// directly. Inheritance is never expanded — a child that only inherits from a
+// folder does not appear here.
+type PolicyAssignmentView struct {
+	Monitors []PolicyAssignmentRef
+	Groups   []PolicyAssignmentRef
+}
+
+// ListAssignments returns every monitor and group directly assigned to the
+// given policy. Returns ports.ErrNotFound when the policy does not exist.
+func (s *EscalationService) ListAssignments(ctx context.Context, policyID int64) (*PolicyAssignmentView, error) {
+	if s == nil || s.assignments == nil || s.policies == nil {
+		return nil, fmt.Errorf("escalation service: list assignments: not configured")
+	}
+	if _, err := s.policies.GetByID(ctx, policyID); err != nil {
+		return nil, err
+	}
+
+	view := &PolicyAssignmentView{
+		Monitors: []PolicyAssignmentRef{},
+		Groups:   []PolicyAssignmentRef{},
+	}
+
+	monitorIDs, err := s.assignments.ListMonitorsByPolicy(ctx, policyID)
+	if err != nil {
+		return nil, fmt.Errorf("escalation service: list monitors by policy: %w", err)
+	}
+	for _, id := range monitorIDs {
+		if s.monitors == nil {
+			view.Monitors = append(view.Monitors, PolicyAssignmentRef{ID: id})
+			continue
+		}
+		m, mErr := s.monitors.GetByID(ctx, id)
+		if mErr != nil {
+			if errors.Is(mErr, ports.ErrNotFound) {
+				// Monitor was deleted but the link row remains (or was mid-cascade).
+				// Skip rather than showing a ghost assignment.
+				continue
+			}
+			return nil, fmt.Errorf("escalation service: resolve monitor %d: %w", id, mErr)
+		}
+		view.Monitors = append(view.Monitors, PolicyAssignmentRef{ID: m.ID, Name: m.Name})
+	}
+
+	groupIDs, err := s.assignments.ListGroupsByPolicy(ctx, policyID)
+	if err != nil {
+		return nil, fmt.Errorf("escalation service: list groups by policy: %w", err)
+	}
+	for _, id := range groupIDs {
+		if s.groups == nil {
+			view.Groups = append(view.Groups, PolicyAssignmentRef{ID: id})
+			continue
+		}
+		g, gErr := s.groups.GetByID(ctx, id)
+		if gErr != nil {
+			if errors.Is(gErr, ports.ErrNotFound) {
+				continue
+			}
+			return nil, fmt.Errorf("escalation service: resolve group %d: %w", id, gErr)
+		}
+		view.Groups = append(view.Groups, PolicyAssignmentRef{ID: g.ID, Name: g.Name})
+	}
+
+	return view, nil
+}
+
 // PolicyIDForMonitor returns the monitor's DIRECT assignment (no ancestor
 // walk), or 0 when it has none. This is what the monitor edit form round-trips;
 // showing an inherited policy in that field would make saving the form silently

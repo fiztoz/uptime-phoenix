@@ -1,0 +1,326 @@
+# Phoenix release — dry-run always, publish only when explicitly gated.
+#
+# Triggers:
+#   - workflow_dispatch: always dry-runs; publish only if `publish=true` AND a
+#     matching git tag `v<version>` already exists (this workflow NEVER creates
+#     git tags on dispatch).
+#   - push of tags matching `v*`: dry-run then publish for that version.
+#
+# Publish is further gated by the GitHub Environment named `release` — protect
+# it with required reviewers in the repo settings. Dry-run never pushes.
+#
+# Local equivalent (never publishes):
+#   VERSION=0.1.0 ./scripts/release/dry-run.sh
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version string without leading v (e.g. 0.1.0 or 0.0.0-snapshot.2)"
+        required: true
+        type: string
+      publish:
+        description: "Publish after dry-run (requires existing git tag v<version> and release environment approval)"
+        required: false
+        type: boolean
+        default: false
+      skip_docker:
+        description: "Skip Docker image builds in dry-run (faster debug)"
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  # Chart values default to ghcr.io/fiztoz/phoenix; publish uses the current
+  # repository owner (lowercased) so forks land under their own GHCR namespace.
+  GOTOOLCHAIN: go1.25.12
+
+jobs:
+  dry-run:
+    name: dry-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      should_publish: ${{ steps.meta.outputs.should_publish }}
+      image_owner: ${{ steps.meta.outputs.image_owner }}
+      skip_docker: ${{ steps.meta.outputs.skip_docker }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version / publish flags
+        id: meta
+        run: |
+          set -euo pipefail
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo "image_owner=${owner}" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            raw="${GITHUB_REF_NAME}"
+            version="${raw#v}"
+            echo "version=${version}" >> "$GITHUB_OUTPUT"
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "skip_docker=0" >> "$GITHUB_OUTPUT"
+            echo "tag_push: version=${version} (will publish after dry-run)"
+          else
+            version="${{ inputs.version }}"
+            version="${version#v}"
+            if [ -z "${version}" ]; then
+              echo "version input is empty" >&2
+              exit 2
+            fi
+            echo "version=${version}" >> "$GITHUB_OUTPUT"
+            if [ "${{ inputs.publish }}" = "true" ]; then
+              echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            fi
+            if [ "${{ inputs.skip_docker }}" = "true" ]; then
+              echo "skip_docker=1" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip_docker=0" >> "$GITHUB_OUTPUT"
+            fi
+            echo "dispatch: version=${version} publish=${{ inputs.publish }} skip_docker=${{ inputs.skip_docker }}"
+          fi
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Set up QEMU
+        if: steps.meta.outputs.skip_docker != '1'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.meta.outputs.skip_docker != '1'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install syft (optional SBOM)
+        continue-on-error: true
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      - name: Build frontend for embed + Docker prebuilt
+        run: |
+          cd web
+          bun install --frozen-lockfile
+          bun run build
+          test -f dist/index.html
+
+      - name: Release dry-run
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          SKIP_DOCKER: ${{ steps.meta.outputs.skip_docker }}
+        run: |
+          set -euo pipefail
+          echo "Running dry-run VERSION=${VERSION} SKIP_DOCKER=${SKIP_DOCKER}"
+          ./scripts/release/dry-run.sh
+          test -f "dist/release-${VERSION}/INVENTORY.md"
+
+      - name: Upload dry-run artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.meta.outputs.version }}
+          path: dist/release-${{ steps.meta.outputs.version }}/
+          retention-days: 14
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    # Owner-gated: Environment "release" should require reviewers in repo settings.
+    # Never runs unless dry-run passed AND (tag push OR dispatch with publish=true).
+    needs: dry-run
+    if: needs.dry-run.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: release
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    env:
+      VERSION: ${{ needs.dry-run.outputs.version }}
+      IMAGE_OWNER: ${{ needs.dry-run.outputs.image_owner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require existing git tag for publish
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          # Tag-push events already have the tag. Dispatch must target a tag the
+          # owner created by hand — this workflow never creates git tags.
+          if ! git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            # Also try remote in case checkout missed it (shallow / missing fetch).
+            git fetch --tags --force origin 2>/dev/null || true
+          fi
+          if ! git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "ERROR: publish requires an existing git tag '${tag}'." >&2
+            echo "Create and push the tag by hand, then re-run with publish=true," >&2
+            echo "or push the tag (v*) to trigger this workflow." >&2
+            echo "This workflow never creates git tags." >&2
+            exit 1
+          fi
+          echo "Publishing for existing tag ${tag} @ $(git rev-list -n1 "${tag}")"
+
+      - name: Download dry-run artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-${{ env.VERSION }}
+          path: dist/release-${{ env.VERSION }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR (docker)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to GHCR (helm OCI)
+        env:
+          HELM_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$HELM_REGISTRY_PASSWORD" | helm registry login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Build frontend for Docker prebuilt
+        run: |
+          if [ ! -f web/dist/index.html ]; then
+            cd web
+            bun install --frozen-lockfile
+            bun run build
+          fi
+          test -f web/dist/index.html
+
+      - name: Push multi-arch all-in-one image
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${IMAGE_OWNER}/phoenix"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --build-arg "VERSION=${VERSION}" \
+            --build-arg "USE_PREBUILT_WEB=1" \
+            -t "${IMAGE}:${VERSION}" \
+            -t "${IMAGE}:latest" \
+            --push \
+            -f Dockerfile \
+            .
+
+      - name: Push multi-arch split images (api, worker, web)
+        run: |
+          set -euo pipefail
+          for target in api worker web; do
+            IMAGE="ghcr.io/${IMAGE_OWNER}/phoenix-${target}"
+            echo "==> push ${IMAGE}:${VERSION}"
+            docker buildx build \
+              --platform linux/amd64,linux/arm64 \
+              --target "${target}" \
+              --build-arg "VERSION=${VERSION}" \
+              --build-arg "USE_PREBUILT_WEB=1" \
+              -t "${IMAGE}:${VERSION}" \
+              -t "${IMAGE}:latest" \
+              --push \
+              -f Dockerfile.split \
+              .
+          done
+
+      - name: Package and push Helm chart to OCI
+        run: |
+          set -euo pipefail
+          # Prefer the dry-run stamped chart package if present; otherwise re-package.
+          CHART_TGZ="$(ls dist/release-${VERSION}/charts/phoenix-*.tgz 2>/dev/null | head -n1 || true)"
+          if [ -z "${CHART_TGZ}" ]; then
+            echo "No chart tgz in dry-run artifact; packaging from charts/phoenix"
+            CHART_SRC="$(mktemp -d)/phoenix"
+            cp -R charts/phoenix "${CHART_SRC}"
+            python3 - "${CHART_SRC}/Chart.yaml" "${VERSION}" <<'PY'
+          import pathlib, sys, re
+          path = pathlib.Path(sys.argv[1])
+          version = sys.argv[2]
+          text = path.read_text(encoding="utf-8")
+          text2, n = re.subn(r'(?m)^appVersion:\s*.*$', f'appVersion: "{version}"', text, count=1)
+          if n != 1:
+              raise SystemExit(f"failed to stamp appVersion in {path}")
+          path.write_text(text2, encoding="utf-8")
+          PY
+            mkdir -p "dist/release-${VERSION}/charts"
+            helm package "${CHART_SRC}" --destination "dist/release-${VERSION}/charts"
+            CHART_TGZ="$(ls dist/release-${VERSION}/charts/phoenix-*.tgz | head -n1)"
+          fi
+          echo "Pushing ${CHART_TGZ} to oci://ghcr.io/${IMAGE_OWNER}/charts"
+          # Helm OCI: package lands as ghcr.io/<owner>/charts/phoenix:<chartVersion>
+          # If OCI push fails (package visibility / naming), images + GitHub Release still matter.
+          if ! helm push "${CHART_TGZ}" "oci://ghcr.io/${IMAGE_OWNER}/charts"; then
+            echo "WARN: helm OCI push failed — images and GitHub Release will still proceed." >&2
+            echo "Inspect chart tgz attached to the GitHub Release." >&2
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: Phoenix v${{ env.VERSION }}
+          # Only attaches to an existing tag (checked above). Does not create a
+          # new commit on main. If the release already exists, files are updated.
+          draft: false
+          prerelease: ${{ contains(env.VERSION, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            dist/release-${{ env.VERSION }}/binaries/*
+            dist/release-${{ env.VERSION }}/charts/*
+            dist/release-${{ env.VERSION }}/INVENTORY.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1527,10 +1527,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 - **`cmd/kuma-import`:** read-only converter from Uptime Kuma **SQLite file** or
   **MariaDB/MySQL DSN** (Kuma v2) → Phoenix `BackupDocument` JSON → admin backup
   import. See `docs/KUMA-IMPORT.md`.
-- **Release dry-run:** local, owner-triggered via `scripts/release/dry-run.sh` +
-  `docs/RELEASING.md`. There is no CI workflow — `.github/` was removed
-  2026-07-25 (`9de75e9`) and is not coming back. `LICENSE` (MIT) landed the
-  same day.
+- **Release dry-run / publish:** local via `scripts/release/dry-run.sh` and CI via
+  `.github/workflows/release.yml` (dry-run always; publish owner-gated). See
+  `docs/RELEASING.md`. PR/main gate is `.github/workflows/ci.yml` (restored
+  2026-07-28). `LICENSE` (MIT) is present.
 
 ---
 

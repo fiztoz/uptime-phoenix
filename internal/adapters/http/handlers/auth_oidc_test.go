@@ -18,20 +18,23 @@ import (
 )
 
 type oidcFake struct {
-	enabled bool
-	claims  *ports.OIDCClaims
-	exchErr error
-	state   string
-	nonce   string
+	enabled   bool
+	claims    *ports.OIDCClaims
+	exchErr   error
+	state     string
+	nonce     string
+	challenge string
+	verifier  string
 }
 
 func (f *oidcFake) Enabled() bool  { return f.enabled }
 func (f *oidcFake) Issuer() string { return "https://idp.example.com" }
-func (f *oidcFake) AuthCodeURL(state, nonce string) string {
-	f.state, f.nonce = state, nonce
+func (f *oidcFake) AuthCodeURL(state, nonce, codeChallenge string) string {
+	f.state, f.nonce, f.challenge = state, nonce, codeChallenge
 	return "https://idp.example.com/auth?state=" + state
 }
-func (f *oidcFake) Exchange(_ context.Context, _, _ string) (*ports.OIDCClaims, error) {
+func (f *oidcFake) Exchange(_ context.Context, _, _, codeVerifier string) (*ports.OIDCClaims, error) {
+	f.verifier = codeVerifier
 	if f.exchErr != nil {
 		return nil, f.exchErr
 	}
@@ -147,6 +150,12 @@ func TestOIDCLogin_Redirects(t *testing.T) {
 	if !strings.HasPrefix(loc, "https://idp.example.com/auth") {
 		t.Fatalf("location %q", loc)
 	}
+	if fake.challenge == "" {
+		t.Fatal("expected PKCE code_challenge on AuthCodeURL")
+	}
+	if fake.state == "" || fake.nonce == "" {
+		t.Fatal("expected state and nonce")
+	}
 }
 
 func TestOIDCLogin_NotConfigured(t *testing.T) {
@@ -192,6 +201,9 @@ func TestOIDCCallback_SuccessRedirect(t *testing.T) {
 	loc := rec.Header().Get("Location")
 	if !strings.Contains(loc, "#oidc_token=session-jwt") {
 		t.Fatalf("location %q", loc)
+	}
+	if fake.verifier == "" {
+		t.Fatal("expected PKCE code_verifier to be passed into Exchange")
 	}
 }
 

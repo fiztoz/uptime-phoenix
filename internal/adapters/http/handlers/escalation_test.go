@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"sync"
 	"testing"
 
@@ -142,6 +143,32 @@ func (r *escHFakeAssignRepo) PolicyIDForGroup(_ context.Context, groupID int64) 
 	return id, nil
 }
 
+func (r *escHFakeAssignRepo) ListMonitorsByPolicy(_ context.Context, policyID int64) ([]int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]int64, 0)
+	for monitorID, pid := range r.monitors {
+		if pid == policyID {
+			out = append(out, monitorID)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out, nil
+}
+
+func (r *escHFakeAssignRepo) ListGroupsByPolicy(_ context.Context, policyID int64) ([]int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]int64, 0)
+	for groupID, pid := range r.groups {
+		if pid == policyID {
+			out = append(out, groupID)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out, nil
+}
+
 // escHFakeStateRepo is unused by the handler surface but required by the
 // service constructor. Every method fails loudly rather than quietly
 // succeeding: if a handler ever reaches the escalation state store, this suite
@@ -161,6 +188,8 @@ type escHarnessHTTP struct {
 
 	policies *escHFakePolicyRepo
 	assign   *escHFakeAssignRepo
+	monitors *fakeMonitorRepo
+	groups   *fakeMonitorGroupRepo
 }
 
 func newEscHTTPHarness(t *testing.T) *escHarnessHTTP {
@@ -207,6 +236,8 @@ func newEscHTTPHarness(t *testing.T) *escHarnessHTTP {
 		memberToken: memberToken,
 		policies:    newEscHFakePolicyRepo(),
 		assign:      newEscHFakeAssignRepo(),
+		monitors:    monitorRepo,
+		groups:      groupRepo,
 	}
 
 	svc := services.NewEscalationService(
@@ -232,6 +263,7 @@ func newEscHTTPHarness(t *testing.T) *escHarnessHTTP {
 	eg.GET("/:id", escH.Get)
 	eg.PUT("/:id", escH.Update)
 	eg.DELETE("/:id", escH.Delete)
+	eg.GET("/:id/assignments", escH.ListAssignments)
 
 	mg := e.Group("/api/monitors/:id/escalation-policy",
 		middleware.AuthMiddleware(authSvc), requireAdmin, requireNotifications)
@@ -521,10 +553,87 @@ func TestEscalationHandlers_UnauthenticatedIsRejected(t *testing.T) {
 		{http.MethodGet, "/api/escalation-policies"},
 		{http.MethodPost, "/api/escalation-policies"},
 		{http.MethodPut, "/api/monitors/1/escalation-policy"},
+		{http.MethodGet, "/api/escalation-policies/1/assignments"},
 	} {
 		rec := h.do(t, tc.method, tc.path, "", nil)
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("anonymous %s %s = %d; want 401", tc.method, tc.path, rec.Code)
 		}
+	}
+}
+
+func TestEscalationHandlers_ListAssignments(t *testing.T) {
+	h := newEscHTTPHarness(t)
+	created := h.createPolicy(t, h.adminToken, map[string]any{
+		"name": "p", "steps": []map[string]any{{"wait_minutes": 1, "notification_ids": []int64{1}}},
+	})
+	policyID := int64(created["id"].(float64))
+	path := "/api/escalation-policies/1/assignments"
+
+	// Empty — policy exists, nothing assigned yet.
+	rec := h.do(t, http.MethodGet, path, h.adminToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET empty assignments = %d; want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	var empty map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &empty); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if mons, ok := empty["monitors"].([]any); !ok || len(mons) != 0 {
+		t.Fatalf("empty monitors = %v; want []", empty["monitors"])
+	}
+	if grps, ok := empty["groups"].([]any); !ok || len(grps) != 0 {
+		t.Fatalf("empty groups = %v; want []", empty["groups"])
+	}
+
+	// Seed entities the service can resolve by name, then assign via existing PUTs.
+	// Direct map insert so the IDs match the assignment path parameters.
+	h.monitors.byID[1] = &domain.Monitor{ID: 1, Name: "api"}
+	h.groups.byID[1] = &domain.MonitorGroup{ID: 1, Name: "payments"}
+
+	if rec := h.do(t, http.MethodPut, "/api/monitors/1/escalation-policy", h.adminToken, map[string]any{"policy_id": policyID}); rec.Code != http.StatusOK {
+		t.Fatalf("assign monitor = %d; want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	if rec := h.do(t, http.MethodPut, "/api/monitor-groups/1/escalation-policy", h.adminToken, map[string]any{"policy_id": policyID}); rec.Code != http.StatusOK {
+		t.Fatalf("assign group = %d; want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	rec = h.do(t, http.MethodGet, path, h.adminToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET assignments = %d; want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	mons := body["monitors"].([]any)
+	if len(mons) != 1 {
+		t.Fatalf("monitors = %v; want 1", mons)
+	}
+	mon := mons[0].(map[string]any)
+	if mon["id"] != float64(1) || mon["name"] != "api" {
+		t.Fatalf("monitor ref = %v; want id=1 name=api", mon)
+	}
+	grps := body["groups"].([]any)
+	if len(grps) != 1 {
+		t.Fatalf("groups = %v; want 1", grps)
+	}
+	grp := grps[0].(map[string]any)
+	if grp["id"] != float64(1) || grp["name"] != "payments" {
+		t.Fatalf("group ref = %v; want id=1 name=payments", grp)
+	}
+
+	// Unknown policy → 404.
+	if rec := h.do(t, http.MethodGet, "/api/escalation-policies/999/assignments", h.adminToken, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown policy assignments = %d; want 404", rec.Code)
+	}
+
+	// Notification manager may list (same gate as policy List).
+	if rec := h.do(t, http.MethodGet, path, h.notifToken, nil); rec.Code != http.StatusOK {
+		t.Fatalf("notification manager GET assignments = %d; want 200", rec.Code)
+	}
+	// Plain member is denied.
+	if rec := h.do(t, http.MethodGet, path, h.memberToken, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("member GET assignments = %d; want 403", rec.Code)
 	}
 }

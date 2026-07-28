@@ -343,6 +343,10 @@ func NewRouter(
 		escGroup.GET("/:id", escalationHandlers.Get)
 		escGroup.PUT("/:id", escalationHandlers.Update)
 		escGroup.DELETE("/:id", escalationHandlers.Delete)
+		// Reverse listing (policy → monitors/groups). Same gate as List — a
+		// notification manager may see who is assigned. Writes stay admin-only
+		// on the monitor/group assignment routes below.
+		escGroup.GET("/:id/assignments", escalationHandlers.ListAssignments)
 
 		monEscGroup := e.Group("/api/monitors/:id/escalation-policy",
 			middleware.AuthMiddleware(authSvc), requireAdmin, requireNotifications)
@@ -402,9 +406,14 @@ func NewRouter(
 	}
 
 	// Declarative config-as-code — ADMIN-ONLY. Export is secret-redacted;
-	// apply is idempotent and prune-optional. See docs/F5-S14-CONFIG-AS-CODE-CONTRACTS.md.
+	// apply is idempotent and prune-optional. Auth is session JWT or a
+	// write-scoped API key (GitOps CI). See docs/F5-S14-CONFIG-AS-CODE-CONTRACTS.md.
 	if configHandlers != nil && authSvc != nil {
-		configGroup := e.Group("/api/config", middleware.AuthMiddleware(authSvc), requireAdmin)
+		configAuth := middleware.AuthMiddleware(authSvc)
+		if apiKeyRepo != nil {
+			configAuth = middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write")
+		}
+		configGroup := e.Group("/api/config", configAuth, requireAdmin)
 		configGroup.GET("/export", configHandlers.Export)
 		configGroup.POST("/validate", configHandlers.Validate)
 		configGroup.POST("/plan", configHandlers.Plan)

@@ -25,19 +25,22 @@ type OIDCClaims struct {
 // ID-token validation. Implementations live in adapters/auth; the service layer
 // never imports OIDC libraries.
 //
-// State and nonce are minted and verified by the service (HMAC-signed, no
-// server-side store) so multi-pod API deployments can complete callbacks.
+// State, nonce, and the PKCE code_verifier are minted and verified by the
+// service (HMAC-signed blob, no server-side store) so multi-pod API
+// deployments can complete callbacks. Authorization Code + PKCE S256 is always
+// used; IdPs must support S256.
 type OIDCAuthenticator interface {
 	// Enabled reports whether OIDC is configured and ready.
 	Enabled() bool
 	// Issuer returns the configured issuer URL.
 	Issuer() string
 	// AuthCodeURL builds the IdP authorization redirect URL for the given
-	// opaque state string (already signed by the service).
-	AuthCodeURL(state, nonce string) string
-	// Exchange validates the authorization code, verifies the ID token
-	// (including nonce), and returns the claims Phoenix needs.
-	Exchange(ctx context.Context, code, nonce string) (*OIDCClaims, error)
+	// opaque state string (already signed by the service), OIDC nonce, and
+	// PKCE S256 code_challenge (BASE64URL(SHA256(verifier)) without padding).
+	AuthCodeURL(state, nonce, codeChallenge string) string
+	// Exchange validates the authorization code with the PKCE code_verifier,
+	// verifies the ID token (including nonce), and returns the claims Phoenix needs.
+	Exchange(ctx context.Context, code, nonce, codeVerifier string) (*OIDCClaims, error)
 	// EndSessionURL returns an optional IdP logout URL for the given
 	// post-logout redirect. Empty string means the IdP does not advertise one
 	// or logout redirect is not configured.

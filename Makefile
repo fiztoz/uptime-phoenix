@@ -169,10 +169,9 @@ test-frontend: ## Run frontend tests (vitest)
 	cd web && bun run test
 
 # ── Gate ──────────────────────────────────────────────────────────────────────
-# There is no CI. `.github/` was deliberately removed (`9de75e9`, 2026-07-25) and
-# is not coming back — these targets are the *only* gate Phoenix has, and they
-# only run when a human (or an agent acting for one) runs them by hand before
-# merging. See docs/TESTING.md and docs/SPRINT-D-HANDOFF.md §7.
+# CI is restored (owner, 2026-07-28): `.github/workflows/ci.yml` runs the gate on
+# PR/main. These targets remain the offline/local gate — run them before every
+# merge even when CI is green. See docs/TESTING.md and docs/RELEASING.md.
 
 .PHONY: gate
 gate: ## Fast dev-loop gate: build, vet, gofmt, race tests, frontend check/test/build
@@ -193,7 +192,7 @@ gate-fast: ## Run the gate without the race detector (faster feedback)
 	cd web && bun run check && bun run test && bun run build
 
 .PHONY: gate-full
-gate-full: ## The complete pre-merge gate (mirrors docs/SPRINT-D-HANDOFF.md §7, minus actionlint — there is no CI). Run this before every merge.
+gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR/main). Run before every merge.
 	go build ./...
 	go vet ./internal/...
 	@out="$$(gofmt -l internal/)"; if [ -n "$$out" ]; then echo "gofmt needed on:"; echo "$$out"; exit 1; fi
@@ -208,10 +207,10 @@ gate-full: ## The complete pre-merge gate (mirrors docs/SPRINT-D-HANDOFF.md §7,
 	$(GOVULNCHECK) ./...
 	git diff --check
 	@echo ""
-	@echo "gate-full does NOT include: the MariaDB repository contract (needs TEST_MARIADB_DSN),"
-	@echo "the fresh-DB smoke suites in scripts/, or the k6 load ramp. Run those separately —"
-	@echo "see docs/TESTING.md and docs/SPRINT-D-HANDOFF.md §7. None of this runs on push;"
-	@echo "there is no CI. A human is responsible for running gate-full before every merge."
+	@echo "gate-full does NOT include: the MariaDB repository contract (needs TEST_MARIADB_DSN;"
+	@echo "CI runs that in the mariadb-contract job), the fresh-DB smoke suites in scripts/,"
+	@echo "or the k6 load ramp. See docs/TESTING.md. Local gate-full remains required for"
+	@echo "thoroughness and works offline even when GitHub Actions is unavailable."
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 

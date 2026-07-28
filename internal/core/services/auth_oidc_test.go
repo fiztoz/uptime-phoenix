@@ -21,8 +21,13 @@ type fakeOIDC struct {
 	claims  *ports.OIDCClaims
 	exchErr error
 	// lastAuth records AuthCodeURL args.
-	lastState string
-	lastNonce string
+	lastState     string
+	lastNonce     string
+	lastChallenge string
+	// lastExchange records Exchange args.
+	lastCode          string
+	lastExchangeNonce string
+	lastVerifier      string
 }
 
 func (f *fakeOIDC) Enabled() bool { return f.enabled }
@@ -32,21 +37,28 @@ func (f *fakeOIDC) Issuer() string {
 	}
 	return "https://idp.example.com"
 }
-func (f *fakeOIDC) AuthCodeURL(state, nonce string) string {
+func (f *fakeOIDC) AuthCodeURL(state, nonce, codeChallenge string) string {
 	f.lastState = state
 	f.lastNonce = nonce
-	return "https://idp.example.com/auth?state=" + state + "&nonce=" + nonce
+	f.lastChallenge = codeChallenge
+	return "https://idp.example.com/auth?state=" + state + "&nonce=" + nonce + "&code_challenge=" + codeChallenge
 }
-func (f *fakeOIDC) Exchange(_ context.Context, _, nonce string) (*ports.OIDCClaims, error) {
+func (f *fakeOIDC) Exchange(_ context.Context, code, nonce, codeVerifier string) (*ports.OIDCClaims, error) {
+	f.lastCode = code
+	f.lastExchangeNonce = nonce
+	f.lastVerifier = codeVerifier
 	if f.exchErr != nil {
 		return nil, f.exchErr
 	}
 	if f.claims == nil {
 		return nil, errors.New("no claims")
 	}
-	// Simulate adapter nonce check.
-	if f.claims != nil && nonce == "" {
+	// Simulate adapter nonce / PKCE checks.
+	if nonce == "" {
 		return nil, errors.New("empty nonce")
+	}
+	if codeVerifier == "" {
+		return nil, errors.New("empty code_verifier")
 	}
 	c := *f.claims
 	if c.Issuer == "" {
@@ -138,8 +150,11 @@ func TestOIDCState_RoundTripAndExpiry(t *testing.T) {
 	if oidc.lastState == "" || oidc.lastNonce == "" {
 		t.Fatal("expected state and nonce to be recorded")
 	}
+	if oidc.lastChallenge == "" {
+		t.Fatal("expected PKCE code_challenge to be recorded")
+	}
 
-	// Complete with matching claims.
+	// Complete with matching claims — Exchange must receive the PKCE verifier.
 	oidc.claims = &ports.OIDCClaims{
 		Issuer:  "https://idp.example.com",
 		Subject: "sub-1",
@@ -152,11 +167,113 @@ func TestOIDCState_RoundTripAndExpiry(t *testing.T) {
 	if token == "" || user == nil {
 		t.Fatal("expected token and user")
 	}
+	if oidc.lastVerifier == "" {
+		t.Fatal("expected code_verifier to be passed to Exchange")
+	}
+	if oidc.lastExchangeNonce != oidc.lastNonce {
+		t.Fatalf("nonce mismatch: exchange=%q begin=%q", oidc.lastExchangeNonce, oidc.lastNonce)
+	}
 
-	// Expired state: advance clock past TTL via a fresh service with past Exp.
 	// Corrupt signature.
 	if _, _, err := svc.CompleteOIDCLogin(context.Background(), "code", "not.a.valid.state"); !errors.Is(err, services.ErrOIDCInvalidState) {
 		t.Fatalf("bad state: got %v", err)
+	}
+}
+
+func TestOIDCState_IncludesVerifierAndExpires(t *testing.T) {
+	// Fixed clock so we can expire state by constructing a second service
+	// whose Now is past the original Exp.
+	start := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
+	oidc := &fakeOIDC{enabled: true}
+	users := memory.NewUserRepo()
+	idents := memory.NewOIDCIdentityRepo()
+	perms := memory.NewUserPermissionRepo()
+	policy := services.OIDCPolicy{
+		JITEnabled:  true,
+		StateSecret: "test-state-secret",
+		StateTTL:    time.Minute,
+	}
+	svc := services.NewAuthService(
+		users, memory.NewAPIKeyRepo(), &stubAuthenticator{}, &stubTwoFactor{},
+		services.WithClock(fixedClock{t: start}),
+		services.WithOIDC(oidc, idents, perms, policy),
+	)
+
+	_, state, err := svc.BeginOIDCLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oidc.lastChallenge == "" {
+		t.Fatal("expected non-empty code_challenge on AuthCodeURL")
+	}
+
+	// Round-trip succeeds within TTL and carries verifier into Exchange.
+	oidc.claims = &ports.OIDCClaims{Issuer: oidc.Issuer(), Subject: "exp-sub"}
+	if _, _, err := svc.CompleteOIDCLogin(context.Background(), "c", state); err != nil {
+		t.Fatalf("complete within TTL: %v", err)
+	}
+	if oidc.lastVerifier == "" {
+		t.Fatal("verifier missing on Exchange")
+	}
+
+	// Same state after TTL → invalid.
+	expired := services.NewAuthService(
+		users, memory.NewAPIKeyRepo(), &stubAuthenticator{}, &stubTwoFactor{},
+		services.WithClock(fixedClock{t: start.Add(2 * time.Minute)}),
+		services.WithOIDC(oidc, idents, perms, policy),
+	)
+	if _, _, err := expired.CompleteOIDCLogin(context.Background(), "c", state); !errors.Is(err, services.ErrOIDCInvalidState) {
+		t.Fatalf("expired state: got %v", err)
+	}
+}
+
+func TestOIDCBegin_RecordsPKCEChallenge(t *testing.T) {
+	oidc := &fakeOIDC{enabled: true}
+	svc, _, _, _ := newOIDCAuthService(t, oidc, services.OIDCPolicy{JITEnabled: true})
+	url, _, err := svc.BeginOIDCLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oidc.lastChallenge == "" {
+		t.Fatal("AuthCodeURL must receive non-empty code_challenge")
+	}
+	if !strings.Contains(url, "code_challenge="+oidc.lastChallenge) {
+		t.Fatalf("auth URL missing challenge: %q", url)
+	}
+	// Challenge is base64url of a SHA-256 digest → 43 chars, unpadded.
+	if len(oidc.lastChallenge) != 43 {
+		t.Fatalf("challenge length = %d, want 43", len(oidc.lastChallenge))
+	}
+}
+
+func TestOIDCComplete_PassesVerifierToExchange(t *testing.T) {
+	oidc := &fakeOIDC{enabled: true}
+	svc, _, _, _ := newOIDCAuthService(t, oidc, services.OIDCPolicy{JITEnabled: true})
+	ctx := context.Background()
+	_, state, err := svc.BeginOIDCLogin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oidc.claims = &ports.OIDCClaims{Issuer: oidc.Issuer(), Subject: "pkce-sub"}
+	if _, _, err := svc.CompleteOIDCLogin(ctx, "auth-code", state); err != nil {
+		t.Fatal(err)
+	}
+	if oidc.lastCode != "auth-code" {
+		t.Fatalf("code = %q", oidc.lastCode)
+	}
+	if oidc.lastVerifier == "" {
+		t.Fatal("expected non-empty code_verifier on Exchange")
+	}
+	if oidc.lastExchangeNonce != oidc.lastNonce {
+		t.Fatalf("nonce not forwarded: begin=%q exchange=%q", oidc.lastNonce, oidc.lastExchangeNonce)
+	}
+	// Forged / missing state still rejected without calling Exchange successfully.
+	oidc.lastVerifier = ""
+	if _, _, err := svc.CompleteOIDCLogin(ctx, "auth-code", "forged.payload"); !errors.Is(err, services.ErrOIDCInvalidState) {
+		t.Fatalf("forged: %v", err)
+	}
+	if oidc.lastVerifier != "" {
+		t.Fatal("Exchange must not receive verifier for forged state")
 	}
 }
 

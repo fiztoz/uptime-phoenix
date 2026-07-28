@@ -49,6 +49,21 @@ export interface EscalationAssignment {
   policy_id: number;
 }
 
+/** One monitor or folder that is directly assigned to a policy. */
+export interface EscalationEntityRef {
+  id: number;
+  name: string;
+}
+
+/**
+ * Reverse assignment list from GET /api/escalation-policies/:id/assignments.
+ * Direct assignments only — inheritance is never expanded.
+ */
+export interface EscalationPolicyAssignments {
+  monitors: EscalationEntityRef[];
+  groups: EscalationEntityRef[];
+}
+
 export const escalationApi = {
   async list(): Promise<EscalationPolicy[]> {
     return api.get<EscalationPolicy[]>("/escalation-policies");
@@ -71,6 +86,17 @@ export const escalationApi = {
 
   async remove(id: number): Promise<void> {
     return api.del(`/escalation-policies/${id}`);
+  },
+
+  /**
+   * Monitors and folders directly assigned to this policy (no inheritance).
+   */
+  async listAssignments(
+    policyId: number,
+  ): Promise<EscalationPolicyAssignments> {
+    return api.get<EscalationPolicyAssignments>(
+      `/escalation-policies/${policyId}/assignments`,
+    );
   },
 
   /**

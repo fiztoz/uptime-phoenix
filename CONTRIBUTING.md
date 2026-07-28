@@ -25,7 +25,7 @@ make dev-split    # MariaDB + Redis + API hot reload + Vite + worker
 # Or with Docker
 docker compose up # starts app + MariaDB
 
-# Before pushing (no CI — you own the gate)
+# Before pushing (CI runs on PR/main; still run the local gate)
 make gate-fast    # build + vet + tests + web check
 make gate-full    # full pre-merge gate when you can afford it
 ```

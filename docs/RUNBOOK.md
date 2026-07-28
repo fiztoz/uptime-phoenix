@@ -452,6 +452,28 @@ pages. Stable keys (not DB IDs). Admin-only endpoints:
 
 Example document: `examples/config/phoenix-config.example.yaml`.
 
+#### CLI (`cmd/phoenix-config`)
+
+Small HTTP client (no server embed). Auth via admin session JWT (`PHOENIX_TOKEN` /
+`--token`) or write-scoped API key (`PHOENIX_API_KEY` / `--api-key`). Base URL:
+`PHOENIX_URL` / `--url` (default `http://127.0.0.1:3000`).
+
+```bash
+export PHOENIX_URL=http://127.0.0.1:3000
+export PHOENIX_TOKEN=...   # or: export PHOENIX_API_KEY=phx_...
+
+go run ./cmd/phoenix-config validate --file examples/config/phoenix-config.example.yaml
+go run ./cmd/phoenix-config plan     --file examples/config/phoenix-config.example.yaml
+go run ./cmd/phoenix-config plan     --file examples/config/phoenix-config.example.yaml --prune
+go run ./cmd/phoenix-config apply    --file examples/config/phoenix-config.example.yaml --yes
+go run ./cmd/phoenix-config export   --out /secure/path/phoenix-config.yaml   # mode 0600
+```
+
+`apply` requires `--yes`. Plan/apply wrap the file as `{document, prune}` for the API.
+HTTP errors print status + body on stderr; credentials are never logged.
+
+#### curl
+
 ```bash
 # Validate then apply (session JWT or write API key of an admin)
 curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/yaml" \

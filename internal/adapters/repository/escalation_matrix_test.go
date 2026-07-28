@@ -161,6 +161,18 @@ func runEscalationContract(t *testing.T, factory repositoryFactory) {
 			t.Fatalf("monitor assignment = %d; want the replacement %d", got, p2.ID)
 		}
 
+		// Reverse list: after reassignment the monitor lives only under p2.
+		if mons, listErr := repos.escalationAssignments.ListMonitorsByPolicy(ctx, p2.ID); listErr != nil {
+			t.Fatalf("ListMonitorsByPolicy p2: %v", listErr)
+		} else if len(mons) != 1 || mons[0] != monitor.ID {
+			t.Fatalf("ListMonitorsByPolicy p2 = %v; want [%d]", mons, monitor.ID)
+		}
+		if mons, listErr := repos.escalationAssignments.ListMonitorsByPolicy(ctx, p1.ID); listErr != nil {
+			t.Fatalf("ListMonitorsByPolicy p1: %v", listErr)
+		} else if len(mons) != 0 {
+			t.Fatalf("ListMonitorsByPolicy p1 = %v; want empty after replacement", mons)
+		}
+
 		if assignErr := repos.escalationAssignments.AssignGroup(ctx, group.ID, p1.ID); assignErr != nil {
 			t.Fatalf("AssignGroup: %v", assignErr)
 		}
@@ -174,12 +186,22 @@ func runEscalationContract(t *testing.T, factory repositoryFactory) {
 		if gotGroup != p2.ID {
 			t.Fatalf("group assignment = %d; want %d", gotGroup, p2.ID)
 		}
+		if grps, listErr := repos.escalationAssignments.ListGroupsByPolicy(ctx, p2.ID); listErr != nil {
+			t.Fatalf("ListGroupsByPolicy p2: %v", listErr)
+		} else if len(grps) != 1 || grps[0] != group.ID {
+			t.Fatalf("ListGroupsByPolicy p2 = %v; want [%d]", grps, group.ID)
+		}
 
 		if err := repos.escalationAssignments.UnassignMonitor(ctx, monitor.ID); err != nil {
 			t.Fatalf("UnassignMonitor: %v", err)
 		}
 		if _, err := repos.escalationAssignments.PolicyIDForMonitor(ctx, monitor.ID); !errors.Is(err, ports.ErrNotFound) {
 			t.Fatalf("after unassign err = %v; want ErrNotFound", err)
+		}
+		if mons, listErr := repos.escalationAssignments.ListMonitorsByPolicy(ctx, p2.ID); listErr != nil {
+			t.Fatalf("ListMonitorsByPolicy after unassign: %v", listErr)
+		} else if len(mons) != 0 {
+			t.Fatalf("ListMonitorsByPolicy after unassign = %v; want empty", mons)
 		}
 		// Unassigning twice is not an error.
 		if err := repos.escalationAssignments.UnassignMonitor(ctx, monitor.ID); err != nil {

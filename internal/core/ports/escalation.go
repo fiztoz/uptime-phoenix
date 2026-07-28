@@ -58,6 +58,14 @@ type EscalationAssignmentRepository interface {
 	// PolicyIDForGroup returns the group's directly assigned policy id, or
 	// ErrNotFound when the group has none.
 	PolicyIDForGroup(ctx context.Context, groupID int64) (int64, error)
+
+	// ListMonitorsByPolicy returns the monitor IDs that are directly assigned
+	// to this policy, ordered by monitor_id. It does NOT expand group
+	// inheritance — only rows in the link table.
+	ListMonitorsByPolicy(ctx context.Context, policyID int64) ([]int64, error)
+	// ListGroupsByPolicy returns the group IDs that are directly assigned to
+	// this policy, ordered by group_id.
+	ListGroupsByPolicy(ctx context.Context, policyID int64) ([]int64, error)
 }
 
 // AlertEscalationRepository persists one alert's progress through a policy.

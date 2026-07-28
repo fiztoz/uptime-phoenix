@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -179,6 +180,32 @@ func (r *escFakeAssignRepo) PolicyIDForGroup(_ context.Context, groupID int64) (
 		return 0, ports.ErrNotFound
 	}
 	return id, nil
+}
+
+func (r *escFakeAssignRepo) ListMonitorsByPolicy(_ context.Context, policyID int64) ([]int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]int64, 0)
+	for monitorID, pid := range r.monitors {
+		if pid == policyID {
+			out = append(out, monitorID)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out, nil
+}
+
+func (r *escFakeAssignRepo) ListGroupsByPolicy(_ context.Context, policyID int64) ([]int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]int64, 0)
+	for groupID, pid := range r.groups {
+		if pid == policyID {
+			out = append(out, groupID)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out, nil
 }
 
 // escFakeStateRepo implements the compare-and-set lease for real. A fake that
@@ -1067,5 +1094,63 @@ func TestEscalationAssign_RejectsUnknownPolicy(t *testing.T) {
 	}
 	if err := h.svc.AssignGroup(context.Background(), 1, 4242); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("assign group unknown policy err = %v; want ErrNotFound", err)
+	}
+}
+
+func TestEscalationListAssignments_EmptyAndUnknown(t *testing.T) {
+	h := newEscHarness(t)
+	ctx := context.Background()
+	p := h.policies.seed(true, step(1, 5, 1))
+
+	view, err := h.svc.ListAssignments(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("ListAssignments empty: %v", err)
+	}
+	if len(view.Monitors) != 0 || len(view.Groups) != 0 {
+		t.Fatalf("empty assignments = %+v; want empty", view)
+	}
+
+	if _, err := h.svc.ListAssignments(ctx, 9999); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("unknown policy err = %v; want ErrNotFound", err)
+	}
+}
+
+func TestEscalationListAssignments_AfterAssign(t *testing.T) {
+	h := newEscHarness(t)
+	ctx := context.Background()
+	p := h.policies.seed(true, step(1, 5, 1))
+	m := h.monitor(nil)
+	h.group(10, nil)
+
+	if err := h.svc.AssignMonitor(ctx, m.ID, p.ID); err != nil {
+		t.Fatalf("AssignMonitor: %v", err)
+	}
+	if err := h.svc.AssignGroup(ctx, 10, p.ID); err != nil {
+		t.Fatalf("AssignGroup: %v", err)
+	}
+
+	view, err := h.svc.ListAssignments(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("ListAssignments: %v", err)
+	}
+	if len(view.Monitors) != 1 || view.Monitors[0].ID != m.ID || view.Monitors[0].Name != m.Name {
+		t.Fatalf("monitors = %+v; want [{%d %q}]", view.Monitors, m.ID, m.Name)
+	}
+	if len(view.Groups) != 1 || view.Groups[0].ID != 10 || view.Groups[0].Name != "group-10" {
+		t.Fatalf("groups = %+v; want [{10 group-10}]", view.Groups)
+	}
+
+	// Direct assignments only — a sibling policy's links must not appear.
+	other := h.policies.seed(true, step(1, 1, 1))
+	m2 := &domain.Monitor{ID: 2, Name: "other-monitor"}
+	h.monitors.byID[m2.ID] = m2
+	_ = h.svc.AssignMonitor(ctx, m2.ID, other.ID)
+
+	view, err = h.svc.ListAssignments(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("ListAssignments again: %v", err)
+	}
+	if len(view.Monitors) != 1 || view.Monitors[0].ID != m.ID {
+		t.Fatalf("after sibling assign, monitors = %+v; want only monitor 1", view.Monitors)
 	}
 }

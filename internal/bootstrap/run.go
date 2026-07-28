@@ -16,7 +16,8 @@ import (
 
 	"github.com/uptrace/bun"
 
-	phxassets "phoenix"
+	// Module-root package is `assets` (//go:embed web/dist); import path is the module path.
+	phxassets "github.com/fiztoz/uptime-phoenix"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/auth"
 	checkeradapter "github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/eventbus"

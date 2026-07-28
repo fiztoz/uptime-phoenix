@@ -33,7 +33,7 @@ type OIDCConfig struct {
 }
 
 // OIDCProvider implements ports.OIDCAuthenticator using go-oidc discovery and
-// the standard Authorization Code flow.
+// Authorization Code + PKCE S256. IdPs must support code_challenge_method=S256.
 //
 // Construction performs discovery against the issuer. The provider is safe for
 // concurrent use after NewOIDCProvider returns.
@@ -110,9 +110,13 @@ func (p *OIDCProvider) Issuer() string {
 //
 // nonce is passed as an OIDC auth request parameter so the ID token must
 // echo it; state is the opaque CSRF blob minted by the service.
-func (p *OIDCProvider) AuthCodeURL(state, nonce string) string {
+// codeChallenge is the PKCE S256 challenge (BASE64URL(SHA256(verifier))).
+// IdPs must support code_challenge_method=S256.
+func (p *OIDCProvider) AuthCodeURL(state, nonce, codeChallenge string) string {
 	opts := []oauth2.AuthCodeOption{
 		oidc.Nonce(nonce),
+		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 	}
 	for k, v := range p.cfg.ExtraAuthParams {
 		if k == "" {
@@ -123,12 +127,16 @@ func (p *OIDCProvider) AuthCodeURL(state, nonce string) string {
 	return p.oauth2.AuthCodeURL(state, opts...)
 }
 
-// Exchange redeems the authorization code and verifies the ID token (including nonce).
-func (p *OIDCProvider) Exchange(ctx context.Context, code, nonce string) (*ports.OIDCClaims, error) {
+// Exchange redeems the authorization code (with PKCE code_verifier) and
+// verifies the ID token (including nonce).
+func (p *OIDCProvider) Exchange(ctx context.Context, code, nonce, codeVerifier string) (*ports.OIDCClaims, error) {
 	if code == "" {
 		return nil, fmt.Errorf("oidc: empty authorization code")
 	}
-	token, err := p.oauth2.Exchange(ctx, code)
+	if codeVerifier == "" {
+		return nil, fmt.Errorf("oidc: empty PKCE code_verifier")
+	}
+	token, err := p.oauth2.Exchange(ctx, code, oauth2.VerifierOption(codeVerifier))
 	if err != nil {
 		return nil, fmt.Errorf("oidc: code exchange: %w", err)
 	}

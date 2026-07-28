@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { escalationApi, type EscalationPolicy } from '$lib/api/escalation';
 	import EscalationPolicyForm from '$lib/components/EscalationPolicyForm.svelte';
+	import EscalationPolicyAssignments from '$lib/components/EscalationPolicyAssignments.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import { auth } from '$lib/stores/auth.svelte.ts';
@@ -21,6 +22,9 @@
 	const canManage = $derived(
 		(auth.user?.is_admin ?? false) || (auth.user?.can_manage_notifications ?? false),
 	);
+	// Assignment rewires what a monitor does on failure — backend is admin-only
+	// even for holders of can_manage_notifications.
+	const canAssign = $derived(auth.user?.is_admin ?? false);
 
 	async function load() {
 		loading = true;
@@ -181,6 +185,8 @@
 					{#if p.steps.length > 0}
 						<p class="mt-3 font-mono text-xs text-muted-foreground">{ladderSummary(p)}</p>
 					{/if}
+
+					<EscalationPolicyAssignments policyId={p.id} canAssign={canAssign} />
 
 					<div class="mt-4 flex items-center gap-2 border-t border-border pt-3">
 						{#if canManage}
