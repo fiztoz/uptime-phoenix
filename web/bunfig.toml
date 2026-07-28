@@ -1,0 +1,3 @@
+[test]
+# Rune modules (*.svelte.ts) are compiler syntax — see bun-svelte-runes.plugin.ts.
+preload = ["./bun-svelte-runes.plugin.ts"]

@@ -1,0 +1,440 @@
+/**
+ * Runes-based WebSocket store — single source of real-time state.
+ *
+ * Usage:
+ *   import { realtime } from '$lib/stores/ws.svelte.js';
+ *   realtime.connect();
+ *   $effect(() => { console.log(realtime.status); });
+ */
+import type { Status } from "$lib/monitor-types";
+
+// Canonical Status lives in monitor-types.ts (single source of truth). Re-exported
+// here so existing `import type { Status } from "$lib/stores/ws.svelte.js"` (if any)
+// and local usages keep working.
+export type { Status };
+
+export type WsStatus =
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "reconnecting";
+
+export interface Monitor {
+  id: number;
+  name: string;
+  type: string;
+  /**
+   * Monitor's own display state — mirrors the latest Heartbeat's domain Status
+   * (up/down/pending/maintenance) plus one frontend-only addition: "paused"
+   * means `active === false`, a state no Heartbeat ever reports.
+   */
+  status: "up" | "down" | "pending" | "maintenance" | "paused";
+  active?: boolean;
+  /** Seconds between checks (top-level API/WS field, not inside config). */
+  interval?: number;
+  /** Check timeout in seconds (top-level API/WS field). */
+  timeout?: number;
+  target?: string;
+  config: Record<string, unknown>;
+  description?: string;
+  /** Seconds between retries after a failed check. */
+  retry_interval?: number;
+  /** Retries before marking the monitor DOWN. */
+  max_retries?: number;
+  /** Re-notify every N consecutive failures (0 = notify once). */
+  resend_interval?: number;
+  /** Flip UP/DOWN interpretation of the check result. */
+  upside_down?: boolean;
+  /** HTTP: skip TLS certificate verification — insecure (top-level, not in config). */
+  tls_ignore?: boolean;
+  /** HTTP: opt into certificate-expiry alerts (30/14/7 day thresholds). */
+  cert_expiry_notify?: boolean;
+  /** HTTP: accepted status code ranges, e.g. ["200-299", "301"] (top-level, not in config). */
+  accepted_statuscodes?: string[];
+  tags?: MonitorTagView[];
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * A tag as EMBEDDED on a monitor payload, on both the REST list/detail response
+ * (internal/adapters/http/handlers/monitor.go MonitorView.Tags) and the WS wire
+ * (internal/adapters/ws/wire.go). Always an array — never null.
+ *
+ * `id`/`name`/`color` are the TAG's; `value` is the per-monitor annotation from
+ * the join row (empty string when unset).
+ *
+ * Distinct from `MonitorTag` in $lib/api/tags.ts, which is the join ROW returned
+ * by `GET /monitors/:id/tags` (`{ monitor_id, tag_id, value, tag }`).
+ */
+export interface MonitorTagView {
+  id: number;
+  name: string;
+  color: string;
+  value: string;
+}
+
+/**
+ * Live heartbeat delivered over the WS `heartbeat` event (internal/adapters/ws/wire.go
+ * HeartbeatView): monitor_id, status, time, ping, msg. This is a lighter subset of the
+ * full REST Heartbeat record (no id/important) — normalized from the wire payload by
+ * normalizeHeartbeat() below. `status` uses the same canonical Status union as the REST
+ * API; note the WS wire layer sends "paused" (not "maintenance") for maintenance-window
+ * heartbeats, which normalizeHeartbeat maps back to "maintenance" for consistency.
+ */
+export interface Heartbeat {
+  monitor_id: number;
+  status: Status;
+  time: string;
+  ping: number;
+  msg?: string;
+}
+
+export interface StatsUpdate {
+  total: number;
+  up: number;
+  down: number;
+  pending: number;
+}
+
+export interface WsEvent {
+  type: string;
+  payload: unknown;
+}
+
+export interface WsDebugEvent {
+  type: string;
+  monitorId?: number;
+  at: string;
+}
+
+function appendWsDebugEvent(type: string, monitorId?: number) {
+  if (typeof globalThis === "undefined") return;
+  const w = globalThis as typeof globalThis & {
+    __phoenixWsEventLog?: WsDebugEvent[];
+  };
+  if (!w.__phoenixWsEventLog) w.__phoenixWsEventLog = [];
+  w.__phoenixWsEventLog.push({
+    type,
+    monitorId,
+    at: new Date().toISOString(),
+  });
+}
+
+/**
+ * Map a lowercase wire status string to the canonical Status union. The WS wire
+ * layer (internal/adapters/ws/wire.go statusToWire) sends "paused" — not
+ * "maintenance" — for maintenance-window heartbeats; map it back here so the
+ * live map matches the canonical domain Status used by the REST API.
+ */
+function normalizeWireStatus(statusRaw: string): Status {
+  switch (statusRaw) {
+    case "down":
+      return "down";
+    case "pending":
+      return "pending";
+    case "maintenance":
+    case "paused":
+      return "maintenance";
+    default:
+      return "up";
+  }
+}
+
+/** Normalize heartbeat wire payloads (Redis / map shapes use MonitorID etc.). */
+function normalizeHeartbeat(raw: unknown): Heartbeat | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const monitorId = Number(o.monitor_id ?? o.MonitorID ?? o.monitorId);
+  if (!Number.isFinite(monitorId) || monitorId <= 0) return null;
+  const statusField = o.status ?? o.Status ?? "";
+  const statusRaw = (
+    typeof statusField === "string" ? statusField : ""
+  ).toLowerCase();
+  const status: Status = normalizeWireStatus(statusRaw);
+  const time = String(o.time ?? o.Time ?? "");
+  const ping = Number(o.ping ?? o.Ping ?? 0);
+  const msg = o.msg ?? o.Msg;
+  return {
+    monitor_id: monitorId,
+    status,
+    time,
+    ping: Number.isFinite(ping) ? ping : 0,
+    msg: typeof msg === "string" && msg ? msg : undefined,
+  };
+}
+
+function createWsStore() {
+  let status = $state<WsStatus>("disconnected");
+  let monitors = $state<Monitor[]>([]);
+  /** True after the server has sent the initial (possibly empty) monitor list. */
+  let hasMonitorSnapshot = $state(false);
+  let heartbeats = $state<Map<number, Heartbeat>>(new Map());
+  /** Bumped on every heartbeat so UIs can subscribe without relying on monitors identity. */
+  let heartbeatSeq = $state(0);
+  let reconnectAttempt = $state(0);
+  let lastError = $state<string | null>(null);
+  let stats = $state<StatsUpdate>({ total: 0, up: 0, down: 0, pending: 0 });
+
+  let isConnected = $derived(status === "connected");
+
+  let ws: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let connectUrl = "";
+
+  function getWebSocketUrl(): string {
+    if (connectUrl) return connectUrl;
+    const protocol = location.protocol === "https:" ? "wss" : "ws";
+    const base = `${protocol}://${location.host}/ws`;
+    const auth = localStorage.getItem("phoenix_jwt");
+    connectUrl = auth ? `${base}?token=${encodeURIComponent(auth)}` : base;
+    return connectUrl;
+  }
+
+  /**
+   * Parse an ArrayBuffer message as a typed JSON event.
+   * The backend sends binary frames with a 4-byte JSON length prefix.
+   */
+  function parseArrayBuffer(data: ArrayBuffer): WsEvent | null {
+    try {
+      const view = new DataView(data);
+      if (view.byteLength < 4) return null;
+      const jsonLen = view.getUint32(0, true);
+      const decoder = new TextDecoder();
+      const jsonStr = decoder.decode(data.slice(4, 4 + jsonLen));
+      return JSON.parse(jsonStr) as WsEvent;
+    } catch {
+      return null;
+    }
+  }
+
+  function handleEvent(event: WsEvent): void {
+    switch (event.type) {
+      case "monitor.list": {
+        const list = event.payload as Monitor[];
+        monitors = list;
+        hasMonitorSnapshot = true;
+        for (const m of list) appendWsDebugEvent("monitor.list", m.id);
+        break;
+      }
+      case "monitor.create":
+      case "monitor.update": {
+        const m = event.payload as Monitor;
+        monitors = [...monitors.filter((x) => x.id !== m.id), m];
+        appendWsDebugEvent(event.type, m.id);
+        break;
+      }
+      case "monitor.delete": {
+        const id = event.payload as number;
+        monitors = monitors.filter((x) => x.id !== id);
+        heartbeats = new Map([...heartbeats].filter(([k]) => k !== id));
+        break;
+      }
+      case "heartbeat": {
+        const hb = normalizeHeartbeat(event.payload);
+        if (!hb) break;
+        appendWsDebugEvent("heartbeat", hb.monitor_id);
+        const next = new Map(heartbeats);
+        next.set(hb.monitor_id, hb);
+        heartbeats = next;
+        heartbeatSeq += 1;
+        // Keep monitor status in sync with the latest check result (skip paused).
+        if (hb.status === "up" || hb.status === "down") {
+          // Narrow into a local so the union stays "up" | "down" inside the
+          // closure below (property narrowing on `hb.status` does not persist
+          // across the .map() callback boundary).
+          const syncedStatus = hb.status;
+          monitors = monitors.map((m) =>
+            m.id === hb.monitor_id &&
+            m.active !== false &&
+            m.status !== "paused"
+              ? { ...m, status: syncedStatus }
+              : m,
+          );
+        }
+        break;
+      }
+      case "status.change": {
+        const { monitor_id, status: newStatus } = event.payload as {
+          monitor_id: number;
+          status: string;
+        };
+        appendWsDebugEvent("status.change", monitor_id);
+        monitors = monitors.map((m) =>
+          m.id === monitor_id
+            ? { ...m, status: newStatus as Monitor["status"] }
+            : m,
+        );
+        break;
+      }
+      case "stats.update": {
+        const s = event.payload as StatsUpdate;
+        stats = {
+          total: s.total ?? 0,
+          up: s.up ?? 0,
+          down: s.down ?? 0,
+          pending: s.pending ?? 0,
+        };
+        void import("$lib/utils/favicon.svelte.ts").then(
+          ({ updateFaviconBadge }) => updateFaviconBadge(stats.down),
+        );
+        break;
+      }
+      default:
+        // Unknown events are silently ignored for forward compatibility
+        break;
+    }
+  }
+
+  function scheduleReconnect(): void {
+    status = "reconnecting";
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    const delay = Math.min(1000 * 2 ** reconnectAttempt, 30_000);
+    reconnectTimer = setTimeout(() => {
+      reconnectAttempt++;
+      lastError = `Reconnecting (attempt ${reconnectAttempt})`;
+      connect();
+    }, delay);
+  }
+
+  function connect(url?: string): void {
+    if (url) connectUrl = url;
+    disconnect();
+
+    const auth = localStorage.getItem("phoenix_jwt");
+    if (!auth) {
+      status = "disconnected";
+      lastError = "No auth token";
+      return; // do not connect without token
+    }
+
+    const wsUrl = getWebSocketUrl();
+    status = "connecting";
+    lastError = null;
+
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
+
+      ws.onopen = () => {
+        status = "connected";
+        reconnectAttempt = 0;
+        lastError = null;
+      };
+
+      ws.onmessage = (e: MessageEvent) => {
+        let event: WsEvent | null = null;
+
+        if (e.data instanceof ArrayBuffer) {
+          event = parseArrayBuffer(e.data);
+        } else if (typeof e.data === "string") {
+          try {
+            event = JSON.parse(e.data) as WsEvent;
+          } catch {
+            return;
+          }
+        }
+
+        if (event) handleEvent(event);
+      };
+
+      ws.onclose = (e: CloseEvent) => {
+        status = "disconnected";
+        ws = null;
+        // Auth failure close codes from backend (4001-4003)
+        if (e.code >= 4001 && e.code <= 4003) {
+          localStorage.removeItem("phoenix_jwt");
+          if (
+            typeof window !== "undefined" &&
+            !location.pathname.startsWith("/login")
+          ) {
+            location.href = "/login";
+          }
+          return;
+        }
+        if (e.code !== 1000 && e.code !== 1001) {
+          // 1000 = normal close, 1001 = going away (page navigation)
+          scheduleReconnect();
+        }
+      };
+
+      ws.onerror = () => {
+        lastError = "WebSocket connection error";
+      };
+    } catch (err) {
+      status = "disconnected";
+      lastError = err instanceof Error ? err.message : String(err);
+      scheduleReconnect();
+    }
+  }
+
+  function disconnect(): void {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (ws) {
+      ws.onclose = null; // prevent reconnect on intentional close
+      ws.close(1000);
+      ws = null;
+    }
+    status = "disconnected";
+  }
+
+  function send(data: string | Record<string, unknown>): void {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(typeof data === "string" ? data : JSON.stringify(data));
+    }
+  }
+
+  /** Apply a local monitor patch (e.g. optimistic pause/resume before WS catches up). */
+  function patchMonitor(monitor: Monitor): void {
+    monitors = [...monitors.filter((x) => x.id !== monitor.id), monitor];
+  }
+
+  return {
+    get status() {
+      return status;
+    },
+    get isConnected() {
+      return isConnected;
+    },
+    get monitors() {
+      return monitors;
+    },
+    get hasMonitorSnapshot() {
+      return hasMonitorSnapshot;
+    },
+    get heartbeats() {
+      return heartbeats;
+    },
+    get heartbeatSeq() {
+      return heartbeatSeq;
+    },
+    get reconnectAttempt() {
+      return reconnectAttempt;
+    },
+    get lastError() {
+      return lastError;
+    },
+    get stats() {
+      return stats;
+    },
+    connect,
+    disconnect,
+    send,
+    patchMonitor,
+  };
+}
+
+/** Singleton WebSocket store — import and use anywhere. */
+export const realtime = createWsStore();
+
+/** E2E hook: inspect WS hydration without importing the module in Playwright. */
+if (typeof globalThis !== "undefined") {
+  (
+    globalThis as typeof globalThis & {
+      __phoenixRealtime?: typeof realtime;
+    }
+  ).__phoenixRealtime = realtime;
+}

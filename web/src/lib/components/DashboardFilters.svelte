@@ -1,0 +1,212 @@
+<script lang="ts">
+	import {
+		STATUS_FILTERS,
+		UNGROUPED,
+		hasActiveFilters,
+		type FilterCriteria,
+		type MonitorStatus,
+		type NormalizedTag,
+	} from '$lib/monitor-filter';
+	import { Search, X } from '@lucide/svelte';
+	import Select from '$lib/components/Select.svelte';
+	import MultiSelect from '$lib/components/MultiSelect.svelte';
+	import * as m from '$lib/paraglide/messages.js';
+
+	interface Props {
+		criteria: FilterCriteria;
+		/** Indented tree labels from buildGroupOptions() — [] hides the group select. */
+		groupOptions: { id: number; name: string; depth: number }[];
+		/** Tag catalog for the multi-select. Empty → "No tags created yet". */
+		tagOptions: NormalizedTag[];
+		/** Distinct monitor types actually present — [] hides the type select. */
+		typeOptions: string[];
+		shown: number;
+		total: number;
+		/** Per-status monitor counts for the dropdown. */
+		statusCounts?: Record<MonitorStatus, number>;
+		/** Per-tag monitor counts for the dropdown. */
+		tagCounts?: Record<string, number>;
+		onchange: (next: FilterCriteria) => void;
+	}
+
+	let {
+		criteria,
+		groupOptions,
+		tagOptions,
+		typeOptions,
+		shown,
+		total,
+		statusCounts = { up: 0, down: 0, pending: 0, maintenance: 0, paused: 0 },
+		tagCounts = {},
+		onchange,
+	}: Props = $props();
+
+	const active = $derived(hasActiveFilters(criteria));
+
+	const STATUS_LABELS = $derived<Record<string, string>>({
+		up: m.dashboard_up(),
+		down: m.status_down(),
+		pending: m.status_pending(),
+		maintenance: m.status_maintenance(),
+		paused: m.status_paused(),
+	});
+
+	const STATUS_DOT_CLASSES: Record<string, string> = {
+		up: 'dot-up',
+		down: 'dot-down',
+		pending: 'dot-warn',
+		maintenance: 'dot-info',
+		paused: 'dot-muted',
+	};
+
+	/** NBSP-padded labels for the group tree. */
+	function groupLabel(depth: number, name: string): string {
+		return '\u00A0\u00A0'.repeat(depth) + name;
+	}
+
+	function patch(part: Partial<FilterCriteria>) {
+		onchange({ ...criteria, ...part });
+	}
+
+	function selectGroup(raw: string) {
+		if (raw === '') patch({ group: null });
+		else if (raw === UNGROUPED) patch({ group: UNGROUPED });
+		else patch({ group: Number(raw) });
+	}
+
+	function toggleStatus(value: string) {
+		const status = value as MonitorStatus;
+		const next = criteria.statuses.includes(status)
+			? criteria.statuses.filter((s) => s !== status)
+			: [...criteria.statuses, status];
+		patch({ statuses: next });
+	}
+
+	function resetStatuses() {
+		patch({ statuses: [] });
+	}
+
+	function toggleTag(value: string) {
+		const next = criteria.tags.includes(value)
+			? criteria.tags.filter((t) => t !== value)
+			: [...criteria.tags, value];
+		patch({ tags: next });
+	}
+
+	function resetTags() {
+		patch({ tags: [] });
+	}
+
+	const groupValue = $derived(criteria.group === null ? '' : String(criteria.group));
+
+	const groupItems = $derived([
+		{ value: '', label: m.dashboard_filters_all_groups() },
+		...groupOptions.map((g) => ({ value: String(g.id), label: groupLabel(g.depth, g.name) })),
+		{ value: UNGROUPED, label: m.dashboard_filters_ungrouped() },
+	]);
+
+	const statusItems = $derived(
+		STATUS_FILTERS.map((s) => ({
+			value: s,
+			label: STATUS_LABELS[s],
+			count: statusCounts[s] ?? 0,
+			dotClass: STATUS_DOT_CLASSES[s],
+		})),
+	);
+
+	const tagItems = $derived(
+		tagOptions.map((t) => ({
+			value: t.name,
+			label: t.name,
+			count: tagCounts[t.name] ?? 0,
+			dotColor: t.color || undefined,
+		})),
+	);
+
+	const typeItems = $derived([
+		{ value: '', label: m.dashboard_filters_all_types() },
+		...typeOptions.map((t) => ({ value: t, label: t.toUpperCase() })),
+	]);
+</script>
+
+<div class="rounded-xl border border-border bg-card p-3">
+	<div class="flex flex-wrap items-center gap-2">
+		<!-- Search: name (contains) + target/URL -->
+		<div class="relative min-w-56 flex-1">
+			<Search
+				class="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+			/>
+			<input
+				type="search"
+				placeholder={m.dashboard_filters_search_placeholder()}
+				value={criteria.search}
+				oninput={(e) => patch({ search: e.currentTarget.value })}
+				aria-label={m.dashboard_filters_search_aria()}
+				class="h-9 w-full rounded-lg border border-border bg-surface pl-8 pr-2.5 text-sm text-foreground placeholder:text-faint transition-colors hover:border-border/80 focus:outline-none focus:ring-2 focus:ring-ring"
+			/>
+		</div>
+
+		{#if groupOptions.length > 0}
+			<Select
+				options={groupItems}
+				value={groupValue}
+				onValueChange={selectGroup}
+				ariaLabel={m.dashboard_filters_group_aria()}
+				size="sm"
+			/>
+		{/if}
+
+		<MultiSelect
+			options={tagItems}
+			selected={criteria.tags}
+			onToggle={toggleTag}
+			onReset={resetTags}
+			placeholder={m.dashboard_filters_all_tags()}
+			emptyMessage={m.dashboard_filters_no_tags()}
+			ariaLabel={m.dashboard_filters_tags_aria()}
+			size="sm"
+		/>
+
+		<MultiSelect
+			options={statusItems}
+			selected={criteria.statuses}
+			onToggle={toggleStatus}
+			onReset={resetStatuses}
+			placeholder={m.dashboard_filters_all_statuses()}
+			ariaLabel={m.dashboard_filters_statuses_aria()}
+			size="sm"
+		/>
+
+		{#if typeOptions.length > 1}
+			<Select
+				options={typeItems}
+				value={criteria.type}
+				onValueChange={(v) => patch({ type: v })}
+				ariaLabel={m.dashboard_filters_type_aria()}
+				size="sm"
+			/>
+		{/if}
+	</div>
+
+	<div class="mt-2.5 flex items-center justify-between gap-3 border-t border-border pt-2.5">
+		<p class="text-xs text-muted-foreground tabular-nums">
+			{#if active}
+				{m.dashboard_filters_showing_pre()} <span class="font-semibold text-foreground">{shown}</span> {m.dashboard_filters_showing_of()} {total}
+				{total === 1 ? m.group_card_monitor_singular() : m.group_card_monitor_plural()}
+			{:else}
+				{total}
+				{total === 1 ? m.group_card_monitor_singular() : m.group_card_monitor_plural()}
+			{/if}
+		</p>
+		{#if active}
+			<button
+				type="button"
+				onclick={() => onchange({ search: '', group: null, tags: [], statuses: [], type: '' })}
+				class="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+			>
+				<X class="h-3 w-3" />
+				{m.dashboard_filters_clear()}
+			</button>
+		{/if}
+	</div>
+</div>

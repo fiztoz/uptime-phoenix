@@ -1,0 +1,237 @@
+@import "tailwindcss";
+
+/* Self-hosted Inter variable font (web/static/fonts/InterVariable.woff2) */
+@font-face {
+  font-family: "Inter var";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+}
+
+/*
+  Phoenix design system — "Premium dark console".
+  Dark is the default experience (the theme store adds `.dark` on load).
+  Light is a clean neutral counterpart so the toggle works.
+
+  The @theme block holds the shared tokens + LIGHT palette (and generates the
+  utility classes). The `.dark` block below overrides the color variables for
+  the premium dark surface system.
+*/
+@theme {
+  /* Surfaces (light) — eye-comfort: no pure white, soft dark text */
+  --color-background: oklch(0.985 0.002 286);
+  --color-foreground: oklch(0.19 0.008 286);
+  --color-surface: oklch(0.975 0.003 286);
+  --color-elevated: oklch(0.985 0.002 286);
+  --color-card: oklch(0.975 0.003 286);
+  --color-card-foreground: oklch(0.19 0.008 286);
+
+  --color-muted: oklch(0.96 0.004 286);
+  --color-muted-foreground: oklch(0.5 0.012 286);
+  --color-faint: oklch(0.62 0.01 286);
+
+  --color-primary: oklch(0.62 0.2 32);
+  --color-primary-foreground: oklch(0.99 0 0);
+  --color-secondary: oklch(0.96 0.004 286);
+  --color-secondary-foreground: oklch(0.22 0.008 286);
+  --color-accent: oklch(0.95 0.006 286);
+  --color-accent-foreground: oklch(0.19 0.008 286);
+
+  --color-destructive: oklch(0.58 0.21 25);
+  --color-destructive-foreground: oklch(0.99 0 0);
+
+  --color-border: oklch(0.22 0.01 286 / 0.1);
+  --color-input: oklch(0.22 0.01 286 / 0.14);
+  --color-ring: oklch(0.62 0.2 32 / 0.45);
+
+  --color-sidebar: oklch(0.99 0.002 286);
+  --color-sidebar-foreground: oklch(0.19 0.008 286);
+
+  /* Status (light) */
+  --color-success: oklch(0.6 0.15 150);
+  --color-warning: oklch(0.7 0.15 75);
+  --color-danger: oklch(0.58 0.21 25);
+  --color-info: oklch(0.56 0.13 250);
+
+  --radius: 0.75rem;
+
+  --font-sans:
+    "Inter var", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+
+/* ── Premium dark palette ─────────────────────────────────────────────── */
+.dark {
+  --color-background: oklch(0.165 0.004 286);
+  --color-foreground: oklch(0.97 0 0);
+  --color-surface: oklch(0.205 0.005 286);
+  --color-elevated: oklch(0.235 0.006 286);
+  --color-card: oklch(0.198 0.005 286);
+  --color-card-foreground: oklch(0.97 0 0);
+
+  --color-muted: oklch(0.27 0.006 286);
+  --color-muted-foreground: oklch(0.71 0.012 286);
+  --color-faint: oklch(0.55 0.01 286);
+
+  --color-primary: oklch(0.68 0.19 35);
+  --color-primary-foreground: oklch(0.99 0 0);
+  --color-secondary: oklch(0.235 0.006 286);
+  --color-secondary-foreground: oklch(0.97 0 0);
+  --color-accent: oklch(0.255 0.006 286);
+  --color-accent-foreground: oklch(0.98 0 0);
+
+  --color-destructive: oklch(0.64 0.21 25);
+  --color-destructive-foreground: oklch(0.99 0 0);
+
+  --color-border: oklch(1 0 0 / 0.09);
+  --color-input: oklch(1 0 0 / 0.13);
+  --color-ring: oklch(0.68 0.19 35 / 0.5);
+
+  --color-sidebar: oklch(0.178 0.004 286);
+  --color-sidebar-foreground: oklch(0.97 0 0);
+
+  --color-success: oklch(0.74 0.17 155);
+  --color-warning: oklch(0.8 0.16 80);
+  --color-danger: oklch(0.64 0.21 25);
+  --color-info: oklch(0.72 0.13 250);
+}
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── Base ─────────────────────────────────────────────────────────────── */
+* {
+  border-color: var(--color-border);
+  scrollbar-width: thin;
+  scrollbar-color: oklch(1 0 0 / 0.12) transparent;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background-color: oklch(0.68 0.19 35 / 0.3);
+  color: var(--color-foreground);
+}
+
+/* Tabular numbers for metrics */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Section eyebrow labels */
+.eyebrow {
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+  font-weight: 600;
+}
+
+/* Refined focus ring */
+:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-background),
+    0 0 0 4px var(--color-ring);
+  border-radius: var(--radius);
+}
+
+/* Custom scrollbar (premium touch) */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: oklch(1 0 0 / 0.1);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(1 0 0 / 0.18);
+}
+
+/* Ambient app glow — scoped via .app-glow on the admin shell */
+.app-glow::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      680px 360px at 0% -8%,
+      oklch(0.68 0.19 35 / 0.08),
+      transparent 70%
+    ),
+    radial-gradient(
+      560px 340px at 100% 0%,
+      oklch(0.62 0.13 250 / 0.06),
+      transparent 72%
+    );
+}
+:root:not(.dark) .app-glow::before {
+  background:
+    radial-gradient(
+      680px 360px at 0% -8%,
+      oklch(0.62 0.2 32 / 0.05),
+      transparent 70%
+    ),
+    radial-gradient(
+      560px 340px at 100% 0%,
+      oklch(0.62 0.13 250 / 0.05),
+      transparent 72%
+    );
+}
+
+/* Status dot with soft glow */
+.dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  flex: none;
+}
+.dot-up {
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px oklch(0.74 0.17 155 / 0.18);
+}
+.dot-down {
+  background: var(--color-danger);
+  box-shadow: 0 0 0 3px oklch(0.64 0.21 25 / 0.2);
+}
+.dot-warn {
+  background: var(--color-warning);
+  box-shadow: 0 0 0 3px oklch(0.8 0.16 80 / 0.18);
+}
+.dot-info {
+  background: var(--color-info);
+  box-shadow: 0 0 0 3px oklch(0.72 0.13 250 / 0.18);
+}
+.dot-muted {
+  background: var(--color-muted-foreground);
+}
+
+@keyframes phx-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.animate-pulse-dot {
+  animation: phx-pulse 1.8s ease-in-out infinite;
+}

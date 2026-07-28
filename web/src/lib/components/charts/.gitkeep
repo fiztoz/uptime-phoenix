@@ -1,0 +1,4 @@
+LayerCake + D3 chart components go here.
+- UptimeBar.svelte — 90-day uptime bar chart
+- LatencyLine.svelte — ping latency over time
+- ResponseTimeDistribution.svelte — distribution of response times

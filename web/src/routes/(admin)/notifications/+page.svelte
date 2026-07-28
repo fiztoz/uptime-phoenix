@@ -1,0 +1,239 @@
+<script lang="ts">
+  import { notificationsApi, type Notification } from "$lib/api/notifications";
+  import { notificationTypeConfig } from "$lib/notification-types";
+  import NotificationForm from "$lib/components/NotificationForm.svelte";
+  import Skeleton from "$lib/components/Skeleton.svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import { auth } from "$lib/stores/auth.svelte.ts";
+  import {
+    Plus,
+    Edit2,
+    Trash2,
+    Send,
+    Bell,
+    CheckCircle,
+    XCircle,
+  } from "@lucide/svelte";
+  import { confirmAction } from "$lib/stores/confirm.svelte";
+  import { toast } from "svelte-sonner";
+  import * as m from "$lib/paraglide/messages.js";
+
+  let notifications = $state<Notification[]>([]);
+  let loading = $state(true);
+	let loadError = $state<string | null>(null);
+  let showForm = $state(false);
+  let editingNotification = $state<Notification | null>(null);
+  let testingId = $state<number | null>(null);
+
+  const isUserAdmin = $derived(auth.user?.is_admin ?? false);
+  const canManage = $derived(
+    isUserAdmin || (auth.user?.can_manage_notifications ?? false),
+  );
+
+  async function load() {
+    loading = true;
+		loadError = null;
+    try {
+      notifications = await notificationsApi.list();
+    } catch (error: unknown) {
+			loadError = error && typeof error === 'object' && 'message' in error
+				? String((error as { message: string }).message)
+				: m.notifications_page_load_failed();
+			toast.error(loadError);
+    } finally {
+      loading = false;
+    }
+  }
+
+  $effect(() => {
+    load();
+  });
+
+  function typeLabel(type: string): string {
+    return notificationTypeConfig[type]?.label ?? type;
+  }
+
+  function handleCreate() {
+    editingNotification = null;
+    showForm = true;
+  }
+
+  function handleEdit(n: Notification) {
+    editingNotification = n;
+    showForm = true;
+  }
+
+  async function handleDelete(n: Notification) {
+    const ok = await confirmAction({
+      title: m.notifications_page_delete_title({ name: n.name }),
+      message: m.notifications_page_delete_message(),
+      confirmLabel: m.notifications_page_delete_confirm(),
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await notificationsApi.remove(n.id);
+      toast.success(m.notifications_page_deleted_toast());
+      await load();
+    } catch {
+      toast.error(m.monitors_page_delete_failed());
+    }
+  }
+
+  async function handleTest(n: Notification) {
+    testingId = n.id;
+    try {
+      await notificationsApi.test(n.id);
+      toast.success(m.notifications_page_test_sent({ name: n.name }));
+    } catch (err: any) {
+      toast.error(err?.message || m.notifications_page_test_failed());
+    } finally {
+      testingId = null;
+    }
+  }
+
+  function handleSaved() {
+    showForm = false;
+    editingNotification = null;
+    load();
+  }
+</script>
+
+<svelte:head>
+  <title>{m.app_name()} · {m.notifications_title()}</title>
+</svelte:head>
+
+<div class="space-y-6">
+  <!-- Page heading row -->
+  <div
+    class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+  >
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight">{m.notifications_title()}</h1>
+      <p class="mt-1 text-sm text-muted-foreground">
+        {m.notifications_page_subtitle()}
+      </p>
+    </div>
+    <button
+      onclick={handleCreate}
+      disabled={!canManage}
+      class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+    >
+      <Plus class="h-4 w-4" />
+      {m.notifications_create()}
+    </button>
+  </div>
+
+  {#if loading}
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" role="status">
+      <span class="sr-only">{m.notifications_page_loading()}</span>
+      {#each Array(3) as _}<div
+          class="rounded-xl border border-border bg-card p-5"
+        >
+          <div class="flex gap-3">
+            <Skeleton class="h-10 w-10 rounded-full" />
+            <div class="flex-1">
+              <Skeleton class="h-4 w-32" /><Skeleton class="mt-2 h-3 w-20" />
+            </div>
+          </div>
+          <Skeleton class="mt-6 h-8 w-full" />
+        </div>{/each}
+    </div>
+	{:else if loadError}
+		{#snippet retryAction()}
+			<button type="button" onclick={load} class="inline-flex items-center rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{m.monitor_group_form_retry()}</button>
+		{/snippet}
+		<EmptyState icon={XCircle} title={m.notifications_page_load_failed()} description={loadError} action={retryAction} />
+  {:else if notifications.length === 0}
+    {#snippet emptyAction()}{#if canManage}<button
+          onclick={handleCreate}
+          class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          ><Plus class="h-4 w-4" />{m.notifications_page_add_first()}</button
+        >{/if}{/snippet}
+    <EmptyState
+      icon={Bell}
+      title={m.notifications_page_empty_title()}
+      description={m.notifications_page_empty_description()}
+      action={emptyAction}
+    />
+  {:else}
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {#each notifications as n (n.id)}
+        <div
+          class="group relative overflow-hidden rounded-xl border border-border bg-card p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-border/80 hover:shadow-[0_18px_40px_-24px_rgba(0,0,0,0.8)]"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex min-w-0 items-center gap-3">
+              <div
+                class="grid h-10 w-10 shrink-0 place-items-center rounded-full {n.active
+                  ? 'bg-success/10 text-success ring-1 ring-success/20'
+                  : 'bg-muted text-muted-foreground'}"
+              >
+                {#if n.active}
+                  <CheckCircle class="h-5 w-5" />
+                {:else}
+                  <XCircle class="h-5 w-5" />
+                {/if}
+              </div>
+              <div class="min-w-0">
+                <h3 class="truncate font-medium">{n.name}</h3>
+                <p class="truncate text-sm text-muted-foreground">
+                  {typeLabel(n.type)}
+                </p>
+              </div>
+            </div>
+            <span
+              class="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium {n.active
+                ? 'border-success/25 bg-success/10 text-success'
+                : 'border-border bg-muted/40 text-muted-foreground'}"
+            >
+              <span class="dot {n.active ? 'dot-up' : 'dot-muted'}"></span>
+              {n.active ? m.notifications_active() : m.notifications_disabled()}
+            </span>
+          </div>
+
+          <div class="mt-4 flex items-center gap-2 border-t border-border pt-3">
+            <button
+              onclick={() => handleTest(n)}
+              disabled={testingId === n.id || !n.active || !canManage}
+              class="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:hover:bg-transparent"
+              title={m.notifications_page_send_test()}
+            >
+              <Send class="h-3 w-3" />
+              {testingId === n.id ? m.notifications_page_sending() : m.btn_test()}
+            </button>
+            {#if canManage}
+              <button
+                onclick={() => handleEdit(n)}
+                class="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                title={m.btn_edit()}
+              >
+                <Edit2 class="h-3 w-3" />
+                {m.btn_edit()}
+              </button>
+              <button
+                onclick={() => handleDelete(n)}
+                class="inline-flex items-center gap-1 rounded-lg border border-destructive/25 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+                title={m.btn_delete()}
+              >
+                <Trash2 class="h-3 w-3" />
+                {m.btn_delete()}
+              </button>
+            {/if}
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+</div>
+
+{#if showForm}
+  <NotificationForm
+    notification={editingNotification ?? undefined}
+    onSaved={handleSaved}
+    onClose={() => {
+      showForm = false;
+      editingNotification = null;
+    }}
+  />
+{/if}
