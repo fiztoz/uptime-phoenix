@@ -392,19 +392,39 @@ func TestHub_StatsUpdateIsScopedPerClient(t *testing.T) {
 		"stranger": 0, // granted none
 	}
 	for name, client := range map[string]*Client{"admin": admin, "member": member, "stranger": stranger} {
-		frames := awaitFrames(client, 300*time.Millisecond)
-		var stats map[string]any
-		for _, f := range frames {
-			if f["type"] == EventStatsUpdate {
-				stats, _ = f["payload"].(map[string]any)
-			}
-		}
+		// stats.update is trailing-edge debounced (statsDebounce = 250ms) and then
+		// does a visibility-scoped recompute. Under -race / busy CI that can land
+		// well after the immediate status.change frame; wait for the stats frame
+		// explicitly instead of a short quiet window that returns after status.change.
+		stats, frames := awaitFrameOfType(client, EventStatsUpdate, 2*time.Second)
 		if stats == nil {
 			t.Fatalf("%s received no stats.update frame (frames: %v)", name, frames)
 		}
 		if total, _ := stats["total"].(float64); total != want[name] {
 			t.Errorf("%s stats.update total = %v; want %v — the count must come from that client's "+
 				"visible set, not a global ListActive", name, stats["total"], want[name])
+		}
+	}
+}
+
+// awaitFrameOfType waits up to timeout for a frame of the given type and returns
+// its payload plus every frame observed along the way.
+func awaitFrameOfType(c *Client, typ string, timeout time.Duration) (payload map[string]any, frames []map[string]any) {
+	deadline := time.After(timeout)
+	for {
+		select {
+		case data := <-c.Outbound():
+			var frame map[string]any
+			if err := json.Unmarshal(data, &frame); err != nil {
+				continue
+			}
+			frames = append(frames, frame)
+			if frame["type"] == typ {
+				payload, _ = frame["payload"].(map[string]any)
+				return payload, frames
+			}
+		case <-deadline:
+			return nil, frames
 		}
 	}
 }
