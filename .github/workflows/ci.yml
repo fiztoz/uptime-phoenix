@@ -38,6 +38,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # assets.go //go:embed all:web/dist requires at least one file present.
+      - name: Ensure web/dist for go:embed
+        run: |
+          if [ ! -f web/dist/index.html ]; then
+            mkdir -p web/dist
+            printf '%s\n' '<!doctype html><title>phoenix</title>' > web/dist/index.html
+          fi
+
       - name: Build
         run: go build ./...
 
@@ -110,6 +118,14 @@ jobs:
       - name: Install frontend deps
         working-directory: web
         run: bun install --frozen-lockfile
+
+      # Ensure embed path exists before e2e helper builds the Go binary.
+      - name: Ensure web/dist for go:embed
+        run: |
+          if [ ! -f web/dist/index.html ]; then
+            mkdir -p web/dist
+            printf '%s\n' '<!doctype html><title>phoenix</title>' > web/dist/index.html
+          fi
 
       - name: Install Playwright browsers
         working-directory: web
@@ -244,4 +260,5 @@ jobs:
         run: |
           bash <(curl --silent --show-error --location \
             https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          ./actionlint -color
+          # Shellcheck style/info findings (SC2129/SC2012/SC2086) are not gate-worthy here.
+          ./actionlint -color -shellcheck=

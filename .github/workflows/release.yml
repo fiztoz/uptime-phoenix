@@ -67,14 +67,12 @@ jobs:
         run: |
           set -euo pipefail
           owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
-          echo "image_owner=${owner}" >> "$GITHUB_OUTPUT"
 
           if [ "${{ github.event_name }}" = "push" ]; then
             raw="${GITHUB_REF_NAME}"
             version="${raw#v}"
-            echo "version=${version}" >> "$GITHUB_OUTPUT"
-            echo "should_publish=true" >> "$GITHUB_OUTPUT"
-            echo "skip_docker=0" >> "$GITHUB_OUTPUT"
+            should_publish=true
+            skip_docker=0
             echo "tag_push: version=${version} (will publish after dry-run)"
           else
             version="${{ inputs.version }}"
@@ -83,19 +81,25 @@ jobs:
               echo "version input is empty" >&2
               exit 2
             fi
-            echo "version=${version}" >> "$GITHUB_OUTPUT"
             if [ "${{ inputs.publish }}" = "true" ]; then
-              echo "should_publish=true" >> "$GITHUB_OUTPUT"
+              should_publish=true
             else
-              echo "should_publish=false" >> "$GITHUB_OUTPUT"
+              should_publish=false
             fi
             if [ "${{ inputs.skip_docker }}" = "true" ]; then
-              echo "skip_docker=1" >> "$GITHUB_OUTPUT"
+              skip_docker=1
             else
-              echo "skip_docker=0" >> "$GITHUB_OUTPUT"
+              skip_docker=0
             fi
             echo "dispatch: version=${version} publish=${{ inputs.publish }} skip_docker=${{ inputs.skip_docker }}"
           fi
+
+          {
+            echo "image_owner=${owner}"
+            echo "version=${version}"
+            echo "should_publish=${should_publish}"
+            echo "skip_docker=${skip_docker}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -280,7 +284,15 @@ jobs:
         run: |
           set -euo pipefail
           # Prefer the dry-run stamped chart package if present; otherwise re-package.
-          CHART_TGZ="$(ls dist/release-${VERSION}/charts/phoenix-*.tgz 2>/dev/null | head -n1 || true)"
+          CHART_TGZ=""
+          if [ -d "dist/release-${VERSION}/charts" ]; then
+            for f in "dist/release-${VERSION}/charts"/phoenix-*.tgz; do
+              if [ -f "$f" ]; then
+                CHART_TGZ="$f"
+                break
+              fi
+            done
+          fi
           if [ -z "${CHART_TGZ}" ]; then
             echo "No chart tgz in dry-run artifact; packaging from charts/phoenix"
             CHART_SRC="$(mktemp -d)/phoenix"
@@ -297,7 +309,17 @@ jobs:
           PY
             mkdir -p "dist/release-${VERSION}/charts"
             helm package "${CHART_SRC}" --destination "dist/release-${VERSION}/charts"
-            CHART_TGZ="$(ls dist/release-${VERSION}/charts/phoenix-*.tgz | head -n1)"
+            CHART_TGZ=""
+            for f in "dist/release-${VERSION}/charts"/phoenix-*.tgz; do
+              if [ -f "$f" ]; then
+                CHART_TGZ="$f"
+                break
+              fi
+            done
+          fi
+          if [ -z "${CHART_TGZ}" ]; then
+            echo "ERROR: no Helm chart package found to push" >&2
+            exit 1
           fi
           echo "Pushing ${CHART_TGZ} to oci://ghcr.io/${IMAGE_OWNER}/charts"
           # Helm OCI: package lands as ghcr.io/<owner>/charts/phoenix:<chartVersion>
