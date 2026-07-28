@@ -119,13 +119,14 @@ jobs:
         working-directory: web
         run: bun install --frozen-lockfile
 
-      # Ensure embed path exists before e2e helper builds the Go binary.
-      - name: Ensure web/dist for go:embed
+      # Warm caches so start-e2e-server.sh can finish inside Playwright's wait.
+      - name: Prebuild frontend + Go modules for e2e
+        env:
+          GOTOOLCHAIN: go1.25.12
         run: |
-          if [ ! -f web/dist/index.html ]; then
-            mkdir -p web/dist
-            printf '%s\n' '<!doctype html><title>phoenix</title>' > web/dist/index.html
-          fi
+          go mod download
+          (cd web && bun run build)
+          test -f web/dist/index.html
 
       - name: Install Playwright browsers
         working-directory: web

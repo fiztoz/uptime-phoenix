@@ -14,8 +14,16 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-bun run build
+# Reuse a prebuilt dist when CI warmed it; still rebuild when missing.
+if [ ! -f dist/index.html ]; then
+	bun run build
+fi
 cd ..
+# Ensure embed path exists for go build of cmd/app.
+if [ ! -f web/dist/index.html ]; then
+	mkdir -p web/dist
+	printf '%s\n' '<!doctype html><title>phoenix</title>' > web/dist/index.html
+fi
 go build -o "$e2e_tmp_dir/phoenix" ./cmd/app
 go build -o "$e2e_tmp_dir/webhook-stub" ./web/tests/webhook_stub.go
 

@@ -24,7 +24,8 @@ export default defineConfig({
         command: "sh tests/start-e2e-server.sh",
         url: `${defaultBase}/api/health/live`,
         reuseExistingServer: false,
-        timeout: 120_000,
+        // Cold CI runners spend most of this on `go build` + module download.
+        timeout: process.env.CI ? 360_000 : 180_000,
         cwd: process.cwd(),
       },
 });
