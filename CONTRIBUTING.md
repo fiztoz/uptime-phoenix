@@ -2,6 +2,10 @@
 
 Thank you for contributing to Phoenix! This guide applies to **both human contributors and AI coding agents**.
 
+> **This is a hobby repository and is not under active development.** Issues and PRs may
+> never be reviewed. If you need ongoing maintenance, **fork** the project and work on
+> your fork. See the README status banner and [SECURITY.md](./SECURITY.md).
+
 > **All agents (AI or human) must read [`AGENTS.md`](./AGENTS.md) before writing any code.**
 > It contains the non-negotiable architecture rules, locked tech stack, and file placement rules.
 > This document is a shorter summary for humans; `AGENTS.md` is the canonical source.
@@ -14,16 +18,16 @@ Thank you for contributing to Phoenix! This guide applies to **both human contri
 # Clone and enter
 git clone <repo-url> && cd phoenix
 
-# Local development (requires Go 1.23+, Node 22+, MariaDB or SQLite)
-make dev          # starts backend + frontend with hot reload
+# Local development (requires Go 1.25+ and Bun 1.0+ — never npm)
+make dev          # all-in-one SQLite + hot reload
+make dev-split    # MariaDB + Redis + API hot reload + Vite + worker
 
 # Or with Docker
 docker compose up # starts app + MariaDB
 
-# Before pushing
-make lint         # golangci-lint + eslint + prettier
-make test         # go test + vitest
-make build        # production build (Go binary + Svelte SPA)
+# Before pushing (no CI — you own the gate)
+make gate-fast    # build + vet + tests + web check
+make gate-full    # full pre-merge gate when you can afford it
 ```
 
 ## Architecture in 30 Seconds
@@ -48,8 +52,8 @@ Don't substitute these without discussion:
 
 | Layer | Choice |
 |---|---|
-| Backend | Go 1.23+ |
-| Frontend | Svelte 5 + SvelteKit |
+| Backend | Go 1.25+ |
+| Frontend | Svelte 5 + SvelteKit + **Bun** |
 | Database | MariaDB (primary), SQLite (dev/edge) |
 | HTTP | Echo v4 |
 | WebSocket | `coder/websocket` |
@@ -76,7 +80,7 @@ If your change requires Redis or an external service to boot, it breaks the defa
 3. Write tests in `internal/adapters/checker/<type>_test.go`.
 4. That's it. No other files change.
 
-See `.pi/agents/phoenix-checker.md` for the full guide and the 14 approved types.
+See `AGENTS.md` for the approved monitor type list and architecture rules.
 
 ## Adding a Notification Provider
 
@@ -85,7 +89,7 @@ See `.pi/agents/phoenix-checker.md` for the full guide and the 14 approved types
 3. Write tests with a mock HTTP server in `internal/adapters/notifier/<provider>_test.go`.
 4. That's it.
 
-See `.pi/agents/phoenix-notifier.md` for the full guide and the 11 approved providers.
+See `AGENTS.md` for the approved notification provider list.
 
 ## Code Style
 

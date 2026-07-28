@@ -47,7 +47,7 @@ all of them is `make gate-full` (see the Makefile) — use the individual comman
 when you only touched one area and want faster feedback.
 
 ```bash
-# From project root: /Users/fizto/Desktop/Work/DevSecOps/phoenix
+# From project root
 
 # 1. Go build (catches compile errors)
 go build ./...
@@ -106,7 +106,7 @@ catch a failure for you — see the "no CI" banner above.
 ### 2.1 Run All Tests
 
 ```bash
-cd /Users/fizto/Desktop/Work/DevSecOps/phoenix
+cd /path/to/uptime-phoenix
 go test -race -count=1 ./...
 ```
 
@@ -231,7 +231,7 @@ bun run format  # prettier --write .
 ### 4.1 Go (golangci-lint)
 
 ```bash
-cd /Users/fizto/Desktop/Work/DevSecOps/phoenix
+cd /path/to/uptime-phoenix
 golangci-lint run
 ```
 
@@ -265,7 +265,7 @@ bun run format  # auto-fix
 ### 5.1 Go Binary (CGO_ENABLED=0)
 
 ```bash
-cd /Users/fizto/Desktop/Work/DevSecOps/phoenix
+cd /path/to/uptime-phoenix
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/phoenix ./cmd/app
 ```
 
@@ -287,7 +287,7 @@ embedded into the Go binary via `//go:embed web/dist`.
 ### 5.3 Full Stack Build
 
 ```bash
-cd /Users/fizto/Desktop/Work/DevSecOps/phoenix
+cd /path/to/uptime-phoenix
 make build
 ```
 
@@ -298,7 +298,7 @@ This runs both `build-backend` and `build-frontend`.
 ## 6. Docker Compose Smoke Test
 
 ```bash
-cd /Users/fizto/Desktop/Work/DevSecOps/phoenix
+cd /path/to/uptime-phoenix
 
 # Build and start (detached)
 docker compose up -d --build
@@ -340,7 +340,7 @@ docker compose down -v
 ## 7. Helm Chart Validation
 
 ```bash
-cd /Users/fizto/Desktop/Work/DevSecOps/phoenix
+cd /path/to/uptime-phoenix
 
 # Lint
 helm lint charts/phoenix

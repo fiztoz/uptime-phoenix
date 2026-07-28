@@ -1,5 +1,12 @@
 # Phoenix
 
+> **Status: hobby project — not under active development.**
+>
+> This repository is shared as-is for learning, reference, and forking. There is **no
+> support SLA**, no guaranteed security response time, and no commitment to merge PRs or
+> ship releases. If you want to run or extend it seriously, **fork it** and maintain your
+> own copy. See [SECURITY.md](SECURITY.md) for how (and whether) to report issues.
+
 Phoenix is a self-hosted uptime monitoring platform in the Uptime Kuma class, built as a
 single static Go binary with an embedded Svelte 5 frontend. It follows a strict hexagonal
 architecture (domain core, ports, adapters), runs on SQLite for zero-dependency setups or
@@ -43,6 +50,12 @@ The first run builds the image, starts MariaDB, and boots Phoenix. Then open
 
 Override the defaults (`MARIADB_PASSWORD`, `JWT_SECRET`, `BOOTSTRAP_USERNAME`,
 `BOOTSTRAP_PASSWORD`, ...) via a `.env` file next to `docker-compose.yml`.
+
+> **Do not expose these defaults to the internet.** Compose ships with well-known
+> bootstrap credentials and a weak JWT secret for local convenience. For any shared or
+> public deployment, set strong unique values for `JWT_SECRET`, `BOOTSTRAP_PASSWORD`,
+> and database passwords, set `PRODUCTION=true`, and do not publish MariaDB (`3306`)
+> beyond localhost.
 
 Without Docker (Go 1.25+ and Bun required — SQLite, embedded UI, zero external
 dependencies):
@@ -140,22 +153,38 @@ Screenshots coming soon.
 
 ## Documentation
 
-| Document | What it covers | Freshness |
-|---|---|---|
-| [AGENTS.md](AGENTS.md) | Canonical rules: architecture boundaries, stack lock, plugin conventions, gate | Live |
-| [docs/PROJECT-REVIEW-AND-ROADMAP.md](docs/PROJECT-REVIEW-AND-ROADMAP.md) | Entry point: full project review, refinement plan (Wave R), forward roadmap (Wave F) | Live (2026-07-18) |
-| [docs/HANDOFF-NEXT.md](docs/HANDOFF-NEXT.md) | Last sprint handoff: permission model, sharp edges, MariaDB smoke recipe | Live (Jul 13) |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 15-section technical design, source of truth for the hexagonal layout | Live |
-| [docs/TESTING.md](docs/TESTING.md) | Test commands, manual checklists, regression areas | Current |
-| [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) | Local dev setup, env vars, troubleshooting | Current |
-| [docs/DEPLOYMENT_MODES.md](docs/DEPLOYMENT_MODES.md) | All-in-one vs split, compose files, Helm modes, Cloudflare Tunnel | Current |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Phase plans 0-5 | Status table stale (Jun 28) |
-| [docs/PLAN.md](docs/PLAN.md) | Original goal, scope, and locked decisions | Reference |
-| [docs/DESIGN.md](docs/DESIGN.md) | Design system for the premium dark UI | Historical (complete) |
-| [docs/HANDOFF-REDESIGN.md](docs/HANDOFF-REDESIGN.md) | Redesign wave handoff | Historical (complete) |
-| [docs/QA_REPORT.md](docs/QA_REPORT.md) | QA audit (Jul 6) | Historical — closures tracked in the roadmap doc §2.3 |
-| [docs/UPTIME_KUMA_PARITY_AUDIT.md](docs/UPTIME_KUMA_PARITY_AUDIT.md) | Feature parity audit vs Uptime Kuma (Jul 11) | Historical — closures tracked in the roadmap doc §2.3 |
-| [docs/CODE_REVIEW-status-page-dashboard.md](docs/CODE_REVIEW-status-page-dashboard.md) | Status-page dashboard review findings | Historical (closed) |
+| Document | What it covers |
+|---|---|
+| [AGENTS.md](AGENTS.md) | Canonical rules: architecture boundaries, stack lock, plugin conventions, gate |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute (humans and AI agents) |
+| [SECURITY.md](SECURITY.md) | Vulnerability reporting and known risk model |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical design (hexagonal layout, source of truth) |
+| [docs/TESTING.md](docs/TESTING.md) | Test commands, manual checklists, regression areas |
+| [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md) | Local dev setup, env vars, troubleshooting |
+| [docs/DEPLOYMENT_MODES.md](docs/DEPLOYMENT_MODES.md) | Compose / Helm modes, Cloudflare Tunnel |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Operator runbook |
+| [docs/RELEASING.md](docs/RELEASING.md) | Local release procedure (no CI) |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Phase plans (historical; may be stale) |
+| [docs/PLAN.md](docs/PLAN.md) | Original goal, scope, and locked decisions |
+| [docs/DESIGN.md](docs/DESIGN.md) | Design system for the UI |
+
+## Project status & disclaimer
+
+This is **hobby / vibe-coded software**, not a product with a vendor behind it.
+
+- **Not actively maintained.** Issues and PRs may go unanswered. Prefer forking.
+- **No warranty.** MIT license applies: use at your own risk.
+- **No production guarantee.** Defaults favour local development convenience over hard
+  fail-closed production posture (weak bootstrap password and JWT placeholders unless you
+  override them).
+- **Self-hosted trust model.** An authenticated operator can create monitors and
+  notifications that reach arbitrary hosts and webhooks — that is intentional for an
+  uptime tool, and it is also an SSRF-class capability if an admin account is compromised.
+- **No CI.** Quality is gated locally via `make gate-full`. Treat unreviewed contributions
+  with caution.
+
+If you adopt Phoenix in a real environment, you own hardening, upgrades, and incident
+response.
 
 ## License
 
