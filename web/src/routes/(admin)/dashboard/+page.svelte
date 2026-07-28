@@ -10,6 +10,7 @@
 		resolveGroupStatuses,
 		monitorToRollupStatus,
 		buildGroupOptions,
+		sortMonitors,
 		type MonitorGroupView,
 	} from '$lib/api/monitorGroups';
 	import { tagsApi, type Tag } from '$lib/api/tags';
@@ -147,7 +148,7 @@
 
 	let filteredMonitors = $derived.by(() => {
 		void realtime.heartbeatSeq; // re-filter on every heartbeat (status may have flipped)
-		return filterMonitors(allMonitors, criteria, groups);
+		return sortMonitors(filterMonitors(allMonitors, criteria, groups));
 	});
 
 	let filterActive = $derived(hasActiveFilters(criteria));

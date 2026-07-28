@@ -53,6 +53,11 @@ export interface CreateMonitorInput {
    * UpdateMonitorRequest `proxy_id`.
    */
   proxy_id?: number | null;
+  /**
+   * Manual display order (lower first). Omitted/0 on create becomes 2000.
+   * On update, always send the intended value (the backend always applies it).
+   */
+  weight?: number;
 }
 
 export interface UpdateMonitorInput extends Partial<CreateMonitorInput> {}

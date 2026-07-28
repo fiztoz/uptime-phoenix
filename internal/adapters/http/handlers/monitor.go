@@ -70,6 +70,9 @@ type CreateMonitorRequest struct {
 	// by the same user (see internal/adapters/http/handlers/proxy.go).
 	// nil/omitted means no proxy.
 	ProxyID *int64 `json:"proxy_id"`
+	// Weight is the manual display order (lower first). Omitted/0 on create
+	// becomes 2000 (schema default). Same meaning as MonitorGroup.Weight.
+	Weight int `json:"weight"`
 }
 
 // UpdateMonitorRequest is the body of PUT /api/monitors/:id.
@@ -99,6 +102,9 @@ type UpdateMonitorRequest struct {
 	// by the same user. Always applied on update: null/omitted clears the
 	// proxy (mirrors GroupID's semantics).
 	ProxyID *int64 `json:"proxy_id"`
+	// Weight is always applied on update (manual display order; lower first).
+	// Send the current value when not changing order.
+	Weight int `json:"weight"`
 }
 
 // MonitorTagView is one tag as it appears on a monitor: the tag definition
@@ -116,27 +122,30 @@ type MonitorTagView struct {
 // Tags is ALWAYS a non-nil slice, so the field serializes as [] and never null:
 // the dashboard's tag filter iterates it unconditionally.
 type MonitorView struct {
-	ID                  int64            `json:"id"`
-	UserID              int64            `json:"user_id"`
-	Name                string           `json:"name"`
-	Description         string           `json:"description"`
-	Type                string           `json:"type"`
-	Active              bool             `json:"active"`
-	Interval            int              `json:"interval"`
-	RetryInterval       int              `json:"retry_interval"`
-	MaxRetries          int              `json:"max_retries"`
-	Timeout             float64          `json:"timeout"`
-	Config              map[string]any   `json:"config"`
-	AcceptedStatusCodes []string         `json:"accepted_statuscodes"`
-	UpsideDown          bool             `json:"upside_down"`
-	TLSIgnore           bool             `json:"tls_ignore"`
-	CertExpiryNotify    bool             `json:"cert_expiry_notify"`
-	ResendInterval      int              `json:"resend_interval"`
-	GroupID             *int64           `json:"group_id"`
-	ProxyID             *int64           `json:"proxy_id"`
-	Tags                []MonitorTagView `json:"tags"`
-	CreatedAt           string           `json:"created_at"`
-	UpdatedAt           string           `json:"updated_at"`
+	ID                  int64          `json:"id"`
+	UserID              int64          `json:"user_id"`
+	Name                string         `json:"name"`
+	Description         string         `json:"description"`
+	Type                string         `json:"type"`
+	Active              bool           `json:"active"`
+	Interval            int            `json:"interval"`
+	RetryInterval       int            `json:"retry_interval"`
+	MaxRetries          int            `json:"max_retries"`
+	Timeout             float64        `json:"timeout"`
+	Config              map[string]any `json:"config"`
+	AcceptedStatusCodes []string       `json:"accepted_statuscodes"`
+	UpsideDown          bool           `json:"upside_down"`
+	TLSIgnore           bool           `json:"tls_ignore"`
+	CertExpiryNotify    bool           `json:"cert_expiry_notify"`
+	ResendInterval      int            `json:"resend_interval"`
+	GroupID             *int64         `json:"group_id"`
+	ProxyID             *int64         `json:"proxy_id"`
+	// Weight is the manual display order (lower first). Lists order by
+	// weight, then name, then id.
+	Weight    int              `json:"weight"`
+	Tags      []MonitorTagView `json:"tags"`
+	CreatedAt string           `json:"created_at"`
+	UpdatedAt string           `json:"updated_at"`
 }
 
 // toMonitorView projects a domain.Monitor to the public DTO. tags may be nil —
@@ -164,6 +173,7 @@ func toMonitorView(m *domain.Monitor, tags []services.MonitorTagDetail) *Monitor
 		ResendInterval:      m.ResendInterval,
 		GroupID:             m.GroupID,
 		ProxyID:             m.ProxyID,
+		Weight:              m.Weight,
 		Tags:                toMonitorTagViews(tags),
 		CreatedAt:           m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:           m.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
@@ -301,6 +311,7 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 		ResendInterval:      req.ResendInterval,
 		GroupID:             req.GroupID,
 		ProxyID:             req.ProxyID,
+		Weight:              req.Weight,
 	}
 	if req.Type == "push" {
 		if token, ok := req.Config["push_token"].(string); ok && token != "" {
@@ -476,6 +487,9 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 	// ProxyID mirrors GroupID: always applied so the client can explicitly
 	// clear a monitor's proxy by sending proxy_id: null.
 	existing.ProxyID = req.ProxyID
+	// Weight is always applied so the client can re-order monitors (including
+	// setting weight to 0 for the top of the list).
+	existing.Weight = req.Weight
 
 	if err := h.svc.Update(c.Request().Context(), existing); err != nil {
 		return mapMonitorError(c, err)

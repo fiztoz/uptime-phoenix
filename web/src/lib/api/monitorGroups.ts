@@ -242,13 +242,29 @@ function sortGroups(groups: MonitorGroupView[]): MonitorGroupView[] {
   );
 }
 
+/** Sort monitors the way the API lists them: weight, then name, then id. */
+export function sortMonitors<M extends { id: number; name?: string; weight?: number }>(
+  monitors: M[],
+): M[] {
+  return [...monitors].sort((a, b) => {
+    const wa = a.weight ?? 2000;
+    const wb = b.weight ?? 2000;
+    if (wa !== wb) return wa - wb;
+    const na = a.name ?? "";
+    const nb = b.name ?? "";
+    const byName = na.localeCompare(nb);
+    if (byName !== 0) return byName;
+    return a.id - b.id;
+  });
+}
+
 /**
  * Indexes a flat group list (+ any monitor list carrying `id`/`group_id`)
  * into parent -> children maps, so callers can walk the tree without
  * re-deriving these buckets themselves. `null` is the top-level bucket key.
  */
 export function indexGroupChildren<
-  M extends { id: number; group_id?: number | null },
+  M extends { id: number; name?: string; weight?: number; group_id?: number | null },
 >(
   groups: MonitorGroupView[],
   monitors: M[],
@@ -271,6 +287,9 @@ export function indexGroupChildren<
     const arr = monitorsByGroup.get(key) ?? [];
     arr.push(m);
     monitorsByGroup.set(key, arr);
+  }
+  for (const [key, arr] of monitorsByGroup) {
+    monitorsByGroup.set(key, sortMonitors(arr));
   }
 
   return { subgroupsByParent: byParent, monitorsByGroup };

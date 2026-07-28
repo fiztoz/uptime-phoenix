@@ -12,6 +12,7 @@
 		resolveGroupStatuses,
 		monitorToRollupStatus,
 		rollupStatusToPillStatus,
+		sortMonitors,
 		type MonitorGroupView,
 		type RollupStatus,
 	} from '$lib/api/monitorGroups';
@@ -119,7 +120,7 @@
 		if (filterStatuses.length > 0) {
 			list = list.filter((m) => filterStatuses.includes(m.status as MonitorStatus));
 		}
-		return list;
+		return sortMonitors(list);
 	});
 
 	let filterActive = $derived(

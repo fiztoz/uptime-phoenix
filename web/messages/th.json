@@ -646,5 +646,7 @@
   "escalation_assignments_none_available_groups": "Every folder is already assigned or there are none to pick.",
   "alerts_escalation_pending": "กำลังยกระดับ · ขั้นถัดไปคือขั้นที่ {step}",
   "alerts_escalation_canceled": "หยุดการยกระดับแล้ว",
-  "alerts_escalation_done": "ยกระดับครบทุกขั้นแล้ว"
+  "alerts_escalation_done": "ยกระดับครบทุกขั้นแล้ว",
+  "monitor_form_weight_label": "Display order",
+  "monitor_form_weight_help": "Lower numbers appear first in lists and folders. Default is 2000."
 }

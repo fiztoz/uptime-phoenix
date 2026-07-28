@@ -61,6 +61,12 @@ func (s *MonitorService) SetDefaultNotificationLinker(
 // same owner is auto-linked (mirrors Proxy.IsDefault auto-selection).
 func (s *MonitorService) Create(ctx context.Context, m *domain.Monitor) error {
 	normalizeHTTPMonitorURL(m)
+	// Default display order matches the schema DEFAULT (2000). Zero is treated
+	// as "unset" on create so clients that omit the field still get a stable
+	// middle-of-list weight rather than sorting ahead of every explicit value.
+	if m.Weight == 0 {
+		m.Weight = 2000
+	}
 	if err := s.validateGroup(ctx, m); err != nil {
 		return err
 	}

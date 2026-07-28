@@ -51,6 +51,11 @@ export interface Monitor {
   cert_expiry_notify?: boolean;
   /** HTTP: accepted status code ranges, e.g. ["200-299", "301"] (top-level, not in config). */
   accepted_statuscodes?: string[];
+  /**
+   * Manual display order (lower first). Dashboard / folder trees sort by
+   * weight, then name. Default from the API is 2000 when omitted on create.
+   */
+  weight?: number;
   tags?: MonitorTagView[];
   created_at: string;
   updated_at: string;

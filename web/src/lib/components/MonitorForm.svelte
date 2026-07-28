@@ -193,6 +193,8 @@
 		retryInterval: initialMonitor?.retry_interval ?? 60,
 		maxRetries: initialMonitor?.max_retries ?? 0,
 		resendInterval: initialMonitor?.resend_interval ?? 0,
+		// Manual display order (lower first). Default matches schema/API (2000).
+		weight: initialMonitor?.weight ?? 2000,
 		upsideDown: initialMonitor?.upside_down ?? false,
 		tlsIgnore: initialMonitor?.tls_ignore ?? false,
 		certExpiryNotify: initialMonitor?.cert_expiry_notify ?? false,
@@ -313,6 +315,9 @@
 				retry_interval: Number(formData.retryInterval),
 				max_retries: Number(formData.maxRetries),
 				resend_interval: Number(formData.resendInterval),
+				// Always send weight on update so the backend does not zero it
+				// (Update always applies the field).
+				weight: Number(formData.weight),
 				upside_down: formData.upsideDown,
 				// Only meaningful for HTTP checks; never carry a stale toggle onto
 				// another type when the user switches type before saving.
@@ -758,6 +763,19 @@
 								class="{inputClass} mt-1"
 							/>
 							<p class="mt-1 text-xs text-muted-foreground">{m.monitor_form_resend_interval_help()}</p>
+						</div>
+
+						<div>
+							<label class="text-sm font-medium" for="monitor-weight">{m.monitor_form_weight_label()}</label>
+							<input
+								id="monitor-weight"
+								type="number"
+								bind:value={formData.weight}
+								min="0"
+								step="1"
+								class="{inputClass} mt-1"
+							/>
+							<p class="mt-1 text-xs text-muted-foreground">{m.monitor_form_weight_help()}</p>
 						</div>
 
 						<div>

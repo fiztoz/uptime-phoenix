@@ -45,7 +45,9 @@ type MonitorView struct {
 	// GroupID files this monitor under a MonitorGroup (folder). nil means
 	// top-level (not in any group). Replaces the old ParentID, which nested
 	// a monitor under another *monitor*.
-	GroupID   *int64           `json:"group_id,omitempty"`
+	GroupID *int64 `json:"group_id,omitempty"`
+	// Weight is the manual display order (lower first). Matches REST MonitorView.
+	Weight    int              `json:"weight"`
 	Tags      []MonitorTagView `json:"tags"`
 	CreatedAt string           `json:"created_at"`
 	UpdatedAt string           `json:"updated_at"`
@@ -169,6 +171,7 @@ func toMonitorView(m *domain.Monitor, status string) MonitorView {
 		Interval: m.Interval,
 		Timeout:  m.Timeout,
 		GroupID:  m.GroupID,
+		Weight:   m.Weight,
 		// Tags default to empty, never nil. Callers with a tag service (the hub)
 		// overwrite this; callers without one still emit a valid [].
 		Tags:      []MonitorTagView{},
@@ -215,6 +218,10 @@ func monitorMapToView(m map[string]any, status string) MonitorView {
 		v.GroupID = &gid
 	} else if gid := extractInt64(m, "GroupID"); gid != 0 {
 		v.GroupID = &gid
+	}
+	v.Weight = int(extractInt64(m, "weight"))
+	if v.Weight == 0 {
+		v.Weight = int(extractInt64(m, "Weight"))
 	}
 	v.Target = monitorTarget(v.Type, v.Config)
 	if !v.Active {

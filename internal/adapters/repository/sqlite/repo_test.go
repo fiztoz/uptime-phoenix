@@ -1143,6 +1143,49 @@ func assertStatusPageUpdateBumpsUpdatedAt(t *testing.T, repo *Repository, ctx co
 	assertTimeAdvanced(t, "StatusPage.UpdatedAt", before.UpdatedAt, after.UpdatedAt)
 }
 
+// TestMonitorListOrdersByWeight proves List returns monitors by weight ASC,
+// then name ASC (not only by id). Matches MonitorGroup.List ordering semantics.
+func TestMonitorListOrdersByWeight(t *testing.T) {
+	repo := setupTestDB(t)
+	ctx := context.Background()
+	user := &domain.User{Username: "weight-user", PasswordHash: "hash", Active: true}
+	if err := repo.UserRepo.Create(ctx, user); err != nil {
+		t.Fatalf("Create user: %v", err)
+	}
+	// Insert with weights deliberately out of id order: high weight first, then low.
+	seeds := []struct {
+		name   string
+		weight int
+	}{
+		{"zebra", 3000},
+		{"alpha", 1000},
+		{"middle", 2000},
+	}
+	for _, s := range seeds {
+		m := &domain.Monitor{
+			UserID: user.ID, Name: s.name, Type: "http", Active: true,
+			Interval: 60, Timeout: 30, Weight: s.weight,
+			Config: map[string]any{"url": "https://example.com"},
+		}
+		if err := repo.MonitorRepo.Create(ctx, m); err != nil {
+			t.Fatalf("Create %q: %v", s.name, err)
+		}
+	}
+	list, err := repo.MonitorRepo.List(ctx, ports.MonitorFilter{UserID: user.ID})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 3 {
+		t.Fatalf("List len = %d; want 3", len(list))
+	}
+	want := []string{"alpha", "middle", "zebra"}
+	for i, name := range want {
+		if list[i].Name != name {
+			t.Errorf("list[%d] = %q; want %q (weight order)", i, list[i].Name, name)
+		}
+	}
+}
+
 // TestMonitorGroupRepository covers basic CRUD: Create, GetByID, List
 // (ordered by weight then name), and Update.
 func TestMonitorGroupRepository(t *testing.T) {

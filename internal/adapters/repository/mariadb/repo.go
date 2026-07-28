@@ -197,7 +197,8 @@ func (r *MonitorRepo) List(ctx context.Context, filter ports.MonitorFilter) ([]*
 	if filter.Offset > 0 {
 		q = q.Offset(filter.Offset)
 	}
-	q = q.Order("id ASC")
+	// Display order: weight (manual sort), then name, then id as a stable tie-break.
+	q = q.Order("weight ASC", "name ASC", "id ASC")
 	if err := q.Scan(ctx); err != nil {
 		return nil, translateError(err)
 	}

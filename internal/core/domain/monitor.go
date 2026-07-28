@@ -23,8 +23,10 @@ type Monitor struct {
 	// GroupID files this monitor under a MonitorGroup. nil means top-level
 	// (not in any group). Replaces the old ParentID, which nested a monitor
 	// under another *monitor*.
-	GroupID   *int64
-	Weight    int // display order
+	GroupID *int64
+	// Weight is the manual display order (lower first). Lists order by weight,
+	// then name, then id. Schema default is 2000; Create treats 0 as unset → 2000.
+	Weight    int
 	TLSIgnore bool
 	// CertExpiryNotify opts the monitor into certificate-expiry alerts at the
 	// fixed 30/14/7 day thresholds. Default false keeps existing monitors quiet

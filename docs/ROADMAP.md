@@ -49,10 +49,10 @@
 | **F3.6 — RSS/Atom + iCal** | ✅ Complete | 2026-07-27 | Public `feed.xml` (incidents Atom) + `calendar.ics` (maintenance); fail-closed access; public page links. Contracts: `docs/F3.6-FEEDS.md` |
 | **F3.5 — White-label polish** | ✅ Complete | 2026-07-27 | Logo + favicon (URL or client data-URL upload), `show_powered_by` toggle, public header/footer honor branding; migration `021`. Contracts: `docs/F3.5-WHITE-LABEL-CONTRACTS.md` |
 
-**Next Focus:** owner decisions (`Monitor.Weight`, Thai review, **first publish**). F3.4 ACME
-remains on hold. **2026-07-28:** GitHub CI + release workflows restored; OIDC PKCE S256;
-`phoenix-config` CLI; reverse escalation assignment UI; MariaDB 021 assured. Create GitHub
-Environment `release` (required reviewers) before first publish.
+**Next Focus:** owner decisions (**first publish**; Thai review deferred — no translator).
+F3.4 ACME remains on hold. **2026-07-28:** GitHub CI + release workflows restored; OIDC
+PKCE S256; `phoenix-config` CLI; reverse escalation UI; MariaDB 021 assured.
+**`Monitor.Weight` kept and wired** for display sort (API + list ORDER BY + UI).
 
 ---
 
