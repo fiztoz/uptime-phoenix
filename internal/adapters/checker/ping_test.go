@@ -27,6 +27,15 @@ func TestPingChecker_Check_Up(t *testing.T) {
 		t.Fatalf("Check: %v", err)
 	}
 	if result.Status != domain.StatusUp {
+		// Unprivileged ICMP is often blocked on CI runners (and some hosts without
+		// net.ipv4.ping_group_range). The checker still returns a clear DOWN
+		// diagnostic — skip the UP assertion rather than fail the suite.
+		msg := strings.ToLower(result.Message)
+		if strings.Contains(msg, "permission denied") ||
+			strings.Contains(msg, "operation not permitted") ||
+			strings.Contains(msg, "socket:") {
+			t.Skipf("ICMP not permitted in this environment: %s", result.Message)
+		}
 		t.Fatalf("status = %s; want UP (message: %s)", result.Status, result.Message)
 	}
 	if !strings.Contains(result.Message, "received=1") {
