@@ -13,6 +13,7 @@ func TestMarshalWireEvent_MonitorUpdate(t *testing.T) {
 	m := &domain.Monitor{
 		ID:        1,
 		Name:      "Example",
+		Owner:     "Platform on-call",
 		Type:      "http",
 		Active:    true,
 		Interval:  10,
@@ -42,6 +43,9 @@ func TestMarshalWireEvent_MonitorUpdate(t *testing.T) {
 	}
 	if payload["name"] != "Example" {
 		t.Errorf("name = %v", payload["name"])
+	}
+	if payload["owner"] != "Platform on-call" {
+		t.Errorf("owner = %v", payload["owner"])
 	}
 	if payload["status"] != "pending" {
 		t.Errorf("status = %v, want pending", payload["status"])

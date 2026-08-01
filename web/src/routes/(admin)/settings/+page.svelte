@@ -707,7 +707,9 @@
 				can_manage_notifications: targetUser.can_manage_notifications,
 				can_manage_maintenance: targetUser.can_manage_maintenance,
 				can_create_monitors: targetUser.can_create_monitors,
+				can_create_top_level_monitors: targetUser.can_create_top_level_monitors,
 				can_create_groups: targetUser.can_create_groups,
+				can_edit_group_metadata: targetUser.can_edit_group_metadata,
 			});
 			users = users.map((u) => (u.id === targetUser.id ? res.user : u));
 			toast.success('Capabilities saved');
@@ -731,7 +733,9 @@
 			| 'can_manage_notifications'
 			| 'can_manage_maintenance'
 			| 'can_create_monitors'
-			| 'can_create_groups',
+			| 'can_create_top_level_monitors'
+			| 'can_create_groups'
+			| 'can_edit_group_metadata',
 		value: boolean
 	) {
 		targetUser[key] = value;

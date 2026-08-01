@@ -16,6 +16,8 @@ type MonitorModel struct {
 	UserID              int64           `bun:"user_id"`
 	Name                string          `bun:"name,notnull"`
 	Description         string          `bun:"description"`
+	Owner               string          `bun:"owner,notnull,default:''"`
+	InheritGroupOwner   bool            `bun:"inherit_group_owner,notnull,default:false"`
 	Type                string          `bun:"type,notnull"`
 	Active              bool            `bun:"active,notnull,default:true"`
 	Interval            int             `bun:"check_interval,notnull,default:60"`
@@ -46,6 +48,8 @@ func (m *MonitorModel) ToDomain() *domain.Monitor {
 		UserID:              m.UserID,
 		Name:                m.Name,
 		Description:         m.Description,
+		Owner:               m.Owner,
+		InheritGroupOwner:   m.InheritGroupOwner,
 		Type:                m.Type,
 		Active:              m.Active,
 		Interval:            m.Interval,
@@ -75,6 +79,8 @@ func MonitorModelFromDomain(m *domain.Monitor) *MonitorModel {
 		UserID:              m.UserID,
 		Name:                m.Name,
 		Description:         m.Description,
+		Owner:               m.Owner,
+		InheritGroupOwner:   m.InheritGroupOwner,
 		Type:                m.Type,
 		Active:              m.Active,
 		Interval:            m.Interval,

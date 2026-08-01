@@ -221,7 +221,7 @@ func (s *ConfigService) Export(ctx context.Context, userID int64) (*ConfigDocume
 			continue
 		}
 		cg := ConfigMonitorGroup{
-			Key: k.KeyName, Name: g.Name, Description: g.Description,
+			Key: k.KeyName, Name: g.Name, Description: g.Description, Owner: g.Owner,
 			Condition: string(g.Condition), Threshold: g.Threshold,
 			ThresholdIsPercent: g.ThresholdIsPercent, Weight: g.Weight, Collapsed: g.Collapsed,
 		}
@@ -257,7 +257,8 @@ func (s *ConfigService) Export(ctx context.Context, userID int64) (*ConfigDocume
 		}
 		active := m.Active
 		cm := ConfigMonitor{
-			Key: k.KeyName, Name: m.Name, Description: m.Description, Type: m.Type,
+			Key: k.KeyName, Name: m.Name, Description: m.Description, Owner: m.Owner,
+			InheritGroupOwner: m.InheritGroupOwner, Type: m.Type,
 			Active: &active, Interval: m.Interval, RetryInterval: m.RetryInterval,
 			MaxRetries: m.MaxRetries, Timeout: m.Timeout, Config: redactConfigMap(m.Config),
 			AcceptedStatusCodes: m.AcceptedStatusCodes, UpsideDown: m.UpsideDown,
@@ -1041,7 +1042,7 @@ func (s *ConfigService) applyGroup(ctx context.Context, userID int64, g ConfigMo
 	}
 	if action == ConfigActionCreate {
 		grp := &domain.MonitorGroup{
-			UserID: userID, Name: g.Name, Description: g.Description, ParentID: parentID,
+			UserID: userID, Name: g.Name, Description: g.Description, Owner: g.Owner, ParentID: parentID,
 			Condition: cond, Threshold: g.Threshold, ThresholdIsPercent: g.ThresholdIsPercent,
 			Weight: g.Weight, Collapsed: g.Collapsed,
 		}
@@ -1060,6 +1061,7 @@ func (s *ConfigService) applyGroup(ctx context.Context, userID int64, g ConfigMo
 	}
 	cur.Name = g.Name
 	cur.Description = g.Description
+	cur.Owner = g.Owner
 	cur.ParentID = parentID
 	cur.Condition = cond
 	cur.Threshold = g.Threshold
@@ -1103,7 +1105,8 @@ func (s *ConfigService) applyMonitor(ctx context.Context, userID int64, m Config
 	}
 	if action == ConfigActionCreate {
 		mon := &domain.Monitor{
-			UserID: userID, Name: m.Name, Description: m.Description, Type: m.Type,
+			UserID: userID, Name: m.Name, Description: m.Description, Owner: m.Owner,
+			InheritGroupOwner: m.InheritGroupOwner, Type: m.Type,
 			Active: active, Interval: interval, RetryInterval: m.RetryInterval,
 			MaxRetries: m.MaxRetries, Timeout: timeout, Config: stripRedacted(cfg),
 			AcceptedStatusCodes: m.AcceptedStatusCodes, ProxyID: proxyID, GroupID: groupID,
@@ -1125,6 +1128,8 @@ func (s *ConfigService) applyMonitor(ctx context.Context, userID int64, m Config
 	}
 	cur.Name = m.Name
 	cur.Description = m.Description
+	cur.Owner = m.Owner
+	cur.InheritGroupOwner = m.InheritGroupOwner
 	cur.Type = m.Type
 	cur.Active = active
 	cur.Interval = interval
@@ -1530,7 +1535,7 @@ func groupEqual(cur *domain.MonitorGroup, want ConfigMonitorGroup, s *ConfigServ
 	if cond == "" {
 		cond = string(domain.GroupConditionWorstOfChildren)
 	}
-	if cur.Name != want.Name || cur.Description != want.Description ||
+	if cur.Name != want.Name || cur.Description != want.Description || cur.Owner != want.Owner ||
 		string(cur.Condition) != cond || cur.Threshold != want.Threshold ||
 		cur.ThresholdIsPercent != want.ThresholdIsPercent || cur.Weight != want.Weight ||
 		cur.Collapsed != want.Collapsed {
@@ -1558,7 +1563,8 @@ func monitorEqual(cur *domain.Monitor, want ConfigMonitor, s *ConfigService, ctx
 	if timeout <= 0 {
 		timeout = 30
 	}
-	if cur.Name != want.Name || cur.Description != want.Description || cur.Type != want.Type ||
+	if cur.Name != want.Name || cur.Description != want.Description || cur.Owner != want.Owner ||
+		cur.InheritGroupOwner != want.InheritGroupOwner || cur.Type != want.Type ||
 		cur.Active != active || cur.Interval != interval || cur.RetryInterval != want.RetryInterval ||
 		cur.MaxRetries != want.MaxRetries || cur.Timeout != timeout ||
 		cur.UpsideDown != want.UpsideDown || cur.ResendInterval != want.ResendInterval ||

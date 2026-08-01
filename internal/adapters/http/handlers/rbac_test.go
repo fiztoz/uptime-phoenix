@@ -123,6 +123,7 @@ func (r *rbacFakeMonitorTagRepo) ListByMonitors(ctx context.Context, monitorIDs 
 // under test too — not just the in-handler checks.
 type rbacHarness struct {
 	router *echo.Echo
+	users  *memory.UserRepo
 
 	adminToken  string // admin: sees and does everything
 	memberToken string // non-admin, granted the visible folder, NO capabilities
@@ -136,6 +137,10 @@ type rbacHarness struct {
 	monitorHidden  int64
 	groupVisible   int64
 	groupHidden    int64
+	// groupCreator is granted ONLY to the creator. Creates land here so a
+	// member with the shared visible-folder grant does not automatically see
+	// every monitor the creator makes (group grants expand to contained monitors).
+	groupCreator int64
 
 	tagID int64
 }
@@ -185,15 +190,20 @@ func newRBACHarness(t *testing.T) *rbacHarness {
 	monitorSvc.SetGroupRepo(groupRepo)
 	groupSvc := services.NewMonitorGroupService(groupRepo, monitorRepo, newFakeGroupHeartbeatRepo(), logger.New("error"))
 
-	// Two folders, one monitor in each. The member is granted the folder, not the
-	// monitor, so this also exercises group-grant expansion end to end.
+	// Three folders: shared visible, hidden, and a creator-only create target.
+	// The member is granted the shared folder (not individual monitors) so this
+	// also exercises group-grant expansion end to end.
 	visibleGroup := &domain.MonitorGroup{UserID: 1, Name: "visible", Condition: domain.GroupConditionWorstOfChildren}
 	hiddenGroup := &domain.MonitorGroup{UserID: 1, Name: "hidden", Condition: domain.GroupConditionWorstOfChildren}
+	creatorGroup := &domain.MonitorGroup{UserID: 1, Name: "creator-only", Condition: domain.GroupConditionWorstOfChildren}
 	if err := groupRepo.Create(ctx, visibleGroup); err != nil {
 		t.Fatalf("create visible group: %v", err)
 	}
 	if err := groupRepo.Create(ctx, hiddenGroup); err != nil {
 		t.Fatalf("create hidden group: %v", err)
+	}
+	if err := groupRepo.Create(ctx, creatorGroup); err != nil {
+		t.Fatalf("create creator group: %v", err)
 	}
 
 	visible := &domain.Monitor{UserID: 1, Name: "visible-monitor", Type: "http", Active: true, Interval: 60, GroupID: &visibleGroup.ID}
@@ -208,10 +218,15 @@ func newRBACHarness(t *testing.T) *rbacHarness {
 	if err := permRepo.Grant(ctx, &domain.UserPermission{UserID: member.ID, GroupID: &visibleGroup.ID, IncludeDescendants: true}); err != nil {
 		t.Fatalf("grant group: %v", err)
 	}
-	// The creator gets the same view as the member. Identical sight, different
-	// capabilities: that is what isolates ownership in the tests below.
+	// Creator shares the member's view of the visible folder, PLUS a private
+	// create target. Same sight on shared resources, different capabilities —
+	// that isolates ownership — while private creates do not leak via the
+	// member's group grant.
 	if err := permRepo.Grant(ctx, &domain.UserPermission{UserID: creator.ID, GroupID: &visibleGroup.ID, IncludeDescendants: true}); err != nil {
 		t.Fatalf("grant group to creator: %v", err)
+	}
+	if err := permRepo.Grant(ctx, &domain.UserPermission{UserID: creator.ID, GroupID: &creatorGroup.ID, IncludeDescendants: true}); err != nil {
+		t.Fatalf("grant creator-only group: %v", err)
 	}
 
 	// A tag on the visible monitor, so the wire format has something to carry.
@@ -244,7 +259,7 @@ func newRBACHarness(t *testing.T) *rbacHarness {
 	requireCreateMonitors := middleware.RequireCapability(accessSvc, middleware.CapCreateMonitors)
 	requireCreateGroups := middleware.RequireCapability(accessSvc, middleware.CapCreateGroups)
 
-	monitorH := handlers.NewMonitorHandlers(monitorSvc, accessSvc, tagSvc)
+	monitorH := handlers.NewMonitorHandlers(monitorSvc, accessSvc, tagSvc, groupRepo)
 	mg := e.Group("/api/monitors", middleware.AuthMiddleware(authSvc))
 	mg.GET("", monitorH.List)
 	mg.GET("/:id", monitorH.GetByID)
@@ -263,6 +278,7 @@ func newRBACHarness(t *testing.T) *rbacHarness {
 
 	return &rbacHarness{
 		router:         e,
+		users:          userRepo,
 		adminToken:     adminToken,
 		memberToken:    memberToken,
 		creatorToken:   creatorToken,
@@ -271,6 +287,7 @@ func newRBACHarness(t *testing.T) *rbacHarness {
 		monitorHidden:  hidden.ID,
 		groupVisible:   visibleGroup.ID,
 		groupHidden:    hiddenGroup.ID,
+		groupCreator:   creatorGroup.ID,
 		tagID:          tag.ID,
 	}
 }
@@ -429,8 +446,8 @@ func TestRBAC_GroupList_NonAdminSeesOnlyGrantedTree(t *testing.T) {
 	if err := json.Unmarshal(adminRec.Body.Bytes(), &adminGroups); err != nil {
 		t.Fatalf("unmarshal admin groups: %v", err)
 	}
-	if len(adminGroups) != 2 {
-		t.Fatalf("admin sees %d groups; want 2", len(adminGroups))
+	if len(adminGroups) != 3 {
+		t.Fatalf("admin sees %d groups; want 3", len(adminGroups))
 	}
 }
 
@@ -473,7 +490,8 @@ func TestRBAC_GroupMutations_DeniedWithoutCapabilityOrOwnership(t *testing.T) {
 func (h *rbacHarness) createMonitorAs(t *testing.T, token, name string) int64 {
 	t.Helper()
 	rec := h.do(t, http.MethodPost, "/api/monitors", token, map[string]any{
-		"name": name, "type": "http", "config": map[string]any{"url": "https://example.com"},
+		"name": name, "type": "http", "group_id": h.groupCreator,
+		"config": map[string]any{"url": "https://example.com"},
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST /api/monitors = %d; want 201 (body: %s)", rec.Code, rec.Body.String())
@@ -529,6 +547,149 @@ func TestRBAC_Creator_CanCreateMonitorAndSeesItImmediately(t *testing.T) {
 	}
 }
 
+func TestRBAC_Creator_CanCreateOnlyInAllowedGroups(t *testing.T) {
+	h := newRBACHarness(t)
+	body := func(groupID any) map[string]any {
+		return map[string]any{
+			"name": "scoped", "type": "http", "group_id": groupID,
+			"config": map[string]any{"url": "https://example.com"},
+		}
+	}
+
+	before := len(h.monitorIDsVisibleTo(t, h.creatorToken))
+	for name, groupID := range map[string]any{
+		"top level":    nil,
+		"hidden group": h.groupHidden,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := h.do(t, http.MethodPost, "/api/monitors", h.creatorToken, body(groupID))
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("POST in %s = %d; want 403 (body: %s)", name, rec.Code, rec.Body.String())
+			}
+		})
+	}
+	if after := len(h.monitorIDsVisibleTo(t, h.creatorToken)); after != before {
+		t.Fatalf("rejected creates changed visible monitor count %d -> %d", before, after)
+	}
+
+	allowed := h.do(t, http.MethodPost, "/api/monitors", h.creatorToken, body(h.groupVisible))
+	if allowed.Code != http.StatusCreated {
+		t.Fatalf("POST in granted group = %d; want 201 (body: %s)", allowed.Code, allowed.Body.String())
+	}
+	var created struct {
+		ID      int64  `json:"id"`
+		GroupID *int64 `json:"group_id"`
+	}
+	if err := json.Unmarshal(allowed.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal allowed create: %v", err)
+	}
+	move := h.do(t, http.MethodPut, "/api/monitors/"+intToStr(created.ID), h.creatorToken, map[string]any{
+		"name": "scoped", "group_id": h.groupHidden,
+	})
+	if move.Code != http.StatusForbidden {
+		t.Fatalf("PUT moving monitor to hidden group = %d; want 403", move.Code)
+	}
+	fetched := h.do(t, http.MethodGet, "/api/monitors/"+intToStr(created.ID), h.creatorToken, nil)
+	if err := json.Unmarshal(fetched.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal monitor after rejected move: %v", err)
+	}
+	if created.GroupID == nil || *created.GroupID != h.groupVisible {
+		t.Errorf("group after rejected move = %v; want %d", created.GroupID, h.groupVisible)
+	}
+
+	adminTopLevel := h.do(t, http.MethodPost, "/api/monitors", h.adminToken, body(nil))
+	if adminTopLevel.Code != http.StatusCreated {
+		t.Fatalf("admin POST at top level = %d; want 201 (body: %s)", adminTopLevel.Code, adminTopLevel.Body.String())
+	}
+}
+
+// Top-level create is a separate permission choice for non-admins.
+func TestRBAC_Creator_TopLevelRequiresExplicitCapability(t *testing.T) {
+	h := newRBACHarness(t)
+	ctx := context.Background()
+	body := map[string]any{
+		"name": "top-level", "type": "http", "group_id": nil,
+		"config": map[string]any{"url": "https://example.com"},
+	}
+
+	denied := h.do(t, http.MethodPost, "/api/monitors", h.creatorToken, body)
+	if denied.Code != http.StatusForbidden {
+		t.Fatalf("creator top-level without flag = %d; want 403 (body: %s)", denied.Code, denied.Body.String())
+	}
+
+	creator, err := h.users.GetByID(ctx, h.creatorID)
+	if err != nil {
+		t.Fatalf("load creator: %v", err)
+	}
+	creator.CanCreateTopLevelMonitors = true
+	if err := h.users.Update(ctx, creator); err != nil {
+		t.Fatalf("enable top-level: %v", err)
+	}
+
+	allowed := h.do(t, http.MethodPost, "/api/monitors", h.creatorToken, body)
+	if allowed.Code != http.StatusCreated {
+		t.Fatalf("creator top-level with flag = %d; want 201 (body: %s)", allowed.Code, allowed.Body.String())
+	}
+	var created struct {
+		ID      int64  `json:"id"`
+		GroupID *int64 `json:"group_id"`
+	}
+	if err := json.Unmarshal(allowed.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if created.GroupID != nil {
+		t.Errorf("group_id = %v; want null top-level", created.GroupID)
+	}
+	if !h.monitorIDsVisibleTo(t, h.creatorToken)[created.ID] {
+		t.Error("creator cannot see their top-level monitor after create")
+	}
+	if h.monitorIDsVisibleTo(t, h.memberToken)[created.ID] {
+		t.Error("member saw a top-level monitor they were never granted")
+	}
+}
+
+func TestRBAC_MonitorOwnerIsInformationalAndEditable(t *testing.T) {
+	h := newRBACHarness(t)
+	rec := h.do(t, http.MethodPost, "/api/monitors", h.creatorToken, map[string]any{
+		"name": "owned-service", "owner": "Payments on-call", "type": "http",
+		"group_id": h.groupCreator, "config": map[string]any{"url": "https://example.com"},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST with owner = %d; want 201 (body: %s)", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		ID     int64  `json:"id"`
+		Owner  string `json:"owner"`
+		UserID int64  `json:"user_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal create: %v", err)
+	}
+	if created.Owner != "Payments on-call" {
+		t.Errorf("owner = %q; want Payments on-call", created.Owner)
+	}
+	if created.UserID != h.creatorID {
+		t.Errorf("created-by user_id = %d; want creator %d", created.UserID, h.creatorID)
+	}
+
+	updated := h.do(t, http.MethodPut, "/api/monitors/"+intToStr(created.ID), h.creatorToken, map[string]any{
+		"name": "owned-service", "owner": "", "group_id": h.groupCreator,
+	})
+	if updated.Code != http.StatusOK {
+		t.Fatalf("PUT clearing owner = %d; want 200 (body: %s)", updated.Code, updated.Body.String())
+	}
+	var got struct {
+		Owner  string `json:"owner"`
+		UserID int64  `json:"user_id"`
+	}
+	if err := json.Unmarshal(updated.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal update: %v", err)
+	}
+	if got.Owner != "" || got.UserID != h.creatorID {
+		t.Errorf("after clearing owner = %+v; informational owner must not change creator", got)
+	}
+}
+
 // The capability gates CREATION only. Holding create_monitors must not hand a
 // user edit rights over monitors somebody else made — including ones they can
 // plainly see.
@@ -574,7 +735,9 @@ func TestRBAC_Creator_CanEditAndDeleteOwnMonitor(t *testing.T) {
 	h := newRBACHarness(t)
 	id := intToStr(h.createMonitorAs(t, h.creatorToken, "mine"))
 
-	rec := h.do(t, http.MethodPut, "/api/monitors/"+id, h.creatorToken, map[string]any{"name": "mine-renamed"})
+	rec := h.do(t, http.MethodPut, "/api/monitors/"+id, h.creatorToken, map[string]any{
+		"name": "mine-renamed", "group_id": h.groupCreator,
+	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT own monitor = %d; want 200 (body: %s)", rec.Code, rec.Body.String())
 	}
@@ -637,6 +800,56 @@ func TestRBAC_NonCreator_CannotCreateMonitor(t *testing.T) {
 	}
 	if after := len(h.monitorIDsVisibleTo(t, h.memberToken)); after != before {
 		t.Errorf("the member's monitor count went %d -> %d after a 403; the create happened anyway", before, after)
+	}
+}
+
+// Metadata editors may change contact/condition on a granted group, but not
+// rename, re-parent, or delete it.
+func TestRBAC_GroupMetadataEditor_CanEditMetadataButNotStructureOrDelete(t *testing.T) {
+	h := newRBACHarness(t)
+	ctx := context.Background()
+
+	// Reuse the creator principal (already granted the visible group) but drop
+	// create/ownership powers and enable metadata-only edit.
+	metaUser, err := h.users.GetByID(ctx, h.creatorID)
+	if err != nil {
+		t.Fatalf("load user: %v", err)
+	}
+	metaUser.CanCreateMonitors = false
+	metaUser.CanCreateGroups = false
+	metaUser.CanCreateTopLevelMonitors = false
+	metaUser.CanEditGroupMetadata = true
+	if err := h.users.Update(ctx, metaUser); err != nil {
+		t.Fatalf("enable metadata: %v", err)
+	}
+	token := h.creatorToken
+
+	ok := h.do(t, http.MethodPut, "/api/monitor-groups/"+intToStr(h.groupVisible), token, map[string]any{
+		"name": "visible", "owner": "On-call desk", "description": "updated",
+		"condition": "worst_of_children", "parent_id": nil,
+	})
+	if ok.Code != http.StatusOK {
+		t.Fatalf("metadata PUT = %d; want 200 (body: %s)", ok.Code, ok.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(ok.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["owner"] != "On-call desk" || got["description"] != "updated" {
+		t.Errorf("metadata not applied: %+v", got)
+	}
+
+	rename := h.do(t, http.MethodPut, "/api/monitor-groups/"+intToStr(h.groupVisible), token, map[string]any{
+		"name": "hijacked", "owner": "On-call desk", "description": "updated",
+		"condition": "worst_of_children", "parent_id": nil,
+	})
+	if rename.Code != http.StatusForbidden {
+		t.Fatalf("rename as metadata editor = %d; want 403", rename.Code)
+	}
+
+	del := h.do(t, http.MethodDelete, "/api/monitor-groups/"+intToStr(h.groupVisible), token, nil)
+	if del.Code != http.StatusForbidden {
+		t.Fatalf("delete as metadata editor = %d; want 403", del.Code)
 	}
 }
 

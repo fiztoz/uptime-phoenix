@@ -336,7 +336,14 @@ type UserCapabilities struct {
 	// gates making NEW things, and ownership gates touching existing ones. See
 	// AccessService.CanEditMonitor.
 	CanCreateMonitors bool
-	CanCreateGroups   bool
+	// CanCreateTopLevelMonitors widens monitor placement to group_id null. It is
+	// only meaningful together with CanCreateMonitors (the create route still
+	// requires that flag).
+	CanCreateTopLevelMonitors bool
+	CanCreateGroups           bool
+	// CanEditGroupMetadata lets a non-admin change folder metadata on groups
+	// they can view — not name, parent, or delete. See AccessService.CanEditGroupMetadata.
+	CanEditGroupMetadata bool
 }
 
 // CapabilityUpdate is the partial-update twin of UserCapabilities: a nil field
@@ -347,10 +354,12 @@ type UserCapabilities struct {
 // positionally these are four interchangeable *bool, and a transposition would
 // hand out the wrong power silently and pass every type check.
 type CapabilityUpdate struct {
-	CanManageNotifications *bool
-	CanManageMaintenance   *bool
-	CanCreateMonitors      *bool
-	CanCreateGroups        *bool
+	CanManageNotifications    *bool
+	CanManageMaintenance      *bool
+	CanCreateMonitors         *bool
+	CanCreateTopLevelMonitors *bool
+	CanCreateGroups           *bool
+	CanEditGroupMetadata      *bool
 }
 
 // CreateUser creates a new user with admin-supplied fields. This is the
@@ -376,15 +385,17 @@ func (s *AuthService) CreateUser(ctx context.Context, username, password string,
 		return nil, fmt.Errorf("auth service: create user: hash password: %w", err)
 	}
 	u := &domain.User{
-		Username:               username,
-		PasswordHash:           hash,
-		Active:                 active,
-		IsAdmin:                isAdmin,
-		CanManageNotifications: caps.CanManageNotifications,
-		CanManageMaintenance:   caps.CanManageMaintenance,
-		CanCreateMonitors:      caps.CanCreateMonitors,
-		CanCreateGroups:        caps.CanCreateGroups,
-		Timezone:               timezone,
+		Username:                  username,
+		PasswordHash:              hash,
+		Active:                    active,
+		IsAdmin:                   isAdmin,
+		CanManageNotifications:    caps.CanManageNotifications,
+		CanManageMaintenance:      caps.CanManageMaintenance,
+		CanCreateMonitors:         caps.CanCreateMonitors,
+		CanCreateTopLevelMonitors: caps.CanCreateTopLevelMonitors,
+		CanCreateGroups:           caps.CanCreateGroups,
+		CanEditGroupMetadata:      caps.CanEditGroupMetadata,
+		Timezone:                  timezone,
 	}
 	if err := s.users.Create(ctx, u); err != nil {
 		if errors.Is(err, ports.ErrConflict) {
@@ -455,8 +466,14 @@ func (s *AuthService) UpdateUser(ctx context.Context, id int64, username *string
 	if caps.CanCreateMonitors != nil {
 		user.CanCreateMonitors = *caps.CanCreateMonitors
 	}
+	if caps.CanCreateTopLevelMonitors != nil {
+		user.CanCreateTopLevelMonitors = *caps.CanCreateTopLevelMonitors
+	}
 	if caps.CanCreateGroups != nil {
 		user.CanCreateGroups = *caps.CanCreateGroups
+	}
+	if caps.CanEditGroupMetadata != nil {
+		user.CanEditGroupMetadata = *caps.CanEditGroupMetadata
 	}
 	if timezone != nil {
 		tz := *timezone

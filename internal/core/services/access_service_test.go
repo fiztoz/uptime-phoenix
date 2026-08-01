@@ -418,6 +418,148 @@ func TestAccessService_ShallowGroupGrantDoesNotReachSubgroups(t *testing.T) {
 	}
 }
 
+// Monitor creation uses the reach of explicit group grants, not the broader
+// set of groups made visible only so the frontend can render a coherent tree.
+func TestAccessService_MonitorCreationIsLimitedToGrantedGroups(t *testing.T) {
+	h := newAccessHarness(t)
+	ctx := context.Background()
+	admin := h.addUser(t, "admin", true)
+	creator := &domain.User{Username: "creator", Active: true, CanCreateMonitors: true}
+	if err := h.users.Create(ctx, creator); err != nil {
+		t.Fatalf("create creator: %v", err)
+	}
+
+	root := h.addGroup(t, "root", nil)
+	child := h.addGroup(t, "child", &root)
+	grandchild := h.addGroup(t, "grandchild", &child)
+	outside := h.addGroup(t, "outside", nil)
+
+	if err := h.svc.GrantGroup(ctx, creator.ID, root, true); err != nil {
+		t.Fatalf("GrantGroup(deep): %v", err)
+	}
+
+	for _, groupID := range []int64{root, child, grandchild} {
+		allowed, err := h.svc.CanCreateMonitorInGroup(ctx, creator.ID, &groupID)
+		if err != nil || !allowed {
+			t.Errorf("CanCreateMonitorInGroup(%d) = (%v, %v); want (true, nil)", groupID, allowed, err)
+		}
+	}
+	for name, groupID := range map[string]*int64{"top level": nil, "outside": &outside} {
+		allowed, err := h.svc.CanCreateMonitorInGroup(ctx, creator.ID, groupID)
+		if err != nil || allowed {
+			t.Errorf("CanCreateMonitorInGroup(%s) = (%v, %v); want (false, nil)", name, allowed, err)
+		}
+	}
+
+	// Explicit top-level capability opens group_id null without expanding groups.
+	creator.CanCreateTopLevelMonitors = true
+	if err := h.users.Update(ctx, creator); err != nil {
+		t.Fatalf("enable top-level: %v", err)
+	}
+	topOK, err := h.svc.CanCreateMonitorInGroup(ctx, creator.ID, nil)
+	if err != nil || !topOK {
+		t.Fatalf("CanCreateMonitorInGroup(top level with flag) = (%v, %v); want (true, nil)", topOK, err)
+	}
+	outsideOK, err := h.svc.CanCreateMonitorInGroup(ctx, creator.ID, &outside)
+	if err != nil || outsideOK {
+		t.Errorf("top-level flag must not open ungranted groups: (%v, %v)", outsideOK, err)
+	}
+
+	// Admins retain unrestricted placement, including top level.
+	allowed, err := h.svc.CanCreateMonitorInGroup(ctx, admin, nil)
+	if err != nil || !allowed {
+		t.Errorf("CanCreateMonitorInGroup(admin, top level) = (%v, %v); want (true, nil)", allowed, err)
+	}
+}
+
+// Top-level placement needs both create_monitors and the dedicated top-level flag.
+func TestAccessService_TopLevelCreateRequiresBothFlags(t *testing.T) {
+	h := newAccessHarness(t)
+	ctx := context.Background()
+
+	onlyTop := &domain.User{Username: "only-top", Active: true, CanCreateTopLevelMonitors: true}
+	if err := h.users.Create(ctx, onlyTop); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	allowed, err := h.svc.CanCreateMonitorInGroup(ctx, onlyTop.ID, nil)
+	if err != nil || allowed {
+		t.Fatalf("top-level without create_monitors = (%v, %v); want (false, nil)", allowed, err)
+	}
+	onlyCreate := &domain.User{Username: "only-create", Active: true, CanCreateMonitors: true}
+	if err := h.users.Create(ctx, onlyCreate); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	allowed, err = h.svc.CanCreateMonitorInGroup(ctx, onlyCreate.ID, nil)
+	if err != nil || allowed {
+		t.Fatalf("create_monitors without top-level = (%v, %v); want (false, nil)", allowed, err)
+	}
+	both := &domain.User{
+		Username: "both", Active: true,
+		CanCreateMonitors: true, CanCreateTopLevelMonitors: true,
+	}
+	if err := h.users.Create(ctx, both); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	allowed, err = h.svc.CanCreateMonitorInGroup(ctx, both.ID, nil)
+	if err != nil || !allowed {
+		t.Fatalf("both flags = (%v, %v); want (true, nil)", allowed, err)
+	}
+}
+
+func TestAccessService_ShallowGrantLimitsMonitorCreationToExactGroup(t *testing.T) {
+	h := newAccessHarness(t)
+	ctx := context.Background()
+	creator := &domain.User{Username: "creator", Active: true, CanCreateMonitors: true}
+	if err := h.users.Create(ctx, creator); err != nil {
+		t.Fatalf("create creator: %v", err)
+	}
+	root := h.addGroup(t, "root", nil)
+	child := h.addGroup(t, "child", &root)
+	if err := h.svc.GrantGroup(ctx, creator.ID, root, false); err != nil {
+		t.Fatalf("GrantGroup(shallow): %v", err)
+	}
+
+	rootAllowed, err := h.svc.CanCreateMonitorInGroup(ctx, creator.ID, &root)
+	if err != nil || !rootAllowed {
+		t.Fatalf("root allowed = (%v, %v); want (true, nil)", rootAllowed, err)
+	}
+	childAllowed, err := h.svc.CanCreateMonitorInGroup(ctx, creator.ID, &child)
+	if err != nil || childAllowed {
+		t.Errorf("child allowed = (%v, %v); want (false, nil)", childAllowed, err)
+	}
+}
+
+// A direct monitor grant makes its container and ancestors visible for tree
+// rendering, but must not turn those containers into monitor-creation targets.
+func TestAccessService_ContainerVisibilityDoesNotAllowMonitorCreation(t *testing.T) {
+	h := newAccessHarness(t)
+	ctx := context.Background()
+	creator := &domain.User{Username: "creator", Active: true, CanCreateMonitors: true}
+	if err := h.users.Create(ctx, creator); err != nil {
+		t.Fatalf("create creator: %v", err)
+	}
+	root := h.addGroup(t, "root", nil)
+	child := h.addGroup(t, "child", &root)
+	monitor := h.addMonitor(t, "direct", &child)
+	if err := h.svc.GrantMonitor(ctx, creator.ID, monitor); err != nil {
+		t.Fatalf("GrantMonitor: %v", err)
+	}
+
+	_, visible, err := h.svc.VisibleGroupIDs(ctx, creator.ID)
+	if err != nil {
+		t.Fatalf("VisibleGroupIDs: %v", err)
+	}
+	if !idSet(visible)[root] || !idSet(visible)[child] {
+		t.Fatalf("precondition: container tree is not visible: %v", visible)
+	}
+	for _, groupID := range []int64{root, child} {
+		allowed, err := h.svc.CanCreateMonitorInGroup(ctx, creator.ID, &groupID)
+		if err != nil || allowed {
+			t.Errorf("creation in visible-only group %d = (%v, %v); want (false, nil)", groupID, allowed, err)
+		}
+	}
+}
+
 // Grants are additive and there is no deny: a shallow grant sitting inside a deep
 // one cannot claw back what the deep grant already exposed. Worth pinning because
 // the opposite ("the narrower grant wins") is a reasonable-sounding intuition,
@@ -635,6 +777,45 @@ func TestAccessService_CanEditMonitor_OwnerOnly(t *testing.T) {
 	}
 }
 
+// Metadata editors may change non-structural fields on groups they can see,
+// but never gain full edit/delete via the grant alone.
+func TestAccessService_CanEditGroupMetadata_RequiresViewAndFlag(t *testing.T) {
+	h := newAccessHarness(t)
+	ctx := context.Background()
+	_ = h.addUser(t, "admin", true)
+	editor := &domain.User{Username: "meta", Active: true, CanEditGroupMetadata: true}
+	if err := h.users.Create(ctx, editor); err != nil {
+		t.Fatalf("create editor: %v", err)
+	}
+	viewer := h.addUser(t, "viewer", false)
+	folder := h.addGroup(t, "folder", nil)
+	hidden := h.addGroup(t, "hidden", nil)
+
+	if err := h.svc.GrantGroup(ctx, editor.ID, folder, true); err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+	if err := h.svc.GrantGroup(ctx, viewer, folder, true); err != nil {
+		t.Fatalf("grant viewer: %v", err)
+	}
+
+	metaOK, err := h.svc.CanEditGroupMetadata(ctx, editor.ID, folder)
+	if err != nil || !metaOK {
+		t.Fatalf("metadata editor on granted group = (%v, %v); want (true, nil)", metaOK, err)
+	}
+	fullOK, err := h.svc.CanEditGroup(ctx, editor.ID, folder)
+	if err != nil || fullOK {
+		t.Fatalf("metadata editor full edit = (%v, %v); want (false, nil)", fullOK, err)
+	}
+	hiddenMeta, err := h.svc.CanEditGroupMetadata(ctx, editor.ID, hidden)
+	if err != nil || hiddenMeta {
+		t.Fatalf("metadata on ungranted group = (%v, %v); want (false, nil)", hiddenMeta, err)
+	}
+	viewOnly, err := h.svc.CanEditGroupMetadata(ctx, viewer, folder)
+	if err != nil || viewOnly {
+		t.Fatalf("viewer without flag = (%v, %v); want (false, nil)", viewOnly, err)
+	}
+}
+
 // The group twin. Same rule, same trap.
 func TestAccessService_CanEditGroup_OwnerOnly(t *testing.T) {
 	h := newAccessHarness(t)
@@ -718,8 +899,9 @@ func TestAccessService_AdminImpliesEveryCreateCapability(t *testing.T) {
 	admin := h.addUser(t, "admin", true) // no capability flags set
 
 	for name, fn := range map[string]func(context.Context, int64) (bool, error){
-		"CanCreateMonitors": h.svc.CanCreateMonitors,
-		"CanCreateGroups":   h.svc.CanCreateGroups,
+		"CanCreateMonitors":         h.svc.CanCreateMonitors,
+		"CanCreateTopLevelMonitors": h.svc.CanCreateTopLevelMonitors,
+		"CanCreateGroups":           h.svc.CanCreateGroups,
 	} {
 		got, err := fn(ctx, admin)
 		if err != nil || !got {

@@ -243,7 +243,7 @@ func newMonitorGroupHarness(t *testing.T) *monitorGroupTestHarness {
 	e.HideBanner = true
 	e.HidePort = true
 
-	monitorH := handlers.NewMonitorHandlers(monitorSvc, accessSvc, nil)
+	monitorH := handlers.NewMonitorHandlers(monitorSvc, accessSvc, nil, nil)
 	monGroup := e.Group("/api/monitors", middleware.AuthMiddleware(authSvc))
 	monGroup.POST("", monitorH.Create)
 	monGroup.GET("", monitorH.List)

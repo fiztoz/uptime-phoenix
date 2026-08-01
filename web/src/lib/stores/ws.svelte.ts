@@ -22,6 +22,11 @@ export type WsStatus =
 export interface Monitor {
   id: number;
   name: string;
+  /** Informational service/team contact; unrelated to the creating user. */
+  owner?: string;
+  inherit_group_owner?: boolean;
+  /** Resolved contact (prefer over owner for display). */
+  effective_owner?: string;
   type: string;
   /**
    * Monitor's own display state — mirrors the latest Heartbeat's domain Status

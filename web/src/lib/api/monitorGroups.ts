@@ -61,12 +61,20 @@ export interface MonitorGroupView {
   id: number;
   name: string;
   description: string;
+  /** Informational contact for the folder; monitors may inherit this. */
+  owner?: string;
   parent_id: number | null;
   condition: GroupCondition;
   threshold: number;
   threshold_is_percent: boolean;
   weight: number;
   collapsed: boolean;
+  /** Caller-specific: may a newly-created monitor be placed in this group? */
+  can_create_monitor?: boolean;
+  /** Full structural edit + delete (admin or creator). */
+  can_edit?: boolean;
+  /** Non-structural edit only (includes full editors). */
+  can_edit_metadata?: boolean;
   status: number | null;
   created_at: string;
   updated_at: string;
@@ -75,6 +83,7 @@ export interface MonitorGroupView {
 export interface CreateMonitorGroupInput {
   name: string;
   description?: string;
+  owner?: string;
   parent_id?: number | null;
   condition?: GroupCondition;
   threshold?: number;
@@ -243,9 +252,9 @@ function sortGroups(groups: MonitorGroupView[]): MonitorGroupView[] {
 }
 
 /** Sort monitors the way the API lists them: weight, then name, then id. */
-export function sortMonitors<M extends { id: number; name?: string; weight?: number }>(
-  monitors: M[],
-): M[] {
+export function sortMonitors<
+  M extends { id: number; name?: string; weight?: number },
+>(monitors: M[]): M[] {
   return [...monitors].sort((a, b) => {
     const wa = a.weight ?? 2000;
     const wb = b.weight ?? 2000;
@@ -264,7 +273,12 @@ export function sortMonitors<M extends { id: number; name?: string; weight?: num
  * re-deriving these buckets themselves. `null` is the top-level bucket key.
  */
 export function indexGroupChildren<
-  M extends { id: number; name?: string; weight?: number; group_id?: number | null },
+  M extends {
+    id: number;
+    name?: string;
+    weight?: number;
+    group_id?: number | null;
+  },
 >(
   groups: MonitorGroupView[],
   monitors: M[],

@@ -368,7 +368,7 @@ func Run(cfg Config) error {
 	})
 
 	authHandlers := handlers.NewAuthHandlers(authSvc)
-	monitorHandlers := handlers.NewMonitorHandlers(monitorSvc, accessSvc, tagSvc)
+	monitorHandlers := handlers.NewMonitorHandlers(monitorSvc, accessSvc, tagSvc, repos.monitorGroup)
 	monitorGroupHandlers := handlers.NewMonitorGroupHandlers(monitorGroupSvc, accessSvc)
 	notificationHandlers := handlers.NewNotificationHandlers(notificationSvc, accessSvc)
 	statusPageHandlers := handlers.NewStatusPageHandlers(statusPageSvc)
@@ -677,17 +677,19 @@ func buildOIDCOption(cfg Config, repos repoBundle, log *logger.SlogLogger) (serv
 		return nil, err
 	}
 	policy := services.OIDCPolicy{
-		JITEnabled:              cfg.OIDCJITEnabled,
-		LinkByEmail:             cfg.OIDCLinkByEmail,
-		AllowedGroups:           services.SplitCSV(cfg.OIDCAllowedGroups),
-		AdminGroups:             services.SplitCSV(cfg.OIDCAdminGroups),
-		CapNotificationsGroups:  services.SplitCSV(cfg.OIDCCapNotificationsGroups),
-		CapMaintenanceGroups:    services.SplitCSV(cfg.OIDCCapMaintenanceGroups),
-		CapCreateMonitorsGroups: services.SplitCSV(cfg.OIDCCapCreateMonitorsGroups),
-		CapCreateGroupsGroups:   services.SplitCSV(cfg.OIDCCapCreateGroupsGroups),
-		GrantMap:                grantMap,
-		StateSecret:             cfg.JWTSecret,
-		FrontendRedirect:        strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/"),
+		JITEnabled:                      cfg.OIDCJITEnabled,
+		LinkByEmail:                     cfg.OIDCLinkByEmail,
+		AllowedGroups:                   services.SplitCSV(cfg.OIDCAllowedGroups),
+		AdminGroups:                     services.SplitCSV(cfg.OIDCAdminGroups),
+		CapNotificationsGroups:          services.SplitCSV(cfg.OIDCCapNotificationsGroups),
+		CapMaintenanceGroups:            services.SplitCSV(cfg.OIDCCapMaintenanceGroups),
+		CapCreateMonitorsGroups:         services.SplitCSV(cfg.OIDCCapCreateMonitorsGroups),
+		CapCreateTopLevelMonitorsGroups: services.SplitCSV(cfg.OIDCCapCreateTopLevelMonitorsGroups),
+		CapCreateGroupsGroups:           services.SplitCSV(cfg.OIDCCapCreateGroupsGroups),
+		CapEditGroupMetadataGroups:      services.SplitCSV(cfg.OIDCCapEditGroupMetadataGroups),
+		GrantMap:                        grantMap,
+		StateSecret:                     cfg.JWTSecret,
+		FrontendRedirect:                strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/"),
 	}
 	log.Info("oidc sso enabled", "issuer", issuer, "redirect_url", redirectURL, "jit", cfg.OIDCJITEnabled)
 	return services.WithOIDC(provider, repos.oidcIdentity, repos.userPerm, policy), nil

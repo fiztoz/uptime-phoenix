@@ -164,8 +164,8 @@ func runRepositoryContract(t *testing.T, factory repositoryFactory) {
 		if err != nil {
 			t.Fatalf("GetByID monitor: %v", err)
 		}
-		if got.Name != monitor.Name || got.UserID != user.ID {
-			t.Fatalf("monitor round trip = %+v; want name %q user %d", got, monitor.Name, user.ID)
+		if got.Name != monitor.Name || got.UserID != user.ID || got.Owner != monitor.Owner {
+			t.Fatalf("monitor round trip = %+v; want name %q user %d owner %q", got, monitor.Name, user.ID, monitor.Owner)
 		}
 		active := true
 		listed, err := repos.monitors.List(ctx, ports.MonitorFilter{UserID: user.ID, Active: &active, Search: "Matrix"})
@@ -446,7 +446,7 @@ func createUser(t *testing.T, ctx context.Context, repos repositorySet, username
 func createMonitor(t *testing.T, ctx context.Context, repos repositorySet, userID int64, name string) *domain.Monitor {
 	t.Helper()
 	monitor := &domain.Monitor{
-		UserID: userID, Name: name, Type: "http", Active: true, Interval: 60,
+		UserID: userID, Name: name, Owner: "Platform on-call", Type: "http", Active: true, Interval: 60,
 		Timeout: 5, Config: map[string]any{"url": "https://example.test/health"},
 		AcceptedStatusCodes: []string{"200-299"},
 	}

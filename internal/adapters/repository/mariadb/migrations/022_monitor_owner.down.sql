@@ -1,0 +1,2 @@
+ALTER TABLE monitors
+    DROP COLUMN IF EXISTS owner;

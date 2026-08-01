@@ -9,11 +9,12 @@ import "time"
 // be recursive over the group tree; IncludeDescendants decides. Expansion of
 // that tree is the AccessService's job, not the domain's.
 //
-// Permissions are additive and view-only. There is no "deny" grant, and no
-// grant of any kind confers write access — a grant answers "may I SEE this?"
-// and nothing else. The write powers a non-admin can hold live on domain.User
-// (CanManageNotifications, CanManageMaintenance, CanCreateMonitors,
-// CanCreateGroups), not here.
+// Permissions are additive. A grant by itself is view-only: there is no "deny"
+// grant, and a grant never confers edit/delete access. The independent write
+// powers a non-admin can hold live on domain.User (CanManageNotifications,
+// CanManageMaintenance, CanCreateMonitors, CanCreateGroups), not here. The one
+// intentional composition is monitor creation: CanCreateMonitors is install-
+// level, while group grants bound which folders the new monitor may be placed in.
 //
 // Note what that means for the two creation capabilities: they let a user make
 // a monitor or group and then edit and delete it, but that follow-on right

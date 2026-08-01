@@ -71,6 +71,7 @@ type ConfigMonitorGroup struct {
 	Key                string `json:"key" yaml:"key"`
 	Name               string `json:"name" yaml:"name"`
 	Description        string `json:"description,omitempty" yaml:"description,omitempty"`
+	Owner              string `json:"owner,omitempty" yaml:"owner,omitempty"`
 	Parent             string `json:"parent,omitempty" yaml:"parent,omitempty"` // key of parent group
 	Condition          string `json:"condition,omitempty" yaml:"condition,omitempty"`
 	Threshold          int    `json:"threshold,omitempty" yaml:"threshold,omitempty"`
@@ -84,6 +85,8 @@ type ConfigMonitor struct {
 	Key                 string         `json:"key" yaml:"key"`
 	Name                string         `json:"name" yaml:"name"`
 	Description         string         `json:"description,omitempty" yaml:"description,omitempty"`
+	Owner               string         `json:"owner,omitempty" yaml:"owner,omitempty"`
+	InheritGroupOwner   bool           `json:"inherit_group_owner,omitempty" yaml:"inherit_group_owner,omitempty"`
 	Type                string         `json:"type" yaml:"type"`
 	Active              *bool          `json:"active,omitempty" yaml:"active,omitempty"`
 	Interval            int            `json:"interval,omitempty" yaml:"interval,omitempty"`

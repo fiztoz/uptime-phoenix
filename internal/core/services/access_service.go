@@ -26,9 +26,13 @@ import (
 //     subtree or just the group's own monitors depending on the grant's
 //     IncludeDescendants flag. See resolveScope.
 //
-//   - Capabilities — four independent flags on the user (CanManageNotifications,
-//     CanManageMaintenance, CanCreateMonitors, CanCreateGroups) are the only write
-//     powers a non-admin can hold. Admins implicitly hold all of them.
+//   - Capabilities — independent flags on the user (CanManageNotifications,
+//     CanManageMaintenance, CanCreateMonitors, CanCreateTopLevelMonitors,
+//     CanCreateGroups, CanEditGroupMetadata) are the only write powers a
+//     non-admin can hold. Admins implicitly hold all of them.
+//     CanCreateTopLevelMonitors only widens monitor placement to group_id null.
+//     CanEditGroupMetadata allows non-structural edits on groups the user can
+//     view (not name/parent/delete).
 //
 //   - Ownership — a non-admin who creates a monitor or group (having held the
 //     matching create capability) owns it: Monitor.UserID / MonitorGroup.UserID
@@ -109,17 +113,166 @@ func (s *AccessService) CanManageMaintenance(ctx context.Context, userID int64) 
 	return u.IsAdmin || u.CanManageMaintenance, nil
 }
 
-// CanCreateMonitors reports whether the user may create monitors. Admins always
-// may.
+// CanCreateMonitors reports whether the user holds the install-level capability
+// to create monitors. Admins always may.
 //
-// This answers only "may you make a NEW one?". What the user may then do to it
-// is an ownership question — see CanEditMonitor.
+// This is only the first creation gate. Placement is decided separately by
+// CanCreateMonitorInGroup (granted groups and/or CanCreateTopLevelMonitors).
 func (s *AccessService) CanCreateMonitors(ctx context.Context, userID int64) (bool, error) {
 	u, err := s.user(ctx, userID)
 	if err != nil {
 		return false, err
 	}
 	return u.IsAdmin || u.CanCreateMonitors, nil
+}
+
+// CanCreateTopLevelMonitors reports whether the user may place a monitor
+// outside any group (group_id null). Admins always may. A non-admin needs both
+// CanCreateMonitors (to hit the create route) and this flag (to choose top
+// level). The flags are stored independently so an admin can grant/revoke them
+// separately in the permission editor.
+func (s *AccessService) CanCreateTopLevelMonitors(ctx context.Context, userID int64) (bool, error) {
+	u, err := s.user(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if u.IsAdmin {
+		return true, nil
+	}
+	return u.CanCreateMonitors && u.CanCreateTopLevelMonitors, nil
+}
+
+// CreatableMonitorGroupIDs returns the monitor groups in which a user may
+// create a monitor.
+//
+// all=true is reserved for admins and includes top-level placement. A
+// non-admin gets only groups covered by an explicit group grant: a deep grant
+// includes descendants, while a shallow grant includes only the granted group.
+// Groups that are merely visible as ancestors or containers are deliberately
+// excluded. Top-level placement is NOT represented here — call
+// CanCreateTopLevelMonitors for that. The returned slice is always non-nil.
+func (s *AccessService) CreatableMonitorGroupIDs(ctx context.Context, userID int64) (bool, []int64, error) {
+	u, err := s.user(ctx, userID)
+	if err != nil {
+		return false, []int64{}, err
+	}
+	if u.IsAdmin {
+		return true, []int64{}, nil
+	}
+	if !u.CanCreateMonitors {
+		return false, []int64{}, nil
+	}
+
+	ids, err := s.grantedMonitorGroupIDs(ctx, userID)
+	if err != nil {
+		return false, []int64{}, err
+	}
+	return false, ids, nil
+}
+
+// CanCreateMonitorInGroup reports whether the user may create a monitor at the
+// requested location.
+//
+//	admin                         — anywhere, including top level
+//	groupID set                   — CanCreateMonitors + an applicable group grant
+//	groupID nil (top level)       — CanCreateMonitors + CanCreateTopLevelMonitors
+func (s *AccessService) CanCreateMonitorInGroup(ctx context.Context, userID int64, groupID *int64) (bool, error) {
+	u, err := s.user(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if u.IsAdmin {
+		return true, nil
+	}
+	if !u.CanCreateMonitors {
+		return false, nil
+	}
+	if groupID == nil {
+		return u.CanCreateTopLevelMonitors, nil
+	}
+	ids, err := s.grantedMonitorGroupIDs(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return containsID(ids, groupID), nil
+}
+
+// CanPlaceMonitorInGroup reports whether an existing monitor owned by a
+// non-admin may be moved to the requested location. It intentionally does not
+// require CanCreateMonitors: revoking create stops new rows but does not
+// prevent an owner from maintaining an existing monitor. Group grants still
+// bound which folders they may file into; top-level placement still requires
+// CanCreateTopLevelMonitors (or admin).
+func (s *AccessService) CanPlaceMonitorInGroup(ctx context.Context, userID int64, groupID *int64) (bool, error) {
+	u, err := s.user(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if u.IsAdmin {
+		return true, nil
+	}
+	if groupID == nil {
+		return u.CanCreateTopLevelMonitors, nil
+	}
+	ids, err := s.grantedMonitorGroupIDs(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return containsID(ids, groupID), nil
+}
+
+// grantedMonitorGroupIDs resolves only explicit GROUP grants. Unlike
+// VisibleGroupIDs it never adds ancestor/container groups, because tree-render
+// visibility is not permission to create or move resources there.
+func (s *AccessService) grantedMonitorGroupIDs(ctx context.Context, userID int64) ([]int64, error) {
+	out := []int64{}
+	if s.perms == nil || s.groups == nil {
+		return out, nil
+	}
+	grants, err := s.perms.ListByUser(ctx, userID)
+	if err != nil {
+		return out, fmt.Errorf("access service: list grants for user %d: %w", userID, err)
+	}
+	allGroups, err := s.groups.ListAll(ctx)
+	if err != nil {
+		return out, fmt.Errorf("access service: list groups: %w", err)
+	}
+	tree := newGroupTree(allGroups)
+	deep := make(map[int64]bool)
+	shallow := make(map[int64]bool)
+	for _, grant := range grants {
+		if grant.GroupID == nil {
+			continue
+		}
+		if grant.IncludeDescendants {
+			deep[*grant.GroupID] = true
+		} else {
+			shallow[*grant.GroupID] = true
+		}
+	}
+	allowed := tree.expand(deep)
+	for id := range shallow {
+		allowed[id] = true
+	}
+	// Ignore stale grants whose target group no longer exists.
+	for id := range allowed {
+		if tree.byID[id] != nil {
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}
+
+func containsID(ids []int64, candidate *int64) bool {
+	if candidate == nil {
+		return false
+	}
+	for _, id := range ids {
+		if id == *candidate {
+			return true
+		}
+	}
+	return false
 }
 
 // CanCreateGroups reports whether the user may create monitor groups (folders).
@@ -172,9 +325,10 @@ func (s *AccessService) CanEditMonitor(ctx context.Context, userID, monitorID in
 	return m.UserID == userID, nil
 }
 
-// CanEditGroup reports whether the user may UPDATE or DELETE one specific
-// monitor group. The group twin of CanEditMonitor, with the same rules: admin or
-// creator, never a grant.
+// CanEditGroup reports whether the user may fully UPDATE (including name and
+// parent) or DELETE one specific monitor group. Admin or creator only — never a
+// grant, and never the CanEditGroupMetadata capability (that is a narrower
+// power; see CanEditGroupMetadata).
 func (s *AccessService) CanEditGroup(ctx context.Context, userID, groupID int64) (bool, error) {
 	admin, err := s.IsAdmin(ctx, userID)
 	if err != nil {
@@ -191,6 +345,32 @@ func (s *AccessService) CanEditGroup(ctx context.Context, userID, groupID int64)
 		return false, fmt.Errorf("access service: load monitor group %d: %w", groupID, err)
 	}
 	return g.UserID == userID, nil
+}
+
+// CanEditGroupMetadata reports whether the user may edit non-structural fields
+// on a group they can see: description, owner/contact, condition, threshold,
+// weight, collapsed. It does NOT allow rename, re-parent, or delete.
+//
+// Allowed when:
+//
+//	admin or group creator (full editors also count as metadata editors); or
+//	CanEditGroupMetadata capability AND CanViewGroup for this group.
+func (s *AccessService) CanEditGroupMetadata(ctx context.Context, userID, groupID int64) (bool, error) {
+	full, err := s.CanEditGroup(ctx, userID, groupID)
+	if err != nil {
+		return false, err
+	}
+	if full {
+		return true, nil
+	}
+	u, err := s.user(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if !u.CanEditGroupMetadata {
+		return false, nil
+	}
+	return s.CanViewGroup(ctx, userID, groupID)
 }
 
 func (s *AccessService) user(ctx context.Context, userID int64) (*domain.User, error) {

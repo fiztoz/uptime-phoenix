@@ -33,15 +33,20 @@ type MonitorTagView struct {
 // Tags is ALWAYS a non-nil slice (marshals as [], never null) — matching the REST
 // shape, so the dashboard's tag filter never has to null-check.
 type MonitorView struct {
-	ID       int64          `json:"id"`
-	Name     string         `json:"name"`
-	Type     string         `json:"type"`
-	Status   string         `json:"status"`
-	Target   string         `json:"target,omitempty"`
-	Config   map[string]any `json:"config"`
-	Active   bool           `json:"active"`
-	Interval int            `json:"interval"`
-	Timeout  float64        `json:"timeout"`
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Owner string `json:"owner"`
+	// InheritGroupOwner / EffectiveOwner mirror REST; EffectiveOwner is best-effort
+	// on the wire (equals Owner unless the hub resolved groups).
+	InheritGroupOwner bool           `json:"inherit_group_owner"`
+	EffectiveOwner    string         `json:"effective_owner"`
+	Type              string         `json:"type"`
+	Status            string         `json:"status"`
+	Target            string         `json:"target,omitempty"`
+	Config            map[string]any `json:"config"`
+	Active            bool           `json:"active"`
+	Interval          int            `json:"interval"`
+	Timeout           float64        `json:"timeout"`
 	// GroupID files this monitor under a MonitorGroup (folder). nil means
 	// top-level (not in any group). Replaces the old ParentID, which nested
 	// a monitor under another *monitor*.
@@ -161,17 +166,20 @@ func toMonitorView(m *domain.Monitor, status string) MonitorView {
 		wireStatus = "paused"
 	}
 	return MonitorView{
-		ID:       m.ID,
-		Name:     m.Name,
-		Type:     m.Type,
-		Status:   wireStatus,
-		Target:   m.Target(),
-		Config:   cfg,
-		Active:   m.Active,
-		Interval: m.Interval,
-		Timeout:  m.Timeout,
-		GroupID:  m.GroupID,
-		Weight:   m.Weight,
+		ID:                m.ID,
+		Name:              m.Name,
+		Owner:             m.Owner,
+		InheritGroupOwner: m.InheritGroupOwner,
+		EffectiveOwner:    m.Owner, // hub may overwrite when groups are available
+		Type:              m.Type,
+		Status:            wireStatus,
+		Target:            m.Target(),
+		Config:            cfg,
+		Active:            m.Active,
+		Interval:          m.Interval,
+		Timeout:           m.Timeout,
+		GroupID:           m.GroupID,
+		Weight:            m.Weight,
 		// Tags default to empty, never nil. Callers with a tag service (the hub)
 		// overwrite this; callers without one still emit a valid [].
 		Tags:      []MonitorTagView{},
@@ -192,6 +200,16 @@ func monitorMapToView(m map[string]any, status string) MonitorView {
 		v.ID = extractInt64(m, "ID")
 	}
 	v.Name = mapStr(m, "name", "Name")
+	v.Owner = mapStr(m, "owner", "Owner")
+	v.EffectiveOwner = mapStr(m, "effective_owner", "EffectiveOwner")
+	if v.EffectiveOwner == "" {
+		v.EffectiveOwner = v.Owner
+	}
+	if b, ok := m["inherit_group_owner"].(bool); ok {
+		v.InheritGroupOwner = b
+	} else if b, ok := m["InheritGroupOwner"].(bool); ok {
+		v.InheritGroupOwner = b
+	}
 	v.Type = mapStr(m, "type", "Type")
 	v.Active, _ = m["active"].(bool)
 	if !v.Active {

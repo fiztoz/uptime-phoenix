@@ -1,0 +1,2 @@
+ALTER TABLE monitor_groups ADD COLUMN owner TEXT NOT NULL DEFAULT '';
+ALTER TABLE monitors ADD COLUMN inherit_group_owner INTEGER NOT NULL DEFAULT 0;

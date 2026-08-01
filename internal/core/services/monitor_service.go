@@ -127,8 +127,13 @@ func (s *MonitorService) validateProxy(ctx context.Context, m *domain.Monitor) e
 	return nil
 }
 
-// validateGroup ensures m.GroupID, when set, references a monitor group
-// owned by the same user as m. Mirrors validateProxy's ownership check.
+// validateGroup ensures m.GroupID, when set, references an existing monitor
+// group. Placement authorization is NOT checked here: AccessService decides
+// whether the caller may create/move a monitor into a group (group grants),
+// and that check lives in the HTTP handlers. Groups are shared folders under
+// RBAC — a non-admin routinely files monitors into an admin-owned group they
+// have been granted — so an ownership match would reject every legitimate
+// scoped create.
 func (s *MonitorService) validateGroup(ctx context.Context, m *domain.Monitor) error {
 	if m.GroupID == nil {
 		return nil
@@ -136,16 +141,11 @@ func (s *MonitorService) validateGroup(ctx context.Context, m *domain.Monitor) e
 	if s.groupRepo == nil {
 		return fmt.Errorf("monitor service: %w: monitor group support is not enabled", domain.ErrValidation)
 	}
-	group, err := s.groupRepo.GetByID(ctx, *m.GroupID)
-	if err != nil {
+	if _, err := s.groupRepo.GetByID(ctx, *m.GroupID); err != nil {
 		if errors.Is(err, ports.ErrNotFound) || errors.Is(err, domain.ErrNotFound) {
 			return fmt.Errorf("monitor service: %w: group not found", domain.ErrValidation)
 		}
 		return fmt.Errorf("monitor service: validate group: %w", err)
-	}
-	if group.UserID != m.UserID {
-		// Do not leak existence of another user's group — same message as "not found".
-		return fmt.Errorf("monitor service: %w: group not found", domain.ErrValidation)
 	}
 	return nil
 }

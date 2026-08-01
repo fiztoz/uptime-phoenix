@@ -21,6 +21,7 @@ type MonitorGroupModel struct {
 	UserID             int64  `bun:"user_id,notnull"`
 	Name               string `bun:"name,notnull"`
 	Description        string `bun:"description"`
+	Owner              string `bun:"owner,notnull,default:''"`
 	ParentID           *int64 `bun:"parent_id"`
 	Condition          string `bun:"status_condition,notnull,default:'worst_of_children'"`
 	Threshold          int    `bun:"threshold,notnull,default:0"`
@@ -48,6 +49,7 @@ func (m *MonitorGroupModel) ToDomain() *domain.MonitorGroup {
 		UserID:             m.UserID,
 		Name:               m.Name,
 		Description:        m.Description,
+		Owner:              m.Owner,
 		ParentID:           m.ParentID,
 		Condition:          domain.GroupCondition(m.Condition),
 		Threshold:          m.Threshold,
@@ -72,6 +74,7 @@ func MonitorGroupModelFromDomain(g *domain.MonitorGroup) *MonitorGroupModel {
 		UserID:             g.UserID,
 		Name:               g.Name,
 		Description:        g.Description,
+		Owner:              g.Owner,
 		ParentID:           g.ParentID,
 		Condition:          string(g.Condition),
 		Threshold:          g.Threshold,

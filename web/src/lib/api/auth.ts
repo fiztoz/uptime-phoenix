@@ -9,6 +9,10 @@ export interface User {
   is_admin?: boolean;
   can_manage_notifications?: boolean;
   can_manage_maintenance?: boolean;
+  can_create_monitors?: boolean;
+  can_create_top_level_monitors?: boolean;
+  can_create_groups?: boolean;
+  can_edit_group_metadata?: boolean;
   active?: boolean;
   totp_enabled?: boolean;
   two_factor_enabled?: boolean;

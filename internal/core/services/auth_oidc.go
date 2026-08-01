@@ -47,11 +47,14 @@ type OIDCPolicy struct {
 	// AdminGroups grant is_admin on every successful login while a member.
 	AdminGroups []string
 	// CapNotificationsGroups / CapMaintenanceGroups / CapCreateMonitorsGroups /
-	// CapCreateGroupsGroups map IdP groups onto the four capability flags.
-	CapNotificationsGroups  []string
-	CapMaintenanceGroups    []string
-	CapCreateMonitorsGroups []string
-	CapCreateGroupsGroups   []string
+	// CapCreateTopLevelMonitorsGroups / CapCreateGroupsGroups map IdP groups onto
+	// the capability flags.
+	CapNotificationsGroups          []string
+	CapMaintenanceGroups            []string
+	CapCreateMonitorsGroups         []string
+	CapCreateTopLevelMonitorsGroups []string
+	CapCreateGroupsGroups           []string
+	CapEditGroupMetadataGroups      []string
 	// GrantMap maps IdP group names onto scoped view grants. Keys are IdP
 	// group names; values describe the Phoenix resource.
 	GrantMap []OIDCGrantMapping
@@ -380,24 +383,30 @@ func anyGroupMatch(have, want []string) bool {
 func (s *AuthService) syncOIDCPermissions(ctx context.Context, user *domain.User, groups []string) error {
 	isAdmin := anyGroupMatch(groups, s.oidcPolicy.AdminGroups)
 	caps := UserCapabilities{
-		CanManageNotifications: anyGroupMatch(groups, s.oidcPolicy.CapNotificationsGroups),
-		CanManageMaintenance:   anyGroupMatch(groups, s.oidcPolicy.CapMaintenanceGroups),
-		CanCreateMonitors:      anyGroupMatch(groups, s.oidcPolicy.CapCreateMonitorsGroups),
-		CanCreateGroups:        anyGroupMatch(groups, s.oidcPolicy.CapCreateGroupsGroups),
+		CanManageNotifications:    anyGroupMatch(groups, s.oidcPolicy.CapNotificationsGroups),
+		CanManageMaintenance:      anyGroupMatch(groups, s.oidcPolicy.CapMaintenanceGroups),
+		CanCreateMonitors:         anyGroupMatch(groups, s.oidcPolicy.CapCreateMonitorsGroups),
+		CanCreateTopLevelMonitors: anyGroupMatch(groups, s.oidcPolicy.CapCreateTopLevelMonitorsGroups),
+		CanCreateGroups:           anyGroupMatch(groups, s.oidcPolicy.CapCreateGroupsGroups),
+		CanEditGroupMetadata:      anyGroupMatch(groups, s.oidcPolicy.CapEditGroupMetadataGroups),
 	}
 
 	changed := user.IsAdmin != isAdmin ||
 		user.CanManageNotifications != caps.CanManageNotifications ||
 		user.CanManageMaintenance != caps.CanManageMaintenance ||
 		user.CanCreateMonitors != caps.CanCreateMonitors ||
-		user.CanCreateGroups != caps.CanCreateGroups
+		user.CanCreateTopLevelMonitors != caps.CanCreateTopLevelMonitors ||
+		user.CanCreateGroups != caps.CanCreateGroups ||
+		user.CanEditGroupMetadata != caps.CanEditGroupMetadata
 
 	if changed {
 		user.IsAdmin = isAdmin
 		user.CanManageNotifications = caps.CanManageNotifications
 		user.CanManageMaintenance = caps.CanManageMaintenance
 		user.CanCreateMonitors = caps.CanCreateMonitors
+		user.CanCreateTopLevelMonitors = caps.CanCreateTopLevelMonitors
 		user.CanCreateGroups = caps.CanCreateGroups
+		user.CanEditGroupMetadata = caps.CanEditGroupMetadata
 		if err := s.users.Update(ctx, user); err != nil {
 			return fmt.Errorf("update user flags: %w", err)
 		}

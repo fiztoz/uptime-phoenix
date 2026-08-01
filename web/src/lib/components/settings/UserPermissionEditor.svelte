@@ -75,7 +75,9 @@
 		| 'can_manage_notifications'
 		| 'can_manage_maintenance'
 		| 'can_create_monitors'
-		| 'can_create_groups';
+		| 'can_create_top_level_monitors'
+		| 'can_create_groups'
+		| 'can_edit_group_metadata';
 
 	let {
 		user,
@@ -126,7 +128,13 @@
 		{
 			key: 'can_create_monitors' as const,
 			label: 'Create monitors',
-			help: 'Add new monitors, and edit or delete the ones they created. Not anyone else’s.',
+			help: 'Add new monitors inside groups they are granted, and edit or delete the ones they created. Not anyone else’s.',
+			icon: PlusCircle,
+		},
+		{
+			key: 'can_create_top_level_monitors' as const,
+			label: 'Create top-level monitors',
+			help: 'Also allow creating monitors outside any group. Requires “Create monitors”. Does not expand group access.',
 			icon: PlusCircle,
 		},
 		{
@@ -134,6 +142,12 @@
 			label: 'Create groups',
 			help: 'Add new folders, and edit or delete the ones they created. Not anyone else’s.',
 			icon: FolderPlus,
+		},
+		{
+			key: 'can_edit_group_metadata' as const,
+			label: 'Edit group metadata',
+			help: 'On groups they can see: edit contact, description, condition, and display options. Cannot rename, move, or delete folders.',
+			icon: FolderTree,
 		},
 	];
 

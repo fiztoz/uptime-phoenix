@@ -21,7 +21,11 @@ export interface User {
    * user-level flag can answer. See canEditMonitor in $lib/permissions.
    */
   can_create_monitors: boolean;
+  /** Place new monitors with no group (group_id null). Needs can_create_monitors. */
+  can_create_top_level_monitors: boolean;
   can_create_groups: boolean;
+  /** Edit group metadata on visible folders; not name/parent/delete. */
+  can_edit_group_metadata: boolean;
   timezone: string;
   two_factor_enabled: boolean;
   created_at: string;
@@ -36,7 +40,9 @@ export interface CreateUserInput {
   can_manage_notifications?: boolean;
   can_manage_maintenance?: boolean;
   can_create_monitors?: boolean;
+  can_create_top_level_monitors?: boolean;
   can_create_groups?: boolean;
+  can_edit_group_metadata?: boolean;
   timezone?: string;
 }
 
@@ -47,7 +53,9 @@ export type UpdateUserInput = Partial<{
   can_manage_notifications: boolean;
   can_manage_maintenance: boolean;
   can_create_monitors: boolean;
+  can_create_top_level_monitors: boolean;
   can_create_groups: boolean;
+  can_edit_group_metadata: boolean;
   timezone: string;
   password: string;
 }>;

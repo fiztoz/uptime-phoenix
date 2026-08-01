@@ -45,6 +45,8 @@ func NewMonitorGroupHandlers(svc *services.MonitorGroupService, access *services
 type upsertMonitorGroupRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// Owner is informational contact for the team responsible for this folder.
+	Owner string `json:"owner"`
 	// ParentID nests this group inside another group. On update it is always
 	// applied (not gated on non-zero/nil) so the client can move a group back
 	// to top level by sending parent_id: null — same semantics
@@ -62,12 +64,22 @@ type MonitorGroupView struct {
 	ID                 int64                 `json:"id"`
 	Name               string                `json:"name"`
 	Description        string                `json:"description"`
+	Owner              string                `json:"owner"`
 	ParentID           *int64                `json:"parent_id"`
 	Condition          domain.GroupCondition `json:"condition"`
 	Threshold          int                   `json:"threshold"`
 	ThresholdIsPercent bool                  `json:"threshold_is_percent"`
 	Weight             int                   `json:"weight"`
 	Collapsed          bool                  `json:"collapsed"`
+	// CanCreateMonitor is true when this caller may place a newly-created
+	// monitor in the group. It is caller-specific authorization metadata, not a
+	// persisted property of the group.
+	CanCreateMonitor bool `json:"can_create_monitor"`
+	// CanEdit is full structural edit + delete (admin or creator).
+	CanEdit bool `json:"can_edit"`
+	// CanEditMetadata is non-structural edit only (includes full editors).
+	// Name and parent stay locked when this is true and CanEdit is false.
+	CanEditMetadata bool `json:"can_edit_metadata"`
 	// Status is the derived status (domain.Status: 0=DOWN 1=UP 2=PENDING
 	// 3=MAINTENANCE) for this group. It is a pointer WITHOUT omitempty:
 	// status 0 (DOWN) is a legitimate value that omitempty would silently
@@ -89,6 +101,7 @@ func toMonitorGroupView(g *domain.MonitorGroup, status *int) *MonitorGroupView {
 		ID:                 g.ID,
 		Name:               g.Name,
 		Description:        g.Description,
+		Owner:              g.Owner,
 		ParentID:           g.ParentID,
 		Condition:          g.Condition,
 		Threshold:          g.Threshold,
@@ -98,6 +111,49 @@ func toMonitorGroupView(g *domain.MonitorGroup, status *int) *MonitorGroupView {
 		Status:             status,
 		CreatedAt:          g.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:          g.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+	}
+}
+
+func (h *MonitorGroupHandlers) canCreateMonitor(c echo.Context, groupID int64) bool {
+	userID, ok := userIDFromContext(c)
+	if !ok || h.access == nil {
+		return false
+	}
+	allowed, err := h.access.CanCreateMonitorInGroup(c.Request().Context(), userID, &groupID)
+	if err != nil {
+		slog.WarnContext(c.Request().Context(), "resolve monitor creation permission for group failed",
+			"user_id", userID, "group_id", groupID, "error", err)
+		return false
+	}
+	return allowed
+}
+
+// applyGroupAccessFlags fills caller-specific can_edit / can_edit_metadata /
+// can_create_monitor on a view. Failures degrade closed (false) rather than
+// failing the request — the flags are UI affordances; the write path re-checks.
+func (h *MonitorGroupHandlers) applyGroupAccessFlags(c echo.Context, view *MonitorGroupView) {
+	if view == nil {
+		return
+	}
+	h.applyGroupEditFlags(c, view)
+	view.CanCreateMonitor = h.canCreateMonitor(c, view.ID)
+}
+
+// applyGroupEditFlags sets can_edit and can_edit_metadata only (no create).
+func (h *MonitorGroupHandlers) applyGroupEditFlags(c echo.Context, view *MonitorGroupView) {
+	if view == nil || h.access == nil {
+		return
+	}
+	userID, ok := userIDFromContext(c)
+	if !ok {
+		return
+	}
+	ctx := c.Request().Context()
+	if full, err := h.access.CanEditGroup(ctx, userID, view.ID); err == nil {
+		view.CanEdit = full
+	}
+	if meta, err := h.access.CanEditGroupMetadata(ctx, userID, view.ID); err == nil {
+		view.CanEditMetadata = meta
 	}
 }
 
@@ -144,6 +200,7 @@ func (h *MonitorGroupHandlers) Create(c echo.Context) error {
 		UserID:             userID,
 		Name:               req.Name,
 		Description:        req.Description,
+		Owner:              req.Owner,
 		ParentID:           req.ParentID,
 		Condition:          req.Condition,
 		Threshold:          req.Threshold,
@@ -157,7 +214,9 @@ func (h *MonitorGroupHandlers) Create(c echo.Context) error {
 	}
 	h.grantCreatorAccess(c, userID, g.ID)
 
-	return c.JSON(http.StatusCreated, toMonitorGroupView(g, nil))
+	view := toMonitorGroupView(g, nil)
+	h.applyGroupAccessFlags(c, view)
+	return c.JSON(http.StatusCreated, view)
 }
 
 // List handles GET /api/monitor-groups.
@@ -203,6 +262,15 @@ func (h *MonitorGroupHandlers) List(c echo.Context) error {
 		groups = filtered
 	}
 
+	creationAll, creationIDs, err := h.access.CreatableMonitorGroupIDs(c.Request().Context(), userID)
+	if err != nil {
+		return mapMonitorGroupError(c, err)
+	}
+	creatable := make(map[int64]bool, len(creationIDs))
+	for _, id := range creationIDs {
+		creatable[id] = true
+	}
+
 	// userID 0 == "the whole install" — see MonitorGroupService.ResolveStatuses.
 	statuses, err := h.svc.ResolveStatuses(c.Request().Context(), 0)
 	if err != nil {
@@ -217,6 +285,8 @@ func (h *MonitorGroupHandlers) List(c echo.Context) error {
 			status = &v
 		}
 		views[i] = toMonitorGroupView(g, status)
+		views[i].CanCreateMonitor = creationAll || creatable[g.ID]
+		h.applyGroupEditFlags(c, views[i])
 	}
 	return c.JSON(http.StatusOK, views)
 }
@@ -250,19 +320,43 @@ func (h *MonitorGroupHandlers) GetByID(c echo.Context) error {
 		return mapMonitorGroupError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, toMonitorGroupView(g, nil))
+	view := toMonitorGroupView(g, nil)
+	h.applyGroupAccessFlags(c, view)
+	return c.JSON(http.StatusOK, view)
 }
 
-// Update handles PUT /api/monitor-groups/:id. Admins, or the user who created
-// this group. Gated in the handler, not the router: the answer depends on who
-// owns THIS group. See MonitorHandlers.Update.
+// Update handles PUT /api/monitor-groups/:id.
+//
+// Full editors (admin/creator) may change every field including name and parent.
+// Metadata editors (can_edit_group_metadata + view grant) may change description,
+// owner, condition, threshold, weight, and collapsed only — name and parent are
+// rejected if changed. Delete stays full-edit only.
 func (h *MonitorGroupHandlers) Update(c echo.Context) error {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		return badRequest(c, "invalid monitor group id")
 	}
-	if err := requireGroupEditAccess(c, h.access, id); err != nil {
+	userID, ok := userIDFromContext(c)
+	if !ok {
+		return unauthenticated(c)
+	}
+	if h.access == nil {
+		return c.JSON(http.StatusForbidden, errorBody("access control unavailable"))
+	}
+	// View first: never confirm a hidden group (404, not 403).
+	if err := requireGroupViewAccess(c, h.access, id); err != nil {
 		return err
+	}
+	fullEdit, err := h.access.CanEditGroup(c.Request().Context(), userID, id)
+	if err != nil {
+		return mapMonitorGroupError(c, err)
+	}
+	metaEdit, err := h.access.CanEditGroupMetadata(c.Request().Context(), userID, id)
+	if err != nil {
+		return mapMonitorGroupError(c, err)
+	}
+	if !fullEdit && !metaEdit {
+		return c.JSON(http.StatusForbidden, errorBody("you can only modify monitor groups you created"))
 	}
 
 	existing, err := h.svc.GetByID(c.Request().Context(), id)
@@ -275,12 +369,18 @@ func (h *MonitorGroupHandlers) Update(c echo.Context) error {
 		return badRequest(c, "invalid request body")
 	}
 
-	existing.Name = req.Name
+	if fullEdit {
+		existing.Name = req.Name
+		// ParentID is always applied so the client can clear nesting with null.
+		existing.ParentID = req.ParentID
+	} else {
+		// Metadata-only: refuse structural changes rather than silently drop them.
+		if req.Name != existing.Name || !sameOptionalID(req.ParentID, existing.ParentID) {
+			return c.JSON(http.StatusForbidden, errorBody("not allowed to change group name or parent"))
+		}
+	}
 	existing.Description = req.Description
-	// ParentID is always applied (not gated on non-zero/nil) so the client
-	// can explicitly move this group back to top level by sending
-	// parent_id: null.
-	existing.ParentID = req.ParentID
+	existing.Owner = req.Owner
 	existing.Condition = req.Condition
 	existing.Threshold = req.Threshold
 	existing.ThresholdIsPercent = req.ThresholdIsPercent
@@ -291,12 +391,14 @@ func (h *MonitorGroupHandlers) Update(c echo.Context) error {
 		return mapMonitorGroupError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, toMonitorGroupView(existing, nil))
+	view := toMonitorGroupView(existing, nil)
+	h.applyGroupAccessFlags(c, view)
+	return c.JSON(http.StatusOK, view)
 }
 
-// Delete handles DELETE /api/monitor-groups/:id. Admin-only. It removes the group
-// only — monitors and subgroups filed under it are re-homed to its parent, never
-// deleted (see ports.MonitorGroupRepository.Delete).
+// Delete handles DELETE /api/monitor-groups/:id. Full editors only (admin or
+// creator) — metadata editors cannot delete. Monitors and subgroups filed under
+// it are re-homed to its parent, never deleted (see ports.MonitorGroupRepository.Delete).
 func (h *MonitorGroupHandlers) Delete(c echo.Context) error {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {

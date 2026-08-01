@@ -40,12 +40,18 @@
 	let open = $state(true);
 	let loading = $state(false);
 
+	// Metadata-only editors may change contact/condition/etc. but not name or parent.
+	let structureLocked = $derived(
+		!!group && group.can_edit !== true && group.can_edit_metadata === true,
+	);
+
 	// A group can't be nested under itself or any of its own descendants.
 	let parentOptions = $derived(buildGroupOptions(groups, group?.id));
 
 	let formData = $state({
 		name: initialGroup?.name ?? '',
 		description: initialGroup?.description ?? '',
+		owner: initialGroup?.owner ?? '',
 		parentId: initialGroup?.parent_id != null ? String(initialGroup.parent_id) : '',
 		condition: (initialGroup?.condition ?? 'worst_of_children') as GroupCondition,
 		threshold: initialGroup?.threshold ?? 1,
@@ -162,6 +168,7 @@
 			const input: CreateMonitorGroupInput = {
 				name: formData.name.trim(),
 				description: formData.description.trim(),
+				owner: formData.owner.trim(),
 				parent_id: formData.parentId === '' ? null : Number(formData.parentId),
 				condition: formData.condition,
 				threshold: formData.condition === 'threshold' ? Number(formData.threshold) : 0,
@@ -276,8 +283,12 @@
 						type="text"
 						bind:value={formData.name}
 						placeholder={m.monitor_group_form_name_placeholder()}
-						class="{inputClass} mt-1"
+						disabled={structureLocked}
+						class="{inputClass} mt-1 disabled:opacity-60"
 					/>
+					{#if structureLocked}
+						<p class="mt-1 text-xs text-muted-foreground">{m.monitor_group_form_structure_locked()}</p>
+					{/if}
 				</div>
 
 				<div>
@@ -289,6 +300,18 @@
 						placeholder={m.monitor_group_form_description_placeholder()}
 						class="{inputClass} mt-1"
 					></textarea>
+				</div>
+
+				<div>
+					<label for="mg-owner" class="text-sm font-medium">{m.monitor_form_owner_label()}</label>
+					<input
+						id="mg-owner"
+						type="text"
+						bind:value={formData.owner}
+						placeholder={m.monitor_form_owner_placeholder()}
+						class="{inputClass} mt-1"
+					/>
+					<p class="mt-1 text-xs text-muted-foreground">{m.monitor_group_form_owner_help()}</p>
 				</div>
 
 				<div>
@@ -305,6 +328,7 @@
 							]}
 								value={formData.parentId}
 								onValueChange={(v) => { formData.parentId = v; }}
+								disabled={structureLocked}
 							class="w-full"
 						/>
 					</div>

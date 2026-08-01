@@ -758,7 +758,7 @@ func TestBackupService_ExportImport_RemapsRelationships(t *testing.T) {
 		t.Fatalf("create sibling: %v", err)
 	}
 	child := &domain.Monitor{
-		UserID: userID, Name: "Child", Type: "http", Active: true, Interval: 30, Timeout: 10,
+		UserID: userID, Name: "Child", Owner: "Payments on-call", Type: "http", Active: true, Interval: 30, Timeout: 10,
 		Config:  map[string]any{"url": "https://child.example.com"},
 		GroupID: &group.ID, ProxyID: &proxy.ID,
 		AcceptedStatusCodes: []string{"200-299", "301"},
@@ -827,6 +827,15 @@ func TestBackupService_ExportImport_RemapsRelationships(t *testing.T) {
 	if len(doc.Monitors) != 2 {
 		t.Fatalf("monitors = %d, want 2", len(doc.Monitors))
 	}
+	var exportedOwner string
+	for _, monitor := range doc.Monitors {
+		if monitor.Name == "Child" {
+			exportedOwner = monitor.Owner
+		}
+	}
+	if exportedOwner != "Payments on-call" {
+		t.Fatalf("exported monitor owner = %q; want Payments on-call", exportedOwner)
+	}
 	if len(doc.MonitorGroups) != 1 || doc.MonitorGroups[0].Name != "Folder" {
 		t.Fatalf("monitor groups export incomplete: %+v", doc.MonitorGroups)
 	}
@@ -885,6 +894,9 @@ func TestBackupService_ExportImport_RemapsRelationships(t *testing.T) {
 	}
 	if impSibling == nil || impChild == nil {
 		t.Fatalf("missing imported monitors: sibling=%v child=%v", impSibling, impChild)
+	}
+	if impChild.Owner != "Payments on-call" {
+		t.Fatalf("imported child owner = %q; want Payments on-call", impChild.Owner)
 	}
 	if impSibling.GroupID != nil {
 		t.Fatalf("sibling.GroupID = %v, want nil (never filed under a group)", impSibling.GroupID)

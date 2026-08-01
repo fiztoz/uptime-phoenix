@@ -7,6 +7,10 @@ import type { Monitor } from "$lib/stores/ws.svelte.ts";
 export interface CreateMonitorInput {
   name: string;
   description?: string;
+  /** Informational service/team contact; unrelated to the creating user. */
+  owner?: string;
+  /** Prefer group (and ancestor) contact over owner when true. */
+  inherit_group_owner?: boolean;
   type: string;
   interval: number;
   timeout: number;
@@ -74,6 +78,10 @@ export interface UpdateMonitorInput extends Partial<CreateMonitorInput> {}
 export type MonitorWithGroup = Monitor & {
   group_id?: number | null;
   proxy_id?: number | null;
+  owner?: string;
+  inherit_group_owner?: boolean;
+  /** Resolved contact for display (group chain when inheriting). */
+  effective_owner?: string;
 };
 
 /**

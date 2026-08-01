@@ -92,6 +92,8 @@ type BackupMonitor struct {
 	ID                  int64          `json:"id"`
 	Name                string         `json:"name"`
 	Description         string         `json:"description"`
+	Owner               string         `json:"owner"`
+	InheritGroupOwner   bool           `json:"inherit_group_owner"`
 	Type                string         `json:"type"`
 	Active              bool           `json:"active"`
 	Interval            int            `json:"interval"`
@@ -117,6 +119,7 @@ type BackupMonitorGroup struct {
 	ID                 int64                 `json:"id"`
 	Name               string                `json:"name"`
 	Description        string                `json:"description"`
+	Owner              string                `json:"owner"`
 	ParentID           *int64                `json:"parent_id"`
 	Condition          domain.GroupCondition `json:"condition"`
 	Threshold          int                   `json:"threshold"`
@@ -406,6 +409,7 @@ func (s *BackupService) Export(ctx context.Context, userID int64) (*BackupDocume
 			ID:                 g.ID,
 			Name:               g.Name,
 			Description:        g.Description,
+			Owner:              g.Owner,
 			ParentID:           g.ParentID,
 			Condition:          g.Condition,
 			Threshold:          g.Threshold,
@@ -427,6 +431,8 @@ func (s *BackupService) Export(ctx context.Context, userID int64) (*BackupDocume
 			ID:                  m.ID,
 			Name:                m.Name,
 			Description:         m.Description,
+			Owner:               m.Owner,
+			InheritGroupOwner:   m.InheritGroupOwner,
 			Type:                m.Type,
 			Active:              m.Active,
 			Interval:            m.Interval,
@@ -770,6 +776,7 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 			UserID:             userID,
 			Name:               bg.Name,
 			Description:        bg.Description,
+			Owner:              bg.Owner,
 			ParentID:           parentID,
 			Condition:          bg.Condition,
 			Threshold:          bg.Threshold,
@@ -823,6 +830,8 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 			UserID:              userID,
 			Name:                bm.Name,
 			Description:         bm.Description,
+			Owner:               bm.Owner,
+			InheritGroupOwner:   bm.InheritGroupOwner,
 			Type:                bm.Type,
 			Active:              bm.Active,
 			Interval:            bm.Interval,

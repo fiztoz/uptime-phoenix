@@ -555,8 +555,12 @@
 						{#if row.status !== null}
 							<StatusPill status={rollupStatusToPillStatus(row.status)} />
 						{/if}
-						<button onclick={() => openEditGroup(row.group)} class="rounded p-1 hover:bg-accent" aria-label={m.monitors_page_edit_group()}><Edit2 class="h-3.5 w-3.5" /></button>
-						<button onclick={() => handleDeleteGroup(row.group)} class="rounded p-1 text-danger hover:bg-accent" aria-label={m.monitors_page_delete_group()}><Trash2 class="h-3.5 w-3.5" /></button>
+						{#if row.group.can_edit || row.group.can_edit_metadata}
+							<button onclick={() => openEditGroup(row.group)} class="rounded p-1 hover:bg-accent" aria-label={m.monitors_page_edit_group()}><Edit2 class="h-3.5 w-3.5" /></button>
+						{/if}
+						{#if row.group.can_edit}
+							<button onclick={() => handleDeleteGroup(row.group)} class="rounded p-1 text-danger hover:bg-accent" aria-label={m.monitors_page_delete_group()}><Trash2 class="h-3.5 w-3.5" /></button>
+						{/if}
 					</div>
 				{:else}
 					<div class="rounded-xl border border-border bg-card p-4" style="margin-left: {row.depth * 0.9}rem">
@@ -656,12 +660,16 @@
 								<td class="px-4 py-3"></td>
 								<td class="px-4 py-3 text-right">
 									<div class="flex justify-end gap-1">
-										<button onclick={() => openEditGroup(row.group)} class="rounded p-1.5 hover:bg-accent" title={m.monitors_page_edit_group()}>
-											<Edit2 class="h-4 w-4" />
-										</button>
-										<button onclick={() => handleDeleteGroup(row.group)} class="rounded p-1.5 text-danger hover:bg-accent" title={m.monitors_page_delete_group()}>
-											<Trash2 class="h-4 w-4" />
-										</button>
+										{#if row.group.can_edit || row.group.can_edit_metadata}
+											<button onclick={() => openEditGroup(row.group)} class="rounded p-1.5 hover:bg-accent" title={m.monitors_page_edit_group()}>
+												<Edit2 class="h-4 w-4" />
+											</button>
+										{/if}
+										{#if row.group.can_edit}
+											<button onclick={() => handleDeleteGroup(row.group)} class="rounded p-1.5 text-danger hover:bg-accent" title={m.monitors_page_delete_group()}>
+												<Trash2 class="h-4 w-4" />
+											</button>
+										{/if}
 									</div>
 								</td>
 							</tr>

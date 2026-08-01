@@ -33,19 +33,31 @@ type MonitorHandlers struct {
 	svc    *services.MonitorService
 	access *services.AccessService
 	tags   *services.TagService
+	// groups is optional; when set, MonitorView.EffectiveOwner can resolve
+	// inherited group contacts. Without it inherit falls back to the monitor's
+	// own Owner field.
+	groups ports.MonitorGroupRepository
 }
 
 // NewMonitorHandlers creates a MonitorHandlers bound to the supplied services.
-func NewMonitorHandlers(svc *services.MonitorService, access *services.AccessService, tags *services.TagService) *MonitorHandlers {
-	return &MonitorHandlers{svc: svc, access: access, tags: tags}
+// groups may be nil (effective owner then equals stored owner).
+func NewMonitorHandlers(svc *services.MonitorService, access *services.AccessService, tags *services.TagService, groups ports.MonitorGroupRepository) *MonitorHandlers {
+	return &MonitorHandlers{svc: svc, access: access, tags: tags, groups: groups}
 }
 
 // --- Request / response DTOs ---------------------------------------------
 
 // CreateMonitorRequest is the body of POST /api/monitors.
 type CreateMonitorRequest struct {
-	Name                string         `json:"name"`
-	Description         string         `json:"description"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// Owner is informational contact text for the team responsible for this
+	// monitor. It is independent of UserID, which records the Phoenix account
+	// that created and may edit the monitor. When inherit_group_owner is true,
+	// display prefers the group chain contact (see EffectiveOwner).
+	Owner string `json:"owner"`
+	// InheritGroupOwner prefers the monitor's group (and ancestors) contact.
+	InheritGroupOwner   bool           `json:"inherit_group_owner"`
 	Type                string         `json:"type"`
 	Active              *bool          `json:"active"`
 	Interval            int            `json:"interval"`
@@ -77,8 +89,12 @@ type CreateMonitorRequest struct {
 
 // UpdateMonitorRequest is the body of PUT /api/monitors/:id.
 type UpdateMonitorRequest struct {
-	Name                string         `json:"name"`
-	Description         string         `json:"description"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// Owner is always applied so sending an empty string clears the contact.
+	Owner string `json:"owner"`
+	// InheritGroupOwner is always applied on update (false when omitted).
+	InheritGroupOwner   bool           `json:"inherit_group_owner"`
 	Active              *bool          `json:"active"`
 	Interval            int            `json:"interval"`
 	RetryInterval       int            `json:"retry_interval"`
@@ -122,10 +138,16 @@ type MonitorTagView struct {
 // Tags is ALWAYS a non-nil slice, so the field serializes as [] and never null:
 // the dashboard's tag filter iterates it unconditionally.
 type MonitorView struct {
-	ID                  int64          `json:"id"`
-	UserID              int64          `json:"user_id"`
-	Name                string         `json:"name"`
-	Description         string         `json:"description"`
+	ID          int64  `json:"id"`
+	UserID      int64  `json:"user_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// Owner is the monitor's OWN stored contact (may be empty when inheriting).
+	Owner string `json:"owner"`
+	// InheritGroupOwner means EffectiveOwner should prefer the group chain.
+	InheritGroupOwner bool `json:"inherit_group_owner"`
+	// EffectiveOwner is the contact to show/use (resolved; not stored).
+	EffectiveOwner      string         `json:"effective_owner"`
 	Type                string         `json:"type"`
 	Active              bool           `json:"active"`
 	Interval            int            `json:"interval"`
@@ -150,7 +172,8 @@ type MonitorView struct {
 
 // toMonitorView projects a domain.Monitor to the public DTO. tags may be nil —
 // it is normalized to an empty slice so the JSON is [] rather than null.
-func toMonitorView(m *domain.Monitor, tags []services.MonitorTagDetail) *MonitorView {
+// groupsByID resolves EffectiveOwner when inherit_group_owner is set.
+func toMonitorView(m *domain.Monitor, tags []services.MonitorTagDetail, groupsByID map[int64]*domain.MonitorGroup) *MonitorView {
 	if m == nil {
 		return nil
 	}
@@ -159,6 +182,9 @@ func toMonitorView(m *domain.Monitor, tags []services.MonitorTagDetail) *Monitor
 		UserID:              m.UserID,
 		Name:                m.Name,
 		Description:         m.Description,
+		Owner:               m.Owner,
+		InheritGroupOwner:   m.InheritGroupOwner,
+		EffectiveOwner:      m.EffectiveOwner(groupsByID),
 		Type:                m.Type,
 		Active:              m.Active,
 		Interval:            m.Interval,
@@ -266,6 +292,16 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 	if req.Type == "" {
 		return badRequest(c, "type is required")
 	}
+	if h.access == nil {
+		return c.JSON(http.StatusForbidden, errorBody("access control unavailable"))
+	}
+	allowed, err := h.access.CanCreateMonitorInGroup(c.Request().Context(), userID, req.GroupID)
+	if err != nil {
+		return mapMonitorError(c, err)
+	}
+	if !allowed {
+		return c.JSON(http.StatusForbidden, errorBody("monitor creation is limited to an allowed group"))
+	}
 
 	if req.Config == nil {
 		req.Config = make(map[string]any)
@@ -297,6 +333,8 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 		UserID:              userID,
 		Name:                req.Name,
 		Description:         req.Description,
+		Owner:               req.Owner,
+		InheritGroupOwner:   req.InheritGroupOwner,
 		Type:                req.Type,
 		Active:              active,
 		Interval:            req.Interval,
@@ -325,7 +363,7 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 	h.grantCreatorAccess(c, userID, monitor.ID)
 
 	// A monitor has no tags the instant it is created, so skip the lookup.
-	return c.JSON(http.StatusCreated, toMonitorView(monitor, nil))
+	return c.JSON(http.StatusCreated, toMonitorView(monitor, nil, h.groupsByID(c)))
 }
 
 // List handles GET /api/monitors.
@@ -388,9 +426,10 @@ func (h *MonitorHandlers) List(c echo.Context) error {
 		}
 	}
 
+	groupsByID := h.groupsByID(c)
 	views := make([]*MonitorView, len(monitors))
 	for i, m := range monitors {
-		views[i] = toMonitorView(m, tagsByMonitor[m.ID])
+		views[i] = toMonitorView(m, tagsByMonitor[m.ID], groupsByID)
 	}
 	return c.JSON(http.StatusOK, views)
 }
@@ -412,7 +451,7 @@ func (h *MonitorHandlers) GetByID(c echo.Context) error {
 		return mapMonitorError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, toMonitorView(monitor, h.monitorTags(c, id)))
+	return c.JSON(http.StatusOK, toMonitorView(monitor, h.monitorTags(c, id), h.groupsByID(c)))
 }
 
 // Update handles PUT /api/monitors/:id. Admins, or the user who created this
@@ -454,6 +493,9 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 	if req.Description != "" {
 		existing.Description = req.Description
 	}
+	// Owner is informational metadata and may be explicitly cleared.
+	existing.Owner = req.Owner
+	existing.InheritGroupOwner = req.InheritGroupOwner
 	if req.Active != nil {
 		existing.Active = *req.Active
 	}
@@ -482,7 +524,22 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 		existing.ResendInterval = req.ResendInterval
 	}
 	// GroupID is always applied (not gated on non-zero) so the client can
-	// explicitly clear a monitor's group by sending group_id: null.
+	// explicitly clear a monitor's group by sending group_id: null. A
+	// non-admin may only move it to a group covered by one of their group grants;
+	// leaving the current location unchanged remains allowed after grant changes.
+	if !sameOptionalID(existing.GroupID, req.GroupID) {
+		userID, ok := userIDFromContext(c)
+		if !ok {
+			return unauthenticated(c)
+		}
+		allowed, accessErr := h.access.CanPlaceMonitorInGroup(c.Request().Context(), userID, req.GroupID)
+		if accessErr != nil {
+			return mapMonitorError(c, accessErr)
+		}
+		if !allowed {
+			return c.JSON(http.StatusForbidden, errorBody("monitor placement is limited to an allowed group"))
+		}
+	}
 	existing.GroupID = req.GroupID
 	// ProxyID mirrors GroupID: always applied so the client can explicitly
 	// clear a monitor's proxy by sending proxy_id: null.
@@ -495,7 +552,7 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 		return mapMonitorError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, toMonitorView(existing, h.monitorTags(c, id)))
+	return c.JSON(http.StatusOK, toMonitorView(existing, h.monitorTags(c, id), h.groupsByID(c)))
 }
 
 // Delete handles DELETE /api/monitors/:id. Admins, or the user who created this
@@ -521,6 +578,13 @@ func (h *MonitorHandlers) Delete(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+func sameOptionalID(a, b *int64) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
 // Clone handles POST /api/monitors/:id/clone — duplicates monitor config.
 //
 // Two gates, and note that the second is VIEW, not edit: cloning creates a new
@@ -544,12 +608,42 @@ func (h *MonitorHandlers) Clone(c echo.Context) error {
 		return err
 	}
 
+	source, err := h.svc.GetByID(c.Request().Context(), id)
+	if err != nil {
+		return mapMonitorError(c, err)
+	}
+	allowed, err := h.access.CanCreateMonitorInGroup(c.Request().Context(), userID, source.GroupID)
+	if err != nil {
+		return mapMonitorError(c, err)
+	}
+	if !allowed {
+		return c.JSON(http.StatusForbidden, errorBody("monitor creation is limited to an allowed group"))
+	}
+
 	cloned, err := h.svc.Clone(c.Request().Context(), id, userID)
 	if err != nil {
 		return mapMonitorError(c, err)
 	}
 	h.grantCreatorAccess(c, userID, cloned.ID)
-	return c.JSON(http.StatusCreated, toMonitorView(cloned, nil))
+	return c.JSON(http.StatusCreated, toMonitorView(cloned, nil, h.groupsByID(c)))
+}
+
+// groupsByID loads every monitor group once for EffectiveOwner resolution.
+// Failures degrade to nil (own Owner only) rather than failing the request.
+func (h *MonitorHandlers) groupsByID(c echo.Context) map[int64]*domain.MonitorGroup {
+	if h.groups == nil {
+		return nil
+	}
+	all, err := h.groups.ListAll(c.Request().Context())
+	if err != nil {
+		slog.WarnContext(c.Request().Context(), "monitor: group lookup for effective owner failed", "error", err)
+		return nil
+	}
+	out := make(map[int64]*domain.MonitorGroup, len(all))
+	for _, g := range all {
+		out[g.ID] = g
+	}
+	return out
 }
 
 // --- Error translation helper -------------------------------------------

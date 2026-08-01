@@ -52,6 +52,10 @@ type MonitorGroup struct {
 	UserID      int64
 	Name        string
 	Description string
+	// Owner is free-text contact for the team responsible for monitors in this
+	// folder. Display-only; no authorization meaning. Monitors may inherit it
+	// via Monitor.InheritGroupOwner (and ancestor walk).
+	Owner string
 
 	// ParentID nests this group inside another group. nil means top-level.
 	// Nesting is arbitrarily deep; the service rejects cycles.

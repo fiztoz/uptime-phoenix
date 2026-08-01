@@ -96,10 +96,10 @@ type UserView struct {
 	Username string `json:"username"`
 	Active   bool   `json:"active"`
 	IsAdmin  bool   `json:"is_admin"`
-	// The four Can* fields are the RAW flags stored on the user, NOT the
-	// effective permission. An admin has is_admin=true and every flag false, yet
-	// may do everything — the frontend must gate on `is_admin || can_x`, exactly
-	// as services.AccessService does on the server. Reporting the raw flags
+	// The Can* fields are the RAW flags stored on the user, NOT the effective
+	// permission. An admin has is_admin=true and every flag false, yet may do
+	// everything — the frontend must gate on `is_admin || can_x`, exactly as
+	// services.AccessService does on the server. Reporting the raw flags
 	// (rather than pre-OR-ing them) keeps the admin edit form able to round-trip
 	// a user's actual settings.
 	CanManageNotifications bool `json:"can_manage_notifications"`
@@ -110,13 +110,18 @@ type UserView struct {
 	// is_admin), and no user-level flag can answer it. Gating an edit button on
 	// can_create_monitors would show it on every monitor the user can see,
 	// including other people's, and the server would then 403 the save.
-	CanCreateMonitors bool   `json:"can_create_monitors"`
-	CanCreateGroups   bool   `json:"can_create_groups"`
-	Timezone          string `json:"timezone"`
-	TOTPEnabled       bool   `json:"totp_enabled"`
-	TwoFactorEnabled  bool   `json:"two_factor_enabled"`
-	CreatedAt         string `json:"created_at"`
-	UpdatedAt         string `json:"updated_at"`
+	// CanCreateTopLevelMonitors additionally allows group_id null placement when
+	// creating (or moving) a monitor; it is useless without can_create_monitors.
+	CanCreateMonitors         bool `json:"can_create_monitors"`
+	CanCreateTopLevelMonitors bool `json:"can_create_top_level_monitors"`
+	CanCreateGroups           bool `json:"can_create_groups"`
+	// CanEditGroupMetadata allows non-structural edits on visible groups.
+	CanEditGroupMetadata bool   `json:"can_edit_group_metadata"`
+	Timezone             string `json:"timezone"`
+	TOTPEnabled          bool   `json:"totp_enabled"`
+	TwoFactorEnabled     bool   `json:"two_factor_enabled"`
+	CreatedAt            string `json:"created_at"`
+	UpdatedAt            string `json:"updated_at"`
 }
 
 // toUserView projects a domain.User to the public DTO. Sensitive
@@ -131,19 +136,21 @@ func toUserView(u *domain.User) *UserView {
 		return nil
 	}
 	return &UserView{
-		ID:                     u.ID,
-		Username:               u.Username,
-		Active:                 u.Active,
-		IsAdmin:                u.IsAdmin,
-		CanManageNotifications: u.CanManageNotifications,
-		CanManageMaintenance:   u.CanManageMaintenance,
-		CanCreateMonitors:      u.CanCreateMonitors,
-		CanCreateGroups:        u.CanCreateGroups,
-		Timezone:               u.Timezone,
-		TOTPEnabled:            u.TOTPEnabled,
-		TwoFactorEnabled:       u.TOTPEnabled,
-		CreatedAt:              u.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:              u.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ID:                        u.ID,
+		Username:                  u.Username,
+		Active:                    u.Active,
+		IsAdmin:                   u.IsAdmin,
+		CanManageNotifications:    u.CanManageNotifications,
+		CanManageMaintenance:      u.CanManageMaintenance,
+		CanCreateMonitors:         u.CanCreateMonitors,
+		CanCreateTopLevelMonitors: u.CanCreateTopLevelMonitors,
+		CanCreateGroups:           u.CanCreateGroups,
+		CanEditGroupMetadata:      u.CanEditGroupMetadata,
+		Timezone:                  u.Timezone,
+		TOTPEnabled:               u.TOTPEnabled,
+		TwoFactorEnabled:          u.TOTPEnabled,
+		CreatedAt:                 u.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:                 u.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 }
 

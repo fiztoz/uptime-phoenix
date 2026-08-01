@@ -35,29 +35,33 @@ func NewUserHandlers(svc *services.AuthService, access *services.AccessService) 
 // means false. They are meaningless for an admin, who implicitly holds all of
 // them.
 type CreateUserRequest struct {
-	Username               string `json:"username"`
-	Password               string `json:"password"`
-	Active                 *bool  `json:"active"`
-	IsAdmin                *bool  `json:"is_admin"`
-	CanManageNotifications *bool  `json:"can_manage_notifications"`
-	CanManageMaintenance   *bool  `json:"can_manage_maintenance"`
-	CanCreateMonitors      *bool  `json:"can_create_monitors"`
-	CanCreateGroups        *bool  `json:"can_create_groups"`
-	Timezone               string `json:"timezone"`
+	Username                  string `json:"username"`
+	Password                  string `json:"password"`
+	Active                    *bool  `json:"active"`
+	IsAdmin                   *bool  `json:"is_admin"`
+	CanManageNotifications    *bool  `json:"can_manage_notifications"`
+	CanManageMaintenance      *bool  `json:"can_manage_maintenance"`
+	CanCreateMonitors         *bool  `json:"can_create_monitors"`
+	CanCreateTopLevelMonitors *bool  `json:"can_create_top_level_monitors"`
+	CanCreateGroups           *bool  `json:"can_create_groups"`
+	CanEditGroupMetadata      *bool  `json:"can_edit_group_metadata"`
+	Timezone                  string `json:"timezone"`
 }
 
 // UpdateUserRequest is the body of PUT /api/users/:id. A nil field leaves
 // the corresponding value unchanged; a non-nil Password resets it.
 type UpdateUserRequest struct {
-	Username               *string `json:"username"`
-	Active                 *bool   `json:"active"`
-	IsAdmin                *bool   `json:"is_admin"`
-	CanManageNotifications *bool   `json:"can_manage_notifications"`
-	CanManageMaintenance   *bool   `json:"can_manage_maintenance"`
-	CanCreateMonitors      *bool   `json:"can_create_monitors"`
-	CanCreateGroups        *bool   `json:"can_create_groups"`
-	Timezone               *string `json:"timezone"`
-	Password               *string `json:"password"`
+	Username                  *string `json:"username"`
+	Active                    *bool   `json:"active"`
+	IsAdmin                   *bool   `json:"is_admin"`
+	CanManageNotifications    *bool   `json:"can_manage_notifications"`
+	CanManageMaintenance      *bool   `json:"can_manage_maintenance"`
+	CanCreateMonitors         *bool   `json:"can_create_monitors"`
+	CanCreateTopLevelMonitors *bool   `json:"can_create_top_level_monitors"`
+	CanCreateGroups           *bool   `json:"can_create_groups"`
+	CanEditGroupMetadata      *bool   `json:"can_edit_group_metadata"`
+	Timezone                  *string `json:"timezone"`
+	Password                  *string `json:"password"`
 }
 
 // GroupGrantView is one group grant on the wire: which folder, and how far down
@@ -187,8 +191,14 @@ func (h *UserHandlers) Create(c echo.Context) error {
 	if req.CanCreateMonitors != nil {
 		caps.CanCreateMonitors = *req.CanCreateMonitors
 	}
+	if req.CanCreateTopLevelMonitors != nil {
+		caps.CanCreateTopLevelMonitors = *req.CanCreateTopLevelMonitors
+	}
 	if req.CanCreateGroups != nil {
 		caps.CanCreateGroups = *req.CanCreateGroups
+	}
+	if req.CanEditGroupMetadata != nil {
+		caps.CanEditGroupMetadata = *req.CanEditGroupMetadata
 	}
 	user, err := h.svc.CreateUser(c.Request().Context(), req.Username, req.Password, active, isAdmin, req.Timezone, caps)
 	if err != nil {
@@ -235,10 +245,12 @@ func (h *UserHandlers) Update(c echo.Context) error {
 	}
 	user, err := h.svc.UpdateUser(c.Request().Context(), id, req.Username, req.Active, req.IsAdmin, req.Timezone, req.Password,
 		services.CapabilityUpdate{
-			CanManageNotifications: req.CanManageNotifications,
-			CanManageMaintenance:   req.CanManageMaintenance,
-			CanCreateMonitors:      req.CanCreateMonitors,
-			CanCreateGroups:        req.CanCreateGroups,
+			CanManageNotifications:    req.CanManageNotifications,
+			CanManageMaintenance:      req.CanManageMaintenance,
+			CanCreateMonitors:         req.CanCreateMonitors,
+			CanCreateTopLevelMonitors: req.CanCreateTopLevelMonitors,
+			CanCreateGroups:           req.CanCreateGroups,
+			CanEditGroupMetadata:      req.CanEditGroupMetadata,
 		})
 	if err != nil {
 		return mapAuthError(c, err)

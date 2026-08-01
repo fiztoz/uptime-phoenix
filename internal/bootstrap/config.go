@@ -104,10 +104,12 @@ type Config struct {
 	OIDCAllowedGroups string `env:"OIDC_ALLOWED_GROUPS" envDefault:""`
 	OIDCAdminGroups   string `env:"OIDC_ADMIN_GROUPS" envDefault:""`
 	// Capability group lists (comma-separated IdP group names).
-	OIDCCapNotificationsGroups  string `env:"OIDC_CAP_NOTIFICATIONS_GROUPS" envDefault:""`
-	OIDCCapMaintenanceGroups    string `env:"OIDC_CAP_MAINTENANCE_GROUPS" envDefault:""`
-	OIDCCapCreateMonitorsGroups string `env:"OIDC_CAP_CREATE_MONITORS_GROUPS" envDefault:""`
-	OIDCCapCreateGroupsGroups   string `env:"OIDC_CAP_CREATE_GROUPS_GROUPS" envDefault:""`
+	OIDCCapNotificationsGroups          string `env:"OIDC_CAP_NOTIFICATIONS_GROUPS" envDefault:""`
+	OIDCCapMaintenanceGroups            string `env:"OIDC_CAP_MAINTENANCE_GROUPS" envDefault:""`
+	OIDCCapCreateMonitorsGroups         string `env:"OIDC_CAP_CREATE_MONITORS_GROUPS" envDefault:""`
+	OIDCCapCreateTopLevelMonitorsGroups string `env:"OIDC_CAP_CREATE_TOP_LEVEL_MONITORS_GROUPS" envDefault:""`
+	OIDCCapCreateGroupsGroups           string `env:"OIDC_CAP_CREATE_GROUPS_GROUPS" envDefault:""`
+	OIDCCapEditGroupMetadataGroups      string `env:"OIDC_CAP_EDIT_GROUP_METADATA_GROUPS" envDefault:""`
 	// OIDCGrantMap is "idp-group:group:5,idp-team:monitor:12" (optional :shallow).
 	OIDCGrantMap string `env:"OIDC_GRANT_MAP" envDefault:""`
 }

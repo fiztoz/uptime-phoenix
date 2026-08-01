@@ -1,0 +1,1 @@
+ALTER TABLE users ADD COLUMN can_edit_group_metadata INTEGER NOT NULL DEFAULT 0;
