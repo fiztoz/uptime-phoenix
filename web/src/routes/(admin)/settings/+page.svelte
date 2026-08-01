@@ -117,10 +117,14 @@
 			{ id: 'passkeys', label: 'Passkeys' },
 			{ id: 'appearance', label: 'Appearance' },
 			{ id: 'tags', label: 'Tags' },
-			{ id: 'proxies', label: 'Proxies' },
 			{ id: 'notifications', label: 'Notifications' },
-			...(isAdmin ? [{ id: 'users', label: 'Users' }] : []),
-			{ id: 'api-keys', label: 'API Keys' },
+			...(isAdmin
+				? [
+					{ id: 'users', label: 'Users' },
+					{ id: 'proxies', label: 'Proxies' },
+					{ id: 'api-keys', label: 'API Keys' },
+				]
+				: []),
 		]
 	);
 
@@ -816,10 +820,12 @@
 	$effect(() => {
 		loadNotifications();
 		loadTags();
-		loadProxies();
-		loadApiKeys();
+		if (isAdmin) {
+			loadProxies();
+			loadApiKeys();
+			loadUsers();
+		}
 		loadPasskeys();
-		loadUsers();
 	});
 
 	// Shared class strings — keep markup DRY and token-consistent.
@@ -1134,6 +1140,7 @@
 		{/if}
 	</section>
 
+	{#if isAdmin}
 	<!-- Proxies -->
 	<section id="proxies" class="scroll-mt-20 rounded-xl border border-border bg-card p-4 sm:p-6" data-testid="proxies-section">
 		<div class="flex items-center gap-3">
@@ -1257,6 +1264,7 @@
 			</div>
 		{/if}
 	</section>
+	{/if}
 
 	<!-- Notifications -->
 	<section id="notifications" class="scroll-mt-20 rounded-xl border border-border bg-card p-4 sm:p-6">
@@ -1482,6 +1490,7 @@
 		</section>
 	{/if}
 
+	{#if isAdmin}
 	<!-- API Keys -->
 	<section id="api-keys" class="scroll-mt-20 rounded-xl border border-border bg-card p-4 sm:p-6" data-testid="api-keys-section">
 		<div class="flex items-center gap-3">
@@ -1603,6 +1612,8 @@
 			</div>
 		{/if}
 	</section>
+	{/if}
+
 </div>
 
 {#if showNotificationForm}
