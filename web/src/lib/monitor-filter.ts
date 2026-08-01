@@ -27,6 +27,52 @@ export const STATUS_FILTERS: readonly MonitorStatus[] = [
   "paused",
 ];
 
+export type DashboardSort =
+  | "default"
+  | "status"
+  | "name-asc"
+  | "name-desc"
+  | "response-asc"
+  | "response-desc";
+
+export const DASHBOARD_SORTS: readonly DashboardSort[] = [
+  "default",
+  "status",
+  "name-asc",
+  "name-desc",
+  "response-asc",
+  "response-desc",
+];
+
+/** Default urgency order when status sorting is first selected. */
+export const DEFAULT_STATUS_ORDER: readonly MonitorStatus[] = [
+  "down",
+  "pending",
+  "maintenance",
+  "paused",
+  "up",
+];
+
+/** Keep valid statuses once each, then append any omitted statuses. */
+export function normalizeStatusOrder(
+  order: readonly string[],
+): MonitorStatus[] {
+  const valid = new Set<string>(STATUS_FILTERS);
+  const seen = new Set<MonitorStatus>();
+  const normalized: MonitorStatus[] = [];
+  for (const raw of order) {
+    if (!valid.has(raw)) continue;
+    const status = raw as MonitorStatus;
+    if (seen.has(status)) continue;
+    seen.add(status);
+    normalized.push(status);
+  }
+  for (const status of DEFAULT_STATUS_ORDER) {
+    if (!seen.has(status)) normalized.push(status);
+  }
+  return normalized;
+}
+
 /**
  * The minimum a monitor must expose to be filtered. Structural, so both the
  * WS `Monitor` and the richer `MonitorWithTags` ($lib/api/monitors) satisfy it.
@@ -74,6 +120,10 @@ export interface FilterCriteria {
    */
   statuses: MonitorStatus[];
   type: string;
+  /** Sorting is view state, not a filter, so it does not affect active-filter counts. */
+  sort: DashboardSort;
+  /** Complete, user-configurable priority used when `sort === "status"`. */
+  statusOrder: MonitorStatus[];
 }
 
 export const EMPTY_CRITERIA: FilterCriteria = {
@@ -82,6 +132,8 @@ export const EMPTY_CRITERIA: FilterCriteria = {
   tags: [],
   statuses: [],
   type: "",
+  sort: "default",
+  statusOrder: [...DEFAULT_STATUS_ORDER],
 };
 
 export function hasActiveFilters(c: FilterCriteria): boolean {
@@ -278,6 +330,58 @@ export function filterMonitors<M extends FilterableMonitor>(
   return list;
 }
 
+/**
+ * Sort an already deterministically ordered monitor list. The incoming order
+ * is the tie-break, preserving manual weight/name/id ordering from sortMonitors.
+ */
+export function sortDashboardMonitors<M extends FilterableMonitor>(
+  monitors: M[],
+  sort: DashboardSort,
+  statusOrder: readonly MonitorStatus[],
+  responseTime: (monitor: M) => number | null | undefined = () => null,
+): M[] {
+  const list = [...monitors];
+  if (sort === "default") return list;
+
+  const originalIndex = new Map(
+    list.map((monitor, index) => [monitor.id, index]),
+  );
+  const tieBreak = (a: M, b: M) =>
+    (originalIndex.get(a.id) ?? 0) - (originalIndex.get(b.id) ?? 0);
+
+  if (sort === "status") {
+    const priority = new Map(
+      normalizeStatusOrder(statusOrder).map((status, index) => [status, index]),
+    );
+    return list.sort(
+      (a, b) =>
+        (priority.get(a.status) ?? Number.MAX_SAFE_INTEGER) -
+          (priority.get(b.status) ?? Number.MAX_SAFE_INTEGER) || tieBreak(a, b),
+    );
+  }
+
+  if (sort === "name-asc" || sort === "name-desc") {
+    const direction = sort === "name-asc" ? 1 : -1;
+    return list.sort(
+      (a, b) => direction * a.name.localeCompare(b.name) || tieBreak(a, b),
+    );
+  }
+
+  const direction = sort === "response-asc" ? 1 : -1;
+  return list.sort((a, b) => {
+    const rawA = responseTime(a);
+    const rawB = responseTime(b);
+    const pingA =
+      rawA != null && Number.isFinite(rawA) && rawA > 0 ? rawA : null;
+    const pingB =
+      rawB != null && Number.isFinite(rawB) && rawB > 0 ? rawB : null;
+    if (pingA === null && pingB === null) return tieBreak(a, b);
+    if (pingA === null) return 1;
+    if (pingB === null) return -1;
+    return direction * (pingA - pingB) || tieBreak(a, b);
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Counts for the group cards.
 // ─────────────────────────────────────────────────────────────────────────
@@ -344,9 +448,18 @@ export function summarizeGroup(
 // Absent key = that filter is off. Unrelated query params are preserved.
 // ─────────────────────────────────────────────────────────────────────────
 
-const FILTER_KEYS = ["q", "group", "statuses", "tags", "type"] as const;
+const FILTER_KEYS = [
+  "q",
+  "group",
+  "statuses",
+  "tags",
+  "type",
+  "sort",
+  "status_order",
+] as const;
 
 const VALID_STATUSES = new Set<string>(STATUS_FILTERS);
+const VALID_SORTS = new Set<string>(DASHBOARD_SORTS);
 
 export function criteriaFromParams(params: URLSearchParams): FilterCriteria {
   const groupRaw = params.get("group");
@@ -381,12 +494,23 @@ export function criteriaFromParams(params: URLSearchParams): FilterCriteria {
     tags = [legacyTag];
   }
 
+  const sortParam = params.get("sort");
+  const sort = VALID_SORTS.has(sortParam ?? "")
+    ? (sortParam as DashboardSort)
+    : "default";
+  const statusOrderParam = params.get("status_order");
+  const statusOrder = normalizeStatusOrder(
+    statusOrderParam ? statusOrderParam.split(",") : DEFAULT_STATUS_ORDER,
+  );
+
   return {
     search: params.get("q") ?? "",
     group,
     tags,
     statuses,
     type: params.get("type") ?? "",
+    sort,
+    statusOrder,
   };
 }
 
@@ -407,6 +531,13 @@ export function applyCriteriaToParams(
   if (criteria.statuses.length > 0)
     next.set("statuses", criteria.statuses.join(","));
   if (criteria.type) next.set("type", criteria.type);
+  if (criteria.sort !== "default") next.set("sort", criteria.sort);
+  const statusOrder = normalizeStatusOrder(criteria.statusOrder);
+  const hasCustomStatusOrder = statusOrder.some(
+    (status, index) => status !== DEFAULT_STATUS_ORDER[index],
+  );
+  if (criteria.sort === "status" || hasCustomStatusOrder)
+    next.set("status_order", statusOrder.join(","));
 
   return next;
 }

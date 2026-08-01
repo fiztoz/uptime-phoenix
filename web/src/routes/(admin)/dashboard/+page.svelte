@@ -23,12 +23,14 @@
 		groupPath,
 		hasActiveFilters,
 		monitorTags,
+		sortDashboardMonitors,
 		summarizeGroup,
 		type FilterCriteria,
 		type MonitorStatus,
 		type NormalizedTag,
 	} from '$lib/monitor-filter';
 	import MonitorCard from '$lib/components/MonitorCard.svelte';
+	import DashboardWallboard from '$lib/components/DashboardWallboard.svelte';
 	import GroupCard from '$lib/components/GroupCard.svelte';
 	import DashboardFilters from '$lib/components/DashboardFilters.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
@@ -135,9 +137,19 @@
 		});
 	}
 
+	/** Clear filters without discarding the operator's current sort preference. */
+	function clearFilters(overrides: Partial<FilterCriteria> = {}) {
+		applyCriteria({
+			...EMPTY_CRITERIA,
+			sort: criteria.sort,
+			statusOrder: [...criteria.statusOrder],
+			...overrides,
+		});
+	}
+
 	/** Drill into a group card: filter to that group rather than route away. */
 	function drillIntoGroup(groupId: number) {
-		applyCriteria({ ...EMPTY_CRITERIA, group: groupId });
+		clearFilters({ group: groupId });
 	}
 
 	// --- Monitors ---------------------------------------------------------
@@ -147,11 +159,18 @@
 	let allMonitors = $derived(realtime.monitors as MonitorWithGroup[]);
 
 	let filteredMonitors = $derived.by(() => {
-		void realtime.heartbeatSeq; // re-filter on every heartbeat (status may have flipped)
-		return sortMonitors(filterMonitors(allMonitors, criteria, groups));
+		void realtime.heartbeatSeq; // re-filter/re-sort when status or response time changes
+		const base = sortMonitors(filterMonitors(allMonitors, criteria, groups));
+		return sortDashboardMonitors(
+			base,
+			criteria.sort,
+			criteria.statusOrder,
+			(mon) => realtime.heartbeats.get(mon.id)?.ping,
+		);
 	});
 
 	let filterActive = $derived(hasActiveFilters(criteria));
+	let flatMonitorView = $derived(filterActive || criteria.sort !== 'default');
 	let tagOptions = $derived.by((): NormalizedTag[] => {
 		return [...catalogTags]
 			.map((t) => ({ id: t.id, name: t.name, color: t.color ?? '', value: '' }))
@@ -433,14 +452,27 @@
 
 	<!-- Monitors -->
 	<section class="space-y-4">
-		<div class="flex items-center justify-between">
+		<div class="flex items-center justify-between gap-3">
 			<h2 class="text-lg font-semibold tracking-tight">{m.nav_monitors()}</h2>
-			<a
-				href="/monitors"
-				class="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-			>
-				{m.dashboard_view_all()} <ArrowRight class="h-3.5 w-3.5" />
-			</a>
+			<div class="flex items-center gap-2">
+				<DashboardWallboard
+					monitors={filteredMonitors}
+					allMonitorCount={allMonitors.length}
+					heartbeats={realtime.heartbeats}
+					{heartbeatHistory}
+					connected={realtime.isConnected}
+					{avgPing}
+					{uptimePct}
+					filtered={filterActive}
+					respectOrder={criteria.sort !== 'default'}
+				/>
+				<a
+					href="/monitors"
+					class="hidden items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline-flex"
+				>
+					{m.dashboard_view_all()} <ArrowRight class="h-3.5 w-3.5" />
+				</a>
+			</div>
 		</div>
 
 		<DashboardFilters
@@ -460,7 +492,7 @@
 			<nav class="flex flex-wrap items-center gap-1 text-sm" aria-label={m.dashboard_breadcrumb_aria()}>
 				<button
 					type="button"
-					onclick={() => applyCriteria(EMPTY_CRITERIA)}
+					onclick={() => clearFilters()}
 					class="text-muted-foreground transition-colors hover:text-foreground"
 				>
 					{m.dashboard_breadcrumb_all_monitors()}
@@ -491,9 +523,9 @@
 				</div>
 				<p class="text-sm text-muted-foreground">{m.monitors_empty()}</p>
 			</div>
-		{:else if filterActive}
-			<!-- Filtered: the user is searching, not browsing — flat grid of matching
-			     monitors only, no group cards. -->
+		{:else if flatMonitorView}
+			<!-- Filtering or explicit sorting is a global monitor operation, so use a
+			     flat grid rather than mixing monitor cards with folder cards. -->
 			{#if filteredMonitors.length === 0}
 				<div class="rounded-xl border border-dashed border-border p-12 text-center">
 					<div
@@ -504,7 +536,7 @@
 					<p class="text-sm text-muted-foreground">{m.dashboard_no_matches()}</p>
 					<button
 						type="button"
-						onclick={() => applyCriteria(EMPTY_CRITERIA)}
+						onclick={() => clearFilters()}
 						class="mt-3 inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
 					>
 						{m.dashboard_filters_clear()}

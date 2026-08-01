@@ -1,13 +1,16 @@
 <script lang="ts">
 	import {
+		DEFAULT_STATUS_ORDER,
+		EMPTY_CRITERIA,
 		STATUS_FILTERS,
 		UNGROUPED,
 		hasActiveFilters,
+		type DashboardSort,
 		type FilterCriteria,
 		type MonitorStatus,
 		type NormalizedTag,
 	} from '$lib/monitor-filter';
-	import { Search, X } from '@lucide/svelte';
+	import { ChevronLeft, ChevronRight, RotateCcw, Search, X } from '@lucide/svelte';
 	import Select from '$lib/components/Select.svelte';
 	import MultiSelect from '$lib/components/MultiSelect.svelte';
 	import * as m from '$lib/paraglide/messages.js';
@@ -97,6 +100,26 @@
 		patch({ tags: [] });
 	}
 
+	function selectSort(value: string) {
+		patch({ sort: value as DashboardSort });
+	}
+
+	function moveStatus(index: number, direction: -1 | 1) {
+		const target = index + direction;
+		if (target < 0 || target >= criteria.statusOrder.length) return;
+		const next = [...criteria.statusOrder];
+		const currentStatus = next[index];
+		const targetStatus = next[target];
+		if (!currentStatus || !targetStatus) return;
+		next[index] = targetStatus;
+		next[target] = currentStatus;
+		patch({ statusOrder: next });
+	}
+
+	function resetStatusOrder() {
+		patch({ statusOrder: [...DEFAULT_STATUS_ORDER] });
+	}
+
 	const groupValue = $derived(criteria.group === null ? '' : String(criteria.group));
 
 	const groupItems = $derived([
@@ -126,6 +149,15 @@
 	const typeItems = $derived([
 		{ value: '', label: m.dashboard_filters_all_types() },
 		...typeOptions.map((t) => ({ value: t, label: t.toUpperCase() })),
+	]);
+
+	const sortItems = $derived([
+		{ value: 'default', label: m.dashboard_sort_default() },
+		{ value: 'status', label: m.dashboard_sort_status() },
+		{ value: 'name-asc', label: m.dashboard_sort_name_asc() },
+		{ value: 'name-desc', label: m.dashboard_sort_name_desc() },
+		{ value: 'response-asc', label: m.dashboard_sort_response_asc() },
+		{ value: 'response-desc', label: m.dashboard_sort_response_desc() },
 	]);
 </script>
 
@@ -186,7 +218,61 @@
 				size="sm"
 			/>
 		{/if}
+
+		<Select
+			options={sortItems}
+			value={criteria.sort}
+			onValueChange={selectSort}
+			ariaLabel={m.dashboard_sort_aria()}
+			class="min-w-36"
+			size="sm"
+		/>
 	</div>
+
+	{#if criteria.sort === 'status'}
+		<div class="mt-2.5 border-t border-border pt-2.5">
+			<div class="flex flex-wrap items-center gap-2">
+				<span class="mr-1 text-xs font-medium text-muted-foreground">
+					{m.dashboard_sort_status_priority()}
+				</span>
+				{#each criteria.statusOrder as status, index (status)}
+					<div class="inline-flex h-8 items-center rounded-lg border border-border bg-surface">
+						<span class="border-r border-border px-2 font-mono text-[10px] text-faint">
+							{index + 1}
+						</span>
+						<span class="dot {STATUS_DOT_CLASSES[status]} ml-2 shrink-0"></span>
+						<span class="min-w-20 px-2 text-xs font-medium">{STATUS_LABELS[status]}</span>
+						<button
+							type="button"
+							onclick={() => moveStatus(index, -1)}
+							disabled={index === 0}
+							aria-label={m.dashboard_sort_move_earlier({ status: STATUS_LABELS[status] })}
+							class="grid h-full w-7 place-items-center border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+						>
+							<ChevronLeft class="h-3.5 w-3.5" />
+						</button>
+						<button
+							type="button"
+							onclick={() => moveStatus(index, 1)}
+							disabled={index === criteria.statusOrder.length - 1}
+							aria-label={m.dashboard_sort_move_later({ status: STATUS_LABELS[status] })}
+							class="grid h-full w-7 place-items-center border-l border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+						>
+							<ChevronRight class="h-3.5 w-3.5" />
+						</button>
+					</div>
+				{/each}
+				<button
+					type="button"
+					onclick={resetStatusOrder}
+					class="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+				>
+					<RotateCcw class="h-3.5 w-3.5" />
+					{m.dashboard_sort_reset_order()}
+				</button>
+			</div>
+		</div>
+	{/if}
 
 	<div class="mt-2.5 flex items-center justify-between gap-3 border-t border-border pt-2.5">
 		<p class="text-xs text-muted-foreground tabular-nums">
@@ -201,7 +287,12 @@
 		{#if active}
 			<button
 				type="button"
-				onclick={() => onchange({ search: '', group: null, tags: [], statuses: [], type: '' })}
+				onclick={() =>
+					onchange({
+						...EMPTY_CRITERIA,
+						sort: criteria.sort,
+						statusOrder: [...criteria.statusOrder],
+					})}
 				class="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
 			>
 				<X class="h-3 w-3" />

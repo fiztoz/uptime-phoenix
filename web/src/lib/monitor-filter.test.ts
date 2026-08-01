@@ -1,6 +1,7 @@
 /// <reference types="bun-types" />
 import { describe, expect, test } from "bun:test";
 import {
+  DEFAULT_STATUS_ORDER,
   EMPTY_CRITERIA,
   UNGROUPED,
   applyCriteriaToParams,
@@ -14,6 +15,8 @@ import {
   hasActiveFilters,
   monitorTags,
   monitorsInGroup,
+  normalizeStatusOrder,
+  sortDashboardMonitors,
   summarizeGroup,
   tallyMonitors,
   type FilterCriteria,
@@ -368,6 +371,80 @@ describe("tallyMonitors / summarizeGroup", () => {
   });
 });
 
+describe("sortDashboardMonitors", () => {
+  const monitors = [
+    monitor(1, { name: "Bravo", status: "up" }),
+    monitor(2, { name: "Alpha", status: "down" }),
+    monitor(3, { name: "Charlie", status: "pending" }),
+    monitor(4, { name: "Delta", status: "down" }),
+    monitor(5, { name: "Echo", status: "paused" }),
+  ];
+
+  test("default preserves the deterministic incoming order", () => {
+    expect(
+      sortDashboardMonitors(monitors, "default", DEFAULT_STATUS_ORDER).map(
+        (m) => m.id,
+      ),
+    ).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test("status order is fully operator-configurable and stable within a status", () => {
+    const order = ["up", "pending", "down", "paused", "maintenance"] as const;
+    expect(
+      sortDashboardMonitors(monitors, "status", order).map((m) => m.id),
+    ).toEqual([1, 3, 2, 4, 5]);
+  });
+
+  test("normalizes duplicates, invalid values, and omitted statuses", () => {
+    expect(normalizeStatusOrder(["up", "up", "exploded", "down"])).toEqual([
+      "up",
+      "down",
+      "pending",
+      "maintenance",
+      "paused",
+    ]);
+  });
+
+  test("sorts names in either direction", () => {
+    expect(
+      sortDashboardMonitors(monitors, "name-asc", DEFAULT_STATUS_ORDER).map(
+        (m) => m.name,
+      ),
+    ).toEqual(["Alpha", "Bravo", "Charlie", "Delta", "Echo"]);
+    expect(
+      sortDashboardMonitors(monitors, "name-desc", DEFAULT_STATUS_ORDER).map(
+        (m) => m.name,
+      ),
+    ).toEqual(["Echo", "Delta", "Charlie", "Bravo", "Alpha"]);
+  });
+
+  test("sorts response times while keeping missing measurements last", () => {
+    const pings = new Map([
+      [1, 80],
+      [2, 20],
+      [3, 0],
+      [4, 120],
+    ]);
+    const responseTime = (m: FilterableMonitor) => pings.get(m.id);
+    expect(
+      sortDashboardMonitors(
+        monitors,
+        "response-asc",
+        DEFAULT_STATUS_ORDER,
+        responseTime,
+      ).map((m) => m.id),
+    ).toEqual([2, 1, 4, 3, 5]);
+    expect(
+      sortDashboardMonitors(
+        monitors,
+        "response-desc",
+        DEFAULT_STATUS_ORDER,
+        responseTime,
+      ).map((m) => m.id),
+    ).toEqual([4, 1, 2, 3, 5]);
+  });
+});
+
 describe("URL codec", () => {
   test("round-trips every criterion", () => {
     const c = criteria({
@@ -376,6 +453,8 @@ describe("URL codec", () => {
       tags: ["prod", "edge"],
       statuses: ["down", "pending"],
       type: "http",
+      sort: "status",
+      statusOrder: ["up", "pending", "down", "maintenance", "paused"],
     });
     const qs = criteriaToSearchString(new URLSearchParams(), c);
     expect(criteriaFromParams(new URLSearchParams(qs))).toEqual(c);
@@ -464,5 +543,41 @@ describe("URL codec", () => {
       new URLSearchParams("?statuses=up,exploded,down"),
     );
     expect(c.statuses).toEqual(["up", "down"]);
+  });
+
+  test("custom status sort order survives a shareable URL", () => {
+    const c = criteria({
+      sort: "status",
+      statusOrder: ["up", "pending", "down", "paused", "maintenance"],
+    });
+    const qs = criteriaToSearchString(new URLSearchParams(), c);
+    expect(qs).toContain("sort=status");
+    expect(qs).toContain(
+      "status_order=up%2Cpending%2Cdown%2Cpaused%2Cmaintenance",
+    );
+    expect(criteriaFromParams(new URLSearchParams(qs))).toEqual(c);
+
+    const switchedSort = { ...c, sort: "name-asc" as const };
+    const switchedQs = criteriaToSearchString(
+      new URLSearchParams(),
+      switchedSort,
+    );
+    expect(criteriaFromParams(new URLSearchParams(switchedQs))).toEqual(
+      switchedSort,
+    );
+  });
+
+  test("rejects an invalid sort and normalizes malformed status order", () => {
+    const c = criteriaFromParams(
+      new URLSearchParams("?sort=sideways&status_order=up,up,broken,down"),
+    );
+    expect(c.sort).toBe("default");
+    expect(c.statusOrder).toEqual([
+      "up",
+      "down",
+      "pending",
+      "maintenance",
+      "paused",
+    ]);
   });
 });
