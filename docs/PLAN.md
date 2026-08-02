@@ -1,6 +1,8 @@
 # Phoenix — Project Plan
 
 > A self-hosted, K8s-native monitoring tool. Uptime-Kuma-equivalent features, Port-and-Adapter architecture, Go + Svelte 5 stack.
+>
+> **Currency:** aligned with the shipped codebase as of 2026-07-28 (Phases 0–5 focused scope complete). Historical “early phase / deferred” language that no longer matches the tree has been corrected. Delivery detail lives in `docs/ROADMAP.md`; technical design in `docs/ARCHITECTURE.md`.
 
 ---
 
@@ -8,19 +10,18 @@
 
 Build a self-hosted monitoring tool that matches Uptime Kuma's feature surface (uptime checks, notifications, public status pages, real-time dashboard) while being:
 
-- **Minimal-dependency by default** — one pod, one PVC, zero external services required to function. `helm install` → one pod → works. Postgres, Redis, and the separate web tier are **opt-in**, never required.
+- **Minimal-dependency by default** — one pod, one PVC, zero external services required to function. `helm install` → one pod → works. External MariaDB, Redis, and the separate web tier are **opt-in**, never required.
 - **K8s-native from day 1** — ships as a Helm chart; horizontal scaling is a config change, not a rewrite
 - **Single-tenant and self-hosted** — each installation is owned and operated by the team deploying it; Phoenix is not a shared SaaS control plane
 - **Platform-owned edge TLS** — Phoenix runs behind the cluster's load balancer/Ingress; the platform terminates and renews certificates
 - **Frontend/backend separable** — same binary serves embedded static assets by default; split into independent Deployments when you need scale
 - **Port-and-Adapter (hexagonal) architecture** — domain logic independent of frameworks, databases, and transports
-- **Lean** — no required heavy infrastructure dependencies (no Kafka, RabbitMQ, message brokers, or external DB operators needed for Phoenix itself)
+- **Lean** — no required heavy infrastructure dependencies (no Kafka, message brokers, or external DB operators needed for Phoenix itself)
 
 ## 2. Scope
 
-### In Scope (Phase 1 — MVP)
+### Shipped monitor types (12)
 
-**Monitor types (12, all opt-in/lightweight in Phoenix itself):**
 - HTTP(s) — status code / keyword / JSON query assertion + TLS cert info
 - TCP port connect
 - ICMP Ping (unprivileged)
@@ -32,108 +33,83 @@ Build a self-hosted monitoring tool that matches Uptime Kuma's feature surface (
 - RabbitMQ AMQP 0-9-1 connect + optional queue/exchange passive declare
 - gRPC health check
 - SNMP GET
-- Database connect ping (PostgreSQL, MySQL, MongoDB, Redis)
+- Database connect health (PostgreSQL, MySQL, MariaDB, MongoDB, Redis, **MSSQL**) — fixed presets only (`ping` / `select_1`); never free-form operator SQL
 
-**Notification providers (12, all HTTP-based):**
-- Telegram, Discord, Slack, Email/SMTP, Generic Webhook, ntfy, Pushover, Microsoft Teams, Mattermost, PagerDuty, OpsGenie, Gotify
+### Shipped notification providers (11)
 
-**Core features:**
+- Telegram, Discord, Slack, Email/SMTP, Generic Webhook, Microsoft Teams, Mattermost, Gotify, Bark, Feishu, Line
+
+Do **not** add providers without user approval. Explicitly **not** shipped (backlog only if demand appears): ntfy, Pushover, PagerDuty, OpsGenie, Signal, Matrix, Pushbullet, Alerta, Zabbix, N8N.
+
+### Core features (shipped)
+
 - Real-time dashboard (single persistent WebSocket, Svelte 5 runes)
-- Public status pages (SvelteKit SSG, custom domain mapping)
-- Tags + monitor grouping
-- Maintenance windows (single + cron strategies)
-- 2FA (TOTP only for early phase)
-- API keys for Prometheus `/metrics` endpoint
-- Multi-language UI (paraglide-js)
+- Public status pages (live SPA, custom domain mapping, white-label, Atom/iCal feeds, uptime history)
+- Tags + nested monitor groups (folders) with folder-level alerting
+- Maintenance windows (single + cron strategies, IANA timezone)
+- Auth: JWT sessions, TOTP 2FA, **WebAuthn/passkeys**, scoped API keys; bootstrap-only first user; admin user API + scoped RBAC
+- Opt-in **OIDC SSO** with local break-glass
+- **Config-as-code** (`phoenix.dev/v1` YAML validate/plan/apply) + JSON backup/restore
+- Alert lifecycle (ack/resolve), escalation policies
+- Prometheus `/metrics` (API-key protected)
+- Multi-language UI (paraglide-js: English + Thai)
 - Light/dark theme
+- Optional worker/API split, Redis EventBus, DB-leased sharded workers
 
-### In Scope (Post-MVP — Internal K8s Integration)
-
-- **OIDC SSO** — integrate with an internal identity provider and map identities/groups onto
-  Phoenix's existing admin, capability, and scoped-monitor permission model. Local authentication
-  remains available for bootstrap and break-glass access.
-- **Declarative config-as-code** — versioned YAML for monitors, groups, tags, notifications,
-  maintenance windows, and status pages; support a dry-run and idempotent apply suitable for
-  GitOps. Export must not reveal secrets, omitted secret fields must preserve existing values,
-  and deletion requires an explicit prune operation. Runtime and OIDC credentials remain in
-  Helm values/environment variables backed by Kubernetes Secrets.
-- **Ingress integration documentation** — document the required forwarded headers, WebSocket
-  settings, and TLS assumptions for clusters where the load balancer/Ingress owns HTTPS.
-
-### Out of Scope (explicitly dropped for leanness)
+### Explicitly out of scope / not shipped
 
 - ❌ Kafka monitor (heavy infra)
 - ❌ RADIUS auth monitor (niche)
-- ❌ MSSQL connect monitor (niche — Postgres + MySQL + MongoDB + Redis cover the common cases)
-- ❌ WebAuthn / passkeys (TOTP only for early phase; interface reserved for later)
-- ❌ Tauri desktop wrapper (web app only for early phase)
-- ❌ Distributed/sharded workers (Phase 3+; Phase 1 is single worker)
-
-### Deferred (Phase 2+, architecture supports it — all opt-in, none required)
-
-- External Postgres (SQLite is the default; Postgres when you outgrow a single node)
-- Redis pub/sub for cross-pod event fan-out (only when running multiple API pods)
-- Worker/API split into separate Deployments (only when single-pod capacity is exhausted)
-- Separate `phoenix-web` Deployment (single binary serves embedded assets by default)
-- Sharded workers via DB lease (only at 50k+ monitors)
-- WebAuthn 2FA
-- Tauri wrapper
+- ❌ Tauri desktop wrapper (web app only)
+- ❌ Multi-tenant / multi-organization SaaS control plane
 
 ### On Hold (not roadmap commitments)
 
-- **F3.4 application-managed custom-domain TLS/ACME** — internal deployments terminate TLS at
-  the load balancer/Ingress layer. Phoenix will not store ACME account keys or manage
-  certificates unless a future deployment requirement proves this is necessary.
-- **The former Phase 5 enterprise/SaaS bundle** — multi-organization tenancy, organization
-  roles and invitations, tenant-isolation migrations, compliance audit/export features,
-  per-tenant retention/deletion, a Terraform provider, scheduled SLO reports, and a signed
-  Grafana plugin. These remain possible backlog ideas, not scheduled work.
-- **Additional authentication hardening from the former Phase 5** — distributed WebAuthn
-  challenge storage, session revocation, and account lockout. Reconsider only when an observed
-  deployment or threat-model requirement justifies them.
+- **F3.4 application-managed custom-domain TLS/ACME** — internal deployments terminate TLS at the load balancer/Ingress layer.
+- **Former enterprise/SaaS bundle** — multi-org tenancy, org roles/invites, compliance audit/export, Terraform provider, signed Grafana plugin, etc.
+- **Additional auth hardening** — distributed WebAuthn challenge storage, session revocation, account lockout — only if a concrete threat model requires them.
 
 ## 3. Success Criteria
 
-The MVP is complete when:
+### MVP (Phase 1) — met
 
-1. `helm install phoenix ./charts/phoenix` brings up a working monitoring tool in <2 minutes on any K8s cluster **with zero external dependencies** — no Postgres, no Redis, no message broker required; SQLite on a PVC + embedded static frontend in a single pod
-2. All 12 monitor types can be configured via the UI and produce heartbeats
-3. All 12 notification providers can be configured and fire on status change
-4. The real-time dashboard updates via WebSocket with <500ms latency
-5. A public status page renders at a custom domain with incident management
+1. `helm install phoenix ./charts/phoenix` brings up a working monitoring tool with zero external dependencies (default: MariaDB or SQLite on a PVC + embedded static frontend in a single pod)
+2. All 12 monitor types configurable via the UI and producing heartbeats
+3. All 11 notification providers configurable and fire on status change
+4. Real-time dashboard updates via WebSocket
+5. Public status page with incident management
 6. `/metrics` exposes Prometheus-format metrics behind API-key auth
-7. The Docker image is <30 MB (Go) + <10 MB (web)
-8. A single pod handles 1,000 monitors with 60s intervals at <512 MB RAM
+7. Single-pod capacity target: 1,000 monitors at under 512 MB RAM (see also `docs/LOADTEST.md` for later scale numbers)
 
-The focused post-MVP internal-deployment work is complete when:
+### Post-MVP internal deployment (Phase 5 focused) — met
 
-1. An operator can enable OIDC and sign in through the internal IdP without introducing an
-   organization/multi-tenant domain model.
-2. Local admin authentication remains usable for bootstrap and break-glass recovery.
-3. A versioned YAML configuration can be validated, dry-run, applied twice with no second-run
-   changes, and reconciled without exposing stored secrets.
-4. Phoenix operates behind an existing TLS-terminating load balancer/Ingress without requiring
-   an application-level certificate manager.
+1. Operator can enable OIDC and sign in through an internal IdP without a multi-tenant domain model
+2. Local admin authentication remains usable for bootstrap and break-glass recovery
+3. Versioned YAML configuration can be validated, dry-run, applied twice with no second-run changes, without exposing stored secrets
+4. Phoenix operates behind an existing TLS-terminating load balancer/Ingress without an application-level certificate manager
+
+### Scale (Sprint D) — met under documented host limits
+
+- Heartbeat fan-out p95 under 1 s at 100, 1,000, and **10,000** monitors (split API/worker). Container side of the harness ran under **Colima 2 CPU / 4 GiB**, not full host RAM. See `docs/LOADTEST.md`.
 
 ## 4. Locked Decisions
 
 | # | Decision | Rationale |
 |---|---|---|
-| 1 | **Go 1.23+ backend** | Monitoring ecosystem is Go; ICMP native; single static binary; 2× faster dev than Rust |
-| 2 | **Svelte 5 + SvelteKit frontend** | Fine-grained reactivity for real-time; smallest bundles; 60fps under stress |
+| 1 | **Go 1.25+ backend** | Monitoring ecosystem is Go; ICMP native; single static binary (`go.mod` pins toolchain) |
+| 2 | **Svelte 5 + SvelteKit frontend** | Fine-grained reactivity for real-time; smallest bundles |
 | 3 | **Port-and-Adapter (hexagonal)** | Domain stays framework-free; monitor types and notification providers are swappable adapters; DB engine hot-pluggable |
-| 4 | **MariaDB primary, SQLite for dev/edge** | MariaDB on a PVC (or external managed MariaDB) is the default for K8s; SQLite for local dev and single-node edge. Same repository interface, different adapter. Postgres supported as a third adapter if demand exists. |
-| 5 | **sqlc + pgx** | Type-safe SQL, no ORM runtime overhead, domain stays SQL-pure |
+| 4 | **MariaDB primary, SQLite for dev/edge** | MariaDB on a PVC (or external managed MariaDB) is the default for K8s; SQLite for local dev and single-node edge. Same repository interface, different adapter. A Postgres **app** DB adapter is not shipped; Postgres is a **monitor target** engine only. |
+| 5 | **Bun query builder** | Type-safe queries for MariaDB + SQLite without ORM types in the domain. `go-sql-driver/mysql` + `modernc.org/sqlite` (CGO-free). ~~sqlc + pgx as app DB~~ was an early plan; not used. |
 | 6 | **Echo v4 HTTP + coder/websocket** | Typed context, built-in middleware; idiomatic context-aware WS |
-| 6a | **Bun (SQL-first query builder) for MariaDB + SQLite** | sqlc is Postgres-centric; Bun generates type-safe queries for both MariaDB and SQLite from the same codebase. Aligns with hexagonal — domain stays free of ORM types. `go-sql-driver/mysql` for MariaDB, `modernc.org/sqlite` for SQLite (CGO-free). |
-| 7 | **Embedded frontend by default, separate Deployment opt-in** | Single Go binary serves the built Svelte assets via `embed.FS` by default (zero-dependency). Split into `phoenix-web` (nginx) + `phoenix-api` Deployments via Helm value when independent scaling is needed. |
-| 8 | **Helm chart from day 1** | K8s is a first-class deployment target, not an afterthought |
-| 9 | **TOTP only (early phase)** | `pquerna/otp`; WebAuthn port reserved for later |
-| 10 | **No external services required by default** | In-process EventBus + SQLite + embedded frontend = zero external dependencies. Redis pub/sub is an opt-in adapter for multi-pod deployments only. |
+| 7 | **Embedded frontend by default, separate Deployment opt-in** | Single Go binary serves built Svelte assets via `embed.FS`. Split `phoenix-web` + `phoenix-api` via Helm when independent scaling is needed. |
+| 8 | **Helm chart from day 1** | K8s is a first-class deployment target |
+| 9 | **TOTP + WebAuthn** | `pquerna/otp` and `go-webauthn`; both shipped |
+| 10 | **No external services required by default** | In-process EventBus + MariaDB/SQLite + embedded frontend. Redis pub/sub is opt-in for multi-pod. |
 | 11 | **One-file plugin convention** | Each monitor type and notification provider is a single Go file implementing one interface |
-| 12 | **EventBus port from day 1** | In-process impl in Phase 1; Redis impl in Phase 2; domain code never changes |
-| 13 | **TLS terminates at the K8s edge** | The cluster load balancer/Ingress owns certificates and renewal. Phoenix serves HTTP behind it and does not implement ACME in the current deployment model. |
-| 14 | **Focused Phase 5: SSO + config-as-code only** | Phoenix is a single-tenant, self-hosted project. OIDC and GitOps configuration directly support internal operators; SaaS and enterprise packaging do not. |
+| 12 | **EventBus port from day 1** | In-process default; Redis when `REDIS_URL` is set; domain code never changes |
+| 13 | **TLS terminates at the K8s edge** | Cluster load balancer/Ingress owns certificates. Phoenix does not implement ACME in the current model. |
+| 14 | **Focused Phase 5: SSO + config-as-code only** | Single-tenant, self-hosted. OIDC and GitOps configuration support internal operators; SaaS packaging does not. |
 
 ## 5. Key Risks
 
@@ -141,26 +117,25 @@ The focused post-MVP internal-deployment work is complete when:
 |---|---|
 | ICMP requires elevated permissions on Linux | Document `sysctl net.ipv4.ping_group_range` + `setcap cap_net_raw`; provide fallback to TCP ping |
 | WebSocket over K8s ingress kills long connections | Ingress annotations `proxy-read-timeout: 3600`; document for nginx/traefik |
-| Single pod is SPOF in default deployment | PDB `minAvailable: 1`; liveness probe; fast restart (static binary, <2s startup); this is the deliberate tradeoff for zero-dependency simplicity — upgrade to multi-pod via Helm values when HA is required |
-| Svelte 5 runes learning curve | Reference the runes-based WebSocket store pattern in ARCHITECTURE.md; one developer owns the frontend |
-| Partition management for heartbeats table | `create_heartbeats_partition()` cron function; alert on partition count <3 |
-| Notification provider API changes | Each provider is one file; easy to update; integration tests with mock servers |
+| Single pod is SPOF in default deployment | PDB `minAvailable: 1`; liveness probe; fast restart; upgrade to multi-pod via Helm when HA is required |
+| Svelte 5 runes learning curve | Reference the runes-based WebSocket store pattern in ARCHITECTURE.md |
+| Partition management for heartbeats table | Partition CronJob; alert on partition count under 3 |
+| Notification provider API changes | Each provider is one file; integration tests with mock servers |
+| Load-test numbers vs real hardware | Document Colima/VM limits separately from host RAM (`docs/LOADTEST.md`) |
 
 ## 6. Team & Cadence
 
-- **Size:** 1–2 developers (1 Go-fluent backend + 1 Svelte-fluent frontend, or one full-stack)
-- **Cadence:** 2-week sprints; demo at end of each phase
-- **Testing:** unit tests for domain + ports; integration tests with testcontainers-go; E2E with Playwright
-- **CI:** none — `.github/` was deliberately removed (`9de75e9`, 2026-07-25) and stays
-  gone. The gate below runs locally instead, via `make gate-full`
-  (`golangci-lint` + `go test -race` + `bun run lint`/`check`/`test`/`build` + Playwright
-  e2e + `helm lint`/`template` + `govulncheck`), triggered by a human before every merge —
-  see `docs/TESTING.md` and `docs/RELEASING.md`.
+- **Size:** 1–2 developers (historically one full-stack hobby maintainer)
+- **Cadence:** 2-week sprints while actively building; project is now hobby / not under active development (see README)
+- **Testing:** unit tests for domain + ports; repository tests against MariaDB/SQLite; E2E with Playwright
+- **CI + local gate:** GitHub Actions restored 2026-07-28 (`.github/workflows/ci.yml` on PR/main; `release.yml` for dry-run/publish). Local `make gate-full` remains required for thoroughness and works offline — see `docs/TESTING.md` and `docs/RELEASING.md`.
 
 ## 7. References
 
-- `docs/ROADMAP.md` — phased delivery timeline
+- `docs/ROADMAP.md` — phased delivery timeline and completion status
 - `docs/ARCHITECTURE.md` — detailed technical design
+- `docs/LOADTEST.md` — scale validation results
+- `docs/TESTING.md` — gate commands and checklists
 - `research/uptime-kuma.md` — original Uptime Kuma research
-- `research/uptime-kuma-stack-alternatives.md` — stack comparison
+- `research/uptime-kuma-stack-alternatives.md` — stack comparison (historical research; Bun/MariaDB won)
 - `research/uptime-kuma-k8s-architecture.md` — K8s deployment design

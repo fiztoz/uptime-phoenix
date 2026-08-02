@@ -364,11 +364,11 @@ in both trials logged 6–8 lines of `WARN ws hub: dropping event with no resolv
 monitor id type=""` in immediate succession around the `"shutdown signal received"` /
 `"phoenix stopped gracefully"` log lines. This reproduced on every trial. It does not
 appear to cause data loss — the hub's fail-closed drop behavior (`hub.go`'s `broadcast`)
-is doing exactly what `docs/SPRINT-D-HANDOFF.md` §3.3 says it must — but it looks like a
-handful of zero-value `ports.Event{}` structs are being pushed through the Redis
+is doing exactly what the hub's fail-closed drop path is designed to do — but it looks
+like a handful of zero-value `ports.Event{}` structs are being pushed through the Redis
 subscriber's channel as it closes during teardown, which is unnecessary log noise on
-every single rolling restart and could mask a real warning in aggregated logs. Reported
-to Track A / the integrator for triage; not touched here.
+every single rolling restart and could mask a real warning in aggregated logs. Still
+open noise; does not affect heartbeat continuity (see soak results above).
 
 ## 5. Environment variable reference
 
@@ -436,7 +436,8 @@ one admin account with a strong local password (and TOTP) for recovery:
    `OIDC_REDIRECT_URL`) with the IdP. Multi-pod API works without Redis: state is HMAC-signed
    with `JWT_SECRET`.
 
-Contracts and tests: `docs/F5-S13-OIDC-CONTRACTS.md`.
+Tests: `internal/core/services/auth_oidc*_test.go`. Local agent contracts (gitignored):
+`docs/local/F5-S13-OIDC-CONTRACTS.md`.
 
 ### Config-as-code (GitOps)
 
@@ -493,7 +494,8 @@ Rules worth remembering:
 4. Full secret-bearing restore remains `/api/backup/*`. Config-as-code is the GitOps path.
 5. Rollback: re-apply a previous YAML from Git, or restore via backup/import.
 
-Contracts and tests: `docs/F5-S14-CONFIG-AS-CODE-CONTRACTS.md`.
+Tests: `internal/core/services/configascode_test.go`. Local agent contracts (gitignored):
+`docs/local/F5-S14-CONFIG-AS-CODE-CONTRACTS.md`.
 
 ## 6. Troubleshooting
 

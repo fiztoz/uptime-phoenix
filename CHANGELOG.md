@@ -15,6 +15,16 @@ at the bottom.
 
 ### Added
 
+#### Post–Sprint D / Phase 5 close-out (2026-07-27 – 2026-07-28)
+
+- GitHub Actions **restored** (owner): `.github/workflows/ci.yml` (PR/main gate) and
+  `release.yml` (dry-run + owner-gated publish). Local `make gate-full` remains required
+  offline. See `docs/TESTING.md` and `docs/RELEASING.md`.
+- OIDC PKCE S256 (always on when OIDC is enabled); `cmd/phoenix-config` CLI;
+  reverse escalation assignment UI; MariaDB migration `021` white-label columns.
+- Gate-debt sprint: Go lint / frontend format / `govulncheck` brought to a clean baseline
+  under Go 1.25.12.
+
 #### Sprint D — Scale & trust, Track C (2026-07-25)
 
 - `LICENSE` (MIT) added at the repo root; referenced from `README.md` and
@@ -22,24 +32,20 @@ at the bottom.
   `charts/phoenix/README.md`.
 - `make gate-full`: the complete local pre-merge gate (build/vet/gofmt, `-race` tests,
   `golangci-lint`, frontend check/test/build/lint/e2e, `helm lint`/`template`,
-  `govulncheck`, `git diff --check`) — mirrors `docs/SPRINT-D-HANDOFF.md` §7 minus
-  `actionlint`, since there is no CI to run it. `make govulncheck` added standalone.
+  `govulncheck`, `git diff --check`). `make govulncheck` added standalone. (At the time
+  of this track CI was absent; CI was restored 2026-07-28 and now also runs `actionlint`.)
 - Rolling-deploy WebSocket soak (`docs/RUNBOOK.md` §4.1): reproducible procedure and
   measured result proving `phoenix-api` restarts lose no heartbeats while
   `phoenix-worker` keeps running, and that WS clients reconnect and resume
   automatically. Closes the Phase 3 / Sprint B carryover item.
-- `Monitor.Weight` (R2.3) evidence: every read/write site traced source-side
-  (`docs/PROJECT-REVIEW-AND-ROADMAP.md` §3, R2.3) — the field is inert for individual
-  monitors (unlike the live, distinct `MonitorGroup.Weight`); keep/drop recommendation
-  presented, decision left to the owner.
+- `Monitor.Weight` kept and **wired for display sort** (API list `ORDER BY`, UI). Earlier
+  “inert field” notes are obsolete.
 
-### Removed
+### Removed (historical — later reversed)
 
-- `.github/` (CI workflows) removed for a second time, deliberately, permanently
-  (`9de75e9`, 2026-07-25 — not part of this track's commits, but truthed-up throughout
-  `README.md`, `Makefile`, and `docs/` by this track since every prior reference to it
-  became false). Phoenix is locally-gated from this point forward; see
-  `docs/TESTING.md`.
+- `.github/` (CI workflows) removed 2026-07-25 (`9de75e9`) while the project was
+  local-gate only. **Restored 2026-07-28** — do not treat “no CI” notes below that date
+  as current. See `docs/TESTING.md`.
 
 #### Sprint C — Visible wins (2026-07-19)
 

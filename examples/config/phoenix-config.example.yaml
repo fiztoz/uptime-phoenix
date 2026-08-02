@@ -29,7 +29,8 @@
 #
 # Secrets: never commit real webhook URLs or passwords. On apply, omit a secret
 # field or set it to __REDACTED__ to keep the currently stored value.
-# See docs/F5-S14-CONFIG-AS-CODE-CONTRACTS.md and docs/RUNBOOK.md.
+# See docs/RUNBOOK.md (config-as-code section) and tests under
+# internal/core/services/configascode_test.go.
 
 apiVersion: phoenix.dev/v1
 kind: Config

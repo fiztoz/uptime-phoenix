@@ -29,9 +29,12 @@ prove nothing.
 
 ## Results
 
-All stages: fresh `phoenix_load` database per run, isolated MariaDB 11 on a 1 GB tmpfs,
-10-core Apple Silicon laptop / 16 GB RAM. `api_response_time` and `http_req_failed` passed in
-every stage and are omitted except where notable.
+All stages: fresh `phoenix_load` database per run, isolated MariaDB 11 on a 1 GB tmpfs.
+Host: 10-core Apple Silicon laptop / 16 GB RAM (Phoenix API/worker binaries run natively here).
+Containers (MariaDB, Redis, k6) run under **Colima** at **2 CPUs / 4 GiB** — that VM
+allocation, not the host's full 16 GB, is the binding limit for the Docker-side stack.
+MariaDB is further capped by its 1 GB tmpfs. `api_response_time` and `http_req_failed`
+passed in every stage and are omitted except where notable.
 
 ### In-process mode (`MODE=all`, memory EventBus)
 
@@ -47,7 +50,7 @@ every stage and are omitted except where notable.
 ### Split API/worker mode (separate `cmd/api` + `cmd/worker`, Redis EventBus)
 
 | Stage | Monitors | WS clients | Interval | Event p95 | Event max | Connect p95 | API p95 | HB events delivered | Result |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | split | 1,000 | 50 | 20 s | **113 ms** | 169 ms | 37 ms | 37.5 ms | 142,500 | PASS |
 | split | **10,000** | 50 | 30 s | **405 ms** | 7.77 s | 23 ms | 369 ms | **1,342,628** @ 4,498/s | PASS |
 

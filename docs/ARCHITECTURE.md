@@ -190,20 +190,20 @@ phoenix/
 │       │   ├── snmp.go                # gosnmp/gosnmp
 │       │   ├── database.go            # postgres/mysql/mariadb/mssql/mongo/redis; ping + select_1 presets
 │       │   └── registry.go            # auto-registers all checkers
-│       ├── notifier/                  # Secondary — notification providers
+│       ├── notifier/                  # Secondary — 11 notification providers
 │       │   ├── telegram.go
 │       │   ├── discord.go
 │       │   ├── slack.go
 │       │   ├── smtp.go                # email
 │       │   ├── webhook.go
-│       │   ├── ntfy.go
-│       │   ├── pushover.go
 │       │   ├── teams.go
 │       │   ├── mattermost.go
-│       │   ├── pagerduty.go
-│       │   ├── opsgenie.go
 │       │   ├── gotify.go
+│       │   ├── bark.go
+│       │   ├── feishu.go
+│       │   ├── line.go
 │       │   ├── ratelimit.go           # shared retry/backoff middleware
+│       │   ├── alert_format.go        # shared payload / severity helpers
 │       │   └── registry.go
 │       ├── auth/                      # Secondary
 │       │   ├── jwt.go                 # golang-jwt/jwt/v5
@@ -213,7 +213,7 @@ phoenix/
 │       │   └── oidc.go                # coreos/go-oidc + golang.org/x/oauth2
 │       ├── scheduler/                 # Secondary
 │       │   ├── local.go               # in-process (robfig/cron/v3)
-│       │   └── sharded.go             # (Phase 3) DB-leased
+│       │   └── sharded.go             # DB-leased multi-worker (shipped)
 │       ├── metrics/                   # Secondary
 │       │   └── prometheus.go          # prometheus/client_golang
 │       └── logger/                    # Secondary
@@ -1021,24 +1021,27 @@ func init() {
     Register(SlackSender{})
     Register(SMTPSender{})
     Register(WebhookSender{})
-    Register(NtfySender{})
-    Register(PushoverSender{})
     Register(TeamsSender{})
     Register(MattermostSender{})
-    Register(PagerDutySender{})
-    Register(OpsGenieSender{})
     Register(GotifySender{})
+    Register(BarkSender{})
+    Register(FeishuSender{})
+    Register(LineSender{})
 }
 ```
 
+Actual registration is driven by per-file `init()` + `registry.go` (same one-file plugin convention as checkers). Do **not** reintroduce ntfy/Pushover/PagerDuty/OpsGenie without explicit approval — they are not in the tree.
+
 ### Severity Mapping
 
-| Phoenix Status | Telegram | Discord embed | Slack | Pushover | ntfy | PagerDuty | OpsGenie |
-|---|---|---|---|---|---|---|---|
-| UP (resolve) | normal text | color `0x00FF00` | `:white_check_mark:` | priority -1 | priority 1 | `event_action: resolve` | close alert |
-| DOWN (alert) | ⚠️ in text | color `0xFF0000` | `:x:` + `danger` | priority 1 or 2 | priority 5 (urgent) | `severity: critical` | P1 |
-| PENDING | normal | color `0xFFA500` | `:warning:` | priority 0 | priority 4 | `severity: warning` | P3 |
-| MAINTENANCE | quiet | color `0x808080` | `:tools:` | priority -1 | priority 2 | suppress | P5 |
+Shared formatting lives in `alert_format.go`. Providers map Phoenix status onto channel-native fields (examples below; see each `*_test.go` for exact payloads).
+
+| Phoenix Status | Telegram / text | Discord embed | Slack | Webhook JSON | Teams / Mattermost / Gotify / Bark / Feishu / Line |
+|---|---|---|---|---|---|
+| UP (resolve) | normal text | color `0x00FF00` | `:white_check_mark:` | `severity: "UP"` | channel-specific success styling |
+| DOWN (alert) | ⚠️ in text | color `0xFF0000` | `:x:` + `danger` | `severity: "DOWN"` | channel-specific alert styling |
+| PENDING | normal | color `0xFFA500` | `:warning:` | `severity: "PENDING"` | warning styling where supported |
+| MAINTENANCE | quiet | color `0x808080` | `:tools:` | `severity: "MAINTENANCE"` | muted / suppressed styling |
 
 ### Shared Rate-Limit Middleware
 
@@ -1400,7 +1403,9 @@ export const realtime = createWsStore(`${location.protocol === 'https:' ? 'wss' 
 4. **OIDC SSO (opt-in):** `GET /api/auth/oidc/login` → IdP → `GET /api/auth/oidc/callback`
    → redirect to SPA with session JWT in the URL fragment. Identities are keyed by
    immutable `(issuer, subject)` (migration `019`). Group claims map onto existing
-   `is_admin`, capability flags, and scoped grants — see `docs/F5-S13-OIDC-CONTRACTS.md`.
+   `is_admin`, capability flags, and scoped grants — see service tests under
+   `internal/core/services/auth_oidc*_test.go` (local agent contracts:
+   `docs/local/F5-S13-OIDC-CONTRACTS.md`, gitignored).
    Local password + TOTP/passkey remain available for break-glass when OIDC is on.
 5. **JWT verification:** Echo middleware validates JWT on every `/api/*` and `/ws` request
 6. **API keys:** `GET /metrics` and external API access use API keys (hashed in DB, shown once at creation)
@@ -1436,7 +1441,7 @@ type TwoFactor interface {
 
 // OIDCAuthenticator — discovery, Auth Code exchange, ID-token validation.
 // OIDCIdentityRepository — (issuer, subject) → user_id links.
-// See internal/core/ports/oidc.go and docs/F5-S13-OIDC-CONTRACTS.md.
+// See internal/core/ports/oidc.go and auth_oidc*_test.go.
 ```
 
 ---

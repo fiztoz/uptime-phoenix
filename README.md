@@ -17,14 +17,15 @@ zero-dependency pod to a split API + worker deployment with Redis fan-out.
 
 | Area | What you get |
 |---|---|
-| 11 monitor types | http, tcp, ping, dns, websocket, push (HMAC ingest), docker, mqtt, grpc, snmp, database |
+| 12 monitor types | http, tcp, ping, dns, websocket, push (HMAC ingest), docker, mqtt, rabbitmq, grpc, snmp, database (postgres/mysql/mariadb/mongodb/redis/mssql) |
 | 11 notification providers | bark, discord, feishu, gotify, line, mattermost, slack, smtp, teams, telegram, webhook — with shared retry/backoff |
-| Alerting pipeline | Retry-confirm (PENDING to DOWN after max retries), resend interval, recovery notices, maintenance suppression |
+| Alerting pipeline | Retry-confirm (PENDING to DOWN after max retries), resend interval, recovery notices, maintenance suppression, ack/resolve, escalation policies |
 | Folder alerting | Monitor groups (folders) alert on their own rollup transition, not per child |
 | Status pages | Slug + custom domain resolution, password gate, custom CSS, three dashboard styles (full / pills / grid), three-level public health, response-time charts, 90-day uptime, incidents with severity |
 | Badges | Embeddable SVG status badges (viewBox-scalable) |
 | RBAC | Per-monitor/group grants, capability flags (create monitors/groups, manage notifications/maintenance), admin grant UI, RBAC-scoped WebSocket hub |
-| Auth | JWT sessions, TOTP 2FA, WebAuthn passkeys, scoped API keys (hashed at rest); open registration disabled by design — first admin via bootstrap env vars |
+| Auth | JWT sessions, TOTP 2FA, WebAuthn passkeys, opt-in OIDC SSO, scoped API keys (hashed at rest); open registration disabled by design — first admin via bootstrap env vars |
+| Config-as-code | Versioned `phoenix.dev/v1` YAML (`cmd/phoenix-config` + admin API): validate / plan / apply with secret redaction |
 | Maintenance windows | Single and cron strategies with real alert suppression (cron evaluates UTC) |
 | Backup | Full config export/import with ID remapping |
 | Proxies | Outbound HTTP/HTTPS/SOCKS5, assignable per monitor |
@@ -162,8 +163,9 @@ Screenshots coming soon.
 | [docs/DEPLOYMENT_MODES.md](docs/DEPLOYMENT_MODES.md) | Compose / Helm modes, Cloudflare Tunnel |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Operator runbook |
 | [docs/RELEASING.md](docs/RELEASING.md) | Release dry-run and optional publish (local + GitHub Actions) |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Phase plans (historical; may be stale) |
-| [docs/PLAN.md](docs/PLAN.md) | Original goal, scope, and locked decisions |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Phase plans and completion status |
+| [docs/PLAN.md](docs/PLAN.md) | Goal, scope, and locked decisions (kept current with the shipped tree) |
+| [docs/LOADTEST.md](docs/LOADTEST.md) | Load-test results (10k monitors; Colima limits noted) |
 | [docs/DESIGN.md](docs/DESIGN.md) | Design system for the UI |
 
 ## Project status & disclaimer

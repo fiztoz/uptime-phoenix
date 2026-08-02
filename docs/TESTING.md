@@ -9,14 +9,10 @@
 > and works fully offline — do not treat a green CI check as a substitute for running the
 > local gate before you merge your own work.
 >
-> **As of 2026-07-25, running the full gate end-to-end surfaces real, pre-existing debt**
-> that CI will now re-surface on PR/main until cleared:
-> `golangci-lint run` previously reported **133 findings** (misspellings, `nilerr`,
-> deprecated `bun.In` usage, `govet` shadow warnings, unchecked errors, unparam, etc.)
-> across `internal/` and `cmd/`; `govulncheck ./...` reported toolchain/stdlib backlog
-> on older pin points; and `cd web && bun run lint` failed formatting on many files.
-> Fixing that debt is a separate, cross-cutting task. Do not assume `make gate-full` or
-> CI is currently green until those findings are addressed.
+> **Gate debt (cleared 2026-07-27):** the repository gate-debt sprint took Go lint from
+> ~158 → 0 findings, frontend prettier/eslint baseline to clean, and `govulncheck`
+> reachable stdlib issues to 0 via the Go 1.25.12 toolchain pin (see `docs/ROADMAP.md`).
+> New work must not reintroduce that debt — `make gate-full` and CI should stay green.
 
 ---
 
