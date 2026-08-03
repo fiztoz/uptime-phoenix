@@ -14,6 +14,7 @@
 		type MonitorGroupView,
 	} from '$lib/api/monitorGroups';
 	import { tagsApi, type Tag } from '$lib/api/tags';
+	import { insightsApi, type InsightsRow } from '$lib/api/insights';
 	import {
 		EMPTY_CRITERIA,
 		collectTypes,
@@ -57,6 +58,8 @@
 	// exists, not only tags already assigned to a monitor — otherwise a newly
 	// created tag looks "missing" until something is tagged with it.
 	let catalogTags = $state<Tag[]>([]);
+	let reliabilityPreview = $state<InsightsRow[]>([]);
+	let reliabilityPreviewLoading = $state(true);
 
 	async function loadGroups() {
 		groupsLoading = true;
@@ -88,6 +91,24 @@
 		loadTags();
 	});
 
+	async function loadReliabilityPreview() {
+		reliabilityPreviewLoading = true;
+		try {
+			const result = await insightsApi.list({ period: '24h', metric: 'availability' });
+			reliabilityPreview = result.rows
+				.filter((row) => row.qualification === 'qualified' && (row.outage_count > 0 || (row.availability_percent ?? 100) < 100))
+				.slice(0, 5);
+		} catch {
+			reliabilityPreview = [];
+		} finally {
+			reliabilityPreviewLoading = false;
+		}
+	}
+
+	$effect(() => {
+		if (realtime.hasMonitorSnapshot) void loadReliabilityPreview();
+	});
+
 	const pageLoading = $derived(!realtime.hasMonitorSnapshot || groupsLoading);
 	const pageError = $derived(
 		groupsError ?? (!realtime.hasMonitorSnapshot ? realtime.lastError : null),
@@ -96,6 +117,7 @@
 	function retryPageLoad() {
 		loadGroups();
 		loadTags();
+		loadReliabilityPreview();
 		if (!realtime.hasMonitorSnapshot) realtime.connect();
 	}
 
@@ -340,6 +362,18 @@
 		danger: 'text-danger',
 		primary: 'text-primary',
 	};
+	function previewPercent(value: number | null): string {
+		return value === null ? '—' : `${value.toFixed(2)}%`;
+	}
+
+	function previewDuration(seconds: number): string {
+		if (seconds < 60) return `${Math.round(seconds)}s`;
+		const minutes = Math.round(seconds / 60);
+		if (minutes < 60) return `${minutes}m`;
+		const hours = Math.floor(minutes / 60);
+		return `${hours}h`;
+	}
+
 	const toneValue: Record<string, string> = {
 		default: 'text-foreground',
 		success: 'text-success',
@@ -447,6 +481,32 @@
 					</a>
 				{/each}
 			</div>
+		</section>
+	{/if}
+
+	{#if reliabilityPreviewLoading || reliabilityPreview.length > 0}
+		<section class="space-y-3">
+			<div class="flex items-center justify-between gap-3">
+				<h2 class="text-sm font-semibold text-muted-foreground">{m.dashboard_reliability_preview_heading()}</h2>
+				<a href="/insights" class="text-sm text-muted-foreground transition-colors hover:text-foreground">{m.dashboard_reliability_view_all()}</a>
+			</div>
+			{#if reliabilityPreviewLoading}
+				<div class="rounded-xl border border-border bg-card px-4 py-3">
+					<Skeleton class="h-4 w-48" />
+					<Skeleton class="mt-3 h-3 w-72" />
+				</div>
+			{:else}
+				<div class="overflow-hidden rounded-xl border border-border bg-card">
+					{#each reliabilityPreview as row (row.monitor_id)}
+						<a href="/monitors/{row.monitor_id}" class="flex items-center gap-3 border-b border-border px-4 py-3 transition-colors last:border-0 hover:bg-accent/50">
+							<Gauge class="h-4 w-4 shrink-0 text-danger" />
+							<span class="min-w-0 flex-1 truncate font-medium">{row.monitor_name}</span>
+							<span class="tnum text-xs text-danger">{previewPercent(row.availability_percent)}</span>
+							<span class="hidden tnum text-xs text-muted-foreground sm:inline">{previewDuration(row.downtime_seconds)}</span>
+						</a>
+					{/each}
+				</div>
+			{/if}
 		</section>
 	{/if}
 

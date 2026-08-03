@@ -103,11 +103,11 @@ func (h *BadgeHandlers) Uptime(c echo.Context) error {
 	window, _ := parseBadgeDuration(c.QueryParam("duration"))
 	now := time.Now().UTC()
 	pct, err := h.aggregate.GetUptimePercent(ctx, monitorID, now.Add(-window), now)
-	if err != nil {
+	if err != nil || pct == nil {
 		return h.renderUnknown(c, "uptime")
 	}
 
-	return h.render(c, "uptime", formatUptimePercent(pct), uptimeColor(pct))
+	return h.render(c, "uptime", formatUptimePercent(*pct), uptimeColor(*pct))
 }
 
 // Ping handles GET /api/badge/:id/ping.svg.

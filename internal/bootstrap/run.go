@@ -271,7 +271,16 @@ func Run(cfg Config) error {
 
 	aggregateSvc := services.NewAggregateService(repos.heartbeat, repos.monitor, log)
 	monitorStatsSvc := services.NewMonitorStatsService(repos.heartbeat, repos.monitor, repos.tlsInfo, aggregateSvc)
-	log.Info("aggregate service initialized")
+	reliabilityReader, ok := repos.heartbeat.(ports.ReliabilityReader)
+	if !ok {
+		return fmt.Errorf("heartbeat repository does not support reliability transition reads")
+	}
+	aggregateReader, ok := repos.heartbeat.(ports.AggregateBatchReader)
+	if !ok {
+		return fmt.Errorf("heartbeat repository does not support batched reliability rollups")
+	}
+	insightsSvc := services.NewInsightsService(reliabilityReader, aggregateReader, repos.monitor, repos.monitorGroup, accessSvc)
+	log.Info("aggregate and insights services initialized")
 
 	metricsExporter := metrics.NewPrometheusExporter()
 
@@ -401,6 +410,7 @@ func Run(cfg Config) error {
 	// The alert list shows each alert's ladder progress. Batched, never per row.
 	alertHandlers.SetEscalationReader(escalationSvc)
 	escalationHandlers := handlers.NewEscalationHandlers(escalationSvc)
+	insightsHandlers := handlers.NewInsightsHandlers(insightsSvc)
 
 	httpOpts := httppkg.RouterOptions{
 		Production: cfg.Production,
@@ -434,6 +444,7 @@ func Run(cfg Config) error {
 		configHandlers,
 		alertHandlers,
 		escalationHandlers,
+		insightsHandlers,
 		authSvc,
 		accessSvc,
 		repos.apiKey,

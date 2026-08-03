@@ -54,7 +54,11 @@ type Aggregate1m struct {
 	AvgPing      float64
 	MinPing      int
 	MaxPing      int
-	TotalChecks  int
+	// PingCount is the number of heartbeats with Ping > 0 behind AvgPing.
+	// It is separate from TotalChecks because push/maintenance/checker results
+	// may legitimately carry no latency sample.
+	PingCount   int
+	TotalChecks int
 }
 
 // Aggregate1h is a 1-hour aggregation bucket.
@@ -68,6 +72,7 @@ type Aggregate1h struct {
 	AvgPing      float64
 	MinPing      int
 	MaxPing      int
+	PingCount    int
 	TotalChecks  int
 }
 
@@ -82,6 +87,7 @@ type Aggregate1d struct {
 	AvgPing      float64
 	MinPing      int
 	MaxPing      int
+	PingCount    int
 	TotalChecks  int
 }
 
@@ -190,6 +196,30 @@ type HeartbeatBatchReader interface {
 	// Monitors with no heartbeat at all are simply ABSENT from the map — that is
 	// not an error. The returned map is never nil for a nil error.
 	GetLatestForMonitors(ctx context.Context, monitorIDs []int64) (map[int64]*domain.Heartbeat, error)
+}
+
+// ReliabilityReader is an OPTIONAL heartbeat capability used by the reliability
+// / insights read model. It is deliberately batched: the endpoint must not issue
+// one transition query per visible monitor.
+//
+// Both methods return only important heartbeats — the rows Phoenix already marks
+// as effective status transitions. The effective-status timeline between two
+// transitions is constant, so this is much smaller than rescanning every raw beat.
+type ReliabilityReader interface {
+	// ListImportantForMonitors returns transition heartbeats grouped by monitor in
+	// [from, to], ascending by (time, id). Empty monitor IDs return an empty map.
+	ListImportantForMonitors(ctx context.Context, monitorIDs []int64, from, to time.Time) (map[int64][]*domain.Heartbeat, error)
+	// LatestImportantBeforeForMonitors returns the leading transition for each
+	// monitor strictly before before. Missing monitors are absent from the map.
+	LatestImportantBeforeForMonitors(ctx context.Context, monitorIDs []int64, before time.Time) (map[int64]*domain.Heartbeat, error)
+}
+
+// AggregateBatchReader is an OPTIONAL read capability for the Insights page.
+// It keeps latency aggregation batched while leaving the small existing
+// HeartbeatRepository interface and its test doubles stable.
+type AggregateBatchReader interface {
+	GetAggregate1hForMonitors(ctx context.Context, monitorIDs []int64, from time.Time) (map[int64][]*Aggregate1h, error)
+	GetAggregate1dForMonitors(ctx context.Context, monitorIDs []int64, from time.Time) (map[int64][]*Aggregate1d, error)
 }
 
 // NotificationRepository defines persistence operations for notifications.

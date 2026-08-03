@@ -58,6 +58,7 @@ func NewRouter(
 	configHandlers *handlers.ConfigHandlers,
 	alertHandlers *handlers.AlertHandlers,
 	escalationHandlers *handlers.EscalationHandlers,
+	insightsHandlers *handlers.InsightsHandlers,
 	authSvc *services.AuthService,
 	accessSvc *services.AccessService,
 	apiKeyRepo ports.APIKeyRepository,
@@ -132,6 +133,13 @@ func NewRouter(
 	requireMaintenance := middleware.RequireCapability(accessSvc, middleware.CapManageMaintenance)
 	requireCreateMonitors := middleware.RequireCapability(accessSvc, middleware.CapCreateMonitors)
 	requireCreateGroups := middleware.RequireCapability(accessSvc, middleware.CapCreateGroups)
+
+	// Reliability read model. The handler applies monitor visibility before it
+	// computes any rows, so this route needs authentication but no install-wide
+	// capability gate.
+	if insightsHandlers != nil && authSvc != nil {
+		e.GET("/api/insights", insightsHandlers.GetInsights, middleware.AuthMiddleware(authSvc))
+	}
 
 	// Monitor routes (protected with auth middleware). Three different gates,
 	// because "may I?" has three different answers here:

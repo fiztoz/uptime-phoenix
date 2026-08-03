@@ -22,12 +22,12 @@ func NewStatsHandlers(svc *services.MonitorStatsService, access *services.Access
 }
 
 type monitorStatsView struct {
-	CurrentPingMs  int     `json:"current_ping_ms"`
-	AvgPing24h     float64 `json:"avg_ping_24h"`
-	Uptime24h      float64 `json:"uptime_24h"`
-	Uptime30d      float64 `json:"uptime_30d"`
-	CertExpiryDate *string `json:"cert_expiry_date"`
-	CertDaysLeft   *int    `json:"cert_days_left"`
+	CurrentPingMs  int      `json:"current_ping_ms"`
+	AvgPing24h     float64  `json:"avg_ping_24h"`
+	Uptime24h      *float64 `json:"uptime_24h"`
+	Uptime30d      *float64 `json:"uptime_30d"`
+	CertExpiryDate *string  `json:"cert_expiry_date"`
+	CertDaysLeft   *int     `json:"cert_days_left"`
 }
 
 // GetStats handles GET /api/monitors/:id/stats.

@@ -74,6 +74,7 @@ type AggregateModel struct {
 	AvgPing      float64   `bun:"avg_ping"`
 	MinPing      *int      `bun:"min_ping"`
 	MaxPing      *int      `bun:"max_ping"`
+	PingCount    int       `bun:"ping_count,notnull,default:0"`
 	TotalChecks  int       `bun:"total_checks,notnull,default:0"`
 }
 
@@ -89,6 +90,7 @@ func Aggregate1mFromDomain(a *ports.Aggregate1m) *AggregateModel {
 		AvgPing:      a.AvgPing,
 		MinPing:      intPtrOrNil(a.MinPing),
 		MaxPing:      intPtrOrNil(a.MaxPing),
+		PingCount:    a.PingCount,
 		TotalChecks:  a.TotalChecks,
 	}
 }
@@ -105,6 +107,7 @@ func Aggregate1hFromDomain(a *ports.Aggregate1h) *AggregateModel {
 		AvgPing:      a.AvgPing,
 		MinPing:      intPtrOrNil(a.MinPing),
 		MaxPing:      intPtrOrNil(a.MaxPing),
+		PingCount:    a.PingCount,
 		TotalChecks:  a.TotalChecks,
 	}
 }
@@ -121,6 +124,7 @@ func Aggregate1dFromDomain(a *ports.Aggregate1d) *AggregateModel {
 		AvgPing:      a.AvgPing,
 		MinPing:      intPtrOrNil(a.MinPing),
 		MaxPing:      intPtrOrNil(a.MaxPing),
+		PingCount:    a.PingCount,
 		TotalChecks:  a.TotalChecks,
 	}
 }
@@ -137,6 +141,7 @@ func (m *AggregateModel) ToAggregate1m() *ports.Aggregate1m {
 		AvgPing:      m.AvgPing,
 		MinPing:      derefInt(m.MinPing),
 		MaxPing:      derefInt(m.MaxPing),
+		PingCount:    m.PingCount,
 		TotalChecks:  m.TotalChecks,
 	}
 }
@@ -153,6 +158,7 @@ func (m *AggregateModel) ToAggregate1h() *ports.Aggregate1h {
 		AvgPing:      m.AvgPing,
 		MinPing:      derefInt(m.MinPing),
 		MaxPing:      derefInt(m.MaxPing),
+		PingCount:    m.PingCount,
 		TotalChecks:  m.TotalChecks,
 	}
 }
@@ -169,6 +175,7 @@ func (m *AggregateModel) ToAggregate1d() *ports.Aggregate1d {
 		AvgPing:      m.AvgPing,
 		MinPing:      derefInt(m.MinPing),
 		MaxPing:      derefInt(m.MaxPing),
+		PingCount:    m.PingCount,
 		TotalChecks:  m.TotalChecks,
 	}
 }

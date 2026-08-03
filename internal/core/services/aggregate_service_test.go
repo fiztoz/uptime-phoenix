@@ -189,6 +189,9 @@ func TestRollup1m_GroupsByMinute(t *testing.T) {
 	if agg0.MaxPing != 60 {
 		t.Errorf("bucket 0: expected max ping 60, got %d", agg0.MaxPing)
 	}
+	if agg0.PingCount != 2 {
+		t.Errorf("bucket 0: expected 2 latency samples, got %d", agg0.PingCount)
+	}
 
 	// Second bucket: 1 DOWN
 	agg1 := hbRepo.aggs1m[1][1]
@@ -242,8 +245,8 @@ func TestRollup1h_MergesFrom1m(t *testing.T) {
 
 	// Simulate existing 1m aggregates.
 	hbRepo.aggs1m[1] = []*ports.Aggregate1m{
-		{MonitorID: 1, Bucket: hourStart, UpCount: 5, DownCount: 1, TotalChecks: 6, AvgPing: 100, MinPing: 50, MaxPing: 200},
-		{MonitorID: 1, Bucket: hourStart.Add(1 * time.Minute), UpCount: 6, DownCount: 0, TotalChecks: 6, AvgPing: 80, MinPing: 40, MaxPing: 150},
+		{MonitorID: 1, Bucket: hourStart, UpCount: 5, DownCount: 1, TotalChecks: 6, PingCount: 5, AvgPing: 100, MinPing: 50, MaxPing: 200},
+		{MonitorID: 1, Bucket: hourStart.Add(1 * time.Minute), UpCount: 6, DownCount: 0, TotalChecks: 6, PingCount: 4, AvgPing: 80, MinPing: 40, MaxPing: 150},
 	}
 
 	err := svc.Rollup1h(context.Background(), hourStart, hourStart.Add(1*time.Hour))
@@ -265,6 +268,9 @@ func TestRollup1h_MergesFrom1m(t *testing.T) {
 	if agg.TotalChecks != 12 {
 		t.Errorf("expected 12 total checks, got %d", agg.TotalChecks)
 	}
+	if agg.PingCount != 9 {
+		t.Errorf("expected 9 latency samples, got %d", agg.PingCount)
+	}
 }
 
 func TestRollup1d_MergesFrom1h(t *testing.T) {
@@ -280,8 +286,8 @@ func TestRollup1d_MergesFrom1h(t *testing.T) {
 	dayStart := now.Truncate(24 * time.Hour)
 
 	hbRepo.aggs1h[1] = []*ports.Aggregate1h{
-		{MonitorID: 1, Bucket: dayStart, UpCount: 50, DownCount: 10, TotalChecks: 60, AvgPing: 100, MinPing: 20, MaxPing: 500},
-		{MonitorID: 1, Bucket: dayStart.Add(1 * time.Hour), UpCount: 55, DownCount: 5, TotalChecks: 60, AvgPing: 90, MinPing: 15, MaxPing: 400},
+		{MonitorID: 1, Bucket: dayStart, UpCount: 50, DownCount: 10, TotalChecks: 60, PingCount: 50, AvgPing: 100, MinPing: 20, MaxPing: 500},
+		{MonitorID: 1, Bucket: dayStart.Add(1 * time.Hour), UpCount: 55, DownCount: 5, TotalChecks: 60, PingCount: 45, AvgPing: 90, MinPing: 15, MaxPing: 400},
 	}
 
 	err := svc.Rollup1d(context.Background(), dayStart, dayStart.Add(24*time.Hour))
@@ -299,6 +305,9 @@ func TestRollup1d_MergesFrom1h(t *testing.T) {
 	}
 	if agg.TotalChecks != 120 {
 		t.Errorf("expected 120 total checks, got %d", agg.TotalChecks)
+	}
+	if agg.PingCount != 95 {
+		t.Errorf("expected 95 latency samples, got %d", agg.PingCount)
 	}
 }
 
@@ -320,8 +329,8 @@ func TestGetUptimePercent_AllUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if pct != 100.0 {
-		t.Errorf("expected 100%%, got %f", pct)
+	if pct == nil || *pct != 100.0 {
+		t.Errorf("expected 100%%, got %v", pct)
 	}
 }
 
@@ -344,8 +353,8 @@ func TestGetUptimePercent_MixedStatuses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if pct != 75.0 {
-		t.Errorf("expected 75%%, got %f", pct)
+	if pct == nil || *pct != 75.0 {
+		t.Errorf("expected 75%%, got %v", pct)
 	}
 }
 
@@ -368,8 +377,8 @@ func TestGetUptimePercent_ExcludesMaintenance(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// 2 up out of 2 effective (excluding 1 maintenance) = 100%
-	if pct != 100.0 {
-		t.Errorf("expected 100%% (maintenance excluded), got %f", pct)
+	if pct == nil || *pct != 100.0 {
+		t.Errorf("expected 100%% (maintenance excluded), got %v", pct)
 	}
 }
 
@@ -385,8 +394,8 @@ func TestGetUptimePercent_EmptyHeartbeats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if pct != 100.0 {
-		t.Errorf("expected 100%% for empty, got %f", pct)
+	if pct != nil {
+		t.Errorf("expected nil for empty, got %v", *pct)
 	}
 }
 
@@ -409,8 +418,8 @@ func TestGetUptimePercent_UsesDailyAggregates(t *testing.T) {
 	}
 	// 50 up / (62 total - 2 maint) = 50/60 = 83.33%
 	expected := (50.0 / 60.0) * 100.0
-	if pct < expected-0.01 || pct > expected+0.01 {
-		t.Errorf("expected ~%.2f%%, got %f", expected, pct)
+	if pct == nil || *pct < expected-0.01 || *pct > expected+0.01 {
+		t.Errorf("expected ~%.2f%%, got %v", expected, pct)
 	}
 }
 

@@ -15,6 +15,7 @@
 	let { children }: { children: Snippet } = $props();
 	import {
 		LayoutDashboard,
+		BarChart3,
 		Activity,
 		Settings,
 		AlertTriangle,
@@ -75,6 +76,7 @@
 
 	const allNavItems = [
 		{ href: '/dashboard', label: () => m.nav_dashboard(), icon: LayoutDashboard },
+		{ href: '/insights', label: () => m.nav_insights(), icon: BarChart3 },
 		{ href: '/monitors', label: () => m.nav_monitors(), icon: Activity },
 		{ href: '/alerts', label: () => m.nav_alerts(), icon: BellRing },
 		{ href: '/notifications', label: () => m.nav_notifications(), icon: Bell, gate: 'notifications' as const },

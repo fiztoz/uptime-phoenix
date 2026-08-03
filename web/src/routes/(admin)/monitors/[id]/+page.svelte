@@ -537,7 +537,7 @@
             ...stats,
             current_ping_ms: 0,
             avg_ping_24h: 0,
-            uptime_24h: 100,
+            uptime_24h: null,
             uptime_30d: stats.uptime_30d,
           }
         : null;

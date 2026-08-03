@@ -109,10 +109,10 @@ func TestMonitorStatsService_GetStats(t *testing.T) {
 	if stats.AvgPing24h != 200 {
 		t.Errorf("AvgPing24h = %v, want 200", stats.AvgPing24h)
 	}
-	if stats.Uptime24h != 75 {
+	if stats.Uptime24h == nil || *stats.Uptime24h != 75 {
 		t.Errorf("Uptime24h = %v, want 75", stats.Uptime24h)
 	}
-	if stats.Uptime30d != 75 {
+	if stats.Uptime30d == nil || *stats.Uptime30d != 75 {
 		t.Errorf("Uptime30d = %v, want 75", stats.Uptime30d)
 	}
 	if stats.CertDaysLeft == nil || *stats.CertDaysLeft != 45 {

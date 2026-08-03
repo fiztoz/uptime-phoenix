@@ -12,12 +12,12 @@ import (
 
 // MonitorStats holds Uptime Kuma-style summary statistics for a monitor.
 type MonitorStats struct {
-	CurrentPingMs  int     // from GetLatest, 0 if none
-	AvgPing24h     float64 // average ping from heartbeats in last 24h where ping > 0
-	Uptime24h      float64 // percentage
-	Uptime30d      float64 // percentage
-	CertExpiryDate *string // RFC3339 date or nil
-	CertDaysLeft   *int    // nil if not HTTPS/no cert data
+	CurrentPingMs  int      // from GetLatest, 0 if none
+	AvgPing24h     float64  // average ping from heartbeats in last 24h where ping > 0
+	Uptime24h      *float64 // percentage; nil when there are no effective observations
+	Uptime30d      *float64 // percentage; nil when there are no effective observations
+	CertExpiryDate *string  // RFC3339 date or nil
+	CertDaysLeft   *int     // nil if not HTTPS/no cert data
 }
 
 // MonitorStatsService computes monitor summary statistics from heartbeats and aggregates.

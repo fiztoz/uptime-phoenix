@@ -474,7 +474,60 @@ type HeartbeatRepo struct{ db *bun.DB }
 var (
 	_ ports.HeartbeatRepository  = (*HeartbeatRepo)(nil)
 	_ ports.HeartbeatBatchReader = (*HeartbeatRepo)(nil)
+	_ ports.ReliabilityReader    = (*HeartbeatRepo)(nil)
+	_ ports.AggregateBatchReader = (*HeartbeatRepo)(nil)
 )
+
+// ListImportantForMonitors returns effective status transitions for all requested
+// monitors in one ordered query. Empty monitorIDs deliberately returns empty,
+// not an unfiltered result.
+func (r *HeartbeatRepo) ListImportantForMonitors(ctx context.Context, monitorIDs []int64, from, to time.Time) (map[int64][]*domain.Heartbeat, error) {
+	out := make(map[int64][]*domain.Heartbeat, len(monitorIDs))
+	if len(monitorIDs) == 0 {
+		return out, nil
+	}
+	var models []*repository.HeartbeatModel
+	err := r.db.NewSelect().Model(&models).
+		Where("monitor_id IN (?)", bun.List(monitorIDs)).
+		Where("important = ?", true).
+		Where("time >= ?", from.UTC()).
+		Where("time <= ?", to.UTC()).
+		OrderExpr("monitor_id ASC, time ASC, id ASC").
+		Scan(ctx)
+	if err != nil {
+		return nil, translateError(err)
+	}
+	for _, model := range models {
+		out[model.MonitorID] = append(out[model.MonitorID], model.ToDomain())
+	}
+	return out, nil
+}
+
+// LatestImportantBeforeForMonitors returns one leading transition per requested
+// monitor. Ordering by monitor, time, and id lets the first row for each monitor
+// be selected deterministically on both database engines.
+func (r *HeartbeatRepo) LatestImportantBeforeForMonitors(ctx context.Context, monitorIDs []int64, before time.Time) (map[int64]*domain.Heartbeat, error) {
+	out := make(map[int64]*domain.Heartbeat, len(monitorIDs))
+	if len(monitorIDs) == 0 {
+		return out, nil
+	}
+	var models []*repository.HeartbeatModel
+	err := r.db.NewSelect().Model(&models).
+		Where("monitor_id IN (?)", bun.List(monitorIDs)).
+		Where("important = ?", true).
+		Where("time < ?", before.UTC()).
+		OrderExpr("monitor_id ASC, time DESC, id DESC").
+		Scan(ctx)
+	if err != nil {
+		return nil, translateError(err)
+	}
+	for _, model := range models {
+		if _, exists := out[model.MonitorID]; !exists {
+			out[model.MonitorID] = model.ToDomain()
+		}
+	}
+	return out, nil
+}
 
 // NewHeartbeatRepo creates a SQLite-backed heartbeat repository.
 func NewHeartbeatRepo(db *bun.DB) *HeartbeatRepo { return &HeartbeatRepo{db: db} }
@@ -591,6 +644,7 @@ func (r *HeartbeatRepo) SaveAggregate1m(ctx context.Context, agg *ports.Aggregat
 		Set("avg_ping = EXCLUDED.avg_ping").
 		Set("min_ping = EXCLUDED.min_ping").
 		Set("max_ping = EXCLUDED.max_ping").
+		Set("ping_count = EXCLUDED.ping_count").
 		Set("total_checks = EXCLUDED.total_checks").
 		Exec(ctx)
 	return translateError(err)
@@ -608,6 +662,7 @@ func (r *HeartbeatRepo) SaveAggregate1h(ctx context.Context, agg *ports.Aggregat
 		Set("avg_ping = EXCLUDED.avg_ping").
 		Set("min_ping = EXCLUDED.min_ping").
 		Set("max_ping = EXCLUDED.max_ping").
+		Set("ping_count = EXCLUDED.ping_count").
 		Set("total_checks = EXCLUDED.total_checks").
 		Exec(ctx)
 	return translateError(err)
@@ -625,6 +680,7 @@ func (r *HeartbeatRepo) SaveAggregate1d(ctx context.Context, agg *ports.Aggregat
 		Set("avg_ping = EXCLUDED.avg_ping").
 		Set("min_ping = EXCLUDED.min_ping").
 		Set("max_ping = EXCLUDED.max_ping").
+		Set("ping_count = EXCLUDED.ping_count").
 		Set("total_checks = EXCLUDED.total_checks").
 		Exec(ctx)
 	return translateError(err)
@@ -680,6 +736,52 @@ func (r *HeartbeatRepo) GetAggregate1d(ctx context.Context, monitorID int64, fro
 	out := make([]*ports.Aggregate1d, len(models))
 	for i, m := range models {
 		out[i] = m.ToAggregate1d()
+	}
+	return out, nil
+}
+
+// GetAggregate1hForMonitors reads hourly latency rollups for all monitors in a
+// single query. Missing monitors are absent from the returned map.
+func (r *HeartbeatRepo) GetAggregate1hForMonitors(ctx context.Context, monitorIDs []int64, from time.Time) (map[int64][]*ports.Aggregate1h, error) {
+	out := make(map[int64][]*ports.Aggregate1h, len(monitorIDs))
+	if len(monitorIDs) == 0 {
+		return out, nil
+	}
+	var models []*repository.AggregateModel
+	err := r.db.NewSelect().Model(&models).
+		ModelTableExpr("heartbeat_1h AS aggregate_model").
+		Where("monitor_id IN (?)", bun.List(monitorIDs)).
+		Where("bucket >= ?", from.UTC()).
+		OrderExpr("monitor_id ASC, bucket ASC").
+		Scan(ctx)
+	if err != nil {
+		return nil, translateError(err)
+	}
+	for _, model := range models {
+		out[model.MonitorID] = append(out[model.MonitorID], model.ToAggregate1h())
+	}
+	return out, nil
+}
+
+// GetAggregate1dForMonitors reads daily latency rollups for all monitors in a
+// single query. Missing monitors are absent from the returned map.
+func (r *HeartbeatRepo) GetAggregate1dForMonitors(ctx context.Context, monitorIDs []int64, from time.Time) (map[int64][]*ports.Aggregate1d, error) {
+	out := make(map[int64][]*ports.Aggregate1d, len(monitorIDs))
+	if len(monitorIDs) == 0 {
+		return out, nil
+	}
+	var models []*repository.AggregateModel
+	err := r.db.NewSelect().Model(&models).
+		ModelTableExpr("heartbeat_1d AS aggregate_model").
+		Where("monitor_id IN (?)", bun.List(monitorIDs)).
+		Where("bucket >= ?", from.UTC()).
+		OrderExpr("monitor_id ASC, bucket ASC").
+		Scan(ctx)
+	if err != nil {
+		return nil, translateError(err)
+	}
+	for _, model := range models {
+		out[model.MonitorID] = append(out[model.MonitorID], model.ToAggregate1d())
 	}
 	return out, nil
 }

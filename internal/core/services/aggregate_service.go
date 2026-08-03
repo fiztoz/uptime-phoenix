@@ -174,13 +174,14 @@ func (s *AggregateService) rollup1dForMonitor(ctx context.Context, monitorID int
 }
 
 // GetUptimePercent returns the uptime percentage for a monitor over a time range.
-// It queries the heartbeat_1d table (falling back to heartbeat_1h or raw heartbeats)
+// It returns nil when the range contains no effective observations: no data is
+// evidence for neither 0% nor 100%. It queries the heartbeat_1d table (falling back to heartbeat_1h or raw heartbeats)
 // and computes: up_checks / (total_checks - maint_checks) * 100.
-func (s *AggregateService) GetUptimePercent(ctx context.Context, monitorID int64, from, to time.Time) (float64, error) {
+func (s *AggregateService) GetUptimePercent(ctx context.Context, monitorID int64, from, to time.Time) (*float64, error) {
 	// Try daily aggregates first (most efficient for long ranges).
 	aggs, err := s.heartbeats.GetAggregate1d(ctx, monitorID, from)
 	if err != nil {
-		return 0, fmt.Errorf("getting 1d aggregates for uptime: %w", err)
+		return nil, fmt.Errorf("getting 1d aggregates for uptime: %w", err)
 	}
 
 	if len(aggs) > 0 {
@@ -194,19 +195,20 @@ func (s *AggregateService) GetUptimePercent(ctx context.Context, monitorID int64
 		}
 		effective := totalChecks - totalMaint
 		if effective <= 0 {
-			return 100.0, nil
+			return nil, nil
 		}
-		return (float64(totalUp) / float64(effective)) * 100.0, nil
+		percent := (float64(totalUp) / float64(effective)) * 100.0
+		return &percent, nil
 	}
 
 	// Fallback: compute from raw heartbeats if no aggregates exist yet.
 	heartbeats, err := s.heartbeats.ListByMonitor(ctx, monitorID, from, to)
 	if err != nil {
-		return 0, fmt.Errorf("listing heartbeats for uptime: %w", err)
+		return nil, fmt.Errorf("listing heartbeats for uptime: %w", err)
 	}
 
 	if len(heartbeats) == 0 {
-		return 100.0, nil
+		return nil, nil
 	}
 
 	var upCount, maintCount int
@@ -221,9 +223,10 @@ func (s *AggregateService) GetUptimePercent(ctx context.Context, monitorID int64
 
 	effective := len(heartbeats) - maintCount
 	if effective <= 0 {
-		return 100.0, nil
+		return nil, nil
 	}
-	return (float64(upCount) / float64(effective)) * 100.0, nil
+	percent := (float64(upCount) / float64(effective)) * 100.0
+	return &percent, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +306,7 @@ func computeAggregate(monitorID int64, bucket time.Time, hbs []*domain.Heartbeat
 	}
 
 	if pingCount > 0 {
+		agg.PingCount = pingCount
 		agg.AvgPing = float64(pingSum) / float64(pingCount)
 	}
 	if agg.MinPing == math.MaxInt32 {
@@ -333,11 +337,16 @@ func mergeAggregates1m(monitorID int64, bucket time.Time, items []*ports.Aggrega
 		agg.PendingCount += item.PendingCount
 		agg.MaintCount += item.MaintCount
 		agg.TotalChecks += item.TotalChecks
-
-		if item.AvgPing > 0 && item.TotalChecks > 0 {
-			// Weight the average by the number of checks in this bucket.
-			pingSum += item.AvgPing * float64(item.TotalChecks)
-			pingCount += item.TotalChecks
+		sampleCount := item.PingCount
+		// Rows created before migration 026 have no ping_count. Preserve their
+		// existing average during the compatibility window; newly written rows
+		// always carry the exact sample count.
+		if sampleCount == 0 && item.AvgPing > 0 {
+			sampleCount = item.TotalChecks
+		}
+		if item.AvgPing > 0 && sampleCount > 0 {
+			pingSum += item.AvgPing * float64(sampleCount)
+			pingCount += sampleCount
 		}
 		if item.MinPing > 0 && item.MinPing < agg.MinPing {
 			agg.MinPing = item.MinPing
@@ -348,6 +357,7 @@ func mergeAggregates1m(monitorID int64, bucket time.Time, items []*ports.Aggrega
 	}
 
 	if pingCount > 0 {
+		agg.PingCount = pingCount
 		agg.AvgPing = pingSum / float64(pingCount)
 	}
 	if agg.MinPing == math.MaxInt32 {
@@ -378,10 +388,13 @@ func mergeAggregates1h(monitorID int64, bucket time.Time, items []*ports.Aggrega
 		agg.PendingCount += item.PendingCount
 		agg.MaintCount += item.MaintCount
 		agg.TotalChecks += item.TotalChecks
-
-		if item.AvgPing > 0 && item.TotalChecks > 0 {
-			pingSum += item.AvgPing * float64(item.TotalChecks)
-			pingCount += item.TotalChecks
+		sampleCount := item.PingCount
+		if sampleCount == 0 && item.AvgPing > 0 {
+			sampleCount = item.TotalChecks
+		}
+		if item.AvgPing > 0 && sampleCount > 0 {
+			pingSum += item.AvgPing * float64(sampleCount)
+			pingCount += sampleCount
 		}
 		if item.MinPing > 0 && item.MinPing < agg.MinPing {
 			agg.MinPing = item.MinPing
@@ -392,6 +405,7 @@ func mergeAggregates1h(monitorID int64, bucket time.Time, items []*ports.Aggrega
 	}
 
 	if pingCount > 0 {
+		agg.PingCount = pingCount
 		agg.AvgPing = pingSum / float64(pingCount)
 	}
 	if agg.MinPing == math.MaxInt32 {
