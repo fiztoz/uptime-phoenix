@@ -177,7 +177,7 @@ func convertDB(src *source) (*services.BackupDocument, *Report, error) {
 
 	// ── Proxies ──────────────────────────────────────────────────────────
 	if ok, _ := src.tableExists("proxy"); ok {
-		if err := convertProxies(db, doc, report); err != nil {
+		if err := convertProxies(src, doc, report); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -202,7 +202,7 @@ func convertDB(src *source) (*services.BackupDocument, *Report, error) {
 	// ── Monitors + groups (folders are type=group) ───────────────────────
 	groupIDs := map[int64]struct{}{}
 	monitorIDs := map[int64]struct{}{}
-	if err := convertMonitorsAndGroups(db, monitorCols, doc, report, groupIDs, monitorIDs); err != nil {
+	if err := convertMonitorsAndGroups(src, monitorCols, doc, report, groupIDs, monitorIDs); err != nil {
 		return nil, nil, err
 	}
 
@@ -251,13 +251,17 @@ func convertDB(src *source) (*services.BackupDocument, *Report, error) {
 	return doc, report, nil
 }
 
-func convertProxies(db *sql.DB, doc *services.BackupDocument, _ *Report) error {
-	rows, err := db.Query(`
+func convertProxies(src *source, doc *services.BackupDocument, _ *Report) error {
+	db := src.db
+	// "default" is reserved on MariaDB/MySQL — quote per dialect.
+	// SQLite also accepts double-quoted identifiers; MariaDB needs backticks.
+	defaultCol := src.quote("default")
+	rows, err := db.Query(fmt.Sprintf(`
 		SELECT id, protocol, host, port,
 		       COALESCE(auth, 0), COALESCE(username, ''), COALESCE(password, ''),
-		       COALESCE(active, 1), COALESCE("default", 0)
+		       COALESCE(active, 1), COALESCE(%s, 0)
 		FROM proxy
-		ORDER BY id ASC`)
+		ORDER BY id ASC`, defaultCol))
 	if err != nil {
 		// Older schemas may not have "default" — try without.
 		rows, err = db.Query(`
@@ -348,20 +352,25 @@ func convertNotifications(db *sql.DB, doc *services.BackupDocument, report *Repo
 	return kept, rows.Err()
 }
 
-func convertMonitorsAndGroups(
-	db *sql.DB,
+// buildMonitorSelectCols builds the monitor SELECT list and flags for optional
+// columns. quote must be the engine dialect's identifier quoter: MariaDB
+// reserves INTERVAL (and others), so COALESCE(interval, 60) is a syntax error
+// unless the column is backtick-quoted. SQLite double-quotes are fine too.
+func buildMonitorSelectCols(
+	quote func(string) string,
 	cols map[string]struct{},
-	doc *services.BackupDocument,
-	report *Report,
-	groupIDs map[int64]struct{},
-	monitorIDs map[int64]struct{},
-) error {
-	selectCols := []string{
+) (
+	selectCols []string,
+	hasDescription, hasTimeout, hasParent, hasExpiry, hasJSONPath, hasExpected, hasSystemService, hasSNMPOid, hasSNMPVer bool,
+) {
+	// interval is reserved on MariaDB/MySQL (INTERVAL expr unit).
+	intervalCol := quote("interval")
+	selectCols = []string{
 		"id",
 		"COALESCE(name, '')",
 		"COALESCE(type, '')",
 		"COALESCE(active, 1)",
-		"COALESCE(interval, 60)",
+		"COALESCE(" + intervalCol + ", 60)",
 		"COALESCE(retry_interval, 0)",
 		"COALESCE(maxretries, 0)",
 		"COALESCE(url, '')",
@@ -393,16 +402,16 @@ func convertMonitorsAndGroups(
 		"COALESCE(game, '')",
 		"COALESCE(weight, 2000)",
 	}
-	// Optional columns (schema variants).
-	hasDescription := hasCol(cols, "description")
-	hasTimeout := hasCol(cols, "timeout")
-	hasParent := hasCol(cols, "parent")
-	hasExpiry := hasCol(cols, "expiry_notification")
-	hasJSONPath := hasCol(cols, "json_path")
-	hasExpected := hasCol(cols, "expected_value")
-	hasSystemService := hasCol(cols, "system_service_name")
-	hasSNMPOid := hasCol(cols, "snmp_oid") || hasCol(cols, "snmpOid")
-	hasSNMPVer := hasCol(cols, "snmp_version") || hasCol(cols, "snmpVersion")
+
+	hasDescription = hasCol(cols, "description")
+	hasTimeout = hasCol(cols, "timeout")
+	hasParent = hasCol(cols, "parent")
+	hasExpiry = hasCol(cols, "expiry_notification")
+	hasJSONPath = hasCol(cols, "json_path")
+	hasExpected = hasCol(cols, "expected_value")
+	hasSystemService = hasCol(cols, "system_service_name")
+	hasSNMPOid = hasCol(cols, "snmp_oid") || hasCol(cols, "snmpOid")
+	hasSNMPVer = hasCol(cols, "snmp_version") || hasCol(cols, "snmpVersion")
 
 	if hasDescription {
 		selectCols = append(selectCols, "COALESCE(description, '')")
@@ -435,6 +444,20 @@ func convertMonitorsAndGroups(
 	} else if hasCol(cols, "snmpVersion") {
 		selectCols = append(selectCols, "COALESCE(snmpVersion, '')")
 	}
+	return selectCols, hasDescription, hasTimeout, hasParent, hasExpiry, hasJSONPath, hasExpected, hasSystemService, hasSNMPOid, hasSNMPVer
+}
+
+func convertMonitorsAndGroups(
+	src *source,
+	cols map[string]struct{},
+	doc *services.BackupDocument,
+	report *Report,
+	groupIDs map[int64]struct{},
+	monitorIDs map[int64]struct{},
+) error {
+	db := src.db
+	selectCols, hasDescription, hasTimeout, hasParent, hasExpiry, hasJSONPath, hasExpected, hasSystemService, hasSNMPOid, hasSNMPVer :=
+		buildMonitorSelectCols(src.quote, cols)
 
 	q := `SELECT ` + strings.Join(selectCols, ", ") + ` FROM monitor ORDER BY id ASC`
 	rows, err := db.Query(q)

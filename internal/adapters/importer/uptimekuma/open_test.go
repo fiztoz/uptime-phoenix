@@ -77,6 +77,30 @@ func TestDialectQuoteIdent(t *testing.T) {
 	}
 }
 
+// MariaDB reserves INTERVAL; unquoted COALESCE(interval, 60) is Error 1064.
+// The monitor SELECT must quote the column per dialect.
+func TestBuildMonitorSelectColsQuotesInterval(t *testing.T) {
+	cols := map[string]struct{}{
+		"description": {},
+		"timeout":     {},
+		"parent":      {},
+	}
+	mariaCols, _, _, _, _, _, _, _, _, _ := buildMonitorSelectCols((mariaDialect{}).quoteIdent, cols)
+	sql := strings.Join(mariaCols, ", ")
+	if !strings.Contains(sql, "COALESCE(`interval`, 60)") {
+		t.Fatalf("maria monitor select missing backtick-quoted interval:\n%s", sql)
+	}
+	if strings.Contains(sql, "COALESCE(interval, 60)") {
+		t.Fatalf("maria monitor select still has unquoted interval:\n%s", sql)
+	}
+
+	sqliteCols, _, _, _, _, _, _, _, _, _ := buildMonitorSelectCols((sqliteDialect{}).quoteIdent, cols)
+	sql = strings.Join(sqliteCols, ", ")
+	if !strings.Contains(sql, `COALESCE("interval", 60)`) {
+		t.Fatalf("sqlite monitor select missing double-quoted interval:\n%s", sql)
+	}
+}
+
 func TestConvertRequiresEngineInputs(t *testing.T) {
 	dir := t.TempDir()
 	out := dir + "/out.json"
