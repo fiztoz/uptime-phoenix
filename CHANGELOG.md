@@ -57,75 +57,75 @@ at the bottom.
 - Uptime Kuma importer (`cmd/kuma-import`): read-only converter from **SQLite or MariaDB/MySQL** (Kuma v2) to Phoenix `BackupDocument` JSON; see `docs/KUMA-IMPORT.md`.
 - Release dry-run workflow (contents:read, no publish), multi-arch Dockerfile `TARGETARCH` fixes, `docs/RELEASING.md`.
 
-- [`4220ea0`](https://github.com/Fiztoz/phoenix/commit/4220ea0) Normalize HTTP monitor URLs on save; add a custom color picker and datetime picker to the admin UI.
-- [`347f4cb`](https://github.com/Fiztoz/phoenix/commit/347f4cb) RBAC: `can_create_monitors` / `can_create_groups` capability flags; shallow (non-recursive) group grants.
-- [`a530e7b`](https://github.com/Fiztoz/phoenix/commit/a530e7b) Status pages: grid dashboard style and three-level public health display.
-- [`56ae31a`](https://github.com/Fiztoz/phoenix/commit/56ae31a) Incident severity levels, with matching status display.
-- [`6b80c11`](https://github.com/Fiztoz/phoenix/commit/6b80c11) Premium dropdown redesign and multi-select filters.
-- [`f192fa6`](https://github.com/Fiztoz/phoenix/commit/f192fa6) SVG wordmark component, replacing text-based branding.
-- [`027a15c`](https://github.com/Fiztoz/phoenix/commit/027a15c) `avatar_url` support on the Discord webhook notifier.
-- [`dcf2707`](https://github.com/Fiztoz/phoenix/commit/dcf2707) Status pages: configurable dashboard style (full vs. pills — grid followed later).
-- [`9050ceb`](https://github.com/Fiztoz/phoenix/commit/9050ceb) Open Graph meta tags for Discord link previews.
-- [`297d4a6`](https://github.com/Fiztoz/phoenix/commit/297d4a6) Folder (monitor-group) alerting on the group's own rollup status; the RBAC grant UI actually rendered for the first time (functions existed but no markup called them); a real confirmation modal replacing `window.confirm()`.
-- [`d4ae125`](https://github.com/Fiztoz/phoenix/commit/d4ae125) Premium dark design system overhaul.
-- [`95d7fbc`](https://github.com/Fiztoz/phoenix/commit/95d7fbc) RBAC admin grant UI (backend), capability gating, atomic status-page monitor reorder.
-- [`4b4fc94`](https://github.com/Fiztoz/phoenix/commit/4b4fc94) RBAC: scoped monitor/group visibility, capability flags, dashboard filters, monitor tags embedded in the wire payload.
-- [`db4b090`](https://github.com/Fiztoz/phoenix/commit/db4b090)/[`8f6c0a7`](https://github.com/Fiztoz/phoenix/commit/8f6c0a7) Monitor groups: introduced as single-level parent/child nesting, then replaced with first-class monitor-group entities (folders) the next day.
-- [`f94c78e`](https://github.com/Fiztoz/phoenix/commit/f94c78e) Backup: full config export/import with ID remapping.
-- [`0d65d77`](https://github.com/Fiztoz/phoenix/commit/0d65d77) Outbound proxy support (HTTP/HTTPS/SOCKS5), assignable per monitor.
-- [`61e649b`](https://github.com/Fiztoz/phoenix/commit/61e649b) Response-time chart data on the public status page.
-- [`ffa4a2b`](https://github.com/Fiztoz/phoenix/commit/ffa4a2b) Embeddable SVG status badges.
-- [`13b75fa`](https://github.com/Fiztoz/phoenix/commit/13b75fa) Status pages: password gate, custom CSS, tags, and a public chart (this commit also fixed the `PasswordHash` leak on the public endpoint — see Fixed).
-- [`9c5473b`](https://github.com/Fiztoz/phoenix/commit/9c5473b) Auth: disable open self-registration after the first user; admin-driven user management with RBAC.
-- [`697f178`](https://github.com/Fiztoz/phoenix/commit/697f178) Monitor ownership enforcement, chart API, detail-page state refinements.
-- [`68cbfaa`](https://github.com/Fiztoz/phoenix/commit/68cbfaa) Uptime-Kuma-style monitor detail observability, plus related auth fixes.
-- [`2119fd7`](https://github.com/Fiztoz/phoenix/commit/2119fd7) Monitor statistics API and UI components.
-- [`8ab3041`](https://github.com/Fiztoz/phoenix/commit/8ab3041) API key management and user authentication enhancements.
-- [`b65c6bb`](https://github.com/Fiztoz/phoenix/commit/b65c6bb) Endpoint to list notifications for a specific monitor.
-- [`a03b706`](https://github.com/Fiztoz/phoenix/commit/a03b706) Public push-monitor ingest endpoint with HMAC verification.
+- [`4220ea0`](https://github.com/fiztoz/uptime-phoenix/commit/4220ea0) Normalize HTTP monitor URLs on save; add a custom color picker and datetime picker to the admin UI.
+- [`347f4cb`](https://github.com/fiztoz/uptime-phoenix/commit/347f4cb) RBAC: `can_create_monitors` / `can_create_groups` capability flags; shallow (non-recursive) group grants.
+- [`a530e7b`](https://github.com/fiztoz/uptime-phoenix/commit/a530e7b) Status pages: grid dashboard style and three-level public health display.
+- [`56ae31a`](https://github.com/fiztoz/uptime-phoenix/commit/56ae31a) Incident severity levels, with matching status display.
+- [`6b80c11`](https://github.com/fiztoz/uptime-phoenix/commit/6b80c11) Premium dropdown redesign and multi-select filters.
+- [`f192fa6`](https://github.com/fiztoz/uptime-phoenix/commit/f192fa6) SVG wordmark component, replacing text-based branding.
+- [`027a15c`](https://github.com/fiztoz/uptime-phoenix/commit/027a15c) `avatar_url` support on the Discord webhook notifier.
+- [`dcf2707`](https://github.com/fiztoz/uptime-phoenix/commit/dcf2707) Status pages: configurable dashboard style (full vs. pills — grid followed later).
+- [`9050ceb`](https://github.com/fiztoz/uptime-phoenix/commit/9050ceb) Open Graph meta tags for Discord link previews.
+- [`297d4a6`](https://github.com/fiztoz/uptime-phoenix/commit/297d4a6) Folder (monitor-group) alerting on the group's own rollup status; the RBAC grant UI actually rendered for the first time (functions existed but no markup called them); a real confirmation modal replacing `window.confirm()`.
+- [`d4ae125`](https://github.com/fiztoz/uptime-phoenix/commit/d4ae125) Premium dark design system overhaul.
+- [`95d7fbc`](https://github.com/fiztoz/uptime-phoenix/commit/95d7fbc) RBAC admin grant UI (backend), capability gating, atomic status-page monitor reorder.
+- [`4b4fc94`](https://github.com/fiztoz/uptime-phoenix/commit/4b4fc94) RBAC: scoped monitor/group visibility, capability flags, dashboard filters, monitor tags embedded in the wire payload.
+- [`db4b090`](https://github.com/fiztoz/uptime-phoenix/commit/db4b090)/[`8f6c0a7`](https://github.com/fiztoz/uptime-phoenix/commit/8f6c0a7) Monitor groups: introduced as single-level parent/child nesting, then replaced with first-class monitor-group entities (folders) the next day.
+- [`f94c78e`](https://github.com/fiztoz/uptime-phoenix/commit/f94c78e) Backup: full config export/import with ID remapping.
+- [`0d65d77`](https://github.com/fiztoz/uptime-phoenix/commit/0d65d77) Outbound proxy support (HTTP/HTTPS/SOCKS5), assignable per monitor.
+- [`61e649b`](https://github.com/fiztoz/uptime-phoenix/commit/61e649b) Response-time chart data on the public status page.
+- [`ffa4a2b`](https://github.com/fiztoz/uptime-phoenix/commit/ffa4a2b) Embeddable SVG status badges.
+- [`13b75fa`](https://github.com/fiztoz/uptime-phoenix/commit/13b75fa) Status pages: password gate, custom CSS, tags, and a public chart (this commit also fixed the `PasswordHash` leak on the public endpoint — see Fixed).
+- [`9c5473b`](https://github.com/fiztoz/uptime-phoenix/commit/9c5473b) Auth: disable open self-registration after the first user; admin-driven user management with RBAC.
+- [`697f178`](https://github.com/fiztoz/uptime-phoenix/commit/697f178) Monitor ownership enforcement, chart API, detail-page state refinements.
+- [`68cbfaa`](https://github.com/fiztoz/uptime-phoenix/commit/68cbfaa) Uptime-Kuma-style monitor detail observability, plus related auth fixes.
+- [`2119fd7`](https://github.com/fiztoz/uptime-phoenix/commit/2119fd7) Monitor statistics API and UI components.
+- [`8ab3041`](https://github.com/fiztoz/uptime-phoenix/commit/8ab3041) API key management and user authentication enhancements.
+- [`b65c6bb`](https://github.com/fiztoz/uptime-phoenix/commit/b65c6bb) Endpoint to list notifications for a specific monitor.
+- [`a03b706`](https://github.com/fiztoz/uptime-phoenix/commit/a03b706) Public push-monitor ingest endpoint with HMAC verification.
 
 ### Fixed
 
-- [`8ac7011`](https://github.com/Fiztoz/phoenix/commit/8ac7011) Persist WebAuthn authenticator flags correctly; unwrap public-key options that were double-wrapped.
-- [`083d7b9`](https://github.com/Fiztoz/phoenix/commit/083d7b9) Close out status-page dashboard code-review findings.
-- [`fcfef6f`](https://github.com/Fiztoz/phoenix/commit/fcfef6f) Normalize status-page dashboard styles server-side and return verified public access correctly.
-- [`294eda5`](https://github.com/Fiztoz/phoenix/commit/294eda5) Use the WebSocket monitor status as a fallback for status display when the initial fetch lags.
-- [`8da6781`](https://github.com/Fiztoz/phoenix/commit/8da6781) Soften the light-mode color palette for eye comfort.
-- [`954fa36`](https://github.com/Fiztoz/phoenix/commit/954fa36) `HeartbeatRepo.ListByMonitor` returned the wrong slice when ordered ascending — now returns the most recent beats correctly.
-- [`ba083d6`](https://github.com/Fiztoz/phoenix/commit/ba083d6) Mascot mark switched to a cropped vector; fixed login-page logo centering.
-- [`c471b45`](https://github.com/Fiztoz/phoenix/commit/c471b45) Status pages: return `409` on a duplicate slug instead of a raw `500`.
-- [`2f2d551`](https://github.com/Fiztoz/phoenix/commit/2f2d551) Closed a batch of silent-failure bugs: incident resolve, missing defaults, retention loop, API-key expiry.
-- [`60d30b9`](https://github.com/Fiztoz/phoenix/commit/60d30b9) Real uptime data on status pages, first-class maintenance status, and UTC normalization at the repository boundary (see AGENTS.md rule 6).
-- [`2a1f41e`](https://github.com/Fiztoz/phoenix/commit/2a1f41e) Made maintenance-window alert suppression actually suppress alerts (it previously did nothing); unblanked the response-time chart.
-- [`718b7de`](https://github.com/Fiztoz/phoenix/commit/718b7de) Return a snake_case `TagView` instead of the raw `domain.Tag` (wire-shape discipline).
-- [`cd41470`](https://github.com/Fiztoz/phoenix/commit/cd41470) Maintenance windows: scope to the authenticated user, enforce ownership, fix the wire shape.
-- [`aab1375`](https://github.com/Fiztoz/phoenix/commit/aab1375) Fixed MariaDB zero-timestamp insert failures (`ERROR 1292`) and backfilled the admin flag on upgrade.
-- [`4873d26`](https://github.com/Fiztoz/phoenix/commit/4873d26) Closed a cross-tenant authorization bypass in the monitor-ownership check.
-- [`81d0873`](https://github.com/Fiztoz/phoenix/commit/81d0873) API-key middleware now reads the context user ID via the `ContextUserIDKey` constant instead of a stray `"user_id"` literal.
-- [`68cd43e`](https://github.com/Fiztoz/phoenix/commit/68cd43e) Persist the monitor interval display correctly; bound the response-time chart range.
-- [`06dc133`](https://github.com/Fiztoz/phoenix/commit/06dc133) Corrected the join condition in `GetByMonitorID` for both MariaDB and SQLite.
+- [`8ac7011`](https://github.com/fiztoz/uptime-phoenix/commit/8ac7011) Persist WebAuthn authenticator flags correctly; unwrap public-key options that were double-wrapped.
+- [`083d7b9`](https://github.com/fiztoz/uptime-phoenix/commit/083d7b9) Close out status-page dashboard code-review findings.
+- [`fcfef6f`](https://github.com/fiztoz/uptime-phoenix/commit/fcfef6f) Normalize status-page dashboard styles server-side and return verified public access correctly.
+- [`294eda5`](https://github.com/fiztoz/uptime-phoenix/commit/294eda5) Use the WebSocket monitor status as a fallback for status display when the initial fetch lags.
+- [`8da6781`](https://github.com/fiztoz/uptime-phoenix/commit/8da6781) Soften the light-mode color palette for eye comfort.
+- [`954fa36`](https://github.com/fiztoz/uptime-phoenix/commit/954fa36) `HeartbeatRepo.ListByMonitor` returned the wrong slice when ordered ascending — now returns the most recent beats correctly.
+- [`ba083d6`](https://github.com/fiztoz/uptime-phoenix/commit/ba083d6) Mascot mark switched to a cropped vector; fixed login-page logo centering.
+- [`c471b45`](https://github.com/fiztoz/uptime-phoenix/commit/c471b45) Status pages: return `409` on a duplicate slug instead of a raw `500`.
+- [`2f2d551`](https://github.com/fiztoz/uptime-phoenix/commit/2f2d551) Closed a batch of silent-failure bugs: incident resolve, missing defaults, retention loop, API-key expiry.
+- [`60d30b9`](https://github.com/fiztoz/uptime-phoenix/commit/60d30b9) Real uptime data on status pages, first-class maintenance status, and UTC normalization at the repository boundary (see AGENTS.md rule 6).
+- [`2a1f41e`](https://github.com/fiztoz/uptime-phoenix/commit/2a1f41e) Made maintenance-window alert suppression actually suppress alerts (it previously did nothing); unblanked the response-time chart.
+- [`718b7de`](https://github.com/fiztoz/uptime-phoenix/commit/718b7de) Return a snake_case `TagView` instead of the raw `domain.Tag` (wire-shape discipline).
+- [`cd41470`](https://github.com/fiztoz/uptime-phoenix/commit/cd41470) Maintenance windows: scope to the authenticated user, enforce ownership, fix the wire shape.
+- [`aab1375`](https://github.com/fiztoz/uptime-phoenix/commit/aab1375) Fixed MariaDB zero-timestamp insert failures (`ERROR 1292`) and backfilled the admin flag on upgrade.
+- [`4873d26`](https://github.com/fiztoz/uptime-phoenix/commit/4873d26) Closed a cross-tenant authorization bypass in the monitor-ownership check.
+- [`81d0873`](https://github.com/fiztoz/uptime-phoenix/commit/81d0873) API-key middleware now reads the context user ID via the `ContextUserIDKey` constant instead of a stray `"user_id"` literal.
+- [`68cd43e`](https://github.com/fiztoz/uptime-phoenix/commit/68cd43e) Persist the monitor interval display correctly; bound the response-time chart range.
+- [`06dc133`](https://github.com/fiztoz/uptime-phoenix/commit/06dc133) Corrected the join condition in `GetByMonitorID` for both MariaDB and SQLite.
 
 ### Changed
 
-- [`692f928`](https://github.com/Fiztoz/phoenix/commit/692f928) `Makefile`: add a `gate`/`gate-fast` target and stamp the build with a version ldflag.
-- [`955f750`](https://github.com/Fiztoz/phoenix/commit/955f750) gofmt drift cleanup in `internal/core` (`user.go`).
-- [`fa612df`](https://github.com/Fiztoz/phoenix/commit/fa612df) Badges: switch to `viewBox` for scalable, crisp SVG rendering.
-- [`26b3b26`](https://github.com/Fiztoz/phoenix/commit/26b3b26) Centralize monitor target extraction behind a single `Target()` method (domain/ws/notifier).
-- [`7a4e077`](https://github.com/Fiztoz/phoenix/commit/7a4e077) gofmt drift cleanup across Go files; frontend type-tooling fixes.
-- [`90e8390`](https://github.com/Fiztoz/phoenix/commit/90e8390) Fixed the dead "accepted status codes" UI path, exposed monitor advanced fields, unified heartbeat types.
+- [`692f928`](https://github.com/fiztoz/uptime-phoenix/commit/692f928) `Makefile`: add a `gate`/`gate-fast` target and stamp the build with a version ldflag.
+- [`955f750`](https://github.com/fiztoz/uptime-phoenix/commit/955f750) gofmt drift cleanup in `internal/core` (`user.go`).
+- [`fa612df`](https://github.com/fiztoz/uptime-phoenix/commit/fa612df) Badges: switch to `viewBox` for scalable, crisp SVG rendering.
+- [`26b3b26`](https://github.com/fiztoz/uptime-phoenix/commit/26b3b26) Centralize monitor target extraction behind a single `Target()` method (domain/ws/notifier).
+- [`7a4e077`](https://github.com/fiztoz/uptime-phoenix/commit/7a4e077) gofmt drift cleanup across Go files; frontend type-tooling fixes.
+- [`90e8390`](https://github.com/fiztoz/uptime-phoenix/commit/90e8390) Fixed the dead "accepted status codes" UI path, exposed monitor advanced fields, unified heartbeat types.
 
 ### CI
 
-- [`6568651`](https://github.com/Fiztoz/phoenix/commit/6568651) Restored the GitHub Actions pipeline (`.github/workflows/ci.yml`): backend build/vet/gofmt/race-test + golangci-lint, a MariaDB-11 job that boots the binary, asserts every migration applies, and runs all three smoke suites against a freshly recreated database each, a Bun frontend job, and Docker image builds — closing the gap `c8c74be` opened.
-- [`c8c74be`](https://github.com/Fiztoz/phoenix/commit/c8c74be) CI workflows removed entirely. The gate and MariaDB smoke suites kept working locally but ran only when someone remembered — the exact gap `6568651` closes.
+- [`6568651`](https://github.com/fiztoz/uptime-phoenix/commit/6568651) Restored the GitHub Actions pipeline (`.github/workflows/ci.yml`): backend build/vet/gofmt/race-test + golangci-lint, a MariaDB-11 job that boots the binary, asserts every migration applies, and runs all three smoke suites against a freshly recreated database each, a Bun frontend job, and Docker image builds — closing the gap `c8c74be` opened.
+- [`c8c74be`](https://github.com/fiztoz/uptime-phoenix/commit/c8c74be) CI workflows removed entirely. The gate and MariaDB smoke suites kept working locally but ran only when someone remembered — the exact gap `6568651` closes.
 
 ### Docs
 
-- [`cb0ac05`](https://github.com/Fiztoz/phoenix/commit/cb0ac05) Add the root `README.md` (the repo had none).
-- [`4275196`](https://github.com/Fiztoz/phoenix/commit/4275196) `docs/PROJECT-REVIEW-AND-ROADMAP.md`: full project review, refinement plan ("Wave R"), and forward roadmap ("Wave F").
-- [`75e7560`](https://github.com/Fiztoz/phoenix/commit/75e7560) Handoff doc: confirmed remaining bugs, a verification recipe, hard-won rules.
-- [`04beb8d`](https://github.com/Fiztoz/phoenix/commit/04beb8d) Handoff doc for the next agent: backup/export-import notes + hard-won rules.
-- [`63cc05a`](https://github.com/Fiztoz/phoenix/commit/63cc05a) Uptime Kuma parity audit; agent guidelines for auth, wire-shape discipline, and parallel work (the seed of `AGENTS.md`).
+- [`cb0ac05`](https://github.com/fiztoz/uptime-phoenix/commit/cb0ac05) Add the root `README.md` (the repo had none).
+- [`4275196`](https://github.com/fiztoz/uptime-phoenix/commit/4275196) `docs/PROJECT-REVIEW-AND-ROADMAP.md`: full project review, refinement plan ("Wave R"), and forward roadmap ("Wave F").
+- [`75e7560`](https://github.com/fiztoz/uptime-phoenix/commit/75e7560) Handoff doc: confirmed remaining bugs, a verification recipe, hard-won rules.
+- [`04beb8d`](https://github.com/fiztoz/uptime-phoenix/commit/04beb8d) Handoff doc for the next agent: backup/export-import notes + hard-won rules.
+- [`63cc05a`](https://github.com/fiztoz/uptime-phoenix/commit/63cc05a) Uptime Kuma parity audit; agent guidelines for auth, wire-shape discipline, and parallel work (the seed of `AGENTS.md`).
 
 ### Earlier foundation (2026-06-23 – 2026-06-30)
 
@@ -133,9 +133,9 @@ The first ~8 days, before the project settled into one-commit-per-fix convention
 discipline. Commit messages here are broader and less atomic than the rest of this file, so
 they are summarized rather than itemized:
 
-- **Initial scaffold and bootstrap** — [`f567b47`](https://github.com/Fiztoz/phoenix/commit/f567b47) `init`, [`bfb2080`](https://github.com/Fiztoz/phoenix/commit/bfb2080) bootstrap-user functionality.
-- **Phase 3** — [`7a453d6`](https://github.com/Fiztoz/phoenix/commit/7a453d6) API/worker split, observability, hardening.
-- **Phase 4, Sprints 9-10** — public status API + custom domains ([`1dc4824`](https://github.com/Fiztoz/phoenix/commit/1dc4824)), notification settings CRUD + test-send ([`d5448cb`](https://github.com/Fiztoz/phoenix/commit/d5448cb)), rollup/uptime `AggregateService` ([`270c5c4`](https://github.com/Fiztoz/phoenix/commit/270c5c4)), i18n + sparklines + favicon badge + heartbeat API ([`122d9a9`](https://github.com/Fiztoz/phoenix/commit/122d9a9)), LayerCake charts ([`74e6efd`](https://github.com/Fiztoz/phoenix/commit/74e6efd)), responsiveness pass ([`0309082`](https://github.com/Fiztoz/phoenix/commit/0309082)), general functionality/perf work ([`8e9a772`](https://github.com/Fiztoz/phoenix/commit/8e9a772)), a switch to Bun for the dev/testing toolchain ([`5aa5d83`](https://github.com/Fiztoz/phoenix/commit/5aa5d83)).
-- **Phase 4, Sprints 10-12** — mobile UX, rollups, sharded scheduling, notifiers ([`20cde92`](https://github.com/Fiztoz/phoenix/commit/20cde92)); the split deployment stack and its docs ([`b07df67`](https://github.com/Fiztoz/phoenix/commit/b07df67)); the first premium dark console UI pass and split web tier ([`e410030`](https://github.com/Fiztoz/phoenix/commit/e410030), [`5fdc69f`](https://github.com/Fiztoz/phoenix/commit/5fdc69f)); a local Colima k8s redeploy script ([`63e3cbf`](https://github.com/Fiztoz/phoenix/commit/63e3cbf)).
-- **Auth, deploy, notifications groundwork** — WebAuthn passkeys, Cloudflare Tunnel, Grafana provisioning ([`3dd3f1c`](https://github.com/Fiztoz/phoenix/commit/3dd3f1c)); split dev setup enhancements ([`973d0aa`](https://github.com/Fiztoz/phoenix/commit/973d0aa)); test-notification endpoint ([`17d49ca`](https://github.com/Fiztoz/phoenix/commit/17d49ca)); trimmed the notifier list down to the 11 supported providers ([`2a9057b`](https://github.com/Fiztoz/phoenix/commit/2a9057b)); automatic alert dispatch wired to status transitions ([`d39bc67`](https://github.com/Fiztoz/phoenix/commit/d39bc67)); linter-warning cleanup and typed context keys ([`4e11821`](https://github.com/Fiztoz/phoenix/commit/4e11821), [`ca70b79`](https://github.com/Fiztoz/phoenix/commit/ca70b79)).
-- Also in this window: roadmap/testing docs tracking Phase 4 sprint status ([`8677075`](https://github.com/Fiztoz/phoenix/commit/8677075), [`899424e`](https://github.com/Fiztoz/phoenix/commit/899424e), [`1af4ffe`](https://github.com/Fiztoz/phoenix/commit/1af4ffe), [`8324401`](https://github.com/Fiztoz/phoenix/commit/8324401)).
+- **Initial scaffold and bootstrap** — [`f567b47`](https://github.com/fiztoz/uptime-phoenix/commit/f567b47) `init`, [`bfb2080`](https://github.com/fiztoz/uptime-phoenix/commit/bfb2080) bootstrap-user functionality.
+- **Phase 3** — [`7a453d6`](https://github.com/fiztoz/uptime-phoenix/commit/7a453d6) API/worker split, observability, hardening.
+- **Phase 4, Sprints 9-10** — public status API + custom domains ([`1dc4824`](https://github.com/fiztoz/uptime-phoenix/commit/1dc4824)), notification settings CRUD + test-send ([`d5448cb`](https://github.com/fiztoz/uptime-phoenix/commit/d5448cb)), rollup/uptime `AggregateService` ([`270c5c4`](https://github.com/fiztoz/uptime-phoenix/commit/270c5c4)), i18n + sparklines + favicon badge + heartbeat API ([`122d9a9`](https://github.com/fiztoz/uptime-phoenix/commit/122d9a9)), LayerCake charts ([`74e6efd`](https://github.com/fiztoz/uptime-phoenix/commit/74e6efd)), responsiveness pass ([`0309082`](https://github.com/fiztoz/uptime-phoenix/commit/0309082)), general functionality/perf work ([`8e9a772`](https://github.com/fiztoz/uptime-phoenix/commit/8e9a772)), a switch to Bun for the dev/testing toolchain ([`5aa5d83`](https://github.com/fiztoz/uptime-phoenix/commit/5aa5d83)).
+- **Phase 4, Sprints 10-12** — mobile UX, rollups, sharded scheduling, notifiers ([`20cde92`](https://github.com/fiztoz/uptime-phoenix/commit/20cde92)); the split deployment stack and its docs ([`b07df67`](https://github.com/fiztoz/uptime-phoenix/commit/b07df67)); the first premium dark console UI pass and split web tier ([`e410030`](https://github.com/fiztoz/uptime-phoenix/commit/e410030), [`5fdc69f`](https://github.com/fiztoz/uptime-phoenix/commit/5fdc69f)); a local Colima k8s redeploy script ([`63e3cbf`](https://github.com/fiztoz/uptime-phoenix/commit/63e3cbf)).
+- **Auth, deploy, notifications groundwork** — WebAuthn passkeys, Cloudflare Tunnel, Grafana provisioning ([`3dd3f1c`](https://github.com/fiztoz/uptime-phoenix/commit/3dd3f1c)); split dev setup enhancements ([`973d0aa`](https://github.com/fiztoz/uptime-phoenix/commit/973d0aa)); test-notification endpoint ([`17d49ca`](https://github.com/fiztoz/uptime-phoenix/commit/17d49ca)); trimmed the notifier list down to the 11 supported providers ([`2a9057b`](https://github.com/fiztoz/uptime-phoenix/commit/2a9057b)); automatic alert dispatch wired to status transitions ([`d39bc67`](https://github.com/fiztoz/uptime-phoenix/commit/d39bc67)); linter-warning cleanup and typed context keys ([`4e11821`](https://github.com/fiztoz/uptime-phoenix/commit/4e11821), [`ca70b79`](https://github.com/fiztoz/uptime-phoenix/commit/ca70b79)).
+- Also in this window: roadmap/testing docs tracking Phase 4 sprint status ([`8677075`](https://github.com/fiztoz/uptime-phoenix/commit/8677075), [`899424e`](https://github.com/fiztoz/uptime-phoenix/commit/899424e), [`1af4ffe`](https://github.com/fiztoz/uptime-phoenix/commit/1af4ffe), [`8324401`](https://github.com/fiztoz/uptime-phoenix/commit/8324401)).

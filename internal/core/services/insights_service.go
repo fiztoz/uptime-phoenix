@@ -249,7 +249,7 @@ func (s *InsightsService) GetInsights(ctx context.Context, q InsightsQuery) (*In
 
 	rows := make([]InsightsRow, 0, len(monitors))
 	for _, m := range monitors {
-		row, err := s.computeRow(
+		rows = append(rows, s.computeRow(
 			m,
 			from,
 			to,
@@ -257,11 +257,7 @@ func (s *InsightsService) GetInsights(ctx context.Context, q InsightsQuery) (*In
 			leadingByMonitor[m.ID],
 			latencyByMonitor[m.ID],
 			dailyLatencyByMonitor[m.ID],
-		)
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, row)
+		))
 	}
 
 	sortRows(rows, metric)
@@ -276,7 +272,7 @@ func (s *InsightsService) computeRow(
 	lead *domain.Heartbeat,
 	hourly []*ports.Aggregate1h,
 	daily []*ports.Aggregate1d,
-) (InsightsRow, error) {
+) InsightsRow {
 	observedSeconds := observationSecondsFromRollups(hourly, daily, from, to, m.Interval)
 	observationCount := observationCountFromRollups(hourly, daily, from, to)
 	in := ReliabilityInput{
@@ -308,7 +304,7 @@ func (s *InsightsService) computeRow(
 		LatencySampleN:      sampleN,
 		CoveragePercent:     metrics.CoveragePercent,
 		Qualification:       metrics.Qualification,
-	}, nil
+	}
 }
 
 // observationSecondsFromRollups estimates trustworthy observation coverage from

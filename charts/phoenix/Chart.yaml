@@ -12,9 +12,9 @@ keywords:
   - uptime
   - health-check
   - kubernetes
-home: https://github.com/Fiztoz/phoenix
+home: https://github.com/fiztoz/uptime-phoenix
 sources:
-  - https://github.com/Fiztoz/phoenix
+  - https://github.com/fiztoz/uptime-phoenix
 maintainers:
   - name: Phoenix Team
     email: team@phoenix.dev

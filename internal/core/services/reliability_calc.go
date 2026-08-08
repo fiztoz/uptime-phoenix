@@ -101,7 +101,7 @@ type ReliabilityMetrics struct {
 }
 
 // segment is an internal [start,end) slice of the window with one effective
-// status. observed=false marks a synthesised unknown gap segment.
+// status. observed=false marks a synthesized unknown gap segment.
 type segment struct {
 	start    time.Time
 	end      time.Time
@@ -148,7 +148,7 @@ func ComputeReliability(in ReliabilityInput) ReliabilityMetrics {
 			m.MaintSeconds += seg.end.Sub(seg.start).Seconds()
 			i++
 		case !seg.observed:
-			// Synthesised unknown gap.
+			// Synthesized unknown gap.
 			m.UnknownSeconds += seg.end.Sub(seg.start).Seconds()
 			i++
 		default:
@@ -190,7 +190,7 @@ func ComputeReliability(in ReliabilityInput) ReliabilityMetrics {
 			} else {
 				// Transient PENDING that never confirmed: not UP, not a confirmed
 				// outage. Treat as unknown so it neither credits availability nor
-				// penalises the monitor for a blip that recovered.
+				// penalizes the monitor for a blip that recovered.
 				m.UnknownSeconds += dur
 			}
 			i = j
@@ -239,7 +239,7 @@ func ComputeReliability(in ReliabilityInput) ReliabilityMetrics {
 // buildSegments turns Leading + ordered transitions into a contiguous [from,to)
 // segment list. The status of each transition holds until the next transition
 // (or To). The leading segment [from, firstTransition) uses Leading, or is a
-// synthesised unknown gap when Leading is nil.
+// synthesized unknown gap when Leading is nil.
 func buildSegments(from, to time.Time, leading *domain.Status, transitions []*domain.Heartbeat) []segment {
 	// Defensive copy + clamp + sort; callers should pass ascending in-range rows
 	// but we do not trust that.

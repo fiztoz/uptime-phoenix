@@ -67,7 +67,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOMAXPROCS=2 \
 FROM gcr.io/distroless/static-debian12:nonroot AS api
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Phoenix API" \
-      org.opencontainers.image.source="https://github.com/Fiztoz/phoenix" \
+      org.opencontainers.image.source="https://github.com/fiztoz/uptime-phoenix" \
       org.opencontainers.image.version="${VERSION}"
 COPY --from=go-builder /phoenix-api /phoenix-api
 EXPOSE 3000
@@ -79,7 +79,7 @@ ENTRYPOINT ["/phoenix-api"]
 FROM gcr.io/distroless/static-debian12:nonroot AS worker
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Phoenix Worker" \
-      org.opencontainers.image.source="https://github.com/Fiztoz/phoenix" \
+      org.opencontainers.image.source="https://github.com/fiztoz/uptime-phoenix" \
       org.opencontainers.image.version="${VERSION}"
 COPY --from=go-builder /phoenix-worker /phoenix-worker
 USER 65532
@@ -90,7 +90,7 @@ ENTRYPOINT ["/phoenix-worker"]
 FROM nginx:1.27-alpine AS web
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Phoenix Web" \
-      org.opencontainers.image.source="https://github.com/Fiztoz/phoenix" \
+      org.opencontainers.image.source="https://github.com/fiztoz/uptime-phoenix" \
       org.opencontainers.image.version="${VERSION}"
 COPY --from=web-builder /app/web/dist /usr/share/nginx/html
 COPY deploy/split/nginx.conf /etc/nginx/conf.d/default.conf

@@ -16,7 +16,7 @@ Thank you for contributing to Phoenix! This guide applies to **both human contri
 
 ```bash
 # Clone and enter
-git clone <repo-url> && cd phoenix
+git clone https://github.com/fiztoz/uptime-phoenix.git && cd uptime-phoenix
 
 # Local development (requires Go 1.25+ and Bun 1.0+ — never npm)
 make dev          # all-in-one SQLite + hot reload
