@@ -78,7 +78,7 @@ test("admin acknowledges an alert in the UI and the effect is persisted", async 
 
   await page.goto(`${BASE_URL}/alerts`);
   const row = page
-    .locator("div.px-5.py-4")
+    .getByTestId("alert-row")
     .filter({ hasText: monitorName })
     .first();
   await expect(row).toBeVisible({ timeout: 30_000 });
@@ -95,6 +95,75 @@ test("admin acknowledges an alert in the UI and the effect is persisted", async 
   expect(persisted.status).toBe("acked");
   expect(persisted.acked_by_user_id).toBeGreaterThan(0);
   expect(persisted).not.toHaveProperty("ack_token");
+});
+
+test("admin acknowledges multiple selected alerts in one bulk action", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await loginViaUI(page);
+  const token = await authToken(page);
+  const firstName = uniqueName("Bulk ack target A");
+  const secondName = uniqueName("Bulk ack target B");
+  const firstMonitorID = await createFailingMonitor(page, token, firstName);
+  const secondMonitorID = await createFailingMonitor(page, token, secondName);
+  const [firstAlert, secondAlert] = await Promise.all([
+    waitForOpenAlert(page, token, firstMonitorID),
+    waitForOpenAlert(page, token, secondMonitorID),
+  ]);
+
+  await page.goto(`${BASE_URL}/alerts`);
+  const firstRow = page
+    .getByTestId("alert-row")
+    .filter({ hasText: firstName })
+    .first();
+  const secondRow = page
+    .getByTestId("alert-row")
+    .filter({ hasText: secondName })
+    .first();
+  await expect(firstRow).toBeVisible({ timeout: 30_000 });
+  await expect(secondRow).toBeVisible({ timeout: 30_000 });
+
+  await firstRow
+    .getByRole("checkbox", { name: `Select alert for ${firstName}` })
+    .check();
+  await secondRow
+    .getByRole("checkbox", { name: `Select alert for ${secondName}` })
+    .check();
+  await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
+
+  const firstAckResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith(`/api/alerts/${firstAlert.id}/ack`),
+  );
+  const secondAckResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith(`/api/alerts/${secondAlert.id}/ack`),
+  );
+  await page.getByRole("button", { name: "Acknowledge selected" }).click();
+  const responses = await Promise.all([firstAckResponse, secondAckResponse]);
+  expect(responses.every((response) => response.ok())).toBeTruthy();
+
+  await expect(
+    firstRow.getByText("Acknowledged", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    secondRow.getByText("Acknowledged", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("2 alerts acknowledged", { exact: true }),
+  ).toBeVisible();
+
+  const [persistedFirst, persistedSecond] = await Promise.all([
+    waitForOpenAlert(page, token, firstMonitorID),
+    waitForOpenAlert(page, token, secondMonitorID),
+  ]);
+  expect(persistedFirst.status).toBe("acked");
+  expect(persistedSecond.status).toBe("acked");
+  expect(persistedFirst.acked_by_user_id).toBeGreaterThan(0);
+  expect(persistedSecond.acked_by_user_id).toBeGreaterThan(0);
 });
 
 test("anonymous deep link acknowledges the exact alert from a real notification", async ({
