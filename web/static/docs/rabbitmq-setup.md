@@ -123,7 +123,7 @@ rabbitmqctl set_permissions -p "$VHOST" "$USER" "" "" ""
 
 **Permission model (RabbitMQ):**
 
-| Permission                                 | Uptime Phoenix needs it for             |
+| Permission                                 | Uptime Phoenix needs it for      |
 | ------------------------------------------ | -------------------------------- |
 | Login                                      | Always                           |
 | configure / write / read empty             | Connect + open channel only      |
@@ -166,11 +166,11 @@ rabbitmqctl authenticate_user phoenix_monitor 'CHANGE_ME_STRONG_PASSWORD'
 
 ## Kubernetes tips
 
-| Goal                   | Approach                                                                     |
-| ---------------------- | ---------------------------------------------------------------------------- |
-| Broker in-cluster      | Service DNS: `amqp://…@rabbitmq.namespace.svc:5672/%2F`                      |
-| TLS to broker          | `amqps://` and port 5671 (or your TLS listener)                              |
-| Only probe “broker up” | URL only — no queue/exchange                                                 |
+| Goal                   | Approach                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| Broker in-cluster      | Service DNS: `amqp://…@rabbitmq.namespace.svc:5672/%2F`                             |
+| TLS to broker          | `amqps://` and port 5671 (or your TLS listener)                                     |
+| Only probe “broker up” | URL only — no queue/exchange                                                        |
 | Probe a critical queue | Create durable queue; grant configure on that name; set **Queue** in Uptime Phoenix |
 
 Ensure NetworkPolicies allow Uptime Phoenix pods → RabbitMQ AMQP port.
@@ -179,14 +179,14 @@ Ensure NetworkPolicies allow Uptime Phoenix pods → RabbitMQ AMQP port.
 
 ## Common failures
 
-| Symptom                              | Likely cause                                                   |
-| ------------------------------------ | -------------------------------------------------------------- |
-| `connect failed` / timeout           | Wrong host/port, NetworkPolicy, broker down                    |
-| Access refused / ACCESS_REFUSED      | Bad password, user missing, vhost wrong                        |
-| guest login fails from non-localhost | Expected — use `phoenix_monitor`, not `guest`                  |
-| Queue check failed                   | Queue does not exist, or user lacks **configure** on that name |
-| Exchange check failed                | Wrong **exchange type**, missing exchange, or ACL              |
-| Works on laptop, fails in Uptime Phoenix    | Different network path; allow Uptime Phoenix egress                   |
+| Symptom                                  | Likely cause                                                   |
+| ---------------------------------------- | -------------------------------------------------------------- |
+| `connect failed` / timeout               | Wrong host/port, NetworkPolicy, broker down                    |
+| Access refused / ACCESS_REFUSED          | Bad password, user missing, vhost wrong                        |
+| guest login fails from non-localhost     | Expected — use `phoenix_monitor`, not `guest`                  |
+| Queue check failed                       | Queue does not exist, or user lacks **configure** on that name |
+| Exchange check failed                    | Wrong **exchange type**, missing exchange, or ACL              |
+| Works on laptop, fails in Uptime Phoenix | Different network path; allow Uptime Phoenix egress            |
 
 ---
 

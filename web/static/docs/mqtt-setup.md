@@ -107,7 +107,7 @@ Good uses for success message:
 | Goal                        | Approach                                                                                                                      |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Broker in the same cluster  | `mqtt://mosquitto.namespace.svc:1883` (or ClusterIP service DNS)                                                              |
-| Broker only on host network | Run Uptime Phoenix where that network is reachable, or expose the broker via Service / Ingress carefully                             |
+| Broker only on host network | Run Uptime Phoenix where that network is reachable, or expose the broker via Service / Ingress carefully                      |
 | Public WSS via Ingress      | Point `wss://your-domain/mqtt` (or your Ingress path) at the broker’s WebSocket listener; put that full URL in **Broker URL** |
 
 MQTT-over-WebSocket behind Ingress needs **WebSocket upgrade** support (sticky sessions usually not required for a short check).
@@ -116,13 +116,13 @@ MQTT-over-WebSocket behind Ingress needs **WebSocket upgrade** support (sticky s
 
 ## Common failures
 
-| Symptom                           | Likely cause                                                                                 |
-| --------------------------------- | -------------------------------------------------------------------------------------------- |
-| `mqtt connect failed`             | Wrong host/port, firewall, TLS scheme mismatch (`mqtt://` vs `mqtts://`)                     |
-| Connect OK then subscribe timeout | ACL denies subscribe, or broker slow; increase timeout                                       |
-| Message wait timeout              | No publisher on that topic, wrong topic filter, or success string does not appear in payload |
-| Works in CLI, fails in Uptime Phoenix    | Uptime Phoenix runs elsewhere (different network namespace); test from the Uptime Phoenix pod/host         |
-| WSS fails, TCP works              | Missing path (`/mqtt`), wrong WSS port, or TLS cert name mismatch                            |
+| Symptom                               | Likely cause                                                                                       |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `mqtt connect failed`                 | Wrong host/port, firewall, TLS scheme mismatch (`mqtt://` vs `mqtts://`)                           |
+| Connect OK then subscribe timeout     | ACL denies subscribe, or broker slow; increase timeout                                             |
+| Message wait timeout                  | No publisher on that topic, wrong topic filter, or success string does not appear in payload       |
+| Works in CLI, fails in Uptime Phoenix | Uptime Phoenix runs elsewhere (different network namespace); test from the Uptime Phoenix pod/host |
+| WSS fails, TCP works                  | Missing path (`/mqtt`), wrong WSS port, or TLS cert name mismatch                                  |
 
 ---
 

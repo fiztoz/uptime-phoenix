@@ -4,9 +4,9 @@ Uptime Phoenix’s **Database** monitor checks that a database is **reachable an
 
 It does **not** run free-form SQL you type in the UI. That avoids injection and accidental writes. Instead you choose a **health check preset**:
 
-| Preset                                          | What runs                                                                                                   |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| **Connect + protocol ping only** (`ping`)       | Driver/protocol ping after connect                                                                          |
+| Preset                                          | What runs                                                                                                          |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Connect + protocol ping only** (`ping`)       | Driver/protocol ping after connect                                                                                 |
 | **Also run fixed SELECT 1 / PING** (`select_1`) | Same connect, then a **fixed** statement Uptime Phoenix chooses (`SELECT 1` for SQL; `PING` for Redis; Mongo ping) |
 
 Supported engines: **PostgreSQL**, **MySQL**, **MariaDB**, **SQL Server (MSSQL)**, **MongoDB**, **Redis**.
@@ -165,21 +165,21 @@ Then paste the resulting DSN into Uptime Phoenix with **Engine** set correctly a
 
 ## Common failures
 
-| Symptom                             | Likely cause                                                                     |
-| ----------------------------------- | -------------------------------------------------------------------------------- |
-| Dial / timeout                      | Firewall, wrong host/port, Uptime Phoenix in another network namespace                  |
-| Auth failed                         | Wrong password, user host restriction (MySQL `'user'@'%'`), `authSource` (Mongo) |
-| TLS / certificate errors            | Missing `sslmode` / `tls` / `encrypt`, or untrusted CA                           |
-| SELECT 1 fails but ping works       | User lacks CONNECT or basic SELECT on the target DB (rare with scripts above)    |
-| Works from laptop, fails in Uptime Phoenix | Different egress IP / security group; allow Uptime Phoenix’s source                     |
+| Symptom                                    | Likely cause                                                                     |
+| ------------------------------------------ | -------------------------------------------------------------------------------- |
+| Dial / timeout                             | Firewall, wrong host/port, Uptime Phoenix in another network namespace           |
+| Auth failed                                | Wrong password, user host restriction (MySQL `'user'@'%'`), `authSource` (Mongo) |
+| TLS / certificate errors                   | Missing `sslmode` / `tls` / `encrypt`, or untrusted CA                           |
+| SELECT 1 fails but ping works              | User lacks CONNECT or basic SELECT on the target DB (rare with scripts above)    |
+| Works from laptop, fails in Uptime Phoenix | Different egress IP / security group; allow Uptime Phoenix’s source              |
 
 ---
 
 ## Related monitors
 
-| Need                                                 | Prefer                                                                        |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Only “port open”                                     | **TCP**                                                                       |
-| App HTTP health that already hits the DB             | **HTTP(s)**                                                                   |
+| Need                                                        | Prefer                                                                        |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Only “port open”                                            | **TCP**                                                                       |
+| App HTTP health that already hits the DB                    | **HTTP(s)**                                                                   |
 | App-owned liveness without DB credentials in Uptime Phoenix | **Push**                                                                      |
-| Redis as a cache broker vs DB                        | Still use **Database** + engine Redis, or TCP if you only care about the port |
+| Redis as a cache broker vs DB                               | Still use **Database** + engine Redis, or TCP if you only care about the port |

@@ -4,8 +4,8 @@ Uptime Phoenix’s **Docker Container** monitor talks to a **Docker Engine API**
 
 You can point it at:
 
-| Mode         | `docker_daemon` example              | Typical use                                              |
-| ------------ | ------------------------------------ | -------------------------------------------------------- |
+| Mode         | `docker_daemon` example              | Typical use                                                     |
+| ------------ | ------------------------------------ | --------------------------------------------------------------- |
 | Local socket | `unix:///var/run/docker.sock`        | Uptime Phoenix runs on the same machine as Docker               |
 | Remote TCP   | `tcp://docker-host.example.com:2376` | Uptime Phoenix (e.g. in Kubernetes) checks a remote Docker host |
 
@@ -18,7 +18,7 @@ Config fields in the UI:
 
 Uptime Phoenix and the `docker` CLI are **clients**. They only ever need a client-facing address:
 
-| Put in Uptime Phoenix                | Meaning                                    |
+| Put in Uptime Phoenix         | Meaning                                    |
 | ----------------------------- | ------------------------------------------ |
 | `unix:///var/run/docker.sock` | Local Engine via the Unix socket (default) |
 | `tcp://host:2376`             | Remote Engine over TLS                     |
@@ -32,11 +32,11 @@ On many Linux distros, **dockerd** is started by **systemd socket activation**. 
 "hosts": ["fd://", "tcp://0.0.0.0:2376"]
 ```
 
-| Scheme                        | Who uses it                      | Meaning                                                                                       |
-| ----------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------- |
-| `unix:///var/run/docker.sock` | **Clients** (Uptime Phoenix, CLI)       | Open this path to talk to Docker                                                              |
-| `fd://`                       | **dockerd only** (under systemd) | Inherit the already-opened socket from systemd; that socket is usually `/var/run/docker.sock` |
-| `tcp://0.0.0.0:2376`          | **dockerd**                      | Also listen for remote TLS clients                                                            |
+| Scheme                        | Who uses it                       | Meaning                                                                                       |
+| ----------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `unix:///var/run/docker.sock` | **Clients** (Uptime Phoenix, CLI) | Open this path to talk to Docker                                                              |
+| `fd://`                       | **dockerd only** (under systemd)  | Inherit the already-opened socket from systemd; that socket is usually `/var/run/docker.sock` |
+| `tcp://0.0.0.0:2376`          | **dockerd**                       | Also listen for remote TLS clients                                                            |
 
 So: local clients still use `unix:///var/run/docker.sock` even when the daemon is configured with `fd://`. Re-adding `unix:///var/run/docker.sock` to `hosts` on a systemd-managed install can conflict with socket activation (“address already in use”). Prefer `fd://` on those hosts, or follow your distro’s Docker packaging docs.
 
@@ -179,7 +179,7 @@ Anyone who can reach port 2375 can control the Docker host. Use only on isolated
 | Goal                              | Approach                                                                                    |
 | --------------------------------- | ------------------------------------------------------------------------------------------- |
 | Check an app in the cluster       | HTTP/TCP/gRPC to Service DNS, not Docker                                                    |
-| Check a **remote VM** Docker host | Option B from a Uptime Phoenix pod that can route to that host                                     |
+| Check a **remote VM** Docker host | Option B from a Uptime Phoenix pod that can route to that host                              |
 | Check Docker on the **node**      | Not recommended (socket mount + privileges); use node agents or external Docker API instead |
 
 ---
@@ -189,10 +189,10 @@ Anyone who can reach port 2375 can control the Docker host. Use only on isolated
 | Symptom                                                | Likely cause                                                                                           |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
 | `failed to create Docker client`                       | Bad URL scheme/host, or daemon not listening                                                           |
-| Error mentioning `fd://` in Uptime Phoenix                    | That value is daemon-only — use `unix:///var/run/docker.sock` or `tcp://host:port` in the UI           |
-| Connection timeout                                     | Firewall, wrong port, Uptime Phoenix cannot route to host                                                     |
+| Error mentioning `fd://` in Uptime Phoenix             | That value is daemon-only — use `unix:///var/run/docker.sock` or `tcp://host:port` in the UI           |
+| Connection timeout                                     | Firewall, wrong port, Uptime Phoenix cannot route to host                                              |
 | Container not found                                    | Wrong name/ID, or wrong Docker host                                                                    |
-| Permission denied (socket)                             | Uptime Phoenix user cannot access `/var/run/docker.sock`                                                      |
+| Permission denied (socket)                             | Uptime Phoenix user cannot access `/var/run/docker.sock`                                               |
 | TLS handshake error                                    | Missing/mismatched client certs or wrong port (2375 vs 2376)                                           |
 | dockerd “address already in use” after editing `hosts` | Clash with systemd socket activation — use `fd://` instead of re-binding `unix:///var/run/docker.sock` |
 
