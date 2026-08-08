@@ -11,7 +11,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 NAMESPACE=phoenix
 RELEASE=phoenix
 VALUES="$ROOT/deploy/k8s-local/values-split.yaml"
-CHART="$ROOT/charts/phoenix"
+CHART="$ROOT/charts/uptime-phoenix"
 FAST=false
 
 for arg in "$@"; do

@@ -118,13 +118,13 @@ docker compose -f docker-compose.split.yml up --build
 in-process event bus):
 
 ```bash
-helm install phoenix ./charts/phoenix
+helm install uptime-phoenix ./charts/uptime-phoenix
 ```
 
 **Helm, split mode** (API + worker in one release; requires shared MariaDB + Redis):
 
 ```bash
-helm install phoenix ./charts/phoenix \
+helm install uptime-phoenix ./charts/uptime-phoenix \
   --set mode=split \
   --set database.engine=mariadb \
   --set database.persistence.enabled=false \

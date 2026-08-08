@@ -73,7 +73,7 @@ Do **not** add providers without user approval. Explicitly **not** shipped (back
 
 ### MVP (Phase 1) — met
 
-1. `helm install phoenix ./charts/phoenix` brings up a working monitoring tool with zero external dependencies (default: MariaDB or SQLite on a PVC + embedded static frontend in a single pod)
+1. `helm install uptime-phoenix ./charts/uptime-phoenix` brings up a working monitoring tool with zero external dependencies (default: MariaDB or SQLite on a PVC + embedded static frontend in a single pod)
 2. All 12 monitor types configurable via the UI and producing heartbeats
 3. All 11 notification providers configurable and fire on status change
 4. Real-time dashboard updates via WebSocket

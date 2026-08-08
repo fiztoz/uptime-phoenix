@@ -1,6 +1,6 @@
 # ─── Phoenix Helm values ──────────────────────────────────────────────────────
 # Default: minimal-dependency, single pod, zero external services.
-# `helm install phoenix ./charts/phoenix` just works.
+# `helm install uptime-phoenix ./charts/uptime-phoenix` just works.
 
 # ── Image ─────────────────────────────────────────────────────────────────────
 image:

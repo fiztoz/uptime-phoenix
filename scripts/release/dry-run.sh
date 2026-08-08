@@ -134,7 +134,7 @@ echo "==> Helm chart package"
 # git when run from a dirty tree: work on a copy.
 CHART_SRC="${OUT_DIR}/chart-src"
 rm -rf "$CHART_SRC"
-cp -R charts/phoenix "$CHART_SRC"
+cp -R charts/uptime-phoenix "$CHART_SRC"
 # Portable in-place appVersion stamp.
 python3 - "$CHART_SRC/Chart.yaml" "$VERSION" <<'PY'
 import pathlib, sys, re
@@ -151,7 +151,7 @@ PY
 if command -v helm >/dev/null 2>&1; then
   helm lint "$CHART_SRC"
   helm package "$CHART_SRC" --destination "$CHART_DIR"
-  helm template phoenix "$CHART_SRC" > "${OUT_DIR}/helm-template.yaml"
+  helm template uptime-phoenix "$CHART_SRC" > "${OUT_DIR}/helm-template.yaml"
 else
   echo "    helm not installed; skipped package/lint/template" >&2
 fi

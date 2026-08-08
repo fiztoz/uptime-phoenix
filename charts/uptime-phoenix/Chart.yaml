@@ -1,6 +1,6 @@
-# Phoenix Helm Chart
+# Uptime Phoenix Helm Chart
 apiVersion: v2
-name: phoenix
+name: uptime-phoenix
 description: A self-hosted, K8s-native, minimal-dependency monitoring tool
 type: application
 version: 0.1.0
@@ -16,5 +16,5 @@ home: https://github.com/fiztoz/uptime-phoenix
 sources:
   - https://github.com/fiztoz/uptime-phoenix
 maintainers:
-  - name: Phoenix Team
+  - name: Uptime Phoenix
     email: team@phoenix.dev

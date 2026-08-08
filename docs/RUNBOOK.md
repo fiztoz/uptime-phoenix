@@ -188,7 +188,7 @@ export PHOENIX_IMAGE=ghcr.io/fiztoz/phoenix
 export PHOENIX_TAG=v0.0.0
 docker pull "$PHOENIX_IMAGE:$PHOENIX_TAG"
 
-helm upgrade phoenix ./charts/phoenix \
+helm upgrade uptime-phoenix ./charts/uptime-phoenix \
   --reuse-values \
   --set image.repository="$PHOENIX_IMAGE" \
   --set image.tag="$PHOENIX_TAG" \
@@ -280,7 +280,7 @@ chosen after incident review, but restore-from-backup is the supported rollback.
 The Helm chart enables worker IDs and lease settings with:
 
 ```bash
-helm upgrade phoenix ./charts/phoenix --reuse-values \
+helm upgrade uptime-phoenix ./charts/uptime-phoenix --reuse-values \
   --set mode=split \
   --set database.engine=mariadb \
   --set redis.enabled=true \

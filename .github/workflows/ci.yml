@@ -190,10 +190,10 @@ jobs:
           version: v3.16.4
 
       - name: helm lint
-        run: helm lint charts/phoenix
+        run: helm lint charts/uptime-phoenix
 
       - name: helm template
-        run: helm template phoenix charts/phoenix > /dev/null
+        run: helm template uptime-phoenix charts/uptime-phoenix > /dev/null
 
   docker:
     name: docker

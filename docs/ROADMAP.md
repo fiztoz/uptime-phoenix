@@ -129,8 +129,8 @@ PKCE S256; `phoenix-config` CLI; reverse escalation UI; MariaDB 021 assured.
 - [x] **i18n** — paraglide-js initialized; English + Thai
 - [x] **UI primitives** — shadcn-svelte (Button, Dialog, Card, Input, Table, Badge), lucide-svelte icons, svelte-sonner toasts
 - [x] **Charts** — LayerCake line chart for ping/latency; uptime bar for 24h/30d
-- [x] **First Helm chart** — `charts/phoenix/` with single `phoenix` Deployment (Go binary with embedded frontend), MariaDB on PVC (or SQLite mode), Service, Ingress, Secret, ConfigMap, PDB. Default mode: single pod + MariaDB on PVC. `helm install` with zero external dependencies works out of the box.
-- [x] **`helm install phoenix ./charts/phoenix`** works on a local kind/k3s/colima cluster with zero external dependencies (single pod + MariaDB PVC)
+- [x] **First Helm chart** — `charts/uptime-phoenix/` with single `phoenix` Deployment (Go binary with embedded frontend), MariaDB on PVC (or SQLite mode), Service, Ingress, Secret, ConfigMap, PDB. Default mode: single pod + MariaDB on PVC. `helm install` with zero external dependencies works out of the box.
+- [x] **`helm install uptime-phoenix ./charts/uptime-phoenix`** works on a local kind/k3s/colima cluster with zero external dependencies (single pod + MariaDB PVC)
 
 ### Exit Criteria (Phase 1 = MVP)
 - All 12 monitor types configurable and producing heartbeats

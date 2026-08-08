@@ -69,8 +69,8 @@ cd web && bun run lint
 cd web && bun run test:e2e
 
 # 9. Helm lint + template
-helm lint charts/phoenix
-helm template phoenix charts/phoenix
+helm lint charts/uptime-phoenix
+helm template uptime-phoenix charts/uptime-phoenix
 
 # 10. Whitespace/conflict-marker check
 git diff --check
@@ -335,18 +335,18 @@ docker compose down -v
 cd /path/to/uptime-phoenix
 
 # Lint
-helm lint charts/phoenix
+helm lint charts/uptime-phoenix
 
 # Template (dry-run, single mode)
-helm template phoenix charts/phoenix
+helm template uptime-phoenix charts/uptime-phoenix
 
 # Template (multi-pod mode)
-helm template phoenix charts/phoenix \
+helm template uptime-phoenix charts/uptime-phoenix \
   --set scaling.mode=multi \
   --set redis.enabled=true
 
 # Template (MariaDB mode)
-helm template phoenix charts/phoenix \
+helm template uptime-phoenix charts/uptime-phoenix \
   --set database.engine=mariadb \
   --set mariadb.enabled=true
 ```
@@ -562,8 +562,8 @@ cd web && bun run build                     # Build succeeds
 
 ### If you changed `charts/`:
 ```bash
-helm lint charts/phoenix                    # Chart is valid
-helm template phoenix charts/phoenix        # Templates render
+helm lint charts/uptime-phoenix                    # Chart is valid
+helm template uptime-phoenix charts/uptime-phoenix        # Templates render
 ```
 
 ---
@@ -590,7 +590,7 @@ missing methods to your test double.
 
 ### `helm lint` fails
 **Cause:** Template syntax error or invalid values.
-**Fix:** `helm template phoenix charts/phoenix --debug` for detailed error output.
+**Fix:** `helm template uptime-phoenix charts/uptime-phoenix --debug` for detailed error output.
 
 ### Playwright test times out
 **Cause:** Uptime Phoenix server not running or wrong URL.
@@ -622,7 +622,7 @@ suites, load, manual UI).
 - [ ] `cd web && bun run build` passes (if you touched frontend)
 - [ ] `cd web && bun run lint` passes (if you touched frontend)
 - [ ] `cd web && bun run test:e2e` passes (if you touched a critical user journey)
-- [ ] `helm lint charts/phoenix` and `helm template phoenix charts/phoenix` pass
+- [ ] `helm lint charts/uptime-phoenix` and `helm template uptime-phoenix charts/uptime-phoenix` pass
       (if you touched charts)
 - [ ] No framework imports in `internal/core/` (hexagonal boundary)
 - [ ] No new external dependencies without checking CGO-free

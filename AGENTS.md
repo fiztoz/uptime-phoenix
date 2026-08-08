@@ -278,7 +278,7 @@ When work is fanned out to multiple agents at once:
 | A new Svelte page | `web/src/routes/(admin)/<page>/+page.svelte` (admin) or `web/src/routes/(public)/<page>/+page.svelte` (public) |
 | A new Svelte component | `web/src/lib/components/` |
 | A new runes store | `web/src/lib/stores/<name>.svelte.ts` |
-| A new Helm template | `charts/phoenix/templates/` |
+| A new Helm template | `charts/uptime-phoenix/templates/` |
 | A new Go dependency | Add to `go.mod`, verify CGO-free, update `docs/ARCHITECTURE.md` appendix |
 
 ## Commit Message Format
@@ -311,6 +311,6 @@ Examples:
 7. ✅ No new external dependencies added without checking CGO-free + updating ARCHITECTURE.md
 8. ✅ If you added a monitor type or notification provider: one file + one line in registry.go
 9. ✅ If you touched the database: migration files (up + down) created
-10. ✅ If you touched K8s manifests: `helm lint charts/phoenix` passes
+10. ✅ If you touched K8s manifests: `helm lint charts/uptime-phoenix` passes
 
 Report what you changed, which files, and any decisions you made.

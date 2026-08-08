@@ -145,7 +145,7 @@ When scale demands it, the same binary is reconfigured via Helm values to run as
 - `ConfigMap/phoenix-config`
 
 **What "easy K8s deployment" means here:**
-- `helm install phoenix ./charts/phoenix` brings up a working monitoring tool with **zero external dependencies**
+- `helm install uptime-phoenix ./charts/uptime-phoenix` brings up a working monitoring tool with **zero external dependencies**
 - Default: single pod, MariaDB on PVC, embedded frontend
 - No need to provision Postgres, Redis, or a separate web tier
 - The Docker image is multi-arch and distroless (~25 MB)
@@ -226,7 +226,7 @@ func setupStaticRoutes(e *echo.Echo) {
 
 - Single Go binary contains the frontend
 - No nginx, no separate image
-- `helm install phoenix ./charts/phoenix` → one pod, works immediately
+- `helm install uptime-phoenix ./charts/uptime-phoenix` → one pod, works immediately
 - Final Docker image: ~25 MB (Go binary with embedded assets, distroless base)
 
 ### 4.3 Mode B — Split (opt-in, for scale)
@@ -251,7 +251,7 @@ The Ingress routes `/` to `phoenix-web` (split mode) or to `phoenix` (embedded m
 ### 4.5 HPA (opt-in, Phase 2 only)
 
 ```yaml
-# charts/phoenix/templates/ingress.yaml
+# charts/uptime-phoenix/templates/ingress.yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -406,7 +406,7 @@ The `preStop: sleep 10` in the K8s manifest gives the load balancer time to drai
 | **Docker base** | `gcr.io/distroless/static-debian12:nonroot` | same | same |
 | **Docker size** | ~25 MB (single image, embedded frontend) | ~25 MB (api) + ~5 MB (web, if split) | same |
 | **K8s objects (default)** | 1 Deployment, 1 Service, 1 Ingress, 1 PVC, 1 Secret, 1 ConfigMap, 1 PDB | + Redis StatefulSet (opt-in) + worker Deployment (opt-in) + HPA + web Deployment (opt-in) | + sharded worker logic |
-| **Helm chart** | `charts/phoenix/` — single-pod mode by default | same chart, `--set scaling.mode=multi` | same chart, `--set scaling.mode=sharded` |
+| **Helm chart** | `charts/uptime-phoenix/` — single-pod mode by default | same chart, `--set scaling.mode=multi` | same chart, `--set scaling.mode=sharded` |
 | **Frontend** | SvelteKit (SSG status pages + SPA admin) → embedded in Go binary | same build, served by Go or nginx | same |
 | **Frontend i18n** | `inlang/paraglide-js` | same | same |
 | **Frontend state** | Svelte 5 runes + native WebSocket | same | same |
@@ -416,11 +416,11 @@ The `preStop: sleep 10` in the K8s manifest gives the load balancer time to drai
 
 ## 7. Migration / Day-1 Operations
 
-- **First install:** `helm install phoenix oci://ghcr.io/fiztoz/phoenix --set adminPassword=...` brings up a working monitoring tool with **zero external dependencies** in <2 minutes. Single pod, MariaDB on PVC, embedded frontend.
+- **First install:** `helm install uptime-phoenix oci://ghcr.io/fiztoz/charts/uptime-phoenix --set adminPassword=...` brings up a working monitoring tool with **zero external dependencies** in <2 minutes. Single pod, MariaDB on PVC, embedded frontend.
 - **First admin user:** created via a one-time `Job` that runs `phoenix-admin init` against the DB.
 - **Backup:** CronJob that runs `mariadb-dump` (or copies the SQLite file) to a PVC or S3.
-- **Upgrade:** `helm upgrade phoenix ...` — Helm handles the rolling update, PDB ensures no downtime.
-- **Scale up to multi-pod:** `helm upgrade phoenix ... --set scaling.mode=multi --set redis.enabled=true` — adds Redis StatefulSet, splits worker from API. No code changes.
+- **Upgrade:** `helm upgrade uptime-phoenix ...` — Helm handles the rolling update, PDB ensures no downtime.
+- **Scale up to multi-pod:** `helm upgrade uptime-phoenix ... --set scaling.mode=multi --set redis.enabled=true` — adds Redis StatefulSet, splits worker from API. No code changes.
 - **Move MariaDB to managed external:** `helm upgrade ... --set mariadb.enabled=false --set mariadb.external.host=... --set mariadb.external.password=...`
 - **Observability:** the `/metrics` endpoint feeds Prometheus → Grafana. Structured logs go to Loki via Promtail.
 - **Multi-cluster / DR:** replicate MariaDB via streaming replication or use a managed MariaDB with point-in-time recovery. Redis is ephemeral and rebuildable.

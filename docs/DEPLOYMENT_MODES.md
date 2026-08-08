@@ -106,20 +106,20 @@ The all-in-one image is still `docker build -t phoenix:dev .` (root `Dockerfile`
 
 ## 2. Using the Helm chart in each mode
 
-The chart is `charts/phoenix`. The `mode` value selects the shape; `helm install`
+The chart is `charts/uptime-phoenix`. The `mode` value selects the shape; `helm install`
 with no overrides gives the zero-dependency single pod.
 
 ### Mode: `all` (default — single pod, SQLite, embedded UI)
 
 ```bash
-helm install phoenix ./charts/phoenix
+helm install uptime-phoenix ./charts/uptime-phoenix
 # 1 Deployment, 1 PVC (/data), embedded SPA, in-process EventBus, no external deps
 ```
 
 MariaDB instead of SQLite (still one pod):
 
 ```bash
-helm install phoenix ./charts/phoenix \
+helm install uptime-phoenix ./charts/uptime-phoenix \
   --set database.engine=mariadb \
   --set mariadb.enabled=true
 ```
@@ -131,7 +131,7 @@ pods, and an initContainer on the worker that waits for the API (migration
 ordering). Requires a **shared MariaDB** and **Redis**.
 
 ```bash
-helm install phoenix ./charts/phoenix \
+helm install uptime-phoenix ./charts/uptime-phoenix \
   --set mode=split \
   --set database.engine=mariadb \
   --set database.persistence.enabled=false \
@@ -163,7 +163,7 @@ A single worker owns all monitors. To run multiple workers that split the load
 via DB leases:
 
 ```bash
-helm upgrade phoenix ./charts/phoenix --reuse-values \
+helm upgrade uptime-phoenix ./charts/uptime-phoenix --reuse-values \
   --set worker.replicas=3 \
   --set worker.shards.enabled=true     # sets WORKER_ID per pod + lease config
 ```
@@ -171,7 +171,7 @@ helm upgrade phoenix ./charts/phoenix --reuse-values \
 #### Scaling the API (HPA)
 
 ```bash
-helm upgrade phoenix ./charts/phoenix --reuse-values \
+helm upgrade uptime-phoenix ./charts/uptime-phoenix --reuse-values \
   --set scaling.mode=multi             # enables the HPA template
 # tune hpa.minReplicas / hpa.maxReplicas / hpa.cpuTargetAverageUtilization
 ```
@@ -184,8 +184,8 @@ worker. Use these when you want each component in its **own** release/namespace
 Redis. For a single coherent release, prefer `mode=split` above.
 
 ```bash
-helm install phoenix-api    ./charts/phoenix --set mode=api    --set redis.enabled=true ...
-helm install phoenix-worker ./charts/phoenix --set mode=worker --set redis.enabled=true ...
+helm install phoenix-api    ./charts/uptime-phoenix --set mode=api    --set redis.enabled=true ...
+helm install phoenix-worker ./charts/uptime-phoenix --set mode=worker --set redis.enabled=true ...
 ```
 
 ### Expose via Cloudflare Tunnel (no external ingress)
@@ -206,14 +206,14 @@ Because Cloudflare fronts the app, you normally disable the chart Ingress:
 
 ```bash
 # Inline token (chart creates the Secret)
-helm upgrade --install phoenix charts/phoenix \
+helm upgrade --install uptime-phoenix charts/uptime-phoenix \
   --set ingress.enabled=false \
   --set cloudflareTunnel.enabled=true \
   --set cloudflareTunnel.token='<connector-token>'
 
 # Or reference a pre-created Secret
 kubectl create secret generic my-cf-tunnel --from-literal=token='<connector-token>'
-helm upgrade --install phoenix charts/phoenix \
+helm upgrade --install uptime-phoenix charts/uptime-phoenix \
   --set ingress.enabled=false \
   --set cloudflareTunnel.enabled=true \
   --set cloudflareTunnel.existingSecret=my-cf-tunnel
@@ -228,9 +228,9 @@ Cloudflare's edge (443) is opened automatically.
 ### Verify before applying
 
 ```bash
-helm lint charts/phoenix
-helm template phoenix charts/phoenix --set mode=all
-helm template phoenix charts/phoenix \
+helm lint charts/uptime-phoenix
+helm template uptime-phoenix charts/uptime-phoenix --set mode=all
+helm template uptime-phoenix charts/uptime-phoenix \
   --set mode=split --set database.engine=mariadb \
   --set mariadbExternal.host=db --set mariadbExternal.password=x \
   --set redis.enabled=true
@@ -246,7 +246,7 @@ helm template phoenix charts/phoenix \
 | Run the whole thing locally, one process | `make run` |
 | Reproduce the prod split locally | `docker compose -f docker-compose.split.yml up --build` → :8080 |
 | Build role images for a registry | `docker build -f Dockerfile.split --target {api,worker,web} …` |
-| Deploy single pod to K8s | `helm install phoenix ./charts/phoenix` |
+| Deploy single pod to K8s | `helm install uptime-phoenix ./charts/uptime-phoenix` |
 | Deploy split to K8s | `helm install … --set mode=split --set database.engine=mariadb --set redis.enabled=true` |
 | Scale API horizontally | `--set scaling.mode=multi` (HPA) |
 | Scale workers | `--set worker.replicas=N --set worker.shards.enabled=true` |

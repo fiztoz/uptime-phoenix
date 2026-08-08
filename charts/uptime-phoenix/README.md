@@ -6,13 +6,13 @@ A self-hosted, K8s-native, minimal-dependency monitoring tool. The default `helm
 
 ```bash
 # Default (zero external dependencies, single pod, SQLite)
-helm install phoenix ./charts/phoenix
+helm install uptime-phoenix ./charts/uptime-phoenix
 
 # With custom values
-helm install phoenix ./charts/phoenix -f my-values.yaml
+helm install uptime-phoenix ./charts/uptime-phoenix -f my-values.yaml
 
 # Upgrade
-helm upgrade phoenix ./charts/phoenix
+helm upgrade uptime-phoenix ./charts/uptime-phoenix
 ```
 
 ## Configuration
@@ -51,14 +51,14 @@ Env vars exposed to container: `DB_ENGINE`, `DB_DSN`, `JWT_SECRET` (auto-generat
 ### Default single-pod SQLite (recommended for Phase 1)
 
 ```bash
-helm install phoenix ./charts/phoenix
+helm install uptime-phoenix ./charts/uptime-phoenix
 # Results in: 1 Deployment, 1 PVC (/data), embedded SPA, in-process EventBus
 ```
 
 ### MariaDB mode (opt-in)
 
 ```bash
-helm install phoenix ./charts/phoenix \
+helm install uptime-phoenix ./charts/uptime-phoenix \
   --set database.engine=mariadb \
   --set mariadb.enabled=true \
   --set mariadbExternal.host=mariadb.example.com
@@ -67,7 +67,7 @@ helm install phoenix ./charts/phoenix \
 ### Multi-pod scaling (Phase 2)
 
 ```bash
-helm upgrade phoenix ./charts/phoenix \
+helm upgrade uptime-phoenix ./charts/uptime-phoenix \
   --set scaling.mode=multi \
   --set redis.enabled=true \
   --set web.split=true
@@ -99,7 +99,7 @@ chart's Ingress.
 3. **Set values and install/upgrade:**
 
    ```bash
-   helm upgrade --install phoenix ./charts/phoenix \
+   helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
      --set ingress.enabled=false \
      --set cloudflareTunnel.enabled=true \
      --set cloudflareTunnel.token='<your-connector-token>'
@@ -109,7 +109,7 @@ chart's Ingress.
 
    ```bash
    kubectl create secret generic my-cf-tunnel --from-literal=token='<token>'
-   helm upgrade --install phoenix ./charts/phoenix \
+   helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
      --set ingress.enabled=false \
      --set cloudflareTunnel.enabled=true \
      --set cloudflareTunnel.existingSecret=my-cf-tunnel
@@ -121,9 +121,9 @@ config files are mounted. Set `cloudflareTunnel.replicas=2` (the default) for HA
 ## Verification
 
 ```bash
-helm lint charts/phoenix
-helm template charts/phoenix --set scaling.mode=single
-helm template charts/phoenix --set scaling.mode=multi --set redis.enabled=true
+helm lint charts/uptime-phoenix
+helm template charts/uptime-phoenix --set scaling.mode=single
+helm template charts/uptime-phoenix --set scaling.mode=multi --set redis.enabled=true
 ```
 
 All produce valid Kubernetes manifests.

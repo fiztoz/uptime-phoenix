@@ -115,7 +115,7 @@ See `AGENTS.md` for the approved notification provider list.
 - [ ] No framework/driver imports in `internal/core/`
 - [ ] No new external dependency without checking CGO-free + updating `docs/ARCHITECTURE.md`
 - [ ] DB migrations have both `.up.sql` and `.down.sql` (if DB touched)
-- [ ] `helm lint charts/phoenix` passes (if Helm chart touched)
+- [ ] `helm lint charts/uptime-phoenix` passes (if Helm chart touched)
 
 ## Commit Messages
 

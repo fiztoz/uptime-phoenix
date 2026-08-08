@@ -145,7 +145,7 @@ pick your Prometheus data source when prompted (it maps to `$datasource`).
 The Uptime Phoenix Helm chart can have Prometheus Operator scrape `/metrics` directly
 via a `PodMonitor` — set `prometheus.podMonitor.enabled=true` and
 `prometheus.apiKey=<phx_...>` in `values.yaml` (see
-`charts/phoenix/templates/podmonitor.yaml`). Once Prometheus is scraping
+`charts/uptime-phoenix/templates/podmonitor.yaml`). Once Prometheus is scraping
 Uptime Phoenix, add it as a Grafana data source and import
 `dashboards/phoenix-overview.json` exactly as above — the dashboard is
 deployment-agnostic.

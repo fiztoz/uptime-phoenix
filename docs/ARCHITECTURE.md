@@ -244,7 +244,7 @@ phoenix/
 │   ├── svelte.config.js
 │   └── vite.config.ts
 │
-├── charts/phoenix/                    # Helm chart
+├── charts/uptime-phoenix/                    # Helm chart
 │   ├── Chart.yaml
 │   ├── values.yaml
 │   └── templates/
@@ -1794,7 +1794,7 @@ OpenTelemetry SDK spans: API → WS → worker → checker → notification. Exp
 ### Helm Chart Structure
 
 ```
-charts/phoenix/
+charts/uptime-phoenix/
 ├── Chart.yaml
 ├── values.yaml              # default: single-pod, MariaDB on PVC, embedded frontend
 └── templates/
@@ -1878,22 +1878,22 @@ podDisruptionBudget:
 
 ```bash
 # Default install — zero external dependencies
-helm install phoenix ./charts/phoenix
+helm install uptime-phoenix ./charts/uptime-phoenix
 
 # With external MariaDB
-helm install phoenix ./charts/phoenix \
+helm install uptime-phoenix ./charts/uptime-phoenix \
   --set mariadb.enabled=false \
   --set mariadbExternal.host=mariadb.internal \
   --set mariadbExternal.password=secret
 
 # Scale to multi-pod (Phase 2 — adds Redis, splits worker)
-helm upgrade phoenix ./charts/phoenix \
+helm upgrade uptime-phoenix ./charts/uptime-phoenix \
   --set scaling.mode=multi \
   --set redis.enabled=true \
   --set web.split=true
 
 # Use SQLite instead of MariaDB (single-node edge)
-helm install phoenix ./charts/phoenix \
+helm install uptime-phoenix ./charts/uptime-phoenix \
   --set mariadb.enabled=false \
   --set database.engine=sqlite
 ```

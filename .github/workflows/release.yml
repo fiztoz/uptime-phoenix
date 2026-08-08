@@ -351,7 +351,7 @@ jobs:
           # Prefer the dry-run stamped chart package if present; otherwise re-package.
           CHART_TGZ=""
           if [ -d "dist/release-${VERSION}/charts" ]; then
-            for f in "dist/release-${VERSION}/charts"/phoenix-*.tgz; do
+            for f in "dist/release-${VERSION}/charts"/uptime-phoenix-*.tgz; do
               if [ -f "$f" ]; then
                 CHART_TGZ="$f"
                 break
@@ -359,9 +359,9 @@ jobs:
             done
           fi
           if [ -z "${CHART_TGZ}" ]; then
-            echo "No chart tgz in dry-run artifact; packaging from charts/phoenix"
+            echo "No chart tgz in dry-run artifact; packaging from charts/uptime-phoenix"
             CHART_SRC="$(mktemp -d)/phoenix"
-            cp -R charts/phoenix "${CHART_SRC}"
+            cp -R charts/uptime-phoenix "${CHART_SRC}"
             python3 - "${CHART_SRC}/Chart.yaml" "${VERSION}" <<'PY'
           import pathlib, sys, re
           path = pathlib.Path(sys.argv[1])
@@ -375,7 +375,7 @@ jobs:
             mkdir -p "dist/release-${VERSION}/charts"
             helm package "${CHART_SRC}" --destination "dist/release-${VERSION}/charts"
             CHART_TGZ=""
-            for f in "dist/release-${VERSION}/charts"/phoenix-*.tgz; do
+            for f in "dist/release-${VERSION}/charts"/uptime-phoenix-*.tgz; do
               if [ -f "$f" ]; then
                 CHART_TGZ="$f"
                 break
@@ -387,7 +387,7 @@ jobs:
             exit 1
           fi
           echo "Pushing ${CHART_TGZ} to oci://ghcr.io/${IMAGE_OWNER}/charts"
-          # Helm OCI: package lands as ghcr.io/<owner>/charts/phoenix:<chartVersion>
+          # Helm OCI: package lands as ghcr.io/<owner>/charts/uptime-phoenix:<chartVersion>
           # If OCI push fails (package visibility / naming), images + GitHub Release still matter.
           if ! helm push "${CHART_TGZ}" "oci://ghcr.io/${IMAGE_OWNER}/charts"; then
             echo "WARN: helm OCI push failed — images and GitHub Release will still proceed." >&2

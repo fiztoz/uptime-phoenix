@@ -201,8 +201,8 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	$(GOLANGCI_LINT) run
 	@test -d web/node_modules || (cd web && bun install --frozen-lockfile)
 	cd web && bun run check && bun run test && bun run build && bun run lint && bun run test:e2e
-	helm lint charts/phoenix
-	helm template phoenix charts/phoenix > /dev/null
+	helm lint charts/uptime-phoenix
+	helm template uptime-phoenix charts/uptime-phoenix > /dev/null
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
 	$(GOVULNCHECK) ./...
 	git diff --check
@@ -263,29 +263,29 @@ docker-run: ## Run Docker container locally
 
 .PHONY: helm-lint
 helm-lint: ## Lint Helm chart
-	helm lint charts/phoenix
+	helm lint charts/uptime-phoenix
 
 .PHONY: helm-template
 helm-template: ## Render Helm templates (dry-run)
-	helm template phoenix charts/phoenix
+	helm template uptime-phoenix charts/uptime-phoenix
 
 .PHONY: helm-template-debug
 helm-template-debug: ## Render Helm templates with debug output
-	helm template phoenix charts/phoenix --debug
+	helm template uptime-phoenix charts/uptime-phoenix --debug
 
 .PHONY: helm-install
 helm-install: ## Install Helm chart (default: single-pod mode)
-	helm install phoenix ./charts/phoenix
+	helm install uptime-phoenix ./charts/uptime-phoenix
 
 .PHONY: helm-install-multi
 helm-install-multi: ## Install Helm chart in multi-pod mode (Phase 2)
-	helm install phoenix ./charts/phoenix \
+	helm install uptime-phoenix ./charts/uptime-phoenix \
 		--set scaling.mode=multi \
 		--set redis.enabled=true
 
 .PHONY: helm-upgrade
 helm-upgrade: ## Upgrade Helm chart release
-	helm upgrade phoenix ./charts/phoenix
+	helm upgrade uptime-phoenix ./charts/uptime-phoenix
 
 .PHONY: helm-uninstall
 helm-uninstall: ## Uninstall Helm chart release

@@ -28,8 +28,8 @@ at the bottom.
 #### Sprint D — Scale & trust, Track C (2026-07-25)
 
 - `LICENSE` (MIT) added at the repo root; referenced from `README.md` and
-  `charts/phoenix/Chart.yaml` (`artifacthub.io/license` annotation) and
-  `charts/phoenix/README.md`.
+  `charts/uptime-phoenix/Chart.yaml` (`artifacthub.io/license` annotation) and
+  `charts/uptime-phoenix/README.md`.
 - `make gate-full`: the complete local pre-merge gate (build/vet/gofmt, `-race` tests,
   `golangci-lint`, frontend check/test/build/lint/e2e, `helm lint`/`template`,
   `govulncheck`, `git diff --check`). `make govulncheck` added standalone. (At the time

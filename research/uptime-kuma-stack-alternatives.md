@@ -501,7 +501,7 @@ The Port-and-Adapter pattern has a strictness dial. For a self-hosted monitoring
 
 Additional locked decisions that affect the architecture:
 
-4. **K8s-native from day 1.** The repo ships a `charts/phoenix/` Helm chart that brings up the full stack with `helm install`. Architecture is K8s-shaped from the start.
+4. **K8s-native from day 1.** The repo ships a `charts/uptime-phoenix/` Helm chart that brings up the full stack with `helm install`. Architecture is K8s-shaped from the start.
 5. **Frontend and backend in separate K8s Deployments.** `phoenix-web` (Svelte SPA + nginx) and `phoenix-api` (Go binary) scale independently. Different images, different release cadence, different security boundaries.
 
 See `research/uptime-kuma-k8s-architecture.md` for the full K8s architecture and the 3-phase rollout (monolith → split worker/API → sharded workers).
