@@ -3,6 +3,7 @@ package notifier
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"gopkg.in/mail.v2"
@@ -33,6 +34,10 @@ func (SMTPSender) Validate(config map[string]any) error {
 }
 
 func (SMTPSender) Send(ctx context.Context, config map[string]any, alert domain.AlertContext) error {
+	templateConfig, err := domain.ParseSMTPTemplateConfig(alert.TemplateConfig)
+	if err != nil {
+		return fmt.Errorf("smtp: invalid template configuration: %w", err)
+	}
 	host, _ := config["host"].(string)
 	port := 587
 	if p, ok := config["port"].(float64); ok {
@@ -76,12 +81,43 @@ func (SMTPSender) Send(ctx context.Context, config map[string]any, alert domain.
 			alert.MonitorName, alert.MonitorType, alert.MonitorTarget, alert.Status, alert.Message,
 			time.Now().Format(time.RFC3339), alert.Duration, alert.CheckOutput)
 	}
+	renderedAt := time.Now().UTC()
+	customSubject, customBody, custom, err := renderCustomLayoutAt(alert, renderedAt)
+	if err != nil {
+		return fmt.Errorf("smtp: %w", err)
+	}
+	if custom {
+		if strings.TrimSpace(customSubject) != "" {
+			subject = customSubject
+		}
+		body = customBody
+	}
+	// Header values must remain a single line even when a variable contains
+	// untrusted monitor/check text.
+	subject = strings.NewReplacer("\r", " ", "\n", " ").Replace(subject)
+	if len([]rune(subject)) > 998 {
+		return fmt.Errorf("smtp: rendered template title exceeds 998 characters")
+	}
 
 	m := mail.NewMessage()
 	m.SetHeader("From", from)
 	m.SetHeader("To", toAddrs...)
 	m.SetHeader("Subject", subject)
 	m.SetBody("text/plain", body)
+	if templateConfig.Format == domain.SMTPTemplateFormatHTML {
+		if strings.TrimSpace(templateConfig.HTMLBodyTemplate) == "" {
+			return fmt.Errorf("smtp: HTML body template is required for html format")
+		}
+		htmlBody, err := domain.RenderNotificationHTMLTemplate(
+			templateConfig.HTMLBodyTemplate,
+			alert,
+			renderedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("smtp: render HTML body: %w", err)
+		}
+		m.AddAlternative("text/html", htmlBody)
+	}
 
 	d := mail.NewDialer(host, port, username, password)
 	d.Timeout = 10 * time.Second

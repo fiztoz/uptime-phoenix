@@ -126,6 +126,8 @@ func Run(cfg Config) error {
 	heartbeatSvc.SetTLSInfoRepo(repos.tlsInfo)
 
 	notificationSvc := services.NewNotificationService(repos.notification, repos.monitorNotif)
+	notificationSvc.SetTemplateRepository(repos.notificationTemplate)
+	notificationTemplateSvc := services.NewNotificationTemplateService(repos.notificationTemplate)
 	// Folder alerting: without this the group attach/detach routes fail closed
 	// rather than 2xx-ing into the void, and no folder ever alerts.
 	notificationSvc.SetGroupNotificationRepo(repos.groupNotif)
@@ -171,6 +173,7 @@ func Run(cfg Config) error {
 	statusPageSvc.SetSubscriptionAvailability(subscriptionSvc)
 
 	tagSvc := services.NewTagService(repos.tag, repos.monitorTag)
+	notificationSvc.SetTagReader(tagSvc)
 	cronEval := scheduler.NewCronEvaluator()
 	maintenanceSvc := services.NewMaintenanceService(repos.maintenance, repos.maintMonitor, cronEval)
 	// Maintenance create/reschedule fan-out to status-page email subscribers.
@@ -200,6 +203,7 @@ func Run(cfg Config) error {
 		repos.proxy,
 	)
 	backupSvc.SetGroupNotificationRepo(repos.groupNotif)
+	backupSvc.SetNotificationTemplateRepo(repos.notificationTemplate)
 	backupSvc.SetSubscriberRepo(repos.spSubscriber)
 	backupSvc.SetMonitorService(monitorSvc)
 	backupSvc.SetProxyService(proxySvc)
@@ -380,6 +384,7 @@ func Run(cfg Config) error {
 	monitorHandlers := handlers.NewMonitorHandlers(monitorSvc, accessSvc, tagSvc, repos.monitorGroup)
 	monitorGroupHandlers := handlers.NewMonitorGroupHandlers(monitorGroupSvc, accessSvc)
 	notificationHandlers := handlers.NewNotificationHandlers(notificationSvc, accessSvc)
+	notificationTemplateHandlers := handlers.NewNotificationTemplateHandlers(notificationTemplateSvc, accessSvc)
 	statusPageHandlers := handlers.NewStatusPageHandlers(statusPageSvc)
 	statusPageHandlers.SetSubscriptionService(subscriptionSvc)
 	feedSvc := services.NewFeedService(
@@ -428,6 +433,7 @@ func Run(cfg Config) error {
 		monitorHandlers,
 		monitorGroupHandlers,
 		notificationHandlers,
+		notificationTemplateHandlers,
 		statusPageHandlers,
 		feedHandlers,
 		wsHandlers,
@@ -560,34 +566,35 @@ func openDB(cfg Config, log *logger.SlogLogger) (*bun.DB, error) {
 }
 
 type repoBundle struct {
-	user             ports.UserRepository
-	apiKey           ports.APIKeyRepository
-	monitor          ports.MonitorRepository
-	monitorGroup     ports.MonitorGroupRepository
-	heartbeat        ports.HeartbeatRepository
-	tlsInfo          ports.TLSInfoRepository
-	notification     ports.NotificationRepository
-	monitorNotif     ports.MonitorNotificationRepository
-	groupNotif       ports.GroupNotificationRepository
-	statusPage       ports.StatusPageRepository
-	incident         ports.IncidentRepository
-	incidentUpdate   ports.IncidentUpdateRepository
-	cname            ports.StatusPageCNAMERepository
-	spMonitor        ports.StatusPageMonitorRepository
-	spSubscriber     ports.StatusPageSubscriberRepository
-	tag              ports.TagRepository
-	maintenance      ports.MaintenanceRepository
-	proxy            ports.ProxyRepository
-	monitorTag       ports.MonitorTagRepository
-	maintMonitor     ports.MaintenanceWindowMonitorRepository
-	webAuthnCred     ports.WebAuthnCredentialRepository
-	userPerm         ports.UserPermissionRepository
-	oidcIdentity     ports.OIDCIdentityRepository
-	configKey        ports.ConfigKeyRepository
-	alert            ports.AlertRepository
-	escalationPolicy ports.EscalationPolicyRepository
-	escalationAssign ports.EscalationAssignmentRepository
-	alertEscalation  ports.AlertEscalationRepository
+	user                 ports.UserRepository
+	apiKey               ports.APIKeyRepository
+	monitor              ports.MonitorRepository
+	monitorGroup         ports.MonitorGroupRepository
+	heartbeat            ports.HeartbeatRepository
+	tlsInfo              ports.TLSInfoRepository
+	notification         ports.NotificationRepository
+	notificationTemplate ports.NotificationTemplateRepository
+	monitorNotif         ports.MonitorNotificationRepository
+	groupNotif           ports.GroupNotificationRepository
+	statusPage           ports.StatusPageRepository
+	incident             ports.IncidentRepository
+	incidentUpdate       ports.IncidentUpdateRepository
+	cname                ports.StatusPageCNAMERepository
+	spMonitor            ports.StatusPageMonitorRepository
+	spSubscriber         ports.StatusPageSubscriberRepository
+	tag                  ports.TagRepository
+	maintenance          ports.MaintenanceRepository
+	proxy                ports.ProxyRepository
+	monitorTag           ports.MonitorTagRepository
+	maintMonitor         ports.MaintenanceWindowMonitorRepository
+	webAuthnCred         ports.WebAuthnCredentialRepository
+	userPerm             ports.UserPermissionRepository
+	oidcIdentity         ports.OIDCIdentityRepository
+	configKey            ports.ConfigKeyRepository
+	alert                ports.AlertRepository
+	escalationPolicy     ports.EscalationPolicyRepository
+	escalationAssign     ports.EscalationAssignmentRepository
+	alertEscalation      ports.AlertEscalationRepository
 }
 
 func wireRepositories(engine string, db *bun.DB) repoBundle {
@@ -602,6 +609,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.heartbeat = r.HeartbeatRepo
 		b.tlsInfo = r.TLSInfoRepo
 		b.notification = r.NotificationRepo
+		b.notificationTemplate = r.NotificationTemplateRepo
 		b.monitorNotif = r.MonitorNotificationRepo
 		b.groupNotif = r.GroupNotificationRepo
 		b.statusPage = r.StatusPageRepo
@@ -632,6 +640,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.heartbeat = r.HeartbeatRepo
 		b.tlsInfo = r.TLSInfoRepo
 		b.notification = r.NotificationRepo
+		b.notificationTemplate = r.NotificationTemplateRepo
 		b.monitorNotif = r.MonitorNotificationRepo
 		b.groupNotif = r.GroupNotificationRepo
 		b.statusPage = r.StatusPageRepo

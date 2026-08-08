@@ -70,6 +70,79 @@ func TestDiscordSender_Send_DownSeverity(t *testing.T) {
 	}
 }
 
+func TestDiscordSender_Send_CustomTemplate(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	alert := domain.AlertContext{
+		MonitorName: "payments", Status: domain.StatusDown, Message: "connection refused",
+		TemplateTitle: "Incident: {{ monitor.name }}",
+		TemplateBody:  "{{ monitor.name }} changed to {{ status }} — {{ message }}",
+	}
+	if err := (DiscordSender{}).Send(context.Background(), map[string]any{"webhook_url": srv.URL}, alert); err != nil {
+		t.Fatalf("send custom template: %v", err)
+	}
+	embed := received["embeds"].([]any)[0].(map[string]any)
+	if embed["title"] != "Incident: payments" {
+		t.Fatalf("custom title = %v", embed["title"])
+	}
+	if embed["description"] != "payments changed to DOWN — connection refused" {
+		t.Fatalf("custom description = %v", embed["description"])
+	}
+}
+
+func TestDiscordSender_Send_StructuredGroupTemplate(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	config := domain.DefaultDiscordTemplateConfig()
+	config.TitleURLTemplate = "{{ alert.target }}"
+	config.FooterTemplate = "Phoenix • {{ alert.scope }}"
+	config.Colors.Down = "#123456"
+	config.Fields = []domain.DiscordEmbedFieldTemplate{
+		{NameTemplate: "Target", ValueTemplate: "{{ alert.target }}"},
+		{NameTemplate: "Condition", ValueTemplate: "{{ group.condition }}", Inline: true},
+		{NameTemplate: "Threshold", ValueTemplate: "{{ group.threshold_display }}", Inline: true},
+	}
+	alert := domain.AlertContext{
+		AlertScope: domain.AlertScopeGroup, GroupID: 7, GroupName: "Platform",
+		MonitorName: "Platform", MonitorType: "group", GroupCondition: domain.GroupConditionThreshold,
+		GroupThreshold: 2, Status: domain.StatusDown, Message: "two children are down",
+		TemplateTitle:  "{{ status.emoji }} {{ alert.name }} is {{ status }}",
+		TemplateBody:   "{{ message }}",
+		TemplateConfig: domain.DiscordTemplateConfigMap(config),
+	}
+	if err := (DiscordSender{}).Send(context.Background(), map[string]any{"webhook_url": srv.URL}, alert); err != nil {
+		t.Fatalf("send structured group template: %v", err)
+	}
+	embed := received["embeds"].([]any)[0].(map[string]any)
+	if embed["title"] != "❌ Platform is DOWN" || embed["color"] != float64(0x123456) {
+		t.Fatalf("structured embed title/color = %v / %v", embed["title"], embed["color"])
+	}
+	if _, exists := embed["url"]; exists {
+		t.Fatal("blank group title URL should be omitted")
+	}
+	footer := embed["footer"].(map[string]any)
+	if footer["text"] != "Phoenix • group" {
+		t.Fatalf("footer = %v", footer["text"])
+	}
+	fields := embed["fields"].([]any)
+	if len(fields) != 2 {
+		t.Fatalf("fields = %#v; monitor-only blank Target should be omitted", fields)
+	}
+	if fields[0].(map[string]any)["name"] != "Condition" || fields[1].(map[string]any)["value"] != "2" {
+		t.Fatalf("unexpected group fields: %#v", fields)
+	}
+}
+
 func TestDiscordSender_RateLimitRetry(t *testing.T) {
 	attempts := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

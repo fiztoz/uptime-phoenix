@@ -13,44 +13,93 @@ import (
 type NotificationModel struct {
 	bun.BaseModel `bun:"table:notifications"`
 
-	ID        int64     `bun:"id,pk,autoincrement"`
-	UserID    int64     `bun:"user_id"`
-	Name      string    `bun:"name,notnull"`
-	Type      string    `bun:"type,notnull"`
-	Active    bool      `bun:"active,notnull,default:true"`
-	IsDefault bool      `bun:"is_default,notnull,default:false"`
-	Config    JSONField `bun:"config,notnull"`
-	CreatedAt time.Time `bun:"created_at,notnull"`
-	UpdatedAt time.Time `bun:"updated_at,notnull"`
+	ID         int64     `bun:"id,pk,autoincrement"`
+	UserID     int64     `bun:"user_id"`
+	Name       string    `bun:"name,notnull"`
+	Type       string    `bun:"type,notnull"`
+	Active     bool      `bun:"active,notnull,default:true"`
+	IsDefault  bool      `bun:"is_default,notnull,default:false"`
+	TemplateID *int64    `bun:"template_id"`
+	Config     JSONField `bun:"config,notnull"`
+	CreatedAt  time.Time `bun:"created_at,notnull"`
+	UpdatedAt  time.Time `bun:"updated_at,notnull"`
 }
 
 // ToDomain converts a NotificationModel to a domain.Notification.
 func (m *NotificationModel) ToDomain() *domain.Notification {
 	return &domain.Notification{
-		ID:        m.ID,
-		UserID:    m.UserID,
-		Name:      m.Name,
-		Type:      m.Type,
-		Active:    m.Active,
-		IsDefault: m.IsDefault,
-		Config:    m.Config.ToMap(),
-		CreatedAt: m.CreatedAt,
-		UpdatedAt: m.UpdatedAt,
+		ID:         m.ID,
+		UserID:     m.UserID,
+		Name:       m.Name,
+		Type:       m.Type,
+		Active:     m.Active,
+		IsDefault:  m.IsDefault,
+		TemplateID: m.TemplateID,
+		Config:     m.Config.ToMap(),
+		CreatedAt:  m.CreatedAt,
+		UpdatedAt:  m.UpdatedAt,
 	}
 }
 
 // NotificationModelFromDomain converts a domain.Notification to a NotificationModel.
 func NotificationModelFromDomain(n *domain.Notification) *NotificationModel {
 	return &NotificationModel{
-		ID:        n.ID,
-		UserID:    n.UserID,
-		Name:      n.Name,
-		Type:      n.Type,
-		Active:    n.Active,
-		IsDefault: n.IsDefault,
-		Config:    JSONField(n.Config),
-		CreatedAt: n.CreatedAt,
-		UpdatedAt: n.UpdatedAt,
+		ID:         n.ID,
+		UserID:     n.UserID,
+		Name:       n.Name,
+		Type:       n.Type,
+		Active:     n.Active,
+		IsDefault:  n.IsDefault,
+		TemplateID: n.TemplateID,
+		Config:     JSONField(n.Config),
+		CreatedAt:  n.CreatedAt,
+		UpdatedAt:  n.UpdatedAt,
+	}
+}
+
+// NotificationTemplateModel maps the notification_templates table.
+type NotificationTemplateModel struct {
+	bun.BaseModel `bun:"table:notification_templates"`
+
+	ID            int64     `bun:"id,pk,autoincrement"`
+	UserID        int64     `bun:"user_id"`
+	Name          string    `bun:"name,notnull"`
+	Provider      string    `bun:"provider,notnull"`
+	TitleTemplate string    `bun:"title_template,notnull"`
+	BodyTemplate  string    `bun:"body_template,notnull"`
+	Config        JSONField `bun:"config,notnull"`
+	CreatedAt     time.Time `bun:"created_at,notnull"`
+	UpdatedAt     time.Time `bun:"updated_at,notnull"`
+}
+
+// ToDomain converts a NotificationTemplateModel to a domain.NotificationTemplate.
+func (m *NotificationTemplateModel) ToDomain() *domain.NotificationTemplate {
+	return &domain.NotificationTemplate{
+		ID:            m.ID,
+		UserID:        m.UserID,
+		Name:          m.Name,
+		Provider:      m.Provider,
+		TitleTemplate: m.TitleTemplate,
+		BodyTemplate:  m.BodyTemplate,
+		Config:        m.Config.ToMap(),
+		CreatedAt:     m.CreatedAt,
+		UpdatedAt:     m.UpdatedAt,
+	}
+}
+
+// NotificationTemplateModelFromDomain converts a domain.NotificationTemplate
+// to its persistence model.
+func NotificationTemplateModelFromDomain(template *domain.NotificationTemplate) *NotificationTemplateModel {
+	return &NotificationTemplateModel{
+		ID:            template.ID,
+		UserID:        template.UserID,
+		Name:          template.Name,
+		Provider:      template.Provider,
+		TitleTemplate: template.TitleTemplate,
+		BodyTemplate:  template.BodyTemplate,
+		Config:        JSONField(template.Config),
+		CreatedAt:     template.CreatedAt,
+		UpdatedAt:     template.UpdatedAt,
 	}
 }
 

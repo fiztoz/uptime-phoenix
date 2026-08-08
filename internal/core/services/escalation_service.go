@@ -620,12 +620,15 @@ func splitEscalationStep(steps []domain.EscalationStep, order int) (current, nex
 
 func escalationAlertContext(monitor *domain.Monitor, alert *domain.Alert, policy *domain.EscalationPolicy, step *domain.EscalationStep) domain.AlertContext {
 	return domain.AlertContext{
-		MonitorID:      monitor.ID,
-		MonitorName:    monitor.Name,
-		MonitorType:    monitor.Type,
-		MonitorTarget:  monitor.Target(),
-		Status:         domain.StatusDown,
-		PreviousStatus: domain.StatusDown,
+		AlertScope:         domain.AlertScopeMonitor,
+		MonitorID:          monitor.ID,
+		MonitorName:        monitor.Name,
+		MonitorType:        monitor.Type,
+		MonitorTarget:      monitor.Target(),
+		MonitorDescription: monitor.Description,
+		MonitorOwner:       monitor.Owner,
+		Status:             domain.StatusDown,
+		PreviousStatus:     domain.StatusDown,
 		Message: fmt.Sprintf("ESCALATION step %d (%s): %s is still DOWN and unacknowledged",
 			step.StepOrder, policy.Name, monitor.Name),
 		StartedAt:   alert.FiredAt,

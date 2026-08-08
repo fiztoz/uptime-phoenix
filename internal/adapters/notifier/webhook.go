@@ -43,7 +43,16 @@ func (WebhookSender) Send(ctx context.Context, config map[string]any, alert doma
 	}
 
 	var payload []byte
-	if tmplStr, ok := config["body_template"].(string); ok && tmplStr != "" {
+	_, customBody, custom, err := renderCustomLayout(alert)
+	if err != nil {
+		return fmt.Errorf("webhook: %w", err)
+	}
+	if custom {
+		payload = []byte(customBody)
+		if _, exists := headers["Content-Type"]; !exists && json.Valid(payload) {
+			headers["Content-Type"] = "application/json"
+		}
+	} else if tmplStr, ok := config["body_template"].(string); ok && tmplStr != "" {
 		tmpl, err := template.New("webhook").Parse(tmplStr)
 		if err != nil {
 			return fmt.Errorf("webhook: invalid body_template: %w", err)

@@ -102,3 +102,29 @@ func TestWebhookSender_Template(t *testing.T) {
 		t.Errorf("template not rendered, got %s", bodyStr)
 	}
 }
+
+func TestWebhookSender_ReusableTemplateUsesJSONSafeVariables(t *testing.T) {
+	var received map[string]any
+	var contentType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	alert := domain.AlertContext{
+		MonitorName:  `payments "primary"`,
+		Status:       domain.StatusDown,
+		TemplateBody: `{"monitor":{{ json.monitor.name }},"status":{{ json.status }}}`,
+	}
+	if err := (WebhookSender{}).Send(context.Background(), map[string]any{"url": srv.URL}, alert); err != nil {
+		t.Fatalf("send reusable template: %v", err)
+	}
+	if contentType != "application/json" {
+		t.Fatalf("content-type = %q; want application/json", contentType)
+	}
+	if received["monitor"] != `payments "primary"` || received["status"] != "DOWN" {
+		t.Fatalf("received custom payload = %#v", received)
+	}
+}

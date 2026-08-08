@@ -23,6 +23,20 @@ type ackURLNotifier interface {
 	NotifyWithAck(ctx context.Context, monitor *domain.Monitor, status, prevStatus domain.Status, ackURL, checkOutput string) error
 }
 
+// alertDetailsNotifier carries lifecycle timing in addition to the legacy
+// acknowledgement/check-output fields. NotificationService implements it;
+// small test fakes may keep implementing only alertNotifier or ackURLNotifier.
+type alertDetailsNotifier interface {
+	NotifyWithAlertDetails(
+		ctx context.Context,
+		monitor *domain.Monitor,
+		status, prevStatus domain.Status,
+		ackURL, checkOutput string,
+		startedAt time.Time,
+		duration time.Duration,
+	) error
+}
+
 // maintenanceChecker reports whether a monitor is currently inside an active
 // maintenance window. Satisfied by *MaintenanceService.
 type maintenanceChecker interface {
@@ -50,6 +64,13 @@ type alertLifecycle interface {
 	OpenOnDown(ctx context.Context, monitor *domain.Monitor, at time.Time) (*domain.Alert, error)
 	ResolveOpen(ctx context.Context, monitorID int64, at time.Time) error
 	IsOpenAcked(ctx context.Context, monitorID int64) (bool, error)
+}
+
+// alertLifecycleResolver is the richer recovery path implemented by
+// AlertService. Keeping it separate preserves the small alertLifecycle test
+// contract while allowing production recovery emails to include FiredAt.
+type alertLifecycleResolver interface {
+	ResolveOpenWithAlert(ctx context.Context, monitorID int64, at time.Time) (*domain.Alert, error)
 }
 
 // escalationStarter begins an alert's escalation ladder (F2.3). Satisfied by
@@ -172,13 +193,15 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 		// The escalation policy owns steps 1..N and starts only after this
 		// line, so the initial notification can be neither lost nor duplicated
 		// by a policy (docs/F2.3-ESCALATION-CONTRACTS.md, contract 2).
-		d.dispatch(ctx, monitor, cur, prev, now, ackURL, checkOutput)
+		startedAt, duration := alertLifecycleTiming(alert, now)
+		d.dispatch(ctx, monitor, cur, prev, now, ackURL, checkOutput, startedAt, duration)
 		d.startEscalation(ctx, monitor, alert)
 	case cur == domain.StatusUp && prev == domain.StatusDown:
 		// Recovery — resolve the open alert entity, notify, clear resend throttle,
 		// auto-resolve status-page incidents.
-		d.resolveAlert(ctx, monitor.ID, now)
-		d.dispatch(ctx, monitor, cur, prev, now, "", checkOutput)
+		alert := d.resolveAlert(ctx, monitor.ID, now)
+		startedAt, duration := alertLifecycleTiming(alert, now)
+		d.dispatch(ctx, monitor, cur, prev, now, "", checkOutput, startedAt, duration)
 		d.forget(monitor.ID)
 		if d.autoResolve != nil {
 			if err := d.autoResolve.AutoResolveOnRecovery(ctx, monitor.ID); err != nil {
@@ -199,8 +222,9 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 			}
 		}
 		if monitor.ResendInterval > 0 && d.dueForResend(monitor.ID, monitor.ResendInterval, now) {
-			ackURL := d.ackURLForOpen(ctx, monitor)
-			d.dispatch(ctx, monitor, cur, prev, now, ackURL, checkOutput)
+			alert, ackURL := d.openAlertForResend(ctx, monitor, now)
+			startedAt, duration := alertLifecycleTiming(alert, now)
+			d.dispatch(ctx, monitor, cur, prev, now, ackURL, checkOutput, startedAt, duration)
 		}
 	}
 	// PENDING transitions (UP→PENDING, PENDING→UP) intentionally do not alert:
@@ -237,26 +261,36 @@ func (d *NotificationDispatcher) startEscalation(ctx context.Context, monitor *d
 	}
 }
 
-func (d *NotificationDispatcher) resolveAlert(ctx context.Context, monitorID int64, now time.Time) {
+func (d *NotificationDispatcher) resolveAlert(ctx context.Context, monitorID int64, now time.Time) *domain.Alert {
 	if d.lifecycle == nil {
-		return
+		return nil
+	}
+	if resolver, ok := d.lifecycle.(alertLifecycleResolver); ok {
+		alert, err := resolver.ResolveOpenWithAlert(ctx, monitorID, now)
+		if err != nil {
+			slog.Error("notification dispatcher: resolve alert failed",
+				"monitor_id", monitorID, "error", err)
+			return nil
+		}
+		return alert
 	}
 	if err := d.lifecycle.ResolveOpen(ctx, monitorID, now); err != nil {
 		slog.Error("notification dispatcher: resolve alert failed",
 			"monitor_id", monitorID, "error", err)
 	}
+	return nil
 }
 
-func (d *NotificationDispatcher) ackURLForOpen(ctx context.Context, monitor *domain.Monitor) string {
-	if d.lifecycle == nil || d.publicURL == "" {
-		return ""
+func (d *NotificationDispatcher) openAlertForResend(ctx context.Context, monitor *domain.Monitor, now time.Time) (*domain.Alert, string) {
+	if d.lifecycle == nil {
+		return nil, ""
 	}
 	// OpenOnDown is idempotent for an already-open alert and returns its token.
-	a, err := d.lifecycle.OpenOnDown(ctx, monitor, d.now())
+	a, err := d.lifecycle.OpenOnDown(ctx, monitor, now)
 	if err != nil {
-		return ""
+		return nil, ""
 	}
-	return d.buildAckURL(a)
+	return a, d.buildAckURL(a)
 }
 
 func (d *NotificationDispatcher) buildAckURL(a *domain.Alert) string {
@@ -266,15 +300,27 @@ func (d *NotificationDispatcher) buildAckURL(a *domain.Alert) string {
 	return d.publicURL + "/ack/" + a.AckToken
 }
 
-func (d *NotificationDispatcher) dispatch(ctx context.Context, monitor *domain.Monitor, status, prev domain.Status, now time.Time, ackURL, checkOutput string) {
+func (d *NotificationDispatcher) dispatch(
+	ctx context.Context,
+	monitor *domain.Monitor,
+	status, prev domain.Status,
+	now time.Time,
+	ackURL, checkOutput string,
+	startedAt time.Time,
+	duration time.Duration,
+) {
 	d.mu.Lock()
 	d.lastNotified[monitor.ID] = now
 	d.mu.Unlock()
 
-	// Prefer NotifyWithAck when available so checkOutput (and optional ackURL)
-	// always reach AlertContext — even when ackURL is empty on recovery.
+	// Prefer the richest supported contract so lifecycle timing, checkOutput,
+	// and the optional ackURL all reach AlertContext on the same delivery.
 	var err error
-	if an, ok := d.notifier.(ackURLNotifier); ok {
+	if detailed, ok := d.notifier.(alertDetailsNotifier); ok {
+		err = detailed.NotifyWithAlertDetails(
+			ctx, monitor, status, prev, ackURL, checkOutput, startedAt, duration,
+		)
+	} else if an, ok := d.notifier.(ackURLNotifier); ok {
 		err = an.NotifyWithAck(ctx, monitor, status, prev, ackURL, checkOutput)
 	} else {
 		err = d.notifier.Notify(ctx, monitor, status, prev)
@@ -283,6 +329,18 @@ func (d *NotificationDispatcher) dispatch(ctx context.Context, monitor *domain.M
 		slog.Error("notification dispatcher: notify failed",
 			"monitor_id", monitor.ID, "status", status.String(), "error", err)
 	}
+}
+
+func alertLifecycleTiming(alert *domain.Alert, now time.Time) (time.Time, time.Duration) {
+	if alert == nil || alert.FiredAt.IsZero() {
+		return time.Time{}, 0
+	}
+	startedAt := alert.FiredAt.UTC()
+	duration := now.UTC().Sub(startedAt)
+	if duration < 0 {
+		duration = 0
+	}
+	return startedAt, duration
 }
 
 func (d *NotificationDispatcher) dueForResend(monitorID int64, resendMinutes int, now time.Time) bool {

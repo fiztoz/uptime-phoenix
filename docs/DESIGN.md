@@ -605,6 +605,12 @@ With leading icon (search): wrap in `relative`, position icon with `absolute lef
 
 ---
 
+### Template Source + Delivery Preview
+
+**The Truthful Preview Rule.** For configurable message templates, keep the saved source visible in a monospaced editor and pair it with a rendered, non-editable delivery preview. Preview controls first choose representative data (monitor/group and status), then channel-specific views; email offers Desktop, Mobile, and Plain. Email HTML must render inside a fixed light email-client surface even when Phoenix is dark, because the preview represents the recipient's context rather than the app theme. Label previews as approximate, sandbox rendered HTML, and never turn the preview into a WYSIWYG editor or let sample controls mutate the saved source.
+
+---
+
 ### Select
 
 ```svelte

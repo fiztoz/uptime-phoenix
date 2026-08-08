@@ -74,32 +74,35 @@ func (h *NotificationHandlers) requireManageNotifications(c echo.Context) (int64
 
 // CreateNotificationRequest is the body of POST /api/notifications.
 type CreateNotificationRequest struct {
-	Name      string         `json:"name"`
-	Type      string         `json:"type"`
-	Active    *bool          `json:"active"`
-	IsDefault bool           `json:"is_default"`
-	Config    map[string]any `json:"config"`
+	Name       string         `json:"name"`
+	Type       string         `json:"type"`
+	Active     *bool          `json:"active"`
+	IsDefault  bool           `json:"is_default"`
+	TemplateID *int64         `json:"template_id"`
+	Config     map[string]any `json:"config"`
 }
 
 // UpdateNotificationRequest is the body of PUT /api/notifications/:id.
 type UpdateNotificationRequest struct {
-	Name      string         `json:"name"`
-	Active    *bool          `json:"active"`
-	IsDefault *bool          `json:"is_default"`
-	Config    map[string]any `json:"config"`
+	Name       string         `json:"name"`
+	Active     *bool          `json:"active"`
+	IsDefault  *bool          `json:"is_default"`
+	TemplateID *int64         `json:"template_id"`
+	Config     map[string]any `json:"config"`
 }
 
 // NotificationView is the wire shape of domain.Notification.
 type NotificationView struct {
-	ID        int64          `json:"id"`
-	UserID    int64          `json:"user_id"`
-	Name      string         `json:"name"`
-	Type      string         `json:"type"`
-	Active    bool           `json:"active"`
-	IsDefault bool           `json:"is_default"`
-	Config    map[string]any `json:"config"`
-	CreatedAt string         `json:"created_at"`
-	UpdatedAt string         `json:"updated_at"`
+	ID         int64          `json:"id"`
+	UserID     int64          `json:"user_id"`
+	Name       string         `json:"name"`
+	Type       string         `json:"type"`
+	Active     bool           `json:"active"`
+	IsDefault  bool           `json:"is_default"`
+	TemplateID *int64         `json:"template_id"`
+	Config     map[string]any `json:"config"`
+	CreatedAt  string         `json:"created_at"`
+	UpdatedAt  string         `json:"updated_at"`
 }
 
 func toNotificationView(n *domain.Notification) *NotificationView {
@@ -107,15 +110,16 @@ func toNotificationView(n *domain.Notification) *NotificationView {
 		return nil
 	}
 	return &NotificationView{
-		ID:        n.ID,
-		UserID:    n.UserID,
-		Name:      n.Name,
-		Type:      n.Type,
-		Active:    n.Active,
-		IsDefault: n.IsDefault,
-		Config:    n.Config,
-		CreatedAt: n.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		UpdatedAt: n.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ID:         n.ID,
+		UserID:     n.UserID,
+		Name:       n.Name,
+		Type:       n.Type,
+		Active:     n.Active,
+		IsDefault:  n.IsDefault,
+		TemplateID: n.TemplateID,
+		Config:     n.Config,
+		CreatedAt:  n.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:  n.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 }
 
@@ -146,12 +150,13 @@ func (h *NotificationHandlers) Create(c echo.Context) error {
 	}
 
 	n := &domain.Notification{
-		UserID:    userID,
-		Name:      req.Name,
-		Type:      req.Type,
-		Active:    active,
-		IsDefault: req.IsDefault,
-		Config:    req.Config,
+		UserID:     userID,
+		Name:       req.Name,
+		Type:       req.Type,
+		Active:     active,
+		IsDefault:  req.IsDefault,
+		TemplateID: req.TemplateID,
+		Config:     req.Config,
 	}
 
 	if err := h.svc.Create(c.Request().Context(), n); err != nil {
@@ -331,6 +336,9 @@ func (h *NotificationHandlers) Update(c echo.Context) error {
 	if req.IsDefault != nil {
 		existing.IsDefault = *req.IsDefault
 	}
+	// PUT replaces the selectable template association. A missing or explicit
+	// null template_id means "use the provider default layout".
+	existing.TemplateID = req.TemplateID
 	if req.Config != nil {
 		existing.Config = req.Config
 	}

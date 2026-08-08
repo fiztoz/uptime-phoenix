@@ -10,6 +10,7 @@ export interface BackupDocument {
   version: number;
   exported_at: string;
   proxies: unknown[];
+  notification_templates?: unknown[];
   notifications: unknown[];
   tags: unknown[];
   monitors: unknown[];
@@ -32,6 +33,7 @@ export interface ImportSkipped {
 
 export interface ImportSummary {
   proxies_created: number;
+  notification_templates_created: number;
   notifications_created: number;
   tags_created: number;
   tags_reused: number;

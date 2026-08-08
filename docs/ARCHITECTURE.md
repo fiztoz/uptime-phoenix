@@ -356,16 +356,33 @@ type Notification struct {
     Type       string            // "telegram", "discord", "slack", ...
     Active     bool
     IsDefault  bool
+    TemplateID *int64           // nil = provider's built-in layout
     Config     map[string]any    // per-provider config (JSONB in DB)
     CreatedAt  time.Time
     UpdatedAt  time.Time
 }
 
+type NotificationTemplate struct {
+    ID            int64
+    UserID        int64
+    Name          string
+    Provider      string         // discord, smtp, webhook, or line
+    TitleTemplate string         // Discord embed title / SMTP subject
+    BodyTemplate  string
+    Config        map[string]any // provider-specific layout (Discord embeds / SMTP HTML)
+    CreatedAt     time.Time
+    UpdatedAt     time.Time
+}
+
 type AlertContext struct {
+    AlertScope     string         // monitor or group
     MonitorID      int64
     MonitorName    string
     MonitorType    string
     MonitorTarget  string
+    GroupID        int64
+    GroupName      string
+    GroupCondition GroupCondition
     Status         Status
     PreviousStatus Status
     Message        string
@@ -623,6 +640,19 @@ CREATE TABLE heartbeat_1m (
 -- heartbeat_1h and heartbeat_1d follow the same pattern
 -- (bucket truncated to hour / day respectively; heartbeat_1d uses DATE column)
 
+-- reusable message layouts (migration 027)
+CREATE TABLE notification_templates (
+    id             BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id        BIGINT,
+    name           VARCHAR(255) NOT NULL,
+    provider       VARCHAR(50) NOT NULL,
+    title_template VARCHAR(1000) NOT NULL DEFAULT '',
+    body_template  TEXT NOT NULL,
+    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- notifications (per-provider config in JSON)
 CREATE TABLE notifications (
     id          BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -631,10 +661,12 @@ CREATE TABLE notifications (
     type        VARCHAR(50) NOT NULL,        -- telegram, discord, slack, ...
     active      BOOLEAN NOT NULL DEFAULT TRUE,
     is_default  BOOLEAN NOT NULL DEFAULT FALSE,
+    template_id BIGINT,
     config      JSON NOT NULL,               -- per-provider config
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+    FOREIGN KEY (template_id) REFERENCES notification_templates(id) ON DELETE SET NULL,
     INDEX idx_notif_user (user_id),
     INDEX idx_notif_type (type)
 );
@@ -1031,6 +1063,56 @@ func init() {
 ```
 
 Actual registration is driven by per-file `init()` + `registry.go` (same one-file plugin convention as checkers). Do **not** reintroduce ntfy/Pushover/PagerDuty/OpsGenie without explicit approval — they are not in the tree.
+
+### Reusable Message Templates
+
+Discord, SMTP, Webhook, and LINE can select an install-wide reusable message
+template. `notifications.template_id` is nullable and uses `ON DELETE SET NULL`,
+so deleting a template restores the provider's built-in layout instead of
+breaking delivery. The provider on a template is immutable after creation, and
+`NotificationService` rejects cross-provider assignments.
+
+Templates use Phoenix placeholders such as `{{ monitor.name }}`, `{{ status }}`,
+`{{ message }}`, `{{ check_output }}`, `{{ timestamp }}`, and `{{ ack_url }}`.
+Generic `alert.*` placeholders resolve against either a monitor or a group;
+explicit `monitor.*` and `group.*` placeholders expose scope-specific metadata.
+`{{ status.emoji }}`, `{{ started_at.unix }}`, and `{{ timestamp.unix }}` support
+Discord-native titles and `<t:UNIX:F>` / `<t:UNIX:R>` timestamp markup.
+Webhook layouts may prefix any variable with `json.` (for example
+`{{ json.message }}`) to emit a JSON-encoded value. The renderer rejects unknown
+or malformed placeholders before persistence. `NotificationService` resolves
+the selected template per delivery and passes it through `AlertContext`; only
+the four supported sender adapters render it. Notifications with no template
+retain their existing provider-specific output exactly.
+
+Optional lifecycle variables fail empty rather than inventing values. Monitor
+status alerts take `started_at` and `duration` from the persisted alert row, so
+DOWN resends and recovery messages retain the original outage start; monitor
+`tags` are resolved through `TagService`. Groups have no persisted outage
+lifecycle or tags, so their lifecycle/tag variables are empty. `ack_url` is
+present only for monitor DOWN alerts when `PUBLIC_URL` is configured; group and
+recovery alerts leave it empty. Plain rendering emits an empty string for an
+unknown optional value, while the corresponding `json.*` timestamp emits null.
+
+Discord templates additionally persist a structured embed configuration in the
+`notification_templates.config` JSON column (migration `028`). Operators can
+customize the title link, footer, timestamp, status-specific colors, and up to
+25 ordered fields. Field names and values are templates; a field whose rendered
+name or value is empty is omitted, allowing monitor-only fields such as Target
+and group-only fields such as Condition to coexist in one reusable layout.
+Rendered payloads enforce Discord's per-field and 6,000-character aggregate
+limits before sending.
+
+SMTP templates use the same provider-specific `config` column without another
+schema migration. A missing SMTP config means `plain`, preserving templates
+created before HTML email support. HTML mode stores an additional
+`html_body_template` while `body_template` remains the required plain-text
+fallback. The SMTP adapter renders variables context-safely, sends both bodies
+as `multipart/alternative`, and keeps the existing CR/LF stripping and length
+limit on the subject. The admin composer previews the result inside a sandboxed
+email frame; its content-security policy blocks scripts, forms, navigation, and
+remote resources so previewing operator-authored markup cannot execute it in
+Phoenix or leak the operator's address to tracking pixels.
 
 ### Severity Mapping
 

@@ -453,6 +453,17 @@ When automated tests aren't sufficient, verify these flows manually.
 - [ ] Add Telegram notification (bot_token + chat_id)
 - [ ] Add Discord notification (webhook_url)
 - [ ] Add Webhook notification (custom URL)
+- [ ] Create Discord, SMTP, Webhook, and LINE message templates; insert Phoenix variables and verify the rendered preview
+- [ ] Discord template: customize UP/DOWN/PENDING/MAINTENANCE/certificate colors, title link, footer, timestamp, and ordered inline/full-width fields
+- [ ] Switch the Discord preview between Monitor alert and Group alert; monitor-only fields disappear for groups and group condition/threshold fields disappear for monitors
+- [ ] Send monitor and folder transitions through the same Discord template; verify the delivered embed matches the preview structure and uses the correct scope variables
+- [ ] Create an SMTP HTML template with a plain-text fallback; verify the preview switches between desktop, mobile, and fallback text without loading remote images
+- [ ] Send monitor and folder transitions through the SMTP HTML template; verify the message is `multipart/alternative`, dynamic values are escaped in HTML, and both MIME parts contain the correct scope values
+- [ ] Preview and deliver a monitor recovery: `started_at`, `duration`, and `tags` match the persisted outage/tag data; switch to a folder alert and verify lifecycle, tag, and acknowledgement-only values are empty rather than sample data
+- [ ] Reopen a legacy SMTP template with no provider config; verify it remains plain text and delivers exactly one `text/plain` body
+- [ ] Select a matching template while creating/editing each supported notification; mismatched providers are not offered and the API rejects them
+- [ ] Delete a selected template → the notification falls back to the provider default layout
+- [ ] Webhook `json.*` variables remain valid JSON when monitor/message values contain quotes
 - [ ] Test-send button fires test notification
 - [ ] Edit notification config
 - [ ] Delete notification

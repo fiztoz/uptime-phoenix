@@ -6,17 +6,39 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
+// NotificationTagReader supplies the named tag values attached to a monitor.
+// TagService satisfies it; keeping the read surface small lets notification
+// dispatch include template metadata without depending on repositories.
+type NotificationTagReader interface {
+	TagsForMonitor(ctx context.Context, monitorID int64) ([]MonitorTagDetail, error)
+}
+
 // NotificationService handles notification CRUD and dispatching.
 type NotificationService struct {
 	repo             ports.NotificationRepository
+	templateRepo     ports.NotificationTemplateRepository
 	monitorNotifRepo ports.MonitorNotificationRepository
 	groupNotifRepo   ports.GroupNotificationRepository // optional: group (folder) alerting
+	tagReader        NotificationTagReader             // optional: monitor template metadata
 	senders          map[string]ports.NotificationSender
+}
+
+// SetTemplateRepository wires reusable notification templates into validation
+// and dispatch. A notification without a template keeps working when it is unset.
+func (s *NotificationService) SetTemplateRepository(repo ports.NotificationTemplateRepository) {
+	s.templateRepo = repo
+}
+
+// SetTagReader wires monitor tag values into reusable notification templates.
+// Tag lookup remains best-effort so metadata failure never suppresses an alert.
+func (s *NotificationService) SetTagReader(reader NotificationTagReader) {
+	s.tagReader = reader
 }
 
 // NewNotificationService creates a new NotificationService.
@@ -50,6 +72,9 @@ func (s *NotificationService) RegisterSender(sender ports.NotificationSender) {
 
 // Create creates a new notification configuration.
 func (s *NotificationService) Create(ctx context.Context, n *domain.Notification) error {
+	if err := s.validateTemplateAssignment(ctx, n); err != nil {
+		return err
+	}
 	return s.repo.Create(ctx, n)
 }
 
@@ -98,6 +123,9 @@ func (s *NotificationService) ListForMonitors(ctx context.Context, monitorIDs []
 
 // Update updates a notification configuration.
 func (s *NotificationService) Update(ctx context.Context, n *domain.Notification) error {
+	if err := s.validateTemplateAssignment(ctx, n); err != nil {
+		return err
+	}
 	return s.repo.Update(ctx, n)
 }
 
@@ -120,24 +148,68 @@ func (s *NotificationService) Notify(ctx context.Context, monitor *domain.Monito
 // placed on AlertContext.CheckOutput so providers that render it (Discord,
 // Telegram, webhook, …) include the check detail.
 func (s *NotificationService) NotifyWithAck(ctx context.Context, monitor *domain.Monitor, status domain.Status, prevStatus domain.Status, ackURL, checkOutput string) error {
+	return s.NotifyWithAlertDetails(
+		ctx, monitor, status, prevStatus, ackURL, checkOutput, time.Time{}, 0,
+	)
+}
+
+// NotifyWithAlertDetails dispatches a monitor status alert with optional
+// lifecycle timing. NotificationDispatcher supplies the persisted alert's
+// FiredAt and elapsed duration for initial DOWN, resends, and recovery; direct
+// callers may leave both zero and the matching template variables render empty.
+func (s *NotificationService) NotifyWithAlertDetails(
+	ctx context.Context,
+	monitor *domain.Monitor,
+	status, prevStatus domain.Status,
+	ackURL, checkOutput string,
+	startedAt time.Time,
+	duration time.Duration,
+) error {
 	msg := fmt.Sprintf("%s is %s", monitor.Name, status.String())
 	if ackURL != "" && status == domain.StatusDown {
 		msg = msg + "\nAcknowledge: " + ackURL
 	}
+	if !startedAt.IsZero() {
+		startedAt = startedAt.UTC()
+	}
 	alert := domain.AlertContext{
-		MonitorID:      monitor.ID,
-		MonitorName:    monitor.Name,
-		MonitorType:    monitor.Type,
-		MonitorTarget:  monitor.Target(),
-		Status:         status,
-		PreviousStatus: prevStatus,
-		Message:        msg,
-		CheckOutput:    checkOutput,
-		StartedAt:      monitor.CreatedAt,
-		EventKind:      domain.AlertEventStatusChange,
-		AckURL:         ackURL,
+		AlertScope:         domain.AlertScopeMonitor,
+		MonitorID:          monitor.ID,
+		MonitorName:        monitor.Name,
+		MonitorType:        monitor.Type,
+		MonitorTarget:      monitor.Target(),
+		MonitorDescription: monitor.Description,
+		MonitorOwner:       monitor.Owner,
+		Status:             status,
+		PreviousStatus:     prevStatus,
+		Message:            msg,
+		CheckOutput:        checkOutput,
+		Duration:           duration,
+		StartedAt:          startedAt,
+		Tags:               s.tagsForMonitor(ctx, monitor.ID),
+		EventKind:          domain.AlertEventStatusChange,
+		AckURL:             ackURL,
 	}
 	return s.Dispatch(ctx, monitor, alert)
+}
+
+func (s *NotificationService) tagsForMonitor(ctx context.Context, monitorID int64) map[string]string {
+	tags := make(map[string]string)
+	if s.tagReader == nil {
+		return tags
+	}
+	details, err := s.tagReader.TagsForMonitor(ctx, monitorID)
+	if err != nil {
+		slog.Warn("notification service: tag lookup failed; sending without tags",
+			"monitor_id", monitorID, "error", err)
+		return tags
+	}
+	for _, tag := range details {
+		if tag.Name != "" {
+			tags[tag.Name] = tag.Value
+		}
+	}
+	return tags
 }
 
 // Dispatch sends a pre-built AlertContext to every active notification attached
@@ -160,7 +232,13 @@ func (s *NotificationService) Dispatch(ctx context.Context, monitor *domain.Moni
 				"type", n.Type, "notification_id", n.ID, "monitor_id", monitor.ID)
 			continue
 		}
-		if err := sender.Send(ctx, n.Config, alert); err != nil {
+		notificationAlert, err := s.alertForNotification(ctx, n, alert)
+		if err != nil {
+			slog.Error("notification service: resolve template failed",
+				"type", n.Type, "notification_id", n.ID, "monitor_id", monitor.ID, "error", err)
+			continue
+		}
+		if err := sender.Send(ctx, n.Config, notificationAlert); err != nil {
 			slog.Error("notification service: send failed",
 				"type", n.Type, "notification_id", n.ID, "monitor_id", monitor.ID, "error", err)
 		}
@@ -206,7 +284,12 @@ func (s *NotificationService) DispatchToNotificationIDs(ctx context.Context, not
 			errs = append(errs, fmt.Errorf("notification %d: unknown sender type %q", id, n.Type))
 			continue
 		}
-		if err := sender.Send(ctx, n.Config, alert); err != nil {
+		notificationAlert, err := s.alertForNotification(ctx, n, alert)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("notification %d template: %w", id, err))
+			continue
+		}
+		if err := sender.Send(ctx, n.Config, notificationAlert); err != nil {
 			slog.Error("notification service: escalation send failed",
 				"type", n.Type, "notification_id", n.ID, "monitor_id", alert.MonitorID, "error", err)
 			errs = append(errs, fmt.Errorf("notification %d: %w", id, err))
@@ -246,12 +329,20 @@ func (s *NotificationService) NotifyGroup(ctx context.Context, group *domain.Mon
 		// MonitorID stays 0 — there is no monitor this alert is about, and putting
 		// the group id in a field every sender treats as a monitor id would produce
 		// links to the wrong page.
-		MonitorName:    group.Name,
-		MonitorType:    "group",
-		Status:         status,
-		PreviousStatus: prevStatus,
-		Message:        fmt.Sprintf("Group %q is %s", group.Name, status.String()),
-		StartedAt:      group.CreatedAt,
+		AlertScope:              domain.AlertScopeGroup,
+		MonitorName:             group.Name,
+		MonitorType:             "group",
+		GroupID:                 group.ID,
+		GroupName:               group.Name,
+		GroupDescription:        group.Description,
+		GroupOwner:              group.Owner,
+		GroupCondition:          group.Condition,
+		GroupThreshold:          group.Threshold,
+		GroupThresholdIsPercent: group.ThresholdIsPercent,
+		Status:                  status,
+		PreviousStatus:          prevStatus,
+		Message:                 fmt.Sprintf("Group %q is %s", group.Name, status.String()),
+		Tags:                    map[string]string{},
 	}
 
 	for _, n := range notifications {
@@ -264,7 +355,13 @@ func (s *NotificationService) NotifyGroup(ctx context.Context, group *domain.Mon
 				"type", n.Type, "notification_id", n.ID, "group_id", group.ID)
 			continue
 		}
-		if err := sender.Send(ctx, n.Config, alert); err != nil {
+		notificationAlert, err := s.alertForNotification(ctx, n, alert)
+		if err != nil {
+			slog.Error("notification service: resolve group template failed",
+				"type", n.Type, "notification_id", n.ID, "group_id", group.ID, "error", err)
+			continue
+		}
+		if err := sender.Send(ctx, n.Config, notificationAlert); err != nil {
 			slog.Error("notification service: group send failed",
 				"type", n.Type, "notification_id", n.ID, "group_id", group.ID, "error", err)
 		}
@@ -308,13 +405,58 @@ func (s *NotificationService) SendTest(ctx context.Context, n *domain.Notificati
 		return fmt.Errorf("notification service: unknown sender type: %s", n.Type)
 	}
 	alert := domain.AlertContext{
+		AlertScope:    domain.AlertScopeMonitor,
 		MonitorName:   "Test Monitor",
 		MonitorType:   "http",
 		MonitorTarget: "https://example.com",
 		Status:        domain.StatusUp,
 		Message:       "This is a test notification from Phoenix.",
 	}
-	return sender.Send(ctx, n.Config, alert)
+	notificationAlert, err := s.alertForNotification(ctx, n, alert)
+	if err != nil {
+		return fmt.Errorf("notification service: resolve test template: %w", err)
+	}
+	return sender.Send(ctx, n.Config, notificationAlert)
+}
+
+func (s *NotificationService) validateTemplateAssignment(ctx context.Context, n *domain.Notification) error {
+	if n == nil || n.TemplateID == nil {
+		return nil
+	}
+	if s.templateRepo == nil {
+		return fmt.Errorf("notification service: %w: notification templates are unavailable", domain.ErrValidation)
+	}
+	template, err := s.templateRepo.GetByID(ctx, *n.TemplateID)
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) || errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("notification service: %w: notification template not found", domain.ErrValidation)
+		}
+		return fmt.Errorf("notification service: get template: %w", err)
+	}
+	if template.Provider != n.Type {
+		return fmt.Errorf("notification service: %w: template provider %q does not match notification type %q", domain.ErrValidation, template.Provider, n.Type)
+	}
+	return nil
+}
+
+func (s *NotificationService) alertForNotification(ctx context.Context, n *domain.Notification, alert domain.AlertContext) (domain.AlertContext, error) {
+	if n == nil || n.TemplateID == nil {
+		return alert, nil
+	}
+	if s.templateRepo == nil {
+		return alert, fmt.Errorf("notification template repository is unavailable")
+	}
+	template, err := s.templateRepo.GetByID(ctx, *n.TemplateID)
+	if err != nil {
+		return alert, err
+	}
+	if template.Provider != n.Type {
+		return alert, fmt.Errorf("template provider %q does not match notification type %q", template.Provider, n.Type)
+	}
+	alert.TemplateTitle = template.TitleTemplate
+	alert.TemplateBody = template.BodyTemplate
+	alert.TemplateConfig = template.Config
+	return alert, nil
 }
 
 // AttachToMonitor links a notification to a monitor so the notification is

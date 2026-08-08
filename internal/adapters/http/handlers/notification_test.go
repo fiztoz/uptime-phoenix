@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -34,6 +36,77 @@ type notifHMonLinkRepo struct {
 	mu     sync.Mutex
 	nextID int64
 	links  []domain.MonitorNotification
+}
+
+type notifHTemplateRepo struct {
+	mu     sync.Mutex
+	nextID int64
+	items  map[int64]*domain.NotificationTemplate
+}
+
+func newNotifHTemplateRepo() *notifHTemplateRepo {
+	return &notifHTemplateRepo{items: make(map[int64]*domain.NotificationTemplate)}
+}
+
+func (r *notifHTemplateRepo) Create(_ context.Context, template *domain.NotificationTemplate) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.nextID++
+	template.ID = r.nextID
+	template.CreatedAt = time.Now().UTC()
+	template.UpdatedAt = template.CreatedAt
+	copy := *template
+	r.items[template.ID] = &copy
+	return nil
+}
+
+func (r *notifHTemplateRepo) GetByID(_ context.Context, id int64) (*domain.NotificationTemplate, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	template, ok := r.items[id]
+	if !ok {
+		return nil, ports.ErrNotFound
+	}
+	copy := *template
+	return &copy, nil
+}
+
+func (r *notifHTemplateRepo) List(_ context.Context) ([]*domain.NotificationTemplate, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ids := make([]int64, 0, len(r.items))
+	for id := range r.items {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	out := make([]*domain.NotificationTemplate, 0, len(ids))
+	for _, id := range ids {
+		copy := *r.items[id]
+		out = append(out, &copy)
+	}
+	return out, nil
+}
+
+func (r *notifHTemplateRepo) Update(_ context.Context, template *domain.NotificationTemplate) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.items[template.ID]; !ok {
+		return ports.ErrNotFound
+	}
+	template.UpdatedAt = time.Now().UTC()
+	copy := *template
+	r.items[template.ID] = &copy
+	return nil
+}
+
+func (r *notifHTemplateRepo) Delete(_ context.Context, id int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.items[id]; !ok {
+		return ports.ErrNotFound
+	}
+	delete(r.items, id)
+	return nil
 }
 
 func newNotifHMonLinkRepo() *notifHMonLinkRepo {
@@ -381,6 +454,7 @@ type notifHTTPHarness struct {
 	repo       *notifHRepo
 	monLinks   *notifHMonLinkRepo
 	groupLinks *notifHGroupLinkRepo
+	templates  *notifHTemplateRepo
 	sender     *notifHSender
 
 	monitorAID int64
@@ -475,9 +549,11 @@ func newNotifHTTPHarness(t *testing.T) *notifHTTPHarness {
 	monLinks := newNotifHMonLinkRepo()
 	repo := newNotifHRepo(monLinks)
 	groupLinks := newNotifHGroupLinkRepo(repo)
+	templateRepo := newNotifHTemplateRepo()
 	sender := &notifHSender{}
 
 	notifSvc := services.NewNotificationService(repo, monLinks)
+	notifSvc.SetTemplateRepository(templateRepo)
 	notifSvc.SetGroupNotificationRepo(groupLinks)
 	notifSvc.RegisterSender(sender)
 
@@ -491,6 +567,8 @@ func newNotifHTTPHarness(t *testing.T) *notifHTTPHarness {
 	// are under test, not only the in-handler requireManageNotifications checks.
 	requireNotifications := middleware.RequireCapability(accessSvc, middleware.CapManageNotifications)
 	nh := handlers.NewNotificationHandlers(notifSvc, accessSvc)
+	templateSvc := services.NewNotificationTemplateService(templateRepo)
+	th := handlers.NewNotificationTemplateHandlers(templateSvc, accessSvc)
 
 	notifGroup := e.Group("/api/notifications", middleware.AuthMiddleware(authSvc))
 	notifGroup.POST("", nh.Create, requireNotifications)
@@ -510,6 +588,14 @@ func newNotifHTTPHarness(t *testing.T) *notifHTTPHarness {
 	groupNotifGroup := e.Group("/api/monitor-groups/:id/notifications", middleware.AuthMiddleware(authSvc))
 	groupNotifGroup.GET("", nh.ListForGroup)
 
+	templateGroup := e.Group("/api/notification-templates", middleware.AuthMiddleware(authSvc), requireNotifications)
+	templateGroup.POST("", th.Create)
+	templateGroup.GET("", th.List)
+	templateGroup.GET("/variables", th.Variables)
+	templateGroup.GET("/:id", th.GetByID)
+	templateGroup.PUT("/:id", th.Update)
+	templateGroup.DELETE("/:id", th.Delete)
+
 	return &notifHTTPHarness{
 		router:     e,
 		tokenA:     tokenA,
@@ -520,6 +606,7 @@ func newNotifHTTPHarness(t *testing.T) *notifHTTPHarness {
 		repo:       repo,
 		monLinks:   monLinks,
 		groupLinks: groupLinks,
+		templates:  templateRepo,
 		sender:     sender,
 		monitorAID: monitorA.ID,
 		monitorBID: monitorB.ID,
@@ -1051,5 +1138,148 @@ func TestNotificationHandlers_Delete_CapabilityHolderRemovesRow(t *testing.T) {
 	// cannot hide a failed delete.
 	if _, err := h.repo.GetByID(ctx, id); err == nil {
 		t.Fatal("row still present in repo after Delete")
+	}
+}
+
+func TestNotificationTemplateHandlers_CRUDVariablesAndAssignmentValidation(t *testing.T) {
+	h := newNotifHTTPHarness(t)
+
+	denied := h.do(t, http.MethodPost, "/api/notification-templates", h.tokenC, map[string]any{
+		"name": "Read-only attempt", "provider": "discord", "body_template": "{{ message }}",
+	})
+	if denied.Code != http.StatusForbidden {
+		t.Fatalf("read-only POST template = %d; want 403 (body: %s)", denied.Code, denied.Body.String())
+	}
+
+	created := h.do(t, http.MethodPost, "/api/notification-templates", h.tokenB, map[string]any{
+		"name":           "Discord incident",
+		"provider":       "discord",
+		"title_template": "{{ status.emoji }} {{ alert.name }} is {{ status }}",
+		"body_template":  "{{ message }}\n{{ ack_url }}",
+		"discord_config": map[string]any{
+			"title_url_template": "{{ alert.target }}",
+			"footer_template":    "Phoenix • {{ alert.scope }}",
+			"show_timestamp":     true,
+			"colors": map[string]any{
+				"up": "#00FF00", "down": "#FF0000", "pending": "#FFA500",
+				"maintenance": "#808080", "certificate": "#FFA500",
+			},
+			"fields": []any{map[string]any{
+				"name_template": "Condition", "value_template": "{{ group.condition }}", "inline": true,
+			}},
+		},
+	})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("POST template = %d; want 201 (body: %s)", created.Code, created.Body.String())
+	}
+	var templateView struct {
+		ID            int64                               `json:"id"`
+		Provider      string                              `json:"provider"`
+		DiscordConfig *handlers.DiscordTemplateConfigView `json:"discord_config"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &templateView); err != nil {
+		t.Fatalf("decode created template: %v", err)
+	}
+	if templateView.ID == 0 || templateView.Provider != "discord" {
+		t.Fatalf("created template = %+v", templateView)
+	}
+	if templateView.DiscordConfig == nil || len(templateView.DiscordConfig.Fields) != 1 || templateView.DiscordConfig.Colors.Down != "#FF0000" {
+		t.Fatalf("created Discord config = %+v", templateView.DiscordConfig)
+	}
+
+	variables := h.do(t, http.MethodGet, "/api/notification-templates/variables", h.tokenB, nil)
+	if variables.Code != http.StatusOK || !bytes.Contains(variables.Body.Bytes(), []byte(`"monitor.name"`)) || !bytes.Contains(variables.Body.Bytes(), []byte(`"group.condition"`)) {
+		t.Fatalf("GET variables = %d %s; want monitor and group variables", variables.Code, variables.Body.String())
+	}
+
+	mismatch := h.do(t, http.MethodPost, "/api/notifications", h.tokenB, map[string]any{
+		"name": "Webhook with Discord template", "type": "webhook",
+		"template_id": templateView.ID,
+		"config":      map[string]any{"url": "https://hooks.example.test"},
+	})
+	if mismatch.Code != http.StatusBadRequest {
+		t.Fatalf("POST mismatched notification = %d; want 400 (body: %s)", mismatch.Code, mismatch.Body.String())
+	}
+
+	matching := h.do(t, http.MethodPost, "/api/notifications", h.tokenB, map[string]any{
+		"name": "Discord channel", "type": "discord",
+		"template_id": templateView.ID,
+		"config":      map[string]any{"webhook_url": "https://discord.example.test"},
+	})
+	if matching.Code != http.StatusCreated {
+		t.Fatalf("POST matching notification = %d; want 201 (body: %s)", matching.Code, matching.Body.String())
+	}
+	var notificationView struct {
+		TemplateID *int64 `json:"template_id"`
+	}
+	if err := json.Unmarshal(matching.Body.Bytes(), &notificationView); err != nil {
+		t.Fatalf("decode matching notification: %v", err)
+	}
+	if notificationView.TemplateID == nil || *notificationView.TemplateID != templateView.ID {
+		t.Fatalf("notification template_id = %v; want %d", notificationView.TemplateID, templateView.ID)
+	}
+
+	updated := h.do(t, http.MethodPut, "/api/notification-templates/"+strconv.FormatInt(templateView.ID, 10), h.tokenB, map[string]any{
+		"name": "Discord incident v2", "title_template": "{{ monitor.name }}", "body_template": "{{ check_output }}",
+	})
+	if updated.Code != http.StatusOK || !bytes.Contains(updated.Body.Bytes(), []byte(`"provider":"discord"`)) {
+		t.Fatalf("PUT template = %d %s; want immutable discord provider", updated.Code, updated.Body.String())
+	}
+	if !bytes.Contains(updated.Body.Bytes(), []byte(`"footer_template":"Phoenix • {{ alert.scope }}"`)) {
+		t.Fatalf("PUT without discord_config should preserve existing embed config: %s", updated.Body.String())
+	}
+
+	smtpCreated := h.do(t, http.MethodPost, "/api/notification-templates", h.tokenB, map[string]any{
+		"name":           "Rich email",
+		"provider":       "smtp",
+		"title_template": "{{ alert.name }} is {{ status }}",
+		"body_template":  "{{ alert.name }} is {{ status }}\n{{ message }}",
+		"smtp_config": map[string]any{
+			"format":             "html",
+			"html_body_template": `<h1>{{ alert.name }}</h1><p>{{ message }}</p>`,
+		},
+	})
+	if smtpCreated.Code != http.StatusCreated {
+		t.Fatalf("POST SMTP template = %d; want 201 (body: %s)", smtpCreated.Code, smtpCreated.Body.String())
+	}
+	var smtpTemplateView struct {
+		ID         int64                            `json:"id"`
+		Provider   string                           `json:"provider"`
+		SMTPConfig *handlers.SMTPTemplateConfigView `json:"smtp_config"`
+	}
+	if err := json.Unmarshal(smtpCreated.Body.Bytes(), &smtpTemplateView); err != nil {
+		t.Fatalf("decode created SMTP template: %v", err)
+	}
+	if smtpTemplateView.ID == 0 || smtpTemplateView.Provider != "smtp" || smtpTemplateView.SMTPConfig == nil ||
+		smtpTemplateView.SMTPConfig.Format != "html" || !strings.Contains(smtpTemplateView.SMTPConfig.HTMLBodyTemplate, "<h1>") {
+		t.Fatalf("created SMTP template = %+v", smtpTemplateView)
+	}
+
+	smtpUpdated := h.do(t, http.MethodPut, "/api/notification-templates/"+strconv.FormatInt(smtpTemplateView.ID, 10), h.tokenB, map[string]any{
+		"name": "Rich email v2", "title_template": "{{ alert.name }}", "body_template": "Fallback: {{ message }}",
+	})
+	var preservedSMTPTemplate struct {
+		SMTPConfig *handlers.SMTPTemplateConfigView `json:"smtp_config"`
+	}
+	if err := json.Unmarshal(smtpUpdated.Body.Bytes(), &preservedSMTPTemplate); err != nil {
+		t.Fatalf("decode updated SMTP template: %v", err)
+	}
+	if smtpUpdated.Code != http.StatusOK || preservedSMTPTemplate.SMTPConfig == nil ||
+		preservedSMTPTemplate.SMTPConfig.Format != "html" ||
+		preservedSMTPTemplate.SMTPConfig.HTMLBodyTemplate != `<h1>{{ alert.name }}</h1><p>{{ message }}</p>` {
+		t.Fatalf("PUT without smtp_config should preserve existing email config: %d %s", smtpUpdated.Code, smtpUpdated.Body.String())
+	}
+
+	wrongSMTPConfig := h.do(t, http.MethodPost, "/api/notification-templates", h.tokenB, map[string]any{
+		"name": "LINE with email config", "provider": "line", "body_template": "{{ message }}",
+		"smtp_config": map[string]any{"format": "plain", "html_body_template": ""},
+	})
+	if wrongSMTPConfig.Code != http.StatusBadRequest {
+		t.Fatalf("POST mismatched smtp_config = %d; want 400 (body: %s)", wrongSMTPConfig.Code, wrongSMTPConfig.Body.String())
+	}
+
+	deleted := h.do(t, http.MethodDelete, "/api/notification-templates/"+strconv.FormatInt(templateView.ID, 10), h.tokenB, nil)
+	if deleted.Code != http.StatusNoContent {
+		t.Fatalf("DELETE template = %d; want 204 (body: %s)", deleted.Code, deleted.Body.String())
 	}
 }

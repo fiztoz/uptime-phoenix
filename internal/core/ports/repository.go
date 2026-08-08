@@ -238,6 +238,16 @@ type NotificationRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
+// NotificationTemplateRepository defines persistence operations for reusable
+// notification message layouts.
+type NotificationTemplateRepository interface {
+	Create(ctx context.Context, template *domain.NotificationTemplate) error
+	GetByID(ctx context.Context, id int64) (*domain.NotificationTemplate, error)
+	List(ctx context.Context) ([]*domain.NotificationTemplate, error)
+	Update(ctx context.Context, template *domain.NotificationTemplate) error
+	Delete(ctx context.Context, id int64) error
+}
+
 // StatusPageRepository defines persistence operations for status pages.
 type StatusPageRepository interface {
 	Create(ctx context.Context, sp *domain.StatusPage) error

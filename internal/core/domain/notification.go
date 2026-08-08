@@ -4,15 +4,16 @@ import "time"
 
 // Notification represents a notification provider configuration.
 type Notification struct {
-	ID        int64
-	UserID    int64
-	Name      string
-	Type      string // "telegram", "discord", "slack", ...
-	Active    bool
-	IsDefault bool
-	Config    map[string]any // per-provider config (JSONB in DB)
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID         int64
+	UserID     int64
+	Name       string
+	Type       string // "telegram", "discord", "slack", ...
+	Active     bool
+	IsDefault  bool
+	TemplateID *int64
+	Config     map[string]any // per-provider config (JSONB in DB)
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // MonitorNotification represents the link between a monitor and a notification.
@@ -49,21 +50,34 @@ type NotificationSentHistory struct {
 const (
 	AlertEventStatusChange      = "status_change"
 	AlertEventCertificateExpiry = "certificate_expiry"
+
+	AlertScopeMonitor = "monitor"
+	AlertScopeGroup   = "group"
 )
 
 // AlertContext contains the data needed to render an alert notification.
 type AlertContext struct {
-	MonitorID      int64
-	MonitorName    string
-	MonitorType    string
-	MonitorTarget  string
-	Status         Status
-	PreviousStatus Status
-	Message        string
-	Duration       time.Duration
-	StartedAt      time.Time
-	CheckOutput    string
-	Tags           map[string]string
+	AlertScope              string
+	MonitorID               int64
+	MonitorName             string
+	MonitorType             string
+	MonitorTarget           string
+	MonitorDescription      string
+	MonitorOwner            string
+	GroupID                 int64
+	GroupName               string
+	GroupDescription        string
+	GroupOwner              string
+	GroupCondition          GroupCondition
+	GroupThreshold          int
+	GroupThresholdIsPercent bool
+	Status                  Status
+	PreviousStatus          Status
+	Message                 string
+	Duration                time.Duration
+	StartedAt               time.Time
+	CheckOutput             string
+	Tags                    map[string]string
 
 	// EventKind distinguishes status transitions from certificate-expiry alerts.
 	// Senders MUST render certificate_expiry with cert-specific copy, not as
@@ -81,4 +95,11 @@ type AlertContext struct {
 	// not a DOWN status change. Senders may surface it; NotificationService also
 	// appends it to Message so every provider carries the link by default.
 	AckURL string
+
+	// TemplateTitle and TemplateBody are resolved by NotificationService for the
+	// notification currently being sent. Empty values preserve the provider's
+	// built-in layout.
+	TemplateTitle  string
+	TemplateBody   string
+	TemplateConfig map[string]any
 }

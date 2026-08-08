@@ -149,12 +149,6 @@ export const notificationTypeConfig: Record<
         type: "textarea",
         placeholder: '{"Authorization": "Bearer xxx"}',
       },
-      {
-        key: "body_template",
-        label: "Body Template",
-        type: "textarea",
-        help: "Use {{monitor.name}}, {{status}} etc.",
-      },
     ],
   },
   teams: {

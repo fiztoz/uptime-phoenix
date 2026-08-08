@@ -109,26 +109,35 @@ func (s *AlertService) OpenOnDown(ctx context.Context, monitor *domain.Monitor, 
 // ResolveOpen marks the monitor's open alert resolved. Missing open alerts are
 // a no-op (e.g. the original DOWN was suppressed by maintenance).
 func (s *AlertService) ResolveOpen(ctx context.Context, monitorID int64, at time.Time) error {
+	_, err := s.ResolveOpenWithAlert(ctx, monitorID, at)
+	return err
+}
+
+// ResolveOpenWithAlert resolves the open alert and returns the lifecycle row
+// that was closed. NotificationDispatcher uses FiredAt from this row to expose
+// truthful outage start and duration variables on recovery notifications.
+// Missing open alerts return (nil, nil).
+func (s *AlertService) ResolveOpenWithAlert(ctx context.Context, monitorID int64, at time.Time) (*domain.Alert, error) {
 	if s == nil || s.repo == nil {
-		return nil
+		return nil, nil
 	}
 	at = at.UTC()
 	open, err := s.repo.GetOpenByMonitorID(ctx, monitorID)
 	if errors.Is(err, ports.ErrNotFound) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return fmt.Errorf("alert service: resolve get: %w", err)
+		return nil, fmt.Errorf("alert service: resolve get: %w", err)
 	}
 	open.Status = domain.AlertStatusResolved
 	open.ResolvedAt = &at
 	open.OpenMonitorID = nil
 	open.UpdatedAt = at
 	if err := s.repo.Update(ctx, open); err != nil {
-		return fmt.Errorf("alert service: resolve update: %w", err)
+		return nil, fmt.Errorf("alert service: resolve update: %w", err)
 	}
 	s.cancelEscalation(ctx, open.ID)
-	return nil
+	return open, nil
 }
 
 // IsOpenAcked reports whether the monitor has an open alert in the acked state.

@@ -94,3 +94,28 @@ func webhookEventPayload(alert domain.AlertContext) map[string]any {
 	}
 	return body
 }
+
+// renderCustomLayout expands the reusable template selected on a notification.
+// Empty fields are left empty so each provider can retain its built-in fallback.
+func renderCustomLayout(alert domain.AlertContext) (title, body string, custom bool, err error) {
+	return renderCustomLayoutAt(alert, time.Now().UTC())
+}
+
+func renderCustomLayoutAt(alert domain.AlertContext, now time.Time) (title, body string, custom bool, err error) {
+	if alert.TemplateTitle == "" && alert.TemplateBody == "" {
+		return "", "", false, nil
+	}
+	if alert.TemplateTitle != "" {
+		title, err = domain.RenderNotificationTemplate(alert.TemplateTitle, alert, now)
+		if err != nil {
+			return "", "", true, fmt.Errorf("render title: %w", err)
+		}
+	}
+	if alert.TemplateBody != "" {
+		body, err = domain.RenderNotificationTemplate(alert.TemplateBody, alert, now)
+		if err != nil {
+			return "", "", true, fmt.Errorf("render body: %w", err)
+		}
+	}
+	return title, body, true, nil
+}

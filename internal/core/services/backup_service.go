@@ -29,13 +29,14 @@ type BackupDocument struct {
 	Version    int       `json:"version"`
 	ExportedAt time.Time `json:"exported_at"`
 
-	Proxies              []BackupProxy               `json:"proxies"`
-	Notifications        []BackupNotification        `json:"notifications"`
-	Tags                 []BackupTag                 `json:"tags"`
-	MonitorGroups        []BackupMonitorGroup        `json:"monitor_groups"`
-	Monitors             []BackupMonitor             `json:"monitors"`
-	MonitorTags          []BackupMonitorTag          `json:"monitor_tags"`
-	MonitorNotifications []BackupMonitorNotification `json:"monitor_notifications"`
+	Proxies               []BackupProxy                `json:"proxies"`
+	NotificationTemplates []BackupNotificationTemplate `json:"notification_templates,omitempty"`
+	Notifications         []BackupNotification         `json:"notifications"`
+	Tags                  []BackupTag                  `json:"tags"`
+	MonitorGroups         []BackupMonitorGroup         `json:"monitor_groups"`
+	Monitors              []BackupMonitor              `json:"monitors"`
+	MonitorTags           []BackupMonitorTag           `json:"monitor_tags"`
+	MonitorNotifications  []BackupMonitorNotification  `json:"monitor_notifications"`
 	// GroupNotifications is absent from documents exported before folder alerting
 	// existed. It unmarshals to nil there, and the import loop over it is then a
 	// no-op — that is the whole backward-compatibility story.
@@ -72,12 +73,23 @@ type BackupProxy struct {
 
 // BackupNotification is the export shape of a notification (config includes secrets).
 type BackupNotification struct {
-	ID        int64          `json:"id"`
-	Name      string         `json:"name"`
-	Type      string         `json:"type"`
-	Active    bool           `json:"active"`
-	IsDefault bool           `json:"is_default"`
-	Config    map[string]any `json:"config"`
+	ID         int64          `json:"id"`
+	Name       string         `json:"name"`
+	Type       string         `json:"type"`
+	Active     bool           `json:"active"`
+	IsDefault  bool           `json:"is_default"`
+	TemplateID *int64         `json:"template_id,omitempty"`
+	Config     map[string]any `json:"config"`
+}
+
+// BackupNotificationTemplate is the export shape of a reusable provider layout.
+type BackupNotificationTemplate struct {
+	ID            int64          `json:"id"`
+	Name          string         `json:"name"`
+	Provider      string         `json:"provider"`
+	TitleTemplate string         `json:"title_template"`
+	BodyTemplate  string         `json:"body_template"`
+	Config        map[string]any `json:"config,omitempty"`
 }
 
 // BackupTag is the export shape of a tag.
@@ -227,31 +239,33 @@ type ImportSkipped struct {
 
 // ImportSummary is returned by Import with creation counts and skips.
 type ImportSummary struct {
-	ProxiesCreated              int             `json:"proxies_created"`
-	NotificationsCreated        int             `json:"notifications_created"`
-	TagsCreated                 int             `json:"tags_created"`
-	TagsReused                  int             `json:"tags_reused"`
-	MonitorGroupsCreated        int             `json:"monitor_groups_created"`
-	MonitorsCreated             int             `json:"monitors_created"`
-	MonitorTagsCreated          int             `json:"monitor_tags_created"`
-	MonitorNotificationsCreated int             `json:"monitor_notifications_created"`
-	GroupNotificationsCreated   int             `json:"group_notifications_created"`
-	StatusPagesCreated          int             `json:"status_pages_created"`
-	StatusPageMonitorsCreated   int             `json:"status_page_monitors_created"`
-	StatusPageCNAMEsCreated     int             `json:"status_page_cnames_created"`
-	IncidentsCreated            int             `json:"incidents_created"`
-	MaintenanceWindowsCreated   int             `json:"maintenance_windows_created"`
-	MaintenanceMonitorsCreated  int             `json:"maintenance_monitors_created"`
-	Skipped                     []ImportSkipped `json:"skipped"`
+	ProxiesCreated               int             `json:"proxies_created"`
+	NotificationTemplatesCreated int             `json:"notification_templates_created"`
+	NotificationsCreated         int             `json:"notifications_created"`
+	TagsCreated                  int             `json:"tags_created"`
+	TagsReused                   int             `json:"tags_reused"`
+	MonitorGroupsCreated         int             `json:"monitor_groups_created"`
+	MonitorsCreated              int             `json:"monitors_created"`
+	MonitorTagsCreated           int             `json:"monitor_tags_created"`
+	MonitorNotificationsCreated  int             `json:"monitor_notifications_created"`
+	GroupNotificationsCreated    int             `json:"group_notifications_created"`
+	StatusPagesCreated           int             `json:"status_pages_created"`
+	StatusPageMonitorsCreated    int             `json:"status_page_monitors_created"`
+	StatusPageCNAMEsCreated      int             `json:"status_page_cnames_created"`
+	IncidentsCreated             int             `json:"incidents_created"`
+	MaintenanceWindowsCreated    int             `json:"maintenance_windows_created"`
+	MaintenanceMonitorsCreated   int             `json:"maintenance_monitors_created"`
+	Skipped                      []ImportSkipped `json:"skipped"`
 }
 
 // BackupService exports and imports a user's configuration as a versioned JSON document.
 // Import is merge-only (creates new entities; never overwrites or deletes existing data).
 type BackupService struct {
-	monitors      ports.MonitorRepository
-	groups        ports.MonitorGroupRepository
-	notifications ports.NotificationRepository
-	monitorNotifs ports.MonitorNotificationRepository
+	monitors              ports.MonitorRepository
+	groups                ports.MonitorGroupRepository
+	notifications         ports.NotificationRepository
+	notificationTemplates ports.NotificationTemplateRepository
+	monitorNotifs         ports.MonitorNotificationRepository
 	// Optional (SetGroupNotificationRepo). When nil, folder→notification links are
 	// simply absent from an export and skipped on import — the pre-folder-alerting
 	// behavior — rather than silently dropped from a document that HAS them.
@@ -317,6 +331,13 @@ func (s *BackupService) SetGroupNotificationRepo(repo ports.GroupNotificationRep
 	s.groupNotifs = repo
 }
 
+// SetNotificationTemplateRepo attaches reusable message layouts so template
+// selections survive backup export/import. It remains optional for older tests
+// and minimal compositions that do not expose templates.
+func (s *BackupService) SetNotificationTemplateRepo(repo ports.NotificationTemplateRepository) {
+	s.notificationTemplates = repo
+}
+
 // SetMonitorService attaches MonitorService so imports publish monitor.update events
 // and reuse group/proxy validation.
 func (s *BackupService) SetMonitorService(ms *MonitorService) {
@@ -348,6 +369,7 @@ func (s *BackupService) Export(ctx context.Context, userID int64) (*BackupDocume
 		Version:                        BackupDocumentVersion,
 		ExportedAt:                     time.Now().UTC(),
 		Proxies:                        []BackupProxy{},
+		NotificationTemplates:          []BackupNotificationTemplate{},
 		Notifications:                  []BackupNotification{},
 		Tags:                           []BackupTag{},
 		MonitorGroups:                  []BackupMonitorGroup{},
@@ -390,13 +412,40 @@ func (s *BackupService) Export(ctx context.Context, userID int64) (*BackupDocume
 	}
 	for _, n := range notifs {
 		doc.Notifications = append(doc.Notifications, BackupNotification{
-			ID:        n.ID,
-			Name:      n.Name,
-			Type:      n.Type,
-			Active:    n.Active,
-			IsDefault: n.IsDefault,
-			Config:    n.Config,
+			ID:         n.ID,
+			Name:       n.Name,
+			Type:       n.Type,
+			Active:     n.Active,
+			IsDefault:  n.IsDefault,
+			TemplateID: n.TemplateID,
+			Config:     n.Config,
 		})
+	}
+	if s.notificationTemplates != nil {
+		referenced := make(map[int64]struct{})
+		for _, notification := range notifs {
+			if notification.TemplateID != nil {
+				referenced[*notification.TemplateID] = struct{}{}
+			}
+		}
+		templates, listErr := s.notificationTemplates.List(ctx)
+		if listErr != nil {
+			return nil, fmt.Errorf("backup export: list notification templates: %w", listErr)
+		}
+		for _, template := range templates {
+			_, used := referenced[template.ID]
+			if template.UserID != userID && !used {
+				continue
+			}
+			doc.NotificationTemplates = append(doc.NotificationTemplates, BackupNotificationTemplate{
+				ID:            template.ID,
+				Name:          template.Name,
+				Provider:      template.Provider,
+				TitleTemplate: template.TitleTemplate,
+				BodyTemplate:  template.BodyTemplate,
+				Config:        template.Config,
+			})
+		}
 	}
 
 	// Monitor groups / folders (user-owned).
@@ -663,6 +712,7 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 
 	summary := &ImportSummary{Skipped: []ImportSkipped{}}
 	proxyMap := map[int64]int64{}
+	templateMap := map[int64]int64{}
 	notifMap := map[int64]int64{}
 	tagMap := map[int64]int64{}
 	groupMap := map[int64]int64{}
@@ -699,15 +749,50 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 		summary.ProxiesCreated++
 	}
 
-	// 2. Notifications
+	// 2. Notification templates. Older v1 documents omit this additive field.
+	if s.notificationTemplates != nil {
+		for _, backupTemplate := range doc.NotificationTemplates {
+			template := &domain.NotificationTemplate{
+				UserID:        userID,
+				Name:          backupTemplate.Name,
+				Provider:      backupTemplate.Provider,
+				TitleTemplate: backupTemplate.TitleTemplate,
+				BodyTemplate:  backupTemplate.BodyTemplate,
+				Config:        backupTemplate.Config,
+			}
+			if err := validateNotificationTemplate(template); err != nil {
+				summary.Skipped = append(summary.Skipped, ImportSkipped{
+					Kind: "notification_template", ID: backupTemplate.ID, Name: backupTemplate.Name, Reason: err.Error(),
+				})
+				continue
+			}
+			if err := s.notificationTemplates.Create(ctx, template); err != nil {
+				summary.Skipped = append(summary.Skipped, ImportSkipped{
+					Kind: "notification_template", ID: backupTemplate.ID, Name: backupTemplate.Name, Reason: err.Error(),
+				})
+				continue
+			}
+			templateMap[backupTemplate.ID] = template.ID
+			summary.NotificationTemplatesCreated++
+		}
+	}
+
+	// 3. Notifications
 	for _, bn := range doc.Notifications {
+		var templateID *int64
+		if bn.TemplateID != nil {
+			if mapped, ok := templateMap[*bn.TemplateID]; ok {
+				templateID = &mapped
+			}
+		}
 		n := &domain.Notification{
-			UserID:    userID,
-			Name:      bn.Name,
-			Type:      bn.Type,
-			Active:    bn.Active,
-			IsDefault: bn.IsDefault,
-			Config:    bn.Config,
+			UserID:     userID,
+			Name:       bn.Name,
+			Type:       bn.Type,
+			Active:     bn.Active,
+			IsDefault:  bn.IsDefault,
+			TemplateID: templateID,
+			Config:     bn.Config,
 		}
 		if n.Config == nil {
 			n.Config = map[string]any{}
@@ -722,7 +807,7 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 		summary.NotificationsCreated++
 	}
 
-	// 3. Tags — reuse existing by unique name, otherwise create.
+	// 4. Tags — reuse existing by unique name, otherwise create.
 	existingTags, err := s.tags.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("backup import: list tags: %w", err)

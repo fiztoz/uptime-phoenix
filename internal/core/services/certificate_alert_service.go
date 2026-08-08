@@ -119,17 +119,20 @@ func (s *CertificateAlertService) OnCheck(ctx context.Context, monitor *domain.M
 	}
 
 	alert := domain.AlertContext{
-		MonitorID:         monitor.ID,
-		MonitorName:       monitor.Name,
-		MonitorType:       monitor.Type,
-		MonitorTarget:     monitor.Target(),
-		EventKind:         domain.AlertEventCertificateExpiry,
-		Message:           formatCertExpiryMessage(monitor.Name, threshold, days, issuer, notAfter),
-		CertThreshold:     threshold,
-		CertDaysRemaining: days,
-		CertIssuer:        issuer,
-		CertNotAfter:      &notAfter,
-		StartedAt:         s.now().UTC(),
+		AlertScope:         domain.AlertScopeMonitor,
+		MonitorID:          monitor.ID,
+		MonitorName:        monitor.Name,
+		MonitorType:        monitor.Type,
+		MonitorTarget:      monitor.Target(),
+		MonitorDescription: monitor.Description,
+		MonitorOwner:       monitor.Owner,
+		EventKind:          domain.AlertEventCertificateExpiry,
+		Message:            formatCertExpiryMessage(monitor.Name, threshold, days, issuer, notAfter),
+		CertThreshold:      threshold,
+		CertDaysRemaining:  days,
+		CertIssuer:         issuer,
+		CertNotAfter:       &notAfter,
+		StartedAt:          s.now().UTC(),
 	}
 
 	if err := s.notifier.Dispatch(ctx, monitor, alert); err != nil {

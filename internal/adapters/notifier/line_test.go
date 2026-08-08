@@ -144,6 +144,30 @@ func TestLineSender_Send_RequestShape(t *testing.T) {
 	}
 }
 
+func TestLineSender_Send_CustomTemplate(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	target, _ := url.Parse(srv.URL)
+	installLineTransport(t, &lineTestTransport{target: target})
+
+	alert := domain.AlertContext{
+		MonitorName: "payments", Status: domain.StatusDown, Message: "connection refused",
+		TemplateBody: "CUSTOM {{ monitor.name }} / {{ status }} / {{ message }}",
+	}
+	cfg := map[string]any{"channel_access_token": "chan-tok", "user_id": "U123"}
+	if err := (LineSender{}).Send(context.Background(), cfg, alert); err != nil {
+		t.Fatalf("send custom template: %v", err)
+	}
+	message := received["messages"].([]any)[0].(map[string]any)["text"]
+	if message != "CUSTOM payments / DOWN / connection refused" {
+		t.Fatalf("custom LINE message = %v", message)
+	}
+}
+
 func TestLineSender_Send_CertificateExpiry(t *testing.T) {
 	var received map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

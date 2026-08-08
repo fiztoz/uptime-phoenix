@@ -6,20 +6,23 @@
 	import Select from '$lib/components/Select.svelte';
 	import { modalFocus } from '$lib/actions/modalFocus';
 	import { untrack } from 'svelte';
+	import type { NotificationTemplate } from '$lib/api/notification-templates';
 	import * as m from '$lib/paraglide/messages.js';
 
 	interface Props {
 		notification?: Notification;
+		templates?: NotificationTemplate[];
 		onSaved?: () => void;
 		onClose?: () => void;
 	}
 
-	let { notification, onSaved, onClose }: Props = $props();
+	let { notification, templates = [], onSaved, onClose }: Props = $props();
 	const initialNotification = untrack(() => notification);
 
 	let open = $state(true);
 	let loading = $state(false);
 	let selectedType = $state(initialNotification?.type || 'telegram');
+	let selectedTemplateID = $state(initialNotification?.template_id ? String(initialNotification.template_id) : 'default');
 	let formData = $state({
 		name: initialNotification?.name || '',
 		config: { ...(initialNotification?.config || {}) } as Record<string, unknown>,
@@ -41,6 +44,11 @@
 
 	function updateConfigField(key: string, value: unknown) {
 		formData.config = { ...formData.config, [key]: value };
+	}
+
+	function handleTypeChange(value: string) {
+		selectedType = value;
+		selectedTemplateID = 'default';
 	}
 
 	function getFieldValue(key: string): unknown {
@@ -65,6 +73,7 @@
 				config: formData.config,
 				active: formData.active,
 				is_default: formData.is_default,
+				template_id: selectedTemplateID === 'default' ? null : Number(selectedTemplateID),
 			};
 
 			if (notification) {
@@ -90,6 +99,8 @@
 	}
 
 	const currentFields = $derived(notificationTypeConfig[selectedType]?.fields || []);
+	const compatibleTemplates = $derived(templates.filter((item) => item.provider === selectedType));
+	const supportsTemplates = $derived(['discord', 'smtp', 'webhook', 'line'].includes(selectedType));
 
 	// Shared, token-consistent class strings.
 	const inputClass =
@@ -145,12 +156,35 @@
 							id="notif-type"
 							options={notificationTypes.map((t) => ({ value: t, label: notificationTypeConfig[t]?.label || t }))}
 							value={selectedType}
-							onValueChange={(v) => (selectedType = v)}
+							onValueChange={handleTypeChange}
 							disabled={!!notification}
 							class="w-full disabled:opacity-60"
 						/>
 					</div>
 				</div>
+
+				{#if supportsTemplates}
+					<div>
+						<label for="notif-template" class="text-sm font-medium">{m.notification_form_template_label()}</label>
+						<div class="mt-1">
+							<Select
+								id="notif-template"
+								options={[
+									{ value: 'default', label: m.notification_form_template_default() },
+									...compatibleTemplates.map((item) => ({ value: String(item.id), label: item.name })),
+								]}
+								value={selectedTemplateID}
+								onValueChange={(value) => (selectedTemplateID = value)}
+								class="w-full"
+							/>
+						</div>
+						<p class="mt-1 text-xs text-muted-foreground">
+							{compatibleTemplates.length > 0
+								? m.notification_form_template_help()
+								: m.notification_form_template_empty()}
+						</p>
+					</div>
+				{/if}
 
 				<div class="space-y-3">
 					{#each currentFields as field (field.key)}

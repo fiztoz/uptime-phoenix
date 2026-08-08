@@ -882,6 +882,79 @@ func (r *NotificationRepo) GetByMonitorID(ctx context.Context, monitorID int64) 
 }
 
 // ---------------------------------------------------------------------------
+// NotificationTemplateRepo implements ports.NotificationTemplateRepository.
+// ---------------------------------------------------------------------------
+
+// NotificationTemplateRepo is the SQLite-backed reusable message-template store.
+type NotificationTemplateRepo struct{ db *bun.DB }
+
+// NewNotificationTemplateRepo creates a SQLite-backed notification-template repository.
+func NewNotificationTemplateRepo(db *bun.DB) *NotificationTemplateRepo {
+	return &NotificationTemplateRepo{db: db}
+}
+
+func (r *NotificationTemplateRepo) Create(ctx context.Context, template *domain.NotificationTemplate) error {
+	m := repository.NotificationTemplateModelFromDomain(template)
+	now := time.Now().UTC()
+	m.CreatedAt = now
+	m.UpdatedAt = now
+	if _, err := r.db.NewInsert().Model(m).Exec(ctx); err != nil {
+		return translateError(err)
+	}
+	template.ID = m.ID
+	template.CreatedAt = m.CreatedAt
+	template.UpdatedAt = m.UpdatedAt
+	return nil
+}
+
+func (r *NotificationTemplateRepo) GetByID(ctx context.Context, id int64) (*domain.NotificationTemplate, error) {
+	m := new(repository.NotificationTemplateModel)
+	if err := r.db.NewSelect().Model(m).Where("id = ?", id).Scan(ctx); err != nil {
+		return nil, translateError(err)
+	}
+	return m.ToDomain(), nil
+}
+
+func (r *NotificationTemplateRepo) List(ctx context.Context) ([]*domain.NotificationTemplate, error) {
+	var models []*repository.NotificationTemplateModel
+	if err := r.db.NewSelect().Model(&models).Order("id ASC").Scan(ctx); err != nil {
+		return nil, translateError(err)
+	}
+	out := make([]*domain.NotificationTemplate, len(models))
+	for i, model := range models {
+		out[i] = model.ToDomain()
+	}
+	return out, nil
+}
+
+func (r *NotificationTemplateRepo) Update(ctx context.Context, template *domain.NotificationTemplate) error {
+	m := repository.NotificationTemplateModelFromDomain(template)
+	m.UpdatedAt = time.Now().UTC()
+	res, err := r.db.NewUpdate().Model(m).WherePK().Exec(ctx)
+	if err != nil {
+		return translateError(err)
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return ports.ErrNotFound
+	}
+	template.UpdatedAt = m.UpdatedAt
+	return nil
+}
+
+func (r *NotificationTemplateRepo) Delete(ctx context.Context, id int64) error {
+	res, err := r.db.NewDelete().Model((*repository.NotificationTemplateModel)(nil)).Where("id = ?", id).Exec(ctx)
+	if err != nil {
+		return translateError(err)
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return ports.ErrNotFound
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // StatusPageRepo implements ports.StatusPageRepository backed by SQLite.
 // ---------------------------------------------------------------------------
 
@@ -2092,6 +2165,7 @@ type Repository struct {
 	*HeartbeatRepo
 	*TLSInfoRepo
 	*NotificationRepo
+	*NotificationTemplateRepo
 	*StatusPageRepo
 	*TagRepo
 	*MaintenanceRepo
@@ -2126,6 +2200,7 @@ func NewRepository(db *bun.DB) *Repository {
 		HeartbeatRepo:                NewHeartbeatRepo(db),
 		TLSInfoRepo:                  NewTLSInfoRepo(db),
 		NotificationRepo:             NewNotificationRepo(db),
+		NotificationTemplateRepo:     NewNotificationTemplateRepo(db),
 		StatusPageRepo:               NewStatusPageRepo(db),
 		TagRepo:                      NewTagRepo(db),
 		MaintenanceRepo:              NewMaintenanceRepo(db),
@@ -2241,6 +2316,7 @@ var (
 	_ ports.MonitorGroupRepository             = (*MonitorGroupRepo)(nil)
 	_ ports.HeartbeatRepository                = (*HeartbeatRepo)(nil)
 	_ ports.NotificationRepository             = (*NotificationRepo)(nil)
+	_ ports.NotificationTemplateRepository     = (*NotificationTemplateRepo)(nil)
 	_ ports.StatusPageRepository               = (*StatusPageRepo)(nil)
 	_ ports.TagRepository                      = (*TagRepo)(nil)
 	_ ports.MaintenanceRepository              = (*MaintenanceRepo)(nil)

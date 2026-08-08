@@ -17,6 +17,8 @@ export interface Notification {
    * (see $lib/group-notifications).
    */
   is_default: boolean;
+  /** Reusable provider-specific message layout, or null for the built-in layout. */
+  template_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -27,6 +29,7 @@ export interface CreateNotificationInput {
   config: Record<string, unknown>;
   active?: boolean;
   is_default?: boolean;
+  template_id?: number | null;
 }
 
 export interface UpdateNotificationInput extends Partial<CreateNotificationInput> {}

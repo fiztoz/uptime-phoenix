@@ -3,8 +3,11 @@ package notifier
 import (
 	"context"
 	"io"
+	"mime"
+	"mime/multipart"
 	"mime/quotedprintable"
 	"net"
+	netmail "net/mail"
 	"net/textproto"
 	"strconv"
 	"strings"
@@ -162,6 +165,47 @@ func decodeQPBody(t *testing.T, raw string) string {
 	return string(decoded)
 }
 
+func decodeMIMEParts(t *testing.T, raw string) map[string]string {
+	t.Helper()
+	message, err := netmail.ReadMessage(strings.NewReader(raw))
+	if err != nil {
+		t.Fatalf("parse MIME message: %v", err)
+	}
+	mediaType, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	if err != nil {
+		t.Fatalf("parse MIME content type: %v", err)
+	}
+	if mediaType != "multipart/alternative" {
+		t.Fatalf("message content type = %q; want multipart/alternative", mediaType)
+	}
+
+	parts := make(map[string]string)
+	reader := multipart.NewReader(message.Body, params["boundary"])
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read MIME part: %v", err)
+		}
+		partType, _, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
+		if err != nil {
+			t.Fatalf("parse MIME part content type: %v", err)
+		}
+		var bodyReader io.Reader = part
+		if strings.EqualFold(part.Header.Get("Content-Transfer-Encoding"), "quoted-printable") {
+			bodyReader = quotedprintable.NewReader(part)
+		}
+		body, err := io.ReadAll(bodyReader)
+		if err != nil {
+			t.Fatalf("read MIME %s body: %v", partType, err)
+		}
+		parts[partType] = string(body)
+	}
+	return parts
+}
+
 func TestSMTPSender_Validate(t *testing.T) {
 	s := SMTPSender{}
 	valid := map[string]any{"host": "smtp.example.com", "from": "a@example.com", "to": "b@example.com", "port": float64(587)}
@@ -233,6 +277,138 @@ func TestSMTPSender_Send_ComposesMessage(t *testing.T) {
 	if !strings.Contains(body, "Monitor: api") || !strings.Contains(body, "Target: https://api.example.com") ||
 		!strings.Contains(body, "Status: DOWN") || !strings.Contains(body, "Message: connection refused") {
 		t.Errorf("expected composed alert fields in body, got:\n%s", body)
+	}
+}
+
+func TestSMTPSender_Send_CustomTemplate(t *testing.T) {
+	srv := newFakeSMTPServer(t)
+	host, port := srv.hostPort(t)
+	cfg := map[string]any{
+		"host": host, "port": float64(port), "from": "alerts@phoenix.local",
+		"to": "oncall@example.com", "tls": false,
+	}
+	alert := domain.AlertContext{
+		MonitorName: "payments", Status: domain.StatusDown,
+		TemplateTitle: "Custom: {{ monitor.name }} is {{ status }}",
+		TemplateBody:  "Body={{ message }}; target={{ monitor.target }}",
+		Message:       "connection refused", MonitorTarget: "https://example.test",
+	}
+	if err := (SMTPSender{}).Send(context.Background(), cfg, alert); err != nil {
+		t.Fatalf("send custom template: %v", err)
+	}
+	msgs := srv.received()
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %d; want 1", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Data, "Subject: Custom: payments is DOWN") {
+		t.Fatalf("custom subject missing: %s", msgs[0].Data)
+	}
+	body := decodeQPBody(t, msgs[0].Data)
+	if !strings.Contains(body, "Body=connection refused; target=https://example.test") {
+		t.Fatalf("custom body missing: %s", body)
+	}
+}
+
+func TestSMTPSender_Send_WhitespaceTemplateSubjectUsesFallback(t *testing.T) {
+	srv := newFakeSMTPServer(t)
+	host, port := srv.hostPort(t)
+	cfg := map[string]any{
+		"host": host, "port": float64(port), "from": "alerts@phoenix.local",
+		"to": "oncall@example.com", "tls": false,
+	}
+	alert := domain.AlertContext{
+		MonitorName:   "payments",
+		Status:        domain.StatusDown,
+		TemplateTitle: "   ",
+		TemplateBody:  "Plain fallback body",
+	}
+	if err := (SMTPSender{}).Send(context.Background(), cfg, alert); err != nil {
+		t.Fatalf("send whitespace-subject template: %v", err)
+	}
+
+	messages := srv.received()
+	if len(messages) != 1 {
+		t.Fatalf("messages = %d; want 1", len(messages))
+	}
+	message, err := netmail.ReadMessage(strings.NewReader(messages[0].Data))
+	if err != nil {
+		t.Fatalf("parse MIME message: %v", err)
+	}
+	if got, want := message.Header.Get("Subject"), "Phoenix Alert: payments is DOWN"; got != want {
+		t.Fatalf("Subject = %q; want %q", got, want)
+	}
+}
+
+func TestSMTPSender_Send_HTMLTemplateUsesMultipartAlternative(t *testing.T) {
+	srv := newFakeSMTPServer(t)
+	host, port := srv.hostPort(t)
+	cfg := map[string]any{
+		"host": host, "port": float64(port), "from": "alerts@phoenix.local",
+		"to": "oncall@example.com", "tls": false,
+	}
+	alert := domain.AlertContext{
+		MonitorName:   `<script>alert("name")</script>`,
+		MonitorTarget: "https://example.test/health?a=1&b=2",
+		Status:        domain.StatusDown,
+		Message:       `<img src=x onerror="alert(1)">`,
+		TemplateTitle: "Incident: {{ monitor.name }}",
+		TemplateBody:  "Plain {{ monitor.name }}: {{ message }}",
+		TemplateConfig: domain.SMTPTemplateConfigMap(domain.SMTPTemplateConfig{
+			Format: domain.SMTPTemplateFormatHTML,
+			HTMLBodyTemplate: `<h1>{{ monitor.name }}</h1><p>{{ message }}</p>` +
+				`<a href="{{ monitor.target }}">Open monitor</a>`,
+		}),
+	}
+	if err := (SMTPSender{}).Send(context.Background(), cfg, alert); err != nil {
+		t.Fatalf("send HTML template: %v", err)
+	}
+
+	messages := srv.received()
+	if len(messages) != 1 {
+		t.Fatalf("messages = %d; want 1", len(messages))
+	}
+	parts := decodeMIMEParts(t, messages[0].Data)
+	plain := parts["text/plain"]
+	if !strings.Contains(plain, `Plain <script>alert("name")</script>: <img src=x onerror="alert(1)">`) {
+		t.Fatalf("plain fallback missing original text values: %s", plain)
+	}
+	html := parts["text/html"]
+	if strings.Contains(html, "<script>") || strings.Contains(html, "<img") {
+		t.Fatalf("HTML alternative contains unescaped alert markup: %s", html)
+	}
+	for _, want := range []string{
+		`&lt;script&gt;alert(&#34;name&#34;)&lt;/script&gt;`,
+		`&lt;img src=x onerror=&#34;alert(1)&#34;&gt;`,
+		`href="https://example.test/health?a=1&amp;b=2"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("HTML alternative missing %q: %s", want, html)
+		}
+	}
+}
+
+func TestSMTPSender_Send_HTMLTemplateRejectsUnsafeDynamicURL(t *testing.T) {
+	srv := newFakeSMTPServer(t)
+	host, port := srv.hostPort(t)
+	cfg := map[string]any{
+		"host": host, "port": float64(port), "from": "alerts@phoenix.local",
+		"to": "oncall@example.com", "tls": false,
+	}
+	alert := domain.AlertContext{
+		MonitorName:   "api",
+		MonitorTarget: "javascript:alert(document.cookie)",
+		TemplateBody:  "Plain fallback",
+		TemplateConfig: domain.SMTPTemplateConfigMap(domain.SMTPTemplateConfig{
+			Format:           domain.SMTPTemplateFormatHTML,
+			HTMLBodyTemplate: `<a href="{{ monitor.target }}">Open monitor</a>`,
+		}),
+	}
+	err := (SMTPSender{}).Send(context.Background(), cfg, alert)
+	if err == nil || !strings.Contains(err.Error(), "unsafe value") {
+		t.Fatalf("unsafe dynamic URL error = %v; want unsafe value rejection", err)
+	}
+	if len(srv.received()) != 0 {
+		t.Fatal("unsafe HTML template should not be delivered")
 	}
 }
 

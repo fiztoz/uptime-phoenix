@@ -111,6 +111,7 @@
 		summary
 			? [
 					{ label: m.backup_page_row_proxies(), value: summary.proxies_created },
+					{ label: m.backup_page_row_notification_templates(), value: summary.notification_templates_created },
 					{ label: m.nav_notifications(), value: summary.notifications_created },
 					{ label: m.backup_page_row_tags_created(), value: summary.tags_created },
 					{ label: m.backup_page_row_tags_reused(), value: summary.tags_reused },

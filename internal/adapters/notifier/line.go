@@ -52,6 +52,16 @@ func (LineSender) Send(ctx context.Context, config map[string]any, alert domain.
 		}
 		text = fmt.Sprintf("%s %s is %s\n%s", emoji, alert.MonitorName, alert.Status, alert.Message)
 	}
+	_, customBody, custom, err := renderCustomLayout(alert)
+	if err != nil {
+		return fmt.Errorf("line: %w", err)
+	}
+	if custom {
+		text = customBody
+	}
+	if len([]rune(text)) > 5000 {
+		return fmt.Errorf("line: rendered template body exceeds 5000 characters")
+	}
 
 	// Build the push message target.
 	to := map[string]any{}

@@ -154,6 +154,7 @@ PKCE S256; `phoenix-config` CLI; reverse escalation UI; MariaDB 021 assured.
 - [x] **Severity mapping** — UP/DOWN/PENDING/MAINTENANCE → each provider's level field (see ARCHITECTURE.md §5.3; `alert_format.go` + per-provider tests)
 - [x] **Rate-limit middleware** — shared HTTP retry with `Retry-After` header parsing; exponential backoff (`adapters/notifier/ratelimit.go`); API rate limit in Echo middleware
 - [x] **Notification CRUD UI** — configure providers, test-send button, assign to monitors (`/(admin)/notifications`)
+- [x] **Reusable notification templates** — create/edit shared message layouts with Phoenix variables and select them on Discord, SMTP, Webhook, and LINE notifications (migration `027`); Discord adds structured fields, status colors, links, footer/timestamp, monitor/group contexts, and a channel-faithful preview (migration `028`); SMTP adds plain/HTML multipart templates with a sandboxed desktop/mobile email preview
 
 ### Sprint 5 (Weeks 11–12): Status Pages
 

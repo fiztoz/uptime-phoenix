@@ -42,6 +42,7 @@ func NewRouter(
 	monitorHandlers *handlers.MonitorHandlers,
 	monitorGroupHandlers *handlers.MonitorGroupHandlers,
 	notificationHandlers *handlers.NotificationHandlers,
+	notificationTemplateHandlers *handlers.NotificationTemplateHandlers,
 	statusPageHandlers *handlers.StatusPageHandlers,
 	feedHandlers *handlers.FeedHandlers,
 	wsHandlers *handlers.WSHandlers,
@@ -192,6 +193,19 @@ func NewRouter(
 	if notificationHandlers != nil && authSvc != nil {
 		monNotifGroup := e.Group("/api/monitors/:id/notifications", middleware.AuthMiddleware(authSvc))
 		monNotifGroup.GET("", notificationHandlers.ListForMonitor)
+	}
+
+	// Reusable message templates share the notification-management capability.
+	// Provider is immutable after creation so a saved notification can never be
+	// left pointing at a template for a different channel type.
+	if notificationTemplateHandlers != nil && authSvc != nil {
+		templateGroup := e.Group("/api/notification-templates", middleware.AuthMiddleware(authSvc), requireNotifications)
+		templateGroup.POST("", notificationTemplateHandlers.Create)
+		templateGroup.GET("", notificationTemplateHandlers.List)
+		templateGroup.GET("/variables", notificationTemplateHandlers.Variables)
+		templateGroup.GET("/:id", notificationTemplateHandlers.GetByID)
+		templateGroup.PUT("/:id", notificationTemplateHandlers.Update)
+		templateGroup.DELETE("/:id", notificationTemplateHandlers.Delete)
 	}
 
 	// Group-notification list (for the monitor-group form's provider checkboxes).

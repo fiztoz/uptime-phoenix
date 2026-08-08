@@ -235,3 +235,31 @@ body {
 .animate-pulse-dot {
   animation: phx-pulse 1.8s ease-in-out infinite;
 }
+
+/* Discord embed preview — channel-native colors intentionally stay dark in
+   both Phoenix themes so operators see what the delivered webhook will look like. */
+.discord-preview {
+  --discord-canvas: #313338;
+  --discord-channel: #2b2d31;
+  --discord-embed: #2b2d31;
+  --discord-embed-border: #1e1f22;
+  --discord-avatar: #1e1f22;
+  --discord-heading: #f2f3f5;
+  --discord-text: #dbdee1;
+  --discord-muted: #949ba4;
+  --discord-link: #00a8fc;
+  --discord-bot: #5865f2;
+}
+
+/* Email-client preview — intentionally fixed to a neutral light inbox canvas
+   in both Phoenix themes so operators see the delivered message context. */
+.email-preview {
+  --email-canvas: #eef1f4;
+  --email-toolbar: #f8fafc;
+  --email-message: #ffffff;
+  --email-border: #d9dee5;
+  --email-heading: #111827;
+  --email-text: #374151;
+  --email-muted: #6b7280;
+  --email-chip: #e5e7eb;
+}

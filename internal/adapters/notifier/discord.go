@@ -7,7 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
@@ -34,35 +38,87 @@ func (DiscordSender) Send(ctx context.Context, config map[string]any, alert doma
 	}
 	avatarURL, _ := config["avatar_url"].(string)
 
-	color := 0x808080 // maintenance gray
+	now := time.Now().UTC()
 	title := alertTitle(alert)
 	desc := alertBody(alert)
-	if isCertificateExpiry(alert) {
-		color = 0xFFA500 // amber for certificate warnings
-	} else {
-		switch alert.Status {
-		case domain.StatusUp:
-			color = 0x00FF00
-		case domain.StatusDown:
-			color = 0xFF0000
-		case domain.StatusPending:
-			color = 0xFFA500
+	custom := alert.TemplateTitle != "" || alert.TemplateBody != "" || len(alert.TemplateConfig) > 0
+	if custom {
+		var err error
+		if alert.TemplateTitle != "" {
+			title, err = domain.RenderNotificationTemplate(alert.TemplateTitle, alert, now)
+			if err != nil {
+				return fmt.Errorf("discord: render title: %w", err)
+			}
 		}
-		if alert.CheckOutput != "" {
-			desc += "\n" + alert.CheckOutput
+		desc, err = domain.RenderNotificationTemplate(alert.TemplateBody, alert, now)
+		if err != nil {
+			return fmt.Errorf("discord: render body: %w", err)
 		}
+	}
+	if !custom && !isCertificateExpiry(alert) && alert.CheckOutput != "" {
+		desc += "\n" + alert.CheckOutput
+	}
+
+	embedConfig, err := domain.ParseDiscordTemplateConfig(alert.TemplateConfig)
+	if err != nil {
+		return fmt.Errorf("discord: parse embed configuration: %w", err)
+	}
+	color, err := discordEmbedColor(embedConfig, alert)
+	if err != nil {
+		return fmt.Errorf("discord: %w", err)
+	}
+	fields, fieldsLength, err := renderDiscordFields(embedConfig.Fields, alert, now)
+	if err != nil {
+		return fmt.Errorf("discord: %w", err)
+	}
+	footer, err := domain.RenderNotificationTemplate(embedConfig.FooterTemplate, alert, now)
+	if err != nil {
+		return fmt.Errorf("discord: render footer: %w", err)
+	}
+	titleURL, err := domain.RenderNotificationTemplate(embedConfig.TitleURLTemplate, alert, now)
+	if err != nil {
+		return fmt.Errorf("discord: render title URL: %w", err)
+	}
+	if titleURL != "" {
+		parsed, parseErr := url.ParseRequestURI(titleURL)
+		if parseErr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return fmt.Errorf("discord: rendered title URL must use http or https")
+		}
+	}
+
+	if utf8.RuneCountInString(title) > 256 {
+		return fmt.Errorf("discord: rendered template title exceeds 256 characters")
+	}
+	if utf8.RuneCountInString(desc) > 4096 {
+		return fmt.Errorf("discord: rendered template body exceeds 4096 characters")
+	}
+	if utf8.RuneCountInString(footer) > 2048 {
+		return fmt.Errorf("discord: rendered template footer exceeds 2048 characters")
+	}
+	if utf8.RuneCountInString(titleURL) > 2048 {
+		return fmt.Errorf("discord: rendered template title URL exceeds 2048 characters")
+	}
+	totalCharacters := utf8.RuneCountInString(title) + utf8.RuneCountInString(desc) + utf8.RuneCountInString(footer) + fieldsLength
+	if totalCharacters > 6000 {
+		return fmt.Errorf("discord: rendered embed exceeds 6000 total characters")
 	}
 
 	embed := map[string]any{
 		"title":       title,
 		"description": desc,
 		"color":       color,
-		"fields": []map[string]any{
-			{"name": "Monitor", "value": alert.MonitorName, "inline": true},
-			{"name": "Type", "value": alert.MonitorType, "inline": true},
-			{"name": "Target", "value": alert.MonitorTarget, "inline": true},
-		},
-		"timestamp": time.Now().Format(time.RFC3339),
+	}
+	if len(fields) > 0 {
+		embed["fields"] = fields
+	}
+	if titleURL != "" {
+		embed["url"] = titleURL
+	}
+	if footer != "" {
+		embed["footer"] = map[string]any{"text": footer}
+	}
+	if embedConfig.ShowTimestamp {
+		embed["timestamp"] = now.Format(time.RFC3339)
 	}
 
 	body := map[string]any{
@@ -97,4 +153,59 @@ func (DiscordSender) Send(ctx context.Context, config map[string]any, alert doma
 		return fmt.Errorf("discord: webhook error status %d: %s", resp.StatusCode, string(b))
 	}
 	return nil
+}
+
+func discordEmbedColor(config domain.DiscordTemplateConfig, alert domain.AlertContext) (int64, error) {
+	color := config.Colors.Maintenance
+	if isCertificateExpiry(alert) {
+		color = config.Colors.Certificate
+	} else {
+		switch alert.Status {
+		case domain.StatusUp:
+			color = config.Colors.Up
+		case domain.StatusDown:
+			color = config.Colors.Down
+		case domain.StatusPending:
+			color = config.Colors.Pending
+		}
+	}
+	value, err := strconv.ParseInt(strings.TrimPrefix(color, "#"), 16, 32)
+	if err != nil || len(color) != 7 || !strings.HasPrefix(color, "#") {
+		return 0, fmt.Errorf("embed color %q must be a six-digit hex color", color)
+	}
+	return value, nil
+}
+
+func renderDiscordFields(fields []domain.DiscordEmbedFieldTemplate, alert domain.AlertContext, now time.Time) ([]map[string]any, int, error) {
+	if len(fields) > 25 {
+		return nil, 0, fmt.Errorf("embed exceeds 25 fields")
+	}
+	rendered := make([]map[string]any, 0, len(fields))
+	totalCharacters := 0
+	for i, field := range fields {
+		name, err := domain.RenderNotificationTemplate(field.NameTemplate, alert, now)
+		if err != nil {
+			return nil, 0, fmt.Errorf("render field %d name: %w", i+1, err)
+		}
+		value, err := domain.RenderNotificationTemplate(field.ValueTemplate, alert, now)
+		if err != nil {
+			return nil, 0, fmt.Errorf("render field %d value: %w", i+1, err)
+		}
+		name = strings.TrimSpace(name)
+		value = strings.TrimSpace(value)
+		// Scope-specific fields deliberately disappear when their monitor.* or
+		// group.* value is empty. Discord rejects empty field values.
+		if name == "" || value == "" {
+			continue
+		}
+		if utf8.RuneCountInString(name) > 256 {
+			return nil, 0, fmt.Errorf("rendered field %d name exceeds 256 characters", i+1)
+		}
+		if utf8.RuneCountInString(value) > 1024 {
+			return nil, 0, fmt.Errorf("rendered field %d value exceeds 1024 characters", i+1)
+		}
+		totalCharacters += utf8.RuneCountInString(name) + utf8.RuneCountInString(value)
+		rendered = append(rendered, map[string]any{"name": name, "value": value, "inline": field.Inline})
+	}
+	return rendered, totalCharacters, nil
 }
