@@ -1,0 +1,62 @@
+# Dependabot version updates for Uptime Phoenix.
+# Security alerts/updates are enabled at the repository level; this file only
+# schedules version PRs so the dependency graph does not rot silently.
+#
+# Review each PR: run `make gate-fast` (or wait for CI) before merging.
+
+version: 2
+updates:
+  # Go modules (backend)
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - go
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+
+  # Frontend (Bun uses package.json / bun.lock; Dependabot treats it as npm)
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - frontend
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+
+  # GitHub Actions used by CI / Release
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+
+  # Root Dockerfile base images (node/golang/distroless/nginx referenced in Dockerfiles)
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope

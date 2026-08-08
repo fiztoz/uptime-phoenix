@@ -1,4 +1,4 @@
-# Phoenix CI — PR / main gate
+# Uptime Phoenix CI — PR / main gate
 #
 # Mirrors the local `make gate-full` surface as parallel jobs, plus the MariaDB
 # repository contract and Docker image builds that gate-full leaves optional.
@@ -73,7 +73,8 @@ jobs:
 
       - name: govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          # Pin the scanner version; bump deliberately (Dependabot tracks go.mod, not this pin).
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
           govulncheck ./...
 
   frontend:
@@ -231,8 +232,8 @@ jobs:
             VERSION=ci
             TARGETOS=linux
             TARGETARCH=amd64
-          cache-from: type=gha,scope=phoenix-aio
-          cache-to: type=gha,mode=max,scope=phoenix-aio
+          cache-from: type=gha,scope=uptime-phoenix-aio
+          cache-to: type=gha,mode=max,scope=uptime-phoenix-aio
 
       - name: Build split targets (no push)
         run: |
@@ -244,7 +245,7 @@ jobs:
               --build-arg VERSION=ci \
               --build-arg TARGETOS=linux \
               --build-arg TARGETARCH=amd64 \
-              -t "phoenix-${target}:ci" \
+              -t "uptime-phoenix-${target}:ci" \
               --load \
               -f Dockerfile.split \
               .

@@ -230,6 +230,8 @@ Do **not** promote dry-run artifacts to a public release until every item is cle
 | Pinned Actions (release.yml) + pinned Bun | Owner | **Done — 2026-08** (full digests for images still open) |
 | No curl\|sh from `main` (syft / actionlint) | Owner | **Done — 2026-08** (versioned + SHA-256) |
 | `.dockerignore` excludes secrets | Owner | **Done — 2026-08** |
+| Dependabot version updates (`.github/dependabot.yml`) | Owner | **Done — 2026-08** |
+| Environment `release` requires owner review + `v*` tags only | Owner | **Done — 2026-08** |
 
 ## Release procedure (recommended)
 

@@ -1,4 +1,4 @@
-# Phoenix release — dry-run always, publish only from tag-push (bound to that tag).
+# Uptime Phoenix release — dry-run always, publish only from tag-push (bound to that tag).
 #
 # Triggers:
 #   - workflow_dispatch: dry-run only (never publishes). Safe for snapshot versions.
