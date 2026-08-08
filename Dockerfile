@@ -4,7 +4,7 @@
 # Avoids `bun run` under QEMU/Colima linux/amd64 (SIGILL / no AVX).
 ARG USE_PREBUILT_WEB=0
 
-FROM node:22-alpine AS web-from-source
+FROM node:25-alpine AS web-from-source
 WORKDIR /app/web
 RUN npm install -g bun@1.3.14
 COPY web/package.json web/bun.lock ./
