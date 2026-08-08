@@ -223,7 +223,7 @@ Do **not** promote dry-run artifacts to a public release until every item is cle
 | GHCR push permissions + package names | User | Workflow uses `GITHUB_TOKEN` + `packages: write` |
 | Helm OCI repository + push | User | Workflow pushes `oci://ghcr.io/<owner>/charts` |
 | GitHub Releases + checksum attach | User | Workflow attaches dry-run binaries/chart |
-| Image repository rename from placeholders (`ghcr.io/fiztoz/...` in values) | Chart consumers / User | Open — publish uses current repo owner |
+| Image / binary names aligned with repo (`uptime-phoenix*`) | Owner | **Done — 2026-08** (GHCR + release artifacts) |
 | Provenance / cosign signing policy | User | Open |
 | Tag-bound publish + no dispatch publish | Owner | **Done — 2026-08** (see Hard rules) |
 | Version via env + SemVer regex | Owner | **Done — 2026-08** |
