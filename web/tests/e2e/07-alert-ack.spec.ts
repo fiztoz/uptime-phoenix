@@ -166,6 +166,58 @@ test("admin acknowledges multiple selected alerts in one bulk action", async ({
   expect(persistedSecond.acked_by_user_id).toBeGreaterThan(0);
 });
 
+test("admin filters alerts by search and status", async ({ page }) => {
+  test.setTimeout(120_000);
+  await loginViaUI(page);
+  const token = await authToken(page);
+  const firstName = uniqueName("Filter target A");
+  const secondName = uniqueName("Filter target B");
+  const firstMonitorID = await createFailingMonitor(page, token, firstName);
+  const secondMonitorID = await createFailingMonitor(page, token, secondName);
+  await Promise.all([
+    waitForOpenAlert(page, token, firstMonitorID),
+    waitForOpenAlert(page, token, secondMonitorID),
+  ]);
+
+  await page.goto(`${BASE_URL}/alerts`);
+  const firstRow = page
+    .getByTestId("alert-row")
+    .filter({ hasText: firstName })
+    .first();
+  const secondRow = page
+    .getByTestId("alert-row")
+    .filter({ hasText: secondName })
+    .first();
+  await expect(firstRow).toBeVisible({ timeout: 30_000 });
+  await expect(secondRow).toBeVisible({ timeout: 30_000 });
+
+  await page
+    .getByRole("textbox", { name: "Search by monitor or message…" })
+    .fill(firstName);
+  await expect(firstRow).toBeVisible();
+  await expect(secondRow).not.toBeVisible();
+  await expect(page.getByText(/of \d+ alerts/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Clear search" }).click();
+  await expect(secondRow).toBeVisible();
+
+  const firingList = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      response.url().includes("/api/alerts?") &&
+      response.url().includes("status=firing") &&
+      response.ok(),
+  );
+  await page.getByRole("button", { name: "Firing", exact: true }).click();
+  await firingList;
+  await expect(firstRow).toBeVisible({ timeout: 30_000 });
+  await expect(secondRow).toBeVisible();
+
+  await firstRow.getByRole("button", { name: "Acknowledge" }).click();
+  await expect(firstRow).not.toBeVisible({ timeout: 15_000 });
+  await expect(secondRow).toBeVisible();
+});
+
 test("anonymous deep link acknowledges the exact alert from a real notification", async ({
   browser,
   page,
