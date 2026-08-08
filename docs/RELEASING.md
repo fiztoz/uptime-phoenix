@@ -2,7 +2,7 @@
 
 > **CI is restored (owner, 2026-07-28).** `.github/workflows/ci.yml` gates PRs and
 > `main`. Release automation lives in `.github/workflows/release.yml`: every run
-> **dry-runs** first; **publish** only happens when explicitly gated (see below).
+> **dry-runs** first; **publish** only happens on a `v*` tag push (see below).
 > The local script `./scripts/release/dry-run.sh` remains the offline equivalent
 > and **never publishes**.
 
@@ -15,13 +15,19 @@ present at the repo root.
 1. **No publish from dry-run.** The dry-run script and the `dry-run` job never push
    images, never push Helm charts, never create git tags, and never open a GitHub
    Release.
-2. **Publish is owner-gated.** Publish requires either a `v*` tag push or
-   `workflow_dispatch` with `publish=true`, plus approval on the GitHub Environment
-   named `release` (configure required reviewers in repo settings).
-3. **This workflow never creates git tags on `workflow_dispatch`.** The owner creates
-   and pushes tags by hand. Publish on dispatch requires that `v<version>` already
-   exists.
-4. **LICENSE is resolved.** MIT at the repo root; remaining blockers are human
+2. **Publish is tag-push only.** Only a push of an existing `v*` tag may publish.
+   `workflow_dispatch` is **dry-run only** (there is no `publish=true` input).
+   Publish also requires approval on the GitHub Environment named `release`
+   (configure required reviewers in repo settings).
+3. **Publish is bound to the tag commit.** Both dry-run (on tag push) and publish
+   check out `refs/tags/v<version>` and assert `HEAD == tag^{commit}` before any
+   build or push. Branch code cannot be published under a different tag.
+4. **This workflow never creates git tags.** The owner creates and pushes tags by
+   hand (`git tag` + `git push origin v…`).
+5. **Version strings are validated.** SemVer-compatible `X.Y.Z` or
+   `X.Y.Z-prerelease` only; inputs reach shell via `env:`, never raw expression
+   interpolation into `run:` scripts.
+6. **LICENSE is resolved.** MIT at the repo root; remaining blockers are human
    approvals (signing policy, package naming, etc.).
 
 ## Snapshot version flow
@@ -67,51 +73,57 @@ Workflow file: [`.github/workflows/release.yml`](../.github/workflows/release.ym
 
 | Trigger | Behaviour |
 |---|---|
-| `workflow_dispatch` | Always runs **dry-run**. Inputs: `version` (required), `publish` (default `false`), `skip_docker` (default `false`). |
-| `push` of tags matching `v*` | Dry-run for version = tag with leading `v` stripped, then **publish**. |
+| `workflow_dispatch` | **Dry-run only.** Inputs: `version` (required), `skip_docker` (default `false`). Never publishes. |
+| `push` of tags matching `v*` | Dry-run bound to that tag commit, then **publish** (after Environment approval). |
 
 ### Dry-run job
 
-1. Checkout, setup Go / Bun / Helm / Docker buildx + QEMU (unless `skip_docker`).
-2. Build `web/dist` for `//go:embed` and `USE_PREBUILT_WEB=1`.
-3. Run `VERSION=<version> ./scripts/release/dry-run.sh` (sets `SKIP_DOCKER=1` when
+1. Checkout. On tag-push events, re-check out `refs/tags/v…` and assert
+   `HEAD == tag^{commit}`.
+2. Validate the version string (SemVer-compatible) via `env` (no raw injection).
+3. Setup Go / pinned Bun / Helm / Docker buildx + QEMU (unless `skip_docker`).
+4. Install Syft from a **versioned release with SHA-256 verification** (optional;
+   dry-run continues without SBOMs if install fails).
+5. Build `web/dist` for `//go:embed` and `USE_PREBUILT_WEB=1`.
+6. Run `VERSION=<version> ./scripts/release/dry-run.sh` (sets `SKIP_DOCKER=1` when
    the dispatch input asks for it).
-4. Upload `dist/release-<version>/` as a workflow artifact (14-day retention).
-5. Fail if dry-run fails.
+7. Upload `dist/release-<version>/` as a workflow artifact (14-day retention).
+8. Fail if dry-run fails.
 
 Dry-run permissions are read-only (`contents: read`, `packages: read`). Nothing is
-pushed.
+pushed. Privileged third-party Actions in this workflow are pinned to full commit
+SHAs (see comments next to each `uses:` line).
 
 ### How to trigger a dry-run only
 
-**GitHub UI:** Actions → **Release** → Run workflow → set `version`, leave
-`publish` unchecked. Optionally set `skip_docker` for a faster binary/helm-only run.
+**GitHub UI:** Actions → **Release** → Run workflow → set `version`. Optionally
+set `skip_docker` for a faster binary/helm-only run.
 
 **CLI:**
 
 ```bash
-gh workflow run release.yml -f version=0.0.0-snapshot.2 -f publish=false
+gh workflow run release.yml -f version=0.0.0-snapshot.2
 # Faster (no Docker multi-arch):
-gh workflow run release.yml -f version=0.0.0-snapshot.2 -f publish=false -f skip_docker=true
+gh workflow run release.yml -f version=0.0.0-snapshot.2 -f skip_docker=true
 ```
 
 Download the artifact from the run summary when it finishes.
 
-### Publish job (optional, owner-gated)
+### Publish job (tag-push only, owner-gated)
 
 Runs only when:
 
-1. Dry-run succeeded, **and**
-2. Either the event was a `v*` tag push, **or** dispatch had `publish=true`, **and**
+1. The event is a `v*` **tag push**, **and**
+2. Dry-run succeeded, **and**
 3. The GitHub Environment **`release`** is approved (configure **required
    reviewers** on that environment in Settings → Environments), **and**
-4. Git tag `v<version>` already exists (enforced in the job; never created by
-   dispatch).
+4. Checkout is forced to `refs/tags/v<version>` with
+   `HEAD == $(git rev-list -n1 v<version>)` (fails closed otherwise).
 
 Publish steps:
 
 1. Log in to GHCR with `GITHUB_TOKEN`.
-2. Multi-arch (`linux/amd64,linux/arm64`) buildx **push**:
+2. Multi-arch (`linux/amd64,linux/arm64`) buildx **push** from the **tag tree**:
    - `ghcr.io/<owner>/phoenix:<version>` and `:latest` (all-in-one `Dockerfile`)
    - `ghcr.io/<owner>/phoenix-{api,worker,web}:<version>` and `:latest` (`Dockerfile.split`)
    - `<owner>` is `github.repository_owner` lowercased (chart defaults use
@@ -123,14 +135,16 @@ Publish steps:
 **How to publish:**
 
 ```bash
-# 1. Owner creates and pushes the tag by hand (workflow never does this on dispatch)
+# Owner creates and pushes the tag by hand (workflow never creates tags)
 git tag v0.1.0
 git push origin v0.1.0
-# Tag push alone triggers dry-run + publish (after Environment approval).
-
-# Or: tag already exists, re-run dispatch with publish:
-gh workflow run release.yml -f version=0.1.0 -f publish=true
+# Tag push triggers dry-run + publish (after Environment approval).
 ```
+
+There is **no** dispatch-based publish path. To re-publish the same version after a
+failed run, delete the failed GitHub Release (if any) and re-run the failed jobs
+from the Actions UI on the original tag-push workflow run, or move the tag only
+with extreme care (prefer a new patch version).
 
 No secrets beyond `GITHUB_TOKEN` are required for public GHCR packages in the same
 repo. The workflow never force-pushes and never commits to `main`.
@@ -140,10 +154,10 @@ repo. The workflow never force-pushes and never commits to `main`.
 Create a GitHub Environment named **`release`** and enable:
 
 - Required reviewers (owner or trusted maintainers)
-- Optional: deployment branches limited to tags / default branch
+- Optional: limit deployment branches/tags if your plan supports it
 
-Without that, anyone with `workflow_dispatch` rights could publish when `publish=true`
-if a tag already exists. Protect the environment before the first real release.
+Even though dispatch cannot publish, Environment approval still gates every tag-push
+publish. Protect the environment before the first real release.
 
 ## Artifact inventory
 
@@ -210,6 +224,11 @@ Do **not** promote dry-run artifacts to a public release until every item is cle
 | GitHub Releases + checksum attach | User | Workflow attaches dry-run binaries/chart |
 | Image repository rename from placeholders (`ghcr.io/fiztoz/...` in values) | Chart consumers / User | Open — publish uses current repo owner |
 | Provenance / cosign signing policy | User | Open |
+| Tag-bound publish + no dispatch publish | Owner | **Done — 2026-08** (see Hard rules) |
+| Version via env + SemVer regex | Owner | **Done — 2026-08** |
+| Pinned Actions (release.yml) + pinned Bun | Owner | **Done — 2026-08** (full digests for images still open) |
+| No curl\|sh from `main` (syft / actionlint) | Owner | **Done — 2026-08** (versioned + SHA-256) |
+| `.dockerignore` excludes secrets | Owner | **Done — 2026-08** |
 
 ## Release procedure (recommended)
 
@@ -219,11 +238,10 @@ Do **not** promote dry-run artifacts to a public release until every item is cle
 2. Dry-run:
    - **Local:** `VERSION=0.1.0 ./scripts/release/dry-run.sh` and inspect
      `dist/release-0.1.0/INVENTORY.md`, **or**
-   - **CI:** `gh workflow run release.yml -f version=0.1.0 -f publish=false` and
+   - **CI:** `gh workflow run release.yml -f version=0.1.0` and
      download the artifact.
-3. Clear promotion blockers above.
-4. Owner creates and pushes `git tag v0.1.0 && git push origin v0.1.0` (or re-runs
-   dispatch with `publish=true` against an existing tag).
+3. Clear remaining promotion blockers above.
+4. Owner creates and pushes `git tag v0.1.0 && git push origin v0.1.0`.
 5. Approve the `release` Environment deployment when GitHub prompts.
 6. Verify GHCR tags, Helm OCI package, and the GitHub Release assets.
 

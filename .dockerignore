@@ -4,6 +4,29 @@
 .git
 .gitignore
 
+# Secrets / local env (never send into builder layers or cache)
+.env
+.env.*
+!.env.example
+.secrets/
+*.pem
+*.key
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+phoenix.db-shm
+phoenix.db-wal
+
 # Node
 node_modules
 web/node_modules
@@ -12,7 +35,6 @@ web/.output
 web/.netlify
 web/build
 # web/dist is allowed so release builds can USE_PREBUILT_WEB=1
-!.env.example
 
 # Go build artifacts
 bin/
@@ -38,8 +60,10 @@ dist/
 # Research (not needed in image)
 research/
 
-# Pi agent config (not needed in image)
+# Local agent tooling
 .pi/
+.claude/
+tmp/
 
 # CI/CD (not needed in image)
 .github/
@@ -48,4 +72,5 @@ research/
 charts/
 Makefile
 docker-compose.yml
+docker-compose.*.yml
 .dockerignore
