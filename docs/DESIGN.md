@@ -693,11 +693,22 @@ rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground
 </div>
 ```
 
-**Needs attention section** (dashboard — list of down monitors):
+**Needs attention section** (dashboard — collapsible list of down and pending monitors):
 ```svelte
 <section class="space-y-3">
-  <h2 class="text-sm font-semibold text-muted-foreground">Needs attention</h2>
-  <div class="overflow-hidden rounded-xl border border-border bg-card">
+  <h2>
+    <button type="button"
+            aria-expanded={attentionExpanded}
+            aria-controls="needs-attention-list"
+            class="flex min-h-8 w-full items-center gap-2 rounded-lg text-left text-sm font-semibold text-muted-foreground">
+      <span class="flex-1">Needs attention</span>
+      <span class="tnum text-xs font-medium text-faint">{attention.length}</span>
+      <!-- ChevronDown when expanded; ChevronRight when collapsed -->
+    </button>
+  </h2>
+  <div id="needs-attention-list"
+       hidden={!attentionExpanded}
+       class="overflow-hidden rounded-xl border border-border bg-card">
     <a href="/monitors/{id}"
        class="flex items-center gap-3 border-b border-border px-4 py-3 transition-colors last:border-0 hover:bg-accent/50">
       <Activity class="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -708,6 +719,10 @@ rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground
   </div>
 </section>
 ```
+
+The section is expanded by default. Its disclosure control keeps the attention count visible while
+collapsed and exposes the state with `aria-expanded` / `aria-controls` for keyboard and assistive-
+technology users.
 
 ---
 

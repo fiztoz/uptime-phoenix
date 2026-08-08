@@ -45,6 +45,7 @@
 		Gauge,
 		ArrowRight,
 		ChevronRight,
+		ChevronDown,
 		SearchX,
 	} from '@lucide/svelte';
 	import * as m from '$lib/paraglide/messages.js';
@@ -262,6 +263,7 @@
 	let attention = $derived(
 		scopedMonitors.filter((mon) => mon.status === 'down' || mon.status === 'pending')
 	);
+	let attentionExpanded = $state(true);
 
 	// Average response time across the scoped monitors that currently report a ping.
 	let avgPing = $derived.by(() => {
@@ -465,8 +467,28 @@
 	<!-- Needs attention -->
 	{#if attention.length > 0}
 		<section class="space-y-3">
-			<h2 class="text-sm font-semibold text-muted-foreground">{m.dashboard_needs_attention_heading()}</h2>
-			<div class="overflow-hidden rounded-xl border border-border bg-card">
+			<h2>
+				<button
+					type="button"
+					onclick={() => (attentionExpanded = !attentionExpanded)}
+					class="flex min-h-8 w-full items-center gap-2 rounded-lg text-left text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+					aria-expanded={attentionExpanded}
+					aria-controls="needs-attention-list"
+				>
+					<span class="flex-1">{m.dashboard_needs_attention_heading()}</span>
+					<span class="tnum text-xs font-medium text-faint">{attention.length}</span>
+					{#if attentionExpanded}
+						<ChevronDown class="h-4 w-4 shrink-0" />
+					{:else}
+						<ChevronRight class="h-4 w-4 shrink-0" />
+					{/if}
+				</button>
+			</h2>
+			<div
+				id="needs-attention-list"
+				hidden={!attentionExpanded}
+				class="overflow-hidden rounded-xl border border-border bg-card"
+			>
 				{#each attention as mon (mon.id)}
 					<a
 						href="/monitors/{mon.id}"
