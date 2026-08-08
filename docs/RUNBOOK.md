@@ -1,4 +1,4 @@
-# Phoenix Operations Runbook
+# Uptime Phoenix Operations Runbook
 
 This runbook covers the current all-in-one and split deployments. Commands use
 `https://phoenix.example.com` and a Helm release named `phoenix`; replace them with the
@@ -6,7 +6,7 @@ real values. Read `docs/DEPLOYMENT_MODES.md` before changing deployment shape.
 
 ## 1. Configuration backup and restore drill
 
-Phoenix's backup API exports restorable application configuration. It includes proxy
+Uptime Phoenix's backup API exports restorable application configuration. It includes proxy
 passwords, notification tokens/webhooks, push tokens, and status-page password hashes.
 Treat the file as a credential bundle: create it on an encrypted operator workstation,
 restrict its permissions, never commit it, and delete it according to the secret-handling
@@ -109,7 +109,7 @@ for field in (
 PY
 ```
 
-Copy `phoenix-backup.json` to a fresh, isolated Phoenix installation running the same or a
+Copy `phoenix-backup.json` to a fresh, isolated Uptime Phoenix installation running the same or a
 newer compatible release. Do not drill by importing it back into production: import is
 merge-only and creates new entities rather than overwriting or deleting existing ones.
 
@@ -207,7 +207,7 @@ docker compose up -d phoenix
 docker compose logs --tail=100 phoenix
 ```
 
-Phoenix applies every pending embedded `*.up.sql` migration during process startup, before
+Uptime Phoenix applies every pending embedded `*.up.sql` migration during process startup, before
 it reports ready. In the split Compose/Helm shape, start the API first; the worker readiness
 gate waits for `/api/health/ready` before starting. Do not start multiple new migration
 owners simultaneously.
@@ -246,7 +246,7 @@ heartbeats over WebSocket, and run one known-good monitor and notification test-
 
 ## 3. Migration rollback policy
 
-Phoenix's runtime migration runner reads and applies sorted `*.up.sql` files and records
+Uptime Phoenix's runtime migration runner reads and applies sorted `*.up.sql` files and records
 them in `_migrations`. It does not execute `*.down.sql`. Down files exist for development
 and review, but the project does not continuously exercise the complete production
 downgrade chain; they are not the supported incident rollback path.
@@ -411,7 +411,7 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `OIDC_REDIRECT_URL` | empty | Absolute callback URL. When empty, derived from `PUBLIC_URL` + `/api/auth/oidc/callback`. |
 | `OIDC_SCOPES` | `openid,profile,email` | Comma-separated OIDC scopes. |
 | `OIDC_GROUPS_CLAIM` | `groups` | ID-token/userinfo claim for group membership. |
-| `OIDC_JIT_ENABLED` | `true` | Create Phoenix users on first successful OIDC login. |
+| `OIDC_JIT_ENABLED` | `true` | Create Uptime Phoenix users on first successful OIDC login. |
 | `OIDC_LINK_BY_EMAIL` | `false` | Link an unlinked existing user when the IdP asserts a **verified** email matching the username. |
 | `OIDC_ALLOWED_GROUPS` | empty | When non-empty, require membership in at least one listed IdP group. |
 | `OIDC_ADMIN_GROUPS` | empty | IdP groups that set `is_admin` on every login. |
@@ -529,7 +529,7 @@ zero dates as a workaround. Fix the repository/service boundary so valid UTC val
 ### Frontend changes do not appear
 
 The all-in-one frontend is compiled to `web/dist` and embedded into the Go binary with
-`go:embed`. Rebuilding only the Svelte files does not change an already-built Phoenix
+`go:embed`. Rebuilding only the Svelte files does not change an already-built Uptime Phoenix
 binary. Run the frontend build, then rebuild/redeploy the Go binary or the root Docker image:
 
 ```bash

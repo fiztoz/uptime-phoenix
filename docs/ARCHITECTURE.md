@@ -1,4 +1,4 @@
-# Phoenix — Detailed Design Document
+# Uptime Phoenix — Detailed Design Document
 
 > A self-hosted, K8s-native, minimal-dependency monitoring tool.
 > Architecture: Port-and-Adapter (Hexagonal). Stack: Go + Svelte 5. Database: MariaDB (SQLite for dev).
@@ -1072,7 +1072,7 @@ so deleting a template restores the provider's built-in layout instead of
 breaking delivery. The provider on a template is immutable after creation, and
 `NotificationService` rejects cross-provider assignments.
 
-Templates use Phoenix placeholders such as `{{ monitor.name }}`, `{{ status }}`,
+Templates use Uptime Phoenix placeholders such as `{{ monitor.name }}`, `{{ status }}`,
 `{{ message }}`, `{{ check_output }}`, `{{ timestamp }}`, and `{{ ack_url }}`.
 Generic `alert.*` placeholders resolve against either a monitor or a group;
 explicit `monitor.*` and `group.*` placeholders expose scope-specific metadata.
@@ -1112,13 +1112,13 @@ as `multipart/alternative`, and keeps the existing CR/LF stripping and length
 limit on the subject. The admin composer previews the result inside a sandboxed
 email frame; its content-security policy blocks scripts, forms, navigation, and
 remote resources so previewing operator-authored markup cannot execute it in
-Phoenix or leak the operator's address to tracking pixels.
+Uptime Phoenix or leak the operator's address to tracking pixels.
 
 ### Severity Mapping
 
-Shared formatting lives in `alert_format.go`. Providers map Phoenix status onto channel-native fields (examples below; see each `*_test.go` for exact payloads).
+Shared formatting lives in `alert_format.go`. Providers map Uptime Phoenix status onto channel-native fields (examples below; see each `*_test.go` for exact payloads).
 
-| Phoenix Status | Telegram / text | Discord embed | Slack | Webhook JSON | Teams / Mattermost / Gotify / Bark / Feishu / Line |
+| Uptime Phoenix Status | Telegram / text | Discord embed | Slack | Webhook JSON | Teams / Mattermost / Gotify / Bark / Feishu / Line |
 |---|---|---|---|---|---|
 | UP (resolve) | normal text | color `0x00FF00` | `:white_check_mark:` | `severity: "UP"` | channel-specific success styling |
 | DOWN (alert) | ⚠️ in text | color `0xFF0000` | `:x:` + `danger` | `severity: "DOWN"` | channel-specific alert styling |
@@ -1612,7 +1612,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 ### Adoption tooling
 
 - **`cmd/kuma-import`:** read-only converter from Uptime Kuma **SQLite file** or
-  **MariaDB/MySQL DSN** (Kuma v2) → Phoenix `BackupDocument` JSON → admin backup
+  **MariaDB/MySQL DSN** (Kuma v2) → Uptime Phoenix `BackupDocument` JSON → admin backup
   import. See `docs/KUMA-IMPORT.md`.
 - **Release dry-run / publish:** local via `scripts/release/dry-run.sh` and CI via
   `.github/workflows/release.yml` (dry-run always; publish owner-gated). See

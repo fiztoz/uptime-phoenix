@@ -1,4 +1,4 @@
-# Redis — credentials for Phoenix Database monitor
+# Redis — credentials for Uptime Phoenix Database monitor
 
 Redis does not have multi-user RBAC on every deployment. Prefer one of:
 
@@ -11,9 +11,9 @@ ACL SETUSER phoenix_monitor on >CHANGE_ME_STRONG_PASSWORD ~* &* +ping +info +ech
 ACL SAVE
 ```
 
-Minimal commands for Phoenix health checks: **`+ping`** is enough (`health_check` ping or select_1 both use PING).
+Minimal commands for Uptime Phoenix health checks: **`+ping`** is enough (`health_check` ping or select_1 both use PING).
 
-Phoenix connection string:
+Uptime Phoenix connection string:
 
 ```text
 redis://phoenix_monitor:CHANGE_ME_STRONG_PASSWORD@HOST:6379/0

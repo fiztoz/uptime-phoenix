@@ -1,4 +1,4 @@
-# Phoenix — Roadmap
+# Uptime Phoenix — Roadmap
 
 > 5-phase delivery. Each phase produces a deployable, demoable increment. The domain code never rewrites between phases — only adapters change.
 
@@ -95,7 +95,7 @@ PKCE S256; `phoenix-config` CLI; reverse escalation UI; MariaDB 021 assured.
 - [x] **Migrations runner** — `bun/migrate` embedded in binary; versioned `.sql` files compatible with both MariaDB and SQLite
 - [x] **Auth service + adapters** — bcrypt password, JWT issuance (`golang-jwt/jwt/v5`), TOTP (`pquerna/otp`)
 - [x] **User registration + login + 2FA setup** — HTTP handlers via Echo (bootstrap-only self-registration; admin user API thereafter)
-- [x] ~~**Migrations runner** — `golang-migrate` embedded in binary~~ — superseded; Phoenix uses `bun/migrate` only
+- [x] ~~**Migrations runner** — `golang-migrate` embedded in binary~~ — superseded; Uptime Phoenix uses `bun/migrate` only
 
 ### Sprint 2 (Weeks 5–6): Monitor Engine + Real-time
 
@@ -154,7 +154,7 @@ PKCE S256; `phoenix-config` CLI; reverse escalation UI; MariaDB 021 assured.
 - [x] **Severity mapping** — UP/DOWN/PENDING/MAINTENANCE → each provider's level field (see ARCHITECTURE.md §5.3; `alert_format.go` + per-provider tests)
 - [x] **Rate-limit middleware** — shared HTTP retry with `Retry-After` header parsing; exponential backoff (`adapters/notifier/ratelimit.go`); API rate limit in Echo middleware
 - [x] **Notification CRUD UI** — configure providers, test-send button, assign to monitors (`/(admin)/notifications`)
-- [x] **Reusable notification templates** — create/edit shared message layouts with Phoenix variables and select them on Discord, SMTP, Webhook, and LINE notifications (migration `027`); Discord adds structured fields, status colors, links, footer/timestamp, monitor/group contexts, and a channel-faithful preview (migration `028`); SMTP adds plain/HTML multipart templates with a sandboxed desktop/mobile email preview
+- [x] **Reusable notification templates** — create/edit shared message layouts with Uptime Phoenix variables and select them on Discord, SMTP, Webhook, and LINE notifications (migration `027`); Discord adds structured fields, status colors, links, footer/timestamp, monitor/group contexts, and a channel-faithful preview (migration `028`); SMTP adds plain/HTML multipart templates with a sandboxed desktop/mobile email preview
 
 ### Sprint 5 (Weeks 11–12): Status Pages
 
@@ -284,14 +284,14 @@ Ongoing, prioritized by user feedback. Each sprint is 2 weeks.
 - [ ] Tauri desktop wrapper (thin shell around the web build)
 - [ ] Weblate integration for community translations
 - [ ] Pushbullet, Alerta, Zabbix, N8N notification providers
-- [ ] Multi-tenant support (multiple organizations) — on hold; Phoenix remains single-tenant
+- [ ] Multi-tenant support (multiple organizations) — on hold; Uptime Phoenix remains single-tenant
       and self-hosted unless a concrete deployment need changes that decision
 
 ---
 
 ## Phase 5 — Internal K8s Integration (Weeks 27–30) — *Focused*
 
-> **Owner decision (2026-07-27):** Phoenix is deployed as a single-tenant application inside
+> **Owner decision (2026-07-27):** Uptime Phoenix is deployed as a single-tenant application inside
 > an internal K8s environment, not operated as a commercial SaaS service. Phase 5 therefore
 > retains only the two capabilities that directly improve that deployment model: OIDC SSO and
 > declarative config-as-code. The previous enterprise/multi-tenant scope is on hold.
@@ -324,8 +324,8 @@ Ongoing, prioritized by user feedback. Each sprint is 2 weeks.
 
 ### On Hold
 
-- [ ] **F3.4 Phoenix-managed ACME/custom-domain TLS** — the internal K8s load
-      balancer/Ingress owns certificate issuance, storage, and renewal. Phoenix only needs the
+- [ ] **F3.4 Uptime Phoenix-managed ACME/custom-domain TLS** — the internal K8s load
+      balancer/Ingress owns certificate issuance, storage, and renewal. Uptime Phoenix only needs the
       correct proxy/host/WebSocket behavior and deployment documentation.
 - [ ] **Enterprise/SaaS identity and isolation** — distributed WebAuthn challenge storage,
       server-side session revocation, account lockout, organizations, memberships, org roles,
@@ -341,7 +341,7 @@ required maintenance and are not on hold.
 **Exit criteria (Phase 5 = internal-K8s ready):** operators can use the internal OIDC provider
 with a tested local break-glass path; the existing single-tenant authorization model remains the
 only authorization model; a versioned YAML document can be validated, dry-run, and applied
-twice idempotently without leaking secrets; and Phoenix requires no application-managed TLS.
+twice idempotently without leaking secrets; and Uptime Phoenix requires no application-managed TLS.
 
 ---
 
@@ -366,7 +366,7 @@ twice idempotently without leaking secrets; and Phoenix requires no application-
 | M11 — Scale Validation | 24 | 10k-monitor load test, sharded workers, WS resilience |
 | M12 — Ecosystem | 26 | Additional providers, WebAuthn, Cloudflare Tunnel, Grafana datasource |
 | **Ecosystem-complete — Phase 4** | **26** | **Community-ready, scale-validated, polished** |
-| M13 — OIDC SSO | 28 | Internal IdP login mapped to existing Phoenix permissions, with local break-glass access |
+| M13 — OIDC SSO | 28 | Internal IdP login mapped to existing Uptime Phoenix permissions, with local break-glass access |
 | M14 — Config-as-Code | 30 | Versioned secret-safe YAML with dry-run and idempotent apply |
 | **Internal-K8s ready — Phase 5** | **30** | **Single-tenant, SSO-enabled, GitOps-configurable** |
 

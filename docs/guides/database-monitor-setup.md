@@ -1,13 +1,13 @@
 # Database monitor — setup guide
 
-Phoenix’s **Database** monitor checks that a database is **reachable and authenticating**, using a dedicated connection string and engine.
+Uptime Phoenix’s **Database** monitor checks that a database is **reachable and authenticating**, using a dedicated connection string and engine.
 
 It does **not** run free-form SQL you type in the UI. That avoids injection and accidental writes. Instead you choose a **health check preset**:
 
 | Preset | What runs |
 |--------|-----------|
 | **Connect + protocol ping only** (`ping`) | Driver/protocol ping after connect |
-| **Also run fixed SELECT 1 / PING** (`select_1`) | Same connect, then a **fixed** statement Phoenix chooses (`SELECT 1` for SQL; `PING` for Redis; Mongo ping) |
+| **Also run fixed SELECT 1 / PING** (`select_1`) | Same connect, then a **fixed** statement Uptime Phoenix chooses (`SELECT 1` for SQL; `PING` for Redis; Mongo ping) |
 
 Supported engines: **PostgreSQL**, **MySQL**, **MariaDB**, **SQL Server (MSSQL)**, **MongoDB**, **Redis**.
 
@@ -42,7 +42,7 @@ postgres://phoenix_monitor:CHANGE_ME@127.0.0.1:5432/appdb?sslmode=disable
 
 ### MySQL / MariaDB
 
-Phoenix uses the Go MySQL driver DSN form:
+Uptime Phoenix uses the Go MySQL driver DSN form:
 
 ```text
 phoenix_monitor:CHANGE_ME@tcp(db.example.com:3306)/appdb?parseTime=true&tls=true
@@ -96,7 +96,7 @@ redis.example.com:6379
 
 ## Create a least-privilege monitor user
 
-**Do not** use your app’s admin or superuser credentials in Phoenix.
+**Do not** use your app’s admin or superuser credentials in Uptime Phoenix.
 
 Scripts (repo + served with the web UI):
 
@@ -108,7 +108,7 @@ Scripts (repo + served with the web UI):
 | MongoDB | `docs/scripts/database-monitor/create-user-mongodb.js` | `/docs/database-monitor/create-user-mongodb.js` |
 | Redis | `docs/scripts/database-monitor/create-user-redis.md` | `/docs/database-monitor/create-user-redis.md` |
 
-Also available from the Phoenix UI: **Create/Edit monitor → Database → View setup guide**.
+Also available from the Uptime Phoenix UI: **Create/Edit monitor → Database → View setup guide**.
 
 ### Quick start (examples)
 
@@ -138,15 +138,15 @@ sqlcmd -S sql.example.com -U sa -i docs/scripts/database-monitor/create-user-mss
 mongosh "mongodb://admin:…@mongo.example.com:27017/admin" docs/scripts/database-monitor/create-user-mongodb.js
 ```
 
-Then paste the resulting DSN into Phoenix with **Engine** set correctly and preferably **Health check = Also run fixed SELECT 1 / PING**.
+Then paste the resulting DSN into Uptime Phoenix with **Engine** set correctly and preferably **Health check = Also run fixed SELECT 1 / PING**.
 
 ---
 
 ## Recommended setup checklist
 
 1. Run the create-user script for your engine (or equivalent grants).
-2. From a host that can reach the DB the same way Phoenix will, test the DSN (e.g. `psql`, `mysql`, `mongosh`, `redis-cli`).
-3. In Phoenix: **Monitors → Create → Database**.
+2. From a host that can reach the DB the same way Uptime Phoenix will, test the DSN (e.g. `psql`, `mysql`, `mongosh`, `redis-cli`).
+3. In Uptime Phoenix: **Monitors → Create → Database**.
 4. Set **Engine**, **Connection string**, **Health check**, **Timeout**.
 5. Save; wait one interval. Status should go **UP**.
 6. Optionally break auth or block the port and confirm **DOWN** + a useful message.
@@ -155,7 +155,7 @@ Then paste the resulting DSN into Phoenix with **Engine** set correctly and pref
 
 ## Network & security
 
-- Phoenix must reach the DB from **its** network (pod, VM, or host).
+- Uptime Phoenix must reach the DB from **its** network (pod, VM, or host).
 - Prefer TLS (`sslmode=require`, `tls=true`, `encrypt=true`, `rediss://`, Mongo `tls=true`).
 - Store the DSN only in the monitor config (encrypted at rest by your DB volume / secrets practice). Never put passwords in the monitor **name**.
 - Prefer **private network** access; avoid exposing DB ports publicly only for monitoring.
@@ -167,11 +167,11 @@ Then paste the resulting DSN into Phoenix with **Engine** set correctly and pref
 
 | Symptom | Likely cause |
 |---------|----------------|
-| Dial / timeout | Firewall, wrong host/port, Phoenix in another network namespace |
+| Dial / timeout | Firewall, wrong host/port, Uptime Phoenix in another network namespace |
 | Auth failed | Wrong password, user host restriction (MySQL `'user'@'%'`), `authSource` (Mongo) |
 | TLS / certificate errors | Missing `sslmode` / `tls` / `encrypt`, or untrusted CA |
 | SELECT 1 fails but ping works | User lacks CONNECT or basic SELECT on the target DB (rare with scripts above) |
-| Works from laptop, fails in Phoenix | Different egress IP / security group; allow Phoenix’s source |
+| Works from laptop, fails in Uptime Phoenix | Different egress IP / security group; allow Uptime Phoenix’s source |
 
 ---
 
@@ -181,5 +181,5 @@ Then paste the resulting DSN into Phoenix with **Engine** set correctly and pref
 |------|--------|
 | Only “port open” | **TCP** |
 | App HTTP health that already hits the DB | **HTTP(s)** |
-| App-owned liveness without DB credentials in Phoenix | **Push** |
+| App-owned liveness without DB credentials in Uptime Phoenix | **Push** |
 | Redis as a cache broker vs DB | Still use **Database** + engine Redis, or TCP if you only care about the port |

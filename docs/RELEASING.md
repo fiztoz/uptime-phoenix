@@ -1,4 +1,4 @@
-# Releasing Phoenix
+# Releasing Uptime Phoenix
 
 > **CI is restored (owner, 2026-07-28).** `.github/workflows/ci.yml` gates PRs and
 > `main`. Release automation lives in `.github/workflows/release.yml`: every run
@@ -6,7 +6,7 @@
 > The local script `./scripts/release/dry-run.sh` remains the offline equivalent
 > and **never publishes**.
 
-This document describes how Phoenix prepares release artifacts and how optional
+This document describes how Uptime Phoenix prepares release artifacts and how optional
 publish to GHCR / Helm OCI / GitHub Releases is owner-gated. `LICENSE` (MIT) is
 present at the repo root.
 
@@ -169,7 +169,7 @@ Under `dist/release-<version>/` (local or CI artifact):
 | `binaries/phoenix_<v>_<os>_<arch>[.exe]` | All-in-one server (`cmd/app`) |
 | `binaries/phoenix-api_<v>_<os>_<arch>[.exe]` | API binary |
 | `binaries/phoenix-worker_<v>_<os>_<arch>[.exe]` | Worker binary |
-| `binaries/kuma-import_<v>_<os>_<arch>[.exe]` | Kuma → Phoenix converter |
+| `binaries/kuma-import_<v>_<os>_<arch>[.exe]` | Kuma → Uptime Phoenix converter |
 | `charts/` | `helm package` output (`.tgz`) with stamped `appVersion` |
 | `helm-template.yaml` | `helm template` render for inspection |
 | `sbom/*.spdx.json` | Syft SBOMs for binaries and images when syft is available |

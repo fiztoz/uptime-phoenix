@@ -1,7 +1,7 @@
-# Phoenix — Project Instructions for All Agents
+# Uptime Phoenix — Project Instructions for All Agents
 
-> **READ THIS FIRST.** Every agent (AI or human) working on Phoenix must follow these rules.
-> Phoenix is a self-hosted, K8s-native, minimal-dependency monitoring tool.
+> **READ THIS FIRST.** Every agent (AI or human) working on Uptime Phoenix must follow these rules.
+> Uptime Phoenix is a self-hosted, K8s-native, minimal-dependency monitoring tool.
 > Architecture: Port-and-Adapter (Hexagonal). Stack: Go + Svelte 5. Database: MariaDB.
 >
 > **This file is the canonical source of truth for project rules.** It is designed to be
@@ -178,7 +178,7 @@ http, tcp, ping, dns, websocket, push, docker, mqtt, rabbitmq, grpc, snmp, datab
 **Database monitor engines (user-approved):** postgres, mysql, mariadb, mongodb, redis, mssql.
 Health checks use fixed presets only (`ping` / `select_1`) — never free-form operator SQL.
 
-**Explicitly excluded (do NOT add):** systemd (deferred until Phoenix agent), gamedig, tailscale, kafka, radius.
+**Explicitly excluded (do NOT add):** systemd (deferred until Uptime Phoenix agent), gamedig, tailscale, kafka, radius.
 
 ## Notification Providers (11 — do NOT add more without user approval)
 

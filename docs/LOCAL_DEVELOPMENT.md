@@ -1,6 +1,6 @@
-# Phoenix — Local Development Guide
+# Uptime Phoenix — Local Development Guide
 
-Phoenix is a self-hosted monitoring tool (Go backend + Svelte 5 frontend). The default local setup uses **SQLite** and needs **no external services**.
+Uptime Phoenix is a self-hosted monitoring tool (Go backend + Svelte 5 frontend). The default local setup uses **SQLite** and needs **no external services**.
 
 ---
 

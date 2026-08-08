@@ -2,7 +2,7 @@
 
 ## Project status
 
-Phoenix is a **hobby project** that is **not under active development**. There is no
+Uptime Phoenix is a **hobby project** that is **not under active development**. There is no
 security response team, no paid support, and **no SLA** for vulnerability reports.
 
 Reports are welcome as a courtesy. Fixing them is best-effort only and may never happen.
@@ -40,7 +40,7 @@ third-party deployments; it reflects the hobby status of this project.
 
 ## Threat model (read before deploying)
 
-Phoenix is a **self-hosted** tool. The operator is trusted.
+Uptime Phoenix is a **self-hosted** tool. The operator is trusted.
 
 ### Intentional capabilities that look like “attacks” in other products
 
@@ -48,13 +48,13 @@ These are **features**, not accidental holes, when used by an authenticated oper
 
 | Capability | Why it exists | Risk if abused |
 |---|---|---|
-| HTTP/TCP/DNS/… monitors | Probe real services | SSRF / internal network scanning from the Phoenix host |
+| HTTP/TCP/DNS/… monitors | Probe real services | SSRF / internal network scanning from the Uptime Phoenix host |
 | Notification webhooks | Alert external systems | Server-side request forgery to attacker-controlled URLs |
 | Custom status-page CSS | Theming | Stored CSS injection on public status pages (admin-controlled) |
 | Database / Docker / MQTT / etc. monitors | Health-check real infra | Requires credentials the operator supplies |
 
 Compromising an **admin** account (or any account with broad grants) is effectively full
-control of monitoring and outbound reach from the Phoenix process network.
+control of monitoring and outbound reach from the Uptime Phoenix process network.
 
 ### Defaults that are unsafe on the public internet
 
@@ -95,6 +95,6 @@ credentials.
 
 ## Prefer forking
 
-If you plan to run Phoenix for real traffic or multi-tenant scenarios, **fork** the
+If you plan to run Uptime Phoenix for real traffic or multi-tenant scenarios, **fork** the
 project, add CI, pin and scan dependencies, enforce strong secrets at startup, and treat
 your fork as the product of record.

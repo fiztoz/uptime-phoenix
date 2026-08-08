@@ -1,6 +1,6 @@
 # Changelog
 
-Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Phoenix has not
+Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Uptime Phoenix has not
 cut a release yet — there are **no git tags and no version numbers** as of this writing, so the
 entire history below lives under a single `[Unreleased]` section grouped by conventional-commit
 type (`feat` → Added, `fix` → Fixed, `refactor`/`chore` → Changed, `ci` → CI, `docs` → Docs).
@@ -54,7 +54,7 @@ at the bottom.
 - Status-page email subscriptions: double opt-in JWT tokens, per-page active SMTP channel, public subscribe/confirm/unsubscribe, admin channel + subscriber UI, incident and maintenance fan-out mail; dormant webhook table preserved as `status_page_subscribers_legacy_webhook` (migration `014`).
 - Public status page: optional `cert_expiry_date` / `cert_days_left`, `subscriptions_available`, and server-side OG/Twitter metadata injection into the embedded SPA shell.
 - `PUBLIC_URL` config + Helm `config.publicUrl` for absolute links in subscription emails.
-- Uptime Kuma importer (`cmd/kuma-import`): read-only converter from **SQLite or MariaDB/MySQL** (Kuma v2) to Phoenix `BackupDocument` JSON; see `docs/KUMA-IMPORT.md`.
+- Uptime Kuma importer (`cmd/kuma-import`): read-only converter from **SQLite or MariaDB/MySQL** (Kuma v2) to Uptime Phoenix `BackupDocument` JSON; see `docs/KUMA-IMPORT.md`.
 - Release dry-run workflow (contents:read, no publish), multi-arch Dockerfile `TARGETARCH` fixes, `docs/RELEASING.md`.
 
 - [`4220ea0`](https://github.com/fiztoz/uptime-phoenix/commit/4220ea0) Normalize HTTP monitor URLs on save; add a custom color picker and datetime picker to the admin UI.

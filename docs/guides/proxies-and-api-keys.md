@@ -1,6 +1,6 @@
 # Proxies & API Keys
 
-Both features are **admin-only** and live under **Settings** in the Phoenix UI.
+Both features are **admin-only** and live under **Settings** in the Uptime Phoenix UI.
 
 ---
 
@@ -8,14 +8,14 @@ Both features are **admin-only** and live under **Settings** in the Phoenix UI.
 
 ### What It Is
 
-A proxy lets you route a monitor's outbound HTTP/TCP/SOCKS check traffic through an intermediary server instead of connecting directly from the Phoenix pod. This is useful when:
+A proxy lets you route a monitor's outbound HTTP/TCP/SOCKS check traffic through an intermediary server instead of connecting directly from the Uptime Phoenix pod. This is useful when:
 
 - The target sits behind a firewall or VPN that only the proxy can reach.
 - You need to test how a service looks from a specific geographic location or network.
 - Corporate policy mandates all outbound traffic go through a forward proxy.
 - You want to mask the origin IP of health-check requests.
 
-Phoenix supports three protocols: **HTTP**, **HTTPS**, and **SOCKS5**. (SOCKS4 is intentionally excluded — Go's `x/net/proxy` package only implements a SOCKS5 dialer.)
+Uptime Phoenix supports three protocols: **HTTP**, **HTTPS**, and **SOCKS5**. (SOCKS4 is intentionally excluded — Go's `x/net/proxy` package only implements a SOCKS5 dialer.)
 
 ### How to Set Up
 
@@ -55,7 +55,7 @@ Proxy passwords are stored in plaintext in the database because the checker need
 
 ### What It Is
 
-An API key is a long-lived credential that lets scripts, CI pipelines, and external tools talk to the Phoenix REST API without interactive browser login. API keys are scoped and can be revoked independently of the user account that created them.
+An API key is a long-lived credential that lets scripts, CI pipelines, and external tools talk to the Uptime Phoenix REST API without interactive browser login. API keys are scoped and can be revoked independently of the user account that created them.
 
 API keys are **admin-only** — only an admin can create, list, or revoke them. A non-admin user cannot see the API Keys section at all.
 

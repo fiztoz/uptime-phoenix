@@ -1,6 +1,6 @@
-# Contributing to Phoenix
+# Contributing to Uptime Phoenix
 
-Thank you for contributing to Phoenix! This guide applies to **both human contributors and AI coding agents**.
+Thank you for contributing to Uptime Phoenix! This guide applies to **both human contributors and AI coding agents**.
 
 > **This is a hobby repository and is not under active development.** Issues and PRs may
 > never be reviewed. If you need ongoing maintenance, **fork** the project and work on
@@ -32,7 +32,7 @@ make gate-full    # full pre-merge gate when you can afford it
 
 ## Architecture in 30 Seconds
 
-Phoenix uses **Port-and-Adapter (Hexagonal) architecture**:
+Uptime Phoenix uses **Port-and-Adapter (Hexagonal) architecture**:
 
 ```
 cmd/ ──▶ adapters/ ──▶ core/services/ ──▶ core/ports/ ──▶ core/domain/

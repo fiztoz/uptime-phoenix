@@ -1,6 +1,6 @@
-# Phoenix — Deployment Modes (All-in-one vs Truly Split)
+# Uptime Phoenix — Deployment Modes (All-in-one vs Truly Split)
 
-Phoenix ships as **one codebase that runs in two shapes**:
+Uptime Phoenix ships as **one codebase that runs in two shapes**:
 
 | | All-in-one (default) | Truly split |
 |---|---|---|
@@ -192,7 +192,7 @@ helm install phoenix-worker ./charts/phoenix --set mode=worker --set redis.enabl
 
 Instead of (or alongside) a public Ingress controller / LoadBalancer, the chart
 can run a built-in `cloudflared` sidecar Deployment that dials **outbound** to
-Cloudflare and tunnels traffic to the in-cluster Phoenix Service. No inbound
+Cloudflare and tunnels traffic to the in-cluster Uptime Phoenix Service. No inbound
 ports are opened; Cloudflare terminates TLS at its edge.
 
 It uses the **named-tunnel token model**: you create a named tunnel in the

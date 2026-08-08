@@ -1,4 +1,4 @@
-# Phoenix — Project Plan
+# Uptime Phoenix — Project Plan
 
 > A self-hosted, K8s-native monitoring tool. Uptime-Kuma-equivalent features, Port-and-Adapter architecture, Go + Svelte 5 stack.
 >
@@ -12,11 +12,11 @@ Build a self-hosted monitoring tool that matches Uptime Kuma's feature surface (
 
 - **Minimal-dependency by default** — one pod, one PVC, zero external services required to function. `helm install` → one pod → works. External MariaDB, Redis, and the separate web tier are **opt-in**, never required.
 - **K8s-native from day 1** — ships as a Helm chart; horizontal scaling is a config change, not a rewrite
-- **Single-tenant and self-hosted** — each installation is owned and operated by the team deploying it; Phoenix is not a shared SaaS control plane
-- **Platform-owned edge TLS** — Phoenix runs behind the cluster's load balancer/Ingress; the platform terminates and renews certificates
+- **Single-tenant and self-hosted** — each installation is owned and operated by the team deploying it; Uptime Phoenix is not a shared SaaS control plane
+- **Platform-owned edge TLS** — Uptime Phoenix runs behind the cluster's load balancer/Ingress; the platform terminates and renews certificates
 - **Frontend/backend separable** — same binary serves embedded static assets by default; split into independent Deployments when you need scale
 - **Port-and-Adapter (hexagonal) architecture** — domain logic independent of frameworks, databases, and transports
-- **Lean** — no required heavy infrastructure dependencies (no Kafka, message brokers, or external DB operators needed for Phoenix itself)
+- **Lean** — no required heavy infrastructure dependencies (no Kafka, message brokers, or external DB operators needed for Uptime Phoenix itself)
 
 ## 2. Scope
 
@@ -86,7 +86,7 @@ Do **not** add providers without user approval. Explicitly **not** shipped (back
 1. Operator can enable OIDC and sign in through an internal IdP without a multi-tenant domain model
 2. Local admin authentication remains usable for bootstrap and break-glass recovery
 3. Versioned YAML configuration can be validated, dry-run, applied twice with no second-run changes, without exposing stored secrets
-4. Phoenix operates behind an existing TLS-terminating load balancer/Ingress without an application-level certificate manager
+4. Uptime Phoenix operates behind an existing TLS-terminating load balancer/Ingress without an application-level certificate manager
 
 ### Scale (Sprint D) — met under documented host limits
 
@@ -108,7 +108,7 @@ Do **not** add providers without user approval. Explicitly **not** shipped (back
 | 10 | **No external services required by default** | In-process EventBus + MariaDB/SQLite + embedded frontend. Redis pub/sub is opt-in for multi-pod. |
 | 11 | **One-file plugin convention** | Each monitor type and notification provider is a single Go file implementing one interface |
 | 12 | **EventBus port from day 1** | In-process default; Redis when `REDIS_URL` is set; domain code never changes |
-| 13 | **TLS terminates at the K8s edge** | Cluster load balancer/Ingress owns certificates. Phoenix does not implement ACME in the current model. |
+| 13 | **TLS terminates at the K8s edge** | Cluster load balancer/Ingress owns certificates. Uptime Phoenix does not implement ACME in the current model. |
 | 14 | **Focused Phase 5: SSO + config-as-code only** | Single-tenant, self-hosted. OIDC and GitOps configuration support internal operators; SaaS packaging does not. |
 
 ## 5. Key Risks

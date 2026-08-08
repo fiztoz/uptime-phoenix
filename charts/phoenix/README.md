@@ -1,4 +1,4 @@
-# Phoenix Helm Chart
+# Uptime Phoenix Helm Chart
 
 A self-hosted, K8s-native, minimal-dependency monitoring tool. The default `helm install` produces a single-pod deployment with SQLite, embedded frontend, and zero external services.
 
@@ -27,7 +27,7 @@ helm upgrade phoenix ./charts/phoenix
 | `redis.enabled` | bool | `false` | Enable Redis (only for multi mode) |
 | `web.split` | bool | `false` | Split frontend to separate Deployment (opt-in) |
 | `ingress.enabled` | bool | `true` | Enable Ingress with nginx WS timeout annotations |
-| `cloudflareTunnel.enabled` | bool | `false` | Run a `cloudflared` Deployment to expose Phoenix via a Cloudflare named tunnel (no inbound ingress) |
+| `cloudflareTunnel.enabled` | bool | `false` | Run a `cloudflared` Deployment to expose Uptime Phoenix via a Cloudflare named tunnel (no inbound ingress) |
 | `cloudflareTunnel.image.repository` | string | `cloudflare/cloudflared` | cloudflared image |
 | `cloudflareTunnel.image.tag` | string | `2024.12.2` | Pinned cloudflared tag |
 | `cloudflareTunnel.replicas` | int | `2` | Connector replicas (2 = HA; Cloudflare load-balances) |
@@ -77,10 +77,10 @@ helm upgrade phoenix ./charts/phoenix \
 
 The chart includes `nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"` for long-lived WebSocket connections.
 
-### Expose Phoenix via Cloudflare Tunnel
+### Expose Uptime Phoenix via Cloudflare Tunnel
 
 Run a `cloudflared` connector that dials out to Cloudflare and tunnels traffic to
-the in-cluster Phoenix Service — no public Ingress controller, LoadBalancer, or
+the in-cluster Uptime Phoenix Service — no public Ingress controller, LoadBalancer, or
 inbound ports required. Cloudflare terminates TLS, so you normally disable the
 chart's Ingress.
 
@@ -92,7 +92,7 @@ chart's Ingress.
    cloudflared tunnel create phoenix
    ```
 
-2. **Add a Public Hostname route** pointing at the Phoenix Service, e.g.
+2. **Add a Public Hostname route** pointing at the Uptime Phoenix Service, e.g.
    service `http://<release>-api:3000` (split mode) or `http://<release>:3000`
    (single-pod mode). The dashboard then shows the connector **token**.
 

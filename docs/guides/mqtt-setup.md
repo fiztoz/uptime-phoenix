@@ -1,6 +1,6 @@
 # MQTT monitor — setup guide
 
-Phoenix’s **MQTT Broker** monitor connects to a broker, optionally **subscribes** to a topic, and marks the check **UP** when the connection (and optional payload match) succeeds.
+Uptime Phoenix’s **MQTT Broker** monitor connects to a broker, optionally **subscribes** to a topic, and marks the check **UP** when the connection (and optional payload match) succeeds.
 
 It uses the Eclipse Paho MQTT client. There is **no separate “WebSocket path” field** — put the full broker address (including path for MQTT-over-WebSocket) in **Broker URL**.
 
@@ -36,11 +36,11 @@ Broker URL:  mqtt://mosquitto.monitoring.svc:1883
 Topic:       health/phoenix
 ```
 
-Use this when Phoenix can reach the broker on the classic MQTT port (same VPC, cluster network, or host network).
+Use this when Uptime Phoenix can reach the broker on the classic MQTT port (same VPC, cluster network, or host network).
 
 ### MQTT over WebSocket (custom path)
 
-Many brokers expose MQTT on HTTP/WebSocket for browsers or reverse proxies. **Include the path in the URL** — Phoenix does not add `/mqtt` for you.
+Many brokers expose MQTT on HTTP/WebSocket for browsers or reverse proxies. **Include the path in the URL** — Uptime Phoenix does not add `/mqtt` for you.
 
 | Broker / product | Example URL |
 |------------------|-------------|
@@ -94,9 +94,9 @@ Good uses for success message:
 
 ## Network & security checklist
 
-- Phoenix must reach the broker **from the Phoenix process** (pod, VM, or host).
+- Uptime Phoenix must reach the broker **from the Uptime Phoenix process** (pod, VM, or host).
 - Open firewall / security groups for the broker port (1883, 8883, 8083, 8084, 9001, …).
-- For `mqtts://` / `wss://`, the certificate must be valid for the hostname Phoenix uses (or use a private CA trusted by the OS running Phoenix). There is currently **no** MQTT-specific “ignore TLS errors” toggle like HTTP’s `tls_ignore`.
+- For `mqtts://` / `wss://`, the certificate must be valid for the hostname Uptime Phoenix uses (or use a private CA trusted by the OS running Uptime Phoenix). There is currently **no** MQTT-specific “ignore TLS errors” toggle like HTTP’s `tls_ignore`.
 - Prefer a dedicated broker user with subscribe-only rights on the topics you monitor.
 - Do not put secrets only in the monitor **name** — use **Password** / broker ACLs.
 
@@ -107,7 +107,7 @@ Good uses for success message:
 | Goal | Approach |
 |------|----------|
 | Broker in the same cluster | `mqtt://mosquitto.namespace.svc:1883` (or ClusterIP service DNS) |
-| Broker only on host network | Run Phoenix where that network is reachable, or expose the broker via Service / Ingress carefully |
+| Broker only on host network | Run Uptime Phoenix where that network is reachable, or expose the broker via Service / Ingress carefully |
 | Public WSS via Ingress | Point `wss://your-domain/mqtt` (or your Ingress path) at the broker’s WebSocket listener; put that full URL in **Broker URL** |
 
 MQTT-over-WebSocket behind Ingress needs **WebSocket upgrade** support (sticky sessions usually not required for a short check).
@@ -121,7 +121,7 @@ MQTT-over-WebSocket behind Ingress needs **WebSocket upgrade** support (sticky s
 | `mqtt connect failed` | Wrong host/port, firewall, TLS scheme mismatch (`mqtt://` vs `mqtts://`) |
 | Connect OK then subscribe timeout | ACL denies subscribe, or broker slow; increase timeout |
 | Message wait timeout | No publisher on that topic, wrong topic filter, or success string does not appear in payload |
-| Works in CLI, fails in Phoenix | Phoenix runs elsewhere (different network namespace); test from the Phoenix pod/host |
+| Works in CLI, fails in Uptime Phoenix | Uptime Phoenix runs elsewhere (different network namespace); test from the Uptime Phoenix pod/host |
 | WSS fails, TCP works | Missing path (`/mqtt`), wrong WSS port, or TLS cert name mismatch |
 
 ---

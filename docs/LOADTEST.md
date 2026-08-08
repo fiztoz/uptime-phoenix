@@ -1,4 +1,4 @@
-# Phoenix Load Test — Sprint D (R3.6)
+# Uptime Phoenix Load Test — Sprint D (R3.6)
 
 **Run date:** 2026-07-25
 **Result:** the `<1 s` p95 / `<2 s` p99 heartbeat fan-out target is now **met at 100, 1,000 and
@@ -30,7 +30,7 @@ prove nothing.
 ## Results
 
 All stages: fresh `phoenix_load` database per run, isolated MariaDB 11 on a 1 GB tmpfs.
-Host: 10-core Apple Silicon laptop / 16 GB RAM (Phoenix API/worker binaries run natively here).
+Host: 10-core Apple Silicon laptop / 16 GB RAM (Uptime Phoenix API/worker binaries run natively here).
 Containers (MariaDB, Redis, k6) run under **Colima** at **2 CPUs / 4 GiB** — that VM
 allocation, not the host's full 16 GB, is the binding limit for the Docker-side stack.
 MariaDB is further capped by its 1 GB tmpfs. `api_response_time` and `http_req_failed`

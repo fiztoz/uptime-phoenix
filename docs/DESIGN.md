@@ -1,12 +1,12 @@
-# Phoenix UI Design System — DESIGN.md
+# Uptime Phoenix UI Design System — DESIGN.md
 
-> **Agent rule:** Read this file before building any Phoenix screen. Every color, spacing value, component recipe, and motion spec here comes directly from the shipped code. Do not approximate, invent, or derive from first principles — use what is documented below.
+> **Agent rule:** Read this file before building any Uptime Phoenix screen. Every color, spacing value, component recipe, and motion spec here comes directly from the shipped code. Do not approximate, invent, or derive from first principles — use what is documented below.
 
 ---
 
 ## 1. Purpose & How to Use This Doc
 
-This document is the single source of truth for the Phoenix "Premium dark console" UI system. It captures every design decision that was made when the core admin experience was redesigned — the exact token values, canonical Tailwind class strings, and component recipes as implemented in production code.
+This document is the single source of truth for the Uptime Phoenix "Premium dark console" UI system. It captures every design decision that was made when the core admin experience was redesigned — the exact token values, canonical Tailwind class strings, and component recipes as implemented in production code.
 
 **Tokens-first rule:** Never hardcode colors (`#fff`, `rgb(…)`), raw spacing integers, or font sizes in component markup. Everything goes through the token layer (CSS custom properties exposed as Tailwind utility classes). If a token does not exist for what you need, add it to `app.css` first, then reference it.
 
@@ -19,7 +19,7 @@ This document is the single source of truth for the Phoenix "Premium dark consol
 ## 2. Design Principles
 
 ### Premium dark console
-Phoenix presents as a calm, professional monitoring console — the antithesis of flashy SaaS dashboards. Key characteristics:
+Uptime Phoenix presents as a calm, professional monitoring console — the antithesis of flashy SaaS dashboards. Key characteristics:
 
 - **Layered surfaces, not flat.** Every depth level has its own distinct OKLCH lightness value. Cards sit above background, elevated sits above surface. The eye reads hierarchy through surface contrast, not decoration.
 - **One ember accent, used sparingly.** The primary color (the "ember" — a warm orange-red) is reserved for: the brand mark, active nav state, focus rings, primary CTA buttons, and metric values that need emphasis. It should not appear on every element.
@@ -48,9 +48,9 @@ Phoenix presents as a calm, professional monitoring console — the antithesis o
 
 ## 3. Brand & Logo
 
-### The Phoenix mascot mark
+### The Uptime Phoenix mascot mark
 
-The brand mark is a compact baby phoenix holding a circular live-status node. Its round silhouette makes the monitoring product approachable, while the three-feather crest and flame-shaped tail retain a clear Phoenix connection without using a literal flame body. The canonical expression is alert and watchful.
+The brand mark is a compact baby phoenix holding a circular live-status node. Its round silhouette makes the monitoring product approachable, while the three-feather crest and flame-shaped tail retain a clear Uptime Phoenix connection without using a literal flame body. The canonical expression is alert and watchful.
 
 **File:** `web/src/lib/components/BrandMark.svelte`
 
@@ -275,7 +275,7 @@ All radii trace back to `--radius: 0.75rem` (12px):
 
 ### Elevation model
 
-Phoenix uses surface lightness + optional shadow for depth, not heavy drop shadows.
+Uptime Phoenix uses surface lightness + optional shadow for depth, not heavy drop shadows.
 
 | Layer | Token | Shadow |
 |---|---|---|
@@ -607,7 +607,7 @@ With leading icon (search): wrap in `relative`, position icon with `absolute lef
 
 ### Template Source + Delivery Preview
 
-**The Truthful Preview Rule.** For configurable message templates, keep the saved source visible in a monospaced editor and pair it with a rendered, non-editable delivery preview. Preview controls first choose representative data (monitor/group and status), then channel-specific views; email offers Desktop, Mobile, and Plain. Email HTML must render inside a fixed light email-client surface even when Phoenix is dark, because the preview represents the recipient's context rather than the app theme. Label previews as approximate, sandbox rendered HTML, and never turn the preview into a WYSIWYG editor or let sample controls mutate the saved source.
+**The Truthful Preview Rule.** For configurable message templates, keep the saved source visible in a monospaced editor and pair it with a rendered, non-editable delivery preview. Preview controls first choose representative data (monitor/group and status), then channel-specific views; email offers Desktop, Mobile, and Plain. Email HTML must render inside a fixed light email-client surface even when Uptime Phoenix is dark, because the preview represents the recipient's context rather than the app theme. Label previews as approximate, sandbox rendered HTML, and never turn the preview into a WYSIWYG editor or let sample controls mutate the saved source.
 
 ---
 
@@ -938,7 +938,7 @@ Firefox thin scrollbar: `scrollbar-width: thin; scrollbar-color: oklch(1 0 0 / 0
 | What | Where |
 |---|---|
 | All design tokens (CSS vars + Tailwind) | `web/src/app.css` |
-| Phoenix mascot brand mark component | `web/src/lib/components/BrandMark.svelte` |
+| Uptime Phoenix mascot brand mark component | `web/src/lib/components/BrandMark.svelte` |
 | Approved mascot artwork and favicon source | `web/static/brand/phoenix-mascot.png` |
 | Static fallback favicon SVG | `web/static/favicon.svg` |
 | Skeleton primitive | `web/src/lib/components/Skeleton.svelte` |

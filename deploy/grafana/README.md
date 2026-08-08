@@ -1,7 +1,7 @@
-# Phoenix — Grafana Integration
+# Uptime Phoenix — Grafana Integration
 
-Visualise Phoenix's Prometheus metrics in Grafana. Rather than ship a bespoke
-Grafana backend datasource plugin (high maintenance, needs signing), Phoenix
+Visualise Uptime Phoenix's Prometheus metrics in Grafana. Rather than ship a bespoke
+Grafana backend datasource plugin (high maintenance, needs signing), Uptime Phoenix
 provides the idiomatic deliverable: a **provisioned Prometheus data source +
 curated dashboards + a one-command stack**.
 
@@ -23,7 +23,7 @@ deploy/grafana/
 
 ## Metrics this integration uses
 
-All panels are built **only** from metrics Phoenix actually registers in
+All panels are built **only** from metrics Uptime Phoenix actually registers in
 `internal/adapters/metrics/prometheus.go`:
 
 | Metric | Type | Labels | Used by |
@@ -46,7 +46,7 @@ hard-coded — every panel references `${datasource}`.
 
 ## Authentication: how `/metrics` is protected
 
-Phoenix's `/metrics` route is guarded by the API-key middleware
+Uptime Phoenix's `/metrics` route is guarded by the API-key middleware
 (`internal/adapters/http/middleware/apikey.go`). It accepts:
 
 - **`Authorization: ApiKey <plaintext>`** — the middleware takes the plaintext,
@@ -57,9 +57,9 @@ Phoenix's `/metrics` route is guarded by the API-key middleware
   form instead. The `basic_auth` snippets in the config files are included only
   for completeness and are commented out / marked as non-working.
 
-### Get a Phoenix API key
+### Get a Uptime Phoenix API key
 
-A key looks like `phx_<base64url>`. Mint one against a running Phoenix:
+A key looks like `phx_<base64url>`. Mint one against a running Uptime Phoenix:
 
 ```bash
 # 1. Log in to get a session JWT (or grab it from the browser after logging in).
@@ -82,8 +82,8 @@ curl -s -H "Authorization: ApiKey phx_xxxxx" http://localhost:3000/metrics | hea
 
 ### 1. Prometheus-in-the-middle (recommended)
 
-Prometheus scrapes Phoenix `/metrics` using the API key; Grafana points at
-Prometheus. Grafana never holds the Phoenix key, and you get retention,
+Prometheus scrapes Uptime Phoenix `/metrics` using the API key; Grafana points at
+Prometheus. Grafana never holds the Uptime Phoenix key, and you get retention,
 recording rules, and alerting for free. **This is what the bundled
 `docker-compose.yaml` sets up**, and the primary entry in
 `provisioning/datasources/phoenix.yaml`.
@@ -94,8 +94,8 @@ Grafana ──query──▶ Prometheus ──scrape (ApiKey)──▶ Phoenix /
 
 ### 2. Direct scrape (no separate Prometheus)
 
-Grafana's Prometheus data source points straight at Phoenix. Documented (and
-left commented) in `provisioning/datasources/phoenix.yaml`. Note Phoenix only
+Grafana's Prometheus data source points straight at Uptime Phoenix. Documented (and
+left commented) in `provisioning/datasources/phoenix.yaml`. Note Uptime Phoenix only
 exposes the raw `/metrics` exposition endpoint — it is not a full Prometheus
 query API — so direct mode is best treated as a stop-gap; prefer topology 1.
 
@@ -113,21 +113,21 @@ PHOENIX_API_KEY=phx_xxxxx docker compose up
 Then:
 
 - **Grafana** → http://localhost:3001 (login `admin` / `admin`; anonymous
-  viewer is also enabled). Open **Dashboards → Phoenix → Phoenix — Overview**.
+  viewer is also enabled). Open **Dashboards → Uptime Phoenix → Uptime Phoenix — Overview**.
 - **Prometheus** → http://localhost:9090 (check **Status → Targets**; the
   `phoenix` target should be `UP`).
 
 The compose stack writes `PHOENIX_API_KEY` into a credentials file that
 Prometheus reads via `credentials_file`, so the key never appears in the
 mounted config. The default scrape target is `host.docker.internal:3000`
-(Phoenix on the host). To scrape Phoenix running elsewhere, edit the target in
+(Uptime Phoenix on the host). To scrape Uptime Phoenix running elsewhere, edit the target in
 `prometheus.yml`.
 
 ### Wiring into an existing Prometheus instead
 
 If you already run Prometheus, skip the compose stack and paste the job from
 [`prometheus-scrape.yaml`](./prometheus-scrape.yaml) into your `prometheus.yml`
-(set the `credentials` / `credentials_file`), then add Phoenix's Prometheus as a
+(set the `credentials` / `credentials_file`), then add Uptime Phoenix's Prometheus as a
 Grafana data source — import [`provisioning/datasources/phoenix.yaml`](./provisioning/datasources/phoenix.yaml)
 or point your existing Prometheus data source at this dashboard.
 
@@ -142,11 +142,11 @@ pick your Prometheus data source when prompted (it maps to `$datasource`).
 
 ## Kubernetes / Helm
 
-The Phoenix Helm chart can have Prometheus Operator scrape `/metrics` directly
+The Uptime Phoenix Helm chart can have Prometheus Operator scrape `/metrics` directly
 via a `PodMonitor` — set `prometheus.podMonitor.enabled=true` and
 `prometheus.apiKey=<phx_...>` in `values.yaml` (see
 `charts/phoenix/templates/podmonitor.yaml`). Once Prometheus is scraping
-Phoenix, add it as a Grafana data source and import
+Uptime Phoenix, add it as a Grafana data source and import
 `dashboards/phoenix-overview.json` exactly as above — the dashboard is
 deployment-agnostic.
 

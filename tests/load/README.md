@@ -1,6 +1,6 @@
-# Phoenix Load Tests
+# Uptime Phoenix Load Tests
 
-`k6-load-test.js` seeds a disposable Phoenix instance to `MONITOR_COUNT`,
+`k6-load-test.js` seeds a disposable Uptime Phoenix instance to `MONITOR_COUNT`,
 loads the authenticated monitor inventory with `API_VUS`, and holds
 `WS_CLIENTS` authenticated WebSocket connections open while counting heartbeat
 fan-out and event latency.
@@ -11,7 +11,7 @@ deletes them, so never point it at a development or production database.
 ## Environment variables
 
 - `BASE_URL` — URL reachable by k6 (default `http://localhost:3000`).
-- `MONITOR_TARGET` — health URL reachable by Phoenix's checker process.
+- `MONITOR_TARGET` — health URL reachable by Uptime Phoenix's checker process.
 - `AUTH_TOKEN` — optional JWT; otherwise the script logs in.
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD` — bootstrap credentials used to log in.
 - `MONITOR_COUNT` — cumulative target number of monitors (default `100`).
@@ -31,7 +31,7 @@ deletes them, so never point it at a development or production database.
 
 ## Container runner
 
-With Phoenix exposed on host port 3102, run k6 without installing it locally:
+With Uptime Phoenix exposed on host port 3102, run k6 without installing it locally:
 
 ```bash
 docker run --rm \

@@ -1,6 +1,6 @@
 # RabbitMQ monitor — setup guide
 
-Phoenix’s **RabbitMQ** monitor checks an **AMQP 0-9-1** broker (RabbitMQ and compatible servers). It connects, opens a channel, and optionally verifies that a **queue** or **exchange** still exists via **passive declare**.
+Uptime Phoenix’s **RabbitMQ** monitor checks an **AMQP 0-9-1** broker (RabbitMQ and compatible servers). It connects, opens a channel, and optionally verifies that a **queue** or **exchange** still exists via **passive declare**.
 
 It does **not** publish or consume messages. Prefer a dedicated least-privilege user (scripts below).
 
@@ -69,7 +69,7 @@ amqp://USERNAME:PASSWORD@HOST:PORT/VHOST
 
 Use URL-encoding for special characters in password or vhost (`@` → `%40`, `/` → `%2F`, space → `%20`).
 
-Phoenix stores the URL in monitor config (treated as a secret field in the form). Prefer a monitor-only password, not the broker admin.
+Uptime Phoenix stores the URL in monitor config (treated as a secret field in the form). Prefer a monitor-only password, not the broker admin.
 
 ---
 
@@ -123,13 +123,13 @@ rabbitmqctl set_permissions -p "$VHOST" "$USER" "" "" ""
 
 **Permission model (RabbitMQ):**
 
-| Permission                                 | Phoenix needs it for             |
+| Permission                                 | Uptime Phoenix needs it for             |
 | ------------------------------------------ | -------------------------------- |
 | Login                                      | Always                           |
 | configure / write / read empty             | Connect + open channel only      |
 | **configure** matching queue/exchange name | Passive declare of that resource |
 
-Phoenix does **not** need publish (`write`) or consume (`read`) for this monitor.
+Uptime Phoenix does **not** need publish (`write`) or consume (`read`) for this monitor.
 
 ### Option B — Management definitions import
 
@@ -140,7 +140,7 @@ Phoenix does **not** need publish (`write`) or consume (`read`) for this monitor
 rabbitmqctl import_definitions /path/to/phoenix-monitor-definitions.json
 ```
 
-### Verify outside Phoenix
+### Verify outside Uptime Phoenix
 
 ```bash
 # Connection (needs rabbitmqadmin or any AMQP client). Example with rabbitmq-diagnostics:
@@ -152,7 +152,7 @@ rabbitmqctl authenticate_user phoenix_monitor 'CHANGE_ME_STRONG_PASSWORD'
 
 ---
 
-## Phoenix UI steps
+## Uptime Phoenix UI steps
 
 1. Create the monitor user (script above).
 2. **Monitors → Create → RabbitMQ** (under **Protocols**).
@@ -171,9 +171,9 @@ rabbitmqctl authenticate_user phoenix_monitor 'CHANGE_ME_STRONG_PASSWORD'
 | Broker in-cluster      | Service DNS: `amqp://…@rabbitmq.namespace.svc:5672/%2F`                      |
 | TLS to broker          | `amqps://` and port 5671 (or your TLS listener)                              |
 | Only probe “broker up” | URL only — no queue/exchange                                                 |
-| Probe a critical queue | Create durable queue; grant configure on that name; set **Queue** in Phoenix |
+| Probe a critical queue | Create durable queue; grant configure on that name; set **Queue** in Uptime Phoenix |
 
-Ensure NetworkPolicies allow Phoenix pods → RabbitMQ AMQP port.
+Ensure NetworkPolicies allow Uptime Phoenix pods → RabbitMQ AMQP port.
 
 ---
 
@@ -186,7 +186,7 @@ Ensure NetworkPolicies allow Phoenix pods → RabbitMQ AMQP port.
 | guest login fails from non-localhost | Expected — use `phoenix_monitor`, not `guest`                  |
 | Queue check failed                   | Queue does not exist, or user lacks **configure** on that name |
 | Exchange check failed                | Wrong **exchange type**, missing exchange, or ACL              |
-| Works on laptop, fails in Phoenix    | Different network path; allow Phoenix egress                   |
+| Works on laptop, fails in Uptime Phoenix    | Different network path; allow Uptime Phoenix egress                   |
 
 ---
 

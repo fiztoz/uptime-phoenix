@@ -1,7 +1,7 @@
-# Phoenix — Testing Instructions for Agents
+# Uptime Phoenix — Testing Instructions for Agents
 
 > **Purpose:** This document tells any agent (AI or human) exactly how to verify
-> Phoenix changes before marking a task complete. Follow every applicable gate.
+> Uptime Phoenix changes before marking a task complete. Follow every applicable gate.
 
 > **CI is restored (owner, 2026-07-28).** `.github/workflows/ci.yml` runs the gate on
 > every `pull_request` and push to `main` (backend, frontend, e2e, MariaDB contract,
@@ -372,7 +372,7 @@ bunx playwright install --with-deps chromium
 
 ### 8.2 Running E2E Tests
 
-**Requires a running Phoenix instance** (either `docker compose up` or `make run`).
+**Requires a running Uptime Phoenix instance** (either `docker compose up` or `make run`).
 
 ```bash
 cd web
@@ -453,7 +453,7 @@ When automated tests aren't sufficient, verify these flows manually.
 - [ ] Add Telegram notification (bot_token + chat_id)
 - [ ] Add Discord notification (webhook_url)
 - [ ] Add Webhook notification (custom URL)
-- [ ] Create Discord, SMTP, Webhook, and LINE message templates; insert Phoenix variables and verify the rendered preview
+- [ ] Create Discord, SMTP, Webhook, and LINE message templates; insert Uptime Phoenix variables and verify the rendered preview
 - [ ] Discord template: customize UP/DOWN/PENDING/MAINTENANCE/certificate colors, title link, footer, timestamp, and ordered inline/full-width fields
 - [ ] Switch the Discord preview between Monitor alert and Group alert; monitor-only fields disappear for groups and group condition/threshold fields disappear for monitors
 - [ ] Send monitor and folder transitions through the same Discord template; verify the delivered embed matches the preview structure and uses the correct scope variables
@@ -593,7 +593,7 @@ missing methods to your test double.
 **Fix:** `helm template phoenix charts/phoenix --debug` for detailed error output.
 
 ### Playwright test times out
-**Cause:** Phoenix server not running or wrong URL.
+**Cause:** Uptime Phoenix server not running or wrong URL.
 **Fix:** Ensure `docker compose up` or `make run` is running, and
 `PHOENIX_API_URL` is set correctly.
 

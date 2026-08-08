@@ -1,4 +1,4 @@
-# Phoenix
+# Uptime Phoenix
 
 > **Status: hobby project — not under active development.**
 >
@@ -7,7 +7,7 @@
 > ship releases. If you want to run or extend it seriously, **fork it** and maintain your
 > own copy. See [SECURITY.md](SECURITY.md) for how (and whether) to report issues.
 
-Phoenix is a self-hosted uptime monitoring platform in the Uptime Kuma class, built as a
+Uptime Phoenix is a self-hosted uptime monitoring platform in the Uptime Kuma class, built as a
 single static Go binary with an embedded Svelte 5 frontend. It follows a strict hexagonal
 architecture (domain core, ports, adapters), runs on SQLite for zero-dependency setups or
 MariaDB for production, and is Kubernetes-native via a Helm chart that scales from one
@@ -41,7 +41,7 @@ Requires Docker with the Compose plugin:
 docker compose up
 ```
 
-The first run builds the image, starts MariaDB, and boots Phoenix. Then open
+The first run builds the image, starts MariaDB, and boots Uptime Phoenix. Then open
 **http://localhost:3000** and log in with the default bootstrap credentials:
 
 | Field | Value |
@@ -101,7 +101,7 @@ dry-run / publish (`.github/workflows/release.yml`).
 
 All modes are documented in detail in `docs/DEPLOYMENT_MODES.md`.
 
-**Docker Compose, all-in-one** (MariaDB + Phoenix on :3000):
+**Docker Compose, all-in-one** (MariaDB + Uptime Phoenix on :3000):
 
 ```bash
 docker compose up
@@ -183,10 +183,10 @@ This is **hobby / vibe-coded software**, not a product with a vendor behind it.
 - **CI + local gate.** PRs run GitHub Actions (`ci.yml`); `make gate-full` is still the
   offline quality bar. Treat unreviewed contributions with caution.
 
-If you adopt Phoenix in a real environment, you own hardening, upgrades, and incident
+If you adopt Uptime Phoenix in a real environment, you own hardening, upgrades, and incident
 response.
 
 ## License
 
-Phoenix is licensed under the [MIT License](LICENSE).
+Uptime Phoenix is licensed under the [MIT License](LICENSE).
 
