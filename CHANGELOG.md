@@ -35,8 +35,8 @@ at the bottom.
   `govulncheck`, `git diff --check`). `make govulncheck` added standalone. (At the time
   of this track CI was absent; CI was restored 2026-07-28 and now also runs `actionlint`.)
 - Rolling-deploy WebSocket soak (`docs/RUNBOOK.md` §4.1): reproducible procedure and
-  measured result proving `phoenix-api` restarts lose no heartbeats while
-  `phoenix-worker` keeps running, and that WS clients reconnect and resume
+  measured result proving `uptime-phoenix-api` restarts lose no heartbeats while
+  `uptime-phoenix-worker` keeps running, and that WS clients reconnect and resume
   automatically. Closes the Phase 3 / Sprint B carryover item.
 - `Monitor.Weight` kept and **wired for display sort** (API list `ORDER BY`, UI). Earlier
   “inert field” notes are obsolete.

@@ -1,16 +1,16 @@
 # syntax=docker/dockerfile:1
 # ─────────────────────────────────────────────────────────────────────────────
-# Phoenix — TRULY SPLIT, multi-target build.
+# Uptime Phoenix — TRULY SPLIT, multi-target build.
 #
 # Produces three role-specific images from one source tree:
-#   --target api     →  phoenix-api    (HTTP + WebSocket only,        distroless)
-#   --target worker  →  phoenix-worker (scheduler + checkers + notif, distroless)
-#   --target web     →  phoenix-web    (nginx serving the SPA, proxies to api)
+#   --target api     →  uptime-phoenix-api    (HTTP + WebSocket only,        distroless)
+#   --target worker  →  uptime-phoenix-worker (scheduler + checkers + notif, distroless)
+#   --target web     →  uptime-phoenix-web    (nginx serving the SPA, proxies to api)
 #
 # Build a single role:
-#   docker build -f Dockerfile.split --target api    -t phoenix-api:latest    .
-#   docker build -f Dockerfile.split --target worker -t phoenix-worker:latest .
-#   docker build -f Dockerfile.split --target web    -t phoenix-web:latest    .
+#   docker build -f Dockerfile.split --target api    -t uptime-phoenix-api:latest    .
+#   docker build -f Dockerfile.split --target worker -t uptime-phoenix-worker:latest .
+#   docker build -f Dockerfile.split --target web    -t uptime-phoenix-web:latest    .
 #
 # Or let docker-compose.split.yml build and wire all three:
 #   docker compose -f docker-compose.split.yml up --build
@@ -58,38 +58,38 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOMAXPROCS=2 \
     go build -trimpath \
       -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
-      -o /phoenix-api    ./cmd/api && \
+      -o /uptime-phoenix-api    ./cmd/api && \
     go build -trimpath \
       -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
-      -o /phoenix-worker ./cmd/worker
+      -o /uptime-phoenix-worker ./cmd/worker
 
 # ─── Target: api ─── HTTP + WebSocket front door (stateless, scale-out) ──────
 FROM gcr.io/distroless/static-debian12:nonroot AS api
 ARG VERSION=dev
-LABEL org.opencontainers.image.title="Phoenix API" \
+LABEL org.opencontainers.image.title="Uptime Phoenix API" \
       org.opencontainers.image.source="https://github.com/fiztoz/uptime-phoenix" \
       org.opencontainers.image.version="${VERSION}"
-COPY --from=go-builder /phoenix-api /phoenix-api
+COPY --from=go-builder /uptime-phoenix-api /uptime-phoenix-api
 EXPOSE 3000
 USER 65532
 # cmd/api hard-codes MODE=api — no MODE env required.
-ENTRYPOINT ["/phoenix-api"]
+ENTRYPOINT ["/uptime-phoenix-api"]
 
 # ─── Target: worker ─── scheduler + checkers + notifier (no HTTP port) ───────
 FROM gcr.io/distroless/static-debian12:nonroot AS worker
 ARG VERSION=dev
-LABEL org.opencontainers.image.title="Phoenix Worker" \
+LABEL org.opencontainers.image.title="Uptime Phoenix Worker" \
       org.opencontainers.image.source="https://github.com/fiztoz/uptime-phoenix" \
       org.opencontainers.image.version="${VERSION}"
-COPY --from=go-builder /phoenix-worker /phoenix-worker
+COPY --from=go-builder /uptime-phoenix-worker /uptime-phoenix-worker
 USER 65532
 # cmd/worker hard-codes MODE=worker.
-ENTRYPOINT ["/phoenix-worker"]
+ENTRYPOINT ["/uptime-phoenix-worker"]
 
 # ─── Target: web ─── nginx serving the SPA + proxying /api and /ws to api ────
 FROM nginx:1.27-alpine AS web
 ARG VERSION=dev
-LABEL org.opencontainers.image.title="Phoenix Web" \
+LABEL org.opencontainers.image.title="Uptime Phoenix Web" \
       org.opencontainers.image.source="https://github.com/fiztoz/uptime-phoenix" \
       org.opencontainers.image.version="${VERSION}"
 COPY --from=web-builder /app/web/dist /usr/share/nginx/html

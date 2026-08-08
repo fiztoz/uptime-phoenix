@@ -184,7 +184,7 @@ curl --fail-with-body --silent --show-error "$PHOENIX_URL/api/health/live" | pyt
 For Helm, pull the exact immutable image first so a missing tag fails before the rollout:
 
 ```bash
-export PHOENIX_IMAGE=ghcr.io/fiztoz/phoenix
+export PHOENIX_IMAGE=ghcr.io/fiztoz/uptime-phoenix
 export PHOENIX_TAG=v0.0.0
 docker pull "$PHOENIX_IMAGE:$PHOENIX_TAG"
 
@@ -294,8 +294,8 @@ do not increase checker capacity; more sharded worker pods do.
 ### 4.1 Rolling-deploy WebSocket soak (Sprint D Track C, 2026-07-25)
 
 This closes the "rolling deploy test" carried since Phase 3 Sprint 7 (see `docs/ROADMAP.md`)
-and the Sprint B assurance backlog: prove that restarting `phoenix-api` while
-`phoenix-worker` keeps running does not lose heartbeats and that WebSocket clients
+and the Sprint B assurance backlog: prove that restarting `uptime-phoenix-api` while
+`uptime-phoenix-worker` keeps running does not lose heartbeats and that WebSocket clients
 reconnect and resume on their own. No production code changed for this — it is a
 black-box soak against the existing binaries, run twice, with the durable heartbeat log
 used as the ground truth.
@@ -313,8 +313,8 @@ from the record a client resyncs against.
 
 **Reproducible procedure:**
 
-1. Build `cmd/api` and `cmd/worker` (`go build -o bin/phoenix-api ./cmd/api`,
-   `go build -o bin/phoenix-worker ./cmd/worker`).
+1. Build `cmd/api` and `cmd/worker` (`go build -o bin/uptime-phoenix-api ./cmd/api`,
+   `go build -o bin/uptime-phoenix-worker ./cmd/worker`).
 2. Start a throwaway MariaDB + Redis (do **not** reuse the shared dev `phoenix` database
    or its containers):
    ```bash
@@ -539,7 +539,7 @@ cd ..
 go build ./cmd/app
 ```
 
-In split-web mode, rebuild and redeploy the `phoenix-web` image instead. If `/api/health/live`
+In split-web mode, rebuild and redeploy the `uptime-phoenix-web` image instead. If `/api/health/live`
 shows the expected backend version but the UI is stale, confirm which web tier the Ingress
 serves and whether its image digest changed.
 

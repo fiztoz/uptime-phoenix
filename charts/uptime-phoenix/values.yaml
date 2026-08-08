@@ -4,7 +4,7 @@
 
 # ── Image ─────────────────────────────────────────────────────────────────────
 image:
-  repository: ghcr.io/fiztoz/phoenix
+  repository: ghcr.io/fiztoz/uptime-phoenix
   tag: latest
   pullPolicy: IfNotPresent
 
@@ -92,11 +92,11 @@ redis:
 
 # ── Frontend delivery ─────────────────────────────────────────────────────────
 # false = embedded in Go binary (default, zero-dependency)
-# true  = separate phoenix-web Deployment (nginx serving static build)
+# true  = separate uptime-phoenix-web Deployment (nginx serving static build)
 web:
   split: false
   image:
-    repository: ghcr.io/fiztoz/phoenix-web
+    repository: ghcr.io/fiztoz/uptime-phoenix-web
     tag: latest
     pullPolicy: IfNotPresent
   replicas: 1
@@ -126,7 +126,7 @@ ingress:
 
 # ── Cloudflare Tunnel (optional — expose Phoenix without external ingress) ────
 # When enabled, the chart runs a `cloudflared` Deployment that dials out to
-# Cloudflare and tunnels traffic to the in-cluster phoenix-api (or phoenix-web)
+# Cloudflare and tunnels traffic to the in-cluster uptime-phoenix-api (or uptime-phoenix-web)
 # Service. No inbound ports, LoadBalancer, or public Ingress controller needed.
 #
 # Token model (named tunnel):

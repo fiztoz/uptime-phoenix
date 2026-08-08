@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "phoenix-web",
+      "name": "uptime-phoenix-web",
       "dependencies": {
         "@inlang/paraglide-js": "^2.0.0",
         "@lucide/svelte": "^1.0.0",

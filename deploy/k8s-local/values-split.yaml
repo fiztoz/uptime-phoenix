@@ -1,16 +1,16 @@
-# Phoenix TRULY SPLIT values for local Colima/k3s/kind clusters.
+# Uptime Phoenix TRULY SPLIT values for local Colima/k3s/kind clusters.
 # api + worker + web (nginx) + MariaDB + Redis — mirrors docker-compose.split.yml
 mode: split
 
 image:
-  repository: phoenix
+  repository: uptime-phoenix
   tag: local
   pullPolicy: IfNotPresent
 
 web:
   split: true
   image:
-    repository: phoenix-web
+    repository: uptime-phoenix-web
     tag: local
     pullPolicy: IfNotPresent
   replicas: 1

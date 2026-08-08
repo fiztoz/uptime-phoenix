@@ -40,27 +40,27 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOMAXPROCS=2 \
     go build -trimpath \
       -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
-      -o /phoenix ./cmd/app && \
+      -o /uptime-phoenix ./cmd/app && \
     go build -trimpath \
       -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
-      -o /phoenix-api ./cmd/api && \
+      -o /uptime-phoenix-api ./cmd/api && \
     go build -trimpath \
       -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
-      -o /phoenix-worker ./cmd/worker
+      -o /uptime-phoenix-worker ./cmd/worker
 
 # ─── Stage 3: Final image (distroless, ~25 MB) ──────────────────────────────
 FROM gcr.io/distroless/static-debian12:nonroot
 ARG VERSION=dev
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
-LABEL org.opencontainers.image.title="Phoenix" \
+LABEL org.opencontainers.image.title="Uptime Phoenix" \
       org.opencontainers.image.description="Self-hosted K8s-native monitoring" \
       org.opencontainers.image.source="https://github.com/fiztoz/uptime-phoenix" \
       org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.vendor="Phoenix"
-COPY --from=go-builder /phoenix /phoenix
+      org.opencontainers.image.vendor="Uptime Phoenix"
+COPY --from=go-builder /uptime-phoenix /uptime-phoenix
 EXPOSE 3000
 USER 65532
 # Phase 3: MODE=api|worker|all (default all = single-pod). Set via Helm/env.
 ENV MODE=all
-ENTRYPOINT ["/phoenix"]
+ENTRYPOINT ["/uptime-phoenix"]

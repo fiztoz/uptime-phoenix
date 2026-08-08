@@ -15,7 +15,7 @@ func main() {
 		os.Exit(1)
 	}
 	if err := bootstrap.Run(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "phoenix exited with error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "uptime-phoenix exited with error: %v\n", err)
 		os.Exit(1)
 	}
 }

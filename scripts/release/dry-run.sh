@@ -95,11 +95,11 @@ echo "==> Cross-compiling CGO-free binaries"
 for plat in "${MATRIX[@]}"; do
   goos="${plat%/*}"
   goarch="${plat#*/}"
-  build_one "$goos" "$goarch" ./cmd/app "phoenix"
-  build_one "$goos" "$goarch" ./cmd/kuma-import "kuma-import"
-  build_one "$goos" "$goarch" ./cmd/phoenix-config "phoenix-config"
-  build_one "$goos" "$goarch" ./cmd/api "phoenix-api"
-  build_one "$goos" "$goarch" ./cmd/worker "phoenix-worker"
+  build_one "$goos" "$goarch" ./cmd/app "uptime-phoenix"
+  build_one "$goos" "$goarch" ./cmd/kuma-import "uptime-phoenix-kuma-import"
+  build_one "$goos" "$goarch" ./cmd/phoenix-config "uptime-phoenix-config"
+  build_one "$goos" "$goarch" ./cmd/api "uptime-phoenix-api"
+  build_one "$goos" "$goarch" ./cmd/worker "uptime-phoenix-worker"
 done
 
 echo "==> Checksums"
@@ -165,7 +165,7 @@ if [[ "${SKIP_DOCKER:-0}" != "1" ]]; then
     # All-in-one image for linux/amd64 and linux/arm64 separately so we can
     # inspect the binary architecture of each, then optionally combine.
     for arch in amd64 arm64; do
-      tag="phoenix:${VERSION}-linux-${arch}"
+      tag="uptime-phoenix:${VERSION}-linux-${arch}"
       echo "    buildx build linux/${arch} -> ${tag}"
       docker buildx build \
         --platform "linux/${arch}" \
@@ -181,12 +181,12 @@ if [[ "${SKIP_DOCKER:-0}" != "1" ]]; then
       # Prove the image contains the matching architecture binary.
       # distroless has no shell; copy binary out via docker create/cp.
       cid="$(docker create "$tag")"
-      docker cp "${cid}:/phoenix" "${IMG_DIR}/phoenix-from-image-linux-${arch}" || true
+      docker cp "${cid}:/uptime-phoenix" "${IMG_DIR}/uptime-phoenix-from-image-linux-${arch}" || true
       docker rm "$cid" >/dev/null
-      if command -v file >/dev/null 2>&1 && [[ -f "${IMG_DIR}/phoenix-from-image-linux-${arch}" ]]; then
-        file "${IMG_DIR}/phoenix-from-image-linux-${arch}" | tee -a "${OUT_DIR}/image-arch-proof.txt"
+      if command -v file >/dev/null 2>&1 && [[ -f "${IMG_DIR}/uptime-phoenix-from-image-linux-${arch}" ]]; then
+        file "${IMG_DIR}/uptime-phoenix-from-image-linux-${arch}" | tee -a "${OUT_DIR}/image-arch-proof.txt"
         # Expect arm64 binary for arm64 image, x86-64 for amd64.
-        got="$(file "${IMG_DIR}/phoenix-from-image-linux-${arch}" || true)"
+        got="$(file "${IMG_DIR}/uptime-phoenix-from-image-linux-${arch}" || true)"
         case "$arch" in
           arm64)
             if ! grep -qiE 'arm64|aarch64' <<<"$got"; then
@@ -204,13 +204,13 @@ if [[ "${SKIP_DOCKER:-0}" != "1" ]]; then
       fi
 
       if [[ "${SKIP_SBOM:-0}" != "1" ]] && command -v syft >/dev/null 2>&1; then
-        syft "$tag" -o spdx-json > "${SBOM_DIR}/phoenix_${VERSION}_linux_${arch}.image.spdx.json" || true
+        syft "$tag" -o spdx-json > "${SBOM_DIR}/uptime-phoenix_${VERSION}_linux_${arch}.image.spdx.json" || true
       fi
     done
 
     # Split targets (amd64 only for local load convenience; CI builds both).
     for target in api worker web; do
-      tag="phoenix-${target}:${VERSION}-linux-amd64"
+      tag="uptime-phoenix-${target}:${VERSION}-linux-amd64"
       echo "    buildx build split/${target} linux/amd64 -> ${tag}"
       docker buildx build \
         --platform linux/amd64 \

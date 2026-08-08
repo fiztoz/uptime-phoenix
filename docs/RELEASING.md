@@ -39,7 +39,7 @@ Supply one version string for the entire dry-run (example `0.0.0-snapshot.1`,
 |---|---|
 | Go binaries | `-ldflags "-X github.com/fiztoz/uptime-phoenix/internal/version.Version=<v>"` |
 | Container image labels | `org.opencontainers.image.version=<v>` build-arg `VERSION` |
-| Image tags (local only for dry-run) | `phoenix:<v>-linux-<arch>` |
+| Image tags (local only for dry-run) | `uptime-phoenix:<v>-linux-<arch>` |
 | Helm chart | `appVersion: "<v>"` on a **copy** of the chart before `helm package` |
 
 No git tag is created for a dry-run. Semver tags are an explicit owner step.
@@ -124,8 +124,8 @@ Publish steps:
 
 1. Log in to GHCR with `GITHUB_TOKEN`.
 2. Multi-arch (`linux/amd64,linux/arm64`) buildx **push** from the **tag tree**:
-   - `ghcr.io/<owner>/phoenix:<version>` and `:latest` (all-in-one `Dockerfile`)
-   - `ghcr.io/<owner>/phoenix-{api,worker,web}:<version>` and `:latest` (`Dockerfile.split`)
+   - `ghcr.io/<owner>/uptime-phoenix:<version>` and `:latest` (all-in-one `Dockerfile`)
+   - `ghcr.io/<owner>/uptime-phoenix-{api,worker,web}:<version>` and `:latest` (`Dockerfile.split`)
    - `<owner>` is `github.repository_owner` lowercased (chart defaults use
      `ghcr.io/fiztoz/...`; forks publish under their own namespace).
 3. `helm push` the dry-run chart package to `oci://ghcr.io/<owner>/charts`.
@@ -166,14 +166,15 @@ Under `dist/release-<version>/` (local or CI artifact):
 | Path | Contents |
 |---|---|
 | `binaries/` | CGO-free cross-compiled binaries for matrix below + `SHA256SUMS` |
-| `binaries/phoenix_<v>_<os>_<arch>[.exe]` | All-in-one server (`cmd/app`) |
-| `binaries/phoenix-api_<v>_<os>_<arch>[.exe]` | API binary |
-| `binaries/phoenix-worker_<v>_<os>_<arch>[.exe]` | Worker binary |
-| `binaries/kuma-import_<v>_<os>_<arch>[.exe]` | Kuma → Uptime Phoenix converter |
+| `binaries/uptime-phoenix_<v>_<os>_<arch>[.exe]` | All-in-one server (`cmd/app`) |
+| `binaries/uptime-phoenix-api_<v>_<os>_<arch>[.exe]` | API binary |
+| `binaries/uptime-phoenix-worker_<v>_<os>_<arch>[.exe]` | Worker binary |
+| `binaries/uptime-phoenix-config_<v>_<os>_<arch>[.exe]` | Config-as-code CLI (`cmd/phoenix-config`) |
+| `binaries/uptime-phoenix-kuma-import_<v>_<os>_<arch>[.exe]` | Kuma → Uptime Phoenix converter |
 | `charts/` | `helm package` output (`.tgz`) with stamped `appVersion` |
 | `helm-template.yaml` | `helm template` render for inspection |
 | `sbom/*.spdx.json` | Syft SBOMs for binaries and images when syft is available |
-| `images/phoenix-from-image-linux-<arch>` | Binary extracted from a local image for arch proof |
+| `images/uptime-phoenix-from-image-linux-<arch>` | Binary extracted from a local image for arch proof |
 | `image-arch-proof.txt` | `file(1)` output proving arm64/amd64 match |
 | `binary-arch.txt` | `file(1)` listing for cross-compiled binaries |
 | `INVENTORY.md` | Human-readable summary of the run |
@@ -194,7 +195,7 @@ platforms that actually produce a binary are checksummed.
 
 - **All-in-one** (`Dockerfile`): linux/amd64 and linux/arm64 with
   `TARGETOS`/`TARGETARCH` and `VERSION` ldflags. An arm64 buildx target must contain
-  an arm64 binary (proved by extracting `/phoenix` and running `file`).
+  an arm64 binary (proved by extracting `/uptime-phoenix` and running `file`).
 - **Split** (`Dockerfile.split`): `api`, `worker`, and `web` targets, same
   multi-arch args. Dry-run loads images locally without pushing; publish pushes
   multi-arch manifests to GHCR.
@@ -205,7 +206,7 @@ A green `docker buildx build --platform linux/arm64` is not enough if the
 Dockerfile hardcodes `GOARCH=amd64` (historical bug). The dry-run:
 
 1. Builds with `--build-arg TARGETARCH=arm64` / `GOARCH=${TARGETARCH}`.
-2. `docker create` + `docker cp` extracts `/phoenix`.
+2. `docker create` + `docker cp` extracts `/uptime-phoenix`.
 3. `file` must report `ARM aarch64` / `arm64` for the arm64 image and
    `x86-64` for the amd64 image.
 4. Fails the run if the architecture does not match.
@@ -251,7 +252,7 @@ outside this owner-gated path.
 ## Cleanup local dry-run artifacts
 
 ```bash
-# Everything under dist/release-* plus matching local phoenix* image tags
+# Everything under dist/release-* plus matching local uptime-phoenix* image tags
 ./scripts/release/clean.sh
 
 # One snapshot only
@@ -288,7 +289,7 @@ Before each publish:
 - [ ] Dry-run inventory inspected (local or CI artifact)
 - [ ] Tag `v<version>` created and pushed by the owner (not by an agent ad hoc)
 - [ ] Environment `release` has required reviewers enabled
-- [ ] Chart `image.repository` / consumers accept `ghcr.io/<owner>/phoenix`
+- [ ] Chart `image.repository` / consumers accept `ghcr.io/<owner>/uptime-phoenix`
 - [ ] Rollback steps above are understood
 
 Until publish is intentionally triggered: **dry-run only.**

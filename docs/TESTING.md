@@ -258,7 +258,7 @@ bun run format  # auto-fix
 
 ```bash
 cd /path/to/uptime-phoenix
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/phoenix ./cmd/app
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/uptime-phoenix ./cmd/app
 ```
 
 This verifies:

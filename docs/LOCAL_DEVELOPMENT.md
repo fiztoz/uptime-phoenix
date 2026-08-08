@@ -84,7 +84,7 @@ BOOTSTRAP_USERNAME=admin \
 BOOTSTRAP_PASSWORD=ChangeMe123! \
 MODE=all \
 PORT=3000 \
-./bin/phoenix
+./bin/uptime-phoenix
 ```
 
 ---

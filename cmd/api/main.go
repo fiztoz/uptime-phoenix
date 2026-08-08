@@ -16,7 +16,7 @@ func main() {
 	}
 	cfg.Mode = "api"
 	if err := bootstrap.Run(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "phoenix-api exited with error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "uptime-phoenix-api exited with error: %v\n", err)
 		os.Exit(1)
 	}
 }

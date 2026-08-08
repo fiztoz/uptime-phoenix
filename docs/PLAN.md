@@ -102,7 +102,7 @@ Do **not** add providers without user approval. Explicitly **not** shipped (back
 | 4 | **MariaDB primary, SQLite for dev/edge** | MariaDB on a PVC (or external managed MariaDB) is the default for K8s; SQLite for local dev and single-node edge. Same repository interface, different adapter. A Postgres **app** DB adapter is not shipped; Postgres is a **monitor target** engine only. |
 | 5 | **Bun query builder** | Type-safe queries for MariaDB + SQLite without ORM types in the domain. `go-sql-driver/mysql` + `modernc.org/sqlite` (CGO-free). ~~sqlc + pgx as app DB~~ was an early plan; not used. |
 | 6 | **Echo v4 HTTP + coder/websocket** | Typed context, built-in middleware; idiomatic context-aware WS |
-| 7 | **Embedded frontend by default, separate Deployment opt-in** | Single Go binary serves built Svelte assets via `embed.FS`. Split `phoenix-web` + `phoenix-api` via Helm when independent scaling is needed. |
+| 7 | **Embedded frontend by default, separate Deployment opt-in** | Single Go binary serves built Svelte assets via `embed.FS`. Split `uptime-phoenix-web` + `uptime-phoenix-api` via Helm when independent scaling is needed. |
 | 8 | **Helm chart from day 1** | K8s is a first-class deployment target |
 | 9 | **TOTP + WebAuthn** | `pquerna/otp` and `go-webauthn`; both shipped |
 | 10 | **No external services required by default** | In-process EventBus + MariaDB/SQLite + embedded frontend. Redis pub/sub is opt-in for multi-pod. |

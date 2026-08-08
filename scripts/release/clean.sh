@@ -5,7 +5,7 @@
 #   ./scripts/release/clean.sh                    # all dist/release-* + matching local images
 #   VERSION=0.0.0-snapshot.1 ./scripts/release/clean.sh
 #   ./scripts/release/clean.sh --all-dist         # entire dist/ tree
-#   ./scripts/release/clean.sh --images-only      # local phoenix* dry-run tags only
+#   ./scripts/release/clean.sh --images-only      # local uptime-phoenix* dry-run tags only
 #   ./scripts/release/clean.sh --no-images        # filesystem only
 #   ./scripts/release/clean.sh --dry-run          # print actions, delete nothing
 #
@@ -107,14 +107,14 @@ if [[ "$NO_IMAGES" -eq 0 ]]; then
   else
     echo "==> Removing local dry-run image tags"
     # Patterns created by dry-run.sh:
-    #   phoenix:<version>-linux-<arch>
-    #   phoenix-api|worker|web:<version>-linux-<arch>
+    #   uptime-phoenix:<version>-linux-<arch>
+    #   uptime-phoenix-api|worker|web:<version>-linux-<arch>
     filter=()
     if [[ -n "${VERSION:-}" ]]; then
-      filter=(--filter "reference=phoenix*:${VERSION}-*")
+      filter=(--filter "reference=uptime-phoenix*:${VERSION}-*")
     else
-      # Snapshot-style and any phoenix* tag with -linux- (dry-run load tags)
-      filter=(--filter "reference=phoenix*:*")
+      # Snapshot-style and any uptime-phoenix* tag with -linux- (dry-run load tags)
+      filter=(--filter "reference=uptime-phoenix*:*")
     fi
 
     # Collect tags carefully; only remove dry-run style tags (portable: no mapfile).
@@ -123,12 +123,12 @@ if [[ "$NO_IMAGES" -eq 0 ]]; then
       [[ -n "$line" ]] && imgs+=("$line")
     done < <(
       docker images "${filter[@]}" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
-        | grep -E '^phoenix(-api|-worker|-web)?:.+-linux-(amd64|arm64)$' \
+        | grep -E '^uptime-phoenix(-api|-worker|-web)?:.+-linux-(amd64|arm64)$' \
         || true
     )
 
     if [[ ${#imgs[@]} -eq 0 ]]; then
-      echo "    no matching local phoenix dry-run image tags"
+      echo "    no matching local uptime-phoenix dry-run image tags"
     else
       for img in "${imgs[@]}"; do
         echo "    docker rmi ${img}"

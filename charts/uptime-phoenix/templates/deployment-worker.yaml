@@ -34,12 +34,12 @@ spec:
           command:
             - sh
             - -c
-            - 'until wget -q -O /dev/null http://{{ include "phoenix.fullname" . }}:{{ .Values.service.port }}/api/health/ready; do echo "waiting for phoenix-api migrations..."; sleep 2; done'
+            - 'until wget -q -O /dev/null http://{{ include "phoenix.fullname" . }}:{{ .Values.service.port }}/api/health/ready; do echo "waiting for uptime-phoenix-api migrations..."; sleep 2; done'
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
       {{- end }}
       containers:
-        - name: phoenix-worker
+        - name: uptime-phoenix-worker
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:

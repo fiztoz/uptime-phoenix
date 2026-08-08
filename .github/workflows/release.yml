@@ -41,7 +41,7 @@ permissions:
   contents: read
 
 env:
-  # Chart values default to ghcr.io/fiztoz/phoenix; publish uses the current
+  # Chart values default to ghcr.io/fiztoz/uptime-phoenix; publish uses the current
   # repository owner (lowercased) so forks land under their own GHCR namespace.
   GOTOOLCHAIN: go1.25.12
   # Pin toolchain versions used by this workflow (update deliberately).
@@ -310,7 +310,7 @@ jobs:
           IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
         run: |
           set -euo pipefail
-          IMAGE="ghcr.io/${IMAGE_OWNER}/phoenix"
+          IMAGE="ghcr.io/${IMAGE_OWNER}/uptime-phoenix"
           docker buildx build \
             --platform linux/amd64,linux/arm64 \
             --build-arg "VERSION=${VERSION}" \
@@ -328,7 +328,7 @@ jobs:
         run: |
           set -euo pipefail
           for target in api worker web; do
-            IMAGE="ghcr.io/${IMAGE_OWNER}/phoenix-${target}"
+            IMAGE="ghcr.io/${IMAGE_OWNER}/uptime-phoenix-${target}"
             echo "==> push ${IMAGE}:${VERSION}"
             docker buildx build \
               --platform linux/amd64,linux/arm64 \
@@ -360,7 +360,7 @@ jobs:
           fi
           if [ -z "${CHART_TGZ}" ]; then
             echo "No chart tgz in dry-run artifact; packaging from charts/uptime-phoenix"
-            CHART_SRC="$(mktemp -d)/phoenix"
+            CHART_SRC="$(mktemp -d)/uptime-phoenix"
             cp -R charts/uptime-phoenix "${CHART_SRC}"
             python3 - "${CHART_SRC}/Chart.yaml" "${VERSION}" <<'PY'
           import pathlib, sys, re
@@ -398,7 +398,7 @@ jobs:
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
         with:
           tag_name: v${{ env.VERSION }}
-          name: Phoenix v${{ env.VERSION }}
+          name: Uptime Phoenix v${{ env.VERSION }}
           # Only attaches to an existing tag (checked above). Does not create a
           # new commit on main. If the release already exists, files are updated.
           draft: false

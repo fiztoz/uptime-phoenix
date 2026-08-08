@@ -10,7 +10,7 @@
 #
 # Override secrets via a .env file or the shell environment.
 
-name: phoenix-split
+name: uptime-phoenix-split
 
 services:
   # ── MariaDB — shared system of record for both api and worker ──────────────
@@ -45,7 +45,7 @@ services:
       retries: 5
 
   # ── API tier — HTTP + WebSocket only (MODE=api). Owns DB migrations. ───────
-  phoenix-api:
+  uptime-phoenix-api:
     build:
       context: .
       dockerfile: Dockerfile.split
@@ -81,15 +81,15 @@ services:
     image: busybox:1.36
     restart: "no"
     depends_on:
-      phoenix-api:
+      uptime-phoenix-api:
         condition: service_started
     command:
       - sh
       - -c
-      - 'until wget -q -O /dev/null http://phoenix-api:3000/api/health/ready; do echo "waiting for phoenix-api migrations..."; sleep 2; done; echo "phoenix-api ready"'
+      - 'until wget -q -O /dev/null http://uptime-phoenix-api:3000/api/health/ready; do echo "waiting for uptime-phoenix-api migrations..."; sleep 2; done; echo "uptime-phoenix-api ready"'
 
   # ── Worker tier — scheduler + checkers + notifier (MODE=worker). No HTTP. ──
-  phoenix-worker:
+  uptime-phoenix-worker:
     build:
       context: .
       dockerfile: Dockerfile.split
@@ -107,14 +107,14 @@ services:
         condition: service_healthy
 
   # ── Web tier — nginx serving the SPA, proxying /api + /ws to the API ───────
-  phoenix-web:
+  uptime-phoenix-web:
     build:
       context: .
       dockerfile: Dockerfile.split
       target: web
     restart: unless-stopped
     depends_on:
-      phoenix-api:
+      uptime-phoenix-api:
         condition: service_started
     ports:
       - "8080:80"

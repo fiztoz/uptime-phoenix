@@ -24,21 +24,21 @@ if [ ! -f web/dist/index.html ]; then
 	mkdir -p web/dist
 	printf '%s\n' '<!doctype html><title>phoenix</title>' > web/dist/index.html
 fi
-go build -o "$e2e_tmp_dir/phoenix" ./cmd/app
+go build -o "$e2e_tmp_dir/uptime-phoenix" ./cmd/app
 go build -o "$e2e_tmp_dir/webhook-stub" ./web/tests/webhook_stub.go
 
 "$e2e_tmp_dir/webhook-stub" &
 stub_pid=$!
 
 DB_ENGINE=sqlite \
-	DB_DSN="file:$e2e_tmp_dir/phoenix.db?cache=shared" \
+	DB_DSN="file:$e2e_tmp_dir/uptime-phoenix.db?cache=shared" \
 	JWT_SECRET=e2e_secret \
 	BOOTSTRAP_USERNAME=admin \
 	BOOTSTRAP_PASSWORD='ChangeMe123!' \
 	PUBLIC_URL='http://127.0.0.1:3100' \
 	PORT=3100 \
 	ESCALATION_POLL_SECONDS=1 \
-	"$e2e_tmp_dir/phoenix" &
+	"$e2e_tmp_dir/uptime-phoenix" &
 app_pid=$!
 
 wait "$app_pid"

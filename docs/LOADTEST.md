@@ -157,19 +157,19 @@ check rounds and `ws_event_latency` will report a vacuous `0s`.
 
 ```bash
 docker run -d --name phoenix-load-redis -p 127.0.0.1:16380:6379 redis:7-alpine
-go build -o /tmp/phoenix-api ./cmd/api
-go build -o /tmp/phoenix-worker ./cmd/worker
+go build -o /tmp/uptime-phoenix-api ./cmd/api
+go build -o /tmp/uptime-phoenix-worker ./cmd/worker
 
 DSN='phoenix:load_app@tcp(127.0.0.1:13307)/phoenix_load?charset=utf8mb4&parseTime=true&loc=UTC&multiStatements=true'
 
 # API tier owns migrations — wait for /api/health/ready before starting the worker.
 DB_ENGINE=mariadb DB_DSN="$DSN" REDIS_URL='redis://127.0.0.1:16380/0' \
 PORT=3102 JWT_SECRET=load_secret \
-BOOTSTRAP_USERNAME=admin BOOTSTRAP_PASSWORD='ChangeMe123!' /tmp/phoenix-api &
+BOOTSTRAP_USERNAME=admin BOOTSTRAP_PASSWORD='ChangeMe123!' /tmp/uptime-phoenix-api &
 
 until curl -sf http://127.0.0.1:3102/api/health/ready >/dev/null; do sleep 1; done
 
-DB_ENGINE=mariadb DB_DSN="$DSN" REDIS_URL='redis://127.0.0.1:16380/0' /tmp/phoenix-worker &
+DB_ENGINE=mariadb DB_DSN="$DSN" REDIS_URL='redis://127.0.0.1:16380/0' /tmp/uptime-phoenix-worker &
 ```
 
 Then run k6 with `MONITOR_COUNT=10000 WS_CLIENTS=50 TEST_DURATION=90s MONITOR_INTERVAL=30`.

@@ -90,7 +90,7 @@
 
 ```
            ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-           │ phoenix-api  │  │ phoenix-api  │  │ phoenix-api  │  (HPA, 2-N)
+           │ uptime-phoenix-api │  │ uptime-phoenix-api │  │ uptime-phoenix-api │  (HPA, 2-N)
            │ (stateless)  │  │ (stateless)  │  │ (stateless)  │
            │ HTTP + WS    │  │ HTTP + WS    │  │ HTTP + WS    │
            └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
@@ -103,7 +103,7 @@
                   └────────┬────────┘         │   truth)       │
                            │                  └────────────────┘
                   ┌────────▼────────┐
-                  │ phoenix-worker  │  (replicas=1, PDB)
+                  │ uptime-phoenix-worker │  (replicas=1, PDB)
                   │ scheduler +     │
                   │ checkers +      │
                   │ notifications   │
@@ -1815,7 +1815,7 @@ charts/uptime-phoenix/
 ```yaml
 # Default: minimal-dependency, single pod
 image:
-  repository: ghcr.io/fiztoz/phoenix
+  repository: ghcr.io/fiztoz/uptime-phoenix
   tag: latest
   pullPolicy: IfNotPresent
 
@@ -1923,7 +1923,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=go-builder /phoenix /phoenix
 EXPOSE 3000
 USER 65532
-ENTRYPOINT ["/phoenix"]
+ENTRYPOINT ["/uptime-phoenix"]
 ```
 
 ### Graceful Shutdown

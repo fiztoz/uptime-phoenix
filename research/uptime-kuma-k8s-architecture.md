@@ -13,7 +13,7 @@
 
 The stack stays **Go 1.23+ (backend) + Svelte 5 (frontend)**, but the deployment model follows a **minimal-dependency-first** principle: the default deployment is **one pod, one PVC, zero external services**. The Go binary serves the built Svelte assets via `embed.FS`, uses SQLite or MariaDB-on-PVC for storage, and runs an in-process EventBus. No Redis, no external DB, no separate web tier is required to function.
 
-When scale demands it, the same binary is reconfigured via Helm values to run as multiple pods: the `EventBus` port swaps from in-process to Redis pub/sub, the frontend splits into a separate `phoenix-web` Deployment (nginx serving the static build), and MariaDB moves to a managed external instance. **No domain code changes** when any of these swaps happen — they are adapter changes selected at startup by environment variables.
+When scale demands it, the same binary is reconfigured via Helm values to run as multiple pods: the `EventBus` port swaps from in-process to Redis pub/sub, the frontend splits into a separate `uptime-phoenix-web` Deployment (nginx serving the static build), and MariaDB moves to a managed external instance. **No domain code changes** when any of these swaps happen — they are adapter changes selected at startup by environment variables.
 
 ---
 
@@ -35,7 +35,7 @@ When scale demands it, the same binary is reconfigured via Helm values to run as
             /api/*  /ws/*         │                        │  /  /status/*
                                   │                        │
                 ┌─────────────────▼──┐              ┌──────▼─────────┐
-                │  phoenix-web       │              │  phoenix-web   │
+                │  uptime-phoenix-web       │              │  uptime-phoenix-web   │
                 │  (SvelteKit +      │              │  (SvelteKit    │
                 │   nginx)           │              │   status page  │
                 │  replicas: 2-5     │              │   SSG build)   │
@@ -43,7 +43,7 @@ When scale demands it, the same binary is reconfigured via Helm values to run as
                 └────────────────────┘              └────────────────┘
 
                 ┌────────────────────┐
-                │  phoenix-api       │ ◀─── HPA: CPU + active WS connections
+                │  uptime-phoenix-api       │ ◀─── HPA: CPU + active WS connections
                 │  (Go binary)       │
                 │  replicas: 2-N     │
                 │                    │
@@ -71,7 +71,7 @@ When scale demands it, the same binary is reconfigured via Helm values to run as
                           │  reads
                           │
                 ┌─────────┴──────────┐
-                │  phoenix-worker    │  (Phase 2: separated)
+                │  uptime-phoenix-worker    │  (Phase 2: separated)
                 │  (Go binary)       │  replicas=1 (or sharded N in Phase 3)
                 │                    │
                 │  Scheduler         │  ──── publishes ──▶ Redis
@@ -83,8 +83,8 @@ When scale demands it, the same binary is reconfigured via Helm values to run as
 
 **Key K8s principles baked in:**
 
-1. **Stateless API tier.** `phoenix-api` has no local state. Pods can be killed at any time; clients reconnect via `wss://` and the load balancer routes them to a healthy pod.
-2. **Worker tier separated.** The actual monitor checks run in `phoenix-worker`, not in the API pods. API pods only serve user traffic and WS.
+1. **Stateless API tier.** `uptime-phoenix-api` has no local state. Pods can be killed at any time; clients reconnect via `wss://` and the load balancer routes them to a healthy pod.
+2. **Worker tier separated.** The actual monitor checks run in `uptime-phoenix-worker`, not in the API pods. API pods only serve user traffic and WS.
 3. **EventBus is a port, not a library.** The domain code calls `bus.Publish(ctx, evt)`. In Phase 1 the implementation is in-process. In Phase 2 it's Redis pub/sub. In Phase 3 it could be NATS, Kafka, or anything else.
 4. **Postgres is the only source of truth.** Redis is a best-effort cache and pub/sub layer. If Redis is down, the system still works (heartbeats are still written to Postgres); the UI just won't update in real time until Redis is back.
 5. **SQLite only for dev/single-user.** In K8s, Postgres is the default. SQLite is fine for local dev and for a single-node "edge" deployment.
@@ -158,8 +158,8 @@ When scale demands it, the same binary is reconfigured via Helm values to run as
 
 **Change (all enabled via Helm values, not code changes):**
 - `phoenix` splits into two binaries from the same Go module: `cmd/api/main.go` and `cmd/worker/main.go`
-- `phoenix-api` (stateless, replicas=2-10, HPA) — HTTP, WS, status page rendering. Frontend can be embedded (default) or split to `phoenix-web` (opt-in via `--set web.split=true`)
-- `phoenix-worker` (replicas=1, then N with sharding later) — scheduler + checkers + notification dispatcher
+- `uptime-phoenix-api` (stateless, replicas=2-10, HPA) — HTTP, WS, status page rendering. Frontend can be embedded (default) or split to `uptime-phoenix-web` (opt-in via `--set web.split=true`)
+- `uptime-phoenix-worker` (replicas=1, then N with sharding later) — scheduler + checkers + notification dispatcher
 - Add Redis (StatefulSet or managed). The `EventBus` port gets a second implementation: `adapters/eventbus/redis.go`. Switch the binding in `main.go` based on `REDIS_URL` env presence.
 - API pods subscribe to Redis topics; worker publishes; clients connected to any API pod see the events.
 - MariaDB can stay on PVC (with the worker as the only writer) or move to a managed external instance via `--set mariadb.enabled=false --set mariadb.external.host=...`
@@ -173,7 +173,7 @@ When scale demands it, the same binary is reconfigured via Helm values to run as
 **Trigger:** a single worker pod can't keep up with 50k+ monitors across all protocols.
 
 **Change:**
-- `phoenix-worker` now uses DB-leased sharding: each worker claims a hash range of `monitor.id` via Postgres advisory locks or a `worker_lease` table.
+- `uptime-phoenix-worker` now uses DB-leased sharding: each worker claims a hash range of `monitor.id` via Postgres advisory locks or a `worker_lease` table.
 - Workers self-elect via `SELECT ... FOR UPDATE SKIP LOCKED` and renew the lease every 10s.
 - Failed workers release their lease automatically (timeout).
 - API pods still subscribe to Redis pub/sub as before; no change to the client side.
@@ -187,7 +187,7 @@ When scale demands it, the same binary is reconfigured via Helm values to run as
 
 - **Hexagonal pays off here.** Each phase swap is a change to an adapter, not to the domain.
 - **The client never changes.** Svelte 5 SPA connects to `wss://...` and rehydrates from any pod. If the pod dies, the browser reconnects in <1s and receives a fresh `info` event.
-- **Rollback is trivial.** A bad deploy of `phoenix-api` just rolls back the Deployment; the worker keeps running and the events buffer in Redis briefly.
+- **Rollback is trivial.** A bad deploy of `uptime-phoenix-api` just rolls back the Deployment; the worker keeps running and the events buffer in Redis briefly.
 - **Postgres is the migration story.** Every state change is in Postgres. If you blow up the whole Redis cluster, you lose realtime updates for ~30s while the next heartbeat tick writes to Postgres and clients re-poll.
 
 ---
@@ -198,7 +198,7 @@ When scale demands it, the same binary is reconfigured via Helm values to run as
 
 The default deployment serves the frontend **from inside the Go binary** via `//go:embed web/dist`. This is the zero-dependency path — no nginx, no separate Deployment, no CDN config needed. One pod, one image, one process.
 
-Separating into a `phoenix-web` Deployment is an **opt-in** choice for when you need:
+Separating into a `uptime-phoenix-web` Deployment is an **opt-in** choice for when you need:
 - Independent scaling of the frontend (e.g., status pages get traffic spikes, API doesn't)
 - CDN edge delivery of static assets
 - Different release cadence for UI vs API
@@ -231,22 +231,22 @@ func setupStaticRoutes(e *echo.Echo) {
 
 ### 4.3 Mode B — Split (opt-in, for scale)
 
-Enabled via `--set web.split=true`. Creates a separate `phoenix-web` Deployment.
+Enabled via `--set web.split=true`. Creates a separate `uptime-phoenix-web` Deployment.
 
-**Image 1: `phoenix-api`** — Go binary, no embedded frontend. HTTP + WS + scheduler.
+**Image 1: `uptime-phoenix-api`** — Go binary, no embedded frontend. HTTP + WS + scheduler.
 
-**Image 2: `phoenix-web`** — SvelteKit build served by nginx.
+**Image 2: `uptime-phoenix-web`** — SvelteKit build served by nginx.
 - Multi-stage Dockerfile: `node:22-alpine` builds → `nginx:1.27-alpine` serves
 - Final size: ~5–8 MB (nginx + static files)
 
 **Helm chart conditional templates:**
 ```yaml
 {{- if .Values.web.split }}
-# phoenix-web Deployment + Service
+# uptime-phoenix-web Deployment + Service
 {{- end }}
 ```
 
-The Ingress routes `/` to `phoenix-web` (split mode) or to `phoenix` (embedded mode) based on the same value.
+The Ingress routes `/` to `uptime-phoenix-web` (split mode) or to `uptime-phoenix` (embedded mode) based on the same value.
 
 ### 4.5 HPA (opt-in, Phase 2 only)
 
@@ -272,14 +272,14 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: phoenix-api   # or "phoenix" in embedded mode
+                name: uptime-phoenix-api   # or "uptime-phoenix" in embedded mode
                 port:
                   number: 3000
           - path: /ws
             pathType: Prefix
             backend:
               service:
-                name: phoenix-api
+                name: uptime-phoenix-api
                 port:
                   number: 3000
           - path: /
@@ -287,11 +287,11 @@ spec:
             backend:
               service:
                 {{- if .Values.web.split }}
-                name: phoenix-web
+                name: uptime-phoenix-web
                 port:
                   number: 80
                 {{- else }}
-                name: phoenix-api   # embedded mode: same pod serves /
+                name: uptime-phoenix-api   # embedded mode: same pod serves /
                 port:
                   number: 3000
                 {{- end }}
@@ -302,12 +302,12 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: phoenix-api
+  name: uptime-phoenix-api
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: phoenix-api
+    name: uptime-phoenix-api
   minReplicas: 2
   maxReplicas: 10
   metrics:
@@ -376,7 +376,7 @@ The `preStop: sleep 10` in the K8s manifest gives the load balancer time to drai
 | 1 | **Go 1.23+ + Svelte 5** | Go: monitoring ecosystem, ICMP native, single binary, 2× faster dev than Rust. Svelte 5: fine-grained reactivity for real-time, smallest bundles. |
 | 2 | **Minimal-dependency default** | Single pod, embedded frontend, MariaDB on PVC. `helm install` → works. No Redis, no external DB, no separate web tier required. |
 | 3 | **MariaDB primary, SQLite for dev/edge** | MariaDB on PVC for K8s; SQLite for local dev. Same repository interface, different adapter. |
-| 4 | **Frontend embedded by default** | `//go:embed web/dist` in the Go binary. Split to `phoenix-web` Deployment is opt-in via `--set web.split=true`. |
+| 4 | **Frontend embedded by default** | `//go:embed web/dist` in the Go binary. Split to `uptime-phoenix-web` Deployment is opt-in via `--set web.split=true`. |
 | 5 | **TOTP only for early phase** | `pquerna/otp`. WebAuthn port reserved for later. |
 | 6 | **Web app only (no Tauri)** | Tauri wrapper can be added later as a thin shell around the web build. |
 | 7 | **K8s-native from day 1** | Helm chart ships in Phase 1. Scaling from single-pod to multi-pod is a Helm value change, not a code rewrite. |
@@ -402,7 +402,7 @@ The `preStop: sleep 10` in the K8s manifest gives the load balancer time to drai
 | **Health** | `/api/health/live`, `/api/health/ready` | same | same |
 | **Logging** | log/slog (JSON) → stdout | same | same |
 | **Config** | env (caarlos0/env) + ConfigMap | same | same |
-| **Frontend delivery** | **Embedded in Go binary** (`//go:embed web/dist`) | Embedded (default) or separate `phoenix-web` Deployment (opt-in) | Separate `phoenix-web` (CDN-friendly) |
+| **Frontend delivery** | **Embedded in Go binary** (`//go:embed web/dist`) | Embedded (default) or separate `uptime-phoenix-web` Deployment (opt-in) | Separate `uptime-phoenix-web` (CDN-friendly) |
 | **Docker base** | `gcr.io/distroless/static-debian12:nonroot` | same | same |
 | **Docker size** | ~25 MB (single image, embedded frontend) | ~25 MB (api) + ~5 MB (web, if split) | same |
 | **K8s objects (default)** | 1 Deployment, 1 Service, 1 Ingress, 1 PVC, 1 Secret, 1 ConfigMap, 1 PDB | + Redis StatefulSet (opt-in) + worker Deployment (opt-in) + HPA + web Deployment (opt-in) | + sharded worker logic |

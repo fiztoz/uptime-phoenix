@@ -51,7 +51,7 @@
 
 **Next Focus:** owner decisions (**first publish**; Thai review deferred — no translator).
 F3.4 ACME remains on hold. **2026-07-28:** GitHub CI + release workflows restored; OIDC
-PKCE S256; `phoenix-config` CLI; reverse escalation UI; MariaDB 021 assured.
+PKCE S256; `uptime-phoenix-config` CLI; reverse escalation UI; MariaDB 021 assured.
 **`Monitor.Weight` kept and wired** for display sort (API + list ORDER BY + UI).
 
 ---
@@ -129,7 +129,7 @@ PKCE S256; `phoenix-config` CLI; reverse escalation UI; MariaDB 021 assured.
 - [x] **i18n** — paraglide-js initialized; English + Thai
 - [x] **UI primitives** — shadcn-svelte (Button, Dialog, Card, Input, Table, Badge), lucide-svelte icons, svelte-sonner toasts
 - [x] **Charts** — LayerCake line chart for ping/latency; uptime bar for 24h/30d
-- [x] **First Helm chart** — `charts/uptime-phoenix/` with single `phoenix` Deployment (Go binary with embedded frontend), MariaDB on PVC (or SQLite mode), Service, Ingress, Secret, ConfigMap, PDB. Default mode: single pod + MariaDB on PVC. `helm install` with zero external dependencies works out of the box.
+- [x] **First Helm chart** — `charts/uptime-phoenix/` with single `uptime-phoenix` Deployment (Go binary with embedded frontend), MariaDB on PVC (or SQLite mode), Service, Ingress, Secret, ConfigMap, PDB. Default mode: single pod + MariaDB on PVC. `helm install` with zero external dependencies works out of the box.
 - [x] **`helm install uptime-phoenix ./charts/uptime-phoenix`** works on a local kind/k3s/colima cluster with zero external dependencies (single pod + MariaDB PVC)
 
 ### Exit Criteria (Phase 1 = MVP)
@@ -175,7 +175,7 @@ PKCE S256; `phoenix-config` CLI; reverse escalation UI; MariaDB 021 assured.
 - [x] **Light/dark theme** — CSS custom properties; toggle persisted in localStorage
 - [x] **Favicon badge** — red dot when any monitor is DOWN (`web/src/lib/utils/favicon-badge.ts`)
 - [x] **E2E tests** — Playwright: login, create monitor with advanced fields, see a heartbeat, configure/test-send a notification, render a public status page, and verify scoped RBAC (`46f5044`)
-- [x] **Helm chart hardening** — HPA on CPU + custom WS-connections metric; resource limits; security context (runAsNonRoot, readOnlyRootFilesystem). Chart supports toggling between embedded-frontend (default, single pod) and split-frontend (opt-in, separate `phoenix-web` Deployment).
+- [x] **Helm chart hardening** — HPA on CPU + custom WS-connections metric; resource limits; security context (runAsNonRoot, readOnlyRootFilesystem). Chart supports toggling between embedded-frontend (default, single pod) and split-frontend (opt-in, separate `uptime-phoenix-web` Deployment).
 
 ### Exit Criteria (Phase 2 = Feature-complete)
 - All **11** notification providers fire on status transitions
@@ -194,9 +194,9 @@ PKCE S256; `phoenix-config` CLI; reverse escalation UI; MariaDB 021 assured.
 
 - [x] **Binary split** — `cmd/api/main.go` (HTTP + WS, stateless) + `cmd/worker/main.go` (scheduler + checkers + notification dispatcher); shared `internal/bootstrap`
 - [x] **Redis EventBus adapter** — `adapters/eventbus/redis.go` (pub/sub via `go-redis/v9`); selected when `REDIS_URL` env is set
-- [x] **Helm chart updated** — `phoenix-api` (replicas 2-N, HPA) + `phoenix-worker` (replicas 1, PDB) + Redis opt-in. Default mode stays single-pod; split via `mode=api|worker|all`
-- [x] **Rolling deploy test** ✅ 2026-07-25 (Sprint D Track C) — upgraded `phoenix-api`
-      while `phoenix-worker` kept running; clients reconnect and resume without heartbeat
+- [x] **Helm chart updated** — `uptime-phoenix-api` (replicas 2-N, HPA) + `uptime-phoenix-worker` (replicas 1, PDB) + Redis opt-in. Default mode stays single-pod; split via `mode=api|worker|all`
+- [x] **Rolling deploy test** ✅ 2026-07-25 (Sprint D Track C) — upgraded `uptime-phoenix-api`
+      while `uptime-phoenix-worker` kept running; clients reconnect and resume without heartbeat
       loss. Manual soak (not automated in CI). Two trials: a realistic fast restart
       reconnected in ~1s (dominated by the client's own backoff, not server downtime —
       real outage was ~16ms); a ~21s stress-case outage still produced zero gaps in the

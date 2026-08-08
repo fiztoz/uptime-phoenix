@@ -4,8 +4,8 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-  bin = "./tmp/phoenix-api"
-  cmd = "CGO_ENABLED=0 go build -trimpath -o ./tmp/phoenix-api ./cmd/api"
+  bin = "./tmp/uptime-phoenix-api"
+  cmd = "CGO_ENABLED=0 go build -trimpath -o ./tmp/uptime-phoenix-api ./cmd/api"
   delay = 1000
   exclude_dir = ["web", "charts", "docs", "research", "bin", "tmp", ".git"]
   exclude_regex = ["_test\\.go$"]

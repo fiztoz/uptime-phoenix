@@ -65,22 +65,22 @@ What comes up:
 |---|---|---|---|
 | `mariadb` | `mariadb:11` | Shared system of record | 3306 (internal) |
 | `redis` | `redis:7-alpine` | Cross-process EventBus | 6379 (internal) |
-| `phoenix-api` | `Dockerfile.split --target api` | HTTP + WebSocket, **runs migrations** | 3000 (also published for debugging) |
+| `uptime-phoenix-api` | `Dockerfile.split --target api` | HTTP + WebSocket, **runs migrations** | 3000 (also published for debugging) |
 | `api-ready-gate` | `busybox` | One-shot; blocks the worker until the API has migrated | — |
-| `phoenix-worker` | `Dockerfile.split --target worker` | Scheduler + checkers + notifier | none |
-| `phoenix-web` | `Dockerfile.split --target web` | nginx: serves the SPA, proxies `/api` + `/ws` | **8080 → use this** |
+| `uptime-phoenix-worker` | `Dockerfile.split --target worker` | Scheduler + checkers + notifier | none |
+| `uptime-phoenix-web` | `Dockerfile.split --target web` | nginx: serves the SPA, proxies `/api` + `/ws` | **8080 → use this** |
 
 Notes for developers:
 
 - **Browse via the web tier on :8080.** The browser talks only to nginx, which
   proxies to the API — so it's same-origin and there is no CORS to configure.
 - **The API owns migrations.** The migration runner is *not* concurrency-safe, so
-  `api-ready-gate` holds the worker back until `phoenix-api` reports
+  `api-ready-gate` holds the worker back until `uptime-phoenix-api` reports
   `/api/health/ready`. Keep this ordering if you add services.
 - **Iterate on one tier:**
   ```bash
-  docker compose -f docker-compose.split.yml up -d --build phoenix-worker
-  docker compose -f docker-compose.split.yml logs -f phoenix-worker
+  docker compose -f docker-compose.split.yml up -d --build uptime-phoenix-worker
+  docker compose -f docker-compose.split.yml logs -f uptime-phoenix-worker
   ```
 - **Override secrets** via a `.env` next to the compose file:
   ```dotenv
@@ -95,12 +95,12 @@ Notes for developers:
 ### Build the role images directly (CI / registry)
 
 ```bash
-docker build -f Dockerfile.split --target api    -t phoenix-api:dev    .
-docker build -f Dockerfile.split --target worker -t phoenix-worker:dev .
-docker build -f Dockerfile.split --target web    -t phoenix-web:dev    .
+docker build -f Dockerfile.split --target api    -t uptime-phoenix-api:dev    .
+docker build -f Dockerfile.split --target worker -t uptime-phoenix-worker:dev .
+docker build -f Dockerfile.split --target web    -t uptime-phoenix-web:dev    .
 ```
 
-The all-in-one image is still `docker build -t phoenix:dev .` (root `Dockerfile`).
+The all-in-one image is still `docker build -t uptime-phoenix:dev .` (root `Dockerfile`).
 
 ---
 
@@ -146,10 +146,10 @@ helm install uptime-phoenix ./charts/uptime-phoenix \
 
 What you get:
 
-- `phoenix-api` Deployment — `MODE=api`, `api.replicas` pods, behind the Service
+- `uptime-phoenix-api` Deployment — `MODE=api`, `api.replicas` pods, behind the Service
   and Ingress, scalable (see HPA below). **Owns DB migrations.**
-- `phoenix-worker` Deployment — `MODE=worker`, no HTTP, `initContainer` waits for
-  `phoenix-api:<port>/api/health/ready` before starting so migrations run once.
+- `uptime-phoenix-worker` Deployment — `MODE=worker`, no HTTP, `initContainer` waits for
+  `uptime-phoenix-api:<port>/api/health/ready` before starting so migrations run once.
 - `redis-url` Secret in `redis://[:password@]host:port/0` form (consumed by both
   tiers as the EventBus).
 
@@ -184,8 +184,8 @@ worker. Use these when you want each component in its **own** release/namespace
 Redis. For a single coherent release, prefer `mode=split` above.
 
 ```bash
-helm install phoenix-api    ./charts/uptime-phoenix --set mode=api    --set redis.enabled=true ...
-helm install phoenix-worker ./charts/uptime-phoenix --set mode=worker --set redis.enabled=true ...
+helm install uptime-phoenix-api    ./charts/uptime-phoenix --set mode=api    --set redis.enabled=true ...
+helm install uptime-phoenix-worker ./charts/uptime-phoenix --set mode=worker --set redis.enabled=true ...
 ```
 
 ### Expose via Cloudflare Tunnel (no external ingress)

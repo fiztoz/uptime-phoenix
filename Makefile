@@ -1,7 +1,7 @@
-# ─── Phoenix Makefile ─────────────────────────────────────────────────────────
+# ─── Uptime Phoenix Makefile ─────────────────────────────────────────────────────────
 # All targets use tabs for indentation (Makefile requirement).
 
-APP_NAME := phoenix
+APP_NAME := uptime-phoenix
 # Release version stamped into the binary: make build VERSION=v1.2.3
 # (the -X target lands in internal/version; the Go linker silently ignores
 # -X for a symbol that does not exist yet, so this is safe before that
@@ -81,7 +81,7 @@ dev-split-wait: ## Wait until Docker MariaDB and Redis are healthy
 
 .PHONY: dev-split-worker
 dev-split-worker: ## Start Docker worker (start local API first on a fresh DB)
-	docker compose -f $(COMPOSE_DEPS) up -d --build phoenix-worker
+	docker compose -f $(COMPOSE_DEPS) up -d --build uptime-phoenix-worker
 
 .PHONY: dev-split-down
 dev-split-down: ## Stop Docker deps (keeps MariaDB volume)
@@ -118,7 +118,7 @@ dev-split: ensure-air dev-split-up ## Docker deps + local API :3000 + frontend :
 		( \
 			until curl -sf http://localhost:3000/api/health/ready >/dev/null 2>&1; do sleep 2; done; \
 			echo "API ready — starting Docker worker..."; \
-			docker compose -f $(COMPOSE_DEPS) up -d --build phoenix-worker \
+			docker compose -f $(COMPOSE_DEPS) up -d --build uptime-phoenix-worker \
 		) & \
 		(cd web && bun run dev) & \
 		env \
@@ -289,11 +289,11 @@ helm-upgrade: ## Upgrade Helm chart release
 
 .PHONY: helm-uninstall
 helm-uninstall: ## Uninstall Helm chart release
-	helm uninstall phoenix
+	helm uninstall uptime-phoenix
 
 .PHONY: helm-test
 helm-test: ## Run Helm tests
-	helm test phoenix
+	helm test uptime-phoenix
 
 # ── Database ──────────────────────────────────────────────────────────────────
 

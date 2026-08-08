@@ -13,7 +13,7 @@
 #
 # Override secrets via .env or the shell (same vars as docker-compose.split.yml).
 
-name: phoenix-deps
+name: uptime-phoenix-deps
 
 services:
   mariadb:
@@ -50,7 +50,7 @@ services:
   # Scheduler + checkers + notifier. Start AFTER the local API has migrated
   # (make dev-split-api or make dev-split). The API container from the full
   # split stack is intentionally omitted here.
-  phoenix-worker:
+  uptime-phoenix-worker:
     build:
       context: .
       dockerfile: Dockerfile.split
