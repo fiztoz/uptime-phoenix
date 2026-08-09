@@ -87,7 +87,7 @@ USER 65532
 ENTRYPOINT ["/uptime-phoenix-worker"]
 
 # ─── Target: web ─── nginx serving the SPA + proxying /api and /ws to api ────
-FROM nginx:1.27-alpine AS web
+FROM nginx:1.31-alpine AS web
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Uptime Phoenix Web" \
       org.opencontainers.image.source="https://github.com/fiztoz/uptime-phoenix" \
