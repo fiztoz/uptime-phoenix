@@ -1,6 +1,16 @@
 /// <reference types="bun-types" />
 import { afterEach, describe, expect, test } from "bun:test";
-import { confirmAction, confirmController } from "./stores/confirm.svelte";
+
+// Polyfill $state rune for unit test environment before importing Svelte store module.
+try {
+  (globalThis as any).$state ??= <T>(v: T): T => v;
+} catch {
+  (globalThis as any).$state = <T>(v: T): T => v;
+}
+
+const { confirmAction, confirmController } = await import(
+  "./stores/confirm.svelte"
+);
 
 // The controller is a module-level singleton, so a test that leaves a dialog
 // open would leak into the next one. Drain whatever is still pending.

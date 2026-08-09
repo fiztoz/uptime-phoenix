@@ -1,7 +1,7 @@
 <!--
   @component
-  Hit-testing overlay — only activates when the cursor is near the chart line.
-  Uses 2D distance to data points (not X-only snapping).
+  Hit-testing overlay — activates when cursor is within `hitRadius` pixels of a chart data point.
+  Uses 2D Euclidean distance to data points (`Math.hypot`) with fallback to X-distance when mouseY is omitted.
 -->
 <script lang="ts">
 	import { getContext } from 'svelte';
@@ -15,22 +15,35 @@
 
 	let { hoverPoint = $bindable<TooltipPoint | null>(null), hitRadius = 14 }: Props = $props();
 
-
 	const { data, xGet, yGet } = getContext<any>('LayerCake');
 
-	function findNearest(mouseX: number, _mouseY: number): TooltipPoint | null {
+	function findNearest(
+		mouseX: number,
+		mouseY: number | undefined = undefined,
+	): TooltipPoint | null {
 		const points = $data as TooltipPoint[];
-		if (points.length === 0) return null;
+		if (!points || points.length === 0) return null;
 
-		let nearest = points[0];
-		let minXDist = Math.abs($xGet(nearest) - mouseX);
+		let nearest: TooltipPoint | null = null;
+		let minDist = Infinity;
+
+		const check2D = typeof mouseY === 'number' && Number.isFinite(mouseY);
 
 		for (const point of points) {
-			const xDist = Math.abs($xGet(point) - mouseX);
-			if (xDist < minXDist) {
-				minXDist = xDist;
+			const px = $xGet(point);
+			const py = $yGet(point);
+			const dist = check2D
+				? Math.hypot(px - mouseX, py - mouseY)
+				: Math.abs(px - mouseX);
+
+			if (dist < minDist) {
+				minDist = dist;
 				nearest = point;
 			}
+		}
+
+		if (hitRadius > 0 && minDist > hitRadius) {
+			return null;
 		}
 
 		return nearest;

@@ -35,7 +35,13 @@ export function sparklinePoints(
 
   for (const heartbeat of heartbeats) {
     const time = new Date(heartbeat.time).getTime();
-    if (!Number.isFinite(time) || heartbeat.ping <= 0) continue;
+    if (
+      !Number.isFinite(time) ||
+      !Number.isFinite(heartbeat.ping) ||
+      heartbeat.ping <= 0
+    ) {
+      continue;
+    }
     byTime.set(time, {
       time,
       value: heartbeat.ping,
@@ -76,14 +82,14 @@ export function bucketHeartbeats(
     const key = Math.floor(t / bucketMs) * bucketMs;
     let acc = buckets.get(key);
     if (!acc) {
-      acc = { sum: 0, count: 0, min: hb.ping, max: hb.ping };
+      acc = { sum: 0, count: 0, min: 0, max: 0 };
       buckets.set(key, acc);
     }
-    if (hb.ping > 0) {
+    if (Number.isFinite(hb.ping) && hb.ping > 0) {
       acc.sum += hb.ping;
       acc.count++;
-      acc.min = Math.min(acc.min, hb.ping);
-      acc.max = Math.max(acc.max, hb.ping);
+      acc.min = acc.count === 1 ? hb.ping : Math.min(acc.min, hb.ping);
+      acc.max = acc.count === 1 ? hb.ping : Math.max(acc.max, hb.ping);
     }
   }
 

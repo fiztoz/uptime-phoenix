@@ -53,6 +53,7 @@ phoenix.db-wal
 
 # Agent tooling (local only)
 .claude/
+.agents/
 .pi/
 .secrets/
 
