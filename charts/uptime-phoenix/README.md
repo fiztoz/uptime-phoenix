@@ -2,16 +2,26 @@
 
 A self-hosted, K8s-native, minimal-dependency monitoring tool. The default `helm install` produces a single-pod deployment with SQLite, embedded frontend, and zero external services.
 
+> **Install guides:** [Helm & Argo CD](../../docs/guides/helm-and-argocd.md) ·
+> [Docker / GHCR](../../docs/guides/docker-ghcr.md) · [binaries](../../docs/guides/binaries.md)
+
 ## Quick Start
 
+### From GHCR
+
 ```bash
-# Default (zero external dependencies, single pod, SQLite)
+helm upgrade --install uptime-phoenix \
+  oci://ghcr.io/fiztoz/charts/uptime-phoenix \
+  --version 0.1.0 \
+  --namespace uptime-phoenix --create-namespace \
+  --set image.tag=0.1.0
+```
+
+### From a git checkout
+
+```bash
 helm install uptime-phoenix ./charts/uptime-phoenix
-
-# With custom values
 helm install uptime-phoenix ./charts/uptime-phoenix -f my-values.yaml
-
-# Upgrade
 helm upgrade uptime-phoenix ./charts/uptime-phoenix
 ```
 

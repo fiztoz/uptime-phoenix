@@ -109,6 +109,9 @@ The all-in-one image is still `docker build -t uptime-phoenix:dev .` (root `Dock
 The chart is `charts/uptime-phoenix`. The `mode` value selects the shape; `helm install`
 with no overrides gives the zero-dependency single pod.
 
+> **Operator guides:** [Helm & Argo CD](guides/helm-and-argocd.md) ·
+> [Docker / GHCR](guides/docker-ghcr.md) · [binaries](guides/binaries.md)
+
 ### Mode: `all` (default — single pod, SQLite, embedded UI)
 
 ```bash
