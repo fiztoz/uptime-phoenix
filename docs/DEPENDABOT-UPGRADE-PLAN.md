@@ -1,376 +1,369 @@
-# Dependabot upgrade plan (open PRs)
+# Dependabot upgrade plan (review)
 
-> **Date:** 2026-08-08  
+> **Created:** 2026-08-08  
+> **Last reviewed:** 2026-08-09  
 > **Repo:** [fiztoz/uptime-phoenix](https://github.com/fiztoz/uptime-phoenix)  
-> **Scope:** All Dependabot PRs opened after Dependabot was enabled on public `main`.  
-> **Status of `main`:** CI green (includes Prettier fix for `web/static/docs/*`).
+> **Open Dependabot PRs right now:** **0**
 
-This document is the working plan for every open dependency PR: what is affected,
-recommended action, order of work, and how to handle **major** upgrades without
-breaking the hobby baseline.
-
----
-
-## 1. Preconditions (do once before any merge)
-
-| Step | Action | Why |
-|---|---|---|
-| 1 | Confirm `main` CI is green | Required by branch protection |
-| 2 | Close/ignore upgrades that are explicitly deferred | Avoid spending CI time rebasing work that will not merge |
-| 3 | Rebase only the active merge candidates onto current `main` | Most red CI is stale Prettier failures from before `a8ecd48` |
-| 4 | Wait for CI on each rebased PR | Branch protection requires all 7 checks |
-| 5 | Run `make gate-full` locally before each merge | Required by `docs/TESTING.md`; CI is not a substitute for the local gate |
-
-**Rebase command (per PR):** comment on the PR:
-
-```text
-@dependabot rebase
-```
-
-Or close + let Dependabot recreate after the next schedule.
+This document is the working plan and status board for the Dependabot flood after
+the repo went public. It was first written when PRs **#2–#19** were open. Most of
+that queue is already resolved; what remains is **validation debt** and a future
+**frontend major** program (Wave F).
 
 ---
 
-## 2. Inventory of open PRs
+## 0. Status review (2026-08-09)
 
-| PR | Dependency | Current → Proposed | Ecosystem | Risk | Recommended action |
-|---|---|---|---|---|---|
-| [#5](https://github.com/fiztoz/uptime-phoenix/pull/5) | `prometheus-community/pro-bing` | `0.9.0` → `0.9.1` | Go | Low | **Merge after rebase** |
-| [#9](https://github.com/fiztoz/uptime-phoenix/pull/9) | `golang.org/x/crypto` | `0.53.0` → `0.54.0` | Go | Low | **Merge after rebase** |
-| [#12](https://github.com/fiztoz/uptime-phoenix/pull/12) | `go.mongodb.org/mongo-driver/v2` | `2.7.0` → `2.8.0` | Go | Low–med | **Hold after rebase** until a known-good MongoDB smoke passes |
-| [#13](https://github.com/fiztoz/uptime-phoenix/pull/13) | `google.golang.org/grpc` | `1.82.1` → `1.83.0` | Go | Low–med | **Merge after rebase** + gRPC checker tests |
-| [#8](https://github.com/fiztoz/uptime-phoenix/pull/8) | `prometheus/client_golang` | `1.20.5` → `1.24.1` | Go | Medium | **Merge after rebase** if metrics tests pass |
-| [#14](https://github.com/fiztoz/uptime-phoenix/pull/14) | `docker/build-push-action` | `v6` → `v7` | Actions (CI) | Medium | Merge after rebase; CI-only usage |
-| [#7](https://github.com/fiztoz/uptime-phoenix/pull/7) | `nginx` image | `1.27-alpine` → `1.31-alpine` | Docker | Medium | Merge after Docker CI plus an nginx runtime smoke |
-| [#2](https://github.com/fiztoz/uptime-phoenix/pull/2) | `docker/setup-qemu-action` | `3.6.0` → `4.2.0` | Actions (release pin) | Medium | Keep Dependabot SHA pin; validate with Docker enabled |
-| [#6](https://github.com/fiztoz/uptime-phoenix/pull/6) | `softprops/action-gh-release` | `2.3.2` → `3.0.2` | Actions (release pin) | Medium–high | Hold until a protected prerelease exercises the publish job |
-| [#4](https://github.com/fiztoz/uptime-phoenix/pull/4) | `actions/upload-artifact` | `4.6.2` → `7.0.1` | Actions (release pin) | High | Keep Dependabot SHA pin; test upload/download round trip |
-| [#10](https://github.com/fiztoz/uptime-phoenix/pull/10) | `actions/download-artifact` | `4.3.0` → `8.0.1` | Actions (release pin) | High | Pair validation with #4; dispatch alone does not execute it |
-| [#11](https://github.com/fiztoz/uptime-phoenix/pull/11) | `golang` image | `1.25-alpine` → `1.26-alpine` | Docker | Medium–high | Treat as a release-compiler upgrade; full test suite under Go 1.26 first |
-| [#3](https://github.com/fiztoz/uptime-phoenix/pull/3) | `node` image | `22-alpine` → `25-alpine` | Docker | High | **Defer / close** (major base jump) |
-| [#15](https://github.com/fiztoz/uptime-phoenix/pull/15) | `@sveltejs/vite-plugin-svelte` | `5.x` → `7.x` | Frontend major | **High** | **Do not merge alone** — Wave F |
-| [#16](https://github.com/fiztoz/uptime-phoenix/pull/16) | `prettier-plugin-svelte` | `3.x` → `4.x` | Frontend major | High | Wave F |
-| [#17](https://github.com/fiztoz/uptime-phoenix/pull/17) | `zod` | `3.x` → `4.x` | Frontend major | **High (breaking)** | Wave F + code migration |
-| [#18](https://github.com/fiztoz/uptime-phoenix/pull/18) | `vite` | `6.x` → `8.x` | Frontend major | **High** | Wave F |
-| [#19](https://github.com/fiztoz/uptime-phoenix/pull/19) | `typescript` | `5.x` → `7.x` | Frontend major | **High** | Wave F |
+### 0.1 Remaining open PRs
 
----
-
-## 3. Affected surfaces by dependency class
-
-### 3.1 Go modules
-
-| Package | Used for | Test gate after bump |
+| State | Count | Notes |
 |---|---|---|
-| `pro-bing` | ICMP / ping checker | `go test ./internal/adapters/checker/ -run Ping` |
-| `x/crypto` | bcrypt, crypto helpers | `go test ./internal/adapters/auth/...` |
-| `mongo-driver/v2` | Database monitor (MongoDB) | Checker tests plus a known-good MongoDB connection smoke; the current bad-host test is not sufficient |
-| `grpc` | gRPC health checker | `go test ./internal/adapters/checker/ -run GRPC` |
-| `client_golang` | Prometheus `/metrics` | `go test ./internal/adapters/metrics/...` + manual `/metrics` smoke |
+| Open Dependabot PRs | **0** | Queue cleared |
+| Open other PRs | 0 (as of review) | — |
 
-**Files typically touched:** `go.mod`, `go.sum` only (unless APIs change).
+There is nothing left to rebase/merge from the original Dependabot batch.
 
-### 3.2 Docker base images
+### 0.2 What landed on `main`
 
-| Image | Files | Notes |
-|---|---|---|
-| `golang:1.25-alpine` | `Dockerfile`, `Dockerfile.split` | A 1.26 image changes the release compiler; `go.mod` may remain at the supported minimum |
-| `node:22-alpine` | `Dockerfile`, `Dockerfile.split` | Runs the source-build Vite path through `npm run build`; `USE_PREBUILT_WEB=1` bypasses it |
-| `nginx:1.27-alpine` | `Dockerfile.split` (web target) | Split web tier only |
-| `gcr.io/distroless/static-debian12` | both Dockerfiles | Not in current PR list |
-
-### 3.3 GitHub Actions
-
-| Action | Used in | Pin style today |
-|---|---|---|
-| `docker/setup-qemu-action` | `release.yml` (dry-run + publish) | **Full commit SHA** (`v3.6.0`) |
-| `docker/build-push-action` | `ci.yml` docker job | Floating `@v6` |
-| `actions/upload-artifact` | `release.yml` dry-run | **Full commit SHA** (`v4.6.2`) |
-| `actions/download-artifact` | `release.yml` publish | **Full commit SHA** (`v4.3.0`) |
-| `softprops/action-gh-release` | `release.yml` publish | **Full commit SHA** (`v2.3.2`) |
-
-**Important:** Dependabot currently updates the full SHA and version comment correctly for the
-SHA-pinned actions in `release.yml`. Preserve that pin style and verify both parts changed:
-
-```yaml
-uses: org/action@<full-sha> # vX.Y.Z
-```
-
-If a proposed SHA ever needs independent verification, resolve it with:
-
-```bash
-gh api repos/<org>/<action>/commits/vX.Y.Z --jq .sha
-```
-
-### 3.4 Frontend (web/) — major stack
-
-| Package | Role in Phoenix | Coupled with |
-|---|---|---|
-| `typescript` | `svelte-check`, `tsconfig` | `typescript-eslint`, Svelte 5 types |
-| `vite` | Dev server + production build | `@sveltejs/kit`, `@sveltejs/vite-plugin-svelte` |
-| `@sveltejs/vite-plugin-svelte` | Svelte compilation in Vite | `svelte`, `vite` |
-| `prettier-plugin-svelte` | `bun run lint` / format | `prettier` |
-| `zod` | Forms (`sveltekit-superforms`), validation schemas | Superforms, any `z.` schemas under `web/src` |
-
-Only Vite and `@sveltejs/vite-plugin-svelte` are tightly coupled. Split the other majors into
-small compatibility groups so failures remain attributable (see Wave F).
-
----
-
-## 4. Execution waves
-
-### Wave 0 — Hygiene (same day)
-
-1. Close/ignore #3 and #15–#19 before spending CI capacity on rebases.
-2. Rebase only #5, #9, #12, #13, #8, #7, and #14 onto green `main`.
-3. Confirm frontend failures from Prettier docs are gone on the rebased candidates.
-4. Leave #2, #4, #6, #10, and #11 open but held until their additional gates below are available.
-
-### Wave A — Safe Go patches (1–2 hours)
-
-**Order (smallest blast radius first):**
-
-1. #5 pro-bing  
-2. #9 x/crypto  
-3. #13 grpc  
-4. #12 mongo-driver  
-5. #8 client_golang  
-
-**Per-PR checklist:**
-
-- [ ] Rebased onto `main`
-- [ ] CI: all 7 jobs green  
-- [ ] `make gate-full` passes locally (required, not optional)
-- [ ] #12 additionally passes a known-good MongoDB connection smoke
-- [ ] Merge (squash OK under branch protection)
-
-### Wave B — Docker bases that stay on current majors (half day)
-
-1. #7 nginx `1.27 → 1.31`  
-   - Gate: CI `docker` job + start the split web container and run `nginx -t` / an HTTP smoke; a build alone does not parse the runtime config
-2. #11 golang image `1.25 → 1.26`  
-   - This changes the compiler and standard library used for release binaries even if `go.mod` remains `go 1.25.12`
-   - Run the complete gate under Go 1.26 before merging; do not raise the `go` directive solely to match the builder image
-   - If the project is not ready to support Go 1.26-built releases, close #11 and keep `golang:1.25-alpine` intentionally
-3. #3 node `22 → 25` — **defer** (see Wave D)
-
-### Wave C — GitHub Actions (half day)
-
-Keep the existing Dependabot PRs: they already preserve the full SHA pins in `release.yml`.
-Do not combine unrelated action upgrades into one large change; separate PRs make release failures
-attributable. Merge #14 independently after rebase because its CI Docker job directly exercises it.
-
-| Action | Target | Also update |
-|---|---|---|
-| `setup-qemu-action` | #2 / stable 4.x | Run dispatch with Docker enabled; both SHA-pinned occurrences must match |
-| `upload-artifact` / `download-artifact` | #4 + #10 compatibility validation | Add or temporarily run an unprivileged upload → download round trip |
-| `action-gh-release` | #6 / 3.x | Validate through a protected prerelease; workflow dispatch never executes this action |
-| `build-push-action` | #14 / v7 | Merge separately after the normal Docker CI job passes |
-
-**Validation:**
-
-```bash
-# Local
-actionlint .github/workflows/*.yml   # or CI actionlint job
-
-# CI must be green
-
-# Release dry-run with Docker enabled (no publish)
-gh workflow run release.yml -f version=0.0.0-snapshot.deps -f skip_docker=false
-```
-
-The dispatch above exercises the dry-run QEMU and upload steps. It does **not** enter the
-tag-only `publish` job, so it does not validate `download-artifact` or
-`softprops/action-gh-release`. Do not treat a green dispatch as evidence for those two actions.
-
-### Wave D — Deferred base images
-
-| PR | Decision |
-|---|---|
-| #3 node 22→25 | **Close / ignore major** until explicit need. Node 22 is LTS-class, and the Docker source-build stage actually runs Vite under Node via `npm run build`. |
-
-### Wave F — Frontend majors (dedicated effort, 1–3 days)
-
-**Close or ignore majors on PRs #15–#19.** Reintroduce them later as small compatibility groups,
-not as five independent Dependabot merges or one all-encompassing frontend branch.
-
-#### F.1 Compatibility groups (proposed)
-
-1. `prettier-plugin-svelte` 4.x — formatting/lint tooling only; review the formatting diff.
-2. Zod 4 + a `sveltekit-superforms` version that explicitly supports it — schema migration.
-3. Vite + `@sveltejs/vite-plugin-svelte` + any required Kit/Svelte peer updates — build-tool chain.
-4. TypeScript 7 + matching `typescript-eslint`, Svelte checker, and Node types — compiler/tooling chain.
-
-Each group gets its own branch, gate, and merge so a regression has one compatibility edge.
-
-#### F.2 Target stack (proposed)
-
-Coordinate versions that are known to work together (adjust after reading each release note):
-
-| Package | From (approx locked) | Toward | Notes |
+| PR | Change | Outcome | Plan bucket (original) |
 |---|---|---|---|
-| `typescript` | 5.x | **5.9.x latest only first**, or 6.x if Svelte ecosystem ready | TS **7** is a large jump; prefer stepwise 5→6 before 7 |
-| `vite` | 6.x | 7.x then 8.x **or** single hop if Kit supports it | Check `@sveltejs/kit` peer range |
-| `@sveltejs/vite-plugin-svelte` | 5.x | Match Vite major | Keep with Vite |
-| `prettier-plugin-svelte` | 3.x | 4.x | Run `bun run format` after |
-| `zod` | 3.x | 4.x | **Code changes required** |
+| #5 | pro-bing `0.9.0 → 0.9.1` | **Merged** | Wave A — safe Go |
+| #9 | x/crypto `0.53 → 0.54` | **Merged** | Wave A — safe Go |
+| #13 | grpc `1.82.1 → 1.83.0` | **Merged** | Wave A |
+| #12 | mongo-driver `2.7 → 2.8` | **Merged** | Wave A (wanted success-path smoke) |
+| #8 | client_golang `1.20.5 → 1.24.1` | **Merged** | Wave A medium |
+| #14 | build-push-action `v6 → v7` | **Merged** | Wave C / CI |
+| #7 | nginx `1.27 → 1.31` alpine | **Merged** | Wave B |
+| #11 | golang image `1.25 → 1.26` alpine | **Merged** | Wave B (toolchain caution) |
+| #2 | setup-qemu-action `3.6 → 4.2` (SHA pin) | **Merged** | Wave C release path |
+| #4 | upload-artifact `4.6 → 7.0` (SHA pin) | **Merged** | Wave C release path |
+| #10 | download-artifact `4.3 → 8.0` (SHA pin) | **Merged** | Wave C release path |
+| #6 | action-gh-release `2.3 → 3.0` (SHA pin) | **Merged** | Wave C publish path |
+| #20 | this plan doc | **Merged** | docs |
 
-Also re-check peers (not in current PR list but often forced):
+### 0.3 What was closed without merge (majors deferred)
 
-- `@sveltejs/kit`
-- `svelte` 5.x
-- `sveltekit-superforms` (Zod 4 support)
-- `typescript-eslint`
-- `eslint-plugin-svelte`
+| PR | Change | Outcome | Why that was right |
+|---|---|---|---|
+| #3 | node `22 → 25` alpine | **Closed** | Major base image; Docker frontend stage still Node 22 |
+| #15 | `@sveltejs/vite-plugin-svelte` `5 → 7` | **Closed** | Must move with Vite major |
+| #16 | `prettier-plugin-svelte` `3 → 4` | **Closed** | Tooling major; fine alone later but not urgent |
+| #17 | `zod` `3 → 4` | **Closed** | Potentially breaking; see §5 |
+| #18 | `vite` `6 → 8` | **Closed** | Coupled to Kit + plugin-svelte |
+| #19 | `typescript` `5 → 7` | **Closed** | Large compiler jump; do stepwise |
 
-#### F.3 Zod 4 impact (code)
+Closing these majors instead of merging them one-by-one matches the plan’s Wave F
+intent (even if they were closed rather than left open with “ignore major”).
 
-Search and migrate:
+### 0.4 Current tree (relevant pins)
+
+| Surface | Current |
+|---|---|
+| `go.mod` | `go 1.25.12` (language minimum) |
+| `Makefile` / CI / release `GOTOOLCHAIN` | `go1.25.12` |
+| Docker Go builder | **`golang:1.26-alpine`** (release binaries built with Go 1.26) |
+| Docker Node builder | `node:22-alpine` |
+| Docker nginx (split web) | `nginx:1.31-alpine` |
+| `release.yml` qemu | SHA → v4.2.0 |
+| `release.yml` upload-artifact | SHA → v7.0.1 |
+| `release.yml` download-artifact | SHA → v8.0.1 |
+| `release.yml` gh-release | SHA → v3.0.2 |
+| `ci.yml` build-push-action | `@v7` (floating major tag) |
+| Frontend lock (approx) | TS 5.9.3, Vite 6.4.3, plugin-svelte 5.1.1, prettier-plugin-svelte 3.5.2, zod 3.25.76, Kit 2.66.0 |
+
+---
+
+## 1. Remaining work (not open PRs — validation debt)
+
+Even with zero open Dependabot PRs, several merges skipped the **extra gates** the
+original plan called for. Treat these as open checklist items on `main`.
+
+### 1.1 High priority — release path after Actions majors
+
+These merged and update **privileged** release steps. CI on `main` does **not** run
+the full publish job.
+
+| Item | Risk if broken | How to validate |
+|---|---|---|
+| upload-artifact v7 + download-artifact v8 | Dry-run artifact missing → publish attaches nothing / fails | `gh workflow run release.yml -f version=0.0.0-snapshot.deps -f skip_docker=true` then confirm artifact download works; ideally a full dry-run with Docker |
+| setup-qemu-action v4 | Multi-arch dry-run/publish fails | Dispatch with `skip_docker=false` |
+| action-gh-release v3 | Tag publish creates bad/missing GitHub Release | Only on tag-push + Environment `release` approval — use a **prerelease** tag e.g. `v0.0.0-rc.deps1` when ready |
+
+**Definition of done for §1.1:** one successful release **dry-run** (dispatch) and,
+when you next cut a real/prerelease tag, confirm GHCR + GitHub Release assets look right.
+
+### 1.2 Medium — Go 1.26 builder vs go 1.25.12 module
+
+`#11` raised the **Docker build image** to Go 1.26 while:
+
+- `go.mod` still says `go 1.25.12`
+- CI/Makefile still force `GOTOOLCHAIN=go1.25.12`
+
+That is a valid “build with newer toolchain, support older language version” setup,
+but it means **release binaries from Docker are not the same compiler as local/CI
+default**. Documented intentional choice is fine; accidental drift is not.
+
+| Option | When to pick |
+|---|---|
+| **A. Keep split** | Hobby OK: document “Docker release = Go 1.26; dev/CI = 1.25.12” |
+| **B. Align up** | Bump `GOTOOLCHAIN` (+ optionally `go` directive) to 1.26 everywhere |
+| **C. Align down** | Pin Docker back to `golang:1.25-alpine` if you want bit-identical compiler to CI |
+
+**Suggested for hobby:** Option A short-term + run `go test` once under Go 1.26
+locally before the next public tag. Option B when you care about one toolchain.
+
+### 1.3 Medium — Mongo driver 2.8
+
+`#12` merged without an explicit known-good MongoDB success-path smoke in the plan.
+CI checker tests alone may only exercise bad-host / unit paths.
+
+**Remaining:** if you use the database monitor with MongoDB in real deployments, run one
+live `ping`/`select_1` against a throwaway Mongo after upgrade.
+
+### 1.4 Low — nginx 1.31
+
+Merged. Build is covered by CI docker job. Optional: start split web container and
+`nginx -t` / hit `/` once.
+
+### 1.5 Dependabot config still too noisy for next run
+
+`.github/dependabot.yml` still allows major floods. **Remaining hygiene PR:**
+
+- Group patch/minor updates
+- Ignore semver-major for `typescript`, `vite`, `zod`, `@sveltejs/vite-plugin-svelte`, `prettier-plugin-svelte`, and ideally `node` Docker
+- Lower `open-pull-requests-limit` (e.g. 3)
+
+---
+
+## 2. Review of major changes (Wave F) — deeper take
+
+Majors were correctly **not** merged. Here is a sharper review of each closed PR
+and whether/when to revisit.
+
+### 2.1 TypeScript 5 → 7 (#19) — **do not jump straight to 7**
+
+| | |
+|---|---|
+| Locked today | ~5.9.3 |
+| Dependabot proposed | 7.0.2 |
+| Coupled to | `typescript-eslint`, `svelte-check`, Svelte 5 types, Node types |
+
+**Assessment:** High risk. TS 6/7 change checking behavior and may need eslint stack
+upgrades. Prefer:
+
+1. Stay on **5.9.x** (already current major line), or  
+2. Planned hop **5 → 6** only when Svelte/eslint ecosystem docs say ready, then reassess 7.
+
+**Do not** reopen #19 as-is.
+
+### 2.2 Vite 6 → 8 (#18) + vite-plugin-svelte 5 → 7 (#15) — **must ship together**
+
+| | |
+|---|---|
+| Locked today | Vite ~6.4.3, plugin-svelte ~5.1.1, Kit ~2.66 |
+| Proposed | Vite 8.2, plugin-svelte 7.2 |
+
+**Assessment:** These are one unit. Community migration notes (Vite 8 era) say
+`@sveltejs/vite-plugin-svelte` major jumps with Vite 8, and Kit needs a new enough
+2.x (e.g. 2.53+). Also update:
+
+- `@sveltejs/kit` to a Vite-8-capable minor  
+- adapters (`adapter-static` / `adapter-node`) if peers complain  
+- possibly `@tailwindcss/vite`
+
+**Order inside Wave F build-tool group:**
+
+1. Read Kit changelog for minimum version supporting Vite 8  
+2. Bump Kit + plugin-svelte + Vite in **one** PR  
+3. `bun run check && bun run build` + Docker `USE_PREBUILT_WEB=0` and `=1`
+
+Skipping intermediate Vite 7 is acceptable **if** Kit’s peer range allows Vite 8
+directly; otherwise do 6→7→8.
+
+### 2.3 prettier-plugin-svelte 3 → 4 (#16) — **lowest-risk major**
+
+| | |
+|---|---|
+| Locked today | ~3.5.2 |
+| Proposed | 4.1.1 |
+
+**Assessment:** Tooling-only. Can be a small solo PR:
 
 ```bash
-rg -n "from 'zod'|from \"zod\"|z\." web/src --glob '!**/paraglide/**'
+cd web && bun add -d prettier-plugin-svelte@^4
+bun run format
+bun run lint
 ```
 
-Likely touch areas:
+Expect a formatting-only diff. Safe to do **before** the Vite/TS wave if you want a
+quick win.
 
-- Form schemas used with `sveltekit-superforms`
-- API payload validation helpers
-- Any `z.object` / `z.string()` refinements that changed error-map or default APIs in Zod 4
+### 2.4 Zod 3 → 4 (#17) — **breaking, but low code surface in this repo**
 
-Follow [Zod 4 migration guide](https://zod.dev) (breaking changes around error formatting, `z.record`, defaults, etc.).
+| | |
+|---|---|
+| Locked today | zod 3.25.76 (direct dep) |
+| Proposed | 4.4.3 |
+| Direct `import` from `zod` in `web/src` | **None found** (review date) |
+| Why it is still listed | `package.json` dependency; `sveltekit-superforms` peers `zod ^3 \|\| ^4` and may pull zod 4 optionally |
 
-#### F.4 Frontend validation gate
+**Assessment:**
+
+- **Code migration cost is currently low** if you truly have no `z.` schemas in app code.  
+- Still a **product decision**: bumping the direct dependency changes what Superforms /
+  future forms resolve.  
+- Superforms 2.30 peers both Zod 3 and 4 — good.  
+- Follow [Zod 4 migration guide](https://zod.dev/v4/changelog) if any schema appears later.
+
+**Recommended:**
+
+1. Confirm with `rg "from ['\"]zod['\"]|\\bz\\." web/src` before any bump  
+2. If still unused: either **remove unused `zod` dep** or bump to 4 in a tiny PR after
+   Superforms form smoke  
+3. If you add forms later, target Zod 4 from the start
+
+This is **easier than the plan originally assumed**, but still not free (lockfile +
+peer resolution + Superforms runtime).
+
+### 2.5 Node 22 → 25 Docker (#3) — **keep deferred**
+
+| | |
+|---|---|
+| Locked today | `node:22-alpine` |
+| Proposed | `node:25-alpine` |
+
+**Assessment:** Dockerfile stage runs `npm run build` (Vite) under Node when
+`USE_PREBUILT_WEB=0`. Node 22 is the right LTS-class default. Node 25 is current
+line / non-LTS for long support windows.
+
+**Revisit when:** Wave F forces a Node floor (Vite 8 needs Node ≥20.19 / 22.12 —
+still satisfied by 22), or you drop Node 22 upstream images.
+
+### 2.6 Wave F recommended shape (revised)
+
+Do **not** open five Dependabot majors again. Prefer **2–3 human PRs**:
+
+| PR | Scope | Gate |
+|---|---|---|
+| **F0** (optional) | prettier-plugin-svelte 4 | `bun run lint` / format |
+| **F1** | Zod 4 **or** remove unused zod | `bun run check`, form smoke if any |
+| **F2** | Vite 8 + plugin-svelte 7 + Kit bump | check, test, build, e2e, both Docker web modes |
+| **F3** (later) | TypeScript 6 (not 7 first) + eslint | check + lint |
+
+TypeScript 7 stays **out of scope** until 6 is stable in this repo.
+
+### 2.7 Wave F validation gate (unchanged, still required)
 
 ```bash
 cd web
-bun install --frozen-lockfile   # after lockfile update
-bun run check                  # paraglide + svelte-check (type gate)
+bun install --frozen-lockfile
+bun run check
 bun run test
 bun run build
 bun run lint
-bun run test:e2e               # needs backend; or CI e2e job
-```
+bun run test:e2e   # or CI e2e
 
-Repo gate:
-
-```bash
-make gate-fast                 # or make gate-full
-```
-
-Docker gates (both paths are required for build-tool or Node changes):
-
-```bash
-# Build the frontend inside Docker under the selected Node image.
+# Both Docker frontend paths
 docker build --build-arg USE_PREBUILT_WEB=0 -t uptime-phoenix:web-source .
-
-# Preserve the release path that copies an already-built web/dist.
 docker build --build-arg USE_PREBUILT_WEB=1 -t uptime-phoenix:web-prebuilt .
 ```
 
-#### F.5 Wave F exit criteria
-
-- [ ] `bun run check` zero errors  
-- [ ] Unit + e2e green  
-- [ ] Docker source build works (`USE_PREBUILT_WEB=0`)
-- [ ] Docker prebuilt-web release path still works (`USE_PREBUILT_WEB=1`)
-- [ ] No Dependabot major PRs left open for these packages (ignored or merged via the wave)
+Repo: `make gate-full` before merge to `main`.
 
 ---
 
-## 5. Per-wave PR / Dependabot hygiene
+## 3. Original inventory (historical)
 
-### After merging Wave A
+Kept for audit. Status column reflects 2026-08-09 reality.
 
-```text
-@dependabot rebase
-```
-
-on remaining PRs so they drop already-merged commits.
-
-### Ignoring majors (recommended for hobby tempo)
-
-On each of #3, #15–#19 (or after closing):
-
-```text
-@dependabot ignore this major version
-```
-
-### Optional Dependabot config follow-up
-
-Update `.github/dependabot.yml` to reduce future floods:
-
-```yaml
-# Example: under npm (/web)
-groups:
-  frontend-minor:
-    patterns: ["*"]
-    update-types: ["minor", "patch"]
-ignore:
-  - dependency-name: "typescript"
-    update-types: ["version-update:semver-major"]
-  - dependency-name: "vite"
-    update-types: ["version-update:semver-major"]
-  - dependency-name: "zod"
-    update-types: ["version-update:semver-major"]
-  - dependency-name: "@sveltejs/vite-plugin-svelte"
-    update-types: ["version-update:semver-major"]
-  - dependency-name: "prettier-plugin-svelte"
-    update-types: ["version-update:semver-major"]
-
-# Example: under github-actions
-groups:
-  actions:
-    patterns: ["*"]
-```
-
-Also consider `open-pull-requests-limit: 3` to keep the queue small.
+| PR | Dependency | Proposed | Risk | Status |
+|---|---|---|---|---|
+| #5 | pro-bing | 0.9.1 | Low | **Merged** |
+| #9 | x/crypto | 0.54.0 | Low | **Merged** |
+| #12 | mongo-driver | 2.8.0 | Low–med | **Merged** — success-path smoke still optional debt |
+| #13 | grpc | 1.83.0 | Low–med | **Merged** |
+| #8 | client_golang | 1.24.1 | Medium | **Merged** |
+| #14 | build-push-action | v7 | Medium | **Merged** |
+| #7 | nginx image | 1.31-alpine | Medium | **Merged** |
+| #2 | setup-qemu-action | 4.2.0 | Medium | **Merged** — exercise multi-arch dry-run |
+| #6 | action-gh-release | 3.0.2 | Medium–high | **Merged** — needs real tag publish smoke |
+| #4 | upload-artifact | 7.0.1 | High | **Merged** — pair with dry-run |
+| #10 | download-artifact | 8.0.1 | High | **Merged** — only on publish job |
+| #11 | golang image | 1.26-alpine | Medium–high | **Merged** — toolchain split vs GOTOOLCHAIN |
+| #3 | node image | 25-alpine | High | **Closed** — deferred |
+| #15 | vite-plugin-svelte | 7.x | High | **Closed** — Wave F2 |
+| #16 | prettier-plugin-svelte | 4.x | High | **Closed** — Wave F0 optional |
+| #17 | zod | 4.x | High | **Closed** — Wave F1 (low app surface) |
+| #18 | vite | 8.x | High | **Closed** — Wave F2 |
+| #19 | typescript | 7.x | High | **Closed** — do not reopen; prefer TS 6 later |
 
 ---
 
-## 6. Suggested calendar (hobby pace)
+## 4. Affected surfaces (still accurate)
 
-| When | Wave | Outcome |
+### 4.1 Go modules
+
+| Package | Used for | Post-merge note |
 |---|---|---|
-| Day 0 | Wave 0 | Deferred majors ignored; active candidates rebased |
-| Day 0–1 | Wave A | 4–5 Go patches on `main` |
-| Day 1–2 | Wave B (nginx only) | Optional image bump |
-| Day 2–3 | Wave C | Separately validated Actions PRs; release-only paths remain held until exercised |
-| Later | Wave F | Small frontend compatibility groups when you want the investment |
-| Later | golang 1.26 / node 25 | Only with intentional toolchain upgrade |
+| pro-bing | ping checker | Merged 0.9.1 |
+| x/crypto | auth crypto | Merged 0.54 |
+| mongo-driver/v2 | DB monitor Mongo | Merged 2.8 — optional live smoke |
+| grpc | gRPC checker | Merged 1.83 |
+| client_golang | Prometheus metrics | Merged 1.24 |
 
----
+### 4.2 Docker
 
-## 7. Decision summary
-
-| Bucket | PRs | Do |
+| Image | Files | Post-merge note |
 |---|---|---|
-| **Merge soon** | #5, #9, #13, maybe #8 | Rebase → CI green → `make gate-full` → merge |
-| **Needs a success-path smoke** | #12 | Add/run known-good MongoDB check before merge |
-| **Merge carefully** | #7, #14 | Rebase → docker/CI green |
-| **Validate exact release path** | #2, #4, #6, #10 | Keep SHA-pinned Dependabot PRs; merge only after the corresponding action actually runs |
-| **Test new release compiler** | #11 | Full gate under Go 1.26; `go.mod` may remain at the supported minimum |
-| **Defer / ignore major** | #3, #15, #16, #17, #18, #19 | Wave F or ignore |
+| golang alpine | `Dockerfile`, `Dockerfile.split` | Now **1.26** |
+| node alpine | same | Still **22** |
+| nginx alpine | `Dockerfile.split` web | Now **1.31** |
+
+### 4.3 Actions
+
+| Action | Where | Pin style |
+|---|---|---|
+| setup-qemu | release.yml ×2 | SHA **v4.2.0** |
+| upload-artifact | release.yml dry-run | SHA **v7.0.1** |
+| download-artifact | release.yml publish | SHA **v8.0.1** |
+| action-gh-release | release.yml publish | SHA **v3.0.2** |
+| build-push-action | ci.yml | floating **@v7** |
 
 ---
 
-## 8. Definition of done for this plan
+## 5. Decision summary (remaining)
 
-- [ ] Wave A merged (or explicitly skipped with reason)  
-- [ ] No stale red CI caused only by pre-Prettier `main`  
-- [ ] Release workflow still SHA-pinned and actionlint-clean  
-- [ ] Frontend majors either ignored or completed as Wave F  
-- [ ] Dependabot config tuned so the next run is a small patch queue, not 18 majors  
+| Bucket | What | Do next |
+|---|---|---|
+| **Done** | Waves A/B + most of C as Dependabot merges | Nothing to merge |
+| **Validate** | Release Actions v3/v4/v7/v8 | Dry-run dispatch; later prerelease tag |
+| **Decide** | Go 1.26 Docker vs GOTOOLCHAIN 1.25.12 | Document or align |
+| **Optional smoke** | Mongo 2.8, nginx 1.31 | Live checks if you use those paths |
+| **Future majors** | Vite 8 stack, Zod 4, TS 6, prettier-plugin 4 | Wave F0–F3 human PRs; ignore Dependabot majors |
+| **Hygiene** | dependabot.yml | Group + ignore majors so the flood does not return |
 
 ---
 
-## 9. Quick links
+## 6. Definition of done (updated)
 
-| Resource | URL |
+- [x] Dependabot queue #2–#19 resolved (merged or closed)  
+- [x] Plan merged (#20)  
+- [ ] Release dry-run green after Actions majors  
+- [ ] Explicit decision recorded for Go 1.26 builder vs 1.25.12 GOTOOLCHAIN  
+- [ ] Dependabot config tightened (ignore majors / group minors)  
+- [ ] Wave F only when intentionally scheduled (not via surprise Dependabot)  
+
+---
+
+## 7. Quick links
+
+| Resource | URL / path |
 |---|---|
-| Open PRs | https://github.com/fiztoz/uptime-phoenix/pulls  
+| Open PRs | https://github.com/fiztoz/uptime-phoenix/pulls |
 | Dependabot config | `.github/dependabot.yml` |
-| CI workflow | `.github/workflows/ci.yml` |
-| Release workflow | `.github/workflows/release.yml` |
+| CI | `.github/workflows/ci.yml` |
+| Release | `.github/workflows/release.yml` |
 | Releasing docs | `docs/RELEASING.md` |
 | Frontend package | `web/package.json` |
 | Go modules | `go.mod` |
+| Zod 4 changelog | https://zod.dev/v4/changelog |
