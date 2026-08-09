@@ -2,7 +2,9 @@ package checker
 
 import (
 	"context"
+	"os"
 	"testing"
+	"time"
 )
 
 func TestDatabaseChecker_Type(t *testing.T) {
@@ -196,6 +198,33 @@ func TestDatabaseChecker_Check_MongoDB_BadHost(t *testing.T) {
 	}
 	if result.Status.String() != "DOWN" {
 		t.Errorf("Check() status = %v, want DOWN", result.Status)
+	}
+}
+
+func TestDatabaseChecker_Check_MongoDB_RealServer(t *testing.T) {
+	uri := os.Getenv("UPTIME_PHOENIX_TEST_MONGODB_URI")
+	if uri == "" {
+		t.Skip("set UPTIME_PHOENIX_TEST_MONGODB_URI to run against a real MongoDB server")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	c := DatabaseChecker{}
+	result, err := c.Check(ctx, map[string]any{
+		"engine":            "mongodb",
+		"connection_string": uri,
+		"health_check":      "select_1",
+		"timeout":           10.0,
+	})
+	if err != nil {
+		t.Fatalf("Check() returned unexpected error: %v", err)
+	}
+	if result.Status.String() != "UP" {
+		t.Fatalf("Check() status = %v, want UP (message: %s)", result.Status, result.Message)
+	}
+	if result.Message != "connected, ping ok" {
+		t.Errorf("Check() message = %q, want %q", result.Message, "connected, ping ok")
 	}
 }
 
