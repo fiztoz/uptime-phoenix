@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -57,13 +58,14 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 	// Fetch the previous heartbeat BEFORE saving so we can compare status.
 	prevHB, prevErr := s.heartbeats.GetLatest(ctx, monitor.ID)
 
+	latency := clampLatencyMs(result.LatencyMs)
 	hb := &domain.Heartbeat{
 		MonitorID: monitor.ID,
 		Status:    result.Status,
 		Time:      time.Now().UTC(),
 		Msg:       result.Message,
-		Ping:      int(result.LatencyMs),
-		Duration:  int(result.LatencyMs),
+		Ping:      latency,
+		Duration:  latency,
 	}
 
 	// Compute DownCount based on status transition.
@@ -224,4 +226,17 @@ func (s *HeartbeatService) persistTLSInfo(ctx context.Context, monitorID int64, 
 	}
 
 	_ = s.tlsInfo.Upsert(ctx, info)
+}
+
+// clampLatencyMs converts a check latency (int64 ms) into the domain Heartbeat
+// int field without overflowing on 32-bit platforms (or absurd values).
+// Negative latencies are treated as "not measured" (0).
+func clampLatencyMs(ms int64) int {
+	if ms <= 0 {
+		return 0
+	}
+	if ms > math.MaxInt {
+		return math.MaxInt
+	}
+	return int(ms)
 }

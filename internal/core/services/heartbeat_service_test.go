@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -154,6 +155,21 @@ func (b *fakeBus) publishedEvents() []ports.Event {
 }
 
 // --- Tests ---------------------------------------------------------------
+
+func TestClampLatencyMs(t *testing.T) {
+	if got := clampLatencyMs(-1); got != 0 {
+		t.Errorf("negative = %d, want 0", got)
+	}
+	if got := clampLatencyMs(0); got != 0 {
+		t.Errorf("zero = %d, want 0", got)
+	}
+	if got := clampLatencyMs(42); got != 42 {
+		t.Errorf("normal = %d, want 42", got)
+	}
+	if got := clampLatencyMs(math.MaxInt64); got != math.MaxInt {
+		t.Errorf("overflow = %d, want MaxInt", got)
+	}
+}
 
 func TestHeartbeatService_Record_SavesHeartbeat(t *testing.T) {
 	repo := newFakeHeartbeatRepo()
