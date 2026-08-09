@@ -297,10 +297,14 @@ jobs:
       - name: Build frontend for Docker prebuilt
         run: |
           set -euo pipefail
+          # Subshell keeps cwd at repo root so the web/dist check below is valid
+          # after `cd web` (a bare cd left the shell in web/ and failed the test).
           if [ ! -f web/dist/index.html ]; then
-            cd web
-            bun install --frozen-lockfile
-            bun run build
+            (
+              cd web
+              bun install --frozen-lockfile
+              bun run build
+            )
           fi
           test -f web/dist/index.html
 
