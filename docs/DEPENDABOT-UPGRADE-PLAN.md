@@ -355,11 +355,14 @@ Also consider `open-pull-requests-limit: 3` to keep the queue small.
 
 ## 8. Definition of done for this plan
 
-- [ ] Wave A merged (or explicitly skipped with reason)  
-- [ ] No stale red CI caused only by pre-Prettier `main`  
-- [ ] Release workflow still SHA-pinned and actionlint-clean  
-- [ ] Frontend majors either ignored or completed as Wave F  
-- [ ] Dependabot config tuned so the next run is a small patch queue, not 18 majors  
+- [x] Wave A merged (Go patches #5–#13 family)  
+- [x] No stale red CI caused only by pre-Prettier `main`  
+- [x] Release workflow still SHA-pinned and actionlint-clean (Actions majors merged with SHAs)  
+- [x] Wave F (intentional): Vite 8 + `@sveltejs/vite-plugin-svelte` 7 + Kit 2.70 + prettier-plugin-svelte 4; TypeScript stays on 5.9 (eslint peer)  
+- [x] Unused web deps removed: `zod`, `sveltekit-superforms`, `@sveltejs/adapter-node`, `d3-shape`, `clsx`, `tailwind-merge`  
+- [x] Go toolchain aligned to **1.26.5** (`go.mod`, `GOTOOLCHAIN`, Docker already 1.26)  
+- [x] Dependabot config tightened (ignore majors / group minors)  
+- [ ] Optional: release dry-run after Actions majors (operational smoke)
 
 ---
 

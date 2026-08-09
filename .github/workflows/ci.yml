@@ -124,7 +124,7 @@ jobs:
       # Warm caches so start-e2e-server.sh can finish inside Playwright's wait.
       - name: Prebuild frontend + Go modules for e2e
         env:
-          GOTOOLCHAIN: go1.25.12
+          GOTOOLCHAIN: go1.26.5
         run: |
           go mod download
           (cd web && bun run build)
@@ -138,7 +138,7 @@ jobs:
         working-directory: web
         env:
           CI: true
-          GOTOOLCHAIN: go1.25.12
+          GOTOOLCHAIN: go1.26.5
         # start-e2e-server.sh builds web + Go binary and serves on :3100
         run: bun run test:e2e
 
