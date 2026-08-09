@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
 	"strings"
 	"time"
@@ -31,9 +29,8 @@ func APIKeyMiddleware(apiKeyRepo ports.APIKeyRepository) echo.MiddlewareFunc {
 				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing api key"})
 			}
 
-			// Hash the key
-			sum := sha256.Sum256([]byte(key))
-			hash := hex.EncodeToString(sum[:])
+			// Fingerprint (SHA-256) of high-entropy API token — not password hashing.
+			hash := services.FingerprintAPIKey(key)
 
 			ak, err := apiKeyRepo.GetByHash(c.Request().Context(), hash)
 			if err != nil || ak == nil || !ak.Active || services.APIKeyExpired(ak, time.Now()) {

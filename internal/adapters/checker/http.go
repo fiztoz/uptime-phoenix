@@ -65,10 +65,11 @@ func buildHTTPClient(config map[string]any) (*http.Client, error) {
 		if transport == nil {
 			transport = &http.Transport{}
 		}
-		// Skipping verification still performs the full TLS handshake, so
-		// resp.TLS keeps carrying the peer certificates and the cert-metadata
-		// capture below (tls_days_remaining / tls_issuer) keeps working.
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // #nosec G402 -- per-monitor operator opt-in (Monitor.TLSIgnore)
+		// Operator opt-in per monitor (Monitor.TLSIgnore / config tls_ignore).
+		// Verification is skipped only when the operator explicitly enables it
+		// for broken/self-signed targets. Handshake still runs so resp.TLS
+		// peer certs remain available for tls_days_remaining / tls_issuer.
+		transport.TLSClientConfig = operatorTLSIgnoreConfig()
 	}
 	if transport != nil {
 		client.Transport = transport
@@ -461,4 +462,18 @@ func isStatusCodeAccepted(code int, rules []any) bool {
 		}
 	}
 	return false
+}
+
+// operatorTLSIgnoreConfig builds a TLS client config for monitors that opt into
+// skipping certificate verification (self-signed / broken lab hosts).
+// MinVersion still enforces TLS 1.2+; only peer certificate trust is relaxed.
+//
+// This is never the global default — only monitors with tls_ignore / TLSIgnore
+// set by an operator use this config (uptime checks against broken lab certs).
+func operatorTLSIgnoreConfig() *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		// codeql[go/disabled-certificate-check]: per-monitor operator opt-in (Monitor.TLSIgnore), not a global bypass
+		InsecureSkipVerify: true,
+	}
 }

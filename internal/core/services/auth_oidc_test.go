@@ -642,3 +642,40 @@ func TestParseOIDCGrantMap(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestOIDCLogoutURL_RejectsOpenRedirect(t *testing.T) {
+	oidc := &fakeOIDC{enabled: true}
+	svc, _, _, _ := newOIDCAuthService(t, oidc, services.OIDCPolicy{
+		FrontendRedirect: "https://app.example.com",
+	})
+
+	// Same-origin absolute is allowed.
+	got := svc.OIDCLogoutURL("https://app.example.com/login")
+	if !strings.Contains(got, "post=https://app.example.com/login") {
+		t.Fatalf("same-origin rejected: %q", got)
+	}
+
+	// Relative path is allowed.
+	got = svc.OIDCLogoutURL("/login")
+	if !strings.Contains(got, "post=/login") {
+		t.Fatalf("relative path rejected: %q", got)
+	}
+
+	// External host must be dropped (open-redirect guard).
+	got = svc.OIDCLogoutURL("https://evil.example/phish")
+	if strings.Contains(got, "evil.example") {
+		t.Fatalf("external redirect leaked into logout URL: %q", got)
+	}
+
+	// Scheme-relative absolute-looking forms must not become external hosts.
+	got = svc.OIDCLogoutURL("//evil.example/phish")
+	if strings.Contains(got, "://evil.example") || strings.Contains(got, "post=//evil") {
+		t.Fatalf("scheme-relative redirect leaked as host: %q", got)
+	}
+	// Backslashes are normalized to slashes and treated as a local path only
+	// (not as a different host).
+	got = svc.OIDCLogoutURL("\\evil.example/phish")
+	if strings.Contains(got, "://evil.example") {
+		t.Fatalf("backslash redirect treated as external host: %q", got)
+	}
+}

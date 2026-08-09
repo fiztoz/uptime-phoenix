@@ -193,11 +193,52 @@ func (s *AuthService) CompleteOIDCLogin(ctx context.Context, code, state string)
 }
 
 // OIDCLogoutURL returns an optional IdP end-session URL.
+//
+// postLogoutRedirect is operator/browser-supplied and must not be an open
+// redirect: only same-origin absolute URLs matching FrontendRedirect, or
+// host-less relative paths, are forwarded to the IdP.
 func (s *AuthService) OIDCLogoutURL(postLogoutRedirect string) string {
 	if !s.OIDCEnabled() {
 		return ""
 	}
-	return s.oidc.EndSessionURL(postLogoutRedirect)
+	return s.oidc.EndSessionURL(s.sanitizePostLogoutRedirect(postLogoutRedirect))
+}
+
+// sanitizePostLogoutRedirect returns a safe post_logout_redirect_uri or "".
+// Rejects scheme-relative and absolute URLs that do not match FrontendRedirect.
+func (s *AuthService) sanitizePostLogoutRedirect(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	// Some browsers treat backslashes as path separators; normalize first so
+	// url.Parse cannot be tricked into treating "\\evil.com" as a host.
+	raw = strings.ReplaceAll(raw, "\\", "/")
+
+	target, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	// Relative (no scheme, no host) — allow only absolute paths under our app.
+	if target.Scheme == "" && target.Host == "" {
+		if !strings.HasPrefix(target.Path, "/") || strings.HasPrefix(target.Path, "//") {
+			return ""
+		}
+		return target.String()
+	}
+	// Absolute URL must match the configured SPA origin (PUBLIC_URL).
+	baseRaw := strings.TrimSpace(s.oidcPolicy.FrontendRedirect)
+	if baseRaw == "" {
+		return ""
+	}
+	base, err := url.Parse(baseRaw)
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return ""
+	}
+	if !strings.EqualFold(target.Scheme, base.Scheme) || !strings.EqualFold(target.Host, base.Host) {
+		return ""
+	}
+	return target.String()
 }
 
 // OIDCFrontendRedirect builds the post-callback SPA URL carrying the session token.

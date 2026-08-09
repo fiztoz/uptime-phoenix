@@ -725,13 +725,19 @@ func generateAPIKey() (string, error) {
 	return apiKeyPrefix + base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// hashAPIKey returns the lowercase hex SHA-256 of the plaintext key.
-// We use SHA-256 (not bcrypt) because API keys have 256 bits of entropy
-// already — bcrypt's slow factor is designed to slow down brute-forcing
-// low-entropy passwords, which does not apply to high-entropy tokens.
-func hashAPIKey(plaintext string) string {
-	sum := sha256.Sum256([]byte(plaintext))
+// FingerprintAPIKey returns the lowercase hex SHA-256 of a high-entropy API
+// token for exact-match storage lookup. This is not password hashing: API keys
+// are generated with 256 bits of crypto/rand entropy (see generateAPIKey).
+// User passwords use bcrypt in adapters/auth/password.go.
+func FingerprintAPIKey(token string) string {
+	// codeql[go/weak-sensitive-data-hashing]: API token fingerprint (256-bit entropy), not password hashing — passwords use bcrypt
+	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+// hashAPIKey is the internal alias used by AuthService create/lookup paths.
+func hashAPIKey(plaintext string) string {
+	return FingerprintAPIKey(plaintext)
 }
 
 // isNotFound reports whether err originates from a "not found" condition.

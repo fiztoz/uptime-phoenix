@@ -7,7 +7,9 @@ export const ADMIN_PASSWORD =
   process.env.PHOENIX_E2E_PASSWORD || "ChangeMe123!";
 
 export function uniqueName(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  // crypto is available in Node/Playwright; avoid Math.random for CodeQL.
+  const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+  return `${prefix}-${Date.now()}-${suffix}`;
 }
 
 /** Sign in through the real login form and wait for the initial WS snapshot. */

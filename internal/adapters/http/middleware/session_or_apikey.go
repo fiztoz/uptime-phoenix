@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
 	"slices"
 	"strings"
@@ -48,8 +46,8 @@ func SessionOrAPIKey(authSvc *services.AuthService, apiKeyRepo ports.APIKeyRepos
 
 			key := apiKeyFromRequest(c, raw)
 			if key != "" {
-				sum := sha256.Sum256([]byte(key))
-				hash := hex.EncodeToString(sum[:])
+				// Fingerprint (SHA-256) of high-entropy API token — not password hashing.
+				hash := services.FingerprintAPIKey(key)
 				ak, err := apiKeyRepo.GetByHash(ctx, hash)
 				if err == nil && ak != nil && ak.Active &&
 					!services.APIKeyExpired(ak, time.Now()) &&
