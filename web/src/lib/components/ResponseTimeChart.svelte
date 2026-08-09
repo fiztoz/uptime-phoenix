@@ -187,7 +187,8 @@
 				yNice
 				padding={{ top: 16, right: 16, bottom: 32, left: 48 }}
 			>
-				<Svg>
+				<!-- titleText is LayerCake v9+ a11y API (was `title` on Svg). -->
+				<Svg titleText="Response time chart">
 					<Grid ticks={5} />
 					<PlotClip>
 						<DowntimeMarkers intervals={downtimeIntervals} />

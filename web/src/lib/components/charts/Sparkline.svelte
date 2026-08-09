@@ -67,7 +67,8 @@
 			{yDomain}
 			padding={{ top: 3, right: 2, bottom: 3, left: 2 }}
 		>
-			<Svg>
+			<!-- titleText is LayerCake v9+ a11y API (was `title` on Svg). -->
+			<Svg titleText="Latency trend sparkline">
 				<Area fill={areaFill} opacity={0.7} linear />
 				<Line stroke={lineStroke} strokeWidth={2} linear />
 				<!-- A path needs 2+ points to paint. Dot a single-sample series so a
