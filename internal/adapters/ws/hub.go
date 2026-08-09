@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -125,6 +126,9 @@ type Client struct {
 	ID     string
 	UserID int64
 	send   chan []byte
+	// closed is set before send is closed so fan-out can skip without panicking
+	// on "send on closed channel" when snapshotClients races with disconnect.
+	closed atomic.Bool
 
 	visMu      sync.Mutex
 	visAll     bool           // true for admins: every monitor, no id set needed
@@ -448,7 +452,19 @@ func (h *Hub) broadcast(event ports.Event) {
 // a backlogged hub silently discarded UI events with no log line and no metric,
 // so "delivered events/sec" in the load harness overstated what clients actually
 // received and there was no way to tell a quiet system from a lossy one.
+//
+// Disconnect race: readPump closes client.send when the socket ends, but
+// broadcast may still hold a snapshot that includes that client until
+// RemoveClient runs. closed + recover make that race a silent drop instead of
+// panic: send on closed channel (which used to kill the whole process in e2e).
 func (h *Hub) send(client *Client, data []byte) {
+	if client == nil || client.closed.Load() {
+		return
+	}
+	defer func() {
+		// Last-line defense if closed flipped between the check and the send.
+		_ = recover()
+	}()
 	select {
 	case client.send <- data:
 	default:
@@ -675,7 +691,11 @@ func (h *Hub) writePump(ctx context.Context, conn *websocket.Conn, client *Clien
 
 // readPump reads messages from the WebSocket connection (e.g., client pong responses).
 func (h *Hub) readPump(ctx context.Context, conn *websocket.Conn, client *Client) {
-	defer close(client.send)
+	defer func() {
+		// Mark closed before close(send) so concurrent send() skips cleanly.
+		client.closed.Store(true)
+		close(client.send)
+	}()
 
 	for {
 		_, _, err := conn.Read(ctx)
