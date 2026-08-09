@@ -13,7 +13,7 @@ COPY web/ ./
 # Vite may print "done" then crash under QEMU (libuv); accept if dist exists.
 RUN npm run build; test -f dist/index.html
 
-FROM alpine:3.20 AS web-from-context
+FROM alpine:3.24 AS web-from-context
 COPY web/dist /app/web/dist
 RUN test -f /app/web/dist/index.html
 
