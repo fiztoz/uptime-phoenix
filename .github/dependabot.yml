@@ -41,7 +41,7 @@ updates:
       frontend-minor:
         patterns: ["*"]
         update-types: ["minor", "patch"]
-    # Majors are coordinated in Wave F (see docs/DEPENDABOT-UPGRADE-PLAN.md)
+    # Majors for vite/svelte/kit/typescript are ignored; bump intentionally
     ignore:
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
