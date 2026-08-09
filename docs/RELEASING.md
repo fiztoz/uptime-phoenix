@@ -128,9 +128,30 @@ Publish steps:
    - `ghcr.io/<owner>/uptime-phoenix-{api,worker,web}:<version>` and `:latest` (`Dockerfile.split`)
    - `<owner>` is `github.repository_owner` lowercased (chart defaults use
      `ghcr.io/fiztoz/...`; forks publish under their own namespace).
-3. `helm push` the dry-run chart package to `oci://ghcr.io/<owner>/charts`.
-4. Create/update a GitHub Release for tag `v<version>`, attaching binaries,
+3. **Cosign keyless sign** each image digest (Sigstore OIDC via `id-token: write`).
+   Normal `docker pull` is unchanged — verification is optional for consumers.
+4. `helm push` the dry-run chart package to `oci://ghcr.io/<owner>/charts`.
+5. Create/update a GitHub Release for tag `v<version>`, attaching binaries,
    `SHA256SUMS`, chart `.tgz`, and `INVENTORY.md` from the dry-run artifact.
+
+### Optional: verify a published image (cosign)
+
+Install [cosign](https://docs.sigstore.dev/cosign/system_config/installation/), then:
+
+```bash
+# Replace owner/version/digest as published
+IMAGE=ghcr.io/fiztoz/uptime-phoenix
+# Prefer digest from the release notes / GHCR UI, or:
+DIGEST=$(crane digest "${IMAGE}:0.1.0")   # or docker buildx imagetools inspect
+
+cosign verify \
+  --certificate-identity-regexp 'https://github.com/fiztoz/uptime-phoenix/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  "${IMAGE}@${DIGEST}"
+```
+
+If you skip verification, pull and run the image as usual — signing does not
+change tags or require extra runtime config.
 
 **How to publish:**
 
@@ -224,7 +245,7 @@ Do **not** promote dry-run artifacts to a public release until every item is cle
 | Helm OCI repository + push | User | Workflow pushes `oci://ghcr.io/<owner>/charts` |
 | GitHub Releases + checksum attach | User | Workflow attaches dry-run binaries/chart |
 | Image / binary names aligned with repo (`uptime-phoenix*`) | Owner | **Done — 2026-08** (GHCR + release artifacts) |
-| Provenance / cosign signing policy | User | Open |
+| Provenance / cosign signing policy | Owner | **Done — 2026-08** (keyless cosign on publish; verify optional for users) |
 | Tag-bound publish + no dispatch publish | Owner | **Done — 2026-08** (see Hard rules) |
 | Version via env + SemVer regex | Owner | **Done — 2026-08** |
 | Pinned Actions (release.yml) + pinned Bun | Owner | **Done — 2026-08** (full digests for images still open) |
