@@ -2,7 +2,25 @@
 
 A self-hosted, K8s-native, minimal-dependency monitoring tool. The default `helm install` produces a single-pod deployment with SQLite, embedded frontend, and zero external services.
 
+> **Published installs & Argo CD:** the chart is pushed to GHCR as an **OCI** package
+> (`oci://ghcr.io/fiztoz/charts/uptime-phoenix`). You do **not** need `helm repo add`.
+> Full guide (Helm CLI + Argo CD Application):
+> [`docs/guides/helm-and-argocd.md`](../../docs/guides/helm-and-argocd.md).
+
 ## Quick Start
+
+### From GHCR (recommended)
+
+```bash
+# No helm repo add — OCI install
+helm upgrade --install uptime-phoenix \
+  oci://ghcr.io/fiztoz/charts/uptime-phoenix \
+  --version 0.1.0 \
+  --namespace uptime-phoenix --create-namespace \
+  --set image.tag=0.1.0
+```
+
+### From a git checkout
 
 ```bash
 # Default (zero external dependencies, single pod, SQLite)
