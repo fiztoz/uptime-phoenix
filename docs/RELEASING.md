@@ -230,8 +230,11 @@ Do **not** promote dry-run artifacts to a public release until every item is cle
 | Pinned Actions (release.yml) + pinned Bun | Owner | **Done — 2026-08** (full digests for images still open) |
 | No curl\|sh from `main` (syft / actionlint) | Owner | **Done — 2026-08** (versioned + SHA-256) |
 | `.dockerignore` excludes secrets | Owner | **Done — 2026-08** |
-| Dependabot version updates (`.github/dependabot.yml`) | Owner | **Done — 2026-08** |
+| Dependabot version updates (`.github/dependabot.yml`) | Owner | **Done — 2026-08** (majors ignored; group minors) |
 | Environment `release` requires owner review + `v*` tags only | Owner | **Done — 2026-08** |
+| Frontend toolchain (Vite 8 / Kit 2.70 / plugin-svelte 7 / TS 6) | Owner | **Done — 2026-08** |
+| Go toolchain `1.26.5` aligned (`go.mod` + `GOTOOLCHAIN` + Docker) | Owner | **Done — 2026-08** |
+| Unused web deps removed (zod/superforms/adapter-node/…) | Owner | **Done — 2026-08** |
 
 ## Release procedure (recommended)
 
