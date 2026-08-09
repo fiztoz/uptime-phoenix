@@ -730,6 +730,7 @@ func generateAPIKey() (string, error) {
 // are generated with 256 bits of crypto/rand entropy (see generateAPIKey).
 // User passwords use bcrypt in adapters/auth/password.go.
 func FingerprintAPIKey(token string) string {
+	// codeql[go/weak-sensitive-data-hashing]: API token fingerprint (256-bit entropy), not password hashing — passwords use bcrypt
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }

@@ -467,9 +467,13 @@ func isStatusCodeAccepted(code int, rules []any) bool {
 // operatorTLSIgnoreConfig builds a TLS client config for monitors that opt into
 // skipping certificate verification (self-signed / broken lab hosts).
 // MinVersion still enforces TLS 1.2+; only peer certificate trust is relaxed.
+//
+// This is never the global default — only monitors with tls_ignore / TLSIgnore
+// set by an operator use this config (uptime checks against broken lab certs).
 func operatorTLSIgnoreConfig() *tls.Config {
 	return &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: true, // intentional: per-monitor operator opt-in only
+		MinVersion: tls.VersionTLS12,
+		// codeql[go/disabled-certificate-check]: per-monitor operator opt-in (Monitor.TLSIgnore), not a global bypass
+		InsecureSkipVerify: true,
 	}
 }
