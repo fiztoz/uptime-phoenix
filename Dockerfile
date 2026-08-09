@@ -24,7 +24,7 @@ FROM web-builder-${USE_PREBUILT_WEB} AS web-builder
 # ─── Stage 2: Build Go binary ────────────────────────────────────────────────
 # Wait for web-builder before go mod download so BuildKit does not run both
 # heavy stages in parallel (peak RAM spike → BuildKit EOF on Colima/low-memory hosts).
-FROM golang:1.25-alpine AS go-builder
+FROM golang:1.26-alpine AS go-builder
 
 # Multi-arch: buildx sets TARGETOS/TARGETARCH; never hardcode amd64.
 ARG TARGETOS=linux
