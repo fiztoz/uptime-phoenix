@@ -304,7 +304,13 @@ jobs:
           fi
           test -f web/dist/index.html
 
+      # Keyless Sigstore signing (OIDC). Does not change docker pull for users who
+      # skip verification — only adds optional cosign verify for those who want it.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
       - name: Push multi-arch all-in-one image
+        id: push_aio
         env:
           VERSION: ${{ env.VERSION }}
           IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
@@ -318,10 +324,23 @@ jobs:
             -t "${IMAGE}:${VERSION}" \
             -t "${IMAGE}:latest" \
             --push \
+            --metadata-file /tmp/aio-meta.json \
             -f Dockerfile \
             .
+          digest="$(jq -r '."containerimage.digest"' /tmp/aio-meta.json)"
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+          echo "image=${IMAGE}" >> "${GITHUB_OUTPUT}"
+          echo "Pushed ${IMAGE}@${digest}"
 
-      - name: Push multi-arch split images (api, worker, web)
+      - name: Sign all-in-one image (keyless)
+        env:
+          IMAGE: ${{ steps.push_aio.outputs.image }}
+          DIGEST: ${{ steps.push_aio.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Push and sign multi-arch split images (api, worker, web)
         env:
           VERSION: ${{ env.VERSION }}
           IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
@@ -338,8 +357,12 @@ jobs:
               -t "${IMAGE}:${VERSION}" \
               -t "${IMAGE}:latest" \
               --push \
+              --metadata-file "/tmp/split-${target}-meta.json" \
               -f Dockerfile.split \
               .
+            digest="$(jq -r '."containerimage.digest"' "/tmp/split-${target}-meta.json")"
+            echo "==> cosign sign ${IMAGE}@${digest}"
+            cosign sign --yes "${IMAGE}@${digest}"
           done
 
       - name: Package and push Helm chart to OCI
