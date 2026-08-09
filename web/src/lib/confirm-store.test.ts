@@ -8,9 +8,8 @@ try {
   (globalThis as any).$state = <T>(v: T): T => v;
 }
 
-const { confirmAction, confirmController } = await import(
-  "./stores/confirm.svelte"
-);
+const { confirmAction, confirmController } =
+  await import("./stores/confirm.svelte");
 
 // The controller is a module-level singleton, so a test that leaves a dialog
 // open would leak into the next one. Drain whatever is still pending.
