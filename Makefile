@@ -15,7 +15,7 @@ AIR := $(GO_BIN)/air
 GOLANGCI_LINT := $(GO_BIN)/golangci-lint
 GOLANGCI_LINT_VERSION := v2.12.2
 GOVULNCHECK := $(GO_BIN)/govulncheck
-export GOTOOLCHAIN := go1.26.5
+export GOTOOLCHAIN := go1.26.6
 export PATH := $(GO_BIN):$(PATH)
 
 # Defaults — override via .env or: make dev-split MARIADB_PASSWORD=secret

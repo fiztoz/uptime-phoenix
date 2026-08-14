@@ -43,7 +43,7 @@ permissions:
 env:
   # Chart values default to ghcr.io/fiztoz/uptime-phoenix; publish uses the current
   # repository owner (lowercased) so forks land under their own GHCR namespace.
-  GOTOOLCHAIN: go1.26.5
+  GOTOOLCHAIN: go1.26.6
   # Pin toolchain versions used by this workflow (update deliberately).
   BUN_VERSION: "1.3.14"
   SYFT_VERSION: "1.50.0"
