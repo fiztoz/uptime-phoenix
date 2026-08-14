@@ -374,8 +374,28 @@ helm:
 
 ### Split mode Application values example
 
+Use the chart overlay `values-production-split.yaml` for production: split API,
+sharded workers, and in-release Valkey. It requires an operator-managed MariaDB.
+
+```bash
+helm upgrade --install uptime-phoenix \
+  oci://ghcr.io/fiztoz/charts/uptime-phoenix \
+  --version 0.2.0 \
+  -n uptime-phoenix --create-namespace \
+  -f values-production-split.yaml \
+  --set image.tag=0.2.0 \
+  --set ingress.host=uptime.example.com \
+  --set config.publicUrl=https://uptime.example.com \
+  --set mariadbExternal.host=mariadb.example.svc.cluster.local \
+  --set mariadbExternal.password='<app-user-password>'
+```
+
+From a git checkout the file lives at
+`charts/uptime-phoenix/values-production-split.yaml`. After `helm pull --untar`
+it is next to `values.yaml` in the unpacked chart.
+
 ```yaml
-# values-split.yaml
+# values-split.yaml — smaller overlay if you do not want the production file
 image:
   tag: "0.2.0"
 
@@ -391,31 +411,22 @@ mariadbExternal:
   port: 3306
   database: phoenix
   username: phoenix
-  password: ""   # prefer Secret-based injection in real setups
+  password: ""   # prefer --set or a secrets overlay; do not commit
 
-redis:
+valkey:
   enabled: true
-  host: redis-master.example.svc.cluster.local
-  port: 6379
 
 api:
-  replicas: 2
+  replicas: 3
 
 worker:
-  replicas: 1
+  replicas: 3
+  shards:
+    enabled: true
 
 ingress:
   enabled: true
   host: uptime.example.com
-```
-
-```bash
-# Helm equivalent
-helm upgrade --install uptime-phoenix \
-  oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.2.0 \
-  -n uptime-phoenix --create-namespace \
-  -f values-split.yaml
 ```
 
 ### Sync & check

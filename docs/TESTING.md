@@ -353,6 +353,11 @@ helm template uptime-phoenix charts/uptime-phoenix \
   --set mariadb.enabled=true \
   --set valkey.enabled=true
 
+# Template (production split + shards + Valkey overlay)
+helm template uptime-phoenix charts/uptime-phoenix \
+  -f charts/uptime-phoenix/values-production-split.yaml \
+  --set mariadbExternal.password=ci
+
 # Template (external Redis URL from an existing Secret)
 helm template uptime-phoenix charts/uptime-phoenix \
   --set redis.enabled=true \

@@ -1,0 +1,139 @@
+# Production overlay: split API + sharded workers + in-release Valkey.
+#
+# This chart does not deploy MariaDB. Point mariadbExternal at a shared
+# operator-managed server. Do not commit the database password.
+#
+#   helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
+#     --namespace uptime-phoenix --create-namespace \
+#     -f charts/uptime-phoenix/values-production-split.yaml \
+#     --set image.tag=0.2.0 \
+#     --set ingress.host=uptime.example.com \
+#     --set config.publicUrl=https://uptime.example.com \
+#     --set mariadbExternal.host=mariadb.phoenix.svc.cluster.local \
+#     --set mariadbExternal.password='<app-user-password>'
+#
+# GitOps: keep managedSecret=false and pre-create the Valkey ACL Secret
+# (key "default") named by valkey.auth.usersExistingSecret.
+
+image:
+  repository: ghcr.io/fiztoz/uptime-phoenix
+  tag: "0.2.0"
+  pullPolicy: IfNotPresent
+
+mode: split
+# Enables the API HPA (targets the split API Deployment).
+scaling:
+  mode: multi
+
+api:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+worker:
+  replicas: 3
+  shards:
+    enabled: true
+    batchSize: 200
+    leaseTTL: 300
+    pollEvery: 30
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+database:
+  engine: mariadb
+  persistence:
+    enabled: false
+
+mariadb:
+  enabled: false
+
+mariadbExternal:
+  host: mariadb.example.svc.cluster.local
+  port: 3306
+  database: phoenix
+  username: phoenix
+  password: ""
+
+redis:
+  enabled: false
+
+valkey:
+  enabled: true
+  auth:
+    enabled: true
+    managedSecret: true
+    password: ""
+    usersExistingSecret: "{{ .Release.Name }}-vk-auth"
+  dataStorage:
+    enabled: true
+    requestedSize: 5Gi
+  replica:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Embedded UI in the API binary. Set web.split=true only if you run a
+# separate nginx Deployment.
+web:
+  split: false
+
+ingress:
+  enabled: true
+  className: nginx
+  host: uptime.example.com
+  tls: true
+  tlsSecretName: phoenix-tls
+
+config:
+  logLevel: info
+  logFormat: json
+  publicUrl: https://uptime.example.com
+
+security:
+  production: true
+  corsAllowOrigins: https://uptime.example.com
+  rateLimitRPS: 50
+  rateLimitBurst: 100
+
+networkPolicy:
+  enabled: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+hpa:
+  minReplicas: 3
+  maxReplicas: 10
+  cpuTargetAverageUtilization: 70
+  wsConnectionsAverageValue: "200"
+
+bootstrap:
+  enabled: false
+
+cronJobs:
+  backup:
+    enabled: false
+  partition:
+    enabled: false
+  rollup:
+    enabled: false
+
+tests:
+  enabled: false

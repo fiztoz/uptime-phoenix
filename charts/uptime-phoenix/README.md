@@ -86,13 +86,31 @@ helm install uptime-phoenix ./charts/uptime-phoenix \
 
 ### Multi-pod scaling with in-release Valkey
 
+A checked-in production overlay enables split API + sharded workers + Valkey.
+It expects an **external** shared MariaDB (`mariadbExternal.*`); this chart
+does not run a MariaDB server.
+
+```bash
+helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
+  -n uptime-phoenix --create-namespace \
+  -f charts/uptime-phoenix/values-production-split.yaml \
+  --set image.tag=0.2.0 \
+  --set ingress.host=uptime.example.com \
+  --set config.publicUrl=https://uptime.example.com \
+  --set mariadbExternal.host=mariadb.example.svc.cluster.local \
+  --set mariadbExternal.password='<app-user-password>'
+```
+
+Minimal `--set` form of the same topology:
+
 ```bash
 helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
   --set mode=split \
   --set database.engine=mariadb \
-  --set mariadb.enabled=true \
+  --set mariadbExternal.host=mariadb.example.svc.cluster.local \
   --set valkey.enabled=true \
-  --set web.split=true
+  --set worker.replicas=3 \
+  --set worker.shards.enabled=true
 ```
 
 This deploys authenticated, persistent Valkey from the project-owned official

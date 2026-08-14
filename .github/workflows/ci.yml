@@ -212,6 +212,13 @@ jobs:
           --set redis.existingSecret=phoenix-redis
           > /dev/null
 
+      - name: helm template production split overlay
+        run: >-
+          helm template uptime-phoenix charts/uptime-phoenix
+          -f charts/uptime-phoenix/values-production-split.yaml
+          --set mariadbExternal.password=ci
+          > /dev/null
+
   docker:
     name: docker
     runs-on: ubuntu-latest

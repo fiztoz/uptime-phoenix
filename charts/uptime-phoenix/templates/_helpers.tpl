@@ -59,8 +59,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 Database password — from values or auto-generated (for mariadb).
 */}}
 {{- define "phoenix.dbPassword" -}}
-{{- if .Values.mariadb.rootPassword }}
+{{- if and (not .Values.mariadb.enabled) .Values.mariadbExternal.password }}
+{{- .Values.mariadbExternal.password }}
+{{- else if .Values.mariadb.rootPassword }}
 {{- .Values.mariadb.rootPassword }}
+{{- else if not .Values.mariadb.enabled }}
+{{- .Values.mariadbExternal.password }}
 {{- else }}
 {{- $secretName := printf "%s-gen" (include "phoenix.fullname" .) }}
 {{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName }}

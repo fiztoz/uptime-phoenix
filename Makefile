@@ -204,6 +204,7 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	helm lint charts/uptime-phoenix
 	helm template uptime-phoenix charts/uptime-phoenix > /dev/null
 	helm template uptime-phoenix charts/uptime-phoenix --set mode=split --set database.engine=mariadb --set mariadb.enabled=true --set valkey.enabled=true > /dev/null
+	helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-production-split.yaml --set mariadbExternal.password=ci > /dev/null
 	helm template uptime-phoenix charts/uptime-phoenix --set redis.enabled=true --set redis.existingSecret=phoenix-redis > /dev/null
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
 	$(GOVULNCHECK) ./...
@@ -274,6 +275,10 @@ helm-template: ## Render Helm templates (dry-run)
 .PHONY: helm-template-valkey
 helm-template-valkey: ## Render split mode with the in-release Valkey subchart
 	helm template uptime-phoenix charts/uptime-phoenix --set mode=split --set database.engine=mariadb --set mariadb.enabled=true --set valkey.enabled=true
+
+.PHONY: helm-template-production-split
+helm-template-production-split: ## Render the production split+shard+Valkey overlay
+	helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-production-split.yaml --set mariadbExternal.password=ci
 
 .PHONY: helm-template-debug
 helm-template-debug: ## Render Helm templates with debug output
