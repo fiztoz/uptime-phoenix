@@ -17,8 +17,9 @@ fullnameOverride: ""
 # api     = HTTP + WS only (stateless, HPA-scalable) — renders only the API tier
 # worker  = scheduler + checkers + notifier only — renders only the worker tier
 # split   = TRULY SPLIT: renders BOTH api + worker Deployments in one release.
-#           Requires database.engine=mariadb (shared DB) and redis.enabled=true
-#           (cross-pod EventBus). The worker waits for the API via an initContainer.
+#           Requires database.engine=mariadb (shared DB) and either
+#           redis.enabled=true (external Redis) or valkey.enabled=true
+#           (in-release Valkey). The worker waits for the API via an initContainer.
 # scaling.mode single/multi kept for backward compat with existing templates
 mode: all
 scaling:
@@ -83,12 +84,81 @@ mariadbExternal:
   username: phoenix
   password: ""
 
-# ── Redis (opt-in, only for scaling.mode=multi) ───────────────────────────────
+# ── Redis EventBus (opt-in, only needed for multi-pod modes) ───────────────────
 redis:
   enabled: false
+  # Reference a Secret containing a complete redis:// or rediss:// URL. When
+  # set, host/port/password are ignored and the Secret is read directly.
+  existingSecret: ""
+  existingSecretKey: redis-url
+  # Otherwise Phoenix constructs redis://[:password@]host:port/0.
   host: ""
   port: 6379
   password: ""
+
+# ── Valkey subchart (official, opt-in alternative to external Redis) ───────────
+# Valkey is Redis-protocol compatible for Phoenix's Pub/Sub EventBus. Enabling
+# this deploys Valkey inside the release and automatically wires REDIS_URL.
+valkey:
+  enabled: false
+  nameOverride: ""
+  fullnameOverride: ""
+  clusterDomain: cluster.local
+  image:
+    registry: docker.io
+    repository: valkey/valkey
+    tag: ""
+    pullPolicy: IfNotPresent
+  auth:
+    enabled: true
+    # Phoenix creates this Secret by default and retains its generated password
+    # across standard Helm upgrades. For GitOps or a pre-created Secret, set
+    # managedSecret=false and replace usersExistingSecret with its name. The
+    # password key defaults to "default".
+    managedSecret: true
+    password: ""
+    usersExistingSecret: "{{ .Release.Name }}-vk-auth"
+    aclUsers:
+      default:
+        permissions: "~* &* +@all"
+        passwordKey: default
+  service:
+    port: 6379
+  # Standalone persistence.
+  dataStorage:
+    enabled: true
+    requestedSize: 1Gi
+    className: ""
+    accessModes:
+      - ReadWriteOnce
+  # Optional primary + replicas. The primary Service remains the EventBus
+  # endpoint; replica persistence is required when enabled.
+  replica:
+    enabled: false
+    replicas: 2
+    persistence:
+      size: 1Gi
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+  tls:
+    enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  # Allow Valkey clients from this release namespace only. The named port keeps
+  # this policy aligned when valkey.service.port is customized.
+  networkPolicy:
+    ingress:
+      - from:
+          - podSelector: {}
+        ports:
+          - protocol: TCP
+            port: tcp
 
 # ── Frontend delivery ─────────────────────────────────────────────────────────
 # false = embedded in Go binary (default, zero-dependency)

@@ -203,6 +203,8 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	cd web && bun run check && bun run test && bun run build && bun run lint && bun run test:e2e
 	helm lint charts/uptime-phoenix
 	helm template uptime-phoenix charts/uptime-phoenix > /dev/null
+	helm template uptime-phoenix charts/uptime-phoenix --set mode=split --set database.engine=mariadb --set mariadb.enabled=true --set valkey.enabled=true > /dev/null
+	helm template uptime-phoenix charts/uptime-phoenix --set redis.enabled=true --set redis.existingSecret=phoenix-redis > /dev/null
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
 	$(GOVULNCHECK) ./...
 	git diff --check
@@ -269,6 +271,10 @@ helm-lint: ## Lint Helm chart
 helm-template: ## Render Helm templates (dry-run)
 	helm template uptime-phoenix charts/uptime-phoenix
 
+.PHONY: helm-template-valkey
+helm-template-valkey: ## Render split mode with the in-release Valkey subchart
+	helm template uptime-phoenix charts/uptime-phoenix --set mode=split --set database.engine=mariadb --set mariadb.enabled=true --set valkey.enabled=true
+
 .PHONY: helm-template-debug
 helm-template-debug: ## Render Helm templates with debug output
 	helm template uptime-phoenix charts/uptime-phoenix --debug
@@ -278,10 +284,12 @@ helm-install: ## Install Helm chart (default: single-pod mode)
 	helm install uptime-phoenix ./charts/uptime-phoenix
 
 .PHONY: helm-install-multi
-helm-install-multi: ## Install Helm chart in multi-pod mode (Phase 2)
+helm-install-multi: ## Install Helm chart in multi-pod mode with in-release Valkey
 	helm install uptime-phoenix ./charts/uptime-phoenix \
-		--set scaling.mode=multi \
-		--set redis.enabled=true
+		--set mode=split \
+		--set database.engine=mariadb \
+		--set mariadb.enabled=true \
+		--set valkey.enabled=true
 
 .PHONY: helm-upgrade
 helm-upgrade: ## Upgrade Helm chart release

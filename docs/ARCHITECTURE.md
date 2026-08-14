@@ -1796,6 +1796,9 @@ OpenTelemetry SDK spans: API → WS → worker → checker → notification. Exp
 ```
 charts/uptime-phoenix/
 ├── Chart.yaml
+├── Chart.lock              # pinned optional subchart dependencies
+├── charts/
+│   └── valkey-*.tgz       # vendored official Valkey subchart
 ├── values.yaml              # default: single-pod, MariaDB on PVC, embedded frontend
 └── templates/
     ├── deployment.yaml      # single pod by default; split when scaling.mode=multi
@@ -1838,9 +1841,39 @@ mariadbExternal:
   username: phoenix
   password: ""
 
-# Redis (opt-in, only for scaling.mode=multi)
+# External Redis EventBus (opt-in, only needed for multi-pod modes)
 redis:
   enabled: false
+  existingSecret: ""       # full redis:// or rediss:// URL
+  existingSecretKey: redis-url
+  host: ""
+  port: 6379
+  password: ""
+
+# Official Valkey subchart in this release (also opt-in)
+valkey:
+  enabled: false
+  auth:
+    enabled: true
+    managedSecret: true
+    password: ""           # generated and retained when empty
+    usersExistingSecret: "{{ .Release.Name }}-vk-auth"
+    aclUsers:
+      default:
+        permissions: "~* &* +@all"
+        passwordKey: default
+  dataStorage:
+    enabled: true
+    requestedSize: 1Gi
+  replica:
+    enabled: false
+    replicas: 2
+    persistence:
+      size: 1Gi
+  networkPolicy:
+    ingress:
+      - from:
+          - podSelector: {}
 
 # Frontend delivery
 web:
@@ -1874,6 +1907,18 @@ podDisruptionBudget:
   minAvailable: 1
 ```
 
+The optional in-release dependency is the project-owned official Valkey chart.
+It uses the official Valkey image, is pinned by `Chart.lock`, and is vendored
+into the parent chart so local rendering, packaged releases, and Argo CD do not
+need to resolve a dependency at render time. Phoenix generates and retains the
+default ACL user's password Secret and wires the Valkey primary Service into
+`REDIS_URL`. Standalone and primary-plus-replica modes are supported. An
+external Redis-compatible server remains available through `redis.enabled`,
+with either host/port/password values or a Secret containing the complete URL.
+The two paths are mutually exclusive and both remain disabled by default. GitOps
+deployments use `valkey.auth.managedSecret=false` with a pre-created Secret
+because offline manifest rendering cannot retain a password through `lookup`.
+
 ### Deployment Commands
 
 ```bash
@@ -1886,10 +1931,12 @@ helm install uptime-phoenix ./charts/uptime-phoenix \
   --set mariadbExternal.host=mariadb.internal \
   --set mariadbExternal.password=secret
 
-# Scale to multi-pod (Phase 2 — adds Redis, splits worker)
+# Scale to multi-pod with the in-release official Valkey subchart
 helm upgrade uptime-phoenix ./charts/uptime-phoenix \
-  --set scaling.mode=multi \
-  --set redis.enabled=true \
+  --set mode=split \
+  --set database.engine=mariadb \
+  --set mariadb.enabled=true \
+  --set valkey.enabled=true \
   --set web.split=true
 
 # Use SQLite instead of MariaDB (single-node edge)

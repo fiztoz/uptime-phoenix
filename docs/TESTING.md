@@ -343,7 +343,20 @@ helm template uptime-phoenix charts/uptime-phoenix
 # Template (multi-pod mode)
 helm template uptime-phoenix charts/uptime-phoenix \
   --set scaling.mode=multi \
-  --set redis.enabled=true
+  --set redis.enabled=true \
+  --set redis.host=redis.example.internal
+
+# Template (official Valkey subchart)
+helm template uptime-phoenix charts/uptime-phoenix \
+  --set mode=split \
+  --set database.engine=mariadb \
+  --set mariadb.enabled=true \
+  --set valkey.enabled=true
+
+# Template (external Redis URL from an existing Secret)
+helm template uptime-phoenix charts/uptime-phoenix \
+  --set redis.enabled=true \
+  --set redis.existingSecret=phoenix-redis
 
 # Template (MariaDB mode)
 helm template uptime-phoenix charts/uptime-phoenix \
@@ -356,6 +369,8 @@ helm template uptime-phoenix charts/uptime-phoenix \
 - All YAML is valid
 - ConfigMap has correct env vars
 - Deployment has correct image, ports, probes
+- Internal Redis mode renders a Redis StatefulSet/Service/Secret and Phoenix's
+  `REDIS_URL` references the Secret's `uri` key
 - Service matches Deployment ports
 
 ---

@@ -36,10 +36,10 @@ spec:
         - protocol: TCP
           port: 3306
     {{- end }}
-    {{- if .Values.redis.enabled }}
+    {{- if or .Values.redis.enabled .Values.valkey.enabled }}
     - ports:
         - protocol: TCP
-          port: {{ int (default 6379 .Values.redis.port) }}
+          port: {{ include "phoenix.eventBusPort" . }}
     {{- end }}
     {{- if .Values.cloudflareTunnel.enabled }}
     # cloudflared dials phoenix-api/web (3000/80) in-cluster and egresses to

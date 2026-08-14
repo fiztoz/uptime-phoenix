@@ -129,6 +129,133 @@ MariaDB hostname for in-cluster or external connections.
 {{- end }}
 
 {{/*
+Valkey subchart resource name. This mirrors the official chart's fullname
+helper so parent Deployments can reference its primary Service.
+*/}}
+{{- define "phoenix.valkeyFullname" -}}
+{{- if .Values.valkey.fullnameOverride }}
+{{- .Values.valkey.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default "valkey" .Values.valkey.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Secret containing the Valkey default-user password.
+*/}}
+{{- define "phoenix.valkeyAuthSecretName" -}}
+{{- tpl .Values.valkey.auth.usersExistingSecret . | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Key containing the Valkey default-user password.
+*/}}
+{{- define "phoenix.valkeyPasswordKey" -}}
+{{- $defaultUser := index .Values.valkey.auth.aclUsers "default" | default dict }}
+{{- default "default" $defaultUser.passwordKey }}
+{{- end }}
+
+{{/*
+Generate the managed Valkey password once, then retain it across upgrades.
+*/}}
+{{- define "phoenix.valkeyPassword" -}}
+{{- if .Values.valkey.auth.password }}
+{{- .Values.valkey.auth.password }}
+{{- else }}
+{{- $secretName := include "phoenix.valkeyAuthSecretName" . }}
+{{- $passwordKey := include "phoenix.valkeyPasswordKey" . }}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName }}
+{{- if and $existing (index $existing.data $passwordKey) }}
+{{- index $existing.data $passwordKey | b64dec }}
+{{- else }}
+{{- randAlphaNum 32 }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+EventBus port used by Phoenix and its egress NetworkPolicy.
+*/}}
+{{- define "phoenix.eventBusPort" -}}
+{{- if .Values.valkey.enabled }}
+{{- int (default 6379 .Values.valkey.service.port) }}
+{{- else }}
+{{- int (default 6379 .Values.redis.port) }}
+{{- end }}
+{{- end }}
+
+{{/*
+REDIS_URL wiring shared by all, API, and worker Deployments.
+*/}}
+{{- define "phoenix.eventBusEnv" -}}
+{{- if and .Values.valkey.enabled .Values.redis.enabled }}
+{{- fail "valkey.enabled and redis.enabled are mutually exclusive; choose in-release Valkey or external Redis" }}
+{{- end }}
+{{- if .Values.valkey.enabled }}
+{{- if .Values.valkey.tls.enabled }}
+{{- fail "valkey.tls.enabled is not supported by automatic Phoenix wiring because client certificates are not configured" }}
+{{- end }}
+{{- if and .Values.valkey.auth.enabled (not (hasKey .Values.valkey.auth.aclUsers "default")) }}
+{{- fail "valkey.auth.aclUsers.default is required by automatic Phoenix wiring" }}
+{{- end }}
+{{- if and .Values.valkey.auth.enabled (not .Values.valkey.auth.usersExistingSecret) }}
+{{- fail "valkey.auth.usersExistingSecret is required by automatic Phoenix wiring" }}
+{{- end }}
+{{- $host := printf "%s.%s.svc.%s" (include "phoenix.valkeyFullname" .) .Release.Namespace (default "cluster.local" .Values.valkey.clusterDomain) }}
+{{- $port := include "phoenix.eventBusPort" . }}
+{{- if .Values.valkey.auth.enabled }}
+- name: VALKEY_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "phoenix.valkeyAuthSecretName" . }}
+      key: {{ include "phoenix.valkeyPasswordKey" . }}
+- name: REDIS_URL
+  value: {{ printf "redis://default:$(VALKEY_PASSWORD)@%s:%s/0" $host $port | quote }}
+{{- else }}
+- name: REDIS_URL
+  value: {{ printf "redis://%s:%s/0" $host $port | quote }}
+{{- end }}
+{{- else if .Values.redis.enabled }}
+{{- if and (not .Values.redis.existingSecret) (not .Values.redis.host) }}
+{{- fail "redis.host is required when redis.enabled=true and redis.existingSecret is empty" }}
+{{- end }}
+- name: REDIS_URL
+  valueFrom:
+    secretKeyRef:
+      {{- if .Values.redis.existingSecret }}
+      name: {{ .Values.redis.existingSecret }}
+      key: {{ .Values.redis.existingSecretKey | default "redis-url" }}
+      {{- else }}
+      name: {{ include "phoenix.fullname" . }}
+      key: redis-url
+      {{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Init containers that block Phoenix until in-release Valkey is accepting TCP.
+REDIS_URL is selected once at process start; a missed first ping permanently
+falls back to the in-memory bus, so split API/worker must not race Valkey.
+*/}}
+{{- define "phoenix.waitForEventBusInitContainers" -}}
+{{- if .Values.valkey.enabled }}
+- name: wait-for-valkey
+  image: busybox:1.36
+  command:
+    - sh
+    - -c
+    - until nc -z {{ include "phoenix.valkeyFullname" . }} {{ include "phoenix.eventBusPort" . }}; do echo "waiting for valkey..."; sleep 2; done
+  securityContext:
+    {{- toYaml .Values.containerSecurityContext | nindent 4 }}
+{{- end }}
+{{- end }}
+
+{{/*
 Shared Phoenix application env (security, observability, rate limits).
 */}}
 {{- define "phoenix.envAppConfig" -}}

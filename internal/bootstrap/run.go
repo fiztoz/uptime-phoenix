@@ -716,15 +716,29 @@ func buildOIDCOption(cfg Config, repos repoBundle, log *logger.SlogLogger) (serv
 }
 
 func wireEventBus(cfg Config, log *logger.SlogLogger) ports.EventBus {
-	if cfg.RedisURL != "" {
-		log.Info("initializing redis eventbus (multi-pod mode)")
-		rbus, err := eventbus.NewRedisBus(context.Background(), cfg.RedisURL, log)
-		if err != nil {
-			log.Error("redis eventbus failed, falling back to memory", "error", err)
-			return eventbus.NewMemoryBus()
-		}
-		return rbus
+	if cfg.RedisURL == "" {
+		return eventbus.NewMemoryBus()
 	}
+
+	// REDIS_URL is chosen once at process start. A first-ping miss used to
+	// fall back to MemoryBus permanently, which in split mode looks healthy
+	// while API WebSockets never see worker events. Retry so in-release
+	// Valkey (or a slow external Redis) can finish coming up.
+	const attempts = 15
+	log.Info("initializing redis eventbus (multi-pod mode)")
+	var last error
+	for i := 1; i <= attempts; i++ {
+		rbus, err := eventbus.NewRedisBus(context.Background(), cfg.RedisURL, log)
+		if err == nil {
+			return rbus
+		}
+		last = err
+		if i < attempts {
+			log.Warn("redis eventbus not ready, retrying", "attempt", i, "error", err)
+			time.Sleep(2 * time.Second)
+		}
+	}
+	log.Error("redis eventbus failed, falling back to memory", "error", last)
 	return eventbus.NewMemoryBus()
 }
 

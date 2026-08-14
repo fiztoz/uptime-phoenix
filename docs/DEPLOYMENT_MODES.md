@@ -137,15 +137,16 @@ ordering). Requires a **shared MariaDB** and **Redis**.
 helm install uptime-phoenix ./charts/uptime-phoenix \
   --set mode=split \
   --set database.engine=mariadb \
-  --set database.persistence.enabled=false \
-  --set mariadbExternal.host=mariadb.internal \
-  --set mariadbExternal.username=phoenix \
-  --set mariadbExternal.password=$MARIADB_PASSWORD \
-  --set redis.enabled=true \
-  --set redis.host=redis-master \
+  --set mariadb.enabled=true \
+  --set valkey.enabled=true \
   --set api.replicas=3 \
   --set worker.replicas=1
 ```
+
+This example keeps both shared services inside the release. To use
+operator-managed services instead, set `mariadbExternal.*` and the external
+Redis path (`redis.enabled=true` with either `redis.existingSecret` or
+`redis.host`, `redis.port`, and optionally `redis.password`).
 
 What you get:
 
@@ -153,8 +154,11 @@ What you get:
   and Ingress, scalable (see HPA below). **Owns DB migrations.**
 - `uptime-phoenix-worker` Deployment — `MODE=worker`, no HTTP, `initContainer` waits for
   `uptime-phoenix-api:<port>/api/health/ready` before starting so migrations run once.
-- `redis-url` Secret in `redis://[:password@]host:port/0` form (consumed by both
-  tiers as the EventBus).
+- An authenticated Valkey Deployment and PVC from the official subchart. Both
+  tiers consume its generated ACL Secret through `REDIS_URL` as the EventBus.
+  Each Phoenix pod waits for Valkey to accept TCP before starting so the
+  process does not miss the first ping and fall back to the in-memory bus.
+  External Redis can instead supply a full URL from an existing Secret.
 
 > **SQLite is not valid for split** — two pods can't share a SQLite file safely.
 > Use `database.engine=mariadb` and set `database.persistence.enabled=false`
@@ -235,8 +239,7 @@ helm lint charts/uptime-phoenix
 helm template uptime-phoenix charts/uptime-phoenix --set mode=all
 helm template uptime-phoenix charts/uptime-phoenix \
   --set mode=split --set database.engine=mariadb \
-  --set mariadbExternal.host=db --set mariadbExternal.password=x \
-  --set redis.enabled=true
+  --set mariadb.enabled=true --set valkey.enabled=true
 ```
 
 ---
@@ -250,7 +253,7 @@ helm template uptime-phoenix charts/uptime-phoenix \
 | Reproduce the prod split locally | `docker compose -f docker-compose.split.yml up --build` → :8080 |
 | Build role images for a registry | `docker build -f Dockerfile.split --target {api,worker,web} …` |
 | Deploy single pod to K8s | `helm install uptime-phoenix ./charts/uptime-phoenix` |
-| Deploy split to K8s | `helm install … --set mode=split --set database.engine=mariadb --set redis.enabled=true` |
+| Deploy split to K8s | `helm install … --set mode=split --set database.engine=mariadb --set mariadb.enabled=true --set valkey.enabled=true` |
 | Scale API horizontally | `--set scaling.mode=multi` (HPA) |
 | Scale workers | `--set worker.replicas=N --set worker.shards.enabled=true` |
 | Expose without public ingress | `--set ingress.enabled=false --set cloudflareTunnel.enabled=true --set cloudflareTunnel.token=<token>` |
