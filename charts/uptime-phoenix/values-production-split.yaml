@@ -6,7 +6,7 @@
 #   helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
 #     --namespace uptime-phoenix --create-namespace \
 #     -f charts/uptime-phoenix/values-production-split.yaml \
-#     --set image.tag=0.2.0 \
+#     --set image.tag=0.2.1 \
 #     --set ingress.host=uptime.example.com \
 #     --set config.publicUrl=https://uptime.example.com \
 #     --set mariadbExternal.host=mariadb.phoenix.svc.cluster.local \
@@ -17,7 +17,7 @@
 
 image:
   repository: ghcr.io/fiztoz/uptime-phoenix
-  tag: "0.2.0"
+  tag: "0.2.1"
   pullPolicy: IfNotPresent
 
 mode: split

@@ -1,17 +1,39 @@
 # Changelog
 
-Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Uptime Phoenix has not
-cut a release yet — there are **no git tags and no version numbers** as of this writing, so the
-entire history below lives under a single `[Unreleased]` section grouped by conventional-commit
-type (`feat` → Added, `fix` → Fixed, `refactor`/`chore` → Changed, `ci` → CI, `docs` → Docs).
-Entries are most-recent-first and link their short commit hash. Once the first tag is cut, this
-file gains real version headers going forward.
+Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Released versions are git tags (`vX.Y.Z`). New work lands under `[Unreleased]`
+until the next tag. Historical notes below `[0.1.0]` were written before the
+first tag and stay grouped by conventional-commit type.
 
 The project's first ~4 weeks (2026-06-23 – 2026-06-30, pre conventional-commit discipline) are
 summarized rather than itemized — see [Earlier foundation](#earlier-foundation-2026-06-23--2026-06-30)
 at the bottom.
 
 ## [Unreleased]
+
+## [0.2.1] — 2026-08-15
+
+### Added
+
+- HTTP monitors: optional JSON response assertions. Configure `json_query` (gjson path) plus `json_operator` (`exists`, `not_exists`, `equals`, `not_equals`, `contains`, `not_contains`) and `expected_value` when comparing. The monitor form groups these fields; Uptime Kuma imports that already have an expected value map to `equals`.
+- Helm: `values-production-split.yaml` overlay for split API + sharded workers + in-release Valkey against an external MariaDB. The MariaDB DSN now honors `mariadbExternal.password`.
+
+### Fixed
+
+- Go toolchain `1.26.6` for stdlib CVEs (`GO-2026-6218` and related). `go.mod`, `GOTOOLCHAIN`, CI, and the release workflow are aligned.
+
+## [0.2.0] — 2026-08-14
+
+In-release Valkey EventBus (official `valkey` 0.11.0 subchart), wired to `REDIS_URL`. Chart and app version `0.2.0`. See the [v0.2.0 GitHub release](https://github.com/fiztoz/uptime-phoenix/releases/tag/v0.2.0).
+
+## [0.1.0] — 2026-08-09
+
+First public release. See the [v0.1.0 GitHub release](https://github.com/fiztoz/uptime-phoenix/releases/tag/v0.1.0).
+
+## Historical notes (pre-versioned changelog)
+
+The items below were written while the tree had no tags. They are kept for
+searchability and are not a complete per-release delta.
 
 ### Added
 

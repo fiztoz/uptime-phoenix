@@ -12,9 +12,9 @@ A self-hosted, K8s-native, minimal-dependency monitoring tool. The default `helm
 ```bash
 helm upgrade --install uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.2.0 \
+  --version 0.2.1 \
   --namespace uptime-phoenix --create-namespace \
-  --set image.tag=0.2.0
+  --set image.tag=0.2.1
 ```
 
 ### From a git checkout
@@ -94,7 +94,7 @@ does not run a MariaDB server.
 helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
   -n uptime-phoenix --create-namespace \
   -f charts/uptime-phoenix/values-production-split.yaml \
-  --set image.tag=0.2.0 \
+  --set image.tag=0.2.1 \
   --set ingress.host=uptime.example.com \
   --set config.publicUrl=https://uptime.example.com \
   --set mariadbExternal.host=mariadb.example.svc.cluster.local \

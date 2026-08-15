@@ -1,22 +1,22 @@
 # Helm & Argo CD
 
-Deploy **Uptime Phoenix** with the published Helm chart (`v0.2.0+`).
+Deploy **Uptime Phoenix** with the published Helm chart (`v0.2.1+`).
 
 The chart is an **OCI package on GHCR**. Install it with an OCI URL:
 
 ```bash
 helm upgrade --install uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.2.0
+  --version 0.2.1
 ```
 
 | | |
 |---|---|
 | Chart | `uptime-phoenix` |
-| Chart version | `0.2.0` |
+| Chart version | `0.2.1` |
 | OCI chart | `oci://ghcr.io/fiztoz/charts/uptime-phoenix` |
-| App image | `ghcr.io/fiztoz/uptime-phoenix:0.2.0` |
-| Release assets | [v0.2.0](https://github.com/fiztoz/uptime-phoenix/releases/tag/v0.2.0) |
+| App image | `ghcr.io/fiztoz/uptime-phoenix:0.2.1` |
+| Release assets | [v0.2.1](https://github.com/fiztoz/uptime-phoenix/releases/tag/v0.2.1) |
 
 Also see: [binaries](binaries.md) · [Docker / GHCR](docker-ghcr.md) · [deployment modes](../DEPLOYMENT_MODES.md)
 
@@ -31,23 +31,23 @@ kubectl create namespace uptime-phoenix
 
 helm upgrade --install uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.2.0 \
+  --version 0.2.1 \
   --namespace uptime-phoenix \
   --create-namespace \
-  --set image.tag=0.2.0 \
+  --set image.tag=0.2.1 \
   --set ingress.host=uptime.example.com
 ```
 
 ### Inspect
 
 ```bash
-helm show chart oci://ghcr.io/fiztoz/charts/uptime-phoenix --version 0.2.0
-helm show values oci://ghcr.io/fiztoz/charts/uptime-phoenix --version 0.2.0
+helm show chart oci://ghcr.io/fiztoz/charts/uptime-phoenix --version 0.2.1
+helm show values oci://ghcr.io/fiztoz/charts/uptime-phoenix --version 0.2.1
 
 helm template uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.2.0 \
-  --set image.tag=0.2.0
+  --version 0.2.1 \
+  --set image.tag=0.2.1
 ```
 
 ### Install with a values file
@@ -57,7 +57,7 @@ helm template uptime-phoenix \
 cat > values-uptime.yaml <<'EOF'
 image:
   repository: ghcr.io/fiztoz/uptime-phoenix
-  tag: "0.2.0"
+  tag: "0.2.1"
 
 ingress:
   enabled: true
@@ -75,7 +75,7 @@ EOF
 
 helm upgrade --install uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.2.0 \
+  --version 0.2.1 \
   --namespace uptime-phoenix --create-namespace \
   -f values-uptime.yaml
 ```
@@ -84,16 +84,16 @@ helm upgrade --install uptime-phoenix \
 
 ```bash
 # GitHub Release chart package
-curl -fsSL -o uptime-phoenix-0.2.0.tgz \
-  https://github.com/fiztoz/uptime-phoenix/releases/download/v0.2.0/uptime-phoenix-0.2.0.tgz
-helm upgrade --install uptime-phoenix ./uptime-phoenix-0.2.0.tgz \
-  -n uptime-phoenix --create-namespace --set image.tag=0.2.0
+curl -fsSL -o uptime-phoenix-0.2.1.tgz \
+  https://github.com/fiztoz/uptime-phoenix/releases/download/v0.2.1/uptime-phoenix-0.2.1.tgz
+helm upgrade --install uptime-phoenix ./uptime-phoenix-0.2.1.tgz \
+  -n uptime-phoenix --create-namespace --set image.tag=0.2.1
 
 # From a git clone (chart source)
 helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
   -n uptime-phoenix --create-namespace \
   --set image.repository=ghcr.io/fiztoz/uptime-phoenix \
-  --set image.tag=0.2.0
+  --set image.tag=0.2.1
 ```
 
 ### Upgrade / uninstall
@@ -101,7 +101,7 @@ helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
 ```bash
 helm upgrade uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.2.0 \
+  --version 0.2.1 \
   -n uptime-phoenix \
   -f values-uptime.yaml
 
@@ -161,7 +161,7 @@ Full mode matrix: [`docs/DEPLOYMENT_MODES.md`](../DEPLOYMENT_MODES.md).
 ## Argo CD
 
 Point an Application at the OCI chart. Chart version has **no** leading `v`
-(`0.2.0`, not `v0.2.0`).
+(`0.2.1`, not `v0.2.1`).
 
 ### Basic Application (inline values)
 
@@ -178,13 +178,13 @@ spec:
   source:
     repoURL: ghcr.io/fiztoz/charts
     chart: uptime-phoenix
-    targetRevision: 0.2.0
+    targetRevision: 0.2.1
     helm:
       releaseName: uptime-phoenix
       values: |
         image:
           repository: ghcr.io/fiztoz/uptime-phoenix
-          tag: "0.2.0"
+          tag: "0.2.1"
         ingress:
           enabled: true
           className: nginx
@@ -229,7 +229,7 @@ my-gitops/
 ```yaml
 image:
   repository: ghcr.io/fiztoz/uptime-phoenix
-  tag: "0.2.0"
+  tag: "0.2.1"
   pullPolicy: IfNotPresent
 
 ingress:
@@ -274,7 +274,7 @@ spec:
     # 1) Helm chart from GHCR
     - repoURL: ghcr.io/fiztoz/charts
       chart: uptime-phoenix
-      targetRevision: 0.2.0
+      targetRevision: 0.2.1
       helm:
         releaseName: uptime-phoenix
         valueFiles:
@@ -310,7 +310,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/fiztoz/uptime-phoenix.git
-    targetRevision: v0.2.0
+    targetRevision: v0.2.1
     path: charts/uptime-phoenix
     helm:
       # File paths are relative to path: (chart directory)
@@ -320,7 +320,7 @@ spec:
       # Extra overrides on top of valueFiles:
       values: |
         image:
-          tag: "0.2.0"
+          tag: "0.2.1"
         ingress:
           host: uptime.example.com
   destination:
@@ -380,10 +380,10 @@ sharded workers, and in-release Valkey. It requires an operator-managed MariaDB.
 ```bash
 helm upgrade --install uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.2.0 \
+  --version 0.2.1 \
   -n uptime-phoenix --create-namespace \
   -f values-production-split.yaml \
-  --set image.tag=0.2.0 \
+  --set image.tag=0.2.1 \
   --set ingress.host=uptime.example.com \
   --set config.publicUrl=https://uptime.example.com \
   --set mariadbExternal.host=mariadb.example.svc.cluster.local \
@@ -397,7 +397,7 @@ it is next to `values.yaml` in the unpacked chart.
 ```yaml
 # values-split.yaml — smaller overlay if you do not want the production file
 image:
-  tag: "0.2.0"
+  tag: "0.2.1"
 
 mode: split
 
