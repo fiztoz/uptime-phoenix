@@ -96,6 +96,9 @@ spec:
               {{- end }}
             {{- end }}
             {{- include "phoenix.envAppConfig" . | nindent 12 }}
+            {{- with .Values.config.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           resources:
             {{- toYaml .Values.api.resources | nindent 12 }}
           volumeMounts:
