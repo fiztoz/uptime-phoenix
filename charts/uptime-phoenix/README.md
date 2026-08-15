@@ -12,7 +12,7 @@ A self-hosted, K8s-native, minimal-dependency monitoring tool. The default `helm
 ```bash
 helm upgrade --install uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.2.2 \
+  --version 0.2.3 \
   --namespace uptime-phoenix --create-namespace
 ```
 

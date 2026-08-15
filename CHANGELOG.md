@@ -11,12 +11,25 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-08-16
+
 ### Added
 
 - HTTP JSON assertions can accept a directly translatable JSONPath subset
   (`$`, child names, array indexes, and `[*]`) while continuing to use GJSON at
   runtime. The new `has_value` condition rejects missing or empty values without
   treating valid `false` and `0` values as empty.
+- Helm: JWT signing key can be supplied as a stable `secret.jwt` value or an
+  existing Secret so API/all-in-one pods do not mint a new key on every
+  rollout (which logged everyone out). Helm CLI still auto-generates when
+  neither is set.
+
+### Fixed
+
+- Pausing or resuming a monitor no longer clears its folder, proxy, owner,
+  flags, retry policy, or weight. Collapsing a group no longer un-nests it
+  or blanks its name. Omitted PUT fields stay as stored; explicit `null`
+  still clears placement.
 
 ## [0.2.2] — 2026-08-15
 
