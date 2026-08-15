@@ -5,7 +5,9 @@
 # ── Image ─────────────────────────────────────────────────────────────────────
 image:
   repository: ghcr.io/fiztoz/uptime-phoenix
-  tag: latest
+  # Empty uses Chart.AppVersion (the published release). Override to pin a
+  # different tag; do not use latest in production — IfNotPresent will not re-pull.
+  tag: ""
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -167,7 +169,8 @@ web:
   split: false
   image:
     repository: ghcr.io/fiztoz/uptime-phoenix-web
-    tag: latest
+    # Empty uses Chart.AppVersion (same rule as image.tag).
+    tag: ""
     pullPolicy: IfNotPresent
   replicas: 1
   resources:

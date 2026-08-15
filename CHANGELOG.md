@@ -11,6 +11,12 @@ at the bottom.
 
 ## [Unreleased]
 
+### Changed
+
+- Helm: empty `image.tag` / `web.image.tag` now default to `Chart.AppVersion`
+  instead of `latest`. A chart-version bump rolls pods onto the matching
+  published image. Override the tag only to pin a different image.
+
 ### Added
 
 - Helm: API, worker, and all-in-one Deployments now carry `checksum/config` and

@@ -13,8 +13,7 @@ A self-hosted, K8s-native, minimal-dependency monitoring tool. The default `helm
 helm upgrade --install uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
   --version 0.2.1 \
-  --namespace uptime-phoenix --create-namespace \
-  --set image.tag=0.2.1
+  --namespace uptime-phoenix --create-namespace
 ```
 
 ### From a git checkout
@@ -29,6 +28,8 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| `image.tag` | string | `""` (`.Chart.AppVersion`) | App image tag. Empty uses the chart's `appVersion` |
+| `web.image.tag` | string | `""` (`.Chart.AppVersion`) | Split-web image tag. Empty uses the chart's `appVersion` |
 | `database.engine` | string | `sqlite` | `sqlite` (default, zero-dep) or `mariadb` |
 | `database.persistence.enabled` | bool | `true` | Enable PVC for `/data` (SQLite DB file) |
 | `database.persistence.size` | string | `1Gi` | PVC size for data |
@@ -96,7 +97,6 @@ does not run a MariaDB server.
 helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
   -n uptime-phoenix --create-namespace \
   -f charts/uptime-phoenix/values-production-split.yaml \
-  --set image.tag=0.2.1 \
   --set ingress.host=uptime.example.com \
   --set config.publicUrl=https://uptime.example.com \
   --set mariadbExternal.host=mariadb.example.svc.cluster.local \

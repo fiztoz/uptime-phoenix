@@ -15,10 +15,16 @@ helm upgrade --install uptime-phoenix \
 | Chart | `uptime-phoenix` |
 | Chart version | `0.2.1` |
 | OCI chart | `oci://ghcr.io/fiztoz/charts/uptime-phoenix` |
-| App image | `ghcr.io/fiztoz/uptime-phoenix:0.2.1` |
+| App image | `ghcr.io/fiztoz/uptime-phoenix:0.2.1` (empty `image.tag` → `Chart.AppVersion`) |
 | Release assets | [v0.2.1](https://github.com/fiztoz/uptime-phoenix/releases/tag/v0.2.1) |
 
 Also see: [binaries](binaries.md) · [Docker / GHCR](docker-ghcr.md) · [deployment modes](../DEPLOYMENT_MODES.md)
+
+Empty `image.tag` / `web.image.tag` (the chart default) renders
+`Chart.AppVersion`, so an Argo CD bump of `targetRevision` rolls pods onto the
+matching published image. Pin `image.tag` only when you want the chart and the
+image to move independently. Do not set `latest` with `IfNotPresent` — kubelet
+will not re-pull.
 
 ---
 
@@ -34,7 +40,6 @@ helm upgrade --install uptime-phoenix \
   --version 0.2.1 \
   --namespace uptime-phoenix \
   --create-namespace \
-  --set image.tag=0.2.1 \
   --set ingress.host=uptime.example.com
 ```
 
@@ -46,19 +51,15 @@ helm show values oci://ghcr.io/fiztoz/charts/uptime-phoenix --version 0.2.1
 
 helm template uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.2.1 \
-  --set image.tag=0.2.1
+  --version 0.2.1
 ```
 
 ### Install with a values file
 
 ```bash
 # values-uptime.yaml — your overrides only
+# Omit image.tag to use Chart.AppVersion (the published release).
 cat > values-uptime.yaml <<'EOF'
-image:
-  repository: ghcr.io/fiztoz/uptime-phoenix
-  tag: "0.2.1"
-
 ingress:
   enabled: true
   className: nginx
@@ -87,13 +88,11 @@ helm upgrade --install uptime-phoenix \
 curl -fsSL -o uptime-phoenix-0.2.1.tgz \
   https://github.com/fiztoz/uptime-phoenix/releases/download/v0.2.1/uptime-phoenix-0.2.1.tgz
 helm upgrade --install uptime-phoenix ./uptime-phoenix-0.2.1.tgz \
-  -n uptime-phoenix --create-namespace --set image.tag=0.2.1
+  -n uptime-phoenix --create-namespace
 
 # From a git clone (chart source)
 helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
-  -n uptime-phoenix --create-namespace \
-  --set image.repository=ghcr.io/fiztoz/uptime-phoenix \
-  --set image.tag=0.2.1
+  -n uptime-phoenix --create-namespace
 ```
 
 ### Upgrade / uninstall
@@ -182,9 +181,6 @@ spec:
     helm:
       releaseName: uptime-phoenix
       values: |
-        image:
-          repository: ghcr.io/fiztoz/uptime-phoenix
-          tag: "0.2.1"
         ingress:
           enabled: true
           className: nginx
@@ -227,11 +223,6 @@ my-gitops/
 **`values.yaml` (overrides only):**
 
 ```yaml
-image:
-  repository: ghcr.io/fiztoz/uptime-phoenix
-  tag: "0.2.1"
-  pullPolicy: IfNotPresent
-
 ingress:
   enabled: true
   className: nginx
@@ -319,8 +310,6 @@ spec:
         - values.yaml
       # Extra overrides on top of valueFiles:
       values: |
-        image:
-          tag: "0.2.1"
         ingress:
           host: uptime.example.com
   destination:
@@ -383,7 +372,6 @@ helm upgrade --install uptime-phoenix \
   --version 0.2.1 \
   -n uptime-phoenix --create-namespace \
   -f values-production-split.yaml \
-  --set image.tag=0.2.1 \
   --set ingress.host=uptime.example.com \
   --set config.publicUrl=https://uptime.example.com \
   --set mariadbExternal.host=mariadb.example.svc.cluster.local \
@@ -396,9 +384,6 @@ it is next to `values.yaml` in the unpacked chart.
 
 ```yaml
 # values-split.yaml — smaller overlay if you do not want the production file
-image:
-  tag: "0.2.1"
-
 mode: split
 
 database:

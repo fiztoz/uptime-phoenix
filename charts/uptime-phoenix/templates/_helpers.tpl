@@ -56,6 +56,21 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+App image reference. Empty image.tag falls back to Chart.AppVersion so a
+chart bump rolls pods onto the matching published image.
+*/}}
+{{- define "phoenix.image" -}}
+{{- printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) }}
+{{- end }}
+
+{{/*
+Split-web image reference. Empty web.image.tag falls back to Chart.AppVersion.
+*/}}
+{{- define "phoenix.webImage" -}}
+{{- printf "%s:%s" .Values.web.image.repository (.Values.web.image.tag | default .Chart.AppVersion) }}
+{{- end }}
+
+{{/*
 Database password — from values or auto-generated (for mariadb).
 */}}
 {{- define "phoenix.dbPassword" -}}

@@ -26,7 +26,7 @@ spec:
       {{- end }}
       containers:
         - name: uptime-phoenix-web
-          image: "{{ .Values.web.image.repository }}:{{ .Values.web.image.tag }}"
+          image: {{ include "phoenix.webImage" . | quote }}
           imagePullPolicy: {{ .Values.web.image.pullPolicy }}
           ports:
             - name: http

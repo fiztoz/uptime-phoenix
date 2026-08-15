@@ -1819,7 +1819,7 @@ charts/uptime-phoenix/
 # Default: minimal-dependency, single pod
 image:
   repository: ghcr.io/fiztoz/uptime-phoenix
-  tag: latest
+  tag: ""               # empty → Chart.AppVersion
   pullPolicy: IfNotPresent
 
 # Single pod by default
