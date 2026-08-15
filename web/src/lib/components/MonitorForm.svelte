@@ -17,12 +17,13 @@
     normalizeHttpUrl,
     parseHeadersInput,
     stringifyHeaders,
+    type ConfigField,
     type MonitorTypeGroupId,
   } from "$lib/monitor-types";
   import { realtime, type Monitor } from "$lib/stores/ws.svelte.js";
   import { auth } from "$lib/stores/auth.svelte.js";
   import { toast } from "svelte-sonner";
-  import { AlertTriangle, BookOpen, Download, X } from "@lucide/svelte";
+  import { AlertTriangle, BookOpen, Braces, Download, X } from "@lucide/svelte";
   import Select from "$lib/components/Select.svelte";
   import DockerSetupGuide from "$lib/components/DockerSetupGuide.svelte";
   import MqttSetupGuide from "$lib/components/MqttSetupGuide.svelte";
@@ -201,6 +202,17 @@
     if (cfg.headers && typeof cfg.headers === "object") {
       cfg.headers = stringifyHeaders(cfg.headers);
     }
+    // Older Kuma imports already carry expected_value. Before the guided
+    // comparison UI existed, no operator was stored; preserve the intended
+    // equality assertion when such a monitor is edited.
+    if (
+      initialMonitor?.type === "http" &&
+      !cfg.json_operator &&
+      typeof cfg.expected_value === "string" &&
+      cfg.expected_value !== ""
+    ) {
+      cfg.json_operator = "equals";
+    }
     // Older MQTT forms stored the broker as `url`; the checker key is `broker`.
     if (
       (initialMonitor?.type === "mqtt" || !initialMonitor) &&
@@ -229,7 +241,7 @@
     // Default inherit on when creating inside a group; respect stored value on edit.
     inheritGroupOwner:
       (initialMonitor as MonitorWithGroup | undefined)?.inherit_group_owner ??
-      (editingMonitor?.group_id != null),
+      editingMonitor?.group_id != null,
     // interval/timeout are top-level monitor fields (not inside config).
     interval: initialMonitor?.interval || 60,
     timeout: initialMonitor?.timeout || 30,
@@ -284,6 +296,55 @@
       isFieldVisible(f),
     ),
   );
+
+  interface VisibleFieldSection {
+    id: string;
+    label: string;
+    description?: string;
+    fields: ConfigField[];
+  }
+
+  let visibleFieldSections = $derived.by((): VisibleFieldSection[] => {
+    const meta = monitorTypeConfig[selectedType];
+    if (!meta) return [];
+    if (!meta.sections?.length) {
+      return [
+        {
+          id: "default",
+          label: "",
+          fields: visibleFields,
+        },
+      ];
+    }
+    return meta.sections
+      .map((section) => ({
+        ...section,
+        fields: visibleFields.filter((field) => field.section === section.id),
+      }))
+      .filter((section) => section.fields.length > 0);
+  });
+
+  let jsonAssertionSummary = $derived.by(() => {
+    if (selectedType !== "http") return null;
+    const path = String(getFieldValue("json_query") || "").trim();
+    if (!path) return null;
+    const operator = String(getFieldValue("json_operator") || "exists");
+    const expected = String(getFieldValue("expected_value") || "");
+    const labels: Record<string, string> = {
+      exists: "must exist",
+      not_exists: "must not exist",
+      equals: "must equal",
+      not_equals: "must not equal",
+      contains: "must contain",
+      not_contains: "must not contain",
+    };
+    return {
+      path,
+      condition: labels[operator] || "must exist",
+      expected,
+      usesExpected: !["exists", "not_exists"].includes(operator),
+    };
+  });
 
   async function handleSubmit() {
     if (!formData.name.trim()) {
@@ -346,6 +407,13 @@
           return;
         }
       }
+
+      const jsonQuery = String(formData.config.json_query || "").trim();
+      const jsonOperator = String(formData.config.json_operator || "exists");
+      if (!jsonQuery && jsonOperator !== "exists") {
+        toast.error(m.monitor_form_json_path_required());
+        return;
+      }
     }
 
     loading = true;
@@ -356,6 +424,19 @@
       if (selectedType === "http") {
         config.url = normalizeHttpUrl(config.url);
         formData.config = { ...formData.config, url: config.url };
+        const jsonQuery = String(config.json_query || "").trim();
+        const jsonOperator = String(config.json_operator || "exists");
+        if (!jsonQuery) {
+          delete config.json_query;
+          delete config.json_operator;
+          delete config.expected_value;
+        } else {
+          config.json_query = jsonQuery;
+          config.json_operator = jsonOperator;
+          if (["exists", "not_exists"].includes(jsonOperator)) {
+            delete config.expected_value;
+          }
+        }
       }
       // The HTTP checker (internal/adapters/checker/http.go) reads config.headers
       // as a JSON object; the form edits it as text, so parse it back here.
@@ -376,7 +457,8 @@
         name: formData.name.trim(),
         description: formData.description.trim(),
         owner: formData.owner.trim(),
-        inherit_group_owner: formData.inheritGroupOwner && selectedGroupId !== "",
+        inherit_group_owner:
+          formData.inheritGroupOwner && selectedGroupId !== "",
         type: selectedType,
         interval: Number(formData.interval),
         timeout: Number(formData.timeout),
@@ -743,127 +825,194 @@
             </div>
           {/if}
 
-          <div class="grid grid-cols-1 gap-x-4 gap-y-4 md:grid-cols-2">
-            {#each visibleFields as field (field.key)}
-              {#if field.type === "checkbox"}
-                <div class="md:col-span-2">
-                  <div class="flex items-center gap-2">
-                    <input
-                      id="cfg-{field.key}"
-                      type="checkbox"
-                      checked={Boolean(getFieldValue(field.key))}
-                      onchange={(e) =>
-                        updateConfigField(
-                          field.key,
-                          (e.target as HTMLInputElement).checked,
-                        )}
-                      class="h-4 w-4 rounded border-border"
-                    />
-                    <label for="cfg-{field.key}" class="text-sm font-medium"
-                      >{field.label}</label
+          <div class="space-y-6">
+            {#each visibleFieldSections as section, sectionIndex (section.id)}
+              <section
+                class:border-t={sectionIndex > 0}
+                class:border-border={sectionIndex > 0}
+                class:pt-6={sectionIndex > 0}
+                aria-labelledby={section.label
+                  ? `monitor-config-${section.id}`
+                  : undefined}
+              >
+                {#if section.label}
+                  <div class="mb-4">
+                    <h5
+                      id="monitor-config-{section.id}"
+                      class="text-sm font-semibold tracking-tight text-foreground"
                     >
+                      {section.label}
+                    </h5>
+                    {#if section.description}
+                      <p class="mt-1 text-xs text-muted-foreground">
+                        {section.description}
+                      </p>
+                    {/if}
                   </div>
-                  {#if field.help}
-                    <p class="mt-1 text-xs text-muted-foreground">
-                      {field.help}
-                    </p>
-                  {/if}
-                </div>
-              {:else}
-                <div class={field.type === "textarea" ? "md:col-span-2" : ""}>
-                  <label for="cfg-{field.key}" class="text-sm font-medium">
-                    {field.label}{field.required ? " *" : ""}
-                  </label>
-                  {#if field.key === "accepted_statuscodes"}
-                    <input
-                      id="cfg-{field.key}"
-                      type="text"
-                      bind:value={formData.acceptedStatusCodes}
-                      placeholder={field.placeholder}
-                      class="{inputClass} mt-1"
-                    />
-                  {:else if field.type === "select"}
-                    <div class="mt-1">
-                      <Select
-                        id="cfg-{field.key}"
-                        options={(field.options || []).map((opt) => ({
-                          value: opt.value,
-                          label: opt.label,
-                        }))}
-                        value={String(
-                          getFieldValue(field.key) || field.default || "",
-                        )}
-                        onValueChange={(v) => updateConfigField(field.key, v)}
-                        class="w-full"
+                {/if}
+
+                <div class="grid grid-cols-1 gap-x-4 gap-y-4 md:grid-cols-2">
+                  {#each section.fields as field (field.key)}
+                    {#if field.type === "checkbox"}
+                      <div class="md:col-span-2">
+                        <div class="flex items-center gap-2">
+                          <input
+                            id="cfg-{field.key}"
+                            type="checkbox"
+                            checked={Boolean(getFieldValue(field.key))}
+                            onchange={(e) =>
+                              updateConfigField(
+                                field.key,
+                                (e.target as HTMLInputElement).checked,
+                              )}
+                            class="h-4 w-4 rounded border-border"
+                          />
+                          <label
+                            for="cfg-{field.key}"
+                            class="text-sm font-medium">{field.label}</label
+                          >
+                        </div>
+                        {#if field.help}
+                          <p class="mt-1 text-xs text-muted-foreground">
+                            {field.help}
+                          </p>
+                        {/if}
+                      </div>
+                    {:else}
+                      <div
+                        class={field.type === "textarea" || field.fullWidth
+                          ? "md:col-span-2"
+                          : ""}
+                      >
+                        <label
+                          for="cfg-{field.key}"
+                          class="text-sm font-medium"
+                        >
+                          {field.label}{field.required ? " *" : ""}
+                        </label>
+                        {#if field.key === "accepted_statuscodes"}
+                          <input
+                            id="cfg-{field.key}"
+                            type="text"
+                            bind:value={formData.acceptedStatusCodes}
+                            placeholder={field.placeholder}
+                            class="{inputClass} mt-1"
+                          />
+                        {:else if field.type === "select"}
+                          <div class="mt-1">
+                            <Select
+                              id="cfg-{field.key}"
+                              options={(field.options || []).map((opt) => ({
+                                value: opt.value,
+                                label: opt.label,
+                              }))}
+                              value={String(
+                                getFieldValue(field.key) || field.default || "",
+                              )}
+                              onValueChange={(v) =>
+                                updateConfigField(field.key, v)}
+                              class="w-full"
+                            />
+                          </div>
+                        {:else if field.type === "number"}
+                          <input
+                            id="cfg-{field.key}"
+                            type="number"
+                            value={getFieldValue(field.key) as number}
+                            oninput={(e) =>
+                              updateConfigField(
+                                field.key,
+                                parseFloat(
+                                  (e.target as HTMLInputElement).value,
+                                ) || 0,
+                              )}
+                            class="{inputClass} mt-1"
+                          />
+                        {:else if field.type === "textarea"}
+                          <textarea
+                            id="cfg-{field.key}"
+                            value={getFieldValue(field.key) as string}
+                            oninput={(e) =>
+                              updateConfigField(
+                                field.key,
+                                (e.target as HTMLTextAreaElement).value,
+                              )}
+                            rows="4"
+                            placeholder={field.placeholder}
+                            class="{inputClass} mt-1 font-mono text-xs"
+                          ></textarea>
+                        {:else if field.type === "password"}
+                          <input
+                            id="cfg-{field.key}"
+                            type="password"
+                            value={getFieldValue(field.key) as string}
+                            oninput={(e) =>
+                              updateConfigField(
+                                field.key,
+                                (e.target as HTMLInputElement).value,
+                              )}
+                            placeholder={field.placeholder}
+                            autocomplete="off"
+                            class="{inputClass} mt-1 font-mono text-xs"
+                          />
+                        {:else}
+                          <input
+                            id="cfg-{field.key}"
+                            type="text"
+                            value={getFieldValue(field.key) as string}
+                            oninput={(e) =>
+                              updateConfigField(
+                                field.key,
+                                (e.target as HTMLInputElement).value,
+                              )}
+                            onblur={() =>
+                              field.key === "url" &&
+                              selectedType === "http" &&
+                              updateConfigField(
+                                field.key,
+                                normalizeHttpUrl(getFieldValue(field.key)),
+                              )}
+                            placeholder={field.placeholder}
+                            class="{inputClass} mt-1 {field.monospace
+                              ? 'font-mono text-xs'
+                              : ''}"
+                          />
+                        {/if}
+                        {#if field.help}
+                          <p class="mt-1 text-xs text-muted-foreground">
+                            {field.help}
+                          </p>
+                        {/if}
+                      </div>
+                    {/if}
+                  {/each}
+
+                  {#if section.id === "success" && jsonAssertionSummary}
+                    <div
+                      class="flex items-start gap-2 rounded-lg bg-surface/60 px-3 py-2.5 text-xs text-muted-foreground md:col-span-2"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <Braces
+                        class="mt-0.5 h-4 w-4 shrink-0 text-primary"
+                        aria-hidden="true"
                       />
+                      <p class="min-w-0 leading-relaxed">
+                        The monitor stays up when
+                        <code class="break-all font-mono text-foreground"
+                          >{jsonAssertionSummary.path}</code
+                        >
+                        <span class:mr-1={jsonAssertionSummary.usesExpected}
+                          >{jsonAssertionSummary.condition}</span
+                        >{#if jsonAssertionSummary.usesExpected}
+                          <code class="font-mono text-foreground"
+                            >{jsonAssertionSummary.expected}</code
+                          >{/if}.
+                      </p>
                     </div>
-                  {:else if field.type === "number"}
-                    <input
-                      id="cfg-{field.key}"
-                      type="number"
-                      value={getFieldValue(field.key) as number}
-                      oninput={(e) =>
-                        updateConfigField(
-                          field.key,
-                          parseFloat((e.target as HTMLInputElement).value) || 0,
-                        )}
-                      class="{inputClass} mt-1"
-                    />
-                  {:else if field.type === "textarea"}
-                    <textarea
-                      id="cfg-{field.key}"
-                      value={getFieldValue(field.key) as string}
-                      oninput={(e) =>
-                        updateConfigField(
-                          field.key,
-                          (e.target as HTMLTextAreaElement).value,
-                        )}
-                      rows="4"
-                      placeholder={field.placeholder}
-                      class="{inputClass} mt-1 font-mono text-xs"
-                    ></textarea>
-                  {:else if field.type === "password"}
-                    <input
-                      id="cfg-{field.key}"
-                      type="password"
-                      value={getFieldValue(field.key) as string}
-                      oninput={(e) =>
-                        updateConfigField(
-                          field.key,
-                          (e.target as HTMLInputElement).value,
-                        )}
-                      placeholder={field.placeholder}
-                      autocomplete="off"
-                      class="{inputClass} mt-1 font-mono text-xs"
-                    />
-                  {:else}
-                    <input
-                      id="cfg-{field.key}"
-                      type="text"
-                      value={getFieldValue(field.key) as string}
-                      oninput={(e) =>
-                        updateConfigField(
-                          field.key,
-                          (e.target as HTMLInputElement).value,
-                        )}
-                      onblur={() =>
-                        field.key === "url" &&
-                        selectedType === "http" &&
-                        updateConfigField(
-                          field.key,
-                          normalizeHttpUrl(getFieldValue(field.key)),
-                        )}
-                      placeholder={field.placeholder}
-                      class="{inputClass} mt-1"
-                    />
-                  {/if}
-                  {#if field.help}
-                    <p class="mt-1 text-xs text-muted-foreground">
-                      {field.help}
-                    </p>
                   {/if}
                 </div>
-              {/if}
+              </section>
             {/each}
           </div>
         </div>
@@ -888,9 +1037,7 @@
                     ).checked)}
                 />
                 <div class="min-w-0">
-                  <label
-                    for="monitor-inherit-owner"
-                    class="text-sm font-medium"
+                  <label for="monitor-inherit-owner" class="text-sm font-medium"
                     >{m.monitor_form_inherit_owner_label()}</label
                   >
                   <p class="mt-0.5 text-xs text-muted-foreground">
@@ -909,7 +1056,8 @@
                   type="text"
                   bind:value={formData.owner}
                   placeholder={m.monitor_form_owner_placeholder()}
-                  disabled={formData.inheritGroupOwner && selectedGroupId !== ""}
+                  disabled={formData.inheritGroupOwner &&
+                    selectedGroupId !== ""}
                   class="{inputClass} mt-1 disabled:opacity-60"
                 />
                 <p class="mt-1 text-xs text-muted-foreground">
@@ -929,8 +1077,7 @@
                 bind:value={formData.description}
                 rows="2"
                 placeholder={m.monitor_form_description_placeholder()}
-                class="{inputClass} mt-1"
-              ></textarea>
+                class="{inputClass} mt-1"></textarea>
             </div>
 
             <div>

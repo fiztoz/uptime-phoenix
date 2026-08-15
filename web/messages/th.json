@@ -453,6 +453,7 @@
   "monitor_form_name_required": "Name is required",
   "monitor_form_type_required": "Type is required",
   "monitor_form_field_required": "{label} is required",
+  "monitor_form_json_path_required": "กรอก JSON path ก่อนเลือกเงื่อนไขการเปรียบเทียบ JSON",
   "monitor_form_updated_toast": "อัปเดตมอนิเตอร์แล้ว",
   "monitor_form_created_toast": "สร้างมอนิเตอร์แล้ว",
   "monitor_form_save_failed": "บันทึกไม่สำเร็จ",

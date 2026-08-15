@@ -59,6 +59,7 @@ export interface MonitorView {
   name: string;
   type: string;
   status: string;
+  config?: Record<string, unknown>;
   retry_interval?: number;
   max_retries?: number;
   resend_interval?: number;

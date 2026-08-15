@@ -24,6 +24,10 @@ test("create HTTP monitor persists advanced settings and records a heartbeat", a
   await dialog.locator("#cfg-url").fill(`${BASE_URL}/api/health/live`);
   await dialog.locator("#monitor-interval").fill("10");
   await dialog.locator("#monitor-timeout").fill("5");
+  await dialog.locator("#cfg-json_query").fill("status");
+  await dialog.locator("#cfg-json_operator").click();
+  await page.getByRole("option", { name: "Value equals" }).click();
+  await dialog.locator("#cfg-expected_value").fill("alive");
   await dialog.locator("#monitor-retry-interval").fill("7");
   await dialog.locator("#monitor-max-retries").fill("2");
   await dialog.locator("#monitor-resend-interval").fill("3");
@@ -51,12 +55,23 @@ test("create HTTP monitor persists advanced settings and records a heartbeat", a
               maxRetries: monitor.max_retries,
               resend: monitor.resend_interval,
               tlsIgnore: monitor.tls_ignore,
+              jsonQuery: monitor.config?.json_query,
+              jsonOperator: monitor.config?.json_operator,
+              expectedValue: monitor.config?.expected_value,
             }
           : null;
       },
       { timeout: 15_000 },
     )
-    .toEqual({ retry: 7, maxRetries: 2, resend: 3, tlsIgnore: true });
+    .toEqual({
+      retry: 7,
+      maxRetries: 2,
+      resend: 3,
+      tlsIgnore: true,
+      jsonQuery: "status",
+      jsonOperator: "equals",
+      expectedValue: "alive",
+    });
 
   if (!monitor) throw new Error("created monitor not returned by API");
   await expect

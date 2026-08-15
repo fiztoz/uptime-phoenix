@@ -542,6 +542,23 @@ func TestRequiredFlags(t *testing.T) {
 	}
 }
 
+func TestBuildMonitorConfig_HTTPJSONExpectedValueUsesEquality(t *testing.T) {
+	config, _, err := buildMonitorConfig("http", &kumaMonitor{
+		URL:           "https://example.com/health",
+		JSONPath:      `status.conditions.#(type=="Ready").status`,
+		ExpectedValue: "True",
+	})
+	if err != nil {
+		t.Fatalf("buildMonitorConfig() error = %v", err)
+	}
+	if got := config["json_operator"]; got != "equals" {
+		t.Errorf("json_operator = %v, want equals", got)
+	}
+	if got := config["expected_value"]; got != "True" {
+		t.Errorf("expected_value = %v, want True", got)
+	}
+}
+
 func names(doc services.BackupDocument) []string {
 	out := make([]string, 0, len(doc.Monitors))
 	for _, m := range doc.Monitors {

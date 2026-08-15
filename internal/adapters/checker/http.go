@@ -43,7 +43,61 @@ func (HTTPChecker) Validate(config map[string]any) error {
 	if u.Host == "" {
 		return fmt.Errorf("url must have a host")
 	}
+	if err := validateJSONAssertion(config); err != nil {
+		return err
+	}
 	return nil
+}
+
+const (
+	jsonOperatorExists      = "exists"
+	jsonOperatorNotExists   = "not_exists"
+	jsonOperatorEquals      = "equals"
+	jsonOperatorNotEquals   = "not_equals"
+	jsonOperatorContains    = "contains"
+	jsonOperatorNotContains = "not_contains"
+)
+
+// validateJSONAssertion checks the optional response-body assertion without
+// requiring callers that only use status codes or keywords to configure one.
+func validateJSONAssertion(config map[string]any) error {
+	jsonQuery, _ := config["json_query"].(string)
+	if strings.TrimSpace(jsonQuery) == "" {
+		operator, _ := config["json_operator"].(string)
+		expected, _ := config["expected_value"].(string)
+		if (operator != "" && operator != jsonOperatorExists) || expected != "" {
+			return fmt.Errorf("json_query is required when a JSON comparison is configured")
+		}
+		return nil
+	}
+
+	operator := jsonAssertionOperator(config)
+	switch operator {
+	case jsonOperatorExists, jsonOperatorNotExists:
+		return nil
+	case jsonOperatorEquals, jsonOperatorNotEquals, jsonOperatorContains, jsonOperatorNotContains:
+		expected, ok := config["expected_value"].(string)
+		if !ok || expected == "" {
+			return fmt.Errorf("expected_value is required when json_operator is %q", operator)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported json_operator %q", operator)
+	}
+}
+
+// jsonAssertionOperator preserves the original path-existence behavior while
+// honoring expected_value from older Uptime Kuma imports as an equality check.
+func jsonAssertionOperator(config map[string]any) string {
+	operator, _ := config["json_operator"].(string)
+	operator = strings.TrimSpace(operator)
+	if operator != "" {
+		return operator
+	}
+	if expected, ok := config["expected_value"].(string); ok && expected != "" {
+		return jsonOperatorEquals
+	}
+	return jsonOperatorExists
 }
 
 // buildHTTPClient builds the *http.Client used for a single check: redirect
@@ -163,6 +217,8 @@ const maxSavedResponseBody = 4 * 1024
 //   - tls_ignore (optional, bool) — skip TLS certificate verification (self-signed / internal CAs)
 //   - keyword (optional, string) — substring to find in response body
 //   - json_query (optional, string) — gjson path to evaluate on response body
+//   - json_operator (optional, string) — exists, not_exists, equals, not_equals, contains, or not_contains
+//   - expected_value (optional, string) — comparison value for operators other than exists/not_exists
 //   - auth_method (optional, string) — "none" (default), "basic", "bearer", "oauth2_cc"
 //   - auth_username / auth_password (basic)
 //   - auth_bearer_token (bearer)
@@ -309,15 +365,77 @@ func (HTTPChecker) Check(ctx context.Context, config map[string]any) (ports.Chec
 		}
 	}
 
-	// Check JSON query path existence.
+	// Check the optional JSON response assertion. A missing json_operator keeps
+	// path-only monitors backward compatible; imported expected_value configs
+	// implicitly use equality.
 	if jsonQuery, ok := config["json_query"].(string); ok && jsonQuery != "" {
-		result := gjson.Get(bodyStr, jsonQuery)
-		if !result.Exists() {
-			return finish(domain.StatusDown, fmt.Sprintf("json_query path %q not found in response body", jsonQuery)), nil
+		if message := evaluateJSONAssertion(bodyStr, jsonQuery, config); message != "" {
+			return finish(domain.StatusDown, message), nil
 		}
 	}
 
 	return finish(domain.StatusUp, fmt.Sprintf("%d - OK", resp.StatusCode)), nil
+}
+
+// evaluateJSONAssertion returns an empty message when the assertion passes and
+// an actionable heartbeat message when it fails.
+func evaluateJSONAssertion(body, jsonQuery string, config map[string]any) string {
+	if err := validateJSONAssertion(config); err != nil {
+		return fmt.Sprintf("invalid JSON assertion: %s", err)
+	}
+	result := gjson.Get(body, jsonQuery)
+	operator := jsonAssertionOperator(config)
+
+	if operator == jsonOperatorNotExists {
+		if result.Exists() {
+			return fmt.Sprintf("JSON path %q exists but should not", jsonQuery)
+		}
+		return ""
+	}
+	if !result.Exists() {
+		return fmt.Sprintf("JSON path %q was not found in the response body", jsonQuery)
+	}
+	if operator == jsonOperatorExists {
+		return ""
+	}
+
+	expected, _ := config["expected_value"].(string)
+	actual := jsonAssertionValue(result)
+	switch operator {
+	case jsonOperatorEquals:
+		if actual != expected {
+			return fmt.Sprintf("JSON path %q returned %q; expected %q", jsonQuery, compactJSONAssertionValue(actual), expected)
+		}
+	case jsonOperatorNotEquals:
+		if actual == expected {
+			return fmt.Sprintf("JSON path %q returned the disallowed value %q", jsonQuery, compactJSONAssertionValue(actual))
+		}
+	case jsonOperatorContains:
+		if !strings.Contains(actual, expected) {
+			return fmt.Sprintf("JSON path %q returned %q; expected it to contain %q", jsonQuery, compactJSONAssertionValue(actual), expected)
+		}
+	case jsonOperatorNotContains:
+		if strings.Contains(actual, expected) {
+			return fmt.Sprintf("JSON path %q returned a value containing disallowed text %q", jsonQuery, expected)
+		}
+	}
+	return ""
+}
+
+func jsonAssertionValue(result gjson.Result) string {
+	if result.Type == gjson.Null && result.Raw == "null" {
+		return "null"
+	}
+	return result.String()
+}
+
+func compactJSONAssertionValue(value string) string {
+	const maxRunes = 160
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[:maxRunes]) + "…"
 }
 
 // applyHTTPAuth mutates req with the configured auth method.

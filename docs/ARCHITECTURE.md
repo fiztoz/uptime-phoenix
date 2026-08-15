@@ -922,7 +922,7 @@ func init() {
 
 | Type | Library | Key Config Fields | Gotchas |
 |---|---|---|---|
-| `http` | `net/http` + `tidwall/gjson` | `url`, `method`, `headers`, `body`, `keyword`, `json_query`, `accepted_statuscodes` | Set `context.WithTimeout`; extract TLS cert from `resp.TLS` |
+| `http` | `net/http` + `tidwall/gjson` | `url`, `method`, `headers`, `body`, `keyword`, `json_query`, `json_operator`, `expected_value`, `accepted_statuscodes` | JSON operators: `exists`, `not_exists`, `equals`, `not_equals`, `contains`, `not_contains`; set `context.WithTimeout`; extract TLS cert from `resp.TLS` |
 | `tcp` | `net` (stdlib) | `hostname`, `port` | `net.DialTimeout` includes DNS resolution |
 | `ping` | `prometheus-community/pro-bing` | `hostname`, `count` | Linux: `sysctl net.ipv4.ping_group_range`; macOS: unprivileged works |
 | `dns` | `miekg/dns` | `hostname`, `resolve_type`, `resolve_server`, `expected_value` | Set `Client.Dialer.Timeout` |

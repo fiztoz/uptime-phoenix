@@ -27,6 +27,43 @@ func TestHTTPChecker_Validate(t *testing.T) {
 		{"missing url", map[string]any{}, true},
 		{"empty url", map[string]any{"url": ""}, true},
 		{"nil config", nil, true},
+		{
+			"valid json equality",
+			map[string]any{
+				"url":            "https://example.com",
+				"json_query":     "status.ready",
+				"json_operator":  "equals",
+				"expected_value": "True",
+			},
+			false,
+		},
+		{
+			"json equality requires expected value",
+			map[string]any{
+				"url":           "https://example.com",
+				"json_query":    "status.ready",
+				"json_operator": "equals",
+			},
+			true,
+		},
+		{
+			"rejects unsupported json operator",
+			map[string]any{
+				"url":           "https://example.com",
+				"json_query":    "status.ready",
+				"json_operator": "approximately",
+			},
+			true,
+		},
+		{
+			"json comparison requires a path",
+			map[string]any{
+				"url":            "https://example.com",
+				"json_operator":  "equals",
+				"expected_value": "True",
+			},
+			true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -187,6 +224,137 @@ func TestHTTPChecker_Check_JSONQueryNotFound(t *testing.T) {
 	}
 	if result.Status.String() != "DOWN" {
 		t.Errorf("Check() status = %v, want DOWN (message: %s)", result.Status, result.Message)
+	}
+}
+
+func TestHTTPChecker_Check_JSONAssertions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"status":{"conditions":[{"type":"Ready","status":"True"}]},
+			"healthy":true,
+			"retries":3,
+			"message":"all systems operational"
+		}`))
+	}))
+	defer srv.Close()
+
+	tests := []struct {
+		name       string
+		config     map[string]any
+		wantStatus string
+		wantMsg    string
+	}{
+		{
+			name: "kubernetes ready string equals True",
+			config: map[string]any{
+				"json_query":     `status.conditions.#(type=="Ready").status`,
+				"json_operator":  "equals",
+				"expected_value": "True",
+			},
+			wantStatus: "UP",
+		},
+		{
+			name: "legacy expected value implies equality",
+			config: map[string]any{
+				"json_query":     `status.conditions.#(type=="Ready").status`,
+				"expected_value": "True",
+			},
+			wantStatus: "UP",
+		},
+		{
+			name: "boolean equality",
+			config: map[string]any{
+				"json_query":     "healthy",
+				"json_operator":  "equals",
+				"expected_value": "true",
+			},
+			wantStatus: "UP",
+		},
+		{
+			name: "number equality",
+			config: map[string]any{
+				"json_query":     "retries",
+				"json_operator":  "equals",
+				"expected_value": "3",
+			},
+			wantStatus: "UP",
+		},
+		{
+			name: "contains text",
+			config: map[string]any{
+				"json_query":     "message",
+				"json_operator":  "contains",
+				"expected_value": "systems",
+			},
+			wantStatus: "UP",
+		},
+		{
+			name: "not contains text",
+			config: map[string]any{
+				"json_query":     "message",
+				"json_operator":  "not_contains",
+				"expected_value": "failed",
+			},
+			wantStatus: "UP",
+		},
+		{
+			name: "missing path passes not exists",
+			config: map[string]any{
+				"json_query":    "error",
+				"json_operator": "not_exists",
+			},
+			wantStatus: "UP",
+		},
+		{
+			name: "mismatched expected value",
+			config: map[string]any{
+				"json_query":     `status.conditions.#(type=="Ready").status`,
+				"json_operator":  "equals",
+				"expected_value": "False",
+			},
+			wantStatus: "DOWN",
+			wantMsg:    `expected "False"`,
+		},
+		{
+			name: "existing path fails not exists",
+			config: map[string]any{
+				"json_query":    "healthy",
+				"json_operator": "not_exists",
+			},
+			wantStatus: "DOWN",
+			wantMsg:    "exists but should not",
+		},
+		{
+			name: "invalid operator fails loudly",
+			config: map[string]any{
+				"json_query":    "healthy",
+				"json_operator": "approximately",
+			},
+			wantStatus: "DOWN",
+			wantMsg:    "unsupported json_operator",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := map[string]any{"url": srv.URL, "timeout": 5.0}
+			for key, value := range tt.config {
+				config[key] = value
+			}
+
+			result, err := (HTTPChecker{}).Check(context.Background(), config)
+			if err != nil {
+				t.Fatalf("Check() returned unexpected error: %v", err)
+			}
+			if got := result.Status.String(); got != tt.wantStatus {
+				t.Fatalf("Check() status = %s, want %s (message: %s)", got, tt.wantStatus, result.Message)
+			}
+			if tt.wantMsg != "" && !strings.Contains(result.Message, tt.wantMsg) {
+				t.Errorf("Check() message = %q, want it to contain %q", result.Message, tt.wantMsg)
+			}
+		})
 	}
 }
 

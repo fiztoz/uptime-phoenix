@@ -453,6 +453,7 @@
   "monitor_form_name_required": "Name is required",
   "monitor_form_type_required": "Type is required",
   "monitor_form_field_required": "{label} is required",
+  "monitor_form_json_path_required": "Enter a JSON path before choosing a JSON comparison condition.",
   "monitor_form_updated_toast": "Monitor updated",
   "monitor_form_created_toast": "Monitor created",
   "monitor_form_save_failed": "Save failed",

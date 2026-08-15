@@ -20,6 +20,12 @@ export interface ConfigField {
   default?: string | number | boolean;
   options?: { value: string; label: string }[];
   help?: string;
+  /** Optional form section ID declared by MonitorTypeMeta.sections. */
+  section?: string;
+  /** Span the full form width even when the control is a single-line input. */
+  fullWidth?: boolean;
+  /** Use tabular monospace styling for paths, payloads, and other exact data. */
+  monospace?: boolean;
   /**
    * When set, the field is shown only if config[showWhen.key] is one of
    * showWhen.values (string compare). Used for auth sub-fields.
@@ -38,6 +44,8 @@ export interface MonitorTypeMeta {
   label: string;
   /** One-line blurb shown under the label in the type picker. */
   description: string;
+  /** Optional groups that turn long dynamic forms into scannable sections. */
+  sections?: { id: string; label: string; description?: string }[];
   fields: ConfigField[];
 }
 
@@ -103,6 +111,30 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
   http: {
     label: "HTTP(s)",
     description: "Website or API — status, keyword, or JSON path",
+    sections: [
+      {
+        id: "request",
+        label: "Request",
+        description: "Where to send the check and what to include.",
+      },
+      {
+        id: "success",
+        label: "Success criteria",
+        description:
+          "Every configured rule must pass for the monitor to stay up.",
+      },
+      {
+        id: "authentication",
+        label: "Authentication",
+        description: "Credentials used only for this monitor request.",
+      },
+      {
+        id: "diagnostics",
+        label: "Diagnostic context",
+        description:
+          "Optionally attach response content to heartbeat history and notifications.",
+      },
+    ],
     fields: [
       {
         key: "url",
@@ -110,12 +142,15 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         type: "text",
         required: true,
         placeholder: "https://example.com/health",
+        section: "request",
+        fullWidth: true,
       },
       {
         key: "method",
         label: "Method",
         type: "select",
         default: "GET",
+        section: "request",
         options: [
           { value: "GET", label: "GET" },
           { value: "POST", label: "POST" },
@@ -127,14 +162,16 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         label: "Accepted Status Codes",
         type: "text",
         placeholder: "200-299,301",
-        help: "Comma separated ranges or codes",
+        help: "Enter comma-separated codes or ranges. Defaults to any 2xx response.",
+        section: "success",
       },
       {
         key: "keyword",
         label: "Keyword",
         type: "text",
         placeholder: "OK",
-        help: "Response body must contain",
+        help: "Optional text that must appear anywhere in the response body.",
+        section: "success",
       },
       {
         key: "headers",
@@ -142,6 +179,8 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         type: "textarea",
         placeholder: "X-Custom-Header: value",
         help: 'One "Key: Value" per line, or paste a JSON object. Prefer Authentication below for Basic/Bearer/OAuth2.',
+        section: "request",
+        monospace: true,
       },
       {
         key: "body",
@@ -149,27 +188,69 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         type: "textarea",
         placeholder: '{"foo":"bar"}',
         help: "Sent as the request body",
+        section: "request",
+        monospace: true,
       },
       {
         key: "json_query",
-        label: "JSON Query",
+        label: "JSON path",
         type: "text",
         placeholder: "data.status",
-        help: "gjson path evaluated against the response body",
+        help: 'Use GJSON syntax. Kubernetes example: status.conditions.#(type=="Ready").status',
+        section: "success",
+        fullWidth: true,
+        monospace: true,
+      },
+      {
+        key: "json_operator",
+        label: "JSON condition",
+        type: "select",
+        default: "exists",
+        section: "success",
+        options: [
+          { value: "exists", label: "Path exists" },
+          { value: "not_exists", label: "Path does not exist" },
+          { value: "equals", label: "Value equals" },
+          { value: "not_equals", label: "Value does not equal" },
+          { value: "contains", label: "Value contains text" },
+          { value: "not_contains", label: "Value does not contain text" },
+        ],
+      },
+      {
+        key: "expected_value",
+        label: "Expected value",
+        type: "text",
+        required: true,
+        placeholder: "True",
+        help: 'Values are case-sensitive. Kubernetes condition status uses the string "True".',
+        section: "success",
+        monospace: true,
+        showWhen: {
+          key: "json_operator",
+          values: ["equals", "not_equals", "contains", "not_contains"],
+        },
       },
       {
         key: "follow_redirects",
         label: "Follow redirects",
         type: "checkbox",
         default: true,
+        section: "request",
       },
-      { key: "timeout", label: "Timeout (s)", type: "number", default: 10 },
+      {
+        key: "timeout",
+        label: "Request timeout (s)",
+        type: "number",
+        default: 10,
+        section: "request",
+      },
       // Authentication (no NTLM / mTLS)
       {
         key: "auth_method",
         label: "Authentication",
         type: "select",
         default: "none",
+        section: "authentication",
         options: [
           { value: "none", label: "None" },
           { value: "basic", label: "HTTP Basic Auth" },
@@ -183,6 +264,7 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         label: "Username",
         type: "text",
         placeholder: "user",
+        section: "authentication",
         showWhen: { key: "auth_method", values: ["basic"] },
       },
       {
@@ -190,6 +272,7 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         label: "Password",
         type: "password",
         placeholder: "••••••••",
+        section: "authentication",
         showWhen: { key: "auth_method", values: ["basic"] },
       },
       {
@@ -197,6 +280,7 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         label: "Bearer Token",
         type: "password",
         placeholder: "token",
+        section: "authentication",
         showWhen: { key: "auth_method", values: ["bearer"] },
       },
       {
@@ -204,18 +288,21 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         label: "Token URL",
         type: "text",
         placeholder: "https://auth.example.com/oauth/token",
+        section: "authentication",
         showWhen: { key: "auth_method", values: ["oauth2_cc"] },
       },
       {
         key: "oauth2_client_id",
         label: "Client ID",
         type: "text",
+        section: "authentication",
         showWhen: { key: "auth_method", values: ["oauth2_cc"] },
       },
       {
         key: "oauth2_client_secret",
         label: "Client Secret",
         type: "password",
+        section: "authentication",
         showWhen: { key: "auth_method", values: ["oauth2_cc"] },
       },
       {
@@ -224,6 +311,7 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         type: "text",
         placeholder: "read write",
         help: "Space-separated scopes sent with the token request",
+        section: "authentication",
         showWhen: { key: "auth_method", values: ["oauth2_cc"] },
       },
       // Response body → notifications / heartbeat history
@@ -233,6 +321,7 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         type: "checkbox",
         default: false,
         help: "Appends a truncated response body when the check is DOWN (alerts + history).",
+        section: "diagnostics",
       },
       {
         key: "save_body_on_success",
@@ -240,6 +329,7 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         type: "checkbox",
         default: false,
         help: "Appends a truncated response body when the check is UP (recovery alerts + history).",
+        section: "diagnostics",
       },
     ],
   },

@@ -175,6 +175,7 @@ func buildMonitorConfig(phoenixType string, m *kumaMonitor) (map[string]any, []s
 		if m.JSONPath != "" {
 			cfg["json_query"] = m.JSONPath
 			if m.ExpectedValue != "" {
+				cfg["json_operator"] = "equals"
 				cfg["expected_value"] = m.ExpectedValue
 			}
 		}
