@@ -1,15 +1,19 @@
-{{- if and .Values.hpa.enabled (or (eq .Values.scaling.mode "multi") (eq .Values.mode "api")) }}
+{{- if and .Values.hpa.enabled (ne .Values.mode "worker") }}
+{{- $target := include "phoenix.deploymentName" . }}
+{{- if or (eq .Values.mode "api") (eq .Values.mode "split") }}
+{{- $target = printf "%s-api" (include "phoenix.fullname" .) }}
+{{- end }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "phoenix.deploymentName" . }}
+  name: {{ $target }}
   labels:
     {{- include "phoenix.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "phoenix.deploymentName" . }}
+    name: {{ $target }}
   minReplicas: {{ .Values.hpa.minReplicas }}
   maxReplicas: {{ .Values.hpa.maxReplicas }}
   metrics:
@@ -19,11 +23,13 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.hpa.cpuTargetAverageUtilization }}
+    {{- if and .Values.hpa.wsConnections .Values.hpa.wsConnections.enabled }}
     - type: Pods
       pods:
         metric:
           name: phoenix_ws_connections_active
         target:
           type: AverageValue
-          averageValue: {{ .Values.hpa.wsConnectionsAverageValue | quote }}
+          averageValue: {{ .Values.hpa.wsConnections.averageValue | default .Values.hpa.wsConnectionsAverageValue | default "200" | quote }}
+    {{- end }}
 {{- end }}

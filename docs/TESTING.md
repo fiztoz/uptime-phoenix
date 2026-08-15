@@ -346,6 +346,11 @@ helm template uptime-phoenix charts/uptime-phoenix \
   --set redis.enabled=true \
   --set redis.host=redis.example.internal
 
+# Template (CPU HPA; add hpa.wsConnections.enabled=true only with prometheus-adapter)
+helm template uptime-phoenix charts/uptime-phoenix \
+  --set mode=api \
+  --set hpa.enabled=true
+
 # Template (official Valkey subchart)
 helm template uptime-phoenix charts/uptime-phoenix \
   --set mode=split \

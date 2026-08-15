@@ -299,6 +299,7 @@ func Run(cfg Config) error {
 	// per-client send buffer discard on overflow by design; without these counters
 	// that loss is invisible and a backlogged install looks identical to an idle
 	// one. Wired for whichever bus was selected, so split mode is covered too.
+	// The same attach drives phoenix_ws_connections_active from Add/RemoveClient.
 	hub.SetDropMetrics(metricsExporter)
 	switch b := bus.(type) {
 	case *eventbus.MemoryBus:

@@ -177,10 +177,22 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix --reuse-values \
 
 #### Scaling the API (HPA)
 
+HPA is off by default. CPU scaling needs only metrics-server. The WebSocket
+Pods metric (`phoenix_ws_connections_active`) also needs prometheus-adapter
+so `custom.metrics.k8s.io` is registered — leave that flag off until
+`kubectl get apiservice | grep custom.metrics` is `True`.
+
 ```bash
+# CPU only
 helm upgrade uptime-phoenix ./charts/uptime-phoenix --reuse-values \
-  --set scaling.mode=multi             # enables the HPA template
+  --set hpa.enabled=true
+
+# CPU + per-pod WebSocket connections (prometheus-adapter required)
+helm upgrade uptime-phoenix ./charts/uptime-phoenix --reuse-values \
+  --set hpa.enabled=true \
+  --set hpa.wsConnections.enabled=true
 # tune hpa.minReplicas / hpa.maxReplicas / hpa.cpuTargetAverageUtilization
+#      / hpa.wsConnections.averageValue
 ```
 
 ### Modes: `api` / `worker` (single-component releases)
@@ -254,6 +266,6 @@ helm template uptime-phoenix charts/uptime-phoenix \
 | Build role images for a registry | `docker build -f Dockerfile.split --target {api,worker,web} …` |
 | Deploy single pod to K8s | `helm install uptime-phoenix ./charts/uptime-phoenix` |
 | Deploy split to K8s | `helm install … --set mode=split --set database.engine=mariadb --set mariadb.enabled=true --set valkey.enabled=true` |
-| Scale API horizontally | `--set scaling.mode=multi` (HPA) |
+| Scale API horizontally | `--set hpa.enabled=true` (CPU). Add `--set hpa.wsConnections.enabled=true` if prometheus-adapter is installed |
 | Scale workers | `--set worker.replicas=N --set worker.shards.enabled=true` |
 | Expose without public ingress | `--set ingress.enabled=false --set cloudflareTunnel.enabled=true --set cloudflareTunnel.token=<token>` |

@@ -357,14 +357,21 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
-# ── Horizontal Pod Autoscaler (opt-in for scaling.mode=multi or mode=api) ──────
+# ── Horizontal Pod Autoscaler ─────────────────────────────────────────────────
+# Off by default. Flip hpa.enabled=true on a horizontally scalable API
+# (mode=api|split, or mode=all with scaling.mode=multi + a shared bus).
+# CPU uses metrics-server. The WS Pods metric needs prometheus-adapter
+# (custom.metrics.k8s.io) and is a second opt-in — do not enable it until
+# `kubectl get apiservice | grep custom.metrics` is True.
 hpa:
   enabled: false
   minReplicas: 2
   maxReplicas: 10
   cpuTargetAverageUtilization: 70
-  # Per-pod average for phoenix_ws_connections_active (Prometheus custom metric)
-  wsConnectionsAverageValue: "200"
+  wsConnections:
+    enabled: false
+    # Per-pod average for phoenix_ws_connections_active
+    averageValue: "200"
 
 # ── NetworkPolicy (optional hardening) ────────────────────────────────────────
 networkPolicy:

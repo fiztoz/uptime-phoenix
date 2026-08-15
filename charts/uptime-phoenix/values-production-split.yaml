@@ -119,10 +119,14 @@ podDisruptionBudget:
   minAvailable: 1
 
 hpa:
+  enabled: true
   minReplicas: 3
   maxReplicas: 10
   cpuTargetAverageUtilization: 70
-  wsConnectionsAverageValue: "200"
+  # Requires prometheus-adapter (custom.metrics.k8s.io). Leave false until that API is registered.
+  wsConnections:
+    enabled: false
+    averageValue: "200"
 
 bootstrap:
   enabled: false

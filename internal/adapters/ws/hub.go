@@ -72,6 +72,12 @@ type dropMetrics interface {
 	IncWSFrameDropped()
 }
 
+// connCountMetrics publishes the live WebSocket client count. Optional: the
+// Prometheus adapter satisfies it; drop-only test fakes do not have to.
+type connCountMetrics interface {
+	SetWSConnectionsActive(count float64)
+}
+
 // Hub manages WebSocket client connections and fans out events from the EventBus.
 //
 // RBAC: the hub does NOT broadcast indiscriminately. Every outbound frame is
@@ -97,9 +103,10 @@ type Hub struct {
 	batch ports.HeartbeatBatchReader
 	// tags enriches the monitor payloads with their tags. Optional: when nil,
 	// monitors go out with an empty tags array.
-	tags    *services.TagService
-	log     *slog.Logger
-	metrics dropMetrics
+	tags        *services.TagService
+	log         *slog.Logger
+	metrics     dropMetrics
+	connMetrics connCountMetrics
 	// ready is closed once listen() has finished subscribing to the bus. NewHub
 	// starts listen() in a goroutine and returns immediately, so a caller that
 	// publishes straight away can otherwise race the subscription and have its
@@ -174,10 +181,25 @@ func NewHub(
 // buffer was full. Optional; nil-safe. Without it the drop is invisible, which
 // is precisely the R3.6 complaint: a stalled hub lost UI events with no log line
 // and no metric.
+//
+// If m also implements connCountMetrics (the Prometheus exporter does), the
+// live client count is published as phoenix_ws_connections_active.
 func (h *Hub) SetDropMetrics(m dropMetrics) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.metrics = m
+	h.connMetrics = nil
+	if cm, ok := any(m).(connCountMetrics); ok {
+		h.connMetrics = cm
+		h.publishConnCountLocked()
+	}
+}
+
+func (h *Hub) publishConnCountLocked() {
+	if h.connMetrics == nil {
+		return
+	}
+	h.connMetrics.SetWSConnectionsActive(float64(len(h.clients)))
 }
 
 // waitReady blocks until the hub has subscribed to the bus, or the timeout
@@ -581,6 +603,7 @@ func (h *Hub) AddClient(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.clients[client] = true
+	h.publishConnCountLocked()
 }
 
 // RemoveClient unregisters a WebSocket client.
@@ -588,6 +611,7 @@ func (h *Hub) RemoveClient(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.clients, client)
+	h.publishConnCountLocked()
 }
 
 // ActiveConnections returns the current number of connected clients.

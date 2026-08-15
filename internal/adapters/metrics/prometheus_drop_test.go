@@ -19,6 +19,7 @@ func TestPrometheusExporter_ExportsDropCounters(t *testing.T) {
 	exporter.IncWSFrameDropped()
 	exporter.IncWSFrameDropped()
 	exporter.IncBusEventDropped("heartbeat")
+	exporter.SetWSConnectionsActive(3)
 
 	handler, err := exporter.Handler()
 	if err != nil {
@@ -36,6 +37,7 @@ func TestPrometheusExporter_ExportsDropCounters(t *testing.T) {
 	for _, want := range []string{
 		"phoenix_ws_frames_dropped_total 2",
 		`phoenix_eventbus_events_dropped_total{event_type="heartbeat"} 1`,
+		"phoenix_ws_connections_active 3",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("scrape output does not contain %q.\nDropped events would be invisible on /metrics.", want)

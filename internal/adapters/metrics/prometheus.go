@@ -87,6 +87,8 @@ func (p *PrometheusExporter) IncNotificationSent(provider, status string) {
 	p.notificationsSent.WithLabelValues(provider, status).Inc()
 }
 
+// SetWSConnectionsActive publishes the live hub client count. The WebSocket
+// hub calls this from AddClient/RemoveClient via SetDropMetrics.
 func (p *PrometheusExporter) SetWSConnectionsActive(count float64) {
 	p.wsConnections.Set(count)
 }
