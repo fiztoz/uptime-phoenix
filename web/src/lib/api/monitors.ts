@@ -43,23 +43,23 @@ export interface CreateMonitorInput {
   active?: boolean;
   /**
    * Files this monitor under a monitor GROUP (folder) — see
-   * $lib/api/monitorGroups.ts. `null` clears the group (top-level). On
-   * update, `group_id` is ALWAYS applied (not gated on non-zero), so the
-   * client can send `null` to pull a monitor out of its group. See
+   * $lib/api/monitorGroups.ts. On update, omit the key to leave the folder
+   * unchanged; send `null` to pull the monitor out (top-level). See
    * internal/adapters/http/handlers/monitor.go CreateMonitorRequest /
    * UpdateMonitorRequest `group_id`.
    */
   group_id?: number | null;
   /**
    * Routes this monitor's checks through an outbound proxy owned by the
-   * same user (see web/src/lib/api/proxies.ts). `null` clears the proxy.
-   * See internal/adapters/http/handlers/monitor.go CreateMonitorRequest /
+   * same user (see web/src/lib/api/proxies.ts). On update, omit the key
+   * to leave the proxy unchanged; send `null` to clear it. See
+   * internal/adapters/http/handlers/monitor.go CreateMonitorRequest /
    * UpdateMonitorRequest `proxy_id`.
    */
   proxy_id?: number | null;
   /**
    * Manual display order (lower first). Omitted/0 on create becomes 2000.
-   * On update, always send the intended value (the backend always applies it).
+   * On update, omit the key to leave order unchanged; send 0 to pin to the top.
    */
   weight?: number;
 }

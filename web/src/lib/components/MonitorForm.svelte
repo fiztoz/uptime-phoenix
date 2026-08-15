@@ -470,8 +470,7 @@
         retry_interval: Number(formData.retryInterval),
         max_retries: Number(formData.maxRetries),
         resend_interval: Number(formData.resendInterval),
-        // Always send weight on update so the backend does not zero it
-        // (Update always applies the field).
+        // Send the intended weight so a reorder persists (0 is a real value).
         weight: Number(formData.weight),
         upside_down: formData.upsideDown,
         // Only meaningful for HTTP checks; never carry a stale toggle onto

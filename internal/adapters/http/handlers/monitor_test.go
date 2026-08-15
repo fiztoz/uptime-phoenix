@@ -508,8 +508,8 @@ func TestMonitorHandlers_Delete(t *testing.T) {
 // return 200 too. We seed the monitor's GroupID directly on the fake repo
 // (bypassing group-ownership validation, which belongs to
 // monitor_group_test.go) so the only thing under test here is whether
-// MonitorHandlers.Update actually applies req.GroupID — including when it's
-// nil — rather than gating it on non-zero like a normal partial-update field.
+// MonitorHandlers.Update applies an explicit null. Omitted group_id must
+// NOT clear (see TestMonitorHandlers_Update_PausePreservesPlacement).
 func TestMonitorHandlers_Update_ClearsGroupID(t *testing.T) {
 	h := newMonitorHarness(t)
 
@@ -567,6 +567,221 @@ func TestMonitorHandlers_Update_ClearsGroupID(t *testing.T) {
 	}
 }
 
+// TestMonitorHandlers_Update_PausePreservesPlacement is the pause-button
+// contract: PUT {active: false} must flip Active and leave every other
+// always-applied-looking field alone. The UI pause helper sends only that
+// key (web/src/lib/api/monitors.ts). Treating omitted group_id/proxy_id as
+// null yanked the monitor to "None" and also zeroed owner, flags, retry
+// policy, and weight.
+func TestMonitorHandlers_Update_PausePreservesPlacement(t *testing.T) {
+	h := newMonitorHarness(t)
+
+	createRec := h.do(t, http.MethodPost, "/api/monitors", map[string]any{
+		"name":   "Grouped",
+		"type":   "http",
+		"config": map[string]any{"url": "https://example.com"},
+	})
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create: %d", createRec.Code)
+	}
+	var created map[string]any
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	id := int64(created["id"].(float64))
+
+	h.repo.mu.Lock()
+	stored := h.repo.byID[id]
+	userID := stored.UserID
+	h.repo.mu.Unlock()
+
+	// Group/proxy validation rejects a non-nil ID unless the matching repo is
+	// attached and the row exists. The old "always apply omitted as null"
+	// bug hid this: pause never reached Update with GroupID still set.
+	groupRepo := newFakeMonitorGroupRepo()
+	group := &domain.MonitorGroup{UserID: userID, Name: "Prod", Condition: domain.GroupConditionWorstOfChildren}
+	if err := groupRepo.Create(context.Background(), group); err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	h.svc.SetGroupRepo(groupRepo)
+
+	proxyRepo := newFakeProxyRepo()
+	proxy := &domain.Proxy{UserID: userID, Protocol: "http", Host: "proxy.internal", Port: 8080, Active: true}
+	if err := proxyRepo.Create(context.Background(), proxy); err != nil {
+		t.Fatalf("create proxy: %v", err)
+	}
+	h.svc.SetProxyRepo(proxyRepo)
+
+	h.repo.mu.Lock()
+	stored = h.repo.byID[id]
+	stored.GroupID = &group.ID
+	stored.ProxyID = &proxy.ID
+	stored.Owner = "Payments on-call"
+	stored.InheritGroupOwner = true
+	stored.Weight = 1500
+	stored.UpsideDown = true
+	stored.TLSIgnore = true
+	stored.CertExpiryNotify = true
+	stored.RetryInterval = 30
+	stored.MaxRetries = 3
+	stored.ResendInterval = 10
+	stored.Active = true
+	h.repo.mu.Unlock()
+	groupID := group.ID
+	proxyID := proxy.ID
+
+	rec := h.do(t, http.MethodPut, "/api/monitors/"+intToStr(id), map[string]any{"active": false})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pause PUT = %d; want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	getRec := h.do(t, http.MethodGet, "/api/monitors/"+intToStr(id), nil)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GET after pause = %d", getRec.Code)
+	}
+	var after map[string]any
+	if err := json.Unmarshal(getRec.Body.Bytes(), &after); err != nil {
+		t.Fatalf("decode GET: %v", err)
+	}
+	if after["active"] != false {
+		t.Errorf("active = %v; want false", after["active"])
+	}
+	if got, _ := after["group_id"].(float64); after["group_id"] == nil || int64(got) != groupID {
+		t.Errorf("group_id = %v; want %d (pause must not move the monitor)", after["group_id"], groupID)
+	}
+	if got, _ := after["proxy_id"].(float64); after["proxy_id"] == nil || int64(got) != proxyID {
+		t.Errorf("proxy_id = %v; want %d", after["proxy_id"], proxyID)
+	}
+	if after["owner"] != "Payments on-call" {
+		t.Errorf("owner = %v; want Payments on-call", after["owner"])
+	}
+	if after["inherit_group_owner"] != true {
+		t.Errorf("inherit_group_owner = %v; want true", after["inherit_group_owner"])
+	}
+	if got, _ := after["weight"].(float64); int(got) != 1500 {
+		t.Errorf("weight = %v; want 1500", after["weight"])
+	}
+	if after["upside_down"] != true {
+		t.Errorf("upside_down = %v; want true", after["upside_down"])
+	}
+	if after["tls_ignore"] != true {
+		t.Errorf("tls_ignore = %v; want true", after["tls_ignore"])
+	}
+	if after["cert_expiry_notify"] != true {
+		t.Errorf("cert_expiry_notify = %v; want true", after["cert_expiry_notify"])
+	}
+	if got, _ := after["retry_interval"].(float64); int(got) != 30 {
+		t.Errorf("retry_interval = %v; want 30", after["retry_interval"])
+	}
+	if got, _ := after["max_retries"].(float64); int(got) != 3 {
+		t.Errorf("max_retries = %v; want 3", after["max_retries"])
+	}
+	if got, _ := after["resend_interval"].(float64); int(got) != 10 {
+		t.Errorf("resend_interval = %v; want 10", after["resend_interval"])
+	}
+
+	resume := h.do(t, http.MethodPut, "/api/monitors/"+intToStr(id), map[string]any{"active": true})
+	if resume.Code != http.StatusOK {
+		t.Fatalf("resume PUT = %d; want 200", resume.Code)
+	}
+	got, err := h.repo.GetByID(context.Background(), id)
+	if err != nil {
+		t.Fatalf("repo GetByID: %v", err)
+	}
+	if !got.Active {
+		t.Error("active after resume = false; want true")
+	}
+	if got.GroupID == nil || *got.GroupID != groupID {
+		t.Errorf("group_id after resume = %v; want %d", got.GroupID, groupID)
+	}
+}
+
+// TestMonitorHandlers_Update_OmitsGroupIDPreservesIt is the rename-only
+// cousin of the pause test: a PUT that does not mention group_id must leave
+// the folder assignment in place.
+func TestMonitorHandlers_Update_OmitsGroupIDPreservesIt(t *testing.T) {
+	h := newMonitorHarness(t)
+
+	createRec := h.do(t, http.MethodPost, "/api/monitors", map[string]any{
+		"name":   "Still Grouped",
+		"type":   "http",
+		"config": map[string]any{"url": "https://example.com"},
+	})
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create: %d", createRec.Code)
+	}
+	var created map[string]any
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	id := int64(created["id"].(float64))
+
+	h.repo.mu.Lock()
+	userID := h.repo.byID[id].UserID
+	h.repo.mu.Unlock()
+	groupRepo := newFakeMonitorGroupRepo()
+	group := &domain.MonitorGroup{UserID: userID, Name: "Folder", Condition: domain.GroupConditionWorstOfChildren}
+	if err := groupRepo.Create(context.Background(), group); err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	h.svc.SetGroupRepo(groupRepo)
+	groupID := group.ID
+	h.repo.mu.Lock()
+	h.repo.byID[id].GroupID = &groupID
+	h.repo.mu.Unlock()
+
+	rec := h.do(t, http.MethodPut, "/api/monitors/"+intToStr(id), map[string]any{"name": "Renamed"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rename PUT = %d; want 200", rec.Code)
+	}
+	got, err := h.repo.GetByID(context.Background(), id)
+	if err != nil {
+		t.Fatalf("repo GetByID: %v", err)
+	}
+	if got.Name != "Renamed" {
+		t.Errorf("name = %q; want Renamed", got.Name)
+	}
+	if got.GroupID == nil || *got.GroupID != groupID {
+		t.Errorf("group_id = %v; want %d", got.GroupID, groupID)
+	}
+}
+
+// TestMonitorHandlers_Update_ClearsProxyID is the proxy twin of the group
+// clear: explicit null must persist, not merely echo.
+func TestMonitorHandlers_Update_ClearsProxyID(t *testing.T) {
+	h := newMonitorHarness(t)
+
+	createRec := h.do(t, http.MethodPost, "/api/monitors", map[string]any{
+		"name":   "Proxied",
+		"type":   "http",
+		"config": map[string]any{"url": "https://example.com"},
+	})
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create: %d", createRec.Code)
+	}
+	var created map[string]any
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	id := int64(created["id"].(float64))
+	proxyID := int64(3)
+	h.repo.mu.Lock()
+	h.repo.byID[id].ProxyID = &proxyID
+	h.repo.mu.Unlock()
+
+	rec := h.do(t, http.MethodPut, "/api/monitors/"+intToStr(id), map[string]any{"proxy_id": nil})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clear proxy PUT = %d; want 200", rec.Code)
+	}
+	got, err := h.repo.GetByID(context.Background(), id)
+	if err != nil {
+		t.Fatalf("repo GetByID: %v", err)
+	}
+	if got.ProxyID != nil {
+		t.Errorf("proxy_id after explicit null = %v; want nil", got.ProxyID)
+	}
+}
+
 // TestMonitorHandlers_TLSIgnoreRoundTrip asserts the tls_ignore wire contract
 // (top-level boolean on create/update/view) AND its effect: the flag must land
 // on the persisted domain.Monitor, because that is what the scheduler reads
@@ -615,8 +830,8 @@ func TestMonitorHandlers_TLSIgnoreRoundTrip(t *testing.T) {
 		t.Errorf("GET tls_ignore = %v; want true", fetched["tls_ignore"])
 	}
 
-	// tls_ignore is always applied on update (UpsideDown semantics): sending
-	// false must flip the stored flag off again.
+	// tls_ignore is applied when the key is present: sending false must flip
+	// the stored flag off again.
 	updRec := h.do(t, http.MethodPut, "/api/monitors/"+floatToIntStr(id), map[string]any{"tls_ignore": false})
 	if updRec.Code != http.StatusOK {
 		t.Fatalf("update: %d", updRec.Code)

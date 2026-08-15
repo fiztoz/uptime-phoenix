@@ -92,6 +92,7 @@ export interface CreateMonitorGroupInput {
   collapsed?: boolean;
 }
 
+/** Omitted keys are left unchanged; send `parent_id: null` to un-nest. */
 export interface UpdateMonitorGroupInput extends Partial<CreateMonitorGroupInput> {}
 
 export const monitorGroupsApi = {

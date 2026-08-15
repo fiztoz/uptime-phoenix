@@ -40,23 +40,34 @@ func NewMonitorGroupHandlers(svc *services.MonitorGroupService, access *services
 
 // --- Request / response DTOs ---------------------------------------------
 
-// upsertMonitorGroupRequest is the shared body shape for POST/PUT
-// /api/monitor-groups.
+// upsertMonitorGroupRequest is the body of POST /api/monitor-groups.
 type upsertMonitorGroupRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	// Owner is informational contact for the team responsible for this folder.
-	Owner string `json:"owner"`
-	// ParentID nests this group inside another group. On update it is always
-	// applied (not gated on non-zero/nil) so the client can move a group back
-	// to top level by sending parent_id: null — same semantics
-	// MonitorHandlers uses for group_id.
+	Owner              string                `json:"owner"`
 	ParentID           *int64                `json:"parent_id"`
 	Condition          domain.GroupCondition `json:"condition"`
 	Threshold          int                   `json:"threshold"`
 	ThresholdIsPercent bool                  `json:"threshold_is_percent"`
 	Weight             int                   `json:"weight"`
 	Collapsed          bool                  `json:"collapsed"`
+}
+
+// updateMonitorGroupRequest is the body of PUT /api/monitor-groups/:id.
+// Omitted fields stay as stored. The monitors-page collapse toggle sends
+// only {collapsed}, and treating a missing parent_id as null used to
+// un-nest the folder (or fail validation on an empty name).
+type updateMonitorGroupRequest struct {
+	Name               string                 `json:"name"`
+	Description        *string                `json:"description"`
+	Owner              *string                `json:"owner"`
+	ParentID           optionalNullableInt64  `json:"parent_id"`
+	Condition          *domain.GroupCondition `json:"condition"`
+	Threshold          *int                   `json:"threshold"`
+	ThresholdIsPercent *bool                  `json:"threshold_is_percent"`
+	Weight             *int                   `json:"weight"`
+	Collapsed          *bool                  `json:"collapsed"`
 }
 
 // MonitorGroupView is the wire shape of domain.MonitorGroup.
@@ -364,28 +375,46 @@ func (h *MonitorGroupHandlers) Update(c echo.Context) error {
 		return mapMonitorGroupError(c, err)
 	}
 
-	var req upsertMonitorGroupRequest
+	var req updateMonitorGroupRequest
 	if err := c.Bind(&req); err != nil {
 		return badRequest(c, "invalid request body")
 	}
 
+	nameChanging := req.Name != "" && req.Name != existing.Name
+	parentChanging := req.ParentID.set && !sameOptionalID(req.ParentID.value, existing.ParentID)
 	if fullEdit {
-		existing.Name = req.Name
-		// ParentID is always applied so the client can clear nesting with null.
-		existing.ParentID = req.ParentID
-	} else {
-		// Metadata-only: refuse structural changes rather than silently drop them.
-		if req.Name != existing.Name || !sameOptionalID(req.ParentID, existing.ParentID) {
-			return c.JSON(http.StatusForbidden, errorBody("not allowed to change group name or parent"))
+		if req.Name != "" {
+			existing.Name = req.Name
 		}
+		if req.ParentID.set {
+			existing.ParentID = req.ParentID.value
+		}
+	} else if nameChanging || parentChanging {
+		// Metadata-only: refuse structural changes rather than silently drop them.
+		// Omitted name/parent is not a change — collapse-only PUTs must work.
+		return c.JSON(http.StatusForbidden, errorBody("not allowed to change group name or parent"))
 	}
-	existing.Description = req.Description
-	existing.Owner = req.Owner
-	existing.Condition = req.Condition
-	existing.Threshold = req.Threshold
-	existing.ThresholdIsPercent = req.ThresholdIsPercent
-	existing.Weight = req.Weight
-	existing.Collapsed = req.Collapsed
+	if req.Description != nil {
+		existing.Description = *req.Description
+	}
+	if req.Owner != nil {
+		existing.Owner = *req.Owner
+	}
+	if req.Condition != nil {
+		existing.Condition = *req.Condition
+	}
+	if req.Threshold != nil {
+		existing.Threshold = *req.Threshold
+	}
+	if req.ThresholdIsPercent != nil {
+		existing.ThresholdIsPercent = *req.ThresholdIsPercent
+	}
+	if req.Weight != nil {
+		existing.Weight = *req.Weight
+	}
+	if req.Collapsed != nil {
+		existing.Collapsed = *req.Collapsed
+	}
 
 	if err := h.svc.Update(c.Request().Context(), existing); err != nil {
 		return mapMonitorGroupError(c, err)

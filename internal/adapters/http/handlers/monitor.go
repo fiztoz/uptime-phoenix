@@ -88,39 +88,36 @@ type CreateMonitorRequest struct {
 }
 
 // UpdateMonitorRequest is the body of PUT /api/monitors/:id.
+//
+// Omitted fields are left unchanged. That is load-bearing: pause/resume send
+// only {active: false|true}, and treating a missing group_id as null used to
+// yank the monitor out of its folder. Send JSON null (or "") to clear a
+// nullable/string field; send an explicit value to change it.
 type UpdateMonitorRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	// Owner is always applied so sending an empty string clears the contact.
-	Owner string `json:"owner"`
-	// InheritGroupOwner is always applied on update (false when omitted).
-	InheritGroupOwner   bool           `json:"inherit_group_owner"`
+	// Owner: omitted leaves the contact; "" or a string sets it ("" clears).
+	Owner *string `json:"owner"`
+	// InheritGroupOwner: omitted leaves the flag; true/false sets it.
+	InheritGroupOwner   *bool          `json:"inherit_group_owner"`
 	Active              *bool          `json:"active"`
 	Interval            int            `json:"interval"`
-	RetryInterval       int            `json:"retry_interval"`
-	MaxRetries          int            `json:"max_retries"`
+	RetryInterval       *int           `json:"retry_interval"`
+	MaxRetries          *int           `json:"max_retries"`
 	Timeout             float64        `json:"timeout"`
 	Config              map[string]any `json:"config"`
 	AcceptedStatusCodes []string       `json:"accepted_statuscodes"`
-	UpsideDown          bool           `json:"upside_down"`
-	// TLSIgnore mirrors UpsideDown's semantics: always applied on update,
-	// so omitting it resets the flag to false.
-	TLSIgnore bool `json:"tls_ignore"`
-	// CertExpiryNotify mirrors UpsideDown: always applied on update so
-	// omitting it resets the flag to false.
-	CertExpiryNotify bool `json:"cert_expiry_notify"`
-	ResendInterval   int  `json:"resend_interval"`
-	// GroupID files this monitor under a MonitorGroup (folder). Always
-	// applied on update: null/omitted clears the group (moves the monitor
-	// back to top level).
-	GroupID *int64 `json:"group_id"`
-	// ProxyID routes this monitor's checks through an outbound proxy owned
-	// by the same user. Always applied on update: null/omitted clears the
-	// proxy (mirrors GroupID's semantics).
-	ProxyID *int64 `json:"proxy_id"`
-	// Weight is always applied on update (manual display order; lower first).
-	// Send the current value when not changing order.
-	Weight int `json:"weight"`
+	UpsideDown          *bool          `json:"upside_down"`
+	TLSIgnore           *bool          `json:"tls_ignore"`
+	CertExpiryNotify    *bool          `json:"cert_expiry_notify"`
+	ResendInterval      *int           `json:"resend_interval"`
+	// GroupID: omitted leaves the folder; null clears it (top-level);
+	// a number files the monitor under that group.
+	GroupID optionalNullableInt64 `json:"group_id"`
+	// ProxyID: omitted leaves the proxy; null clears it; a number assigns it.
+	ProxyID optionalNullableInt64 `json:"proxy_id"`
+	// Weight: omitted leaves the order; 0 is a real value (top of the list).
+	Weight *int `json:"weight"`
 }
 
 // MonitorTagView is one tag as it appears on a monitor: the tag definition
@@ -486,27 +483,32 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 		}
 	}
 
-	// Apply partial updates from the request.
+	// Apply only the fields the client sent. Omitted keys keep the stored
+	// value — pause/resume is {active: …} and must not reset placement,
+	// flags, retry policy, owner, proxy, or weight.
 	if req.Name != "" {
 		existing.Name = req.Name
 	}
 	if req.Description != "" {
 		existing.Description = req.Description
 	}
-	// Owner is informational metadata and may be explicitly cleared.
-	existing.Owner = req.Owner
-	existing.InheritGroupOwner = req.InheritGroupOwner
+	if req.Owner != nil {
+		existing.Owner = *req.Owner
+	}
+	if req.InheritGroupOwner != nil {
+		existing.InheritGroupOwner = *req.InheritGroupOwner
+	}
 	if req.Active != nil {
 		existing.Active = *req.Active
 	}
 	if req.Interval > 0 {
 		existing.Interval = req.Interval
 	}
-	if req.RetryInterval >= 0 {
-		existing.RetryInterval = req.RetryInterval
+	if req.RetryInterval != nil && *req.RetryInterval >= 0 {
+		existing.RetryInterval = *req.RetryInterval
 	}
-	if req.MaxRetries >= 0 {
-		existing.MaxRetries = req.MaxRetries
+	if req.MaxRetries != nil && *req.MaxRetries >= 0 {
+		existing.MaxRetries = *req.MaxRetries
 	}
 	if req.Timeout > 0 {
 		existing.Timeout = req.Timeout
@@ -517,36 +519,40 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 	if req.AcceptedStatusCodes != nil {
 		existing.AcceptedStatusCodes = req.AcceptedStatusCodes
 	}
-	existing.UpsideDown = req.UpsideDown
-	existing.TLSIgnore = req.TLSIgnore
-	existing.CertExpiryNotify = req.CertExpiryNotify
-	if req.ResendInterval >= 0 {
-		existing.ResendInterval = req.ResendInterval
+	if req.UpsideDown != nil {
+		existing.UpsideDown = *req.UpsideDown
 	}
-	// GroupID is always applied (not gated on non-zero) so the client can
-	// explicitly clear a monitor's group by sending group_id: null. A
-	// non-admin may only move it to a group covered by one of their group grants;
-	// leaving the current location unchanged remains allowed after grant changes.
-	if !sameOptionalID(existing.GroupID, req.GroupID) {
+	if req.TLSIgnore != nil {
+		existing.TLSIgnore = *req.TLSIgnore
+	}
+	if req.CertExpiryNotify != nil {
+		existing.CertExpiryNotify = *req.CertExpiryNotify
+	}
+	if req.ResendInterval != nil && *req.ResendInterval >= 0 {
+		existing.ResendInterval = *req.ResendInterval
+	}
+	// group_id: omitted keeps the folder; null clears it. Placement is
+	// re-checked only when the client actually asks to move the monitor.
+	if req.GroupID.set && !sameOptionalID(existing.GroupID, req.GroupID.value) {
 		userID, ok := userIDFromContext(c)
 		if !ok {
 			return unauthenticated(c)
 		}
-		allowed, accessErr := h.access.CanPlaceMonitorInGroup(c.Request().Context(), userID, req.GroupID)
+		allowed, accessErr := h.access.CanPlaceMonitorInGroup(c.Request().Context(), userID, req.GroupID.value)
 		if accessErr != nil {
 			return mapMonitorError(c, accessErr)
 		}
 		if !allowed {
 			return c.JSON(http.StatusForbidden, errorBody("monitor placement is limited to an allowed group"))
 		}
+		existing.GroupID = req.GroupID.value
 	}
-	existing.GroupID = req.GroupID
-	// ProxyID mirrors GroupID: always applied so the client can explicitly
-	// clear a monitor's proxy by sending proxy_id: null.
-	existing.ProxyID = req.ProxyID
-	// Weight is always applied so the client can re-order monitors (including
-	// setting weight to 0 for the top of the list).
-	existing.Weight = req.Weight
+	if req.ProxyID.set {
+		existing.ProxyID = req.ProxyID.value
+	}
+	if req.Weight != nil {
+		existing.Weight = *req.Weight
+	}
 
 	if err := h.svc.Update(c.Request().Context(), existing); err != nil {
 		return mapMonitorError(c, err)

@@ -546,3 +546,74 @@ func TestMonitorGroupHandlers_Update_ClearsParent(t *testing.T) {
 		t.Errorf("parent_id after clearing PUT = %v; want nil", after["parent_id"])
 	}
 }
+
+// TestMonitorGroupHandlers_Update_CollapsePreservesParent is the folder
+// chevron contract: PUT {collapsed} must not un-nest the group or blank
+// its name. The monitors page sends only that key
+// (web/src/routes/(admin)/monitors/+page.svelte toggleGroupCollapse).
+func TestMonitorGroupHandlers_Update_CollapsePreservesParent(t *testing.T) {
+	h := newMonitorGroupHarness(t)
+
+	parentRec := h.do(t, http.MethodPost, "/api/monitor-groups", map[string]any{
+		"name":      "Parent",
+		"condition": "worst_of_children",
+	})
+	if parentRec.Code != http.StatusCreated {
+		t.Fatalf("create parent: %d (%s)", parentRec.Code, parentRec.Body.String())
+	}
+	var parent map[string]any
+	if err := json.Unmarshal(parentRec.Body.Bytes(), &parent); err != nil {
+		t.Fatalf("decode parent: %v", err)
+	}
+	parentID := int64(parent["id"].(float64))
+
+	childRec := h.do(t, http.MethodPost, "/api/monitor-groups", map[string]any{
+		"name":      "Child",
+		"owner":     "SRE",
+		"condition": "worst_of_children",
+		"parent_id": parentID,
+		"weight":    50,
+	})
+	if childRec.Code != http.StatusCreated {
+		t.Fatalf("create child: %d (%s)", childRec.Code, childRec.Body.String())
+	}
+	var child map[string]any
+	if err := json.Unmarshal(childRec.Body.Bytes(), &child); err != nil {
+		t.Fatalf("decode child: %v", err)
+	}
+	childID := int64(child["id"].(float64))
+
+	rec := h.do(t, http.MethodPut, "/api/monitor-groups/"+intToStr(childID), map[string]any{
+		"collapsed": true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("collapse PUT = %d; want 200 (%s)", rec.Code, rec.Body.String())
+	}
+
+	getRec := h.do(t, http.MethodGet, "/api/monitor-groups/"+intToStr(childID), nil)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("GET after collapse = %d", getRec.Code)
+	}
+	var after map[string]any
+	if err := json.Unmarshal(getRec.Body.Bytes(), &after); err != nil {
+		t.Fatalf("decode GET: %v", err)
+	}
+	if after["collapsed"] != true {
+		t.Errorf("collapsed = %v; want true", after["collapsed"])
+	}
+	if after["name"] != "Child" {
+		t.Errorf("name = %v; want Child", after["name"])
+	}
+	if got, _ := after["parent_id"].(float64); after["parent_id"] == nil || int64(got) != parentID {
+		t.Errorf("parent_id = %v; want %d", after["parent_id"], parentID)
+	}
+	if after["owner"] != "SRE" {
+		t.Errorf("owner = %v; want SRE", after["owner"])
+	}
+	if got, _ := after["weight"].(float64); int(got) != 50 {
+		t.Errorf("weight = %v; want 50", after["weight"])
+	}
+	if after["condition"] != "worst_of_children" {
+		t.Errorf("condition = %v; want worst_of_children", after["condition"])
+	}
+}
