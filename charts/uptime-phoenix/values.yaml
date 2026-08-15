@@ -357,8 +357,9 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
-# ── Horizontal Pod Autoscaler (scaling.mode=multi only) ───────────────────────
+# ── Horizontal Pod Autoscaler (opt-in for scaling.mode=multi or mode=api) ──────
 hpa:
+  enabled: false
   minReplicas: 2
   maxReplicas: 10
   cpuTargetAverageUtilization: 70

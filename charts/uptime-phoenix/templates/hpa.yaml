@@ -1,4 +1,4 @@
-{{- if or (eq .Values.scaling.mode "multi") (eq .Values.mode "api") }}
+{{- if and .Values.hpa.enabled (or (eq .Values.scaling.mode "multi") (eq .Values.mode "api")) }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:

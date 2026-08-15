@@ -34,6 +34,7 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 | `database.persistence.size` | string | `1Gi` | PVC size for data |
 | `mariadb.enabled` | bool | `false` | Enable MariaDB mode (requires external or additional setup) |
 | `scaling.mode` | string | `single` | `single` \| `multi` \| `sharded` |
+| `hpa.enabled` | bool | `false` | Create an HPA when `scaling.mode=multi` or `mode=api` |
 | `redis.enabled` | bool | `false` | Connect Phoenix to an external Redis-compatible server |
 | `redis.existingSecret` | string | `""` | Secret containing a complete `redis://` or `rediss://` URL |
 | `redis.existingSecretKey` | string | `redis-url` | Key containing the URL in `redis.existingSecret` |
