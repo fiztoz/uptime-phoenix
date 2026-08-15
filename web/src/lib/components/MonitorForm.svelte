@@ -332,6 +332,7 @@
     const expected = String(getFieldValue("expected_value") || "");
     const labels: Record<string, string> = {
       exists: "must exist",
+      has_value: "must have a value",
       not_exists: "must not exist",
       equals: "must equal",
       not_equals: "must not equal",
@@ -342,7 +343,7 @@
       path,
       condition: labels[operator] || "must exist",
       expected,
-      usesExpected: !["exists", "not_exists"].includes(operator),
+      usesExpected: !["exists", "has_value", "not_exists"].includes(operator),
     };
   });
 
@@ -428,12 +429,16 @@
         const jsonOperator = String(config.json_operator || "exists");
         if (!jsonQuery) {
           delete config.json_query;
+          delete config.json_query_syntax;
           delete config.json_operator;
           delete config.expected_value;
         } else {
           config.json_query = jsonQuery;
+          config.json_query_syntax = String(
+            config.json_query_syntax || "gjson",
+          );
           config.json_operator = jsonOperator;
-          if (["exists", "not_exists"].includes(jsonOperator)) {
+          if (["exists", "has_value", "not_exists"].includes(jsonOperator)) {
             delete config.expected_value;
           }
         }

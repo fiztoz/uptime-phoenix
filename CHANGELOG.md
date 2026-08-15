@@ -11,6 +11,13 @@ at the bottom.
 
 ## [Unreleased]
 
+### Added
+
+- HTTP JSON assertions can accept a directly translatable JSONPath subset
+  (`$`, child names, array indexes, and `[*]`) while continuing to use GJSON at
+  runtime. The new `has_value` condition rejects missing or empty values without
+  treating valid `false` and `0` values as empty.
+
 ## [0.2.2] — 2026-08-15
 
 ### Changed

@@ -50,7 +50,11 @@ func (HTTPChecker) Validate(config map[string]any) error {
 }
 
 const (
+	jsonQuerySyntaxGJSON    = "gjson"
+	jsonQuerySyntaxJSONPath = "jsonpath"
+
 	jsonOperatorExists      = "exists"
+	jsonOperatorHasValue    = "has_value"
 	jsonOperatorNotExists   = "not_exists"
 	jsonOperatorEquals      = "equals"
 	jsonOperatorNotEquals   = "not_equals"
@@ -71,9 +75,13 @@ func validateJSONAssertion(config map[string]any) error {
 		return nil
 	}
 
+	if _, err := jsonAssertionPath(config, jsonQuery); err != nil {
+		return err
+	}
+
 	operator := jsonAssertionOperator(config)
 	switch operator {
-	case jsonOperatorExists, jsonOperatorNotExists:
+	case jsonOperatorExists, jsonOperatorHasValue, jsonOperatorNotExists:
 		return nil
 	case jsonOperatorEquals, jsonOperatorNotEquals, jsonOperatorContains, jsonOperatorNotContains:
 		expected, ok := config["expected_value"].(string)
@@ -84,6 +92,185 @@ func validateJSONAssertion(config map[string]any) error {
 	default:
 		return fmt.Errorf("unsupported json_operator %q", operator)
 	}
+}
+
+// jsonAssertionPath returns the GJSON path used by the checker. Existing
+// monitors default to native GJSON; JSONPath input is translated without
+// adding a second query engine to the runtime.
+func jsonAssertionPath(config map[string]any, query string) (string, error) {
+	syntax, _ := config["json_query_syntax"].(string)
+	syntax = strings.ToLower(strings.TrimSpace(syntax))
+	switch syntax {
+	case "", jsonQuerySyntaxGJSON:
+		return query, nil
+	case jsonQuerySyntaxJSONPath:
+		path, err := jsonPathToGJSON(query)
+		if err != nil {
+			return "", fmt.Errorf("invalid JSONPath query: %w", err)
+		}
+		return path, nil
+	default:
+		return "", fmt.Errorf("unsupported json_query_syntax %q", syntax)
+	}
+}
+
+// jsonPathToGJSON translates the deterministic JSONPath subset that has a
+// direct GJSON equivalent: root ($), dot/bracket child names, array indexes,
+// and array wildcards ([*]). Filters, recursive descent, unions, and slices
+// are rejected instead of being evaluated with different semantics.
+func jsonPathToGJSON(query string) (string, error) {
+	query = strings.TrimSpace(query)
+	if query == "" || query[0] != '$' {
+		return "", fmt.Errorf("query must start with $")
+	}
+	if query == "$" {
+		return "@this", nil
+	}
+
+	segments := make([]string, 0, 4)
+	for i := 1; i < len(query); {
+		switch query[i] {
+		case '.':
+			i++
+			if i >= len(query) {
+				return "", fmt.Errorf("member name is missing after dot")
+			}
+			if query[i] == '.' {
+				return "", fmt.Errorf("recursive descent is not supported")
+			}
+			start := i
+			for i < len(query) && query[i] != '.' && query[i] != '[' {
+				i++
+			}
+			name := query[start:i]
+			if name == "" {
+				return "", fmt.Errorf("member name is empty")
+			}
+			if name == "*" {
+				return "", fmt.Errorf("object wildcards are not supported; use [*] for arrays")
+			}
+			segments = append(segments, escapeGJSONPathKey(name))
+		case '[':
+			segment, next, err := parseJSONPathBracket(query, i)
+			if err != nil {
+				return "", err
+			}
+			segments = append(segments, segment)
+			i = next
+		default:
+			return "", fmt.Errorf("expected dot or bracket at character %d", i+1)
+		}
+	}
+	if len(segments) == 0 {
+		return "@this", nil
+	}
+	return strings.Join(segments, "."), nil
+}
+
+func parseJSONPathBracket(query string, start int) (string, int, error) {
+	i := start + 1
+	for i < len(query) && isJSONPathSpace(query[i]) {
+		i++
+	}
+	if i >= len(query) {
+		return "", 0, fmt.Errorf("unterminated bracket at character %d", start+1)
+	}
+
+	if query[i] == '*' {
+		i++
+		for i < len(query) && isJSONPathSpace(query[i]) {
+			i++
+		}
+		if i >= len(query) || query[i] != ']' {
+			return "", 0, fmt.Errorf("array wildcard must be written as [*]")
+		}
+		return "#", i + 1, nil
+	}
+
+	if query[i] == '\'' || query[i] == '"' {
+		name, next, err := parseJSONPathQuotedName(query, i)
+		if err != nil {
+			return "", 0, err
+		}
+		i = next
+		for i < len(query) && isJSONPathSpace(query[i]) {
+			i++
+		}
+		if i >= len(query) || query[i] != ']' {
+			return "", 0, fmt.Errorf("quoted member selector must contain one name")
+		}
+		return escapeGJSONPathKey(name), i + 1, nil
+	}
+
+	indexStart := i
+	if query[i] == '-' {
+		return "", 0, fmt.Errorf("negative array indexes are not supported")
+	}
+	for i < len(query) && query[i] >= '0' && query[i] <= '9' {
+		i++
+	}
+	if i == indexStart {
+		return "", 0, fmt.Errorf("filters, unions, and slices are not supported")
+	}
+	index := query[indexStart:i]
+	for i < len(query) && isJSONPathSpace(query[i]) {
+		i++
+	}
+	if i >= len(query) || query[i] != ']' {
+		return "", 0, fmt.Errorf("array index must contain one non-negative integer")
+	}
+	return index, i + 1, nil
+}
+
+func parseJSONPathQuotedName(query string, start int) (string, int, error) {
+	quote := query[start]
+	var name strings.Builder
+	for i := start + 1; i < len(query); i++ {
+		if query[i] == quote {
+			return name.String(), i + 1, nil
+		}
+		if query[i] != '\\' {
+			name.WriteByte(query[i])
+			continue
+		}
+		i++
+		if i >= len(query) {
+			return "", 0, fmt.Errorf("unterminated escape in quoted member name")
+		}
+		switch query[i] {
+		case '\\', '/', '\'', '"':
+			name.WriteByte(query[i])
+		case 'b':
+			name.WriteByte('\b')
+		case 'f':
+			name.WriteByte('\f')
+		case 'n':
+			name.WriteByte('\n')
+		case 'r':
+			name.WriteByte('\r')
+		case 't':
+			name.WriteByte('\t')
+		default:
+			return "", 0, fmt.Errorf("unsupported escape \\%c in quoted member name", query[i])
+		}
+	}
+	return "", 0, fmt.Errorf("unterminated quoted member name")
+}
+
+func escapeGJSONPathKey(key string) string {
+	var escaped strings.Builder
+	for _, r := range key {
+		switch r {
+		case '\\', '.', '*', '?', '#', '|', '@', '!', '[', ']', '{', '}', '(', ')':
+			escaped.WriteByte('\\')
+		}
+		escaped.WriteRune(r)
+	}
+	return escaped.String()
+}
+
+func isJSONPathSpace(ch byte) bool {
+	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
 }
 
 // jsonAssertionOperator preserves the original path-existence behavior while
@@ -216,9 +403,10 @@ const maxSavedResponseBody = 4 * 1024
 //   - accepted_statuscodes (optional, []any of strings) — e.g. ["200-299","301"]
 //   - tls_ignore (optional, bool) — skip TLS certificate verification (self-signed / internal CAs)
 //   - keyword (optional, string) — substring to find in response body
-//   - json_query (optional, string) — gjson path to evaluate on response body
-//   - json_operator (optional, string) — exists, not_exists, equals, not_equals, contains, or not_contains
-//   - expected_value (optional, string) — comparison value for operators other than exists/not_exists
+//   - json_query (optional, string) — query to evaluate on the response body
+//   - json_query_syntax (optional, string) — gjson (default) or jsonpath
+//   - json_operator (optional, string) — exists, has_value, not_exists, equals, not_equals, contains, or not_contains
+//   - expected_value (optional, string) — comparison value for equals/not_equals/contains/not_contains
 //   - auth_method (optional, string) — "none" (default), "basic", "bearer", "oauth2_cc"
 //   - auth_username / auth_password (basic)
 //   - auth_bearer_token (bearer)
@@ -383,7 +571,11 @@ func evaluateJSONAssertion(body, jsonQuery string, config map[string]any) string
 	if err := validateJSONAssertion(config); err != nil {
 		return fmt.Sprintf("invalid JSON assertion: %s", err)
 	}
-	result := gjson.Get(body, jsonQuery)
+	path, err := jsonAssertionPath(config, jsonQuery)
+	if err != nil {
+		return fmt.Sprintf("invalid JSON assertion: %s", err)
+	}
+	result := gjson.Get(body, path)
 	operator := jsonAssertionOperator(config)
 
 	if operator == jsonOperatorNotExists {
@@ -397,6 +589,12 @@ func evaluateJSONAssertion(body, jsonQuery string, config map[string]any) string
 	}
 	if operator == jsonOperatorExists {
 		return ""
+	}
+	if operator == jsonOperatorHasValue {
+		if jsonAssertionHasValue(result) {
+			return ""
+		}
+		return fmt.Sprintf("JSON path %q returned an empty value", jsonQuery)
 	}
 
 	expected, _ := config["expected_value"].(string)
@@ -420,6 +618,26 @@ func evaluateJSONAssertion(body, jsonQuery string, config map[string]any) string
 		}
 	}
 	return ""
+}
+
+func jsonAssertionHasValue(result gjson.Result) bool {
+	switch result.Type {
+	case gjson.Null:
+		return false
+	case gjson.String:
+		return result.Str != ""
+	case gjson.JSON:
+		if result.IsArray() {
+			return len(result.Array()) > 0
+		}
+		if result.IsObject() {
+			return len(result.Map()) > 0
+		}
+		return strings.TrimSpace(result.Raw) != ""
+	default:
+		// false and 0 are concrete JSON values, not empty values.
+		return true
+	}
 }
 
 func jsonAssertionValue(result gjson.Result) string {

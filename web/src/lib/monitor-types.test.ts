@@ -15,12 +15,19 @@ describe("HTTP monitor form metadata", () => {
 
   test("offers guided JSON comparisons and reveals expected value when needed", () => {
     const fields = monitorTypeConfig.http.fields;
+    const syntax = fields.find((field) => field.key === "json_query_syntax");
     const operator = fields.find((field) => field.key === "json_operator");
     const expected = fields.find((field) => field.key === "expected_value");
 
+    expect(syntax?.default).toBe("gjson");
+    expect(syntax?.options?.map((option) => option.value)).toEqual([
+      "gjson",
+      "jsonpath",
+    ]);
     expect(operator?.default).toBe("exists");
     expect(operator?.options?.map((option) => option.value)).toEqual([
       "exists",
+      "has_value",
       "not_exists",
       "equals",
       "not_equals",

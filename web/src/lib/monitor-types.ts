@@ -192,11 +192,23 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         monospace: true,
       },
       {
+        key: "json_query_syntax",
+        label: "JSON path syntax",
+        type: "select",
+        default: "gjson",
+        help: "JSONPath input is translated to GJSON when the monitor runs.",
+        section: "success",
+        options: [
+          { value: "gjson", label: "GJSON" },
+          { value: "jsonpath", label: "JSONPath ($...)" },
+        ],
+      },
+      {
         key: "json_query",
         label: "JSON path",
         type: "text",
         placeholder: "data.status",
-        help: 'Use GJSON syntax. Kubernetes example: status.conditions.#(type=="Ready").status',
+        help: 'GJSON example: status.conditions.#(type=="Ready").status. JSONPath supports $, child names, array indexes, and [*].',
         section: "success",
         fullWidth: true,
         monospace: true,
@@ -209,6 +221,7 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         section: "success",
         options: [
           { value: "exists", label: "Path exists" },
+          { value: "has_value", label: "Has a value" },
           { value: "not_exists", label: "Path does not exist" },
           { value: "equals", label: "Value equals" },
           { value: "not_equals", label: "Value does not equal" },

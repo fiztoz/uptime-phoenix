@@ -24,7 +24,9 @@ test("create HTTP monitor persists advanced settings and records a heartbeat", a
   await dialog.locator("#cfg-url").fill(`${BASE_URL}/api/health/live`);
   await dialog.locator("#monitor-interval").fill("10");
   await dialog.locator("#monitor-timeout").fill("5");
-  await dialog.locator("#cfg-json_query").fill("status");
+  await dialog.locator("#cfg-json_query_syntax").click();
+  await page.getByRole("option", { name: "JSONPath ($...)" }).click();
+  await dialog.locator("#cfg-json_query").fill("$.status");
   await dialog.locator("#cfg-json_operator").click();
   await page.getByRole("option", { name: "Value equals" }).click();
   await dialog.locator("#cfg-expected_value").fill("alive");
@@ -56,6 +58,7 @@ test("create HTTP monitor persists advanced settings and records a heartbeat", a
               resend: monitor.resend_interval,
               tlsIgnore: monitor.tls_ignore,
               jsonQuery: monitor.config?.json_query,
+              jsonQuerySyntax: monitor.config?.json_query_syntax,
               jsonOperator: monitor.config?.json_operator,
               expectedValue: monitor.config?.expected_value,
             }
@@ -68,7 +71,8 @@ test("create HTTP monitor persists advanced settings and records a heartbeat", a
       maxRetries: 2,
       resend: 3,
       tlsIgnore: true,
-      jsonQuery: "status",
+      jsonQuery: "$.status",
+      jsonQuerySyntax: "jsonpath",
       jsonOperator: "equals",
       expectedValue: "alive",
     });

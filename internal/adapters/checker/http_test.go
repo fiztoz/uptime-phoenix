@@ -38,6 +38,34 @@ func TestHTTPChecker_Validate(t *testing.T) {
 			false,
 		},
 		{
+			"valid JSONPath has value",
+			map[string]any{
+				"url":               "https://example.com",
+				"json_query":        "$.status.ready",
+				"json_query_syntax": "jsonpath",
+				"json_operator":     "has_value",
+			},
+			false,
+		},
+		{
+			"rejects unsupported JSONPath feature",
+			map[string]any{
+				"url":               "https://example.com",
+				"json_query":        "$.items[?(@.ready)]",
+				"json_query_syntax": "jsonpath",
+			},
+			true,
+		},
+		{
+			"rejects unsupported JSON query syntax",
+			map[string]any{
+				"url":               "https://example.com",
+				"json_query":        "$.status",
+				"json_query_syntax": "jsonata",
+			},
+			true,
+		},
+		{
 			"json equality requires expected value",
 			map[string]any{
 				"url":           "https://example.com",
@@ -282,6 +310,25 @@ func TestHTTPChecker_Check_JSONAssertions(t *testing.T) {
 			wantStatus: "UP",
 		},
 		{
+			name: "JSONPath is translated before evaluation",
+			config: map[string]any{
+				"json_query":        "$.status.conditions[0]['status']",
+				"json_query_syntax": "jsonpath",
+				"json_operator":     "equals",
+				"expected_value":    "True",
+			},
+			wantStatus: "UP",
+		},
+		{
+			name: "JSONPath root has a value",
+			config: map[string]any{
+				"json_query":        "$",
+				"json_query_syntax": "jsonpath",
+				"json_operator":     "has_value",
+			},
+			wantStatus: "UP",
+		},
+		{
 			name: "contains text",
 			config: map[string]any{
 				"json_query":     "message",
@@ -353,6 +400,80 @@ func TestHTTPChecker_Check_JSONAssertions(t *testing.T) {
 			}
 			if tt.wantMsg != "" && !strings.Contains(result.Message, tt.wantMsg) {
 				t.Errorf("Check() message = %q, want it to contain %q", result.Message, tt.wantMsg)
+			}
+		})
+	}
+}
+
+func TestJSONPathToGJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		want    string
+		wantErr bool
+	}{
+		{name: "root", query: "$", want: "@this"},
+		{name: "dot members and index", query: "$.store.book[0].title", want: "store.book.0.title"},
+		{name: "quoted member", query: `$['fav.movie']`, want: `fav\.movie`},
+		{name: "array wildcard", query: "$.items[*].status", want: "items.#.status"},
+		{name: "spaces in bracket", query: `$.items[ 1 ][ "status" ]`, want: "items.1.status"},
+		{name: "missing root", query: "status.ready", wantErr: true},
+		{name: "recursive descent", query: "$..status", wantErr: true},
+		{name: "filter", query: "$.items[?(@.ready)]", wantErr: true},
+		{name: "slice", query: "$.items[0:2]", wantErr: true},
+		{name: "object wildcard", query: "$.store.*", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := jsonPathToGJSON(tt.query)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("jsonPathToGJSON(%q) = %q, want error", tt.query, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("jsonPathToGJSON(%q) error = %v", tt.query, err)
+			}
+			if got != tt.want {
+				t.Errorf("jsonPathToGJSON(%q) = %q, want %q", tt.query, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEvaluateJSONAssertion_HasValue(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		path string
+		fail bool
+	}{
+		{name: "string", body: `{"value":"ready"}`, path: "value"},
+		{name: "false is a value", body: `{"value":false}`, path: "value"},
+		{name: "zero is a value", body: `{"value":0}`, path: "value"},
+		{name: "non-empty array", body: `{"value":[0]}`, path: "value"},
+		{name: "empty string", body: `{"value":""}`, path: "value", fail: true},
+		{name: "null", body: `{"value":null}`, path: "value", fail: true},
+		{name: "empty array", body: `{"value":[]}`, path: "value", fail: true},
+		{name: "spaced empty array", body: `{"value":[ ]}`, path: "value", fail: true},
+		{name: "empty object", body: `{"value":{}}`, path: "value", fail: true},
+		{name: "spaced empty object", body: `{"value":{ }}`, path: "value", fail: true},
+		{name: "missing", body: `{}`, path: "value", fail: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			message := evaluateJSONAssertion(tt.body, tt.path, map[string]any{
+				"json_query":    tt.path,
+				"json_operator": "has_value",
+			})
+			if tt.fail && message == "" {
+				t.Fatal("evaluateJSONAssertion() passed, want failure")
+			}
+			if !tt.fail && message != "" {
+				t.Fatalf("evaluateJSONAssertion() = %q, want pass", message)
 			}
 		})
 	}
