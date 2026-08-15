@@ -379,6 +379,9 @@ helm template uptime-phoenix charts/uptime-phoenix \
 - All YAML is valid
 - ConfigMap has correct env vars
 - Deployment has correct image, ports, probes
+- API / worker / all-in-one pod templates have `checksum/config` and
+  `checksum/secret` annotations; changing `config.logLevel` (or a secret
+  value such as `oidc.clientSecret`) changes those hashes
 - Internal Redis mode renders a Redis StatefulSet/Service/Secret and Phoenix's
   `REDIS_URL` references the Secret's `uri` key
 - Service matches Deployment ports

@@ -17,6 +17,8 @@ spec:
       labels:
         {{- include "phoenix.selectorLabels" . | nindent 8 }}
         component: api
+      annotations:
+        {{- include "phoenix.configReloadAnnotations" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

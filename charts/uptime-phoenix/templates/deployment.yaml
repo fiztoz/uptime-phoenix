@@ -25,6 +25,8 @@ spec:
     metadata:
       labels:
         {{- include "phoenix.selectorLabels" . | nindent 8 }}
+      annotations:
+        {{- include "phoenix.configReloadAnnotations" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

@@ -226,6 +226,10 @@ All produce valid Kubernetes manifests.
 - `readOnlyRootFilesystem: true` + `emptyDir` for `/tmp` for Go runtime temps.
 - PDB `minAvailable: 1` on the Deployment.
 - Health probes: `/api/health/live` and `/api/health/ready`.
+- API, worker, and all-in-one pod templates include `checksum/config` and
+  `checksum/secret` so an Argo CD sync / `helm upgrade` that changes a
+  chart-managed ConfigMap or Secret rolls those pods. See
+  [Helm & Argo CD](../../docs/guides/helm-and-argocd.md#configmap--secret-changes-restart-api-and-worker).
 
 ## License
 

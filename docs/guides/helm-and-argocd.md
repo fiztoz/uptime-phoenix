@@ -429,6 +429,31 @@ ingress:
   host: uptime.example.com
 ```
 
+### ConfigMap / Secret changes restart API and worker
+
+Phoenix reads chart-managed config as container env (`configMapKeyRef` /
+`secretKeyRef`). Kubernetes does **not** restart a pod when only the
+ConfigMap or Secret object changes, so a naive Argo sync of those
+objects would leave API and worker running the old values.
+
+The API, worker, and all-in-one Deployments therefore stamp the pod
+template with `checksum/config` and `checksum/secret`. Changing Helm
+values that feed the ConfigMap (log level, DSN, rate limits, OTEL, …)
+or the Secrets (OIDC client secret, Redis URL, bootstrap password,
+Valkey password, …) changes those annotations, so the next Argo sync /
+`helm upgrade` rolls the pods that consume the change.
+
+The optional `web` Deployment hashes the nginx ConfigMap; `cloudflared`
+hashes the tunnel token.
+
+Secrets referenced only via `*.existingSecret` are outside the chart.
+Updating those objects in-cluster (SealedSecret, ExternalSecret, a
+manual `kubectl apply`) does **not** change the checksum. Either point
+Helm at a new Secret name, run
+`kubectl -n <ns> rollout restart deploy/<release>-api deploy/<release>-worker`,
+or run [stakater/Reloader](https://github.com/stakater/Reloader) in the
+cluster and annotate the Deployments yourself.
+
 ### Sync & check
 
 ```bash

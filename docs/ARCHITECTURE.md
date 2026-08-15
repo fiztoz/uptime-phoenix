@@ -1919,6 +1919,16 @@ The two paths are mutually exclusive and both remain disabled by default. GitOps
 deployments use `valkey.auth.managedSecret=false` with a pre-created Secret
 because offline manifest rendering cannot retain a password through `lookup`.
 
+Config and secrets are injected as env (`configMapKeyRef` / `secretKeyRef`).
+The API, worker, and all-in-one Deployments stamp the pod template with
+`checksum/config` (hash of the rendered ConfigMap) and `checksum/secret` (hash
+of the values that become Secrets — not the rendered Secret templates, which
+call `lookup` + `randAlphaNum` and are unstable under Argo CD). Changing those
+inputs changes the annotations, so the next Helm/Argo apply rolls the pods.
+The optional web Deployment hashes the nginx ConfigMap; cloudflared hashes the
+tunnel token. Secrets referenced only via `*.existingSecret` are outside this
+mechanism.
+
 ### Deployment Commands
 
 ```bash

@@ -17,6 +17,8 @@ spec:
       labels:
         {{- include "phoenix.selectorLabels" . | nindent 8 }}
         component: cloudflared
+      annotations:
+        checksum/secret-cloudflared: {{ printf "%s/%s/%s" (include "phoenix.cloudflared.secretName" .) .Values.cloudflareTunnel.secretKey .Values.cloudflareTunnel.token | sha256sum }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

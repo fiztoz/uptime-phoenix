@@ -11,6 +11,14 @@ at the bottom.
 
 ## [Unreleased]
 
+### Added
+
+- Helm: API, worker, and all-in-one Deployments now carry `checksum/config` and
+  `checksum/secret` pod-template annotations. An Argo CD sync (or `helm upgrade`)
+  that changes a chart-managed ConfigMap or Secret rolls those pods so they
+  pick up the new env. The optional web and cloudflared Deployments hash their
+  nginx ConfigMap and tunnel token the same way.
+
 ## [0.2.1] — 2026-08-15
 
 ### Added

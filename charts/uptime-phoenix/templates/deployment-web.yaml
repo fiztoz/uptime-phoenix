@@ -17,6 +17,8 @@ spec:
       labels:
         {{- include "phoenix.selectorLabels" . | nindent 8 }}
         component: web
+      annotations:
+        checksum/config-nginx: {{ include (print $.Template.BasePath "/configmap-nginx.yaml") . | sha256sum }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

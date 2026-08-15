@@ -346,6 +346,43 @@ Shared Phoenix application env (security, observability, rate limits).
 {{- end }}
 
 {{/*
+Stable fingerprint of values that become Secrets consumed as env by the
+Phoenix API / worker (and the all-in-one Deployment).
+
+Do not hash rendered secret.yaml / secret-valkey.yaml: those call lookup
+plus randAlphaNum, which is non-deterministic when the renderer has no
+cluster access (Argo CD `helm template`).
+*/}}
+{{- define "phoenix.secretFingerprint" -}}
+redis:{{ .Values.redis | toYaml }}
+oidc:{{ .Values.oidc | toYaml }}
+bootstrap:{{ .Values.bootstrap | toYaml }}
+mariadb.enabled={{ .Values.mariadb.enabled }}
+mariadb.rootPassword={{ .Values.mariadb.rootPassword }}
+mariadbExternal:{{ .Values.mariadbExternal | toYaml }}
+prometheus.podMonitor.enabled={{ .Values.prometheus.podMonitor.enabled }}
+prometheus.apiKey={{ .Values.prometheus.apiKey }}
+{{- if .Values.valkey.enabled }}
+valkey.auth.enabled={{ .Values.valkey.auth.enabled }}
+valkey.auth.password={{ .Values.valkey.auth.password }}
+valkey.auth.managedSecret={{ .Values.valkey.auth.managedSecret }}
+valkey.auth.usersExistingSecret={{ .Values.valkey.auth.usersExistingSecret }}
+valkey.service.port={{ .Values.valkey.service.port }}
+{{- end }}
+{{- end }}
+
+{{/*
+Pod-template annotations that change when chart-managed ConfigMaps or
+Secrets change. Kubernetes then rolls the Deployment so new pods pick up
+the new env. This is what makes an Argo CD sync of config restart API and
+worker; updating a ConfigMap/Secret alone does not recreate pods.
+*/}}
+{{- define "phoenix.configReloadAnnotations" -}}
+checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+checksum/secret: {{ include "phoenix.secretFingerprint" . | sha256sum }}
+{{- end }}
+
+{{/*
 Deployment name — single pod vs multi mode
 */}}
 {{- define "phoenix.deploymentName" -}}
