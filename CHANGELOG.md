@@ -11,11 +11,14 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-08-15
+
 ### Changed
 
 - Helm: empty `image.tag` / `web.image.tag` now default to `Chart.AppVersion`
   instead of `latest`. A chart-version bump rolls pods onto the matching
   published image. Override the tag only to pin a different image.
+- Helm: the API HPA is created only when `hpa.enabled` is true.
 
 ### Added
 
@@ -24,6 +27,10 @@ at the bottom.
   that changes a chart-managed ConfigMap or Secret rolls those pods so they
   pick up the new env. The optional web and cloudflared Deployments hash their
   nginx ConfigMap and tunnel token the same way.
+- Helm: API Deployment accepts extra environment variables from values.
+- WebSocket hub now updates `phoenix_ws_connections_active`. The HPA Pods
+  metric is a second opt-in (`hpa.wsConnections.enabled`) so CPU scaling works
+  without prometheus-adapter.
 
 ## [0.2.1] — 2026-08-15
 
