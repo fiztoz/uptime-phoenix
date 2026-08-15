@@ -162,6 +162,33 @@ Full mode matrix: [`docs/DEPLOYMENT_MODES.md`](../DEPLOYMENT_MODES.md).
 Point an Application at the OCI chart. Chart version has **no** leading `v`
 (`0.2.2`, not `v0.2.2`).
 
+Argo CD renders Helm templates without cluster access, so Helm's `lookup`
+cannot retain an auto-generated JWT signing key. The simplest option is to
+supply a stable key directly through a protected values source:
+
+```yaml
+secret:
+  jwt: replace-with-a-stable-random-secret
+```
+
+Do not commit that plaintext value to Git. If values are stored in Git, create
+a stable Secret through your normal secret-management workflow (ExternalSecret,
+SealedSecret, or a pre-created Kubernetes Secret) and reference it instead:
+
+```bash
+kubectl -n uptime-phoenix create secret generic uptime-phoenix-jwt \
+  --from-literal=jwt-secret="$(openssl rand -hex 32)"
+```
+
+```yaml
+secret:
+  existingSecret: uptime-phoenix-jwt
+  existingSecretKey: jwt-secret
+```
+
+Keep that Secret stable across chart upgrades. Rotating it intentionally
+invalidates every active browser session.
+
 ### Basic Application (inline values)
 
 ```yaml
@@ -192,6 +219,9 @@ spec:
           persistence:
             enabled: true
             size: 5Gi
+        secret:
+          existingSecret: uptime-phoenix-jwt
+          existingSecretKey: jwt-secret
   destination:
     server: https://kubernetes.default.svc
     namespace: uptime-phoenix

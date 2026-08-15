@@ -59,8 +59,8 @@ spec:
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "phoenix.fullname" . }}
-                  key: jwt-secret
+                  name: {{ include "phoenix.jwtSecretName" . }}
+                  key: {{ include "phoenix.jwtSecretKey" . }}
             - name: JWT_EXPIRE_HOURS
               valueFrom:
                 configMapKeyRef:

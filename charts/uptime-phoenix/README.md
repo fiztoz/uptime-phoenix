@@ -65,9 +65,12 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 | `config.host` | string | `0.0.0.0` | Listen host |
 | `config.port` | int | `3000` | Listen port |
 | `config.jwtExpireHours` | int | `24` | JWT expiration |
+| `secret.jwt` | string | `""` | Stable signing key supplied directly through protected values; mutually exclusive with `secret.existingSecret` |
+| `secret.existingSecret` | string | `""` | Stable pre-created JWT signing Secret; safer alternative to an inline value for GitOps flows |
+| `secret.existingSecretKey` | string | `jwt-secret` | Key within `secret.existingSecret` |
 | `config.totpIssuer` | string | `Phoenix` | TOTP issuer name |
 
-Env vars exposed to container: `DB_ENGINE`, `DB_DSN`, `JWT_SECRET` (auto-generated in Secret), `JWT_EXPIRE_HOURS`, `TOTP_ISSUER`, `HOST`, `PORT`, `LOG_LEVEL`, and optional `REDIS_URL`.
+Env vars exposed to container: `DB_ENGINE`, `DB_DSN`, `JWT_SECRET` (auto-generated for Helm CLI, supplied by `secret.jwt`, or read from `secret.existingSecret`), `JWT_EXPIRE_HOURS`, `TOTP_ISSUER`, `HOST`, `PORT`, `LOG_LEVEL`, and optional `REDIS_URL`.
 
 ## Usage Examples
 

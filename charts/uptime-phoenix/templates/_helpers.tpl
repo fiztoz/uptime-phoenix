@@ -96,6 +96,9 @@ JWT secret — auto-generated if not provided.
 Stored in the main Secret under jwt-secret key.
 */}}
 {{- define "phoenix.jwtSecret" -}}
+{{- if .Values.secret.jwt }}
+{{- .Values.secret.jwt }}
+{{- else }}
 {{- $secretName := include "phoenix.fullname" . }}
 {{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName }}
 {{- if $existing }}
@@ -107,6 +110,19 @@ Stored in the main Secret under jwt-secret key.
 {{- else }}
 {{- randAlphaNum 48 }}
 {{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Secret and key that provide the JWT signing key. A pre-created Secret is the
+stable option for render-only GitOps controllers, where lookup is unavailable.
+*/}}
+{{- define "phoenix.jwtSecretName" -}}
+{{- default (include "phoenix.fullname" .) .Values.secret.existingSecret -}}
+{{- end }}
+
+{{- define "phoenix.jwtSecretKey" -}}
+{{- default "jwt-secret" .Values.secret.existingSecretKey -}}
 {{- end }}
 
 {{/*
@@ -377,6 +393,9 @@ mariadb.rootPassword={{ .Values.mariadb.rootPassword }}
 mariadbExternal:{{ .Values.mariadbExternal | toYaml }}
 prometheus.podMonitor.enabled={{ .Values.prometheus.podMonitor.enabled }}
 prometheus.apiKey={{ .Values.prometheus.apiKey }}
+jwt.existingSecret={{ .Values.secret.existingSecret }}
+jwt.existingSecretKey={{ .Values.secret.existingSecretKey }}
+jwt.secret={{ .Values.secret.jwt }}
 {{- if .Values.valkey.enabled }}
 valkey.auth.enabled={{ .Values.valkey.auth.enabled }}
 valkey.auth.password={{ .Values.valkey.auth.password }}
