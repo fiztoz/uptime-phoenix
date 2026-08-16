@@ -4,9 +4,9 @@ Uptime Phoenix’s **Database** monitor checks that a database is **reachable an
 
 It does **not** run free-form SQL you type in the UI. That avoids injection and accidental writes. Instead you choose a **health check preset**:
 
-| Preset | What runs |
-|--------|-----------|
-| **Connect + protocol ping only** (`ping`) | Driver/protocol ping after connect |
+| Preset                                          | What runs                                                                                                          |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Connect + protocol ping only** (`ping`)       | Driver/protocol ping after connect                                                                                 |
 | **Also run fixed SELECT 1 / PING** (`select_1`) | Same connect, then a **fixed** statement Uptime Phoenix chooses (`SELECT 1` for SQL; `PING` for Redis; Mongo ping) |
 
 Supported engines: **PostgreSQL**, **MySQL**, **MariaDB**, **SQL Server (MSSQL)**, **MongoDB**, **Redis**.
@@ -15,17 +15,17 @@ Supported engines: **PostgreSQL**, **MySQL**, **MariaDB**, **SQL Server (MSSQL)*
 
 ## Form fields
 
-| Field | Config key | Notes |
-|-------|------------|--------|
-| Engine | `engine` | Required |
-| Connection string / DSN | `connection_string` | Required; older configs may use `dsn` |
-| Health check | `health_check` | `ping` (default) or `select_1` — presets only, never free-form SQL |
-| Timeout (s) | `timeout` | Default `10` |
-| Check session pool | `check_session_pool` | Optional; default `false` |
-| Session pool threshold (%) | `session_pool_threshold` | Default `80` (1–100); used when session-pool check is on |
-| Check storage | `check_storage` | Optional; default `false` |
-| Storage threshold (%) | `storage_threshold` | Default `80` (1–100); used when storage check is on |
-| Max size (GiB) | `storage_max_gb` | Optional capacity in GiB (1024³ bytes). Required at check time for engines that cannot report a total (typical PostgreSQL / MySQL) |
+| Field                      | Config key               | Notes                                                                                                                              |
+| -------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Engine                     | `engine`                 | Required                                                                                                                           |
+| Connection string / DSN    | `connection_string`      | Required; older configs may use `dsn`                                                                                              |
+| Health check               | `health_check`           | `ping` (default) or `select_1` — presets only, never free-form SQL                                                                 |
+| Timeout (s)                | `timeout`                | Default `10`                                                                                                                       |
+| Check session pool         | `check_session_pool`     | Optional; default `false`                                                                                                          |
+| Session pool threshold (%) | `session_pool_threshold` | Default `80` (1–100); used when session-pool check is on                                                                           |
+| Check storage              | `check_storage`          | Optional; default `false`                                                                                                          |
+| Storage threshold (%)      | `storage_threshold`      | Default `80` (1–100); used when storage check is on                                                                                |
+| Max size (GiB)             | `storage_max_gb`         | Optional capacity in GiB (1024³ bytes). Required at check time for engines that cannot report a total (typical PostgreSQL / MySQL) |
 
 ---
 
@@ -62,24 +62,24 @@ minutes), the UI derives `stale`.
 
 ### Config keys
 
-| Key | Type | Default | Meaning |
-|-----|------|---------|---------|
-| `check_session_pool` | boolean | `false` | Enable session-pool check |
-| `session_pool_threshold` | number | `80` | Percent 1–100; condition becomes `warning` at or above |
-| `check_storage` | boolean | `false` | Enable storage check (fixed SQL / INFO / dbStats) |
-| `storage_threshold` | number | `80` | Percent 1–100; condition becomes `warning` at or above |
-| `storage_max_gb` | number | unset | Optional capacity in GiB (1024³ bytes). Required at check time for engines that cannot report a total (typical PostgreSQL / MySQL). Redis uses `maxmemory` when set; Mongo may use `fsTotalSize`; MariaDB may use `information_schema.DISKS`; MSSQL may use database file size. |
+| Key                      | Type    | Default | Meaning                                                                                                                                                                                                                                                                         |
+| ------------------------ | ------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `check_session_pool`     | boolean | `false` | Enable session-pool check                                                                                                                                                                                                                                                       |
+| `session_pool_threshold` | number  | `80`    | Percent 1–100; condition becomes `warning` at or above                                                                                                                                                                                                                          |
+| `check_storage`          | boolean | `false` | Enable storage check (fixed SQL / INFO / dbStats)                                                                                                                                                                                                                               |
+| `storage_threshold`      | number  | `80`    | Percent 1–100; condition becomes `warning` at or above                                                                                                                                                                                                                          |
+| `storage_max_gb`         | number  | unset   | Optional capacity in GiB (1024³ bytes). Required at check time for engines that cannot report a total (typical PostgreSQL / MySQL). Redis uses `maxmemory` when set; Mongo may use `fsTotalSize`; MariaDB may use `information_schema.DISKS`; MSSQL may use database file size. |
 
 ### What each engine measures
 
-| Engine | Sessions | Storage |
-|--------|----------|---------|
-| PostgreSQL | `SUM(numbackends)` / `max_connections` (usually works) | `pg_database_size(current_database())` vs `storage_max_gb` (CONNECT is enough; this is **not** host disk) |
-| MySQL | `Threads_connected` / `max_connections` | `information_schema.tables` sum vs `storage_max_gb` |
-| MariaDB | same as MySQL | `DISKS` if plugin + FILE privilege (values are KiB; Phoenix converts to bytes), else same as MySQL + `storage_max_gb` |
-| SQL Server | `dm_exec_sessions` / `@@MAX_CONNECTIONS` — needs **VIEW SERVER STATE** | `sys.database_files` used vs allocated (or `storage_max_gb`) |
-| MongoDB | `serverStatus.connections` — needs **clusterMonitor** | `dbStats` `fsUsedSize`/`fsTotalSize` or `storageSize` vs `storage_max_gb` |
-| Redis | `INFO clients` — needs **+info** | `INFO memory` `used_memory` vs `maxmemory` (**memory**, not disk) |
+| Engine     | Sessions                                                               | Storage                                                                                                               |
+| ---------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| PostgreSQL | `SUM(numbackends)` / `max_connections` (usually works)                 | `pg_database_size(current_database())` vs `storage_max_gb` (CONNECT is enough; this is **not** host disk)             |
+| MySQL      | `Threads_connected` / `max_connections`                                | `information_schema.tables` sum vs `storage_max_gb`                                                                   |
+| MariaDB    | same as MySQL                                                          | `DISKS` if plugin + FILE privilege (values are KiB; Phoenix converts to bytes), else same as MySQL + `storage_max_gb` |
+| SQL Server | `dm_exec_sessions` / `@@MAX_CONNECTIONS` — needs **VIEW SERVER STATE** | `sys.database_files` used vs allocated (or `storage_max_gb`)                                                          |
+| MongoDB    | `serverStatus.connections` — needs **clusterMonitor**                  | `dbStats` `fsUsedSize`/`fsTotalSize` or `storageSize` vs `storage_max_gb`                                             |
+| Redis      | `INFO clients` — needs **+info**                                       | `INFO memory` `used_memory` vs `maxmemory` (**memory**, not disk)                                                     |
 
 **Do not** use a superuser just to turn these on. Add the documented **optional grants** to the dedicated `phoenix_monitor` user in the create-user scripts, then enable the checkboxes.
 
@@ -161,13 +161,13 @@ redis.example.com:6379
 
 Scripts (repo + served with the web UI):
 
-| Engine | Repo path | Served URL |
-|--------|-----------|------------|
-| PostgreSQL | `docs/scripts/database-monitor/create-user-postgres.sql` | `/docs/database-monitor/create-user-postgres.sql` |
-| MySQL / MariaDB | `docs/scripts/database-monitor/create-user-mysql.sql` | `/docs/database-monitor/create-user-mysql.sql` |
-| SQL Server | `docs/scripts/database-monitor/create-user-mssql.sql` | `/docs/database-monitor/create-user-mssql.sql` |
-| MongoDB | `docs/scripts/database-monitor/create-user-mongodb.js` | `/docs/database-monitor/create-user-mongodb.js` |
-| Redis | `docs/scripts/database-monitor/create-user-redis.md` | `/docs/database-monitor/create-user-redis.md` |
+| Engine          | Repo path                                                | Served URL                                        |
+| --------------- | -------------------------------------------------------- | ------------------------------------------------- |
+| PostgreSQL      | `docs/scripts/database-monitor/create-user-postgres.sql` | `/docs/database-monitor/create-user-postgres.sql` |
+| MySQL / MariaDB | `docs/scripts/database-monitor/create-user-mysql.sql`    | `/docs/database-monitor/create-user-mysql.sql`    |
+| SQL Server      | `docs/scripts/database-monitor/create-user-mssql.sql`    | `/docs/database-monitor/create-user-mssql.sql`    |
+| MongoDB         | `docs/scripts/database-monitor/create-user-mongodb.js`   | `/docs/database-monitor/create-user-mongodb.js`   |
+| Redis           | `docs/scripts/database-monitor/create-user-redis.md`     | `/docs/database-monitor/create-user-redis.md`     |
 
 Also available from the Uptime Phoenix UI: **Create/Edit monitor → Database → View setup guide**.
 
@@ -227,24 +227,24 @@ Then paste the resulting DSN into Uptime Phoenix with **Engine** set correctly a
 
 ## Common failures
 
-| Symptom | Likely cause |
-|---------|----------------|
-| Dial / timeout | Firewall, wrong host/port, Uptime Phoenix in another network namespace |
-| Auth failed | Wrong password, user host restriction (MySQL `'user'@'%'`), `authSource` (Mongo) |
-| TLS / certificate errors | Missing `sslmode` / `tls` / `encrypt`, or untrusted CA |
-| SELECT 1 fails but ping works | User lacks CONNECT or basic SELECT on the target DB (rare with scripts above) |
-| Works from laptop, fails in Uptime Phoenix | Different egress IP / security group; allow Uptime Phoenix’s source |
+| Symptom                                            | Likely cause                                                                                                                                                                  |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dial / timeout                                     | Firewall, wrong host/port, Uptime Phoenix in another network namespace                                                                                                        |
+| Auth failed                                        | Wrong password, user host restriction (MySQL `'user'@'%'`), `authSource` (Mongo)                                                                                              |
+| TLS / certificate errors                           | Missing `sslmode` / `tls` / `encrypt`, or untrusted CA                                                                                                                        |
+| SELECT 1 fails but ping works                      | User lacks CONNECT or basic SELECT on the target DB (rare with scripts above)                                                                                                 |
+| Works from laptop, fails in Uptime Phoenix         | Different egress IP / security group; allow Uptime Phoenix’s source                                                                                                           |
 | Capacity chip says Check error / permission denied | User lacks the optional grant (`VIEW SERVER STATE`, `clusterMonitor`, `+info`, MariaDB `FILE` for `DISKS`, …). Availability stays UP, but the auxiliary check is not skipped. |
-| Storage condition says capacity unknown | Set `storage_max_gb` for PostgreSQL/MySQL (and MariaDB when `DISKS` is unavailable) |
-| Capacity chip says Stale | No fresh auxiliary sample arrived within three monitor intervals (minimum three minutes); inspect scheduler/worker health and the latest primary check |
+| Storage condition says capacity unknown            | Set `storage_max_gb` for PostgreSQL/MySQL (and MariaDB when `DISKS` is unavailable)                                                                                           |
+| Capacity chip says Stale                           | No fresh auxiliary sample arrived within three monitor intervals (minimum three minutes); inspect scheduler/worker health and the latest primary check                        |
 
 ---
 
 ## Related monitors
 
-| Need | Prefer |
-|------|--------|
-| Only “port open” | **TCP** |
-| App HTTP health that already hits the DB | **HTTP(s)** |
-| App-owned liveness without DB credentials in Uptime Phoenix | **Push** |
-| Redis as a cache broker vs DB | Still use **Database** + engine Redis, or TCP if you only care about the port |
+| Need                                                        | Prefer                                                                        |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Only “port open”                                            | **TCP**                                                                       |
+| App HTTP health that already hits the DB                    | **HTTP(s)**                                                                   |
+| App-owned liveness without DB credentials in Uptime Phoenix | **Push**                                                                      |
+| Redis as a cache broker vs DB                               | Still use **Database** + engine Redis, or TCP if you only care about the port |
