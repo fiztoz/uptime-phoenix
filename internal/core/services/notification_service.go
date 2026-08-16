@@ -247,6 +247,43 @@ func (s *NotificationService) Dispatch(ctx context.Context, monitor *domain.Moni
 	return nil
 }
 
+// DispatchTracked sends an auxiliary alert and reports whether at least one
+// active channel accepted it. Unlike Dispatch, it returns per-channel failures
+// so lifecycle callers do not advance a notification cursor when nothing was
+// delivered. A partial delivery returns delivered=true together with the joined
+// errors; callers can advance a coarse cursor while still making the failure
+// observable.
+func (s *NotificationService) DispatchTracked(ctx context.Context, monitor *domain.Monitor, alert domain.AlertContext) (bool, error) {
+	notifications, err := s.repo.GetByMonitorID(ctx, monitor.ID)
+	if err != nil {
+		return false, fmt.Errorf("notification service: get by monitor: %w", err)
+	}
+
+	delivered := 0
+	var errs []error
+	for _, n := range notifications {
+		if !n.Active {
+			continue
+		}
+		sender, ok := s.senders[n.Type]
+		if !ok {
+			errs = append(errs, fmt.Errorf("notification %d: unknown sender type %q", n.ID, n.Type))
+			continue
+		}
+		notificationAlert, templateErr := s.alertForNotification(ctx, n, alert)
+		if templateErr != nil {
+			errs = append(errs, fmt.Errorf("notification %d template: %w", n.ID, templateErr))
+			continue
+		}
+		if sendErr := sender.Send(ctx, n.Config, notificationAlert); sendErr != nil {
+			errs = append(errs, fmt.Errorf("notification %d: %w", n.ID, sendErr))
+			continue
+		}
+		delivered++
+	}
+	return delivered > 0, errors.Join(errs...)
+}
+
 // DispatchToNotificationIDs sends a pre-built AlertContext to an EXPLICIT list
 // of channels, bypassing the monitor's own attachments. It is how an escalation
 // step (F2.3) pages its own ladder rung without inheriting whatever happens to

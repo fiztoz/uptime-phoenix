@@ -33,12 +33,20 @@ func (FeishuSender) Send(ctx context.Context, config map[string]any, alert domai
 	color := "green"
 	var headerContent string
 	bodyContent := fmt.Sprintf("**Monitor:** %s\n**Type:** %s\n**Target:** %s\n**Message:** %s", alert.MonitorName, alert.MonitorType, alert.MonitorTarget, alert.Message)
-	if isCertificateExpiry(alert) {
-		emoji = "📜"
+	if isAuxiliaryAlert(alert) {
+		emoji = alertEmoji(alert)
 		color = "orange"
+		if isCapacityCondition(alert) {
+			switch alert.ConditionState {
+			case domain.ConditionStateOK:
+				color = "green"
+			case domain.ConditionStateError:
+				color = "red"
+			}
+		}
 		headerContent = fmt.Sprintf("%s %s", emoji, alertTitle(alert))
-		bodyContent = fmt.Sprintf("**Monitor:** %s\n**Type:** %s\n**Target:** %s\n**Event:** certificate_expiry\n**Message:** %s",
-			alert.MonitorName, alert.MonitorType, alert.MonitorTarget, alertBody(alert))
+		bodyContent = fmt.Sprintf("**Monitor:** %s\n**Type:** %s\n**Target:** %s\n**Event:** %s\n**Message:** %s",
+			alert.MonitorName, alert.MonitorType, alert.MonitorTarget, alert.EventKind, alertBody(alert))
 	} else {
 		switch alert.Status {
 		case domain.StatusDown:

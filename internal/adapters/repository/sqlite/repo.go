@@ -2164,6 +2164,7 @@ type Repository struct {
 	*MonitorGroupRepo
 	*HeartbeatRepo
 	*TLSInfoRepo
+	*MonitorConditionRepo
 	*NotificationRepo
 	*NotificationTemplateRepo
 	*StatusPageRepo
@@ -2199,6 +2200,7 @@ func NewRepository(db *bun.DB) *Repository {
 		MonitorGroupRepo:             NewMonitorGroupRepo(db),
 		HeartbeatRepo:                NewHeartbeatRepo(db),
 		TLSInfoRepo:                  NewTLSInfoRepo(db),
+		MonitorConditionRepo:         NewMonitorConditionRepo(db),
 		NotificationRepo:             NewNotificationRepo(db),
 		NotificationTemplateRepo:     NewNotificationTemplateRepo(db),
 		StatusPageRepo:               NewStatusPageRepo(db),
@@ -2330,6 +2332,7 @@ var (
 	_ ports.MaintenanceWindowMonitorRepository = (*MaintenanceWindowMonitorRepo)(nil)
 	_ ports.WebAuthnCredentialRepository       = (*WebAuthnCredentialRepo)(nil)
 	_ ports.TLSInfoRepository                  = (*TLSInfoRepo)(nil)
+	_ ports.MonitorConditionRepository         = (*MonitorConditionRepo)(nil)
 	_ ports.UserPermissionRepository           = (*UserPermissionRepo)(nil)
 	_ ports.OIDCIdentityRepository             = (*OIDCIdentityRepo)(nil)
 	_ ports.ConfigKeyRepository                = (*ConfigKeyRepo)(nil)

@@ -55,7 +55,7 @@ func (DiscordSender) Send(ctx context.Context, config map[string]any, alert doma
 			return fmt.Errorf("discord: render body: %w", err)
 		}
 	}
-	if !custom && !isCertificateExpiry(alert) && alert.CheckOutput != "" {
+	if !custom && !isAuxiliaryAlert(alert) && alert.CheckOutput != "" {
 		desc += "\n" + alert.CheckOutput
 	}
 
@@ -159,6 +159,15 @@ func discordEmbedColor(config domain.DiscordTemplateConfig, alert domain.AlertCo
 	color := config.Colors.Maintenance
 	if isCertificateExpiry(alert) {
 		color = config.Colors.Certificate
+	} else if isCapacityCondition(alert) {
+		switch alert.ConditionState {
+		case domain.ConditionStateOK:
+			color = config.Colors.Up
+		case domain.ConditionStateError:
+			color = config.Colors.Down
+		default:
+			color = config.Colors.Pending
+		}
 	} else {
 		switch alert.Status {
 		case domain.StatusUp:

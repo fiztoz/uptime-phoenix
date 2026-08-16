@@ -31,6 +31,12 @@ export interface ConfigField {
    * showWhen.values (string compare). Used for auth sub-fields.
    */
   showWhen?: { key: string; values: string[] };
+  /** Inclusive lower bound for type "number" inputs. */
+  min?: number;
+  /** Inclusive upper bound for type "number" inputs. */
+  max?: number;
+  /** Step increment for type "number" inputs. */
+  step?: number;
 }
 
 /** High-level category for the create-monitor type picker (Kuma-style groups). */
@@ -585,6 +591,25 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
   database: {
     label: "Database",
     description: "Connect ping (Postgres, MySQL, MariaDB, Mongo, Redis, MSSQL)",
+    sections: [
+      {
+        id: "connection",
+        label: "Connection",
+        description: "Which engine to speak and how to connect.",
+      },
+      {
+        id: "health",
+        label: "Health check",
+        description:
+          "Presets only — connect ping, or a fixed SELECT 1 / PING. There is no query textbox.",
+      },
+      {
+        id: "capacity",
+        label: "Capacity alerts",
+        description:
+          "Optional checks that run after a successful connect. They use fixed server queries (never operator SQL). Thresholds and privilege errors become visible capacity conditions while availability stays UP. See the setup guide before enabling these in production.",
+      },
+    ],
     fields: [
       {
         key: "engine",
@@ -592,6 +617,7 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         type: "select",
         required: true,
         default: "postgres",
+        section: "connection",
         options: [
           { value: "postgres", label: "PostgreSQL" },
           { value: "mysql", label: "MySQL" },
@@ -609,6 +635,8 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         required: true,
         placeholder:
           "postgres://phoenix_monitor:…@host:5432/app?sslmode=require",
+        section: "connection",
+        fullWidth: true,
         help: "Use a dedicated read-only monitor user. Formats differ by engine — open the setup guide for examples.",
       },
       {
@@ -616,13 +644,70 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         label: "Health check",
         type: "select",
         default: "ping",
+        section: "health",
         options: [
           { value: "ping", label: "Connect + protocol ping only" },
           { value: "select_1", label: "Also run fixed SELECT 1 / PING" },
         ],
         help: "Presets only — no free-form SQL (avoids injection). SELECT 1 for SQL engines; PING for Redis/Mongo.",
       },
-      { key: "timeout", label: "Timeout (s)", type: "number", default: 10 },
+      {
+        key: "timeout",
+        label: "Timeout (s)",
+        type: "number",
+        default: 10,
+        section: "health",
+      },
+      {
+        key: "check_session_pool",
+        label: "Check session pool",
+        type: "checkbox",
+        default: false,
+        section: "capacity",
+        help: "After a successful connect, measure current vs max connections. Over-threshold becomes a warning chip after two samples; connectivity remains UP. Extra grants may be required — see the setup guide. Prefer a 30s+ interval.",
+      },
+      {
+        key: "session_pool_threshold",
+        label: "Session pool threshold (%)",
+        type: "number",
+        default: 80,
+        section: "capacity",
+        min: 1,
+        max: 100,
+        step: 1,
+        showWhen: { key: "check_session_pool", values: ["true"] },
+        help: "Percent of max connections. Alert when used/max ≥ this value (1–100).",
+      },
+      {
+        key: "check_storage",
+        label: "Check storage",
+        type: "checkbox",
+        default: false,
+        section: "capacity",
+        help: "After a successful connect, measure used storage via a fixed engine query (never operator SQL). Over-threshold becomes a warning chip after two samples; connectivity remains UP. Extra grants may be required — see the setup guide. Prefer a 30s+ interval.",
+      },
+      {
+        key: "storage_threshold",
+        label: "Storage threshold (%)",
+        type: "number",
+        default: 80,
+        section: "capacity",
+        min: 1,
+        max: 100,
+        step: 1,
+        showWhen: { key: "check_storage", values: ["true"] },
+        help: "Percent used. Alert when used/capacity ≥ this value (1–100).",
+      },
+      {
+        key: "storage_max_gb",
+        label: "Max size (GiB)",
+        type: "number",
+        section: "capacity",
+        min: 0.1,
+        step: 0.1,
+        showWhen: { key: "check_storage", values: ["true"] },
+        help: "Capacity in GiB used when the engine cannot report a total (typical PostgreSQL and MySQL). Optional if Mongo fsTotalSize, MariaDB DISKS, SQL Server file size, or Redis maxmemory is available. Redis storage check is memory (used_memory), not disk.",
+      },
     ],
   },
 };

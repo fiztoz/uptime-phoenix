@@ -14,10 +14,32 @@ func isCertificateExpiry(alert domain.AlertContext) bool {
 	return alert.EventKind == domain.AlertEventCertificateExpiry
 }
 
+func isCapacityCondition(alert domain.AlertContext) bool {
+	return alert.EventKind == domain.AlertEventCapacityCondition
+}
+
+func isAuxiliaryAlert(alert domain.AlertContext) bool {
+	return isCertificateExpiry(alert) || isCapacityCondition(alert)
+}
+
 // alertTitle returns a short title appropriate for the event kind.
 func alertTitle(alert domain.AlertContext) string {
 	if isCertificateExpiry(alert) {
 		return fmt.Sprintf("Certificate expiring: %s (%d days)", alert.MonitorName, alert.CertDaysRemaining)
+	}
+	if isCapacityCondition(alert) {
+		label := alert.ConditionResource
+		if label == "" {
+			label = alert.ConditionKind
+		}
+		switch alert.ConditionState {
+		case domain.ConditionStateOK:
+			return fmt.Sprintf("Capacity recovered: %s — %s", alert.MonitorName, label)
+		case domain.ConditionStateError:
+			return fmt.Sprintf("Capacity check error: %s — %s", alert.MonitorName, label)
+		default:
+			return fmt.Sprintf("Capacity warning: %s — %s", alert.MonitorName, label)
+		}
 	}
 	return fmt.Sprintf("%s is %s", alert.MonitorName, alert.Status)
 }
@@ -25,8 +47,8 @@ func alertTitle(alert domain.AlertContext) string {
 // alertTitleWithPrefix is like alertTitle but with a leading product prefix
 // (e.g. "Phoenix Alert: …").
 func alertTitleWithPrefix(prefix string, alert domain.AlertContext) string {
-	if isCertificateExpiry(alert) {
-		return fmt.Sprintf("%s Certificate expiring: %s (%d days)", prefix, alert.MonitorName, alert.CertDaysRemaining)
+	if isAuxiliaryAlert(alert) {
+		return strings.TrimSpace(prefix) + " " + alertTitle(alert)
 	}
 	return fmt.Sprintf("%s %s is %s", prefix, alert.MonitorName, alert.Status)
 }
@@ -34,6 +56,12 @@ func alertTitleWithPrefix(prefix string, alert domain.AlertContext) string {
 // alertBody expands the human-readable body. Certificate events include
 // threshold, days remaining, issuer, and NotAfter when present.
 func alertBody(alert domain.AlertContext) string {
+	if isCapacityCondition(alert) {
+		if alert.Message != "" {
+			return alert.Message
+		}
+		return fmt.Sprintf("%s condition is %s", alert.ConditionResource, alert.ConditionState)
+	}
 	if !isCertificateExpiry(alert) {
 		if alert.Message != "" {
 			return alert.Message
@@ -88,11 +116,53 @@ func webhookEventPayload(alert domain.AlertContext) map[string]any {
 		if alert.CertNotAfter != nil && !alert.CertNotAfter.IsZero() {
 			body["cert_not_after"] = alert.CertNotAfter.UTC().Format(time.RFC3339)
 		}
+	} else if isCapacityCondition(alert) {
+		body["condition"] = map[string]any{
+			"kind":           alert.ConditionKind,
+			"state":          alert.ConditionState,
+			"previous_state": alert.ConditionPreviousState,
+			"used":           alert.ConditionUsed,
+			"limit":          alert.ConditionLimit,
+			"percent":        alert.ConditionPercent,
+			"threshold":      alert.ConditionThreshold,
+			"unit":           alert.ConditionUnit,
+			"resource":       alert.ConditionResource,
+			"scope":          alert.ConditionScope,
+			"source":         alert.ConditionSource,
+			"observed_at":    alert.ConditionObservedAt,
+		}
+		body["severity"] = alert.ConditionState
 	} else {
 		body["severity"] = alert.Status.String()
 		body["status"] = alert.Status
 	}
 	return body
+}
+
+func alertEmoji(alert domain.AlertContext) string {
+	if isCertificateExpiry(alert) {
+		return "📜"
+	}
+	if isCapacityCondition(alert) {
+		switch alert.ConditionState {
+		case domain.ConditionStateOK:
+			return "✅"
+		case domain.ConditionStateError:
+			return "❌"
+		default:
+			return "⚠️"
+		}
+	}
+	switch alert.Status {
+	case domain.StatusDown:
+		return "🔴"
+	case domain.StatusMaintenance:
+		return "🔧"
+	case domain.StatusPending:
+		return "⏳"
+	default:
+		return "✅"
+	}
 }
 
 // renderCustomLayout expands the reusable template selected on a notification.

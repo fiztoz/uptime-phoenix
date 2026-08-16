@@ -11,7 +11,9 @@ ACL SETUSER phoenix_monitor on >CHANGE_ME_STRONG_PASSWORD ~* &* +ping +info +ech
 ACL SAVE
 ```
 
-Minimal commands for Uptime Phoenix health checks: **`+ping`** is enough (`health_check` ping or select_1 both use PING).
+Minimal commands for connectivity-only health checks: **`+ping`** (`health_check` ping or select_1 both use PING).
+
+Optional session-pool and memory checks (`check_session_pool` / `check_storage`) require **`+info`**. Without it those measurements become a condition `error` after two samples; the primary PING stays UP (they are never silently skipped).
 
 Uptime Phoenix connection string:
 

@@ -304,6 +304,13 @@
     fields: ConfigField[];
   }
 
+  /** Extra-privilege warning for optional session-pool / storage checks. */
+  let showDatabaseCapacityWarning = $derived(
+    selectedType === "database" &&
+      (String(getFieldValue("check_session_pool")) === "true" ||
+        String(getFieldValue("check_storage")) === "true"),
+  );
+
   let visibleFieldSections = $derived.by((): VisibleFieldSection[] => {
     const meta = monitorTypeConfig[selectedType];
     if (!meta) return [];
@@ -417,11 +424,34 @@
       }
     }
 
+    if (selectedType === "database") {
+      for (const key of ["session_pool_threshold", "storage_threshold"]) {
+        const field = cfg?.fields.find((f) => f.key === key);
+        if (!field || !isFieldVisible(field)) continue;
+        const raw = formData.config[key];
+        if (raw === undefined || raw === null || String(raw).trim() === "") {
+          continue;
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 1 || n > 100) {
+          toast.error(m.monitor_form_percent_range({ label: field.label }));
+          return;
+        }
+      }
+    }
+
     loading = true;
     try {
       // accepted_statuscodes is a top-level backend field, not part of config.
       const config: Record<string, unknown> = { ...formData.config };
       delete config.accepted_statuscodes;
+      if (selectedType === "database") {
+        const maxGb = Number(config.storage_max_gb);
+        if (!Number.isFinite(maxGb) || maxGb <= 0) {
+          delete config.storage_max_gb;
+        }
+        delete config.capacity_check_interval;
+      }
       if (selectedType === "http") {
         config.url = normalizeHttpUrl(config.url);
         formData.config = { ...formData.config, url: config.url };
@@ -787,6 +817,45 @@
                 </div>
               </div>
             </div>
+            {#if showDatabaseCapacityWarning}
+              <div
+                class="mb-4 rounded-lg border border-warning/40 bg-warning/10 px-3 py-3 text-sm"
+                role="note"
+              >
+                <div class="flex gap-2">
+                  <AlertTriangle
+                    class="mt-0.5 h-4 w-4 shrink-0 text-warning"
+                    aria-hidden="true"
+                  />
+                  <div class="min-w-0 space-y-2">
+                    <p class="font-medium text-foreground">
+                      {m.database_monitor_capacity_warning_title()}
+                    </p>
+                    <p class="text-xs leading-relaxed text-muted-foreground">
+                      {m.database_monitor_capacity_warning_body()}
+                    </p>
+                    <div class="flex flex-wrap gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        onclick={() => (databaseGuideOpen = true)}
+                        class="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                      >
+                        <BookOpen class="h-3.5 w-3.5" />
+                        {m.database_monitor_help_view_guide()}
+                      </button>
+                      <button
+                        type="button"
+                        onclick={downloadDatabaseGuide}
+                        class="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                      >
+                        <Download class="h-3.5 w-3.5" />
+                        {m.database_monitor_help_download_guide()}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            {/if}
           {/if}
 
           {#if selectedType === "rabbitmq"}
@@ -923,6 +992,9 @@
                             id="cfg-{field.key}"
                             type="number"
                             value={getFieldValue(field.key) as number}
+                            min={field.min}
+                            max={field.max}
+                            step={field.step}
                             oninput={(e) =>
                               updateConfigField(
                                 field.key,

@@ -4,15 +4,25 @@
 	import Sparkline from './charts/Sparkline.svelte';
 	import { sparklinePoints } from '$lib/utils/chart.js';
 	import { ArrowUpRight } from '@lucide/svelte';
+	import type { MonitorCondition } from '$lib/api/conditions';
+	import ConditionChip from './ConditionChip.svelte';
 	import * as m from '$lib/paraglide/messages.js';
 
 	interface Props {
 		monitor: Monitor;
 		heartbeat?: Heartbeat;
 		heartbeatHistory?: Heartbeat[];
+		conditions?: MonitorCondition[];
+		conditionNow?: number;
 	}
 
-	let { monitor, heartbeat, heartbeatHistory = [] }: Props = $props();
+	let {
+		monitor,
+		heartbeat,
+		heartbeatHistory = [],
+		conditions = [],
+		conditionNow = Date.now(),
+	}: Props = $props();
 
 	/** Transform heartbeats into sparkline data points. */
 	const sparklineData = $derived(sparklinePoints(heartbeatHistory));
@@ -46,6 +56,14 @@
 		<StatusPill status={monitor.status} />
 	</div>
 
+	{#if conditions.length > 0}
+		<div class="mt-3 flex flex-wrap gap-1.5">
+			{#each conditions as condition (`${condition.monitor_id}:${condition.kind}`)}
+				<ConditionChip {condition} now={conditionNow} compact />
+			{/each}
+		</div>
+	{/if}
+
 	<!-- Metric + sparkline -->
 	<div class="mt-5 grid grid-cols-[auto_minmax(7rem,1fr)] items-end gap-5">
 		<div class="min-w-[5.25rem]">
@@ -63,7 +81,9 @@
 				<Sparkline data={sparklineData} width="100%" height={40} />
 			</div>
 		{:else}
-			<div class="flex h-12 items-center justify-center rounded-md border border-dashed border-border/70 text-[11px] text-faint">
+			<div
+				class="flex h-12 items-center justify-center rounded-md border border-dashed border-border/70 text-[11px] text-faint"
+			>
 				{m.monitor_card_no_history()}
 			</div>
 		{/if}

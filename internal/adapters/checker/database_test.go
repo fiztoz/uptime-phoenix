@@ -97,6 +97,123 @@ func TestDatabaseChecker_Validate(t *testing.T) {
 			config:  map[string]any{"engine": "postgres", "connection_string": "x", "health_check": "DROP TABLE users"},
 			wantErr: true,
 		},
+		{
+			name: "valid with capacity keys",
+			config: map[string]any{
+				"engine":                 "postgres",
+				"connection_string":      "x",
+				"check_session_pool":     true,
+				"session_pool_threshold": 75.0,
+				"check_storage":          true,
+				"storage_threshold":      90.0,
+				"storage_max_gb":         10.0,
+			},
+			wantErr: false,
+		},
+		{
+			name: "threshold 0 with check enabled is invalid",
+			config: map[string]any{
+				"engine":                 "postgres",
+				"connection_string":      "x",
+				"check_session_pool":     true,
+				"session_pool_threshold": 0.0,
+				"check_storage":          true,
+				"storage_threshold":      0.0,
+			},
+			wantErr: true,
+		},
+		{
+			name: "session_pool_threshold 101",
+			config: map[string]any{
+				"engine":                 "postgres",
+				"connection_string":      "x",
+				"session_pool_threshold": 101.0,
+			},
+			wantErr: true,
+		},
+		{
+			name: "storage_threshold 101",
+			config: map[string]any{
+				"engine":            "postgres",
+				"connection_string": "x",
+				"storage_threshold": 101.0,
+			},
+			wantErr: true,
+		},
+		{
+			name: "session_pool_threshold -1",
+			config: map[string]any{
+				"engine":                 "postgres",
+				"connection_string":      "x",
+				"session_pool_threshold": -1.0,
+			},
+			wantErr: true,
+		},
+		{
+			name: "storage_threshold -1",
+			config: map[string]any{
+				"engine":            "postgres",
+				"connection_string": "x",
+				"storage_threshold": -1.0,
+			},
+			wantErr: true,
+		},
+		{
+			name: "storage_max_gb 0",
+			config: map[string]any{
+				"engine":            "postgres",
+				"connection_string": "x",
+				"storage_max_gb":    0.0,
+			},
+			wantErr: true,
+		},
+		{
+			name: "storage_max_gb 10 OK",
+			config: map[string]any{
+				"engine":            "postgres",
+				"connection_string": "x",
+				"storage_max_gb":    10.0,
+			},
+			wantErr: false,
+		},
+		{
+			name: "unparseable session_pool_threshold",
+			config: map[string]any{
+				"engine":                 "postgres",
+				"connection_string":      "x",
+				"session_pool_threshold": "high",
+			},
+			wantErr: true,
+		},
+		{
+			name: "unparseable storage_max_gb",
+			config: map[string]any{
+				"engine":            "postgres",
+				"connection_string": "x",
+				"storage_max_gb":    "lots",
+			},
+			wantErr: true,
+		},
+		{
+			name: "numeric strings accepted",
+			config: map[string]any{
+				"engine":                 "postgres",
+				"connection_string":      "x",
+				"check_session_pool":     "true",
+				"session_pool_threshold": "80",
+				"storage_max_gb":         "20",
+			},
+			wantErr: false,
+		},
+		{
+			name: "check_storage without storage_max_gb is OK at Validate",
+			config: map[string]any{
+				"engine":            "postgres",
+				"connection_string": "x",
+				"check_storage":     true,
+			},
+			wantErr: false,
+		},
 	}
 
 	// Ensure free-form operator SQL is never accepted as a config field that

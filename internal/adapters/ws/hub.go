@@ -223,7 +223,7 @@ func (h *Hub) waitReady(timeout time.Duration) bool {
 // queries here while heartbeats queued behind them and were dropped at the bus
 // buffer. That is R3.6. Stats recomputes now go to statsWorker instead.
 //
-// The four event types stay in ONE goroutine on purpose: heartbeat and
+// The event types stay in ONE goroutine on purpose: heartbeat and
 // status.change for the same monitor must not be reordered relative to each
 // other, or the dashboard can render a stale status after a fresh heartbeat.
 // Serializing fan-out is cheap; it was never the bottleneck.
@@ -232,6 +232,8 @@ func (h *Hub) listen() {
 	statusCh := h.bus.Subscribe(EventStatusChange)
 	monitorCh := h.bus.Subscribe(EventMonitorUpdate)
 	monitorDelCh := h.bus.Subscribe(EventMonitorDelete)
+	conditionCh := h.bus.Subscribe(EventConditionUpdate)
+	conditionDeleteCh := h.bus.Subscribe(EventConditionDelete)
 	close(h.ready)
 
 	for {
@@ -256,6 +258,10 @@ func (h *Hub) listen() {
 			h.invalidateVisibility()
 			h.broadcast(ev)
 			h.requestStatsUpdate()
+		case ev := <-conditionCh:
+			h.broadcast(ev)
+		case ev := <-conditionDeleteCh:
+			h.broadcast(ev)
 		}
 	}
 }
@@ -520,6 +526,15 @@ func monitorIDForEvent(event ports.Event) (int64, bool) {
 		return p.MonitorID, p.MonitorID > 0
 	case *domain.Monitor:
 		return p.ID, p.ID > 0
+	case *domain.MonitorCondition:
+		return p.MonitorID, p.MonitorID > 0
+	case domain.ConditionDelete:
+		return p.MonitorID, p.MonitorID > 0
+	case *domain.ConditionDelete:
+		if p == nil {
+			return 0, false
+		}
+		return p.MonitorID, p.MonitorID > 0
 	case MonitorView:
 		return p.ID, p.ID > 0
 	case int64: // monitor.delete publishes the bare id

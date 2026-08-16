@@ -188,7 +188,8 @@ phoenix/
 │       │   ├── rabbitmq.go            # github.com/rabbitmq/amqp091-go
 │       │   ├── grpc.go                # google.golang.org/grpc health
 │       │   ├── snmp.go                # gosnmp/gosnmp
-│       │   ├── database.go            # postgres/mysql/mariadb/mssql/mongo/redis; ping + select_1 presets
+│       │   ├── database.go            # postgres/mysql/mariadb/mssql/mongo/redis; ping + select_1; optional session/storage thresholds
+│       │   ├── database_capacity.go   # session-pool / storage queries (fixed SQL) + threshold math
 │       │   └── registry.go            # auto-registers all checkers
 │       ├── notifier/                  # Secondary — 11 notification providers
 │       │   ├── telegram.go
@@ -346,6 +347,39 @@ type Heartbeat struct {
 ```
 
 ```go
+// internal/core/domain/monitor_condition.go
+package domain
+
+type ConditionState string // ok, warning, error; stale is derived from freshness
+
+type ConditionObservation struct {
+    Kind       string       // session_pool or storage
+    State      ConditionState
+    Used       *float64     // nil means no measurement; zero remains meaningful
+    Limit      *float64
+    Percent    *float64
+    Threshold  *float64
+    Unit       string       // connections or bytes
+    Resource   string       // engine-specific semantic label
+    Scope      string
+    Source     string
+    Message    string
+    ObservedAt time.Time
+    StaleAfter time.Time
+}
+
+type MonitorCondition struct {
+    MonitorID int64
+    ConditionObservation
+    LastSuccessAt     *time.Time
+    ConsecutiveState  ConditionState
+    ConsecutiveCount  int
+    LastNotifiedState ConditionState
+    LastNotifiedAt    *time.Time
+}
+```
+
+```go
 // internal/core/domain/notification.go
 package domain
 
@@ -390,6 +424,11 @@ type AlertContext struct {
     StartedAt      time.Time
     CheckOutput    string
     Tags           map[string]string
+    EventKind      string         // status_change, certificate_expiry, capacity_condition
+    ConditionKind  string
+    ConditionState ConditionState
+    // ConditionUsed/Limit/Percent/Threshold + unit/resource/scope/source/observed_at
+    // are populated only for capacity_condition.
 }
 ```
 
@@ -450,6 +489,15 @@ type HeartbeatRepository interface {
     GetAggregate1d(ctx context.Context, monitorID int64, from time.Time) ([]*Aggregate1d, error)
 }
 
+type MonitorConditionRepository interface {
+    Upsert(ctx context.Context, condition *domain.MonitorCondition) error
+    Get(ctx context.Context, monitorID int64, kind string) (*domain.MonitorCondition, error)
+    ListAll(ctx context.Context) ([]*domain.MonitorCondition, error)
+    ListByMonitorIDs(ctx context.Context, monitorIDs []int64) ([]*domain.MonitorCondition, error)
+    DeleteKind(ctx context.Context, monitorID int64, kind string) error
+    DeleteByMonitor(ctx context.Context, monitorID int64) error
+}
+
 // Similar interfaces for: NotificationRepository, StatusPageRepository,
 // TagRepository, MaintenanceRepository, APIKeyRepository, IncidentRepository,
 // UserRepository, SettingRepository, ProxyRepository, DockerHostRepository,
@@ -463,10 +511,12 @@ package ports
 import "context"
 
 type CheckResult struct {
-    Status    domain.Status
-    LatencyMs int64
-    Message   string
-    Metadata  map[string]string  // e.g. {"tls_days_remaining": "45"}
+    Status     domain.Status
+    LatencyMs  int64 // primary connect/ping/select latency
+    DurationMs int64 // complete check, including optional auxiliary queries
+    Message    string
+    Metadata   map[string]string  // e.g. {"tls_days_remaining": "45"}
+    Conditions []domain.ConditionObservation
 }
 
 type Checker interface {
@@ -540,9 +590,8 @@ type TwoFactor interface {
 - **JSON columns** for per-type monitor config and per-provider notification config (MariaDB `JSON` type; SQLite stores as TEXT).
 - **Partitioning** by RANGE on `time` for the `heartbeats` table (monthly partitions).
 - **Migrations** via `bun/migrate` — versioned `.sql` files, embedded in binary.
-  Lockstep engines through `014_status_page_email_subscriptions` (Sprint C also
-  adds `013_alerting_maintenance_timezone`: `monitors.cert_expiry_notify`,
-  `maintenance_windows.timezone`).
+  MariaDB and SQLite stay lockstep through `029_monitor_conditions`; every
+  schema change has matching up/down files for both adapters.
 
 ### Core Tables
 
@@ -618,6 +667,32 @@ CREATE TABLE heartbeats (
     PARTITION p202611 VALUES LESS THAN (UNIX_TIMESTAMP('2026-12-01 00:00:00')),
     PARTITION p202612 VALUES LESS THAN (UNIX_TIMESTAMP('2027-01-01 00:00:00')),
     PARTITION pmax    VALUES LESS THAN MAXVALUE
+);
+
+-- latest auxiliary state, not heartbeat history (migration 029)
+CREATE TABLE monitor_conditions (
+    monitor_id           BIGINT NOT NULL,
+    kind                 VARCHAR(32) NOT NULL,
+    state                VARCHAR(16) NOT NULL,
+    used_value           DOUBLE,
+    limit_value          DOUBLE,
+    percent_value        DOUBLE,
+    threshold_value      DOUBLE,
+    unit                 VARCHAR(24) NOT NULL DEFAULT '',
+    resource             VARCHAR(32) NOT NULL DEFAULT '',
+    scope                VARCHAR(32) NOT NULL DEFAULT '',
+    source               VARCHAR(160) NOT NULL DEFAULT '',
+    message              TEXT NOT NULL,
+    observed_at          DATETIME(6) NOT NULL,
+    stale_after          DATETIME(6) NOT NULL,
+    last_success_at      DATETIME(6),
+    consecutive_state    VARCHAR(16) NOT NULL DEFAULT '',
+    consecutive_count    INT NOT NULL DEFAULT 0,
+    last_notified_state  VARCHAR(16) NOT NULL DEFAULT '',
+    last_notified_at     DATETIME(6),
+    PRIMARY KEY (monitor_id, kind),
+    FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE,
+    INDEX idx_monitor_conditions_state (state, stale_after)
 );
 
 -- Aggregate rollup tables (same structure for 1m, 1h, 1d)
@@ -933,7 +1008,7 @@ func init() {
 | `rabbitmq` | `github.com/rabbitmq/amqp091-go` | `url` (aliases: `connection_string`, `dsn`), optional `queue`, `exchange`, `exchange_type` | AMQP 0-9-1 only; opens a channel; queue/exchange checks use passive declare; use least-privilege RabbitMQ user |
 | `grpc` | `google.golang.org/grpc` + `health/v1` | `url`, `service_name`, `tls` | Use `grpc.WithBlock()` + context deadline |
 | `snmp` | `gosnmp/gosnmp` | `hostname`, `oid`, `version`, `community` | Pure Go, no CGO; SNMPv3 needs extra fields |
-| `database` | `pgx` / `mysql` / `go-mssqldb` / `mongo-driver/v2` / `go-redis/v9` | `engine`, `connection_string` (alias `dsn`), `health_check` (`ping`\|`select_1`) | Engines: postgres, mysql, mariadb, mssql, mongodb, redis. Fixed presets only — no free-form SQL. See `docs/guides/database-monitor-setup.md` |
+| `database` | `pgx` / `mysql` / `go-mssqldb` / `mongo-driver/v2` / `go-redis/v9` | `engine`, `connection_string` (alias `dsn`), `health_check` (`ping`\|`select_1`), `check_session_pool`, `session_pool_threshold`, `check_storage`, `storage_threshold`, `storage_max_gb` | Engines: postgres, mysql, mariadb, mssql, mongodb, redis. Fixed presets only — no free-form SQL. Primary connect/ping/select drives UP/DOWN. Optional capacity queries run on the same cadence as the primary probe and emit persisted `ok`/`warning`/`error` conditions and derived `stale` without changing availability. Extra grants may be required. Setup: `docs/guides/database-monitor-setup.md`; semantics: `docs/guides/database-capacity-presentation.md`. |
 
 ### Example: HTTP Checker
 
@@ -1321,6 +1396,8 @@ func (h *Hub) broadcast(event ports.Event) {
 |---|---|---|
 | `heartbeat` | `{monitor_id, status, time, ping, msg}` | Every monitor check completes |
 | `status.change` | `{monitor_id, old_status, new_status, duration}` | Monitor transitions UP↔DOWN |
+| `condition.update` | `{monitor_id, kind, state, used, limit, percent, threshold, unit, resource, scope, source, message, observed_at, stale_after}` | Latest auxiliary condition is persisted or its notification cursor changes |
+| `condition.delete` | `{monitor_id, kind}` | A capacity check is disabled and live clients must remove its latest condition |
 | `monitor.update` | `{monitor}` | Monitor config changed via CRUD |
 | `monitor.list` | `{monitors: [...]}` | Initial rehydration on WS connect |
 | `incident.create` | `{incident}` | New incident on status page |
@@ -1602,6 +1679,43 @@ export const handle: Handle = async ({ event, resolve }) => {
 - `AlertContext.EventKind = certificate_expiry` so all 11 notifiers render
   cert-specific copy (webhook payload includes event kind + cert fields).
 
+### Database capacity conditions
+
+- Primary availability stays four-state: DOWN / UP / PENDING / MAINTENANCE.
+  Connect/auth/ping/fixed `SELECT 1` decide it. Capacity never introduces a
+  fifth heartbeat status.
+- Optional fixed engine queries emit typed `session_pool` and `storage`
+  observations only after the primary probe succeeds. Query or privilege
+  failures become condition `error`, never a silent skip and never fake DOWN.
+- `MonitorConditionService` persists the latest state in migration `029`.
+  `state` is the confirmed/stable value; `consecutive_state`/`count` is the
+  candidate. Warning/error/recovery promote after two consecutive candidate
+  samples. Recovery hysteresis is evaluated against the stable warning state
+  (an 80% warning stays latched until two samples below 75%). The first-ever
+  warning/error is unconfirmed until the second sample. Capacity queries run
+  on every primary check. The UI derives `stale` after three monitor intervals
+  (minimum three minutes).
+- `CheckResult.LatencyMs` ends after primary ping/select;
+  `CheckResult.DurationMs` includes capacity queries. Heartbeat `ping` and
+  `duration` therefore retain distinct meanings.
+- `AlertContext.EventKind = capacity_condition`. All 11 providers render
+  warning/error/recovery copy; webhook and reusable templates expose
+  `condition.kind`, `condition.state`, `condition.previous_state`, measurements,
+  semantic labels, source, and observation time.
+- Maintenance suppresses delivery without advancing the cursor. Two normal
+  samples emit recovery. One coarse per-condition delivery cursor is persisted;
+  a per-channel ledger is a documented follow-up.
+- `GET /api/monitor-conditions` and `condition.update` / `condition.delete`
+  frames are scoped through
+  `AccessService`. REST/WS use explicit snake-case views and never expose
+  lifecycle cursor fields.
+- Capacity chips feed dashboard Needs attention and monitor detail only.
+  Confirmed warning/error/stale conditions count as attention on active
+  monitors; paused and maintenance monitors do not. Availability Insights,
+  uptime/SLA, badges, folders, and public status pages remain
+  reachability-only. Unconfirmed first-ever warning/error rows stay off
+  REST and WebSocket until the second sample.
+
 ### Maintenance timezone (Sprint C)
 
 - `MaintenanceWindow.Timezone` is an IANA name (default/empty → UTC).
@@ -1699,7 +1813,7 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
         Time:      s.clock.Now(),
         Msg:       result.Message,
         Ping:      int(result.LatencyMs),
-        Duration:  int(result.LatencyMs),
+        Duration:  int(result.DurationMs),
     }
 
     // 1. Save heartbeat
@@ -1729,9 +1843,19 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
         s.tlsInfoRepo.Save(ctx, monitor.ID, result.Metadata)
     }
 
+    // 6. Persist and evaluate auxiliary conditions independently. This does
+    // not rewrite hb.Status and failures never suppress the saved heartbeat.
+    s.conditionSvc.OnCheck(ctx, monitor, result.Conditions)
+
     return nil
 }
 ```
+
+The real service fetches the previous heartbeat before saving (with the
+deterministic `time DESC, id DESC` tie-break), applies retry/PENDING semantics,
+then runs TLS and condition side channels in the owning worker. Status-change
+notifications and condition notifications therefore cannot be duplicated by
+Redis EventBus fan-out.
 
 ### Aggregate Rollup
 

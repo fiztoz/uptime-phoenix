@@ -34,10 +34,10 @@ func (SlackSender) Send(ctx context.Context, config map[string]any, alert domain
 	}
 
 	var emoji, fallback, sectionText string
-	if isCertificateExpiry(alert) {
-		emoji = ":scroll:"
+	if isAuxiliaryAlert(alert) {
+		emoji = alertEmoji(alert)
 		fallback = alertTitle(alert)
-		sectionText = fmt.Sprintf("*Event:* certificate_expiry\n*Message:* %s\n*Target:* %s", alertBody(alert), alert.MonitorTarget)
+		sectionText = fmt.Sprintf("*Event:* %s\n*Message:* %s\n*Target:* %s", alert.EventKind, alertBody(alert), alert.MonitorTarget)
 	} else {
 		emoji = ":white_check_mark:"
 		switch alert.Status {

@@ -559,6 +559,24 @@ go test -v ./internal/adapters/checker/...  # Checker tests pass
 go build ./...                              # Everything compiles
 ```
 
+Database capacity conditions (`check_session_pool` / `check_storage`) must test
+effects, not only messages/status codes:
+
+- `Validate` accepts only `ping` / `select_1`; no operator SQL is executed.
+- Primary connect/ping/select failure is DOWN and emits no speculative capacity row.
+- Over-threshold stays heartbeat UP and emits typed condition `warning` only after two consecutive samples.
+- A `74%` then `77%` sequence after an 80% warning must **not** recover (hysteresis uses the stable state).
+- Query/privilege failure stays heartbeat UP and emits condition `error` (never a silent skip).
+- `LatencyMs` stops after the primary probe; `DurationMs` includes auxiliary queries.
+- Capacity queries run on every primary check. Recommend a 30s+ monitor interval on busy engines.
+- Warning/error and recovery require two consecutive samples; recovery also crosses the 5-point hysteresis boundary.
+- The first warning/error sample stays unconfirmed (`state` empty): no chip, no REST row, no notify.
+- Typed `condition.delete` must reach a memory-bus WebSocket client; REST snapshots must not overwrite newer live updates.
+- Paused and maintenance monitors do not enter Needs attention merely because an unsampled condition becomes stale.
+- Maintenance suppresses send without marking delivered; an all-channel failure remains retryable.
+- Repository/API/WS tests assert UTC freshness, RBAC filtering, snake-case views, cursor secrecy, and stale derivation.
+- Availability Insights, uptime, folders, badges, and public status are unchanged by a capacity warning.
+
 ### If you changed `internal/adapters/http/handlers/`:
 ```bash
 go test -v ./internal/adapters/http/...     # Handler tests pass

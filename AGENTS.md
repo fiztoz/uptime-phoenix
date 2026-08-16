@@ -177,6 +177,10 @@ http, tcp, ping, dns, websocket, push, docker, mqtt, rabbitmq, grpc, snmp, datab
 
 **Database monitor engines (user-approved):** postgres, mysql, mariadb, mongodb, redis, mssql.
 Health checks use fixed presets only (`ping` / `select_1`) — never free-form operator SQL.
+Optional session-pool (`check_session_pool`) and storage (`check_storage`) checks also use
+fixed engine queries only. Over-threshold is a typed capacity `warning`; missing privilege is
+condition `error`; both keep primary availability UP and are never silently skipped. Warning,
+error, and recovery promote after two consecutive samples. Capacity never becomes heartbeat DOWN.
 
 **Explicitly excluded (do NOT add):** systemd (deferred until Uptime Phoenix agent), gamedig, tailscale, kafka, radius.
 

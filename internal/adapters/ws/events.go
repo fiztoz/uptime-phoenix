@@ -5,6 +5,8 @@ package ws
 const (
 	EventHeartbeat       = "heartbeat"
 	EventStatusChange    = "status.change"
+	EventConditionUpdate = "condition.update"
+	EventConditionDelete = "condition.delete"
 	EventMonitorUpdate   = "monitor.update"
 	EventMonitorDelete   = "monitor.delete"
 	EventMonitorList     = "monitor.list"

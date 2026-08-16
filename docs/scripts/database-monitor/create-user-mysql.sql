@@ -16,6 +16,16 @@ GRANT SELECT ON `appdb`.* TO 'phoenix_monitor'@'%';
 
 FLUSH PRIVILEGES;
 
+-- Optional: session-pool + storage capacity checks (check_session_pool / check_storage).
+-- Missing optional data becomes a condition error after two samples; the primary
+-- connect/SELECT 1 stays UP (never silently skipped, never fake downtime).
+-- Sessions: performance_schema.global_status / SHOW GLOBAL STATUS (usually works).
+-- Storage: information_schema.tables (data_length + index_length) plus operator-set storage_max_gb.
+--
+-- MariaDB only — optional volume-level storage via the DISKS plugin (FILE privilege):
+-- INSTALL SONAME 'disks';
+-- GRANT FILE ON *.* TO 'phoenix_monitor'@'%';
+
 -- Verify:
 -- mysql -h HOST -u phoenix_monitor -p -e 'SELECT 1'
 

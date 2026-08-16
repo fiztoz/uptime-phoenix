@@ -178,9 +178,10 @@ func TestHeartbeatService_Record_SavesHeartbeat(t *testing.T) {
 
 	monitor := &domain.Monitor{ID: 1, Name: "test", Type: "http"}
 	result := ports.CheckResult{
-		Status:    domain.StatusUp,
-		LatencyMs: 42,
-		Message:   "OK",
+		Status:     domain.StatusUp,
+		LatencyMs:  42,
+		DurationMs: 87,
+		Message:    "OK",
 	}
 
 	err := svc.Record(context.Background(), monitor, result)
@@ -201,6 +202,9 @@ func TestHeartbeatService_Record_SavesHeartbeat(t *testing.T) {
 	}
 	if latest.Ping != 42 {
 		t.Errorf("heartbeat ping = %d; want 42", latest.Ping)
+	}
+	if latest.Duration != 87 {
+		t.Errorf("heartbeat duration = %d; want 87", latest.Duration)
 	}
 	if latest.Msg != "OK" {
 		t.Errorf("heartbeat msg = %q; want OK", latest.Msg)

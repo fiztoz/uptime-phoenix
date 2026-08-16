@@ -6,6 +6,7 @@
   } from "$lib/stores/ws.svelte.js";
   import { heartbeatsApi, type Heartbeat } from "$lib/api/heartbeats.js";
   import { statsApi, type MonitorStats } from "$lib/api/stats.js";
+  import { conditionsApi, type MonitorCondition } from "$lib/api/conditions";
   import { notificationsApi } from "$lib/api/notifications";
   import { tagsApi, type MonitorTag, type Tag } from "$lib/api/tags";
   import StatusPill from "$lib/components/StatusPill.svelte";
@@ -15,6 +16,7 @@
   } from "$lib/components/ResponseTimeChart.svelte";
   import StatusHistoryTable from "$lib/components/StatusHistoryTable.svelte";
   import RecentCheckBar from "$lib/components/RecentCheckBar.svelte";
+  import MonitorConditions from "$lib/components/MonitorConditions.svelte";
   import MonitorForm from "$lib/components/MonitorForm.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import Skeleton from "$lib/components/Skeleton.svelte";
@@ -72,6 +74,7 @@
   let timelineHeartbeats = $state<Heartbeat[]>([]);
   let statusHistory = $state<Heartbeat[]>([]);
   let stats = $state<MonitorStats | null>(null);
+  let conditionClock = $state(Date.now());
   let chartHours = $state(24);
   let chartLoading = $state(false);
   let chartRequestGeneration = 0;
@@ -97,6 +100,18 @@
   );
   /** Source at first successful load — unchanged when WS hydrates later. */
   let initialDataSource = $state<"api" | "ws" | null>(null);
+
+  let monitorConditions = $derived.by((): MonitorCondition[] => {
+    void realtime.conditionSeq;
+    return [...realtime.conditions.values()]
+      .filter((condition) => condition.monitor_id === monitorId)
+      .sort((a, b) => a.kind.localeCompare(b.kind));
+  });
+
+  $effect(() => {
+    const timer = setInterval(() => (conditionClock = Date.now()), 30_000);
+    return () => clearInterval(timer);
+  });
 
   $effect(() => {
     if (monitorId) {
@@ -286,7 +301,8 @@
     loading = true;
     loadError = null;
     try {
-      const [monitorData, statsData, history, chart, timeline] =
+      const snapshotAt = realtime.beginConditionSnapshot();
+      const [monitorData, statsData, history, chart, timeline, conditions] =
         await Promise.all([
           monitorsApi.get(monitorId),
           statsApi.get(monitorId).catch(() => null),
@@ -302,12 +318,14 @@
           heartbeatsApi
             .listOptions(monitorId, { hours: 24, limit: 60, order: "asc" })
             .catch(() => []),
+          conditionsApi.list(monitorId).catch(() => null),
         ]);
 
       stats = statsData;
       statusHistory = history;
       chartData = chart;
       timelineHeartbeats = timeline;
+      realtime.applyConditionSnapshot(conditions, snapshotAt, monitorId);
 
       const latestHistory = history[0];
       const liveHb = realtime.heartbeats.get(monitorId);
@@ -702,10 +720,12 @@
         {#if monitor.effective_owner || monitor.owner}
           <p class="mt-1 text-sm text-muted-foreground">
             {m.monitor_detail_page_owner({
-              owner: monitor.effective_owner || monitor.owner || '',
+              owner: monitor.effective_owner || monitor.owner || "",
             })}
             {#if monitor.inherit_group_owner}
-              <span class="text-faint"> · {m.monitor_detail_page_owner_inherited()}</span>
+              <span class="text-faint">
+                · {m.monitor_detail_page_owner_inherited()}</span
+              >
             {/if}
           </p>
         {/if}
@@ -822,6 +842,8 @@
         />
       {/if}
     </div>
+
+    <MonitorConditions conditions={monitorConditions} now={conditionClock} />
 
     <!-- Response time chart -->
     <ResponseTimeChart

@@ -70,10 +70,10 @@ func (SMTPSender) Send(ctx context.Context, config map[string]any, alert domain.
 	}
 
 	var subject, body string
-	if isCertificateExpiry(alert) {
+	if isAuxiliaryAlert(alert) {
 		subject = alertTitleWithPrefix("Phoenix Alert:", alert)
-		body = fmt.Sprintf("Monitor: %s\nType: %s\nTarget: %s\nEvent: certificate_expiry\n%s\nTime: %s\n",
-			alert.MonitorName, alert.MonitorType, alert.MonitorTarget, alertBody(alert),
+		body = fmt.Sprintf("Monitor: %s\nType: %s\nTarget: %s\nEvent: %s\n%s\nTime: %s\n",
+			alert.MonitorName, alert.MonitorType, alert.MonitorTarget, alert.EventKind, alertBody(alert),
 			time.Now().Format(time.RFC3339))
 	} else {
 		subject = fmt.Sprintf("Phoenix Alert: %s is %s", alert.MonitorName, alert.Status)

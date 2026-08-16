@@ -35,5 +35,14 @@ GRANT USAGE ON SCHEMA public TO phoenix_monitor;
 -- Verify: should return 1
 -- SET ROLE phoenix_monitor; SELECT 1;
 
+-- Optional: session-pool + storage capacity checks (check_session_pool / check_storage).
+-- Missing optional data becomes a condition error after two samples; the primary
+-- connect/SELECT 1 stays UP (never silently skipped, never fake downtime).
+-- Sessions: pg_stat_database (usually readable by PUBLIC) + current_setting('max_connections').
+-- Storage: pg_database_size(current_database()) — CONNECT is enough — plus operator-set
+-- storage_max_gb (GiB). Phoenix does not query host disk (no pg_stat_file / superuser APIs).
+-- Optional, only if you later want pg_stat_activity detail (NOT required by Phoenix):
+-- GRANT pg_monitor TO phoenix_monitor;
+
 -- Phoenix connection string example:
 -- postgres://phoenix_monitor:CHANGE_ME_STRONG_PASSWORD@HOST:5432/appdb?sslmode=require

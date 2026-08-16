@@ -699,7 +699,7 @@ rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground
 </div>
 ```
 
-**Needs attention section** (dashboard — collapsible list of down and pending monitors):
+**Needs attention section** (dashboard — collapsible list of down, pending, and active monitors with a confirmed capacity warning/error/stale condition; paused and maintenance stay out):
 ```svelte
 <section class="space-y-3">
   <h2>

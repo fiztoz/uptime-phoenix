@@ -35,8 +35,11 @@ func (GotifySender) Send(ctx context.Context, config map[string]any, alert domai
 	token, _ := config["app_token"].(string)
 	priority := 5
 	var title, message string
-	if isCertificateExpiry(alert) {
+	if isAuxiliaryAlert(alert) {
 		priority = 8
+		if isCapacityCondition(alert) && alert.ConditionState == domain.ConditionStateOK {
+			priority = 0
+		}
 		title = alertTitleWithPrefix("Phoenix:", alert)
 		message = alertBody(alert)
 	} else {

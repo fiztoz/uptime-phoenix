@@ -42,6 +42,15 @@ func (MattermostSender) Send(ctx context.Context, config map[string]any, alert d
 	text := alertBody(alert)
 	if isCertificateExpiry(alert) {
 		color = "#FFA500"
+	} else if isCapacityCondition(alert) {
+		switch alert.ConditionState {
+		case domain.ConditionStateOK:
+			color = "#00FF00"
+		case domain.ConditionStateError:
+			color = "#FF0000"
+		default:
+			color = "#FFA500"
+		}
 	} else {
 		switch alert.Status {
 		case domain.StatusUp:

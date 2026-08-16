@@ -1,0 +1,25 @@
+CREATE TABLE monitor_conditions (
+    monitor_id BIGINT NOT NULL,
+    kind VARCHAR(32) NOT NULL,
+    state VARCHAR(16) NOT NULL,
+    used_value DOUBLE NULL,
+    limit_value DOUBLE NULL,
+    percent_value DOUBLE NULL,
+    threshold_value DOUBLE NULL,
+    unit VARCHAR(24) NOT NULL DEFAULT '',
+    resource VARCHAR(32) NOT NULL DEFAULT '',
+    scope VARCHAR(32) NOT NULL DEFAULT '',
+    source VARCHAR(160) NOT NULL DEFAULT '',
+    message TEXT NOT NULL,
+    observed_at DATETIME(6) NOT NULL,
+    stale_after DATETIME(6) NOT NULL,
+    last_success_at DATETIME(6) NULL,
+    consecutive_state VARCHAR(16) NOT NULL DEFAULT '',
+    consecutive_count INT NOT NULL DEFAULT 0,
+    last_notified_state VARCHAR(16) NOT NULL DEFAULT '',
+    last_notified_at DATETIME(6) NULL,
+    PRIMARY KEY (monitor_id, kind),
+    INDEX idx_monitor_conditions_state (state, stale_after),
+    CONSTRAINT fk_monitor_conditions_monitor
+        FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE
+) ENGINE=InnoDB;

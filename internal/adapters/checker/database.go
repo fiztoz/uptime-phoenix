@@ -85,7 +85,8 @@ func dbHealthCheck(config map[string]any) string {
 }
 
 // Validate checks that engine and connection_string are present and that
-// engine is one of the supported values.
+// engine is one of the supported values. Optional capacity keys are type-checked
+// when present; storage_max_gb is not required (some engines report capacity).
 func (DatabaseChecker) Validate(config map[string]any) error {
 	engine := dbEngine(config)
 	if engine == "" {
@@ -103,7 +104,7 @@ func (DatabaseChecker) Validate(config map[string]any) error {
 			return fmt.Errorf("health_check must be %q or %q", healthCheckPing, healthCheckSelect1)
 		}
 	}
-	return nil
+	return validateDBCapacityConfig(config)
 }
 
 // Check performs a connectivity check against the configured database.
@@ -112,12 +113,25 @@ func (DatabaseChecker) Validate(config map[string]any) error {
 //   - connection_string (required) — DSN/URI; alias: dsn
 //   - health_check (optional) — "ping" (default) or "select_1" (fixed statement only)
 //   - timeout (optional, float64, default 10)
+//   - check_session_pool (optional, bool, default false)
+//   - session_pool_threshold (optional, number 1–100, default 80)
+//   - check_storage (optional, bool, default false)
+//   - storage_threshold (optional, number 1–100, default 80)
+//   - storage_max_gb (optional, GiB; required at check time when the engine cannot report capacity)
 //
-// Never returns an error — all failures are returned as StatusDown with the error in Message.
+// config["query"] is never executed. Capacity query failures and over-threshold
+// usage are emitted as typed auxiliary conditions; they never change a healthy
+// primary connectivity check from StatusUp to StatusDown. Capacity queries run
+// on the same cadence as the primary probe.
+//
+// Never returns an error — primary-check failures are returned as StatusDown;
+// auxiliary capacity failures are represented by error conditions.
 func (DatabaseChecker) Check(ctx context.Context, config map[string]any) (ports.CheckResult, error) {
 	engine := dbEngine(config)
 	connStr := dbConnectionString(config)
 	health := dbHealthCheck(config)
+	opts := parseDBCapacityOpts(config)
+	opts.Engine = engine
 
 	timeoutSec := 10.0
 	if timeoutVal, ok := config["timeout"]; ok {
@@ -136,15 +150,17 @@ func (DatabaseChecker) Check(ctx context.Context, config map[string]any) (ports.
 	var result ports.CheckResult
 	switch engine {
 	case "postgres":
-		result = checkPostgres(ctx, connStr, health)
-	case "mysql", "mariadb":
-		result = checkMySQL(ctx, connStr, health)
+		result = checkPostgres(ctx, connStr, health, opts)
+	case "mysql":
+		result = checkMySQL(ctx, connStr, health, opts, false)
+	case "mariadb":
+		result = checkMySQL(ctx, connStr, health, opts, true)
 	case "mongodb":
-		result = checkMongoDB(ctx, connStr, health)
+		result = checkMongoDB(ctx, connStr, health, opts)
 	case "redis":
-		result = checkRedis(ctx, connStr, health)
+		result = checkRedis(ctx, connStr, health, opts)
 	case "mssql":
-		result = checkMSSQL(ctx, connStr, health)
+		result = checkMSSQL(ctx, connStr, health, opts)
 	default:
 		result = ports.CheckResult{
 			Status:  domain.StatusDown,
@@ -152,11 +168,12 @@ func (DatabaseChecker) Check(ctx context.Context, config map[string]any) (ports.
 		}
 	}
 
-	result.LatencyMs = time.Since(start).Milliseconds()
+	result.DurationMs = elapsedMillis(start)
 	return result, nil
 }
 
-func checkPostgres(ctx context.Context, connStr, health string) ports.CheckResult {
+func checkPostgres(ctx context.Context, connStr, health string, opts dbCapacityOpts) ports.CheckResult {
+	primaryStart := time.Now()
 	pool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
 		return ports.CheckResult{
@@ -172,6 +189,7 @@ func checkPostgres(ctx context.Context, connStr, health string) ports.CheckResul
 			Message: fmt.Sprintf("ping failed: %s", err.Error()),
 		}
 	}
+	base := ports.CheckResult{Status: domain.StatusUp, Message: "connected successfully"}
 	if health == healthCheckSelect1 {
 		var one int
 		if err := pool.QueryRow(ctx, "SELECT 1").Scan(&one); err != nil {
@@ -180,12 +198,17 @@ func checkPostgres(ctx context.Context, connStr, health string) ports.CheckResul
 				Message: fmt.Sprintf("SELECT 1 failed: %s", err.Error()),
 			}
 		}
-		return ports.CheckResult{Status: domain.StatusUp, Message: "connected, SELECT 1 ok"}
+		base.Message = "connected, SELECT 1 ok"
 	}
-	return ports.CheckResult{Status: domain.StatusUp, Message: "connected successfully"}
+	base.LatencyMs = elapsedMillis(primaryStart)
+	return runCapacityChecks(ctx, base, opts,
+		func(ctx context.Context) (*usage, error) { return queryPostgresSessions(ctx, pool) },
+		func(ctx context.Context) (*usage, error) { return queryPostgresStorage(ctx, pool, opts) },
+	)
 }
 
-func checkMySQL(ctx context.Context, connStr, health string) ports.CheckResult {
+func checkMySQL(ctx context.Context, connStr, health string, opts dbCapacityOpts, mariadb bool) ports.CheckResult {
+	primaryStart := time.Now()
 	db, err := sql.Open("mysql", connStr)
 	if err != nil {
 		return ports.CheckResult{
@@ -201,6 +224,7 @@ func checkMySQL(ctx context.Context, connStr, health string) ports.CheckResult {
 			Message: fmt.Sprintf("ping failed: %s", err.Error()),
 		}
 	}
+	base := ports.CheckResult{Status: domain.StatusUp, Message: "connected successfully"}
 	if health == healthCheckSelect1 {
 		var one int
 		if err := db.QueryRowContext(ctx, "SELECT 1").Scan(&one); err != nil {
@@ -209,12 +233,21 @@ func checkMySQL(ctx context.Context, connStr, health string) ports.CheckResult {
 				Message: fmt.Sprintf("SELECT 1 failed: %s", err.Error()),
 			}
 		}
-		return ports.CheckResult{Status: domain.StatusUp, Message: "connected, SELECT 1 ok"}
+		base.Message = "connected, SELECT 1 ok"
 	}
-	return ports.CheckResult{Status: domain.StatusUp, Message: "connected successfully"}
+	base.LatencyMs = elapsedMillis(primaryStart)
+	storFn := func(ctx context.Context) (*usage, error) { return queryMySQLStorage(ctx, db, opts) }
+	if mariadb {
+		storFn = func(ctx context.Context) (*usage, error) { return queryMariaDBStorage(ctx, db, opts) }
+	}
+	return runCapacityChecks(ctx, base, opts,
+		func(ctx context.Context) (*usage, error) { return queryMySQLSessions(ctx, db) },
+		storFn,
+	)
 }
 
-func checkMSSQL(ctx context.Context, connStr, health string) ports.CheckResult {
+func checkMSSQL(ctx context.Context, connStr, health string, opts dbCapacityOpts) ports.CheckResult {
+	primaryStart := time.Now()
 	// Driver name "sqlserver" is registered by microsoft/go-mssqldb.
 	// Accept sqlserver:// URLs and ADO-style connection strings.
 	db, err := sql.Open("sqlserver", connStr)
@@ -232,6 +265,7 @@ func checkMSSQL(ctx context.Context, connStr, health string) ports.CheckResult {
 			Message: fmt.Sprintf("ping failed: %s", err.Error()),
 		}
 	}
+	base := ports.CheckResult{Status: domain.StatusUp, Message: "connected successfully"}
 	if health == healthCheckSelect1 {
 		var one int
 		if err := db.QueryRowContext(ctx, "SELECT 1").Scan(&one); err != nil {
@@ -240,12 +274,17 @@ func checkMSSQL(ctx context.Context, connStr, health string) ports.CheckResult {
 				Message: fmt.Sprintf("SELECT 1 failed: %s", err.Error()),
 			}
 		}
-		return ports.CheckResult{Status: domain.StatusUp, Message: "connected, SELECT 1 ok"}
+		base.Message = "connected, SELECT 1 ok"
 	}
-	return ports.CheckResult{Status: domain.StatusUp, Message: "connected successfully"}
+	base.LatencyMs = elapsedMillis(primaryStart)
+	return runCapacityChecks(ctx, base, opts,
+		func(ctx context.Context) (*usage, error) { return queryMSSQLSessions(ctx, db) },
+		func(ctx context.Context) (*usage, error) { return queryMSSQLStorage(ctx, db, opts) },
+	)
 }
 
-func checkMongoDB(ctx context.Context, connStr, health string) ports.CheckResult {
+func checkMongoDB(ctx context.Context, connStr, health string, opts dbCapacityOpts) ports.CheckResult {
+	primaryStart := time.Now()
 	client, err := mongo.Connect(options.Client().ApplyURI(connStr))
 	if err != nil {
 		return ports.CheckResult{
@@ -262,13 +301,19 @@ func checkMongoDB(ctx context.Context, connStr, health string) ports.CheckResult
 		}
 	}
 	// Mongo has no separate SELECT 1; ping is the health preset for both modes.
+	base := ports.CheckResult{Status: domain.StatusUp, Message: "connected successfully"}
 	if health == healthCheckSelect1 {
-		return ports.CheckResult{Status: domain.StatusUp, Message: "connected, ping ok"}
+		base.Message = "connected, ping ok"
 	}
-	return ports.CheckResult{Status: domain.StatusUp, Message: "connected successfully"}
+	base.LatencyMs = elapsedMillis(primaryStart)
+	return runCapacityChecks(ctx, base, opts,
+		func(ctx context.Context) (*usage, error) { return queryMongoSessions(ctx, client) },
+		func(ctx context.Context) (*usage, error) { return queryMongoStorage(ctx, client, connStr, opts) },
+	)
 }
 
-func checkRedis(ctx context.Context, connStr, health string) ports.CheckResult {
+func checkRedis(ctx context.Context, connStr, health string, capOpts dbCapacityOpts) ports.CheckResult {
+	primaryStart := time.Now()
 	var opts *redis.Options
 	if strings.HasPrefix(connStr, "redis://") || strings.HasPrefix(connStr, "rediss://") {
 		parsed, err := redis.ParseURL(connStr)
@@ -292,8 +337,22 @@ func checkRedis(ctx context.Context, connStr, health string) ports.CheckResult {
 			Message: fmt.Sprintf("ping failed: %s", err.Error()),
 		}
 	}
+	base := ports.CheckResult{Status: domain.StatusUp, Message: "connected successfully"}
 	if health == healthCheckSelect1 {
-		return ports.CheckResult{Status: domain.StatusUp, Message: "connected, PING ok"}
+		base.Message = "connected, PING ok"
 	}
-	return ports.CheckResult{Status: domain.StatusUp, Message: "connected successfully"}
+	base.LatencyMs = elapsedMillis(primaryStart)
+	capOpts.StorageKind = storageKindMemory
+	return runCapacityChecks(ctx, base, capOpts,
+		func(ctx context.Context) (*usage, error) { return queryRedisSessions(ctx, rdb) },
+		func(ctx context.Context) (*usage, error) { return queryRedisStorage(ctx, rdb, capOpts) },
+	)
+}
+
+func elapsedMillis(start time.Time) int64 {
+	elapsed := time.Since(start).Milliseconds()
+	if elapsed < 1 {
+		return 1
+	}
+	return elapsed
 }

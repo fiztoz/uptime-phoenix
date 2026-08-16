@@ -584,3 +584,14 @@ type TLSInfoRepository interface {
 	Upsert(ctx context.Context, info *TLSInfo) error
 	GetByMonitorID(ctx context.Context, monitorID int64) (*TLSInfo, error)
 }
+
+// MonitorConditionRepository stores the latest auxiliary condition per monitor
+// and kind, including the state needed to de-duplicate condition notifications.
+type MonitorConditionRepository interface {
+	Upsert(ctx context.Context, condition *domain.MonitorCondition) error
+	Get(ctx context.Context, monitorID int64, kind string) (*domain.MonitorCondition, error)
+	ListAll(ctx context.Context) ([]*domain.MonitorCondition, error)
+	ListByMonitorIDs(ctx context.Context, monitorIDs []int64) ([]*domain.MonitorCondition, error)
+	DeleteKind(ctx context.Context, monitorID int64, kind string) error
+	DeleteByMonitor(ctx context.Context, monitorID int64) error
+}

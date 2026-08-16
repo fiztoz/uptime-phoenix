@@ -77,6 +77,32 @@ type HeartbeatView struct {
 	Msg       string `json:"msg,omitempty"`
 }
 
+// MonitorConditionView is the WebSocket wire representation of one latest
+// auxiliary condition. Notification cursor fields never cross the wire.
+type MonitorConditionView struct {
+	MonitorID     int64                 `json:"monitor_id"`
+	Kind          string                `json:"kind"`
+	State         domain.ConditionState `json:"state"`
+	Used          *float64              `json:"used"`
+	Limit         *float64              `json:"limit"`
+	Percent       *float64              `json:"percent"`
+	Threshold     *float64              `json:"threshold"`
+	Unit          string                `json:"unit"`
+	Resource      string                `json:"resource"`
+	Scope         string                `json:"scope"`
+	Source        string                `json:"source"`
+	Message       string                `json:"message"`
+	ObservedAt    string                `json:"observed_at"`
+	StaleAfter    string                `json:"stale_after"`
+	LastSuccessAt *string               `json:"last_success_at"`
+}
+
+// ConditionDeleteView is the WebSocket wire representation of a removed condition.
+type ConditionDeleteView struct {
+	MonitorID int64  `json:"monitor_id"`
+	Kind      string `json:"kind"`
+}
+
 // marshalWireEvent converts a domain Event to frontend-compatible JSON.
 func marshalWireEvent(event ports.Event) ([]byte, error) {
 	return json.Marshal(wireEvent{
@@ -114,10 +140,109 @@ func transformPayload(eventType string, payload any) any {
 		if m, ok := payload.(map[string]any); ok {
 			return heartbeatMapToView(m)
 		}
+	case EventConditionUpdate:
+		switch v := payload.(type) {
+		case *domain.MonitorCondition:
+			return toConditionView(v, time.Now().UTC())
+		case map[string]any:
+			return conditionMapToView(v)
+		}
+	case EventConditionDelete:
+		switch v := payload.(type) {
+		case domain.ConditionDelete:
+			return ConditionDeleteView{MonitorID: v.MonitorID, Kind: v.Kind}
+		case *domain.ConditionDelete:
+			return ConditionDeleteView{MonitorID: v.MonitorID, Kind: v.Kind}
+		case map[string]any:
+			id := extractInt64(v, "monitor_id")
+			if id == 0 {
+				id = extractInt64(v, "MonitorID")
+			}
+			return ConditionDeleteView{MonitorID: id, Kind: mapStr(v, "kind", "Kind")}
+		}
 	case EventStatusChange:
 		return transformStatusChange(payload)
 	}
 	return payload
+}
+
+func toConditionView(condition *domain.MonitorCondition, now time.Time) MonitorConditionView {
+	if condition == nil {
+		return MonitorConditionView{}
+	}
+	view := MonitorConditionView{
+		MonitorID:  condition.MonitorID,
+		Kind:       condition.Kind,
+		State:      condition.DisplayState(now),
+		Used:       condition.Used,
+		Limit:      condition.Limit,
+		Percent:    condition.Percent,
+		Threshold:  condition.Threshold,
+		Unit:       condition.Unit,
+		Resource:   condition.Resource,
+		Scope:      condition.Scope,
+		Source:     condition.Source,
+		Message:    condition.Message,
+		ObservedAt: formatTime(condition.ObservedAt),
+		StaleAfter: formatTime(condition.StaleAfter),
+	}
+	if condition.LastSuccessAt != nil {
+		lastSuccess := formatTime(*condition.LastSuccessAt)
+		view.LastSuccessAt = &lastSuccess
+	}
+	return view
+}
+
+func conditionMapToView(values map[string]any) MonitorConditionView {
+	view := MonitorConditionView{
+		MonitorID:  extractInt64(values, "monitor_id"),
+		Kind:       mapStr(values, "kind", "Kind"),
+		State:      domain.ConditionState(mapStr(values, "state", "State")),
+		Unit:       mapStr(values, "unit", "Unit"),
+		Resource:   mapStr(values, "resource", "Resource"),
+		Scope:      mapStr(values, "scope", "Scope"),
+		Source:     mapStr(values, "source", "Source"),
+		Message:    mapStr(values, "message", "Message"),
+		ObservedAt: mapStr(values, "observed_at", "ObservedAt"),
+		StaleAfter: mapStr(values, "stale_after", "StaleAfter"),
+	}
+	if view.MonitorID == 0 {
+		view.MonitorID = extractInt64(values, "MonitorID")
+	}
+	view.Used = mapFloatPtr(values, "used", "Used")
+	view.Limit = mapFloatPtr(values, "limit", "Limit")
+	view.Percent = mapFloatPtr(values, "percent", "Percent")
+	view.Threshold = mapFloatPtr(values, "threshold", "Threshold")
+	if raw := mapStr(values, "last_success_at", "LastSuccessAt"); raw != "" {
+		view.LastSuccessAt = &raw
+	}
+	if staleAt, err := time.Parse(time.RFC3339, view.StaleAfter); err == nil && !time.Now().UTC().Before(staleAt.UTC()) {
+		view.State = domain.ConditionStateStale
+	}
+	return view
+}
+
+func mapFloatPtr(values map[string]any, keys ...string) *float64 {
+	for _, key := range keys {
+		raw, ok := values[key]
+		if !ok || raw == nil {
+			continue
+		}
+		switch value := raw.(type) {
+		case float64:
+			return &value
+		case float32:
+			converted := float64(value)
+			return &converted
+		case int:
+			converted := float64(value)
+			return &converted
+		case int64:
+			converted := float64(value)
+			return &converted
+		}
+	}
+	return nil
 }
 
 func transformStatusChange(payload any) any {

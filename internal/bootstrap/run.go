@@ -117,6 +117,7 @@ func Run(cfg Config) error {
 	// wire the repo themselves) stay green.
 	monitorSvc.SetGroupRepo(repos.monitorGroup)
 	monitorSvc.SetDefaultNotificationLinker(repos.notification, repos.monitorNotif)
+	monitorSvc.SetConditionRepository(repos.monitorCondition)
 	proxySvc := services.NewProxyService(repos.proxy)
 	monitorGroupSvc := services.NewMonitorGroupService(repos.monitorGroup, repos.monitor, repos.heartbeat, log)
 	// Deleting a group re-homes its monitors; without the bus, open browsers keep
@@ -178,6 +179,8 @@ func Run(cfg Config) error {
 	maintenanceSvc := services.NewMaintenanceService(repos.maintenance, repos.maintMonitor, cronEval)
 	// Maintenance create/reschedule fan-out to status-page email subscribers.
 	maintenanceSvc.SetAnnouncementNotifier(subscriptionSvc)
+	conditionSvc := services.NewMonitorConditionService(repos.monitorCondition, notificationSvc, maintenanceSvc, bus)
+	heartbeatSvc.SetConditionEvaluator(conditionSvc)
 
 	// The single authorization choke point. Every handler, every middleware and the
 	// WebSocket hub resolve "may this user see / do this?" through this one service
@@ -407,6 +410,7 @@ func Run(cfg Config) error {
 	proxyHandlers := handlers.NewProxyHandlers(proxySvc)
 	userHandlers := handlers.NewUserHandlers(authSvc, accessSvc)
 	heartbeatHandlers := handlers.NewHeartbeatHandlers(heartbeatSvc, accessSvc)
+	conditionHandlers := handlers.NewMonitorConditionHandlers(conditionSvc, accessSvc)
 	statsHandlers := handlers.NewStatsHandlers(monitorStatsSvc, accessSvc)
 	pushHandler := handlers.NewPushHandler(monitorSvc, heartbeatSvc)
 	badgeHandlers := handlers.NewBadgeHandlers(repos.monitor, repos.heartbeat, aggregateSvc)
@@ -444,6 +448,7 @@ func Run(cfg Config) error {
 		proxyHandlers,
 		userHandlers,
 		heartbeatHandlers,
+		conditionHandlers,
 		statsHandlers,
 		pushHandler,
 		badgeHandlers,
@@ -572,6 +577,7 @@ type repoBundle struct {
 	monitor              ports.MonitorRepository
 	monitorGroup         ports.MonitorGroupRepository
 	heartbeat            ports.HeartbeatRepository
+	monitorCondition     ports.MonitorConditionRepository
 	tlsInfo              ports.TLSInfoRepository
 	notification         ports.NotificationRepository
 	notificationTemplate ports.NotificationTemplateRepository
@@ -608,6 +614,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.monitor = r.MonitorRepo
 		b.monitorGroup = r.MonitorGroupRepo
 		b.heartbeat = r.HeartbeatRepo
+		b.monitorCondition = r.MonitorConditionRepo
 		b.tlsInfo = r.TLSInfoRepo
 		b.notification = r.NotificationRepo
 		b.notificationTemplate = r.NotificationTemplateRepo
@@ -639,6 +646,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.monitor = r.MonitorRepo
 		b.monitorGroup = r.MonitorGroupRepo
 		b.heartbeat = r.HeartbeatRepo
+		b.monitorCondition = r.MonitorConditionRepo
 		b.tlsInfo = r.TLSInfoRepo
 		b.notification = r.NotificationRepo
 		b.notificationTemplate = r.NotificationTemplateRepo

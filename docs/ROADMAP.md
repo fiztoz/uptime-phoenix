@@ -112,11 +112,11 @@ PKCE S256; `uptime-phoenix-config` CLI; reverse escalation UI; MariaDB 021 assur
   - `rabbitmq.go` — `github.com/rabbitmq/amqp091-go`
   - `grpc.go` — `google.golang.org/grpc` health v1
   - `snmp.go` — `gosnmp/gosnmp`
-  - `database.go` — Postgres (`pgx`), MySQL/MariaDB (`go-sql-driver`), MongoDB (`mongo-driver/v2`), Redis (`go-redis/v9`), MSSQL
+  - `database.go` + `database_capacity.go` — Postgres (`pgx`), MySQL/MariaDB (`go-sql-driver`), MongoDB (`mongo-driver/v2`), Redis (`go-redis/v9`), MSSQL; optional persisted capacity conditions stay separate from availability
 - [x] **Scheduler adapter** — in-process goroutine scheduler (`robfig/cron/v3`); ticks every monitor by interval; sharded lease path in Phase 4
-- [x] **Heartbeat service** — records heartbeats, publishes to EventBus, evaluates status transitions
+- [x] **Heartbeat service** — records primary latency/total duration, publishes to EventBus, evaluates status transitions and typed auxiliary conditions
 - [x] **EventBus adapter** — in-process pub/sub (`adapters/eventbus/memory.go`)
-- [x] **WebSocket hub** — `coder/websocket` connection manager; subscribes to EventBus; pushes `heartbeat`, `monitor.update`, `status.change` events to authenticated clients
+- [x] **WebSocket hub** — `coder/websocket` connection manager; subscribes to EventBus; access-scopes `heartbeat`, `monitor.update`, `status.change`, `condition.update`, and `condition.delete` events to authenticated clients
 - [x] **Monitor CRUD HTTP API** — `POST /api/monitors`, `GET /api/monitors`, `PUT /api/monitors/:id`, `DELETE /api/monitors/:id`
 
 ### Sprint 3 (Weeks 7–8): Frontend Dashboard + Deploy

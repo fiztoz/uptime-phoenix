@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -22,6 +23,13 @@ type MonitorService struct {
 	groupRepo        ports.MonitorGroupRepository        // optional: nil disables group_id validation
 	notifRepo        ports.NotificationRepository        // optional: for is_default auto-link
 	monitorNotifRepo ports.MonitorNotificationRepository // optional: for is_default auto-link
+	conditionRepo    ports.MonitorConditionRepository    // optional: removes disabled auxiliary conditions
+}
+
+// SetConditionRepository wires cleanup for auxiliary observations whose
+// database capacity check has been disabled on an updated monitor.
+func (s *MonitorService) SetConditionRepository(repo ports.MonitorConditionRepository) {
+	s.conditionRepo = repo
 }
 
 // NewMonitorService creates a new MonitorService.
@@ -182,8 +190,55 @@ func (s *MonitorService) Update(ctx context.Context, m *domain.Monitor) error {
 	if err := s.repo.Update(ctx, m); err != nil {
 		return fmt.Errorf("monitor service: update: %w", err)
 	}
+	// Disabled capacity checks are cleaned up after persist. Failure must not
+	// tell the caller the monitor save failed — the row is already written.
+	if err := s.syncMonitorConditions(ctx, m); err != nil {
+		slog.ErrorContext(ctx, "monitor service: condition cleanup after update failed",
+			"monitor_id", m.ID, "error", err)
+	}
 	_ = s.bus.Publish(ctx, ports.Event{Type: "monitor.update", Payload: m})
 	return nil
+}
+
+func (s *MonitorService) syncMonitorConditions(ctx context.Context, m *domain.Monitor) error {
+	if s.conditionRepo == nil || m == nil {
+		return nil
+	}
+	checks := []struct {
+		kind    string
+		enabled bool
+	}{
+		{kind: domain.MonitorConditionSessionPool, enabled: m.Type == "database" && monitorConfigEnabled(m.Config, "check_session_pool")},
+		{kind: domain.MonitorConditionStorage, enabled: m.Type == "database" && monitorConfigEnabled(m.Config, "check_storage")},
+	}
+	for _, check := range checks {
+		if check.enabled {
+			continue
+		}
+		if err := s.conditionRepo.DeleteKind(ctx, m.ID, check.kind); err != nil {
+			return fmt.Errorf("delete %s: %w", check.kind, err)
+		}
+		_ = s.bus.Publish(ctx, ports.Event{
+			Type:    "condition.delete",
+			Payload: domain.ConditionDelete{MonitorID: m.ID, Kind: check.kind},
+		})
+	}
+	return nil
+}
+
+func monitorConfigEnabled(config map[string]any, key string) bool {
+	value, ok := config[key]
+	if !ok {
+		return false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
 }
 
 // normalizeHTTPMonitorURL makes the secure scheme explicit for HTTP monitors.

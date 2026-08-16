@@ -32,6 +32,14 @@ ALTER ROLE db_datareader ADD MEMBER phoenix_monitor;
 -- GRANT CONNECT TO phoenix_monitor;
 GO
 
+-- Optional: session-pool check requires VIEW SERVER STATE (sys.dm_exec_sessions).
+-- GRANT VIEW SERVER STATE TO phoenix_monitor;
+-- Without it the session-pool condition becomes error after two samples; SELECT 1 stays UP.
+-- Storage uses sys.database_files / FILEPROPERTY in the current database and usually
+-- works with the existing db user. Set storage_max_gb to compare against a fixed
+-- capacity instead of allocated file size.
+GO
+
 -- Verify:
 -- sqlcmd -S HOST -U phoenix_monitor -P '…' -d appdb -Q "SELECT 1"
 

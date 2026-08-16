@@ -17,7 +17,8 @@ try {
     pwd: password,
     roles: [
       { role: "read", db: targetDb },
-      // clusterMonitor is optional; not required for Ping
+      // Optional session-pool check (serverStatus.connections) requires:
+      // { role: "clusterMonitor", db: "admin" },
     ],
   });
   print("Created user " + user);
@@ -32,6 +33,12 @@ try {
     throw e;
   }
 }
+
+// Optional capacity checks:
+//   Session pool: serverStatus on admin — needs { role: "clusterMonitor", db: "admin" }.
+//   Storage: dbStats on the target db — often works with `read`. Set storage_max_gb when
+//   fsTotalSize is unavailable.
+// Missing optional data becomes a condition error after two samples; ping stays UP.
 
 // Verify:
 // mongosh "mongodb://phoenix_monitor:…@HOST:27017/appdb?authSource=admin" --eval 'db.runCommand({ ping: 1 })'

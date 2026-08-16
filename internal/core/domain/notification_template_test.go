@@ -110,6 +110,31 @@ func TestRenderNotificationTemplate_UnknownLifecycleValuesStayEmpty(t *testing.T
 	}
 }
 
+func TestRenderNotificationTemplate_CapacityConditionVariables(t *testing.T) {
+	used, limit, percent, threshold := 84.0, 100.0, 84.0, 80.0
+	observedAt := time.Date(2031, 2, 3, 4, 5, 6, 0, time.UTC)
+	alert := AlertContext{
+		EventKind:     AlertEventCapacityCondition,
+		ConditionKind: MonitorConditionStorage, ConditionState: ConditionStateWarning,
+		ConditionPreviousState: ConditionStateOK, ConditionUsed: &used, ConditionLimit: &limit,
+		ConditionPercent: &percent, ConditionThreshold: &threshold, ConditionUnit: "bytes",
+		ConditionResource: "Database size", ConditionScope: "database", ConditionSource: "fixed query",
+		ConditionObservedAt: &observedAt,
+	}
+	rendered, err := RenderNotificationTemplate(
+		`{{ status.emoji }}|{{ condition.kind }}|{{ condition.state }}|{{ condition.previous_state }}|{{ condition.used }}|{{ condition.limit }}|{{ condition.percent }}|{{ condition.threshold }}|{{ condition.unit }}|{{ condition.resource }}|{{ condition.scope }}|{{ condition.source }}|{{ condition.observed_at }}|{{ json.condition.percent }}`,
+		alert,
+		time.Unix(0, 0).UTC(),
+	)
+	if err != nil {
+		t.Fatalf("render capacity template: %v", err)
+	}
+	want := "⚠️|storage|warning|ok|84|100|84|80|bytes|Database size|database|fixed query|2031-02-03T04:05:06Z|84"
+	if rendered != want {
+		t.Fatalf("rendered capacity values=%q want=%q", rendered, want)
+	}
+}
+
 func TestDiscordTemplateConfig_RoundTripAndDefaults(t *testing.T) {
 	defaults, err := ParseDiscordTemplateConfig(nil)
 	if err != nil {

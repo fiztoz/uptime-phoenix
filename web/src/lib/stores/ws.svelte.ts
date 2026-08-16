@@ -7,6 +7,13 @@
  *   $effect(() => { console.log(realtime.status); });
  */
 import type { Status } from "$lib/monitor-types";
+import {
+  applyConditionSnapshotToMap,
+  conditionKey,
+  type ConditionKind,
+  type ConditionState,
+  type MonitorCondition,
+} from "$lib/api/conditions";
 
 // Canonical Status lives in monitor-types.ts (single source of truth). Re-exported
 // here so existing `import type { Status } from "$lib/stores/ws.svelte.js"` (if any)
@@ -174,6 +181,49 @@ function normalizeHeartbeat(raw: unknown): Heartbeat | null {
   };
 }
 
+function normalizeCondition(raw: unknown): MonitorCondition | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const monitorId = Number(
+    value.monitor_id ?? value.MonitorID ?? value.monitorId,
+  );
+  if (!Number.isFinite(monitorId) || monitorId <= 0) return null;
+  const kind = String(value.kind ?? value.Kind ?? "") as ConditionKind;
+  if (kind !== "session_pool" && kind !== "storage") return null;
+  const rawState = String(value.state ?? value.State ?? "").toLowerCase();
+  const state: ConditionState = ["ok", "warning", "error", "stale"].includes(
+    rawState,
+  )
+    ? (rawState as ConditionState)
+    : "error";
+  const nullableNumber = (field: unknown): number | null => {
+    if (field == null || field === "") return null;
+    const parsed = Number(field);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const nullableString = (field: unknown): string | null =>
+    typeof field === "string" && field ? field : null;
+  return {
+    monitor_id: monitorId,
+    kind,
+    state,
+    used: nullableNumber(value.used ?? value.Used),
+    limit: nullableNumber(value.limit ?? value.Limit),
+    percent: nullableNumber(value.percent ?? value.Percent),
+    threshold: nullableNumber(value.threshold ?? value.Threshold),
+    unit: String(value.unit ?? value.Unit ?? ""),
+    resource: String(value.resource ?? value.Resource ?? ""),
+    scope: String(value.scope ?? value.Scope ?? ""),
+    source: String(value.source ?? value.Source ?? ""),
+    message: String(value.message ?? value.Message ?? ""),
+    observed_at: String(value.observed_at ?? value.ObservedAt ?? ""),
+    stale_after: String(value.stale_after ?? value.StaleAfter ?? ""),
+    last_success_at: nullableString(
+      value.last_success_at ?? value.LastSuccessAt,
+    ),
+  };
+}
+
 function createWsStore() {
   let status = $state<WsStatus>("disconnected");
   let monitors = $state<Monitor[]>([]);
@@ -182,6 +232,8 @@ function createWsStore() {
   let heartbeats = $state<Map<number, Heartbeat>>(new Map());
   /** Bumped on every heartbeat so UIs can subscribe without relying on monitors identity. */
   let heartbeatSeq = $state(0);
+  let conditions = $state<Map<string, MonitorCondition>>(new Map());
+  let conditionSeq = $state(0);
   let reconnectAttempt = $state(0);
   let lastError = $state<string | null>(null);
   let stats = $state<StatsUpdate>({ total: 0, up: 0, down: 0, pending: 0 });
@@ -238,6 +290,12 @@ function createWsStore() {
         const id = event.payload as number;
         monitors = monitors.filter((x) => x.id !== id);
         heartbeats = new Map([...heartbeats].filter(([k]) => k !== id));
+        conditions = new Map(
+          [...conditions].filter(
+            ([, condition]) => condition.monitor_id !== id,
+          ),
+        );
+        conditionSeq += 1;
         break;
       }
       case "heartbeat": {
@@ -275,6 +333,37 @@ function createWsStore() {
             ? { ...m, status: newStatus as Monitor["status"] }
             : m,
         );
+        break;
+      }
+      case "condition.update": {
+        const condition = normalizeCondition(event.payload);
+        if (!condition) break;
+        const next = new Map(conditions);
+        next.set(conditionKey(condition), condition);
+        conditions = next;
+        conditionSeq += 1;
+        appendWsDebugEvent("condition.update", condition.monitor_id);
+        break;
+      }
+      case "condition.delete": {
+        if (!event.payload || typeof event.payload !== "object") break;
+        const value = event.payload as Record<string, unknown>;
+        const monitorId = Number(
+          value.monitor_id ?? value.MonitorID ?? value.monitorId,
+        );
+        const kind = String(value.kind ?? value.Kind ?? "") as ConditionKind;
+        if (
+          !Number.isFinite(monitorId) ||
+          monitorId <= 0 ||
+          (kind !== "session_pool" && kind !== "storage")
+        ) {
+          break;
+        }
+        const next = new Map(conditions);
+        next.delete(conditionKey({ monitor_id: monitorId, kind }));
+        conditions = next;
+        conditionSeq += 1;
+        appendWsDebugEvent("condition.delete", monitorId);
         break;
       }
       case "stats.update": {
@@ -402,6 +491,29 @@ function createWsStore() {
     monitors = [...monitors.filter((x) => x.id !== monitor.id), monitor];
   }
 
+  function beginConditionSnapshot(): number {
+    return conditionSeq;
+  }
+
+  /** Apply a REST snapshot only if no newer live update/delete arrived. */
+  function applyConditionSnapshot(
+    snapshot: MonitorCondition[] | null,
+    startedAt: number,
+    monitorId?: number,
+  ): boolean {
+    const next = applyConditionSnapshotToMap(
+      conditions,
+      snapshot,
+      startedAt,
+      conditionSeq,
+      monitorId,
+    );
+    if (!next) return false;
+    conditions = next;
+    conditionSeq += 1;
+    return true;
+  }
+
   return {
     get status() {
       return status;
@@ -421,6 +533,12 @@ function createWsStore() {
     get heartbeatSeq() {
       return heartbeatSeq;
     },
+    get conditions() {
+      return conditions;
+    },
+    get conditionSeq() {
+      return conditionSeq;
+    },
     get reconnectAttempt() {
       return reconnectAttempt;
     },
@@ -434,6 +552,8 @@ function createWsStore() {
     disconnect,
     send,
     patchMonitor,
+    beginConditionSnapshot,
+    applyConditionSnapshot,
   };
 }
 

@@ -33,7 +33,7 @@ Build a self-hosted monitoring tool that matches Uptime Kuma's feature surface (
 - RabbitMQ AMQP 0-9-1 connect + optional queue/exchange passive declare
 - gRPC health check
 - SNMP GET
-- Database connect health (PostgreSQL, MySQL, MariaDB, MongoDB, Redis, **MSSQL**) — fixed presets only (`ping` / `select_1`); never free-form operator SQL
+- Database connect health (PostgreSQL, MySQL, MariaDB, MongoDB, Redis, **MSSQL**) — fixed presets only (`ping` / `select_1`); optional fixed-query session-pool/storage conditions remain separate from availability and never accept free-form operator SQL
 
 ### Shipped notification providers (11)
 

@@ -50,6 +50,7 @@ type NotificationSentHistory struct {
 const (
 	AlertEventStatusChange      = "status_change"
 	AlertEventCertificateExpiry = "certificate_expiry"
+	AlertEventCapacityCondition = "capacity_condition"
 
 	AlertScopeMonitor = "monitor"
 	AlertScopeGroup   = "group"
@@ -79,9 +80,9 @@ type AlertContext struct {
 	CheckOutput             string
 	Tags                    map[string]string
 
-	// EventKind distinguishes status transitions from certificate-expiry alerts.
-	// Senders MUST render certificate_expiry with cert-specific copy, not as
-	// a fake DOWN/UP/PENDING status change.
+	// EventKind distinguishes status transitions from auxiliary alerts. Senders
+	// MUST render certificate_expiry and capacity_condition with event-specific
+	// copy, not as fake DOWN/UP/PENDING status changes.
 	EventKind string
 
 	// Certificate-expiry fields (set only when EventKind is certificate_expiry).
@@ -89,6 +90,20 @@ type AlertContext struct {
 	CertDaysRemaining int        // whole days remaining at evaluation time
 	CertIssuer        string     // certificate issuer DN when known
 	CertNotAfter      *time.Time // exact NotAfter instant when known
+
+	// Capacity-condition fields are set only for capacity_condition events.
+	ConditionKind          string
+	ConditionState         ConditionState
+	ConditionPreviousState ConditionState
+	ConditionUsed          *float64
+	ConditionLimit         *float64
+	ConditionPercent       *float64
+	ConditionThreshold     *float64
+	ConditionUnit          string
+	ConditionResource      string
+	ConditionScope         string
+	ConditionSource        string
+	ConditionObservedAt    *time.Time
 
 	// AckURL is an absolute deep-link that acknowledges the open outage alert
 	// without a session (F2.2). Empty when PUBLIC_URL is unset or the event is

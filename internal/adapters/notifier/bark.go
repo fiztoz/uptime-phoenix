@@ -35,8 +35,8 @@ func (BarkSender) Send(ctx context.Context, config map[string]any, alert domain.
 	deviceKey, _ := config["device_key"].(string)
 
 	var title, body string
-	if isCertificateExpiry(alert) {
-		title = fmt.Sprintf("📜 %s", alert.MonitorName)
+	if isAuxiliaryAlert(alert) {
+		title = fmt.Sprintf("%s %s", alertEmoji(alert), alertTitle(alert))
 		body = alertBody(alert)
 	} else {
 		emoji := "✅"

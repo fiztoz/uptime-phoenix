@@ -16,6 +16,12 @@
 	import { tagsApi, type Tag } from '$lib/api/tags';
 	import { insightsApi, type InsightsRow } from '$lib/api/insights';
 	import {
+		conditionsApi,
+		conditionDrivesDashboardAttention,
+		conditionNeedsAttention,
+		type MonitorCondition,
+	} from '$lib/api/conditions';
+	import {
 		EMPTY_CRITERIA,
 		collectTypes,
 		criteriaFromParams,
@@ -35,6 +41,7 @@
 	import GroupCard from '$lib/components/GroupCard.svelte';
 	import DashboardFilters from '$lib/components/DashboardFilters.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
+	import ConditionChip from '$lib/components/ConditionChip.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import {
@@ -61,6 +68,12 @@
 	let catalogTags = $state<Tag[]>([]);
 	let reliabilityPreview = $state<InsightsRow[]>([]);
 	let reliabilityPreviewLoading = $state(true);
+	let conditionClock = $state(Date.now());
+
+	$effect(() => {
+		const timer = setInterval(() => (conditionClock = Date.now()), 30_000);
+		return () => clearInterval(timer);
+	});
 
 	async function loadGroups() {
 		groupsLoading = true;
@@ -110,6 +123,19 @@
 		if (realtime.hasMonitorSnapshot) void loadReliabilityPreview();
 	});
 
+	async function loadConditions() {
+		const startedAt = realtime.beginConditionSnapshot();
+		try {
+			realtime.applyConditionSnapshot(await conditionsApi.list(), startedAt);
+		} catch {
+			realtime.applyConditionSnapshot(null, startedAt);
+		}
+	}
+
+	$effect(() => {
+		if (realtime.hasMonitorSnapshot) void loadConditions();
+	});
+
 	const pageLoading = $derived(!realtime.hasMonitorSnapshot || groupsLoading);
 	const pageError = $derived(
 		groupsError ?? (!realtime.hasMonitorSnapshot ? realtime.lastError : null),
@@ -119,6 +145,7 @@
 		loadGroups();
 		loadTags();
 		loadReliabilityPreview();
+		loadConditions();
 		if (!realtime.hasMonitorSnapshot) realtime.connect();
 	}
 
@@ -256,12 +283,46 @@
 	// VIEW (e.g. drilling into a group shows that group's health). With no
 	// filters active the filtered set IS every monitor, so this is a no-op.
 	let scopedMonitors = $derived(filteredMonitors);
+	let conditionRows = $derived.by(() => {
+		void realtime.conditionSeq;
+		return [...realtime.conditions.values()];
+	});
+	let conditionsByMonitor = $derived.by(() => {
+		const byMonitor = new Map<number, MonitorCondition[]>();
+		for (const condition of conditionRows) {
+			const rows = byMonitor.get(condition.monitor_id) ?? [];
+			rows.push(condition);
+			byMonitor.set(condition.monitor_id, rows);
+		}
+		return byMonitor;
+	});
+	let conditionAttentionMonitorIDs = $derived.by(() => {
+		const ids = new Set<number>();
+		const monitorsByID = new Map(scopedMonitors.map((monitor) => [monitor.id, monitor]));
+		for (const condition of conditionRows) {
+			if (
+				conditionDrivesDashboardAttention(
+					condition,
+					monitorsByID.get(condition.monitor_id),
+					conditionClock,
+				)
+			) {
+				ids.add(condition.monitor_id);
+			}
+		}
+		return ids;
+	});
 
 	let totalMonitors = $derived(scopedMonitors.length);
 	let upCount = $derived(scopedMonitors.filter((mon) => mon.status === 'up').length);
 	let downCount = $derived(scopedMonitors.filter((mon) => mon.status === 'down').length);
 	let attention = $derived(
-		scopedMonitors.filter((mon) => mon.status === 'down' || mon.status === 'pending')
+		scopedMonitors.filter(
+			(mon) =>
+				mon.status === 'down' ||
+				mon.status === 'pending' ||
+				conditionAttentionMonitorIDs.has(mon.id),
+		),
 	);
 	let attentionExpanded = $state(true);
 
@@ -414,7 +475,9 @@
 			class="flex items-center gap-3 rounded-xl border p-4
 			{downCount > 0
 				? 'border-danger/20 bg-danger/[0.06]'
-				: 'border-success/20 bg-success/[0.06]'}"
+				: conditionAttentionMonitorIDs.size > 0
+					? 'border-warning/20 bg-warning/[0.06]'
+					: 'border-success/20 bg-success/[0.06]'}"
 		>
 			{#if downCount > 0}
 				<span class="grid h-9 w-9 place-items-center rounded-lg bg-danger/15 text-danger">
@@ -426,6 +489,16 @@
 						{downCount === 1 ? m.dashboard_banner_monitor_needs_attention() : m.dashboard_banner_monitors_need_attention()}
 					</p>
 					<p class="text-sm text-muted-foreground">{m.dashboard_banner_investigate()}</p>
+				</div>
+			{:else if conditionAttentionMonitorIDs.size > 0}
+				<span class="grid h-9 w-9 place-items-center rounded-lg bg-warning/15 text-warning">
+					<AlertTriangle class="h-5 w-5" />
+				</span>
+				<div class="min-w-0">
+					<p class="font-medium">
+						{m.dashboard_capacity_attention({ count: conditionAttentionMonitorIDs.size })}
+					</p>
+					<p class="text-sm text-warning/80">{m.dashboard_capacity_attention_help()}</p>
 				</div>
 			{:else}
 				<span class="grid h-9 w-9 place-items-center rounded-lg bg-success/15 text-success">
@@ -492,7 +565,7 @@
 				{#each attention as mon (mon.id)}
 					<a
 						href="/monitors/{mon.id}"
-						class="flex items-center gap-3 border-b border-border px-4 py-3 transition-colors last:border-0 hover:bg-accent/50"
+						class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3 transition-colors last:border-0 hover:bg-accent/50"
 					>
 						<Activity class="h-4 w-4 shrink-0 text-muted-foreground" />
 						<span class="min-w-0 flex-1 truncate font-medium">{mon.name}</span>
@@ -500,6 +573,11 @@
 							>{mon.target}</span
 						>
 						<StatusPill status={mon.status} />
+						{#each (conditionsByMonitor.get(mon.id) ?? []).filter(
+							(condition) => conditionNeedsAttention(condition, conditionClock),
+						) as condition (`${condition.monitor_id}:${condition.kind}`)}
+							<ConditionChip {condition} now={conditionClock} compact />
+						{/each}
 					</a>
 				{/each}
 			</div>
@@ -631,6 +709,8 @@
 							monitor={mon}
 							heartbeat={realtime.heartbeats.get(mon.id)}
 							heartbeatHistory={heartbeatHistory.get(mon.id) ?? []}
+							conditions={conditionsByMonitor.get(mon.id) ?? []}
+							conditionNow={conditionClock}
 						/>
 					{/each}
 				</div>
@@ -652,6 +732,8 @@
 						monitor={mon}
 						heartbeat={realtime.heartbeats.get(mon.id)}
 						heartbeatHistory={heartbeatHistory.get(mon.id) ?? []}
+						conditions={conditionsByMonitor.get(mon.id) ?? []}
+						conditionNow={conditionClock}
 					/>
 				{/each}
 			</div>

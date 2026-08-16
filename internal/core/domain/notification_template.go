@@ -65,6 +65,18 @@ var notificationTemplateVariables = []string{
 	"certificate.days_remaining",
 	"certificate.issuer",
 	"certificate.not_after",
+	"condition.kind",
+	"condition.state",
+	"condition.previous_state",
+	"condition.used",
+	"condition.limit",
+	"condition.percent",
+	"condition.threshold",
+	"condition.unit",
+	"condition.resource",
+	"condition.scope",
+	"condition.source",
+	"condition.observed_at",
 }
 
 // NotificationTemplateVariables returns every placeholder supported by the
@@ -236,6 +248,10 @@ func notificationTemplateValues(alert AlertContext, now time.Time) map[string]no
 	if alert.CertNotAfter != nil && !alert.CertNotAfter.IsZero() {
 		certNotAfter = alert.CertNotAfter.UTC().Format(time.RFC3339)
 	}
+	conditionObservedAt := ""
+	if alert.ConditionObservedAt != nil && !alert.ConditionObservedAt.IsZero() {
+		conditionObservedAt = alert.ConditionObservedAt.UTC().Format(time.RFC3339)
+	}
 
 	stringValue := func(value string) notificationTemplateValue {
 		return notificationTemplateValue{text: value, jsonValue: value}
@@ -245,6 +261,15 @@ func notificationTemplateValues(alert AlertContext, now time.Time) map[string]no
 	}
 	boolValue := func(value bool) notificationTemplateValue {
 		return notificationTemplateValue{text: strconv.FormatBool(value), jsonValue: value}
+	}
+	floatPointerValue := func(value *float64) notificationTemplateValue {
+		if value == nil {
+			return notificationTemplateValue{text: "", jsonValue: nil}
+		}
+		return notificationTemplateValue{
+			text:      strconv.FormatFloat(*value, 'f', -1, 64),
+			jsonValue: *value,
+		}
 	}
 
 	scope := alert.AlertScope
@@ -275,6 +300,15 @@ func notificationTemplateValues(alert AlertContext, now time.Time) map[string]no
 	statusEmoji := "⚪"
 	if eventKind == AlertEventCertificateExpiry {
 		statusEmoji = "⚠️"
+	} else if eventKind == AlertEventCapacityCondition {
+		switch alert.ConditionState {
+		case ConditionStateOK:
+			statusEmoji = "✅"
+		case ConditionStateError:
+			statusEmoji = "❌"
+		default:
+			statusEmoji = "⚠️"
+		}
 	} else {
 		switch alert.Status {
 		case StatusUp:
@@ -325,5 +359,17 @@ func notificationTemplateValues(alert AlertContext, now time.Time) map[string]no
 		"certificate.days_remaining": intValue(int64(alert.CertDaysRemaining)),
 		"certificate.issuer":         stringValue(alert.CertIssuer),
 		"certificate.not_after":      stringValue(certNotAfter),
+		"condition.kind":             stringValue(alert.ConditionKind),
+		"condition.state":            stringValue(string(alert.ConditionState)),
+		"condition.previous_state":   stringValue(string(alert.ConditionPreviousState)),
+		"condition.used":             floatPointerValue(alert.ConditionUsed),
+		"condition.limit":            floatPointerValue(alert.ConditionLimit),
+		"condition.percent":          floatPointerValue(alert.ConditionPercent),
+		"condition.threshold":        floatPointerValue(alert.ConditionThreshold),
+		"condition.unit":             stringValue(alert.ConditionUnit),
+		"condition.resource":         stringValue(alert.ConditionResource),
+		"condition.scope":            stringValue(alert.ConditionScope),
+		"condition.source":           stringValue(alert.ConditionSource),
+		"condition.observed_at":      stringValue(conditionObservedAt),
 	}
 }

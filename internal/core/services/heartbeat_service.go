@@ -17,6 +17,10 @@ type certAlertEvaluator interface {
 	OnCheck(ctx context.Context, monitor *domain.Monitor, metadata map[string]string)
 }
 
+type monitorConditionEvaluator interface {
+	OnCheck(ctx context.Context, monitor *domain.Monitor, observations []domain.ConditionObservation)
+}
+
 // HeartbeatService handles heartbeat recording and status transition evaluation.
 type HeartbeatService struct {
 	heartbeats ports.HeartbeatRepository
@@ -24,6 +28,7 @@ type HeartbeatService struct {
 	dispatcher ports.NotificationDispatcher
 	tlsInfo    ports.TLSInfoRepository
 	certAlert  certAlertEvaluator
+	conditions monitorConditionEvaluator
 }
 
 // NewHeartbeatService creates a new HeartbeatService.
@@ -51,6 +56,13 @@ func (s *HeartbeatService) SetCertAlert(e certAlertEvaluator) {
 	s.certAlert = e
 }
 
+// SetConditionEvaluator attaches auxiliary condition persistence and alerting.
+// It runs in the owning worker, like certificate alerts, to avoid Redis fan-out
+// duplicates in split mode.
+func (s *HeartbeatService) SetConditionEvaluator(e monitorConditionEvaluator) {
+	s.conditions = e
+}
+
 // Record saves a heartbeat from a check result and evaluates status transitions.
 // It fetches the previous heartbeat before saving to detect status changes.
 // DownCount is incremented on DOWN status and reset to 0 on UP status.
@@ -59,13 +71,17 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 	prevHB, prevErr := s.heartbeats.GetLatest(ctx, monitor.ID)
 
 	latency := clampLatencyMs(result.LatencyMs)
+	duration := clampLatencyMs(result.DurationMs)
+	if duration == 0 {
+		duration = latency
+	}
 	hb := &domain.Heartbeat{
 		MonitorID: monitor.ID,
 		Status:    result.Status,
 		Time:      time.Now().UTC(),
 		Msg:       result.Message,
 		Ping:      latency,
-		Duration:  latency,
+		Duration:  duration,
 	}
 
 	// Compute DownCount based on status transition.
@@ -109,6 +125,12 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 	// Runs in the owning worker so Redis EventBus fan-out cannot duplicate them.
 	if s.certAlert != nil {
 		s.certAlert.OnCheck(ctx, monitor, result.Metadata)
+	}
+
+	// Auxiliary conditions are persisted and notified independently from the
+	// heartbeat status so capacity pressure never becomes fake downtime.
+	if s.conditions != nil {
+		s.conditions.OnCheck(ctx, monitor, result.Conditions)
 	}
 
 	// Publish heartbeat event (best-effort — never fail on bus.Publish).

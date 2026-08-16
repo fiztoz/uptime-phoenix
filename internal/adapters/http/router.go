@@ -52,6 +52,7 @@ func NewRouter(
 	proxyHandlers *handlers.ProxyHandlers,
 	userHandlers *handlers.UserHandlers,
 	heartbeatHandlers *handlers.HeartbeatHandlers,
+	conditionHandlers *handlers.MonitorConditionHandlers,
 	statsHandlers *handlers.StatsHandlers,
 	pushHandler *handlers.PushHandler,
 	badgeHandlers *handlers.BadgeHandlers,
@@ -187,6 +188,12 @@ func NewRouter(
 		hbGroup.GET("", heartbeatHandlers.ListByMonitor)
 		hbGroup.GET("/chart", heartbeatHandlers.GetChartData)
 		hbGroup.DELETE("", heartbeatHandlers.ClearHistory, requireAdmin)
+	}
+
+	// Latest auxiliary monitor conditions (capacity, session pool, and future
+	// typed observations). The handler scopes every row through AccessService.
+	if conditionHandlers != nil && authSvc != nil {
+		e.GET("/api/monitor-conditions", conditionHandlers.List, middleware.AuthMiddleware(authSvc))
 	}
 
 	// Monitor-notification list (for monitor detail page UI).

@@ -31,15 +31,30 @@ func (TeamsSender) Send(ctx context.Context, config map[string]any, alert domain
 	themeColor := "808080"
 	var title, text string
 	var facts []map[string]any
-	if isCertificateExpiry(alert) {
+	if isAuxiliaryAlert(alert) {
 		themeColor = "FFA500"
+		if isCapacityCondition(alert) {
+			switch alert.ConditionState {
+			case domain.ConditionStateOK:
+				themeColor = "00FF00"
+			case domain.ConditionStateError:
+				themeColor = "FF0000"
+			}
+		}
 		title = alertTitleWithPrefix("Phoenix Alert:", alert)
 		text = fmt.Sprintf("%s\nTarget: %s (%s)", alertBody(alert), alert.MonitorTarget, alert.MonitorType)
 		facts = []map[string]any{
-			{"name": "Event", "value": "certificate_expiry"},
+			{"name": "Event", "value": alert.EventKind},
 			{"name": "Monitor", "value": alert.MonitorName},
-			{"name": "Days remaining", "value": fmt.Sprintf("%d", alert.CertDaysRemaining)},
 			{"name": "Time", "value": time.Now().Format(time.RFC3339)},
+		}
+		if isCertificateExpiry(alert) {
+			facts = append(facts, map[string]any{"name": "Days remaining", "value": fmt.Sprintf("%d", alert.CertDaysRemaining)})
+		} else {
+			facts = append(facts,
+				map[string]any{"name": "Condition", "value": alert.ConditionKind},
+				map[string]any{"name": "State", "value": alert.ConditionState},
+			)
 		}
 	} else {
 		switch alert.Status {

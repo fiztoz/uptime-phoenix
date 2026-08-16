@@ -38,8 +38,8 @@ func (LineSender) Send(ctx context.Context, config map[string]any, alert domain.
 	channelToken, _ := config["channel_access_token"].(string)
 
 	var text string
-	if isCertificateExpiry(alert) {
-		text = fmt.Sprintf("📜 %s\n%s", alertTitle(alert), alertBody(alert))
+	if isAuxiliaryAlert(alert) {
+		text = fmt.Sprintf("%s %s\n%s", alertEmoji(alert), alertTitle(alert), alertBody(alert))
 	} else {
 		emoji := "✅"
 		switch alert.Status {
