@@ -21,6 +21,15 @@ export interface MonitorCondition {
   last_success_at: string | null;
 }
 
+export function conditionUsagePercent(
+  condition: MonitorCondition,
+): number | null {
+  if (condition.percent == null || !Number.isFinite(condition.percent)) {
+    return null;
+  }
+  return Math.min(100, Math.max(0, condition.percent));
+}
+
 export function displayedConditionState(
   condition: MonitorCondition,
   now = Date.now(),

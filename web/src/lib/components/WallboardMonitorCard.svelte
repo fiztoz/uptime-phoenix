@@ -1,21 +1,38 @@
 <script lang="ts">
   import type { Heartbeat, Monitor } from "$lib/stores/ws.svelte.js";
+  import type { MonitorCondition } from "$lib/api/conditions";
+  import {
+    cardUsesSignals,
+    type DashboardCardBody,
+  } from "$lib/dashboard-card";
   import { sparklinePoints } from "$lib/utils/chart.js";
   import Sparkline from "./charts/Sparkline.svelte";
   import StatusPill from "./StatusPill.svelte";
+  import MonitorCardSignals from "./MonitorCardSignals.svelte";
   import * as m from "$lib/paraglide/messages.js";
 
   interface Props {
     monitor: Monitor;
     heartbeat?: Heartbeat;
     heartbeatHistory?: Heartbeat[];
+    conditions?: MonitorCondition[];
+    conditionNow?: number;
+    cardBody?: DashboardCardBody;
   }
 
-  let { monitor, heartbeat, heartbeatHistory = [] }: Props = $props();
+  let {
+    monitor,
+    heartbeat,
+    heartbeatHistory = [],
+    conditions = [],
+    conditionNow = Date.now(),
+    cardBody = "response",
+  }: Props = $props();
 
   const sparklineData = $derived(sparklinePoints(heartbeatHistory));
   const isDown = $derived(monitor.status === "down");
   const isPending = $derived(monitor.status === "pending");
+  const showSignals = $derived(cardUsesSignals(cardBody, conditions.length));
 
   function formatHeartbeatTime(value: string | undefined): string {
     if (!value) return "—";
@@ -61,34 +78,45 @@
     <StatusPill status={monitor.status} />
   </div>
 
+  {#if showSignals}
+    <div class="mt-4 min-w-0">
+      <MonitorCardSignals {conditions} now={conditionNow} compact />
+    </div>
+  {:else}
+    <div
+      class="mt-4 h-11 min-w-0 overflow-hidden rounded-md bg-muted/20 px-1 py-1"
+    >
+      {#if sparklineData.length > 0}
+        <Sparkline data={sparklineData} width="100%" height={36} />
+      {:else}
+        <div class="grid h-full place-items-center text-[11px] text-faint">
+          {m.monitor_card_no_history()}
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   <div
-    class="mt-4 h-11 min-w-0 overflow-hidden rounded-md bg-muted/20 px-1 py-1"
+    class="mt-auto grid gap-3 border-t border-border/70 pt-3
+		{showSignals ? 'grid-cols-1' : 'grid-cols-2'}"
   >
-    {#if sparklineData.length > 0}
-      <Sparkline data={sparklineData} width="100%" height={36} />
-    {:else}
-      <div class="grid h-full place-items-center text-[11px] text-faint">
-        {m.monitor_card_no_history()}
+    {#if !showSignals}
+      <div>
+        <div class="text-[10px] font-medium uppercase tracking-wider text-faint">
+          {m.dashboard_wallboard_response()}
+        </div>
+        <div class="mt-0.5 font-mono text-lg font-semibold tabular-nums">
+          {#if heartbeat && heartbeat.ping > 0}
+            {heartbeat.ping}<span
+              class="ml-0.5 text-xs font-normal text-muted-foreground">ms</span
+            >
+          {:else}
+            <span class="text-muted-foreground">—</span>
+          {/if}
+        </div>
       </div>
     {/if}
-  </div>
-
-  <div class="mt-auto grid grid-cols-2 gap-3 border-t border-border/70 pt-3">
-    <div>
-      <div class="text-[10px] font-medium uppercase tracking-wider text-faint">
-        {m.dashboard_wallboard_response()}
-      </div>
-      <div class="mt-0.5 font-mono text-lg font-semibold tabular-nums">
-        {#if heartbeat && heartbeat.ping > 0}
-          {heartbeat.ping}<span
-            class="ml-0.5 text-xs font-normal text-muted-foreground">ms</span
-          >
-        {:else}
-          <span class="text-muted-foreground">—</span>
-        {/if}
-      </div>
-    </div>
-    <div class="text-right">
+    <div class={showSignals ? "" : "text-right"}>
       <div class="text-[10px] font-medium uppercase tracking-wider text-faint">
         {m.dashboard_wallboard_last_check()}
       </div>

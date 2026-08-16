@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { Heartbeat as HistoryHeartbeat } from '$lib/api/heartbeats.js';
+	import type { MonitorCondition } from '$lib/api/conditions';
+	import type { DashboardCardBody } from '$lib/dashboard-card';
 	import type { Heartbeat as LiveHeartbeat, Monitor } from '$lib/stores/ws.svelte.js';
 	import BrandMark from './BrandMark.svelte';
 	import WallboardMonitorCard from './WallboardMonitorCard.svelte';
@@ -12,6 +14,9 @@
 		allMonitorCount: number;
 		heartbeats: Map<number, LiveHeartbeat>;
 		heartbeatHistory: Map<number, HistoryHeartbeat[]>;
+		conditionsByMonitor?: Map<number, MonitorCondition[]>;
+		conditionNow?: number;
+		cardBody?: DashboardCardBody;
 		connected: boolean;
 		avgPing: number | null;
 		uptimePct: number | null;
@@ -25,6 +30,9 @@
 		allMonitorCount,
 		heartbeats,
 		heartbeatHistory,
+		conditionsByMonitor = new Map(),
+		conditionNow = Date.now(),
+		cardBody = 'response',
 		connected,
 		avgPing,
 		uptimePct,
@@ -285,6 +293,9 @@
 							{monitor}
 							heartbeat={heartbeats.get(monitor.id)}
 							heartbeatHistory={heartbeatHistory.get(monitor.id) ?? []}
+							conditions={conditionsByMonitor.get(monitor.id) ?? []}
+							{conditionNow}
+							{cardBody}
 						/>
 					{/each}
 				</div>

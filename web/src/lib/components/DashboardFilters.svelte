@@ -10,6 +10,7 @@
 		type MonitorStatus,
 		type NormalizedTag,
 	} from '$lib/monitor-filter';
+	import type { DashboardCardBody } from '$lib/dashboard-card';
 	import { ChevronLeft, ChevronRight, RotateCcw, Search, X } from '@lucide/svelte';
 	import Select from '$lib/components/Select.svelte';
 	import MultiSelect from '$lib/components/MultiSelect.svelte';
@@ -29,6 +30,8 @@
 		statusCounts?: Record<MonitorStatus, number>;
 		/** Per-tag monitor counts for the dropdown. */
 		tagCounts?: Record<string, number>;
+		cardBody?: DashboardCardBody;
+		onCardBodyChange?: (next: DashboardCardBody) => void;
 		onchange: (next: FilterCriteria) => void;
 	}
 
@@ -41,6 +44,8 @@
 		total,
 		statusCounts = { up: 0, down: 0, pending: 0, maintenance: 0, paused: 0 },
 		tagCounts = {},
+		cardBody = 'response',
+		onCardBodyChange,
 		onchange,
 	}: Props = $props();
 
@@ -159,6 +164,11 @@
 		{ value: 'response-asc', label: m.dashboard_sort_response_asc() },
 		{ value: 'response-desc', label: m.dashboard_sort_response_desc() },
 	]);
+
+	const cardItems = $derived([
+		{ value: 'response', label: m.dashboard_card_response() },
+		{ value: 'signals', label: m.dashboard_card_signals() },
+	]);
 </script>
 
 <div class="rounded-xl border border-border bg-card p-3">
@@ -225,6 +235,15 @@
 			onValueChange={selectSort}
 			ariaLabel={m.dashboard_sort_aria()}
 			class="min-w-36"
+			size="sm"
+		/>
+
+		<Select
+			options={cardItems}
+			value={cardBody}
+			onValueChange={(value) => onCardBodyChange?.(value as DashboardCardBody)}
+			ariaLabel={m.dashboard_card_aria()}
+			class="min-w-40"
 			size="sm"
 		/>
 	</div>

@@ -576,6 +576,7 @@ effects, not only messages/status codes:
 - Maintenance suppresses send without marking delivered; an all-channel failure remains retryable.
 - Repository/API/WS tests assert UTC freshness, RBAC filtering, snake-case views, cursor secrecy, and stale derivation.
 - Availability Insights, uptime, folders, badges, and public status are unchanged by a capacity warning.
+- Dashboard **Card: Capacity** replaces the ping sparkline with session/storage meters on monitors that have conditions; other cards stay on response. The same preference applies to the wallboard.
 
 ### If you changed `internal/adapters/http/handlers/`:
 ```bash

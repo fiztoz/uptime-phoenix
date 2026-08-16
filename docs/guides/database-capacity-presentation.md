@@ -101,7 +101,11 @@ text-warning border-warning/25`):
   Paused and maintenance monitors can still show a stale chip on
   detail, but they do not re-enter the attention list just because
   sampling stopped.
-- Latency sparkline stays ping. Do not paint it red for capacity.
+- Default card body stays the ping sparkline. Do not paint it red for
+  capacity. Operators can switch dashboard and wallboard cards to
+  **Card: Capacity**, which replaces the sparkline with session-pool
+  and storage meters on monitors that have those signals. Other
+  monitors keep the response graph.
 
 ### 4. Insights — do **not** mix this into availability
 

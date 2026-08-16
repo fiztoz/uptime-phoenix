@@ -4,6 +4,7 @@ import {
   conditionDrivesDashboardAttention,
   conditionKey,
   conditionNeedsAttention,
+  conditionUsagePercent,
   displayedConditionState,
   type MonitorCondition,
 } from "./conditions";
@@ -58,6 +59,15 @@ describe("monitor condition freshness", () => {
     expect(
       conditionNeedsAttention(condition(), Date.parse("2030-01-01T00:01:00Z")),
     ).toBe(false);
+  });
+});
+
+describe("condition usage percent", () => {
+  test("clamps a finite percent onto the meter scale", () => {
+    expect(conditionUsagePercent(condition({ percent: 6.6 }))).toBe(6.6);
+    expect(conditionUsagePercent(condition({ percent: 140 }))).toBe(100);
+    expect(conditionUsagePercent(condition({ percent: -4 }))).toBe(0);
+    expect(conditionUsagePercent(condition({ percent: null }))).toBeNull();
   });
 });
 

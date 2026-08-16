@@ -36,6 +36,12 @@
 		type MonitorStatus,
 		type NormalizedTag,
 	} from '$lib/monitor-filter';
+	import {
+		parseDashboardCardBody,
+		readDashboardCardBody,
+		writeDashboardCardBody,
+		type DashboardCardBody,
+	} from '$lib/dashboard-card';
 	import MonitorCard from '$lib/components/MonitorCard.svelte';
 	import DashboardWallboard from '$lib/components/DashboardWallboard.svelte';
 	import GroupCard from '$lib/components/GroupCard.svelte';
@@ -69,6 +75,12 @@
 	let reliabilityPreview = $state<InsightsRow[]>([]);
 	let reliabilityPreviewLoading = $state(true);
 	let conditionClock = $state(Date.now());
+	let cardBody = $state<DashboardCardBody>(readDashboardCardBody());
+
+	function setCardBody(next: DashboardCardBody) {
+		cardBody = parseDashboardCardBody(next);
+		writeDashboardCardBody(cardBody);
+	}
 
 	$effect(() => {
 		const timer = setInterval(() => (conditionClock = Date.now()), 30_000);
@@ -620,6 +632,9 @@
 					allMonitorCount={allMonitors.length}
 					heartbeats={realtime.heartbeats}
 					{heartbeatHistory}
+					{conditionsByMonitor}
+					conditionNow={conditionClock}
+					{cardBody}
 					connected={realtime.isConnected}
 					{avgPing}
 					{uptimePct}
@@ -642,6 +657,8 @@
 			{typeOptions}
 			{statusCounts}
 			{tagCounts}
+			{cardBody}
+			onCardBodyChange={setCardBody}
 			shown={filteredMonitors.length}
 			total={allMonitors.length}
 			onchange={applyCriteria}
@@ -711,6 +728,7 @@
 							heartbeatHistory={heartbeatHistory.get(mon.id) ?? []}
 							conditions={conditionsByMonitor.get(mon.id) ?? []}
 							conditionNow={conditionClock}
+							{cardBody}
 						/>
 					{/each}
 				</div>
@@ -734,6 +752,7 @@
 						heartbeatHistory={heartbeatHistory.get(mon.id) ?? []}
 						conditions={conditionsByMonitor.get(mon.id) ?? []}
 						conditionNow={conditionClock}
+						{cardBody}
 					/>
 				{/each}
 			</div>

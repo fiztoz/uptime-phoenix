@@ -475,7 +475,8 @@ Grid: `grid grid-cols-2 gap-4 lg:grid-cols-4`
 Key details:
 - Card is a full `<a>` tag (navigates to monitor detail).
 - The left bar is 3px wide, flush to the card edge — `absolute inset-y-0 left-0 w-[3px]`.
-- Sparkline fills the card width at the bottom.
+- Default footer is the ping sparkline. `cardBody="signals"` replaces that
+  footer with `MonitorCardSignals` meters when the monitor has conditions.
 - Hover shadow: `shadow-[0_18px_40px_-24px_rgba(0,0,0,0.8)]` — deep black shadow that bleeds below card.
 
 ---
@@ -698,6 +699,8 @@ rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground
   Reconnecting…
 </div>
 ```
+
+**Dashboard card body** (filter bar, persisted in `localStorage` as `phoenix_dashboard_card`): `response` keeps the ping sparkline; `signals` replaces it with session-pool/storage meters when those conditions exist.
 
 **Needs attention section** (dashboard — collapsible list of down, pending, and active monitors with a confirmed capacity warning/error/stale condition; paused and maintenance stay out):
 ```svelte
