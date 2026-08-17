@@ -49,6 +49,7 @@
     AlertTriangle,
   } from "@lucide/svelte";
   import { goto } from "$app/navigation";
+  import { untrack } from "svelte";
   import * as m from "$lib/paraglide/messages.js";
   import Select from "$lib/components/Select.svelte";
 
@@ -95,6 +96,7 @@
   let actionLoading = $state(false);
   let historyClearedAt = $state<string | null>(null);
   let postClearPollGeneration = 0;
+  let detailsGeneration = 0;
   let dataSource = $derived(
     monitorDataSource(monitorId, realtime.monitors, fetchedMonitor),
   );
@@ -114,11 +116,16 @@
   });
 
   $effect(() => {
-    if (monitorId) {
+    const id = monitorId;
+    if (!id) return;
+    // loadDetails reads conditionSeq (via beginConditionSnapshot) and then
+    // applyConditionSnapshot increments it. That pair must stay untracked or
+    // this effect refetches in a loop until the API returns 429.
+    untrack(() => {
       stopPostClearPolling();
       initialDataSource = null;
-      loadDetails();
-    }
+      void loadDetails();
+    });
   });
 
   function stopPostClearPolling() {
@@ -247,7 +254,6 @@
     if (stats) {
       stats = { ...stats, current_ping_ms: live.ping };
     }
-    void loadChartData(chartHours);
   });
 
   async function refreshObservabilityAfterClear() {
@@ -298,6 +304,7 @@
   }
 
   async function loadDetails() {
+    const generation = ++detailsGeneration;
     loading = true;
     loadError = null;
     try {
@@ -320,6 +327,7 @@
             .catch(() => []),
           conditionsApi.list(monitorId).catch(() => null),
         ]);
+      if (generation !== detailsGeneration) return;
 
       stats = statsData;
       statusHistory = history;
@@ -346,7 +354,9 @@
       lastProcessedHeartbeatTime = liveHb?.time ?? null;
 
       assignedNotifications = await notificationsApi.listForMonitor(monitorId);
+      if (generation !== detailsGeneration) return;
       allNotifications = await notificationsApi.list();
+      if (generation !== detailsGeneration) return;
 
       try {
         assignedTags = await tagsApi.listForMonitor(monitorId);
@@ -359,11 +369,14 @@
         allTags = [];
       }
     } catch (e: any) {
+      if (generation !== detailsGeneration) return;
       const message = e?.message || m.monitor_detail_page_load_failed();
       loadError = message;
       toast.error(message);
     } finally {
-      loading = false;
+      if (generation === detailsGeneration) {
+        loading = false;
+      }
     }
   }
 

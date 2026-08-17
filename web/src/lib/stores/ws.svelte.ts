@@ -491,6 +491,8 @@ function createWsStore() {
     monitors = [...monitors.filter((x) => x.id !== monitor.id), monitor];
   }
 
+  // Read of conditionSeq. Callers that later applyConditionSnapshot (which
+  // increments this) must untrack the read, or a $effect will refetch forever.
   function beginConditionSnapshot(): number {
     return conditionSeq;
   }

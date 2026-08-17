@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
+	import { untrack } from 'svelte';
 	import { realtime } from '$lib/stores/ws.svelte.js';
 	import { heartbeatsApi, type Heartbeat } from '$lib/api/heartbeats.js';
 	import type { MonitorWithGroup } from '$lib/api/monitors';
@@ -145,7 +146,13 @@
 	}
 
 	$effect(() => {
-		if (realtime.hasMonitorSnapshot) void loadConditions();
+		if (!realtime.hasMonitorSnapshot) return;
+		// loadConditions reads conditionSeq then applyConditionSnapshot
+		// increments it. Untrack so a successful snapshot cannot retrigger
+		// this effect (that loop 429s the API).
+		untrack(() => {
+			void loadConditions();
+		});
 	});
 
 	const pageLoading = $derived(!realtime.hasMonitorSnapshot || groupsLoading);

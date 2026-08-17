@@ -183,6 +183,15 @@ describe("condition snapshot application", () => {
     expect(next?.get("1:storage")?.state).toBe("warning");
   });
 
+  test("a successful snapshot is applied even when empty so callers must not resubscribe to seq", () => {
+    // Empty array is not null — apply returns a new map. applyConditionSnapshot
+    // then increments conditionSeq. A $effect that tracked beginConditionSnapshot
+    // would refetch forever (429). Callers must untrack that read.
+    const next = applyConditionSnapshotToMap(new Map(), [], 0, 0, 4);
+    expect(next).not.toBeNull();
+    expect(next?.size).toBe(0);
+  });
+
   test("full snapshot replaces the map when no live event occurred", () => {
     const stale = condition({ monitor_id: 9, state: "warning" });
     const current = new Map([[conditionKey(stale), stale]]);
