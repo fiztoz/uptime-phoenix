@@ -13,6 +13,17 @@ at the bottom.
 
 ### Added
 
+- Database monitors: optional session-pool and storage checks as capacity
+  **conditions** (`ok` / `warning` / `error`, plus derived `stale`). Over
+  threshold or a missing grant does not flip the heartbeat to DOWN, open an
+  outage, or change Insights / SLA / public status. Warning, error, and
+  recovery promote after two consecutive samples with 5-point hysteresis.
+  Chips, Needs attention, RBAC-scoped REST/WebSocket, and
+  `capacity_condition` notifications are included. Fixed engine queries only
+  (no operator SQL). Setup: `docs/guides/database-monitor-setup.md`.
+- Dashboard and wallboard **Card: Capacity** view: session-pool and storage
+  meters replace the ping sparkline when those signals exist; other monitors
+  keep the response graph. Choice persists in `localStorage`.
 - S3 / object-storage monitor (`s3`): signed `head_bucket`, `head_object`, or
   `get_object` against AWS, MinIO, and S3-compatible endpoints. Health only —
   no usage or quota probe. Bucket names may include `-` and `_`; `_` forces
