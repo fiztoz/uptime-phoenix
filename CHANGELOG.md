@@ -11,6 +11,19 @@ at the bottom.
 
 ## [Unreleased]
 
+### Added
+
+- S3 / object-storage monitor (`s3`): signed `head_bucket`, `head_object`, or
+  `get_object` against AWS, MinIO, and S3-compatible endpoints. Health only —
+  no usage or quota probe. Bucket names may include `-` and `_`; `_` forces
+  path-style addressing. Setup guide: `docs/guides/s3-monitor-setup.md`.
+
+### Fixed
+
+- Monitor detail and dashboard no longer refetch in a loop until the API
+  returns 429. `beginConditionSnapshot` reads `conditionSeq` and
+  `applyConditionSnapshot` increments it; those calls are now untracked.
+
 ## [0.2.3] — 2026-08-16
 
 ### Added
