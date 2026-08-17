@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Monitor represents a monitoring target configuration.
 type Monitor struct {
@@ -50,6 +53,12 @@ type Monitor struct {
 // derived from its Type and Config. The result is what gets displayed in
 // notification messages, status-page cards, and the monitor list.
 func (m *Monitor) Target() string {
+	if m == nil {
+		return ""
+	}
+	if m.Type == "s3" {
+		return S3DisplayTarget(m.Config)
+	}
 	keys := map[string][]string{
 		"http":      {"url"},
 		"websocket": {"url"},
@@ -67,6 +76,26 @@ func (m *Monitor) Target() string {
 		}
 	}
 	return ""
+}
+
+// S3DisplayTarget returns endpoint/bucket for cards and notifications.
+// Credentials are never included.
+func S3DisplayTarget(cfg map[string]any) string {
+	if cfg == nil {
+		return ""
+	}
+	bucket, _ := cfg["bucket"].(string)
+	endpoint, _ := cfg["endpoint"].(string)
+	bucket = strings.TrimSpace(bucket)
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	switch {
+	case endpoint != "" && bucket != "":
+		return endpoint + "/" + bucket
+	case bucket != "":
+		return bucket
+	default:
+		return endpoint
+	}
 }
 
 // maxOwnerAncestorWalk bounds the group ParentID walk used when resolving an

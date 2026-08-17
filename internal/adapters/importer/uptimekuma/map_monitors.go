@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Phoenix monitor types (locked set of 12).
+// Phoenix monitor types that have a Kuma equivalent (s3 has none).
 var phoenixMonitorTypes = map[string]struct{}{
 	"http": {}, "tcp": {}, "ping": {}, "dns": {}, "websocket": {},
 	"push": {}, "docker": {}, "mqtt": {}, "rabbitmq": {}, "grpc": {}, "snmp": {},

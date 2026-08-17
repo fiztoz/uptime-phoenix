@@ -171,9 +171,14 @@ Redis, external MariaDB, and separate web tier are **opt-in via Helm values**. T
 
 **All Go libraries must be CGO-free** so the binary cross-compiles with `CGO_ENABLED=0`.
 
-## Monitor Types (12 — do NOT add more without user approval)
+## Monitor Types (13 — do NOT add more without user approval)
 
-http, tcp, ping, dns, websocket, push, docker, mqtt, rabbitmq, grpc, snmp, database
+http, tcp, ping, dns, websocket, push, docker, mqtt, rabbitmq, grpc, snmp, database, s3
+
+**S3 monitor (user-approved, health only):** AWS / MinIO / S3-compatible signed
+`head_bucket` / `head_object` / `get_object`. Bucket names may contain `-` and
+`_`; `_` forces path-style addressing. No usage/quota probe (the S3 API has no
+cheap size call). No Azure Blob / native GCS.
 
 **Database monitor engines (user-approved):** postgres, mysql, mariadb, mongodb, redis, mssql.
 Health checks use fixed presets only (`ping` / `select_1`) — never free-form operator SQL.

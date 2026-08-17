@@ -20,7 +20,7 @@ Build a self-hosted monitoring tool that matches Uptime Kuma's feature surface (
 
 ## 2. Scope
 
-### Shipped monitor types (12)
+### Shipped monitor types (13)
 
 - HTTP(s) — status code / keyword / JSON query assertion + TLS cert info
 - TCP port connect
@@ -34,6 +34,7 @@ Build a self-hosted monitoring tool that matches Uptime Kuma's feature surface (
 - gRPC health check
 - SNMP GET
 - Database connect health (PostgreSQL, MySQL, MariaDB, MongoDB, Redis, **MSSQL**) — fixed presets only (`ping` / `select_1`); optional fixed-query session-pool/storage conditions remain separate from availability and never accept free-form operator SQL
+- S3 / object storage (AWS, MinIO, S3-compatible) — signed `head_bucket` / `head_object` / `get_object` only; bucket names may contain `-` and `_`; no usage/quota probe
 
 ### Shipped notification providers (11)
 
@@ -74,7 +75,7 @@ Do **not** add providers without user approval. Explicitly **not** shipped (back
 ### MVP (Phase 1) — met
 
 1. `helm install uptime-phoenix ./charts/uptime-phoenix` brings up a working monitoring tool with zero external dependencies (default: MariaDB or SQLite on a PVC + embedded static frontend in a single pod)
-2. All 12 monitor types configurable via the UI and producing heartbeats
+2. All shipped monitor types configurable via the UI and producing heartbeats
 3. All 11 notification providers configurable and fire on status change
 4. Real-time dashboard updates via WebSocket
 5. Public status page with incident management

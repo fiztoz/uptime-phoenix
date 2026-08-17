@@ -57,7 +57,8 @@ export interface MonitorTypeMeta {
 
 /**
  * Ordered groups for the type select. Types listed here must exist in
- * `monitorTypeConfig`. Keep in lockstep with AGENTS.md's monitor-type list.
+ * `monitorTypeConfig`. Keep in lockstep with AGENTS.md's monitor-type list
+ * (13 types).
  */
 export const MONITOR_TYPE_GROUPS: ReadonlyArray<{
   id: MonitorTypeGroupId;
@@ -78,7 +79,7 @@ export const MONITOR_TYPE_GROUPS: ReadonlyArray<{
   {
     id: "infrastructure",
     label: "Infrastructure",
-    types: ["docker", "database"],
+    types: ["docker", "database", "s3"],
   },
   {
     id: "protocol",
@@ -707,6 +708,148 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         step: 0.1,
         showWhen: { key: "check_storage", values: ["true"] },
         help: "Capacity in GiB used when the engine cannot report a total (typical PostgreSQL and MySQL). Optional if Mongo fsTotalSize, MariaDB DISKS, SQL Server file size, or Redis maxmemory is available. Redis storage check is memory (used_memory), not disk.",
+      },
+    ],
+  },
+  s3: {
+    label: "S3 / Object storage",
+    description:
+      "Signed HeadBucket or canary object — AWS, MinIO, S3-compatible",
+    sections: [
+      {
+        id: "connection",
+        label: "Connection",
+        description:
+          "Where to send the signed request. Leave endpoint empty for AWS.",
+      },
+      {
+        id: "target",
+        label: "Bucket",
+        description:
+          "Hyphens and underscores are allowed. Underscore names always use path-style addressing.",
+      },
+      {
+        id: "authentication",
+        label: "Authentication",
+        description: "Dedicated read-only key. Never use the root account.",
+      },
+      {
+        id: "health",
+        label: "Health check",
+        description:
+          "Presets only — HeadBucket, HeadObject, or a small GetObject. No usage or quota probe.",
+      },
+    ],
+    fields: [
+      {
+        key: "provider",
+        label: "Provider",
+        type: "select",
+        default: "generic",
+        section: "connection",
+        options: [
+          { value: "aws", label: "AWS S3" },
+          { value: "minio", label: "MinIO" },
+          { value: "generic", label: "S3-compatible (R2, Wasabi, Garage, …)" },
+        ],
+        help: "Hint for defaults only. All three speak the S3 REST API.",
+      },
+      {
+        key: "endpoint",
+        label: "Endpoint",
+        type: "text",
+        placeholder: "http://minio.minio.svc:9000",
+        section: "connection",
+        fullWidth: true,
+        help: "Leave empty for AWS (s3.<region>.amazonaws.com). For MinIO include the scheme, e.g. http://minio:9000.",
+      },
+      {
+        key: "region",
+        label: "Region",
+        type: "text",
+        default: "us-east-1",
+        section: "connection",
+        help: "SigV4 region. MinIO commonly uses us-east-1.",
+      },
+      {
+        key: "path_style",
+        label: "Path-style addressing",
+        type: "checkbox",
+        default: true,
+        section: "connection",
+        help: "Use /bucket/key instead of bucket.host/key. Required for bucket names with '_' and for most MinIO / Garage / R2 endpoints. Hyphenated names work either way.",
+      },
+      {
+        key: "bucket",
+        label: "Bucket",
+        type: "text",
+        required: true,
+        placeholder: "my-backup_bucket",
+        section: "target",
+        fullWidth: true,
+        monospace: true,
+        help: "3–63 characters. Letters, digits, '-', '_' and '.' are allowed.",
+      },
+      {
+        key: "access_key",
+        label: "Access key",
+        type: "password",
+        required: true,
+        section: "authentication",
+      },
+      {
+        key: "secret_key",
+        label: "Secret key",
+        type: "password",
+        required: true,
+        section: "authentication",
+      },
+      {
+        key: "session_token",
+        label: "Session token (optional)",
+        type: "password",
+        section: "authentication",
+        help: "STS session token if you are pasting temporary credentials.",
+      },
+      {
+        key: "health_check",
+        label: "Health check",
+        type: "select",
+        default: "head_bucket",
+        section: "health",
+        options: [
+          {
+            value: "head_bucket",
+            label: "HeadBucket — bucket exists and is reachable",
+          },
+          { value: "head_object", label: "HeadObject — canary object exists" },
+          {
+            value: "get_object",
+            label: "GetObject — read a small canary object",
+          },
+        ],
+        help: "Presets only. There is no storage-usage check — the S3 API cannot report quota cheaply.",
+      },
+      {
+        key: "object_key",
+        label: "Object key",
+        type: "text",
+        placeholder: "phoenix-canary",
+        section: "health",
+        fullWidth: true,
+        monospace: true,
+        showWhen: {
+          key: "health_check",
+          values: ["head_object", "get_object"],
+        },
+        help: "Required for HeadObject / GetObject. Use a dedicated canary object, not a data-lake prefix.",
+      },
+      {
+        key: "timeout",
+        label: "Timeout (s)",
+        type: "number",
+        default: 10,
+        section: "health",
       },
     ],
   },

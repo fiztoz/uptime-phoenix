@@ -480,6 +480,9 @@ func statusToWire(s domain.Status) string {
 }
 
 func monitorTarget(monitorType string, cfg map[string]any) string {
+	if monitorType == "s3" {
+		return domain.S3DisplayTarget(cfg)
+	}
 	keys := map[string][]string{
 		"http":      {"url"},
 		"websocket": {"url"},

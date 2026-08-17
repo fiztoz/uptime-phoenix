@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,6 +59,21 @@ func TestMarshalWireEvent_MonitorUpdate(t *testing.T) {
 	}
 	if payload["timeout"] != float64(30) {
 		t.Errorf("timeout = %v, want 30", payload["timeout"])
+	}
+}
+
+func TestMonitorTarget_S3UsesEndpointAndBucket(t *testing.T) {
+	target := monitorTarget("s3", map[string]any{
+		"endpoint":   "http://minio:9000",
+		"bucket":     "my_backup_bucket",
+		"access_key": "AKIA",
+		"secret_key": "super-secret",
+	})
+	if target != "http://minio:9000/my_backup_bucket" {
+		t.Fatalf("target = %q", target)
+	}
+	if strings.Contains(target, "secret") || strings.Contains(target, "AKIA") {
+		t.Fatalf("target leaked credentials: %q", target)
 	}
 }
 

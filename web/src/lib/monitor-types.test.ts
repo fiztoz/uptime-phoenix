@@ -105,3 +105,44 @@ describe("Database monitor form metadata", () => {
     expect(db.fields.map((item) => item.key)).not.toContain("query");
   });
 });
+
+describe("S3 monitor form metadata", () => {
+  const s3 = monitorTypeConfig.s3;
+
+  test("places every s3 field in a declared section", () => {
+    const sectionIDs = new Set(s3.sections?.map((section) => section.id));
+
+    expect(sectionIDs.size).toBeGreaterThan(0);
+    for (const field of s3.fields) {
+      expect(field.section).toBeTruthy();
+      expect(sectionIDs.has(field.section as string)).toBe(true);
+    }
+  });
+
+  test("health checks stay reachability-only", () => {
+    const field = s3.fields.find((item) => item.key === "health_check");
+    expect(field?.options?.map((option) => option.value)).toEqual([
+      "head_bucket",
+      "head_object",
+      "get_object",
+    ]);
+    expect(s3.fields.map((item) => item.key)).not.toContain("check_storage");
+    expect(s3.fields.map((item) => item.key)).not.toContain(
+      "storage_threshold",
+    );
+  });
+
+  test("reveals object_key only for object probes", () => {
+    const field = s3.fields.find((item) => item.key === "object_key");
+    expect(field?.showWhen).toEqual({
+      key: "health_check",
+      values: ["head_object", "get_object"],
+    });
+  });
+
+  test("defaults to path-style so underscore bucket names work", () => {
+    const field = s3.fields.find((item) => item.key === "path_style");
+    expect(field?.type).toBe("checkbox");
+    expect(field?.default).toBe(true);
+  });
+});

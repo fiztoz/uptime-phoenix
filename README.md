@@ -17,7 +17,7 @@ zero-dependency pod to a split API + worker deployment with Redis fan-out.
 
 | Area | What you get |
 |---|---|
-| 12 monitor types | http, tcp, ping, dns, websocket, push (HMAC ingest), docker, mqtt, rabbitmq, grpc, snmp, database (postgres/mysql/mariadb/mongodb/redis/mssql) |
+| 13 monitor types | http, tcp, ping, dns, websocket, push (HMAC ingest), docker, mqtt, rabbitmq, grpc, snmp, database (postgres/mysql/mariadb/mongodb/redis/mssql), s3 (AWS/MinIO/S3-compatible, health only) |
 | 11 notification providers | bark, discord, feishu, gotify, line, mattermost, slack, smtp, teams, telegram, webhook — with shared retry/backoff |
 | Alerting pipeline | Retry-confirm (PENDING to DOWN after max retries), resend interval, recovery notices, maintenance suppression, ack/resolve, escalation policies |
 | Folder alerting | Monitor groups (folders) alert on their own rollup transition, not per child |

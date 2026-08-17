@@ -73,7 +73,7 @@
                     │       │        │          │             │
                     │  ┌────▼──┐ ┌──▼────┐ ┌───▼──────────┐  │
                     │  │EventBus│ │Sched-│ │ Checker Pool │  │
-                    │  │(in-proc)│ │  uler│ │ (14 types)  │  │
+                    │  │(in-proc)│ │  uler│ │ (13 types)  │  │
                     │  └────┬──┘ └──┬────┘ └──────────────┘  │
                     │       │       │                        │
                     │  ┌────▼───────▼────────────────────┐   │
@@ -190,6 +190,8 @@ phoenix/
 │       │   ├── snmp.go                # gosnmp/gosnmp
 │       │   ├── database.go            # postgres/mysql/mariadb/mssql/mongo/redis; ping + select_1; optional session/storage thresholds
 │       │   ├── database_capacity.go   # session-pool / storage queries (fixed SQL) + threshold math
+│       │   ├── s3.go                  # AWS / MinIO / S3-compatible signed HeadBucket / HeadObject / GetObject
+│       │   ├── s3_sigv4.go            # in-tree SigV4 (no AWS SDK)
 │       │   └── registry.go            # auto-registers all checkers
 │       ├── notifier/                  # Secondary — 11 notification providers
 │       │   ├── telegram.go
@@ -990,6 +992,7 @@ func init() {
     Register(GRPCChecker{})
     Register(SNMPChecker{})
     Register(DatabaseChecker{})
+    Register(S3Checker{})
 }
 ```
 
@@ -1009,6 +1012,7 @@ func init() {
 | `grpc` | `google.golang.org/grpc` + `health/v1` | `url`, `service_name`, `tls` | Use `grpc.WithBlock()` + context deadline |
 | `snmp` | `gosnmp/gosnmp` | `hostname`, `oid`, `version`, `community` | Pure Go, no CGO; SNMPv3 needs extra fields |
 | `database` | `pgx` / `mysql` / `go-mssqldb` / `mongo-driver/v2` / `go-redis/v9` | `engine`, `connection_string` (alias `dsn`), `health_check` (`ping`\|`select_1`), `check_session_pool`, `session_pool_threshold`, `check_storage`, `storage_threshold`, `storage_max_gb` | Engines: postgres, mysql, mariadb, mssql, mongodb, redis. Fixed presets only — no free-form SQL. Primary connect/ping/select drives UP/DOWN. Optional capacity queries run on the same cadence as the primary probe and emit persisted `ok`/`warning`/`error` conditions and derived `stale` without changing availability. Extra grants may be required. Setup: `docs/guides/database-monitor-setup.md`; semantics: `docs/guides/database-capacity-presentation.md`. |
+| `s3` | stdlib `net/http` + in-tree SigV4 | `provider`, `endpoint`, `region`, `bucket`, `path_style`, `access_key`, `secret_key`, `session_token`, `health_check` (`head_bucket`\|`head_object`\|`get_object`), `object_key` | Health only. Bucket names may contain `-` and `_`; `_` is not a DNS label and forces path-style. No usage/quota probe (S3 API has no cheap size call). Redirects are not followed. Setup: `docs/guides/s3-monitor-setup.md`. |
 
 ### Example: HTTP Checker
 

@@ -22,6 +22,7 @@ var secretConfigKeys = map[string]struct{}{
 	"accesstoken": {}, "private_key": {}, "privatekey": {},
 	"smtp_password": {}, "smtppassword": {}, "app_secret": {},
 	"appsecret": {}, "channel_secret": {}, "channelsecret": {},
+	"secret_key": {}, "secretkey": {}, "session_token": {}, "sessiontoken": {},
 }
 
 var configKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)

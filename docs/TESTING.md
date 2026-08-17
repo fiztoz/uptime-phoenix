@@ -559,6 +559,19 @@ go test -v ./internal/adapters/checker/...  # Checker tests pass
 go build ./...                              # Everything compiles
 ```
 
+S3 health checks (`head_bucket` / `head_object` / `get_object`) must test
+effects, not only status codes:
+
+- `Validate` accepts hyphen and underscore bucket names; `_` cannot be used
+  with `path_style=false`.
+- A 200 signed probe is UP; 403 / 404 / connect errors / 301 redirects are DOWN.
+- Underscore buckets send path-style (`/bucket` on the endpoint host), never
+  `bucket.endpoint` as the Host header.
+- `Authorization` is SigV4 (`AWS4-HMAC-SHA256`). Secrets never appear in
+  `Message`. Redirects are not followed.
+- `tls_ignore` against a self-signed target is UP; verification on is DOWN.
+- No usage/quota config keys (`check_storage`) and no full-bucket listing.
+
 Database capacity conditions (`check_session_pool` / `check_storage`) must test
 effects, not only messages/status codes:
 

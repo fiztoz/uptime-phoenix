@@ -29,6 +29,7 @@
   import MqttSetupGuide from "$lib/components/MqttSetupGuide.svelte";
   import DatabaseSetupGuide from "$lib/components/DatabaseSetupGuide.svelte";
   import RabbitmqSetupGuide from "$lib/components/RabbitmqSetupGuide.svelte";
+  import S3SetupGuide from "$lib/components/S3SetupGuide.svelte";
   import { modalFocus } from "$lib/actions/modalFocus";
   import { untrack } from "svelte";
   import * as m from "$lib/paraglide/messages.js";
@@ -42,6 +43,8 @@
   const DATABASE_GUIDE_FILENAME = "phoenix-database-monitor-setup.md";
   const RABBITMQ_GUIDE_PATH = "/docs/rabbitmq-setup.md";
   const RABBITMQ_GUIDE_FILENAME = "phoenix-rabbitmq-setup.md";
+  const S3_GUIDE_PATH = "/docs/s3-monitor-setup.md";
+  const S3_GUIDE_FILENAME = "phoenix-s3-monitor-setup.md";
 
   interface Props {
     monitor?: Monitor;
@@ -62,6 +65,7 @@
   let mqttGuideOpen = $state(false);
   let databaseGuideOpen = $state(false);
   let rabbitmqGuideOpen = $state(false);
+  let s3GuideOpen = $state(false);
 
   function downloadDockerGuide() {
     const a = document.createElement("a");
@@ -94,6 +98,15 @@
     const a = document.createElement("a");
     a.href = RABBITMQ_GUIDE_PATH;
     a.download = RABBITMQ_GUIDE_FILENAME;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.click();
+  }
+
+  function downloadS3Guide() {
+    const a = document.createElement("a");
+    a.href = S3_GUIDE_PATH;
+    a.download = S3_GUIDE_FILENAME;
     a.target = "_blank";
     a.rel = "noopener";
     a.click();
@@ -503,9 +516,12 @@
         // Send the intended weight so a reorder persists (0 is a real value).
         weight: Number(formData.weight),
         upside_down: formData.upsideDown,
-        // Only meaningful for HTTP checks; never carry a stale toggle onto
-        // another type when the user switches type before saving.
-        tls_ignore: selectedType === "http" ? formData.tlsIgnore : false,
+        // TLS skip is meaningful for HTTP and S3; never carry a stale
+        // toggle onto another type when the user switches type before saving.
+        tls_ignore:
+          selectedType === "http" || selectedType === "s3"
+            ? formData.tlsIgnore
+            : false,
         cert_expiry_notify:
           selectedType === "http" ? formData.certExpiryNotify : false,
         config,
@@ -856,6 +872,46 @@
                 </div>
               </div>
             {/if}
+          {/if}
+
+          {#if selectedType === "s3"}
+            <div
+              class="mb-4 rounded-lg border border-border bg-surface/60 px-3 py-3 text-sm"
+              role="note"
+            >
+              <div class="flex gap-2">
+                <BookOpen
+                  class="mt-0.5 h-4 w-4 shrink-0 text-primary"
+                  aria-hidden="true"
+                />
+                <div class="min-w-0 space-y-2">
+                  <p class="font-medium text-foreground">
+                    {m.s3_monitor_help_title()}
+                  </p>
+                  <p class="text-xs leading-relaxed text-muted-foreground">
+                    {m.s3_monitor_help_body()}
+                  </p>
+                  <div class="flex flex-wrap gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      onclick={() => (s3GuideOpen = true)}
+                      class="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                    >
+                      <BookOpen class="h-3.5 w-3.5" />
+                      {m.s3_monitor_help_view_guide()}
+                    </button>
+                    <button
+                      type="button"
+                      onclick={downloadS3Guide}
+                      class="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                    >
+                      <Download class="h-3.5 w-3.5" />
+                      {m.s3_monitor_help_download_guide()}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           {/if}
 
           {#if selectedType === "rabbitmq"}
@@ -1309,7 +1365,7 @@
               >
             </div>
 
-            {#if selectedType === "http"}
+            {#if selectedType === "http" || selectedType === "s3"}
               <div>
                 <div class="flex items-center gap-2">
                   <input
@@ -1326,6 +1382,8 @@
                   {m.monitor_form_tls_ignore_warning()}
                 </p>
               </div>
+            {/if}
+            {#if selectedType === "http"}
               <div>
                 <div class="flex items-center gap-2">
                   <input
@@ -1373,4 +1431,5 @@
   <MqttSetupGuide bind:open={mqttGuideOpen} />
   <DatabaseSetupGuide bind:open={databaseGuideOpen} />
   <RabbitmqSetupGuide bind:open={rabbitmqGuideOpen} />
+  <S3SetupGuide bind:open={s3GuideOpen} />
 {/if}
