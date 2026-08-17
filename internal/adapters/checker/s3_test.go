@@ -392,11 +392,14 @@ func TestSignS3Request_OfficialGETVector(t *testing.T) {
 }
 
 func TestS3URIEncode_PreservesHyphenAndUnderscore(t *testing.T) {
-	if got := s3URIEncode("my-bucket_name", true); got != "my-bucket_name" {
+	if got := s3URIEncode("my-bucket_name"); got != "my-bucket_name" {
 		t.Fatalf("s3URIEncode = %q", got)
 	}
-	if got := s3URIEncode("a b", true); got != "a%20b" {
+	if got := s3URIEncode("a b"); got != "a%20b" {
 		t.Fatalf("s3URIEncode space = %q", got)
+	}
+	if got := s3URIEncode("a/b"); got != "a%2Fb" {
+		t.Fatalf("s3URIEncode slash = %q", got)
 	}
 }
 

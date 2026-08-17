@@ -327,7 +327,7 @@ func s3RequestPath(opts s3Opts) string {
 	}
 	encoded := make([]string, len(segments))
 	for i, seg := range segments {
-		encoded[i] = s3URIEncode(seg, true)
+		encoded[i] = s3URIEncode(seg)
 	}
 	return "/" + strings.Join(encoded, "/")
 }

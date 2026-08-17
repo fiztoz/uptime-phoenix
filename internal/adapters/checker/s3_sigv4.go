@@ -99,7 +99,7 @@ func s3CanonicalQuery(req *http.Request) string {
 	var parts []string
 	for _, k := range keys {
 		for _, v := range values[k] {
-			parts = append(parts, s3URIEncode(k, true)+"="+s3URIEncode(v, true))
+			parts = append(parts, s3URIEncode(k)+"="+s3URIEncode(v))
 		}
 	}
 	return strings.Join(parts, "&")
@@ -167,17 +167,15 @@ func hexSHA256(data string) string {
 }
 
 // s3URIEncode implements the AWS SigV4 URI encoding rules: unreserved
-// characters stay literal; every other byte becomes %XX. Slash is preserved
-// when encodeSlash is false.
-func s3URIEncode(s string, encodeSlash bool) string {
+// characters stay literal; every other byte (including '/') becomes %XX.
+// Callers that need literal slashes encode each path segment and join with '/'.
+func s3URIEncode(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
 			c == '-' || c == '_' || c == '.' || c == '~' {
-			b.WriteByte(c)
-		} else if c == '/' && !encodeSlash {
 			b.WriteByte(c)
 		} else {
 			b.WriteByte('%')
