@@ -1014,6 +1014,20 @@ func init() {
 | `database` | `pgx` / `mysql` / `go-mssqldb` / `mongo-driver/v2` / `go-redis/v9` | `engine`, `connection_string` (alias `dsn`), `health_check` (`ping`\|`select_1`), `check_session_pool`, `session_pool_threshold`, `check_storage`, `storage_threshold`, `storage_max_gb` | Engines: postgres, mysql, mariadb, mssql, mongodb, redis. Fixed presets only — no free-form SQL. Primary connect/ping/select drives UP/DOWN. Optional capacity queries run on the same cadence as the primary probe and emit persisted `ok`/`warning`/`error` conditions and derived `stale` without changing availability. Extra grants may be required. Setup: `docs/guides/database-monitor-setup.md`; semantics: `docs/guides/database-capacity-presentation.md`. |
 | `s3` | stdlib `net/http` + in-tree SigV4 | `provider`, `endpoint`, `region`, `bucket`, `path_style`, `access_key`, `secret_key`, `session_token`, `health_check` (`head_bucket`\|`head_object`\|`get_object`), `object_key` | Health only. Bucket names may contain `-` and `_`; `_` is not a DNS label and forces path-style. No usage/quota probe (S3 API has no cheap size call). Redirects are not followed. Setup: `docs/guides/s3-monitor-setup.md`. |
 
+### K8s extensions hook (not a monitor type)
+
+Operator-registered sidebar tabs that iframe a same-host Ingress path. This is
+**not** a 14th checker and carries no plugin client or credentials.
+
+`PHOENIX_EXTENSIONS` is a JSON array of `{id, title, path, icon}`. Empty or unset
+serves `GET /api/extensions` as `[]` (any authenticated user; no extra RBAC).
+`icon` is a same-origin path the plugin image serves (default `{path}/icon.svg`);
+Helm cannot extract files from a container. Helm-only keys (`image`,
+`secretName`, credentials) are never echoed. The chart loops `extensions[]`
+into a Deployment, Service, NetworkPolicy, and an Ingress Prefix path
+inserted before `/`. Default is off; Compose / single-binary / SQLite-laptop
+still boot and get an empty list.
+
 ### Example: HTTP Checker
 
 ```go

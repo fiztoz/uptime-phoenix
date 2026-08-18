@@ -28,6 +28,14 @@ at the bottom.
   `get_object` against AWS, MinIO, and S3-compatible endpoints. Health only —
   no usage or quota probe. Bucket names may include `-` and `_`; `_` forces
   path-style addressing. Setup guide: `docs/guides/s3-monitor-setup.md`.
+- Generic K8s extensions catalogue + iframe tab: Helm `extensions: []`
+  (default off) renders per-item Deployment, Service, NetworkPolicy, and
+  an Ingress path before `/`. Phoenix reads `PHOENIX_EXTENSIONS` (JSON
+  `{id, title, path, icon}` only) and serves `GET /api/extensions`. Empty or
+  unset → `[]`. Admin sidebar appends a tab that iframes the registered
+  path and uses `{path}/icon.svg` from the plugin image (overridable
+  `icon`, Puzzle fallback). Not a new monitor type; image, secretName, and
+  credentials are never serialized.
 
 ### Fixed
 

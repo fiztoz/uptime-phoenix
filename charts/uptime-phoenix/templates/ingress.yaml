@@ -37,6 +37,15 @@ spec:
                 name: {{ include "phoenix.fullname" . }}
                 port:
                   number: {{ .Values.service.port }}
+          {{- range .Values.extensions | default list }}
+          - path: {{ .path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "phoenix.extensionName" (dict "root" $ "id" .id) }}
+                port:
+                  number: {{ .port | default 80 | int }}
+          {{- end }}
           - path: /
             pathType: Prefix
             backend:

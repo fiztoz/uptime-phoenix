@@ -19,3 +19,4 @@ data:
   rate-limit-burst: {{ .Values.security.rateLimitBurst | quote }}
   otel-exporter-endpoint: {{ .Values.observability.otelExporterEndpoint | quote }}
   otel-service-name: {{ .Values.observability.otelServiceName | quote }}
+  extensions-json: {{ include "phoenix.extensionsCatalog" . | quote }}

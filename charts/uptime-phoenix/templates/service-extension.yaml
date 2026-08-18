@@ -1,0 +1,19 @@
+{{- include "phoenix.validateExtensions" . -}}
+{{- range .Values.extensions | default list }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "phoenix.extensionName" (dict "root" $ "id" .id) }}
+  labels:
+    {{- include "phoenix.extensionLabels" (dict "root" $ "id" .id) | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .port | default 80 | int }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "phoenix.extensionSelectorLabels" (dict "root" $ "id" .id) | nindent 4 }}
+{{- end }}

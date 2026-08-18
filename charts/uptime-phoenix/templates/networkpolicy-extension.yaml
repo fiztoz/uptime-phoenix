@@ -1,0 +1,46 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- include "phoenix.validateExtensions" . -}}
+{{- range .Values.extensions | default list }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "phoenix.extensionName" (dict "root" $ "id" .id) }}
+  labels:
+    {{- include "phoenix.extensionLabels" (dict "root" $ "id" .id) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "phoenix.extensionSelectorLabels" (dict "root" $ "id" .id) | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .port | default 80 | int }}
+  egress:
+    # DNS
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # HTTP(S) to upstreams
+    - ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+    # Plugin management APIs (e.g. object-storage control plane)
+    - ports:
+        - protocol: TCP
+          port: 4443
+    # Optional dedicated DB (operator-provisioned; not Phoenix DB_DSN)
+    - ports:
+        - protocol: TCP
+          port: 3306
+{{- end }}
+{{- end }}

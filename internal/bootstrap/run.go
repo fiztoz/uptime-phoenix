@@ -421,6 +421,7 @@ func Run(cfg Config) error {
 	alertHandlers.SetEscalationReader(escalationSvc)
 	escalationHandlers := handlers.NewEscalationHandlers(escalationSvc)
 	insightsHandlers := handlers.NewInsightsHandlers(insightsSvc)
+	extensionHandlers := handlers.NewExtensionHandlers(cfg.ExtensionsJSON)
 
 	httpOpts := httppkg.RouterOptions{
 		Production: cfg.Production,
@@ -457,6 +458,7 @@ func Run(cfg Config) error {
 		alertHandlers,
 		escalationHandlers,
 		insightsHandlers,
+		extensionHandlers,
 		authSvc,
 		accessSvc,
 		repos.apiKey,

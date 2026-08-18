@@ -61,6 +61,7 @@ func NewRouter(
 	alertHandlers *handlers.AlertHandlers,
 	escalationHandlers *handlers.EscalationHandlers,
 	insightsHandlers *handlers.InsightsHandlers,
+	extensionHandlers *handlers.ExtensionHandlers,
 	authSvc *services.AuthService,
 	accessSvc *services.AccessService,
 	apiKeyRepo ports.APIKeyRepository,
@@ -141,6 +142,12 @@ func NewRouter(
 	// capability gate.
 	if insightsHandlers != nil && authSvc != nil {
 		e.GET("/api/insights", insightsHandlers.GetInsights, middleware.AuthMiddleware(authSvc))
+	}
+
+	// K8s extensions catalogue. Any authenticated user; no extra RBAC flag.
+	// Empty or unset PHOENIX_EXTENSIONS is []. Not a monitor type.
+	if extensionHandlers != nil && authSvc != nil {
+		e.GET("/api/extensions", extensionHandlers.List, middleware.AuthMiddleware(authSvc))
 	}
 
 	// Monitor routes (protected with auth middleware). Three different gates,

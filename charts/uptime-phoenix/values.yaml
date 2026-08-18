@@ -439,6 +439,36 @@ observability:
   otelExporterEndpoint: ""
   otelServiceName: phoenix
 
+# ── Sidebar extensions (optional iframe plugins) ──────────────────────────────
+# Default empty: no extra Deployments, catalogue is [].
+# Each item is an operator-supplied image. Phoenix does not CREATE USER, does
+# not run SQL, and does not mount its own DB_DSN into extension pods.
+#
+# Example:
+# extensions:
+#   - id: ecs-usage          # DNS-1123 label, required
+#     title: Storage         # sidebar label
+#     path: /storage         # Ingress + iframe src; must start with /
+#     icon: /storage/icon.svg  # optional; default {path}/icon.svg from the plugin image
+#     image: ghcr.io/myteam/ecs-usage:1.2.3
+#     pullPolicy: IfNotPresent
+#     port: 80
+#     replicas: 1
+#     readinessPath: /health/ready   # override if the image uses another path
+#     resources: {}          # optional
+#     env: []                # optional extra env
+#     envFromSecret: ""      # optional Secret name, all keys as env
+#     database:
+#       secretName: ""       # optional; if set, mounted as DATABASE_DSN
+#       secretKey: dsn
+#
+# Paths must not equal or nest under reserved Phoenix routes:
+# /api /ws /dashboard /insights /monitors /alerts /notifications
+# /escalation-policies /maintenance /status-pages /incidents /backup
+# /settings /login /docs /extensions
+# Cloudflare Tunnel users must add each path (e.g. /storage) themselves.
+extensions: []
+
 # ── Tests ─────────────────────────────────────────────────────────────────────
 tests:
   enabled: true

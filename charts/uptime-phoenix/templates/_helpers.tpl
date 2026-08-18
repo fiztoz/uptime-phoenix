@@ -334,6 +334,11 @@ Shared Phoenix application env (security, observability, rate limits).
     configMapKeyRef:
       name: {{ include "phoenix.fullname" . }}
       key: public-url
+- name: PHOENIX_EXTENSIONS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "phoenix.fullname" . }}
+      key: extensions-json
 {{- if .Values.oidc.enabled }}
 - name: OIDC_ISSUER
   value: {{ .Values.oidc.issuer | quote }}
@@ -437,4 +442,122 @@ Uses cloudflareTunnel.existingSecret when set, otherwise the chart-managed Secre
 {{- else }}
 {{- printf "%s-cloudflared" (include "phoenix.fullname" .) }}
 {{- end }}
+{{- end }}
+
+{{/*
+Reserved Ingress/SPA prefixes that an extension path must not equal or nest under
+(element-wise Prefix match: /api blocks /api/foo, not /apifoo).
+*/}}
+{{- define "phoenix.reservedExtensionPaths" -}}
+/api,/ws,/dashboard,/insights,/monitors,/alerts,/notifications,/escalation-policies,/maintenance,/status-pages,/incidents,/backup,/settings,/login,/docs,/extensions
+{{- end }}
+
+{{/*
+Fail the render when extensions[] is incomplete, collides, or is not DNS-1123.
+*/}}
+{{- define "phoenix.validateExtensions" -}}
+{{- $root := . -}}
+{{- $ids := dict -}}
+{{- $paths := dict -}}
+{{- $reserved := splitList "," (include "phoenix.reservedExtensionPaths" .) -}}
+{{- range $i, $ext := (.Values.extensions | default list) }}
+{{- if empty $ext.id }}
+{{- fail (printf "extensions[%d].id is required" $i) }}
+{{- end }}
+{{- if empty $ext.title }}
+{{- fail (printf "extensions[%d].title is required" $i) }}
+{{- end }}
+{{- if empty $ext.path }}
+{{- fail (printf "extensions[%d].path is required" $i) }}
+{{- end }}
+{{- if empty $ext.image }}
+{{- fail (printf "extensions[%d].image is required" $i) }}
+{{- end }}
+{{- $id := $ext.id | toString -}}
+{{- $path := $ext.path | toString -}}
+{{- if or (gt (len $id) 63) (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $id)) }}
+{{- fail (printf "extensions[%d].id %q is not a valid DNS-1123 label" $i $id) }}
+{{- end }}
+{{- if gt (len (printf "extension-%s" $id)) 63 }}
+{{- fail (printf "extensions[%d].id %q is too long for label app.kubernetes.io/component=extension-%s" $i $id $id) }}
+{{- end }}
+{{- $resName := printf "%s-ext-%s" (include "phoenix.fullname" $root) $id -}}
+{{- if gt (len $resName) 63 }}
+{{- fail (printf "extensions[%d] resource name %q exceeds 63 characters; shorten id or fullname" $i $resName) }}
+{{- end }}
+{{- if or (eq $path "/") (not (hasPrefix "/" $path)) }}
+{{- fail (printf "extensions[%d].path %q must start with / and must not be empty or /" $i $path) }}
+{{- end }}
+{{- if not (empty $ext.icon) }}
+{{- $icon := $ext.icon | toString | trim -}}
+{{- if or (not (hasPrefix "/" $icon)) (hasPrefix "//" $icon) (contains ":" $icon) (contains ".." $icon) }}
+{{- fail (printf "extensions[%d].icon %q must be a same-origin path (start with /, no scheme)" $i $icon) }}
+{{- end }}
+{{- end }}
+{{- range $reserved }}
+{{- if or (eq $path .) (hasPrefix (printf "%s/" .) $path) (hasPrefix (printf "%s/" $path) .) }}
+{{- fail (printf "extensions[%d].path %q conflicts with reserved path %s" $i $path .) }}
+{{- end }}
+{{- end }}
+{{- if hasKey $ids $id }}
+{{- fail (printf "duplicate extensions id %q" $id) }}
+{{- end }}
+{{- $_ := set $ids $id true -}}
+{{- if hasKey $paths $path }}
+{{- fail (printf "duplicate extensions path %q" $path) }}
+{{- end }}
+{{- $_ := set $paths $path true -}}
+{{- end }}
+{{- end }}
+
+{{/*
+Public catalogue JSON: [{id,title,path,icon}, …] only. Never image or secrets.
+icon defaults to {path}/icon.svg — the plugin image must serve that file.
+Always validates extensions[] first so a bad values file fails the render.
+*/}}
+{{- define "phoenix.extensionsCatalog" -}}
+{{- include "phoenix.validateExtensions" . -}}
+{{- $catalog := list -}}
+{{- range .Values.extensions | default list }}
+{{- $path := .path | toString -}}
+{{- $icon := .icon | default "" | toString | trim -}}
+{{- if empty $icon -}}
+{{- $icon = printf "%s/icon.svg" (trimSuffix "/" $path) -}}
+{{- end }}
+{{- $catalog = append $catalog (dict "id" (.id | toString) "title" (.title | toString) "path" $path "icon" $icon) -}}
+{{- end }}
+{{- $catalog | toJson -}}
+{{- end }}
+
+{{/*
+Workload name / Service for one extension: <fullname>-ext-<id>
+Expects dict "root" $ "id" <id>.
+*/}}
+{{- define "phoenix.extensionName" -}}
+{{- printf "%s-ext-%s" (include "phoenix.fullname" .root) .id -}}
+{{- end }}
+
+{{/*
+Selector labels for one extension. Must not reuse phoenix.selectorLabels —
+the all-in-one Service selects name+instance only and would steal traffic.
+Expects dict "root" $ "id" <id>.
+*/}}
+{{- define "phoenix.extensionSelectorLabels" -}}
+app.kubernetes.io/name: {{ printf "%s-ext" (include "phoenix.name" .root) }}
+app.kubernetes.io/instance: {{ .root.Release.Name }}
+app.kubernetes.io/component: {{ printf "extension-%s" .id }}
+{{- end }}
+
+{{/*
+Common labels for one extension workload.
+Expects dict "root" $ "id" <id>.
+*/}}
+{{- define "phoenix.extensionLabels" -}}
+helm.sh/chart: {{ include "phoenix.chart" .root }}
+{{ include "phoenix.extensionSelectorLabels" . }}
+{{- if .root.Chart.AppVersion }}
+app.kubernetes.io/version: {{ .root.Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .root.Release.Service }}
+app.kubernetes.io/part-of: phoenix
 {{- end }}

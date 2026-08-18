@@ -337,6 +337,8 @@
   "monitor_detail_page_back_to_monitors_lower": "กลับไปที่มอนิเตอร์",
   "monitor_detail_page_not_found_title": "ไม่พบมอนิเตอร์",
   "monitor_detail_page_not_found_description": "It may have been deleted or you may not have access to it.",
+  "extension_page_not_found_title": "ไม่พบส่วนขยาย",
+  "extension_page_not_found_description": "อาจถูกลบไปแล้ว หรือคุณอาจไม่มีสิทธิ์เข้าถึง",
   "monitor_detail_page_every_seconds": "ทุก {seconds} วินาที",
   "monitor_detail_page_owner": "ผู้ติดต่อ: {owner}",
   "monitor_detail_page_owner_inherited": "จากกลุ่ม",

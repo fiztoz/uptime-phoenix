@@ -337,6 +337,8 @@
   "monitor_detail_page_back_to_monitors_lower": "Back to monitors",
   "monitor_detail_page_not_found_title": "Monitor not found.",
   "monitor_detail_page_not_found_description": "It may have been deleted or you may not have access to it.",
+  "extension_page_not_found_title": "Extension not found.",
+  "extension_page_not_found_description": "It may have been removed or you may not have access to it.",
   "monitor_detail_page_every_seconds": "every {seconds}s",
   "monitor_detail_page_owner": "Contact: {owner}",
   "monitor_detail_page_owner_inherited": "from group",

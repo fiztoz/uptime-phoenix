@@ -69,8 +69,21 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 | `secret.existingSecret` | string | `""` | Stable pre-created JWT signing Secret; safer alternative to an inline value for GitOps flows |
 | `secret.existingSecretKey` | string | `jwt-secret` | Key within `secret.existingSecret` |
 | `config.totpIssuer` | string | `Phoenix` | TOTP issuer name |
+| `extensions` | list | `[]` | Optional iframe plugins. Empty = no extra Deployments, catalogue is `[]` |
+| `extensions[].id` | string | — | DNS-1123 label (required) |
+| `extensions[].title` | string | — | Sidebar label (required) |
+| `extensions[].path` | string | — | Ingress path + iframe `src`; must start with `/` and must not collide with Phoenix routes |
+| `extensions[].image` | string | — | Operator-supplied plugin image (required) |
+| `extensions[].pullPolicy` | string | `IfNotPresent` | Image pull policy |
+| `extensions[].port` | int | `80` | Container / Service port |
+| `extensions[].replicas` | int | `1` | Replica count |
+| `extensions[].resources` | object | `{}` | Optional CPU/memory |
+| `extensions[].env` | list | `[]` | Extra env vars |
+| `extensions[].envFromSecret` | string | `""` | Optional Secret; all keys injected as env |
+| `extensions[].database.secretName` | string | `""` | Optional Secret mounted as `DATABASE_DSN` (never Phoenix's `DB_DSN`) |
+| `extensions[].database.secretKey` | string | `dsn` | Key within `database.secretName` |
 
-Env vars exposed to container: `DB_ENGINE`, `DB_DSN`, `JWT_SECRET` (auto-generated for Helm CLI, supplied by `secret.jwt`, or read from `secret.existingSecret`), `JWT_EXPIRE_HOURS`, `TOTP_ISSUER`, `HOST`, `PORT`, `LOG_LEVEL`, and optional `REDIS_URL`.
+Env vars exposed to container: `DB_ENGINE`, `DB_DSN`, `JWT_SECRET` (auto-generated for Helm CLI, supplied by `secret.jwt`, or read from `secret.existingSecret`), `JWT_EXPIRE_HOURS`, `TOTP_ISSUER`, `HOST`, `PORT`, `LOG_LEVEL`, `PHOENIX_EXTENSIONS` (JSON catalogue of `{id,title,path}` only), and optional `REDIS_URL`.
 
 ## Usage Examples
 
@@ -207,6 +220,47 @@ chart's Ingress.
 The connector reads the token via the `TUNNEL_TOKEN` env var; no certificates or
 config files are mounted. Set `cloudflareTunnel.replicas=2` (the default) for HA.
 
+### Sidebar extensions (optional)
+
+`extensions: []` by default — no extra Deployments and an empty `PHOENIX_EXTENSIONS`
+catalogue. Each item is a separate Deployment + ClusterIP Service + Ingress
+`Prefix` path (inserted after `/api` and `/ws`, before `/`).
+
+The plugin **image is operator-supplied**. This chart does not ship plugin
+images, does not run `CREATE USER` / SQL, and does not mount Phoenix's `DB_DSN`.
+Provision any dedicated database user and Secret yourself, then point
+`database.secretName` at it (`DATABASE_DSN`).
+
+Readiness defaults to `GET /health/ready` on the plugin port. Override with
+`readinessPath` if the image serves a different probe.
+
+The sidebar icon is **not** extracted from the container image (Helm cannot
+do that). The plugin must serve a same-origin file. Default is
+`GET {path}/icon.svg` (for `path: /storage` that is `/storage/icon.svg`).
+Override with `icon` if the image uses another path (`/storage/favicon.ico`).
+If the file is missing, the admin UI falls back to a generic plug icon.
+
+```yaml
+extensions:
+  - id: ecs-usage
+    title: Storage
+    path: /storage
+    image: ghcr.io/myteam/ecs-usage:1.2.3
+    port: 80
+    database:
+      secretName: ecs-usage-dsn
+      secretKey: dsn
+```
+
+Paths must not equal or nest under reserved Phoenix routes (`/api`, `/ws`,
+`/dashboard`, `/insights`, `/monitors`, `/alerts`, `/notifications`,
+`/escalation-policies`, `/maintenance`, `/status-pages`, `/incidents`,
+`/backup`, `/settings`, `/login`, `/docs`, `/extensions`). Duplicate `id` or
+`path` values fail the render.
+
+Cloudflare Tunnel users must add each extension path (e.g. `/storage`) as a
+Public Hostname route themselves — the chart only wires cluster Ingress.
+
 ## Verification
 
 ```bash
@@ -216,9 +270,15 @@ helm template charts/uptime-phoenix --set scaling.mode=multi \
   --set redis.enabled=true --set redis.host=redis.example.internal
 helm template charts/uptime-phoenix --set mode=api --set hpa.enabled=true
 helm template charts/uptime-phoenix --set valkey.enabled=true
+helm template uptime-phoenix charts/uptime-phoenix \
+  --set extensions[0].id=ecs-usage \
+  --set extensions[0].title=Storage \
+  --set extensions[0].path=/storage \
+  --set extensions[0].image=example.com/ecs-usage:1
 ```
 
-All produce valid Kubernetes manifests.
+All produce valid Kubernetes manifests. Reserved extension paths (`/api`,
+`/dashboard`, …) fail `helm template` at render time.
 
 ## Notes
 

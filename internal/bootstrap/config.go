@@ -112,6 +112,12 @@ type Config struct {
 	OIDCCapEditGroupMetadataGroups      string `env:"OIDC_CAP_EDIT_GROUP_METADATA_GROUPS" envDefault:""`
 	// OIDCGrantMap is "idp-group:group:5,idp-team:monitor:12" (optional :shallow).
 	OIDCGrantMap string `env:"OIDC_GRANT_MAP" envDefault:""`
+
+	// ExtensionsJSON is an optional JSON array of K8s extension catalogue
+	// entries. Empty or unset → GET /api/extensions returns []. Only id,
+	// title, path, and icon are consumed; image, secretName, and credentials
+	// are ignored even if present. This is a sidebar iframe hook, not a monitor type.
+	ExtensionsJSON string `env:"PHOENIX_EXTENSIONS" envDefault:""`
 }
 
 // LoadConfig parses environment into Config.

@@ -1,0 +1,85 @@
+{{- include "phoenix.validateExtensions" . -}}
+{{- range .Values.extensions | default list }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "phoenix.extensionName" (dict "root" $ "id" .id) }}
+  labels:
+    {{- include "phoenix.extensionLabels" (dict "root" $ "id" .id) | nindent 4 }}
+spec:
+  replicas: {{ .replicas | default 1 | int }}
+  selector:
+    matchLabels:
+      {{- include "phoenix.extensionSelectorLabels" (dict "root" $ "id" .id) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "phoenix.extensionSelectorLabels" (dict "root" $ "id" .id) | nindent 8 }}
+    spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml $.Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .id }}
+          image: {{ .image | quote }}
+          imagePullPolicy: {{ .pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .port | default 80 | int }}
+              protocol: TCP
+          {{- if .envFromSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .envFromSecret | quote }}
+          {{- end }}
+          {{- $db := .database | default dict }}
+          {{- if or $db.secretName .env }}
+          env:
+            {{- if $db.secretName }}
+            - name: DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $db.secretName | quote }}
+                  key: {{ $db.secretKey | default "dsn" | quote }}
+            {{- end }}
+            {{- with .env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ .readinessPath | default "/health/ready" | quote }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- with .resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with $.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

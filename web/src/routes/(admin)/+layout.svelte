@@ -5,9 +5,10 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import type { Snippet } from 'svelte';
+	import type { Component, Snippet } from 'svelte';
 	import { updateFaviconBadge } from '$lib/utils/favicon-badge.js';
 	import { healthApi } from '$lib/api/health';
+	import { extensionsApi, type Extension } from '$lib/api/extensions';
 	import BrandMark from '$lib/components/BrandMark.svelte';
 	import Wordmark from '$lib/components/Wordmark.svelte';
 	import * as m from '$lib/paraglide/messages.js';
@@ -32,6 +33,7 @@
 		X,
 		LogOut,
 		Archive,
+		Puzzle,
 	} from '@lucide/svelte';
 
 	let sidebarCollapsed = $state(false);
@@ -41,6 +43,8 @@
 	// (and the footer line stays hidden) when the backend omits `version` or
 	// the fetch fails.
 	let serverVersion = $state<string | null>(null);
+	let extensions = $state<Extension[]>([]);
+	let failedExtensionIcons = $state<Record<string, true>>({});
 
 	onMount(async () => {
 		await auth.loadUser();
@@ -58,6 +62,14 @@
 			.catch(() => {
 				serverVersion = null;
 			});
+		extensionsApi
+			.list()
+			.then((list) => {
+				extensions = list;
+			})
+			.catch(() => {
+				extensions = [];
+			});
 	});
 
 	$effect(() => {
@@ -74,7 +86,15 @@
 		}
 	});
 
-	const allNavItems = [
+	type NavItem = {
+		href: string;
+		label: () => string;
+		icon: Component;
+		gate?: 'admin' | 'notifications' | 'maintenance';
+		iconSrc?: string;
+	};
+
+	const allNavItems: NavItem[] = [
 		{ href: '/dashboard', label: () => m.nav_dashboard(), icon: LayoutDashboard },
 		{ href: '/insights', label: () => m.nav_insights(), icon: BarChart3 },
 		{ href: '/monitors', label: () => m.nav_monitors(), icon: Activity },
@@ -92,20 +112,37 @@
 	let canManageNotifications = $derived(isUserAdmin || (auth.user?.can_manage_notifications ?? false));
 	let canManageMaintenance = $derived(isUserAdmin || (auth.user?.can_manage_maintenance ?? false));
 
-	const navItems = $derived(
-		allNavItems.filter((item) => {
+	const navItems = $derived([
+		...allNavItems.filter((item) => {
 			if (!item.gate) return true;
 			if (item.gate === 'admin') return isUserAdmin;
 			if (item.gate === 'notifications') return canManageNotifications;
 			if (item.gate === 'maintenance') return canManageMaintenance;
 			return true;
-		})
-	);
+		}),
+		...extensions.map((ext) => ({
+			href: `/extensions/${ext.id}`,
+			label: () => ext.title,
+			icon: Puzzle,
+			iconSrc: ext.icon,
+		})),
+	]);
+
+	// Longest href prefix wins so /extensions/foo-bar does not light up /extensions/foo.
+	function longestNavMatch<T extends { href: string }>(pathname: string, items: T[]): T | undefined {
+		let best: T | undefined;
+		for (const item of items) {
+			if (pathname === item.href || pathname.startsWith(`${item.href}/`)) {
+				if (!best || item.href.length > best.href.length) best = item;
+			}
+		}
+		return best;
+	}
 
 	// Active nav + current page title.
-	let activeItem = $derived(
-		navItems.find((i) => $page.url.pathname.startsWith(i.href)) ?? navItems[0]
-	);
+	let matchedNav = $derived(longestNavMatch($page.url.pathname, navItems));
+	let activeItem = $derived(matchedNav ?? navItems[0]);
+	let isExtensionRoute = $derived($page.url.pathname.startsWith('/extensions/'));
 
 	// Global health summary for the top bar.
 	let monitors = $derived(realtime.monitors);
@@ -173,7 +210,7 @@
 					<div class="eyebrow px-2 pt-1 pb-2">{m.layout_overview()}</div>
 				{/if}
 				{#each navItems as item}
-					{@const active = $page.url.pathname.startsWith(item.href)}
+					{@const active = matchedNav?.href === item.href}
 					<a
 						href={item.href}
 						onclick={() => (mobileOpen = false)}
@@ -189,7 +226,18 @@
 								class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary"
 							></span>
 						{/if}
-						<item.icon class="h-[1.1rem] w-[1.1rem] shrink-0" />
+						{#if item.iconSrc && !failedExtensionIcons[item.href]}
+							<img
+								src={item.iconSrc}
+								alt=""
+								class="h-[1.1rem] w-[1.1rem] shrink-0 object-contain"
+								onerror={() => {
+									failedExtensionIcons = { ...failedExtensionIcons, [item.href]: true };
+								}}
+							/>
+						{:else}
+							<item.icon class="h-[1.1rem] w-[1.1rem] shrink-0" />
+						{/if}
 						{#if !sidebarCollapsed}<span class="truncate">{item.label()}</span>{/if}
 					</a>
 				{/each}
@@ -304,9 +352,12 @@
 				</div>
 			{/if}
 
-			<!-- Routed content -->
-			<main class="flex-1 overflow-auto">
-				<div class="mx-auto max-w-7xl p-4 md:p-6 lg:p-8">
+			<main class="flex-1 {isExtensionRoute ? 'overflow-hidden' : 'overflow-auto'}">
+				<div
+					class={isExtensionRoute
+						? 'flex h-full min-h-0 flex-col'
+						: 'mx-auto max-w-7xl p-4 md:p-6 lg:p-8'}
+				>
 					{@render children()}
 				</div>
 			</main>
