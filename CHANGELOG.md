@@ -11,6 +11,8 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-19
+
 ### Added
 
 - Database monitors: optional session-pool and storage checks as capacity

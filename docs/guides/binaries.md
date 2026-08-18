@@ -3,7 +3,7 @@
 How to download and run **Uptime Phoenix** binaries from GitHub Releases, and which
 environment variables to set for each mode.
 
-Release: [v0.2.3](https://github.com/fiztoz/uptime-phoenix/releases/tag/v0.2.3)
+Release: [v0.3.0](https://github.com/fiztoz/uptime-phoenix/releases/tag/v0.3.0)
 
 Also see: [Helm & Argo CD](helm-and-argocd.md) · [Docker / GHCR](docker-ghcr.md) · [DEPLOYMENT_MODES.md](../DEPLOYMENT_MODES.md)
 
@@ -23,10 +23,10 @@ Also see: [Helm & Argo CD](helm-and-argocd.md) · [Docker / GHCR](docker-ghcr.md
 
 Same release also has `SHA256SUMS` and `INVENTORY.md`.
 
-### Download example (Linux amd64, v0.2.3)
+### Download example (Linux amd64, v0.3.0)
 
 ```bash
-VER=0.2.3
+VER=0.3.0
 BASE=https://github.com/fiztoz/uptime-phoenix/releases/download/v${VER}
 
 curl -fsSL -O "${BASE}/uptime-phoenix_${VER}_linux_amd64"
@@ -170,7 +170,7 @@ export HOST=0.0.0.0
 export PORT=3000
 export PUBLIC_URL='https://uptime.example.com'
 
-./uptime-phoenix-api_0.2.3_linux_amd64
+./uptime-phoenix-api_0.3.0_linux_amd64
 # wait until /api/health/ready is OK
 ```
 
@@ -185,7 +185,7 @@ export LOG_LEVEL=info
 # optional sharding:
 # export WORKER_ID=worker-1
 
-./uptime-phoenix-worker_0.2.3_linux_amd64
+./uptime-phoenix-worker_0.3.0_linux_amd64
 ```
 
 ### 3) Frontend in split binary setups
@@ -224,10 +224,10 @@ when you want hard-coded roles without relying on `MODE`.
 
 ```bash
 # Config-as-code (see docs / phoenix.dev/v1 schema)
-./uptime-phoenix-config_0.2.3_linux_amd64 --help
+./uptime-phoenix-config_0.3.0_linux_amd64 --help
 
 # Kuma import helper
-./uptime-phoenix-kuma-import_0.2.3_linux_amd64 --help
+./uptime-phoenix-kuma-import_0.3.0_linux_amd64 --help
 ```
 
 ---
