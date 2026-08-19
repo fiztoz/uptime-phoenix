@@ -1,22 +1,22 @@
 # Helm & Argo CD
 
-Deploy **Uptime Phoenix** with the published Helm chart (`v0.3.0+`).
+Deploy **Uptime Phoenix** with the published Helm chart (`v0.3.1+`).
 
 The chart is an **OCI package on GHCR**. Install it with an OCI URL:
 
 ```bash
 helm upgrade --install uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.3.0
+  --version 0.3.1
 ```
 
 | | |
 |---|---|
 | Chart | `uptime-phoenix` |
-| Chart version | `0.3.0` |
+| Chart version | `0.3.1` |
 | OCI chart | `oci://ghcr.io/fiztoz/charts/uptime-phoenix` |
-| App image | `ghcr.io/fiztoz/uptime-phoenix:0.3.0` (empty `image.tag` → `Chart.AppVersion`) |
-| Release assets | [v0.3.0](https://github.com/fiztoz/uptime-phoenix/releases/tag/v0.3.0) |
+| App image | `ghcr.io/fiztoz/uptime-phoenix:0.3.1` (empty `image.tag` → `Chart.AppVersion`) |
+| Release assets | [v0.3.1](https://github.com/fiztoz/uptime-phoenix/releases/tag/v0.3.1) |
 
 Also see: [binaries](binaries.md) · [Docker / GHCR](docker-ghcr.md) · [deployment modes](../DEPLOYMENT_MODES.md)
 
@@ -37,7 +37,7 @@ kubectl create namespace uptime-phoenix
 
 helm upgrade --install uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.3.0 \
+  --version 0.3.1 \
   --namespace uptime-phoenix \
   --create-namespace \
   --set ingress.host=uptime.example.com
@@ -46,12 +46,12 @@ helm upgrade --install uptime-phoenix \
 ### Inspect
 
 ```bash
-helm show chart oci://ghcr.io/fiztoz/charts/uptime-phoenix --version 0.3.0
-helm show values oci://ghcr.io/fiztoz/charts/uptime-phoenix --version 0.3.0
+helm show chart oci://ghcr.io/fiztoz/charts/uptime-phoenix --version 0.3.1
+helm show values oci://ghcr.io/fiztoz/charts/uptime-phoenix --version 0.3.1
 
 helm template uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.3.0
+  --version 0.3.1
 ```
 
 ### Install with a values file
@@ -76,7 +76,7 @@ EOF
 
 helm upgrade --install uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.3.0 \
+  --version 0.3.1 \
   --namespace uptime-phoenix --create-namespace \
   -f values-uptime.yaml
 ```
@@ -85,9 +85,9 @@ helm upgrade --install uptime-phoenix \
 
 ```bash
 # GitHub Release chart package
-curl -fsSL -o uptime-phoenix-0.3.0.tgz \
-  https://github.com/fiztoz/uptime-phoenix/releases/download/v0.3.0/uptime-phoenix-0.3.0.tgz
-helm upgrade --install uptime-phoenix ./uptime-phoenix-0.3.0.tgz \
+curl -fsSL -o uptime-phoenix-0.3.1.tgz \
+  https://github.com/fiztoz/uptime-phoenix/releases/download/v0.3.1/uptime-phoenix-0.3.1.tgz
+helm upgrade --install uptime-phoenix ./uptime-phoenix-0.3.1.tgz \
   -n uptime-phoenix --create-namespace
 
 # From a git clone (chart source)
@@ -100,7 +100,7 @@ helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
 ```bash
 helm upgrade uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.3.0 \
+  --version 0.3.1 \
   -n uptime-phoenix \
   -f values-uptime.yaml
 
@@ -160,7 +160,7 @@ Full mode matrix: [`docs/DEPLOYMENT_MODES.md`](../DEPLOYMENT_MODES.md).
 ## Argo CD
 
 Point an Application at the OCI chart. Chart version has **no** leading `v`
-(`0.3.0`, not `v0.3.0`).
+(`0.3.1`, not `v0.3.1`).
 
 Argo CD renders Helm templates without cluster access, so Helm's `lookup`
 cannot retain an auto-generated JWT signing key. The simplest option is to
@@ -204,7 +204,7 @@ spec:
   source:
     repoURL: ghcr.io/fiztoz/charts
     chart: uptime-phoenix
-    targetRevision: 0.3.0
+    targetRevision: 0.3.1
     helm:
       releaseName: uptime-phoenix
       values: |
@@ -295,7 +295,7 @@ spec:
     # 1) Helm chart from GHCR
     - repoURL: ghcr.io/fiztoz/charts
       chart: uptime-phoenix
-      targetRevision: 0.3.0
+      targetRevision: 0.3.1
       helm:
         releaseName: uptime-phoenix
         valueFiles:
@@ -331,7 +331,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/fiztoz/uptime-phoenix.git
-    targetRevision: v0.3.0
+    targetRevision: v0.3.1
     path: charts/uptime-phoenix
     helm:
       # File paths are relative to path: (chart directory)
@@ -399,7 +399,7 @@ sharded workers, and in-release Valkey. It requires an operator-managed MariaDB.
 ```bash
 helm upgrade --install uptime-phoenix \
   oci://ghcr.io/fiztoz/charts/uptime-phoenix \
-  --version 0.3.0 \
+  --version 0.3.1 \
   -n uptime-phoenix --create-namespace \
   -f values-production-split.yaml \
   --set ingress.host=uptime.example.com \

@@ -11,6 +11,8 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-08-19
+
 ### Added
 
 - Database storage check: `storage_scope` (`database` default, or `instance`)
