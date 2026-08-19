@@ -116,6 +116,8 @@ func (DatabaseChecker) Validate(config map[string]any) error {
 //   - check_session_pool (optional, bool, default false)
 //   - session_pool_threshold (optional, number 1–100, default 80)
 //   - check_storage (optional, bool, default false)
+//   - storage_scope (optional, "database" default or "instance") — PostgreSQL/MySQL
+//     (and MariaDB when DISKS is unavailable) measure one database or all databases
 //   - storage_threshold (optional, number 1–100, default 80)
 //   - storage_max_gb (optional, GiB; required at check time when the engine cannot report capacity)
 //

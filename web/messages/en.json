@@ -415,7 +415,7 @@
   "database_monitor_help_view_guide": "View setup guide",
   "database_monitor_help_download_guide": "Download guide",
   "database_monitor_capacity_warning_title": "These checks need extra database privileges",
-  "database_monitor_capacity_warning_body": "Session-pool and storage checks run fixed server-side queries — you cannot type SQL. A ping-only user is not always enough. Missing grants become a visible capacity check error while primary availability stays UP; the check is never silently skipped. SQL Server session checks need VIEW SERVER STATE; MongoDB session checks need clusterMonitor; Redis needs the +info ACL; PostgreSQL/MySQL storage usually needs Max size (GiB) because the engine cannot see host disk. Open the setup guide and optional grants before enabling these on production.",
+  "database_monitor_capacity_warning_body": "Session-pool and storage checks run fixed server-side queries — you cannot type SQL. A ping-only user is not always enough. Missing grants become a visible capacity check error while primary availability stays UP; the check is never silently skipped. SQL Server session checks need VIEW SERVER STATE; MongoDB session checks need clusterMonitor; Redis needs the +info ACL; PostgreSQL/MySQL storage usually needs Max size (GiB) because the engine cannot see host disk. Instance-wide PostgreSQL storage needs CONNECT on each database or pg_read_all_stats. Open the setup guide and optional grants before enabling these on production.",
   "database_guide_title": "Database monitor setup guide",
   "database_guide_subtitle": "Engines, DSN formats, and least-privilege users",
   "database_guide_loading": "Loading guide…",

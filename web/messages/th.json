@@ -415,7 +415,7 @@
   "database_monitor_help_view_guide": "ดูคู่มือตั้งค่า",
   "database_monitor_help_download_guide": "ดาวน์โหลดคู่มือ",
   "database_monitor_capacity_warning_title": "การตรวจเหล่านี้ต้องการสิทธิ์ฐานข้อมูลเพิ่มเติม",
-  "database_monitor_capacity_warning_body": "การตรวจ session pool และพื้นที่จัดเก็บใช้คำสั่งฝั่งเซิร์ฟเวอร์ที่กำหนดไว้แล้ว — พิมพ์ SQL เองไม่ได้ บัญชีที่ทำได้แค่ ping อาจไม่พอ หากขาดสิทธิ์ ระบบจะแสดงข้อผิดพลาดของสัญญาณความจุโดยสถานะความพร้อมใช้งานหลักยังเป็น UP และจะไม่ข้ามการตรวจแบบเงียบ ๆ การตรวจ session ของ SQL Server ต้องมี VIEW SERVER STATE; MongoDB ต้องมี clusterMonitor; Redis ต้องมี ACL +info; PostgreSQL/MySQL มักต้องตั้งขนาดสูงสุด (GiB) เพราะเอนจินมองไม่เห็นดิสก์ของโฮสต์ โปรดเปิดคู่มือตั้งค่าและสิทธิ์เสริมก่อนใช้บนระบบจริง",
+  "database_monitor_capacity_warning_body": "การตรวจ session pool และพื้นที่จัดเก็บใช้คำสั่งฝั่งเซิร์ฟเวอร์ที่กำหนดไว้แล้ว — พิมพ์ SQL เองไม่ได้ บัญชีที่ทำได้แค่ ping อาจไม่พอ หากขาดสิทธิ์ ระบบจะแสดงข้อผิดพลาดของสัญญาณความจุโดยสถานะความพร้อมใช้งานหลักยังเป็น UP และจะไม่ข้ามการตรวจแบบเงียบ ๆ การตรวจ session ของ SQL Server ต้องมี VIEW SERVER STATE; MongoDB ต้องมี clusterMonitor; Redis ต้องมี ACL +info; PostgreSQL/MySQL มักต้องตั้งขนาดสูงสุด (GiB) เพราะเอนจินมองไม่เห็นดิสก์ของโฮสต์ การวัดพื้นที่ทั้งอินสแตนซ์ของ PostgreSQL ต้องมี CONNECT บนทุกฐานข้อมูล หรือ pg_read_all_stats โปรดเปิดคู่มือตั้งค่าและสิทธิ์เสริมก่อนใช้บนระบบจริง",
   "database_guide_title": "คู่มือตั้งค่า Database มอนิเตอร์",
   "database_guide_subtitle": "Engine, รูปแบบ DSN และผู้ใช้สิทธิ์ต่ำ",
   "database_guide_loading": "กำลังโหลดคู่มือ…",

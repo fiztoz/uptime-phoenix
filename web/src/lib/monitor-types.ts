@@ -688,6 +688,19 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         help: "After a successful connect, measure used storage via a fixed engine query (never operator SQL). Over-threshold becomes a warning chip after two samples; connectivity remains UP. Extra grants may be required — see the setup guide. Prefer a 30s+ interval.",
       },
       {
+        key: "storage_scope",
+        label: "Storage scope",
+        type: "select",
+        default: "database",
+        section: "capacity",
+        options: [
+          { value: "database", label: "This database only" },
+          { value: "instance", label: "All databases on the instance" },
+        ],
+        showWhen: { key: "check_storage", values: ["true"] },
+        help: "PostgreSQL and MySQL: measure the connected database, or sum every non-template / visible database on the instance. Compare Max size (GiB) to that same allocation — this is database data size, not host disk (WAL, logs, temp, and backups are excluded). MariaDB DISKS stays volume-level; if DISKS is unavailable the fallback follows this setting. Redis, MongoDB, and SQL Server keep their existing measurement.",
+      },
+      {
         key: "storage_threshold",
         label: "Storage threshold (%)",
         type: "number",
@@ -707,7 +720,7 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         min: 0.1,
         step: 0.1,
         showWhen: { key: "check_storage", values: ["true"] },
-        help: "Capacity in GiB used when the engine cannot report a total (typical PostgreSQL and MySQL). Optional if Mongo fsTotalSize, MariaDB DISKS, SQL Server file size, or Redis maxmemory is available. Redis storage check is memory (used_memory), not disk.",
+        help: "Capacity in GiB used when the engine cannot report a total (typical PostgreSQL and MySQL). Match this to the storage scope: one database, or the instance allocation you compare against. Optional if Mongo fsTotalSize, MariaDB DISKS, SQL Server file size, or Redis maxmemory is available. Redis storage check is memory (used_memory), not disk.",
       },
     ],
   },

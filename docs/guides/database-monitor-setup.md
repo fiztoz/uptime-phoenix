@@ -24,8 +24,9 @@ Supported engines: **PostgreSQL**, **MySQL**, **MariaDB**, **SQL Server (MSSQL)*
 | Check session pool | `check_session_pool` | Optional; default `false` |
 | Session pool threshold (%) | `session_pool_threshold` | Default `80` (1–100); used when session-pool check is on |
 | Check storage | `check_storage` | Optional; default `false` |
+| Storage scope | `storage_scope` | `database` (default) or `instance`; used when storage check is on |
 | Storage threshold (%) | `storage_threshold` | Default `80` (1–100); used when storage check is on |
-| Max size (GiB) | `storage_max_gb` | Optional capacity in GiB (1024³ bytes). Required at check time for engines that cannot report a total (typical PostgreSQL / MySQL) |
+| Max size (GiB) | `storage_max_gb` | Optional capacity in GiB (1024³ bytes). Required at check time for engines that cannot report a total (typical PostgreSQL / MySQL). Match this to the chosen storage scope. |
 
 ---
 
@@ -67,16 +68,17 @@ minutes), the UI derives `stale`.
 | `check_session_pool` | boolean | `false` | Enable session-pool check |
 | `session_pool_threshold` | number | `80` | Percent 1–100; condition becomes `warning` at or above |
 | `check_storage` | boolean | `false` | Enable storage check (fixed SQL / INFO / dbStats) |
+| `storage_scope` | string | `database` | `database` = connected database only. `instance` = all non-template (PostgreSQL) or visible (MySQL) databases on the instance. Ignored by Redis, MongoDB, and SQL Server. MariaDB `DISKS` stays volume-level; the MySQL-style fallback honors this key. |
 | `storage_threshold` | number | `80` | Percent 1–100; condition becomes `warning` at or above |
-| `storage_max_gb` | number | unset | Optional capacity in GiB (1024³ bytes). Required at check time for engines that cannot report a total (typical PostgreSQL / MySQL). Redis uses `maxmemory` when set; Mongo may use `fsTotalSize`; MariaDB may use `information_schema.DISKS`; MSSQL may use database file size. |
+| `storage_max_gb` | number | unset | Optional capacity in GiB (1024³ bytes). Required at check time for engines that cannot report a total (typical PostgreSQL / MySQL). Compare against the same allocation as `storage_scope` — one database, or the instance data allocation. Redis uses `maxmemory` when set; Mongo may use `fsTotalSize`; MariaDB may use `information_schema.DISKS`; MSSQL may use database file size. |
 
 ### What each engine measures
 
 | Engine | Sessions | Storage |
 |--------|----------|---------|
-| PostgreSQL | `SUM(numbackends)` / `max_connections` (usually works) | `pg_database_size(current_database())` vs `storage_max_gb` (CONNECT is enough; this is **not** host disk) |
-| MySQL | `Threads_connected` / `max_connections` | `information_schema.tables` sum vs `storage_max_gb` |
-| MariaDB | same as MySQL | `DISKS` if plugin + FILE privilege (values are KiB; Phoenix converts to bytes), else same as MySQL + `storage_max_gb` |
+| PostgreSQL | `SUM(numbackends)` / `max_connections` (usually works) | Default: `pg_database_size(current_database())` vs `storage_max_gb` (CONNECT is enough). `storage_scope=instance`: sum `pg_database_size` for every non-template database (needs CONNECT on each, or `GRANT pg_read_all_stats`). **Not** host disk — excludes WAL, logs, temp, backups, and free space. |
+| MySQL | `Threads_connected` / `max_connections` | Default: `information_schema.tables` for `DATABASE()` vs `storage_max_gb`. `storage_scope=instance`: same sum across visible schemas (only tables the user can see). |
+| MariaDB | same as MySQL | `DISKS` if plugin + FILE privilege (values are KiB; Phoenix converts to bytes; volume-level, ignores `storage_scope`), else same as MySQL + `storage_max_gb` |
 | SQL Server | `dm_exec_sessions` / `@@MAX_CONNECTIONS` — needs **VIEW SERVER STATE** | `sys.database_files` used vs allocated (or `storage_max_gb`) |
 | MongoDB | `serverStatus.connections` — needs **clusterMonitor** | `dbStats` `fsUsedSize`/`fsTotalSize` or `storageSize` vs `storage_max_gb` |
 | Redis | `INFO clients` — needs **+info** | `INFO memory` `used_memory` vs `maxmemory` (**memory**, not disk) |
@@ -211,7 +213,7 @@ Then paste the resulting DSN into Uptime Phoenix with **Engine** set correctly a
 4. Set **Engine**, **Connection string**, **Health check**, **Timeout**.
 5. Save; wait one interval. Status should go **UP**.
 6. Optionally break auth or block the port and confirm **DOWN** + a useful message.
-7. If you enable **capacity alerts**: apply the optional grants in the create-user script (not a superuser), set **Max size (GiB)** when the engine cannot report a total (typical PostgreSQL / MySQL), then turn on the checkboxes. Capacity queries run on every primary check — keep the monitor interval at 30s or slower on busy engines. A warning chip and notification appear only after two consecutive samples.
+7. If you enable **capacity alerts**: apply the optional grants in the create-user script (not a superuser), set **Max size (GiB)** when the engine cannot report a total (typical PostgreSQL / MySQL), choose **Storage scope** (`This database only` or `All databases on the instance`) so the max matches what you measure, then turn on the checkboxes. Capacity queries run on every primary check — keep the monitor interval at 30s or slower on busy engines. A warning chip and notification appear only after two consecutive samples.
 
 ---
 

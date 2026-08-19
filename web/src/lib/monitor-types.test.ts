@@ -67,6 +67,11 @@ describe("Database monitor form metadata", () => {
     expect(byKey.session_pool_threshold?.default).toBe(80);
     expect(byKey.check_storage?.type).toBe("checkbox");
     expect(byKey.check_storage?.default).toBe(false);
+    expect(byKey.storage_scope?.type).toBe("select");
+    expect(byKey.storage_scope?.default).toBe("database");
+    expect(byKey.storage_scope?.options?.map((option) => option.value)).toEqual(
+      ["database", "instance"],
+    );
     expect(byKey.storage_threshold?.type).toBe("number");
     expect(byKey.storage_threshold?.default).toBe(80);
     expect(byKey.storage_max_gb?.type).toBe("number");
@@ -85,7 +90,11 @@ describe("Database monitor form metadata", () => {
   });
 
   test("reveals storage fields only when the storage check is on", () => {
-    for (const key of ["storage_threshold", "storage_max_gb"]) {
+    for (const key of [
+      "storage_scope",
+      "storage_threshold",
+      "storage_max_gb",
+    ]) {
       const field = db.fields.find((item) => item.key === key);
       expect(field?.showWhen).toEqual({
         key: "check_storage",

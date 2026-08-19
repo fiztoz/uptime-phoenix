@@ -214,6 +214,43 @@ func TestDatabaseChecker_Validate(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "storage_scope instance",
+			config: map[string]any{
+				"engine":            "postgres",
+				"connection_string": "x",
+				"check_storage":     true,
+				"storage_scope":     "instance",
+			},
+			wantErr: false,
+		},
+		{
+			name: "storage_scope database",
+			config: map[string]any{
+				"engine":            "postgres",
+				"connection_string": "x",
+				"storage_scope":     "database",
+			},
+			wantErr: false,
+		},
+		{
+			name: "storage_scope invalid",
+			config: map[string]any{
+				"engine":            "postgres",
+				"connection_string": "x",
+				"storage_scope":     "cluster",
+			},
+			wantErr: true,
+		},
+		{
+			name: "storage_scope non-string",
+			config: map[string]any{
+				"engine":            "postgres",
+				"connection_string": "x",
+				"storage_scope":     true,
+			},
+			wantErr: true,
+		},
 	}
 
 	// Ensure free-form operator SQL is never accepted as a config field that

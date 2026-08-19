@@ -41,6 +41,10 @@ GRANT USAGE ON SCHEMA public TO phoenix_monitor;
 -- Sessions: pg_stat_database (usually readable by PUBLIC) + current_setting('max_connections').
 -- Storage: pg_database_size(current_database()) — CONNECT is enough — plus operator-set
 -- storage_max_gb (GiB). Phoenix does not query host disk (no pg_stat_file / superuser APIs).
+-- Instance-wide storage (storage_scope=instance) sums every non-template database.
+-- CONNECT on each database is enough, or grant:
+-- GRANT pg_read_all_stats TO phoenix_monitor;
+-- That is still logical database size (not WAL, logs, temp, backups, or disk free).
 -- Optional, only if you later want pg_stat_activity detail (NOT required by Phoenix):
 -- GRANT pg_monitor TO phoenix_monitor;
 

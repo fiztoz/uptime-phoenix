@@ -11,6 +11,14 @@ at the bottom.
 
 ## [Unreleased]
 
+### Added
+
+- Database storage check: `storage_scope` (`database` default, or `instance`)
+  on one monitor. PostgreSQL sums every non-template database; MySQL sums
+  visible schemas. Still logical database size versus `storage_max_gb`, not
+  host disk. Instance-wide PostgreSQL needs `CONNECT` on each database or
+  `pg_read_all_stats`.
+
 ### Fixed
 
 - Expired or missing WebSocket JWT no longer reconnects forever. The hub

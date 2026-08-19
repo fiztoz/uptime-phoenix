@@ -30,6 +30,12 @@ FROM pg_stat_database`
 	// Database size only (CONNECT is enough). Do not use pg_stat_file / superuser disk APIs.
 	sqlPostgresStorageUsed = `SELECT pg_database_size(current_database())::float8`
 
+	// Sum every non-template database. Needs CONNECT on each database or pg_read_all_stats.
+	// Still logical database size — not WAL, logs, temp, backups, or filesystem free space.
+	sqlPostgresStorageUsedInstance = `SELECT COALESCE(SUM(pg_database_size(datname)), 0)::float8
+FROM pg_database
+WHERE NOT datistemplate`
+
 	sqlMySQLSessions = `SELECT
   CAST((SELECT VARIABLE_VALUE FROM performance_schema.global_status
         WHERE VARIABLE_NAME = 'Threads_connected') AS DECIMAL(20,2)) AS used,
@@ -42,6 +48,11 @@ FROM pg_stat_database`
 	sqlMySQLStorage = `SELECT COALESCE(SUM(data_length + index_length), 0)
 FROM information_schema.tables
 WHERE table_schema = DATABASE()`
+
+	// Visible schemas only — information_schema hides tables the user cannot see.
+	sqlMySQLStorageInstance = `SELECT COALESCE(SUM(data_length + index_length), 0)
+FROM information_schema.tables
+WHERE table_schema NOT IN ('information_schema', 'performance_schema')`
 
 	// DISKS emits one row per mount path; the same block device is repeated.
 	// Sum unique devices or GiB is multiplied by the bind-mount count.
@@ -70,11 +81,16 @@ const (
 	storageKindStorage = "storage"
 	storageKindMemory  = "memory"
 
+	storageScopeDatabase = "database"
+	storageScopeInstance = "instance"
+
 	msgStorageCapacityUnknown   = "storage capacity unknown; set storage_max_gb (GiB) to compare against measured database size"
 	msgRedisMaxmemoryUnlimited  = "storage capacity unknown; Redis maxmemory is 0 (unlimited) — set maxmemory or storage_max_gb"
 	hintMSSQLSessionPool        = "SQL Server needs VIEW SERVER STATE for sys.dm_exec_sessions"
 	hintMongoSessionPool        = "MongoDB needs clusterMonitor for serverStatus connections"
 	hintRedisInfo               = "Redis needs +info ACL"
+	hintPostgresInstanceStorage = "PostgreSQL instance storage needs CONNECT on each database or GRANT pg_read_all_stats"
+	hintMySQLInstanceStorage    = "MySQL instance storage only includes schemas the user can see — GRANT SELECT on each database or SELECT ON *.*"
 	errSessionPoolNoMeasurement = "session pool check failed: no measurement"
 	errStorageNoMeasurement     = "storage check failed: no measurement"
 )
@@ -95,6 +111,7 @@ type dbCapacityOpts struct {
 	StorageThreshold     float64
 	StorageMaxGB         float64
 	HasStorageMaxGB      bool
+	StorageScope         string // "database" (default) or "instance"
 	StorageKind          string // "storage" (default) or "memory" (Redis)
 	Engine               string
 }
@@ -104,6 +121,7 @@ func parseDBCapacityOpts(config map[string]any) dbCapacityOpts {
 		SessionPoolThreshold: defaultCapacityThreshold,
 		StorageThreshold:     defaultCapacityThreshold,
 		StorageKind:          storageKindStorage,
+		StorageScope:         storageScopeDatabase,
 	}
 	if config == nil {
 		return opts
@@ -121,6 +139,7 @@ func parseDBCapacityOpts(config map[string]any) dbCapacityOpts {
 		opts.StorageMaxGB = v
 		opts.HasStorageMaxGB = true
 	}
+	opts.StorageScope = parseStorageScope(config)
 	return opts
 }
 
@@ -138,7 +157,38 @@ func validateDBCapacityConfig(config map[string]any) error {
 	if ok && v <= 0 {
 		return fmt.Errorf("storage_max_gb must be greater than 0")
 	}
-	return nil
+	return validateStorageScope(config)
+}
+
+func parseStorageScope(config map[string]any) string {
+	if config == nil {
+		return storageScopeDatabase
+	}
+	raw, _ := config["storage_scope"].(string)
+	if strings.EqualFold(strings.TrimSpace(raw), storageScopeInstance) {
+		return storageScopeInstance
+	}
+	return storageScopeDatabase
+}
+
+func validateStorageScope(config map[string]any) error {
+	if config == nil {
+		return nil
+	}
+	raw, ok := config["storage_scope"]
+	if !ok || raw == nil {
+		return nil
+	}
+	s, ok := raw.(string)
+	if !ok {
+		return fmt.Errorf("storage_scope must be %q or %q", storageScopeDatabase, storageScopeInstance)
+	}
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", storageScopeDatabase, storageScopeInstance:
+		return nil
+	default:
+		return fmt.Errorf("storage_scope must be %q or %q", storageScopeDatabase, storageScopeInstance)
+	}
 }
 
 func validateCapacityThreshold(config map[string]any, key string) error {
@@ -358,7 +408,7 @@ func evaluateStorage(u *usage, err error, opts dbCapacityOpts) (domain.Condition
 		domain.MonitorConditionStorage,
 		resource,
 		"bytes",
-		storageScope(opts.Engine),
+		storageScope(opts),
 		storageSource(opts),
 		opts.StorageThreshold,
 	), strings.ToLower(resource), kind, kind, errStorageNoMeasurement, true, opts.StorageThreshold)
@@ -444,6 +494,9 @@ func storageResource(opts dbCapacityOpts) string {
 	case "redis":
 		return "Redis memory"
 	case "postgres", "mysql":
+		if usesInstanceStorage(opts) {
+			return "Instance database size"
+		}
 		return "Database size"
 	case "mssql":
 		return "Database file utilization"
@@ -452,22 +505,43 @@ func storageResource(opts dbCapacityOpts) string {
 	}
 }
 
-func storageScope(engine string) string {
-	switch engine {
+func usesInstanceStorage(opts dbCapacityOpts) bool {
+	if opts.StorageScope != storageScopeInstance {
+		return false
+	}
+	switch opts.Engine {
+	case "postgres", "mysql", "mariadb":
+		return true
+	default:
+		return false
+	}
+}
+
+func storageScope(opts dbCapacityOpts) string {
+	if usesInstanceStorage(opts) && (opts.Engine == "postgres" || opts.Engine == "mysql") {
+		return storageScopeInstance
+	}
+	switch opts.Engine {
 	case "mariadb", "mongodb":
 		return "database-or-filesystem"
 	case "redis":
 		return "server-memory"
 	default:
-		return "database"
+		return storageScopeDatabase
 	}
 }
 
 func storageSource(opts dbCapacityOpts) string {
 	switch opts.Engine {
 	case "postgres":
+		if usesInstanceStorage(opts) {
+			return "pg_database_size (all databases) / configured limit"
+		}
 		return "pg_database_size / configured limit"
 	case "mysql":
+		if usesInstanceStorage(opts) {
+			return "information_schema.tables (all schemas) / configured limit"
+		}
 		return "information_schema.tables / configured limit"
 	case "mariadb":
 		return "information_schema.DISKS or database size / configured limit"
@@ -505,9 +579,26 @@ func queryPostgresSessions(ctx context.Context, pool *pgxpool.Pool) (*usage, err
 	return &u, nil
 }
 
+func postgresStorageSQL(opts dbCapacityOpts) string {
+	if usesInstanceStorage(opts) {
+		return sqlPostgresStorageUsedInstance
+	}
+	return sqlPostgresStorageUsed
+}
+
+func mysqlStorageSQL(opts dbCapacityOpts) string {
+	if usesInstanceStorage(opts) {
+		return sqlMySQLStorageInstance
+	}
+	return sqlMySQLStorage
+}
+
 func queryPostgresStorage(ctx context.Context, pool *pgxpool.Pool, opts dbCapacityOpts) (*usage, error) {
 	var used float64
-	if err := pool.QueryRow(ctx, sqlPostgresStorageUsed).Scan(&used); err != nil {
+	if err := pool.QueryRow(ctx, postgresStorageSQL(opts)).Scan(&used); err != nil {
+		if usesInstanceStorage(opts) {
+			return nil, fmt.Errorf("%w (%s)", err, hintPostgresInstanceStorage)
+		}
 		return nil, err
 	}
 	if !opts.HasStorageMaxGB {
@@ -547,7 +638,10 @@ func mysqlShowFloat(ctx context.Context, db *sql.DB, query string) (float64, err
 
 func queryMySQLStorage(ctx context.Context, db *sql.DB, opts dbCapacityOpts) (*usage, error) {
 	var used float64
-	if err := db.QueryRowContext(ctx, sqlMySQLStorage).Scan(&used); err != nil {
+	if err := db.QueryRowContext(ctx, mysqlStorageSQL(opts)).Scan(&used); err != nil {
+		if usesInstanceStorage(opts) {
+			return nil, fmt.Errorf("%w (%s)", err, hintMySQLInstanceStorage)
+		}
 		return nil, err
 	}
 	if !opts.HasStorageMaxGB {

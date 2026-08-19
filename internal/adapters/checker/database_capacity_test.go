@@ -101,6 +101,9 @@ func TestCapacityParseOptsDefaults(t *testing.T) {
 	if opts.StorageKind != storageKindStorage {
 		t.Fatalf("StorageKind = %q, want %q", opts.StorageKind, storageKindStorage)
 	}
+	if opts.StorageScope != storageScopeDatabase {
+		t.Fatalf("StorageScope = %q, want %q", opts.StorageScope, storageScopeDatabase)
+	}
 
 	opts = parseDBCapacityOpts(map[string]any{
 		"check_session_pool":     true,
@@ -125,6 +128,52 @@ func TestCapacityParseOptsDefaults(t *testing.T) {
 	}
 	if !opts.HasStorageMaxGB || opts.StorageMaxGB != 10 {
 		t.Fatalf("storage_max_gb: %+v", opts)
+	}
+
+	opts = parseDBCapacityOpts(map[string]any{"storage_scope": "INSTANCE"})
+	if opts.StorageScope != storageScopeInstance {
+		t.Fatalf("storage_scope instance: %+v", opts)
+	}
+	opts = parseDBCapacityOpts(map[string]any{"storage_scope": "nope"})
+	if opts.StorageScope != storageScopeDatabase {
+		t.Fatalf("unknown storage_scope should default database: %+v", opts)
+	}
+}
+
+func TestCapacityStorageSQLByScope(t *testing.T) {
+	dbOpts := dbCapacityOpts{Engine: "postgres", StorageScope: storageScopeDatabase}
+	if got := postgresStorageSQL(dbOpts); got != sqlPostgresStorageUsed {
+		t.Fatalf("postgres database SQL = %q", got)
+	}
+	instOpts := dbCapacityOpts{Engine: "postgres", StorageScope: storageScopeInstance}
+	if got := postgresStorageSQL(instOpts); got != sqlPostgresStorageUsedInstance {
+		t.Fatalf("postgres instance SQL = %q", got)
+	}
+	if !strings.Contains(sqlPostgresStorageUsedInstance, "pg_database") {
+		t.Fatal("instance query must read pg_database")
+	}
+	if strings.Contains(sqlPostgresStorageUsedInstance, "current_database()") {
+		t.Fatal("instance query must not size only current_database()")
+	}
+	if !strings.Contains(sqlPostgresStorageUsedInstance, "datistemplate") {
+		t.Fatal("instance query must exclude template databases")
+	}
+
+	if got := mysqlStorageSQL(dbCapacityOpts{Engine: "mysql", StorageScope: storageScopeDatabase}); got != sqlMySQLStorage {
+		t.Fatalf("mysql database SQL = %q", got)
+	}
+	if got := mysqlStorageSQL(dbCapacityOpts{Engine: "mysql", StorageScope: storageScopeInstance}); got != sqlMySQLStorageInstance {
+		t.Fatalf("mysql instance SQL = %q", got)
+	}
+	if strings.Contains(sqlMySQLStorageInstance, "DATABASE()") {
+		t.Fatal("mysql instance query must not filter to DATABASE()")
+	}
+	// Redis/MSSQL ignore the option.
+	if usesInstanceStorage(dbCapacityOpts{Engine: "redis", StorageScope: storageScopeInstance}) {
+		t.Fatal("redis must ignore storage_scope")
+	}
+	if usesInstanceStorage(dbCapacityOpts{Engine: "mssql", StorageScope: storageScopeInstance}) {
+		t.Fatal("mssql must ignore storage_scope")
 	}
 }
 
@@ -270,6 +319,30 @@ func TestApplyCapacityChecks(t *testing.T) {
 		}
 		if len(got.Conditions) != 1 || got.Conditions[0].State != domain.ConditionStateWarning || got.Conditions[0].Resource != "Database size" {
 			t.Fatalf("conditions=%+v", got.Conditions)
+		}
+		if got.Conditions[0].Scope != "database" {
+			t.Fatalf("scope=%q, want database", got.Conditions[0].Scope)
+		}
+	})
+
+	t.Run("postgres instance storage reports instance scope", func(t *testing.T) {
+		opts := dbCapacityOpts{
+			Engine:           "postgres",
+			CheckStorage:     true,
+			StorageThreshold: 80,
+			StorageScope:     storageScopeInstance,
+		}
+		stor := &usage{Used: 4.2 * bytesPerGiB, Max: 5 * bytesPerGiB}
+		got := applyCapacityChecks(up, nil, nil, stor, nil, opts)
+		if len(got.Conditions) != 1 {
+			t.Fatalf("conditions=%+v", got.Conditions)
+		}
+		c := got.Conditions[0]
+		if c.Scope != "instance" || c.Resource != "Instance database size" {
+			t.Fatalf("condition semantics=%+v", c)
+		}
+		if !strings.Contains(c.Source, "all databases") {
+			t.Fatalf("source=%q", c.Source)
 		}
 	})
 

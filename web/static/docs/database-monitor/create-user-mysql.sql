@@ -21,6 +21,10 @@ FLUSH PRIVILEGES;
 -- connect/SELECT 1 stays UP (never silently skipped, never fake downtime).
 -- Sessions: performance_schema.global_status / SHOW GLOBAL STATUS (usually works).
 -- Storage: information_schema.tables (data_length + index_length) plus operator-set storage_max_gb.
+-- Instance-wide storage (storage_scope=instance) sums visible schemas only.
+-- information_schema hides tables the user cannot see — grant SELECT on each
+-- database you want included, or:
+-- GRANT SELECT ON *.* TO 'phoenix_monitor'@'%';
 --
 -- MariaDB only — optional volume-level storage via the DISKS plugin (FILE privilege):
 -- INSTALL SONAME 'disks';

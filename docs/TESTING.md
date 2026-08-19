@@ -573,7 +573,9 @@ effects, not only status codes:
 - No usage/quota config keys (`check_storage`) and no full-bucket listing.
 
 Database capacity conditions (`check_session_pool` / `check_storage`) must test
-effects, not only messages/status codes:
+effects, not only messages/status codes. `storage_scope=instance` must use the
+instance-wide fixed query (not `current_database()` / `DATABASE()`) and report
+condition scope `instance` for PostgreSQL/MySQL:
 
 - `Validate` accepts only `ping` / `select_1`; no operator SQL is executed.
 - Primary connect/ping/select failure is DOWN and emits no speculative capacity row.
