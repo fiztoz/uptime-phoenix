@@ -50,7 +50,7 @@ func TestExtensionHandlers_EmptyEnvReturnsEmptyArray(t *testing.T) {
 			t.Errorf("PHOENIX_EXTENSIONS %q → %#v; want []", raw, got)
 		}
 		if rec.Body.String() != "[]\n" && rec.Body.String() != "[]" {
-			t.Errorf("empty catalogue body = %q; want []", rec.Body.String())
+			t.Errorf("empty catalog body = %q; want []", rec.Body.String())
 		}
 	}
 }

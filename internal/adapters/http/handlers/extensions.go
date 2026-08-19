@@ -9,7 +9,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// ExtensionView is the public catalogue entry for one K8s-registered extension.
+// ExtensionView is the public catalog entry for one K8s-registered extension.
 // Only id, title, path, and icon are on the wire. Helm-only keys (image,
 // secretName, credentials) are ignored even if present in PHOENIX_EXTENSIONS.
 // This is not a domain type and is never a monitor.
@@ -20,14 +20,14 @@ type ExtensionView struct {
 	Icon  string `json:"icon"`
 }
 
-// ExtensionHandlers serves GET /api/extensions from the process-start catalogue.
+// ExtensionHandlers serves GET /api/extensions from the process-start catalog.
 type ExtensionHandlers struct {
 	items []ExtensionView
 }
 
 // NewExtensionHandlers parses raw PHOENIX_EXTENSIONS JSON once and stores the
 // view list. Empty, unset, or malformed input logs and becomes an empty
-// catalogue so the sidebar never 500s.
+// catalog so the sidebar never 500s.
 func NewExtensionHandlers(raw string) *ExtensionHandlers {
 	return &ExtensionHandlers{items: parseExtensionViews(raw)}
 }
@@ -39,7 +39,7 @@ func parseExtensionViews(raw string) []ExtensionView {
 	}
 	var parsed []ExtensionView
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-		slog.Warn("invalid PHOENIX_EXTENSIONS JSON; serving empty catalogue", "error", err)
+		slog.Warn("invalid PHOENIX_EXTENSIONS JSON; serving empty catalog", "error", err)
 		return []ExtensionView{}
 	}
 	out := make([]ExtensionView, 0, len(parsed))

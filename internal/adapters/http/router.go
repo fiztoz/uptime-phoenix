@@ -144,7 +144,7 @@ func NewRouter(
 		e.GET("/api/insights", insightsHandlers.GetInsights, middleware.AuthMiddleware(authSvc))
 	}
 
-	// K8s extensions catalogue. Any authenticated user; no extra RBAC flag.
+	// K8s extensions catalog. Any authenticated user; no extra RBAC flag.
 	// Empty or unset PHOENIX_EXTENSIONS is []. Not a monitor type.
 	if extensionHandlers != nil && authSvc != nil {
 		e.GET("/api/extensions", extensionHandlers.List, middleware.AuthMiddleware(authSvc))
