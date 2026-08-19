@@ -7,6 +7,7 @@
  *   $effect(() => { console.log(realtime.status); });
  */
 import type { Status } from "$lib/monitor-types";
+import { isWsAuthFailure } from "$lib/ws-auth-close";
 import {
   applyConditionSnapshotToMap,
   conditionKey,
@@ -440,8 +441,10 @@ function createWsStore() {
       ws.onclose = (e: CloseEvent) => {
         status = "disconnected";
         ws = null;
-        // Auth failure close codes from backend (4001-4003)
-        if (e.code >= 4001 && e.code <= 4003) {
+        // 4001–4003 from the hub, plus 1008 from pre-fix servers: the JWT is
+        // dead. Reconnecting with it loops 101 → close forever and the
+        // dashboard never leaves "pending".
+        if (isWsAuthFailure(e.code)) {
           localStorage.removeItem("phoenix_jwt");
           if (
             typeof window !== "undefined" &&

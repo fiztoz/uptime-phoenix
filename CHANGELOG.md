@@ -11,6 +11,16 @@ at the bottom.
 
 ## [Unreleased]
 
+### Fixed
+
+- Expired or missing WebSocket JWT no longer reconnects forever. The hub
+  closes unauthorized sockets with `4001` (the range the dashboard already
+  treated as logout). Pre-fix servers sent `1008`, which the client retried,
+  so the UI sat on pending waiting for `monitor.list`. The client now treats
+  both codes as a dead session. `JWT_EXPIRE_HOURS <= 0` is rejected at
+  startup and clamped in the authenticator so a bad env cannot mint a token
+  that is already expired.
+
 ## [0.3.0] — 2026-08-19
 
 ### Added

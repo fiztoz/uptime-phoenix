@@ -22,6 +22,26 @@ const ticketPurpose = "2fa_challenge"
 // to let a user fumble for their authenticator app.
 const ticketTTL = 5 * time.Minute
 
+// Session JWT lifetime bounds. expireHours <= 0 used to mint a token whose
+// exp was at or before iat (JWT_EXPIRE_HOURS=0) or in the past (negative).
+// The dashboard then upgraded the WebSocket (101) and the hub immediately
+// closed it as unauthorized — an already-expired session looks like
+// "pending forever". Clamp instead of trusting the env blindly.
+const (
+	defaultSessionExpireHours = 24
+	maxSessionExpireHours     = 24 * 365
+)
+
+func normalizeSessionExpireHours(hours int) int {
+	if hours <= 0 {
+		return defaultSessionExpireHours
+	}
+	if hours > maxSessionExpireHours {
+		return maxSessionExpireHours
+	}
+	return hours
+}
+
 // JWTAuthenticator implements ports.Authenticator using HS256-signed JWTs.
 type JWTAuthenticator struct {
 	signingKey  []byte
@@ -31,11 +51,13 @@ type JWTAuthenticator struct {
 
 // NewJWTAuthenticator creates a new JWT-based authenticator.
 // signingKey is the HMAC secret used to sign and verify tokens.
-// expireHours controls the lifetime of a regular session token.
+// expireHours controls the lifetime of a regular session token; values
+// outside (0, 1 year] are clamped so a bad JWT_EXPIRE_HOURS cannot mint
+// an already-expired session.
 func NewJWTAuthenticator(signingKey string, expireHours int, userRepo ports.UserRepository) *JWTAuthenticator {
 	return &JWTAuthenticator{
 		signingKey:  []byte(signingKey),
-		expireHours: expireHours,
+		expireHours: normalizeSessionExpireHours(expireHours),
 		userRepo:    userRepo,
 	}
 }

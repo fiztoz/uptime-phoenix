@@ -39,6 +39,10 @@ import (
 
 // Run starts Phoenix with the given configuration and blocks until shutdown.
 func Run(cfg Config) error {
+	if err := validateJWTExpireHours(cfg.JWTExpireH); err != nil {
+		return err
+	}
+
 	log := logger.New(cfg.LogLevel)
 	log.Info("phoenix starting", "port", cfg.Port, "db_engine", cfg.DBEngine, "mode", cfg.Mode)
 

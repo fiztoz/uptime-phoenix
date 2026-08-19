@@ -74,7 +74,7 @@ Core settings (from `internal/bootstrap/config.go`):
 | `DB_ENGINE` | `sqlite` | `sqlite` \| `mariadb` |
 | `DB_DSN` | SQLite file DSN | Connection string (see examples below) |
 | `JWT_SECRET` | `change-me-in-production` | **Set a strong secret in production** |
-| `JWT_EXPIRE_HOURS` | `24` | Session lifetime |
+| `JWT_EXPIRE_HOURS` | `24` | Session lifetime in hours (must be `> 0`) |
 | `BOOTSTRAP_USERNAME` | _(empty)_ | Create first admin if no users exist |
 | `BOOTSTRAP_PASSWORD` | _(empty)_ | Password for bootstrap admin (min 8 chars) |
 | `REDIS_URL` | _(empty)_ | e.g. `redis://127.0.0.1:6379/0` — required for split live UI |

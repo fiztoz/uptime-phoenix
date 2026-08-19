@@ -134,6 +134,13 @@ func LoadConfig() (Config, error) {
 
 // validatePublicURL accepts empty (subscriptions disabled) or an absolute
 // http/https origin without a path fragment that would break link joining.
+func validateJWTExpireHours(hours int) error {
+	if hours <= 0 {
+		return fmt.Errorf("JWT_EXPIRE_HOURS must be a positive number of hours, got %d", hours)
+	}
+	return nil
+}
+
 func validatePublicURL(raw string) error {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

@@ -35,6 +35,15 @@ func JWTFromContext(ctx context.Context) string {
 	return ""
 }
 
+// StatusUnauthorized is the WebSocket close code the hub sends when the
+// upgrade JWT is missing, expired, or otherwise invalid.
+//
+// The frontend treats 4001–4003 as "wipe the session and go to /login".
+// RFC 6455 1008 (Policy Violation) is NOT in that range — using it made an
+// expired session reconnect forever with the same dead token, and the
+// dashboard sat on "pending" waiting for a monitor.list that never came.
+const StatusUnauthorized websocket.StatusCode = 4001
+
 // visibilityTTL is how long a client's resolved monitor set is cached before it
 // is recomputed from the AccessService.
 //
@@ -649,23 +658,26 @@ func NewClient(id string, userID int64) *Client {
 // Outbound exposes the client's send channel for tests to drain.
 func (c *Client) Outbound() <-chan []byte { return c.send }
 
-// HandleWebSocket accepts a WebSocket connection, authenticates it via query param
-// or first message JWT, creates a Client, and runs read/write pumps until
-// the connection closes.
+// HandleWebSocket accepts a WebSocket connection, authenticates it via the
+// JWT on the context (query param, set by the HTTP upgrade handler), creates
+// a Client, and runs read/write pumps until the connection closes.
+//
+// A missing or invalid JWT closes the socket with StatusUnauthorized (4001)
+// rather than RFC 6455 1008. The dashboard only treats 4001–4003 as logout;
+// 1008 was retried and the UI never received monitor.list.
 func (h *Hub) HandleWebSocket(ctx context.Context, conn *websocket.Conn, authSvc *services.AuthService) {
 	// Extract JWT from query parameter (browsers can't set WS headers).
-	// Fall back to reading first message if no query token.
 	jwt := JWTFromContext(ctx)
-
-	var userID int64
-	if jwt != "" {
-		var err error
-		userID, err = authSvc.VerifyToken(ctx, jwt)
-		if err != nil {
-			h.log.Warn("ws: invalid JWT in connection", "error", err)
-			_ = conn.Close(websocket.StatusPolicyViolation, "unauthorized")
-			return
-		}
+	if jwt == "" {
+		h.log.Warn("ws: missing JWT in connection")
+		_ = conn.Close(StatusUnauthorized, "unauthorized")
+		return
+	}
+	userID, err := authSvc.VerifyToken(ctx, jwt)
+	if err != nil {
+		h.log.Warn("ws: invalid JWT in connection", "error", err)
+		_ = conn.Close(StatusUnauthorized, "unauthorized")
+		return
 	}
 
 	client := NewClient(fmt.Sprintf("ws-%d-%d", userID, time.Now().UnixNano()), userID)
