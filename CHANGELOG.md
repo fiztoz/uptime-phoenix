@@ -11,6 +11,8 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-08-20
+
 ### Fixed
 
 - Dashboard no longer hangs on skeleton cards when WebSocket `monitor.list` is
