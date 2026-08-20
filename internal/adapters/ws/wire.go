@@ -531,16 +531,22 @@ func formatTime(t time.Time) string {
 // admin. The visible set from the AccessService is the only correct filter, and
 // it is applied through MonitorFilter.RestrictToIDs so a client with zero grants
 // receives an empty list rather than the whole install.
-func (h *Hub) sendMonitorList(client *Client) {
-	if h.monitorRepo == nil {
+func (h *Hub) sendMonitorList(ctx context.Context, client *Client) {
+	if client == nil || client.closed.Load() {
 		return
 	}
-	ctx := clientCtx()
+	start := time.Now()
+	if h.monitorRepo == nil {
+		// Still emit an empty snapshot so the dashboard leaves its loading state
+		// instead of hanging on a miswired hub.
+		h.sendMonitorViews(ctx, client, []MonitorView{})
+		return
+	}
 	all, visible := h.visibilityFor(ctx, client)
 	if !all && len(visible) == 0 {
 		// Nothing to show. Still send an explicit empty list so the dashboard
 		// leaves its loading state instead of hanging on "connecting".
-		h.sendMonitorViews(client, []MonitorView{})
+		h.sendMonitorViews(ctx, client, []MonitorView{})
 		return
 	}
 
@@ -556,6 +562,9 @@ func (h *Hub) sendMonitorList(client *Client) {
 	monitors, err := h.monitorRepo.List(ctx, filter)
 	if err != nil {
 		h.log.Error("ws: failed to load monitors for client", "user_id", client.UserID, "error", err)
+		return
+	}
+	if ctx.Err() != nil {
 		return
 	}
 
@@ -591,31 +600,21 @@ func (h *Hub) sendMonitorList(client *Client) {
 		views[i] = toMonitorView(m, status)
 		views[i].Tags = toWireTagViews(tagsByMonitor[m.ID])
 	}
-	h.sendMonitorViews(client, views)
+	h.sendMonitorViews(ctx, client, views)
+	if took := time.Since(start); took > time.Second {
+		h.log.Warn("ws: monitor.list slow",
+			"client_id", client.ID,
+			"monitors", len(views),
+			"duration", took,
+		)
+	}
 }
 
-func (h *Hub) sendMonitorViews(client *Client, views []MonitorView) {
+func (h *Hub) sendMonitorViews(ctx context.Context, client *Client, views []MonitorView) {
 	data, err := json.Marshal(wireEvent{Type: EventMonitorList, Payload: views})
 	if err != nil {
 		h.log.Error("ws: failed to marshal monitor.list", "error", err)
 		return
 	}
-	select {
-	case client.send <- data:
-	default:
-		// Counted as well as logged, so this shows up on /metrics alongside every
-		// other dropped frame rather than only in a log nobody is grepping.
-		h.log.Warn("ws: client send buffer full, dropped monitor.list", "client_id", client.ID)
-		h.mu.RLock()
-		m := h.metrics
-		h.mu.RUnlock()
-		if m != nil {
-			m.IncWSFrameDropped()
-		}
-	}
-}
-
-func clientCtx() context.Context {
-	// Background context for initial state push; no request cancellation needed.
-	return context.Background()
+	h.sendCritical(ctx, client, data)
 }

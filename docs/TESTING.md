@@ -166,6 +166,7 @@ go tool cover -func=coverage.out | tail -1
 | Rate limit | `internal/adapters/http/middleware/ratelimit_test.go` |
 | Request ID | `internal/adapters/http/middleware/requestid_test.go` |
 | WebSocket wire | `internal/adapters/ws/wire_test.go` |
+| WebSocket hub connect / `monitor.list` | `internal/adapters/ws/hub_monitorlist_connect_test.go` |
 
 ### 2.5 Writing New Tests
 
@@ -476,6 +477,7 @@ When automated tests aren't sufficient, verify these flows manually.
 - [ ] Monitor cards update in real-time via WebSocket
 - [ ] Connection indicator shows "connected"
 - [ ] Reconnection works after server restart
+- [ ] Dashboard leaves skeleton cards once monitors exist (must not hang on "No monitors" after WS connect; `monitor.list` must not be drop-on-full)
 
 ### 9.4 Notifications
 - [ ] Add Telegram notification (bot_token + chat_id)

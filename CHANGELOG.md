@@ -11,6 +11,16 @@ at the bottom.
 
 ## [Unreleased]
 
+### Fixed
+
+- Dashboard no longer hangs on skeleton cards when WebSocket `monitor.list` is
+  delayed. The hub starts read/write pumps *before* building the snapshot (so
+  pings keep the socket alive and a client close is detected immediately) and
+  the snapshot frame waits for a send-buffer slot instead of being dropped
+  (`client send buffer full, dropped monitor.list` → broken pipe). The UI also
+  hydrates from `GET /api/monitors` so first paint does not depend on that
+  single frame.
+
 ## [0.3.1] — 2026-08-19
 
 ### Added

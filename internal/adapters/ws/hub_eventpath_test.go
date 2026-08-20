@@ -327,7 +327,7 @@ func TestHub_MonitorListOnConnectUsesBatchedLookup(t *testing.T) {
 	for i := 0; i < clients; i++ {
 		client := NewClient("connect-client", h.adminID)
 		h.hub.AddClient(client)
-		h.hub.sendMonitorList(client)
+		h.hub.sendMonitorList(context.Background(), client)
 	}
 
 	single := h.heartbeats.singleCalls.Load()

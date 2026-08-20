@@ -274,9 +274,10 @@ function createWsStore() {
   function handleEvent(event: WsEvent): void {
     switch (event.type) {
       case "monitor.list": {
-        const list = event.payload as Monitor[];
-        monitors = list;
-        hasMonitorSnapshot = true;
+        const list = Array.isArray(event.payload)
+          ? (event.payload as Monitor[])
+          : [];
+        applyMonitorSnapshot(list);
         for (const m of list) appendWsDebugEvent("monitor.list", m.id);
         break;
       }
@@ -386,6 +387,50 @@ function createWsStore() {
     }
   }
 
+  /** REST payloads omit live status; WS snapshots include it. */
+  function withDefaultStatus(monitor: Monitor): Monitor {
+    if (monitor.status) return monitor;
+    return {
+      ...monitor,
+      status: monitor.active === false ? "paused" : "pending",
+    };
+  }
+
+  /**
+   * Apply a monitor snapshot. The WS `monitor.list` frame is authoritative and
+   * always overwrites. REST hydration is first-paint only: it must not clobber
+   * a snapshot that already arrived over the socket.
+   */
+  function applyMonitorSnapshot(
+    list: Monitor[],
+    source: "ws" | "rest" = "ws",
+  ): void {
+    if (source === "rest" && hasMonitorSnapshot) return;
+    monitors = list.map(withDefaultStatus);
+    hasMonitorSnapshot = true;
+  }
+
+  /**
+   * First paint must not depend on a single WS frame. If the hub is slow
+   * building monitor.list — or drops it — GET /api/monitors still unblocks
+   * the dashboard. Live heartbeats then patch status on the REST rows.
+   */
+  function hydrateMonitorsFromRest(): void {
+    if (hasMonitorSnapshot) return;
+    void import("$lib/api/monitors")
+      .then(({ monitorsApi }) => monitorsApi.list())
+      .then((list) => {
+        if (hasMonitorSnapshot) return;
+        const rows = Array.isArray(list) ? list : [];
+        applyMonitorSnapshot(rows, "rest");
+        for (const m of rows) appendWsDebugEvent("monitor.list.rest", m.id);
+      })
+      .catch(() => {
+        // WS snapshot is still the fallback; stay pending rather than
+        // surfacing a REST blip as a dashboard-wide error.
+      });
+  }
+
   function scheduleReconnect(): void {
     status = "reconnecting";
     if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -468,6 +513,7 @@ function createWsStore() {
       lastError = err instanceof Error ? err.message : String(err);
       scheduleReconnect();
     }
+    hydrateMonitorsFromRest();
   }
 
   function disconnect(): void {

@@ -148,7 +148,13 @@
 	let monitors = $derived(realtime.monitors);
 	let downCount = $derived(monitors.filter((mo) => mo.status === 'down').length);
 	let overall = $derived(
-		monitors.length === 0 ? 'empty' : downCount > 0 ? 'down' : 'up'
+		!realtime.hasMonitorSnapshot
+			? 'loading'
+			: monitors.length === 0
+				? 'empty'
+				: downCount > 0
+					? 'down'
+					: 'up',
 	);
 
 	let initials = $derived((auth.user?.username ?? 'PH').slice(0, 2).toUpperCase());
@@ -256,7 +262,7 @@
 								: ''}"
 						></span>
 						<span class="truncate text-muted-foreground">
-							{#if overall === 'empty'}{m.layout_no_monitors_yet()}{:else if overall === 'down'}{m.layout_down_count({ count: downCount })}{:else}{m.layout_all_operational()}{/if}
+							{#if overall === 'loading'}{m.loading()}{:else if overall === 'empty'}{m.layout_no_monitors_yet()}{:else if overall === 'down'}{m.layout_down_count({ count: downCount })}{:else}{m.layout_all_operational()}{/if}
 						</span>
 					</div>
 				{/if}
@@ -318,7 +324,7 @@
 									: 'dot-muted'}"
 						></span>
 						<span class="text-muted-foreground">
-							{#if overall === 'empty'}{m.layout_no_monitors()}{:else if overall === 'down'}{m.layout_down_count({ count: downCount })}{:else}{m.layout_all_systems_operational()}{/if}
+							{#if overall === 'loading'}{m.loading()}{:else if overall === 'empty'}{m.layout_no_monitors()}{:else if overall === 'down'}{m.layout_down_count({ count: downCount })}{:else}{m.layout_all_systems_operational()}{/if}
 						</span>
 					</div>
 

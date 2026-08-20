@@ -1424,8 +1424,10 @@ func (h *Hub) broadcast(event ports.Event) {
 ### Client Connection Lifecycle
 
 1. Client opens `wss://host/ws` with JWT in query param or header
-2. Server validates JWT, creates `Client`, adds to `Hub`
-3. Server emits `monitor.list` with full state for rehydration
+2. Server validates JWT, starts read/write pumps, creates `Client`, adds to `Hub`
+3. Server emits `monitor.list` with full state for rehydration. This frame waits
+   for a send-buffer slot (it is not drop-on-full). The dashboard also hydrates
+   from `GET /api/monitors` so first paint does not depend on that single frame.
 4. Client subscribes to events; Svelte 5 runes update the DOM
 5. On disconnect: client removed from Hub; reconnection logic in frontend retries
 

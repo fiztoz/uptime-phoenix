@@ -56,6 +56,14 @@ const StatusUnauthorized websocket.StatusCode = 4001
 // Shorten it if that window ever matters more than the extra queries.
 const visibilityTTL = 30 * time.Second
 
+// clientSendBufSize is the per-client outbound queue.
+//
+// Live events (heartbeats, status.change, stats.update) are drop-on-full so a
+// slow browser tab cannot stall fan-out for everyone. monitor.list is not: that
+// frame is the dashboard's snapshot, and dropping it leaves the UI on skeleton
+// cards forever. See sendCritical.
+const clientSendBufSize = 256
+
 // statsDebounce is the trailing-edge window over which stats.update recomputes
 // are coalesced.
 //
@@ -142,8 +150,10 @@ type Client struct {
 	ID     string
 	UserID int64
 	send   chan []byte
-	// closed is set before send is closed so fan-out can skip without panicking
-	// on "send on closed channel" when snapshotClients races with disconnect.
+	// closed is set when the socket is gone so fan-out can skip this client.
+	// The send channel is intentionally NOT closed: closing it while listen()
+	// is in send() is a data race (and used to panic the process). send()
+	// still recover()s if a test closes the channel.
 	closed atomic.Bool
 
 	visMu      sync.Mutex
@@ -490,10 +500,10 @@ func (h *Hub) broadcast(event ports.Event) {
 // so "delivered events/sec" in the load harness overstated what clients actually
 // received and there was no way to tell a quiet system from a lossy one.
 //
-// Disconnect race: readPump closes client.send when the socket ends, but
-// broadcast may still hold a snapshot that includes that client until
-// RemoveClient runs. closed + recover make that race a silent drop instead of
-// panic: send on closed channel (which used to kill the whole process in e2e).
+// Disconnect race: readPump sets closed when the socket ends, but broadcast
+// may still hold a snapshot that includes that client until RemoveClient
+// runs. closed makes that a skip; recover() is the last-line defense if a
+// test (or older path) closed the channel.
 func (h *Hub) send(client *Client, data []byte) {
 	if client == nil || client.closed.Load() {
 		return
@@ -511,6 +521,28 @@ func (h *Hub) send(client *Client, data []byte) {
 		if m != nil {
 			m.IncWSFrameDropped()
 		}
+	}
+}
+
+// sendCritical delivers a load-bearing frame (monitor.list). Unlike send, it
+// waits for a buffer slot so a burst of heartbeats cannot silently drop the
+// snapshot the dashboard is blocked on.
+//
+// A disconnected client (closed send channel, or the request ctx cancelled by
+// readPump/writePump) unblocks this without panicking. It must NEVER use the
+// drop-on-full default: that is how "client send buffer full, dropped
+// monitor.list" left production dashboards spinning on skeleton cards.
+func (h *Hub) sendCritical(ctx context.Context, client *Client, data []byte) {
+	if client == nil || client.closed.Load() {
+		return
+	}
+	defer func() {
+		_ = recover()
+	}()
+	select {
+	case client.send <- data:
+	case <-ctx.Done():
+		h.log.Warn("ws: aborted monitor.list", "client_id", client.ID, "error", ctx.Err())
 	}
 }
 
@@ -651,7 +683,7 @@ func NewClient(id string, userID int64) *Client {
 	return &Client{
 		ID:     id,
 		UserID: userID,
-		send:   make(chan []byte, 256),
+		send:   make(chan []byte, clientSendBufSize),
 	}
 }
 
@@ -682,27 +714,39 @@ func (h *Hub) HandleWebSocket(ctx context.Context, conn *websocket.Conn, authSvc
 
 	client := NewClient(fmt.Sprintf("ws-%d-%d", userID, time.Now().UnixNano()), userID)
 
+	// Pumps MUST start before sendMonitorList. Building the snapshot hits the
+	// database (List + tags + latestStatuses). The previous order ran that
+	// work first, with the client already in the hub, so heartbeats filled the
+	// 256-slot send buffer while nobody was draining it. sendMonitorList then
+	// drop-on-full'd the snapshot, writePump started, the first Write hit a
+	// proxy that had already timed out the silent socket (broken pipe), and
+	// the dashboard sat on skeleton cards waiting for a monitor.list that
+	// never came.
+	//
+	// Starting the pumps first means: pings keep idle proxies alive, a client
+	// close is detected immediately (no 4-minute zombie), and heartbeats drain
+	// while the snapshot is built. sendCritical then waits for a buffer slot
+	// instead of dropping the frame.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		defer cancel()
+		h.writePump(ctx, conn, client)
+	}()
+	go func() {
+		defer wg.Done()
+		defer cancel()
+		h.readPump(ctx, conn, client)
+	}()
+
 	h.AddClient(client)
 	h.log.Info("ws client connected", "client_id", client.ID, "user_id", userID)
 
-	// Push the monitor list this client is allowed to see, so the dashboard
-	// rehydrates on connect.
-	h.sendMonitorList(client)
-
-	// Run read and write pumps concurrently. When either exits, close the
-	// connection and clean up.
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		h.writePump(ctx, conn, client)
-	}()
-
-	go func() {
-		defer wg.Done()
-		h.readPump(ctx, conn, client)
-	}()
+	h.sendMonitorList(ctx, client)
 
 	wg.Wait()
 
@@ -742,11 +786,7 @@ func (h *Hub) writePump(ctx context.Context, conn *websocket.Conn, client *Clien
 
 // readPump reads messages from the WebSocket connection (e.g., client pong responses).
 func (h *Hub) readPump(ctx context.Context, conn *websocket.Conn, client *Client) {
-	defer func() {
-		// Mark closed before close(send) so concurrent send() skips cleanly.
-		client.closed.Store(true)
-		close(client.send)
-	}()
+	defer client.closed.Store(true)
 
 	for {
 		_, _, err := conn.Read(ctx)
