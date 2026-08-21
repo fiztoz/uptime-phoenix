@@ -5,6 +5,10 @@
     cardUsesSignals,
     type DashboardCardBody,
   } from "$lib/dashboard-card";
+  import {
+    WALLBOARD_CARD_DEFAULT_PX,
+    wallboardCardScale,
+  } from "$lib/wallboard-split";
   import { sparklinePoints } from "$lib/utils/chart.js";
   import Sparkline from "./charts/Sparkline.svelte";
   import StatusPill from "./StatusPill.svelte";
@@ -18,6 +22,7 @@
     conditions?: MonitorCondition[];
     conditionNow?: number;
     cardBody?: DashboardCardBody;
+    sizePx?: number;
   }
 
   let {
@@ -27,12 +32,15 @@
     conditions = [],
     conditionNow = Date.now(),
     cardBody = "response",
+    sizePx = WALLBOARD_CARD_DEFAULT_PX,
   }: Props = $props();
 
   const sparklineData = $derived(sparklinePoints(heartbeatHistory));
   const isDown = $derived(monitor.status === "down");
   const isPending = $derived(monitor.status === "pending");
   const showSignals = $derived(cardUsesSignals(cardBody, conditions.length));
+  const scale = $derived(wallboardCardScale(sizePx));
+  const sparkHeight = $derived(Math.round(36 * scale));
 
   function formatHeartbeatTime(value: string | undefined): string {
     if (!value) return "—";
@@ -47,12 +55,13 @@
 </script>
 
 <article
-  class="relative flex min-h-44 flex-col overflow-hidden rounded-xl border bg-card p-4
+  class="relative flex flex-col overflow-hidden rounded-xl border bg-card
 		{isDown
     ? 'border-danger/45 bg-danger/[0.055]'
     : isPending
       ? 'border-warning/40 bg-warning/[0.045]'
       : 'border-border'}"
+  style="--wb: {scale}; min-height: calc(11rem * var(--wb)); padding: calc(1rem * var(--wb));"
 >
   <span
     class="absolute inset-y-0 left-0 w-1 {isDown
@@ -66,10 +75,16 @@
 
   <div class="flex items-start justify-between gap-3 pl-1">
     <div class="min-w-0">
-      <h2 class="truncate text-base font-semibold tracking-tight">
+      <h2
+        class="truncate font-semibold tracking-tight"
+        style="font-size: calc(1rem * var(--wb))"
+      >
         {monitor.name}
       </h2>
-      <p class="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+      <p
+        class="mt-1 truncate font-mono text-muted-foreground"
+        style="font-size: calc(0.6875rem * var(--wb))"
+      >
         <span class="uppercase text-faint">{monitor.type}</span>
         {#if monitor.target}<span class="mx-1 text-faint">·</span
           >{monitor.target}{/if}
@@ -84,10 +99,11 @@
     </div>
   {:else}
     <div
-      class="mt-4 h-11 min-w-0 overflow-hidden rounded-md bg-muted/20 px-1 py-1"
+      class="mt-4 min-w-0 overflow-hidden rounded-md bg-muted/20 px-1 py-1"
+      style="height: calc(2.75rem * var(--wb))"
     >
       {#if sparklineData.length > 0}
-        <Sparkline data={sparklineData} width="100%" height={36} />
+        <Sparkline data={sparklineData} width="100%" height={sparkHeight} />
       {:else}
         <div class="grid h-full place-items-center text-[11px] text-faint">
           {m.monitor_card_no_history()}
@@ -105,7 +121,10 @@
         <div class="text-[10px] font-medium uppercase tracking-wider text-faint">
           {m.dashboard_wallboard_response()}
         </div>
-        <div class="mt-0.5 font-mono text-lg font-semibold tabular-nums">
+        <div
+          class="mt-0.5 font-mono font-semibold tabular-nums"
+          style="font-size: calc(1.125rem * var(--wb))"
+        >
           {#if heartbeat && heartbeat.ping > 0}
             {heartbeat.ping}<span
               class="ml-0.5 text-xs font-normal text-muted-foreground">ms</span
