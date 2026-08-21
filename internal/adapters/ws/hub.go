@@ -528,7 +528,7 @@ func (h *Hub) send(client *Client, data []byte) {
 // waits for a buffer slot so a burst of heartbeats cannot silently drop the
 // snapshot the dashboard is blocked on.
 //
-// A disconnected client (closed send channel, or the request ctx cancelled by
+// A disconnected client (closed send channel, or the request ctx canceled by
 // readPump/writePump) unblocks this without panicking. It must NEVER use the
 // drop-on-full default: that is how "client send buffer full, dropped
 // monitor.list" left production dashboards spinning on skeleton cards.
