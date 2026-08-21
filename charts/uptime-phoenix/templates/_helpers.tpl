@@ -294,6 +294,26 @@ falls back to the in-memory bus, so split API/worker must not race Valkey.
 Shared Phoenix application env (security, observability, rate limits).
 */}}
 {{- define "phoenix.envAppConfig" -}}
+- name: DB_MAX_OPEN_CONNS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "phoenix.fullname" . }}
+      key: db-max-open-conns
+- name: DB_MAX_IDLE_CONNS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "phoenix.fullname" . }}
+      key: db-max-idle-conns
+- name: DB_CONN_MAX_IDLE_SECONDS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "phoenix.fullname" . }}
+      key: db-conn-max-idle-seconds
+- name: DB_CONN_MAX_LIFETIME_SECONDS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "phoenix.fullname" . }}
+      key: db-conn-max-lifetime-seconds
 - name: LOG_LEVEL
   valueFrom:
     configMapKeyRef:

@@ -31,6 +31,10 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 | `image.tag` | string | `""` (`.Chart.AppVersion`) | App image tag. Empty uses the chart's `appVersion` |
 | `web.image.tag` | string | `""` (`.Chart.AppVersion`) | Split-web image tag. Empty uses the chart's `appVersion` |
 | `database.engine` | string | `sqlite` | `sqlite` (default, zero-dep) or `mariadb` |
+| `database.pool.maxOpenConns` | int | `10` | MariaDB max open connections **per process** (`DB_MAX_OPEN_CONNS`; ignored for SQLite) |
+| `database.pool.maxIdleConns` | int | `2` | MariaDB idle connections kept in the pool (`DB_MAX_IDLE_CONNS`) |
+| `database.pool.connMaxIdleSeconds` | int | `30` | Close idle MariaDB connections after this many seconds (`DB_CONN_MAX_IDLE_SECONDS`) |
+| `database.pool.connMaxLifetimeSeconds` | int | `300` | Recycle MariaDB connections after this many seconds (`DB_CONN_MAX_LIFETIME_SECONDS`) |
 | `database.persistence.enabled` | bool | `true` | Enable PVC for `/data` (SQLite DB file) |
 | `database.persistence.size` | string | `1Gi` | PVC size for data |
 | `mariadb.enabled` | bool | `false` | Enable MariaDB mode (requires external or additional setup) |

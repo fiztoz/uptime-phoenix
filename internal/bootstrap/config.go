@@ -11,16 +11,23 @@ import (
 
 // Config holds all configuration loaded from environment variables.
 type Config struct {
-	Port       int    `env:"PORT" envDefault:"3000"`
-	Host       string `env:"HOST" envDefault:"0.0.0.0"`
-	LogLevel   string `env:"LOG_LEVEL" envDefault:"info"`
-	DBEngine   string `env:"DB_ENGINE" envDefault:"sqlite"`
-	DBDSN      string `env:"DB_DSN" envDefault:"file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)"`
-	JWTSecret  string `env:"JWT_SECRET" envDefault:"change-me-in-production"`
-	JWTExpireH int    `env:"JWT_EXPIRE_HOURS" envDefault:"24"`
-	TOTPIssuer string `env:"TOTP_ISSUER" envDefault:"Phoenix"`
-	Production bool   `env:"PRODUCTION" envDefault:"false"`
-	RedisURL   string `env:"REDIS_URL" envDefault:""`
+	Port     int    `env:"PORT" envDefault:"3000"`
+	Host     string `env:"HOST" envDefault:"0.0.0.0"`
+	LogLevel string `env:"LOG_LEVEL" envDefault:"info"`
+	DBEngine string `env:"DB_ENGINE" envDefault:"sqlite"`
+	DBDSN    string `env:"DB_DSN" envDefault:"file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)"`
+	// MariaDB pool. Ignored for SQLite (which is one connection). Defaults keep
+	// SHOW PROCESSLIST small: the old 25/25 with no idle timeout left every
+	// borrowed session in Sleep until ConnMaxLifetime.
+	DBMaxOpenConns           int    `env:"DB_MAX_OPEN_CONNS" envDefault:"10"`
+	DBMaxIdleConns           int    `env:"DB_MAX_IDLE_CONNS" envDefault:"2"`
+	DBConnMaxIdleSeconds     int    `env:"DB_CONN_MAX_IDLE_SECONDS" envDefault:"30"`
+	DBConnMaxLifetimeSeconds int    `env:"DB_CONN_MAX_LIFETIME_SECONDS" envDefault:"300"`
+	JWTSecret                string `env:"JWT_SECRET" envDefault:"change-me-in-production"`
+	JWTExpireH               int    `env:"JWT_EXPIRE_HOURS" envDefault:"24"`
+	TOTPIssuer               string `env:"TOTP_ISSUER" envDefault:"Phoenix"`
+	Production               bool   `env:"PRODUCTION" envDefault:"false"`
+	RedisURL                 string `env:"REDIS_URL" envDefault:""`
 
 	// PublicURL is the absolute public origin (http/https) used in status-page
 	// subscription emails (confirmation / unsubscribe links). Empty disables

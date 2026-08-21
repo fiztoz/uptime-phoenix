@@ -64,6 +64,13 @@ database:
   engine: sqlite
   # Override DSN if needed (for sqlite: file:/data/phoenix.db ; for mariadb use external or mariadb subchart)
   dsn: ""
+  # MariaDB database/sql pool (ignored for sqlite, which is one connection).
+  # Per Phoenix process: API and worker each get their own pool.
+  pool:
+    maxOpenConns: 10
+    maxIdleConns: 2
+    connMaxIdleSeconds: 30
+    connMaxLifetimeSeconds: 300
   persistence:
     enabled: true
     size: 1Gi

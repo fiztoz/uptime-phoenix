@@ -54,6 +54,12 @@ database:
   engine: mariadb
   persistence:
     enabled: false
+  # Per process (API replica and worker replica each get their own pool).
+  pool:
+    maxOpenConns: 10
+    maxIdleConns: 2
+    connMaxIdleSeconds: 30
+    connMaxLifetimeSeconds: 300
 
 mariadb:
   enabled: false
