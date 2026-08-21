@@ -7,6 +7,11 @@
  *   $effect(() => { console.log(realtime.status); });
  */
 import type { Status } from "$lib/monitor-types";
+import {
+  clearMonitorSnapshotCache,
+  readMonitorSnapshotCache,
+  writeMonitorSnapshotCache,
+} from "$lib/monitor-snapshot-cache";
 import { isWsAuthFailure } from "$lib/ws-auth-close";
 import {
   applyConditionSnapshotToMap,
@@ -230,6 +235,8 @@ function createWsStore() {
   let monitors = $state<Monitor[]>([]);
   /** True after the server has sent the initial (possibly empty) monitor list. */
   let hasMonitorSnapshot = $state(false);
+  /** Who last filled the snapshot. REST may replace a cache; it must not clobber WS. */
+  let snapshotSource: "none" | "cache" | "rest" | "ws" = "none";
   let heartbeats = $state<Map<number, Heartbeat>>(new Map());
   /** Bumped on every heartbeat so UIs can subscribe without relying on monitors identity. */
   let heartbeatSeq = $state(0);
@@ -244,6 +251,7 @@ function createWsStore() {
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let connectUrl = "";
+  let connectGeneration = 0;
 
   function getWebSocketUrl(): string {
     if (connectUrl) return connectUrl;
@@ -398,37 +406,73 @@ function createWsStore() {
 
   /**
    * Apply a monitor snapshot. The WS `monitor.list` frame is authoritative and
-   * always overwrites. REST hydration is first-paint only: it must not clobber
-   * a snapshot that already arrived over the socket.
+   * always overwrites. REST hydration is first-paint only relative to WS: it
+   * must not clobber a snapshot that already arrived over the socket, but it
+   * MAY replace a cached first-paint so a stale sessionStorage list does not
+   * stick after monitors were added or deleted.
    */
   function applyMonitorSnapshot(
     list: Monitor[],
-    source: "ws" | "rest" = "ws",
+    source: "ws" | "rest" | "cache" = "ws",
   ): void {
-    if (source === "rest" && hasMonitorSnapshot) return;
+    if (source === "cache" && snapshotSource !== "none") return;
+    if (source === "rest" && snapshotSource === "ws") return;
     monitors = list.map(withDefaultStatus);
     hasMonitorSnapshot = true;
+    snapshotSource = source;
+    if (source === "cache") return;
+    const token =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("phoenix_jwt")
+        : null;
+    writeMonitorSnapshotCache(token, monitors);
   }
 
   /**
    * First paint must not depend on a single WS frame. If the hub is slow
    * building monitor.list — or drops it — GET /api/monitors still unblocks
    * the dashboard. Live heartbeats then patch status on the REST rows.
+   *
+   * Retries a couple of times: a canceled request (navigation, a reconnect
+   * that aborted the previous fetch) used to leave the grid on skeleton
+   * cards until monitor.list finished — 17s+ when the heartbeat lookup
+   * was saturated.
    */
-  function hydrateMonitorsFromRest(): void {
-    if (hasMonitorSnapshot) return;
-    void import("$lib/api/monitors")
-      .then(({ monitorsApi }) => monitorsApi.list())
-      .then((list) => {
-        if (hasMonitorSnapshot) return;
+  function snapshotIsFromWs(): boolean {
+    return snapshotSource === "ws";
+  }
+
+  async function hydrateMonitorsFromRest(): Promise<void> {
+    if (snapshotIsFromWs()) return;
+    const { monitorsApi } = await import("$lib/api/monitors");
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (snapshotIsFromWs()) return;
+      try {
+        const list = await monitorsApi.list();
+        if (snapshotIsFromWs()) return;
         const rows = Array.isArray(list) ? list : [];
         applyMonitorSnapshot(rows, "rest");
         for (const m of rows) appendWsDebugEvent("monitor.list.rest", m.id);
-      })
-      .catch(() => {
-        // WS snapshot is still the fallback; stay pending rather than
-        // surfacing a REST blip as a dashboard-wide error.
-      });
+        return;
+      } catch {
+        if (attempt < 2) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, 400 * (attempt + 1)),
+          );
+        }
+      }
+    }
+  }
+
+  function restoreCachedSnapshot(): void {
+    if (hasMonitorSnapshot) return;
+    const token =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("phoenix_jwt")
+        : null;
+    const cached = readMonitorSnapshotCache<Monitor>(token);
+    if (!cached || cached.length === 0) return;
+    applyMonitorSnapshot(cached, "cache");
   }
 
   function scheduleReconnect(): void {
@@ -442,26 +486,22 @@ function createWsStore() {
     }, delay);
   }
 
-  function connect(url?: string): void {
-    if (url) connectUrl = url;
-    disconnect();
+  function socketIsLive(): boolean {
+    return (
+      ws !== null &&
+      (ws.readyState === WebSocket.OPEN ||
+        ws.readyState === WebSocket.CONNECTING)
+    );
+  }
 
-    const auth = localStorage.getItem("phoenix_jwt");
-    if (!auth) {
-      status = "disconnected";
-      lastError = "No auth token";
-      return; // do not connect without token
-    }
-
-    const wsUrl = getWebSocketUrl();
-    status = "connecting";
-    lastError = null;
-
+  function openSocket(wsUrl: string, generation: number): void {
+    if (generation !== connectGeneration) return;
     try {
       ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
 
       ws.onopen = () => {
+        if (generation !== connectGeneration) return;
         status = "connected";
         reconnectAttempt = 0;
         lastError = null;
@@ -484,6 +524,7 @@ function createWsStore() {
       };
 
       ws.onclose = (e: CloseEvent) => {
+        if (generation !== connectGeneration) return;
         status = "disconnected";
         ws = null;
         // 4001–4003 from the hub, plus 1008 from pre-fix servers: the JWT is
@@ -491,6 +532,7 @@ function createWsStore() {
         // dashboard never leaves "pending".
         if (isWsAuthFailure(e.code)) {
           localStorage.removeItem("phoenix_jwt");
+          clearMonitorSnapshotCache();
           if (
             typeof window !== "undefined" &&
             !location.pathname.startsWith("/login")
@@ -513,10 +555,48 @@ function createWsStore() {
       lastError = err instanceof Error ? err.message : String(err);
       scheduleReconnect();
     }
-    hydrateMonitorsFromRest();
+  }
+
+  function connect(url?: string): void {
+    if (url) connectUrl = url;
+
+    const auth = localStorage.getItem("phoenix_jwt");
+    if (!auth) {
+      disconnect();
+      status = "disconnected";
+      lastError = "No auth token";
+      return; // do not connect without token
+    }
+
+    // Retry / layout remount used to call disconnect() here, which closed the
+    // socket mid-monitor.list and aborted GET /api/monitors (context canceled).
+    if (socketIsLive()) {
+      if (snapshotSource !== "ws") void hydrateMonitorsFromRest();
+      return;
+    }
+
+    disconnect();
+    restoreCachedSnapshot();
+
+    const wsUrl = getWebSocketUrl();
+    const generation = ++connectGeneration;
+    status = "connecting";
+    lastError = null;
+
+    // REST list does not wait on latest heartbeats. Give it a head start so
+    // the dashboard can paint while the hub is still building monitor.list.
+    // Cap the wait so a hung GET cannot delay live events forever.
+    void (async () => {
+      await Promise.race([
+        hydrateMonitorsFromRest(),
+        new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+      ]);
+      openSocket(wsUrl, generation);
+    })();
   }
 
   function disconnect(): void {
+    connectGeneration += 1;
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;

@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
+	import { createKeyedPool } from '$lib/async-pool';
 	import { realtime } from '$lib/stores/ws.svelte.js';
 	import { heartbeatsApi, type Heartbeat } from '$lib/api/heartbeats.js';
 	import type { MonitorWithGroup } from '$lib/api/monitors';
@@ -132,8 +133,15 @@
 		}
 	}
 
+	let reliabilityStarted = false;
 	$effect(() => {
-		if (realtime.hasMonitorSnapshot) void loadReliabilityPreview();
+		if (!realtime.hasMonitorSnapshot) return;
+		// Insights scans leading states across every monitor. Do not start it
+		// while monitor.list is still hitting the heartbeat table.
+		if (realtime.status === 'connecting') return;
+		if (reliabilityStarted) return;
+		reliabilityStarted = true;
+		void loadReliabilityPreview();
 	});
 
 	async function loadConditions() {
@@ -145,8 +153,12 @@
 		}
 	}
 
+	let conditionsStarted = false;
 	$effect(() => {
 		if (!realtime.hasMonitorSnapshot) return;
+		if (realtime.status === 'connecting') return;
+		if (conditionsStarted) return;
+		conditionsStarted = true;
 		// loadConditions reads conditionSeq then applyConditionSnapshot
 		// increments it. Untrack so a successful snapshot cannot retrigger
 		// this effect (that loop 429s the API).
@@ -163,6 +175,8 @@
 	function retryPageLoad() {
 		loadGroups();
 		loadTags();
+		reliabilityStarted = false;
+		conditionsStarted = false;
 		loadReliabilityPreview();
 		loadConditions();
 		if (!realtime.hasMonitorSnapshot) realtime.connect();
@@ -361,26 +375,41 @@
 	let uptimePct = $derived(totalMonitors === 0 ? null : (upCount / totalMonitors) * 100);
 
 	// --- Heartbeat history (sparklines) -----------------------------------
+	// The list handler loads every row in `hours` then caps in memory, so the
+	// window size is the expensive part. 6h / 60 points is enough for a 40px
+	// sparkline. Cap concurrency so 69 cards cannot open 69 GETs the moment
+	// the snapshot arrives (that stampede canceled monitor.list).
+	const SPARKLINE_HISTORY_HOURS = 6;
+	const SPARKLINE_HISTORY_LIMIT = 60;
+	const SPARKLINE_FETCH_CONCURRENCY = 3;
+
 	let heartbeatHistory = $state<Map<number, Heartbeat[]>>(new Map());
+	const sparklinePool = createKeyedPool<number>({
+		concurrency: SPARKLINE_FETCH_CONCURRENCY,
+		run: async (monitorId) => {
+			const hbs = await heartbeatsApi.listOptions(monitorId, {
+				hours: SPARKLINE_HISTORY_HOURS,
+				limit: SPARKLINE_HISTORY_LIMIT,
+				order: 'asc',
+			});
+			const liveRows = heartbeatHistory.get(monitorId) ?? [];
+			const merged = [...hbs, ...liveRows]
+				.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+				.slice(-SPARKLINE_HISTORY_LIMIT);
+			heartbeatHistory.set(monitorId, merged);
+			heartbeatHistory = new Map(heartbeatHistory);
+		},
+	});
 
 	$effect(() => {
-		const monitors = realtime.monitors;
-		if (monitors.length === 0) return;
-		for (const mon of monitors) {
-			if (!heartbeatHistory.has(mon.id)) {
-				heartbeatsApi
-					.listOptions(mon.id, { hours: 24, limit: 120, order: 'asc' })
-					.then((hbs) => {
-						const liveRows = heartbeatHistory.get(mon.id) ?? [];
-						const merged = [...hbs, ...liveRows]
-							.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
-							.slice(-120);
-						heartbeatHistory.set(mon.id, merged);
-						heartbeatHistory = new Map(heartbeatHistory);
-					})
-					.catch(() => {});
-			}
-		}
+		return () => sparklinePool.clear();
+	});
+
+	$effect(() => {
+		if (!realtime.hasMonitorSnapshot) return;
+		if (realtime.status === 'connecting') return;
+		const ids = filteredMonitors.map((mon) => mon.id);
+		sparklinePool.enqueue(ids);
 	});
 
 	// Append live WS heartbeats into sparkline history.
@@ -401,7 +430,7 @@
 				time: live.time,
 				important: false,
 			};
-			heartbeatHistory.set(monitorId, [...rows, entry].slice(-120));
+			heartbeatHistory.set(monitorId, [...rows, entry].slice(-SPARKLINE_HISTORY_LIMIT));
 			changed = true;
 		}
 		if (changed) heartbeatHistory = new Map(heartbeatHistory);

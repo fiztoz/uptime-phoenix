@@ -5,6 +5,7 @@
 import { goto } from "$app/navigation";
 import { authApi, normalizeUser, type User } from "$lib/api/auth";
 import { api } from "$lib/api/client";
+import { clearMonitorSnapshotCache } from "$lib/monitor-snapshot-cache";
 import { webauthnApi } from "$lib/api/webauthn";
 import { toast } from "svelte-sonner";
 
@@ -106,6 +107,7 @@ function createAuthStore() {
     user = null;
     jwt = null;
     api.clearAuthHeader();
+    clearMonitorSnapshotCache();
     toast.info("Logged out");
     goto("/login", { replaceState: true });
   }
@@ -126,6 +128,7 @@ function createAuthStore() {
       user = null;
       jwt = null;
       api.clearAuthHeader();
+      clearMonitorSnapshotCache();
     }
   }
 

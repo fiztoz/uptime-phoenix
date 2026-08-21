@@ -348,8 +348,10 @@
 				</div>
 			</header>
 
-			<!-- Reconnecting banner -->
-			{#if !realtime.isConnected}
+			<!-- Reconnecting banner: only after a live socket dropped. The first
+			     connect (and a slow monitor.list) is not a reconnect — showing
+			     this banner there made a 17s snapshot look like a down API. -->
+			{#if realtime.status === 'reconnecting'}
 				<div
 					class="flex items-center gap-2 border-b border-warning/20 bg-warning/10 px-4 py-2 text-sm text-warning md:px-6"
 				>
