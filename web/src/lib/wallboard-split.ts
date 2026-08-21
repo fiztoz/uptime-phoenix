@@ -70,10 +70,7 @@ export function readWallboardCardPx(): number {
 
 export function writeWallboardCardPx(px: number): void {
   if (typeof localStorage === "undefined") return;
-  localStorage.setItem(
-    WALLBOARD_CARD_PX_KEY,
-    String(clampWallboardCardPx(px)),
-  );
+  localStorage.setItem(WALLBOARD_CARD_PX_KEY, String(clampWallboardCardPx(px)));
 }
 
 /** 1 = the original 17rem card. */

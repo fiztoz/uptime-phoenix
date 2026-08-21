@@ -30,8 +30,7 @@ describe("wallboard split", () => {
 
   test("clamps so cards keep a usable remainder", () => {
     const body = 800;
-    const max =
-      body - WALLBOARD_CARDS_MIN_PX - WALLBOARD_SPLITTER_PX;
+    const max = body - WALLBOARD_CARDS_MIN_PX - WALLBOARD_SPLITTER_PX;
     expect(clampWallboardStatsPx(40, body)).toBe(WALLBOARD_STATS_MIN_PX);
     expect(clampWallboardStatsPx(900, body)).toBe(max);
     expect(clampWallboardStatsPx(200, body)).toBe(200);
@@ -57,6 +56,8 @@ describe("wallboard split", () => {
 
   test("card scale is 1 at the default width", () => {
     expect(wallboardCardScale(WALLBOARD_CARD_DEFAULT_PX)).toBe(1);
-    expect(wallboardCardScale(WALLBOARD_CARD_DEFAULT_PX * 2)).toBeGreaterThan(1);
+    expect(wallboardCardScale(WALLBOARD_CARD_DEFAULT_PX * 2)).toBeGreaterThan(
+      1,
+    );
   });
 });

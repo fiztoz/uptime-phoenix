@@ -16,14 +16,17 @@ func TestLatestHeartbeatsUnionSQL(t *testing.T) {
 	if strings.Contains(one, "UNION ALL") {
 		t.Fatalf("n=1 should be a single SELECT, got %q", one)
 	}
+	if strings.HasPrefix(strings.TrimSpace(one), "(") {
+		t.Fatalf("n=1 must not wrap the UNION arm in parens (SQLite syntax error): %q", one)
+	}
 	if !strings.Contains(one, "ORDER BY time DESC, id DESC LIMIT 1") {
 		t.Fatalf("n=1 missing GetLatest order: %q", one)
 	}
 	if strings.Count(one, "?") != 1 {
 		t.Fatalf("n=1 placeholders = %d, want 1", strings.Count(one, "?"))
 	}
-	if strings.HasPrefix(one, "(") {
-		t.Fatalf("n=1 must not wrap the compound term in parens (SQLite syntax error): %q", one)
+	if !strings.Contains(one, "AS latest_hb") {
+		t.Fatalf("n=1 missing derived-table alias (MariaDB requires it): %q", one)
 	}
 
 	two := latestHeartbeatsUnionSQL(2)

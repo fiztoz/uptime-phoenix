@@ -18,16 +18,17 @@ import (
 // point of this file. Raising it buys little; lowering it is always safe.
 const latestBatchChunk = 500
 
-// latestHeartbeatSelect is one GetLatest, wrapped as a subquery so ORDER BY
-// LIMIT bind to that arm. A bare UNION ALL would apply LIMIT to the compound
-// result; parenthesized compound terms (`(SELECT … LIMIT 1) UNION ALL …`) are
-// a syntax error on SQLite. FROM (SELECT … LIMIT 1) is valid on both engines.
+// latestHeartbeatSelect is one GetLatest. ORDER BY/LIMIT live on the inner
+// query so they bind per monitor. The derived table is aliased: MariaDB
+// rejected the un-aliased form in CI (Error 1064 near UNION ALL). Outer
+// parentheses around each UNION arm are a SQLite syntax error (`near "("`),
+// so the arm stays an unparenthesized SELECT-from-subquery.
 //
 // The previous ROW_NUMBER() OVER (PARTITION BY monitor_id) form ranked every
 // historical row for those monitors — on a RANGE-partitioned heartbeats table
 // that cannot prune without a time predicate, SHOW PROCESSLIST showed the
 // query stuck in "Sending data" for minutes and holding a pool connection each.
-const latestHeartbeatSelect = `SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM (SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM heartbeats WHERE monitor_id = ? ORDER BY time DESC, id DESC LIMIT 1)`
+const latestHeartbeatSelect = `SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM (SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM heartbeats WHERE monitor_id = ? ORDER BY time DESC, id DESC LIMIT 1) AS latest_hb`
 
 // latestHeartbeatsUnionSQL builds n GetLatest SELECTs glued with UNION ALL.
 func latestHeartbeatsUnionSQL(n int) string {
