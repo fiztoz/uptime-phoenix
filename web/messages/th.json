@@ -206,6 +206,8 @@
   "monitors_page_none_found": "ไม่พบมอนิเตอร์ สร้างมอนิเตอร์แรกของคุณ",
   "monitors_page_expand_group": "ขยายกลุ่ม",
   "monitors_page_collapse_group": "ย่อกลุ่ม",
+  "monitors_page_expand_all": "ขยายทั้งหมด",
+  "monitors_page_collapse_all": "ย่อทั้งหมด",
   "monitors_page_edit_group": "แก้ไขกลุ่ม",
   "monitors_page_delete_group": "ลบกลุ่ม",
   "monitors_page_view": "ดู",

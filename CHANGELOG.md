@@ -11,6 +11,11 @@ at the bottom.
 
 ## [Unreleased]
 
+### Added
+
+- Monitors page: Collapse all / Expand all for groups (including nested
+  folders). Ungrouped monitors stay visible. The unused action disables itself.
+
 ## [0.3.2] — 2026-08-20
 
 ### Fixed

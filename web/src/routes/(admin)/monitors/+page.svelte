@@ -22,7 +22,21 @@
 		monitorTags,
 		type MonitorStatus,
 	} from '$lib/monitor-filter';
-	import { Plus, FolderPlus, Search, Edit2, Trash2, Activity, Folder, FolderOpen, ChevronRight, ChevronDown, AlertTriangle } from '@lucide/svelte';
+	import {
+		Plus,
+		FolderPlus,
+		Search,
+		Edit2,
+		Trash2,
+		Activity,
+		Folder,
+		FolderOpen,
+		ChevronRight,
+		ChevronDown,
+		ChevronsDownUp,
+		ChevronsUpDown,
+		AlertTriangle,
+	} from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import { confirmAction } from '$lib/stores/confirm.svelte';
 	import MultiSelect from '$lib/components/MultiSelect.svelte';
@@ -249,12 +263,26 @@
 		return collapseOverrides.get(g.id) ?? g.collapsed;
 	}
 
+	function persistGroupCollapsed(id: number, collapsed: boolean) {
+		// Persist the UI default; best-effort, no need to block the toggle on it.
+		monitorGroupsApi.update(id, { collapsed }).catch(() => {});
+	}
+
 	function toggleGroupCollapse(g: MonitorGroupView) {
 		const next = !isGroupCollapsed(g);
 		collapseOverrides.set(g.id, next);
 		collapseOverrides = new Map(collapseOverrides);
-		// Persist the UI default; best-effort, no need to block the toggle on it.
-		monitorGroupsApi.update(g.id, { collapsed: next }).catch(() => {});
+		persistGroupCollapsed(g.id, next);
+	}
+
+	function setAllGroupsCollapsed(collapsed: boolean) {
+		const next = new Map(collapseOverrides);
+		for (const g of groups) {
+			if ((next.get(g.id) ?? g.collapsed) === collapsed) continue;
+			next.set(g.id, collapsed);
+			persistGroupCollapsed(g.id, collapsed);
+		}
+		collapseOverrides = next;
 	}
 
 	interface GroupRow {
@@ -335,6 +363,14 @@
 
 		return rows;
 	});
+
+	const hasVisibleGroups = $derived(displayRows.some((row) => row.kind === 'group'));
+	const allGroupsCollapsed = $derived(
+		groups.length > 0 && groups.every((g) => isGroupCollapsed(g)),
+	);
+	const allGroupsExpanded = $derived(
+		groups.length > 0 && groups.every((g) => !isGroupCollapsed(g)),
+	);
 
 	function openCreate() {
 		editingMonitor = null;
@@ -518,6 +554,31 @@
 			ariaLabel={m.dashboard_filters_tags_aria()}
 			size="sm"
 		/>
+		{#if hasVisibleGroups}
+			<div class="inline-flex h-8 shrink-0 items-stretch rounded-lg border border-border bg-surface">
+				<button
+					type="button"
+					onclick={() => setAllGroupsCollapsed(true)}
+					disabled={allGroupsCollapsed}
+					title={m.monitors_page_collapse_all()}
+					class="inline-flex items-center gap-1.5 rounded-l-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-40"
+				>
+					<ChevronsDownUp class="h-4 w-4" />
+					<span class="sr-only sm:not-sr-only">{m.monitors_page_collapse_all()}</span>
+				</button>
+				<span class="my-1.5 w-px shrink-0 bg-border" aria-hidden="true"></span>
+				<button
+					type="button"
+					onclick={() => setAllGroupsCollapsed(false)}
+					disabled={allGroupsExpanded}
+					title={m.monitors_page_expand_all()}
+					class="inline-flex items-center gap-1.5 rounded-r-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-40"
+				>
+					<ChevronsUpDown class="h-4 w-4" />
+					<span class="sr-only sm:not-sr-only">{m.monitors_page_expand_all()}</span>
+				</button>
+			</div>
+		{/if}
 	</div>
 
 	<!-- Mobile cards (hidden on md+) -->

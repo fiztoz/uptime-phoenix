@@ -206,6 +206,8 @@
   "monitors_page_none_found": "No monitors found. Create your first one.",
   "monitors_page_expand_group": "Expand group",
   "monitors_page_collapse_group": "Collapse group",
+  "monitors_page_expand_all": "Expand all",
+  "monitors_page_collapse_all": "Collapse all",
   "monitors_page_edit_group": "Edit group",
   "monitors_page_delete_group": "Delete group",
   "monitors_page_view": "View",
