@@ -124,6 +124,7 @@ func (r *rbacFakeMonitorTagRepo) ListByMonitors(ctx context.Context, monitorIDs 
 type rbacHarness struct {
 	router *echo.Echo
 	users  *memory.UserRepo
+	access *services.AccessService
 
 	adminToken  string // admin: sees and does everything
 	memberToken string // non-admin, granted the visible folder, NO capabilities
@@ -242,6 +243,7 @@ func newRBACHarness(t *testing.T) *rbacHarness {
 	tagSvc := services.NewTagService(tagRepo, monitorTagRepo)
 
 	accessSvc := services.NewAccessService(userRepo, permRepo, groupRepo, monitorRepo)
+	authSvc.SetUserChangeHook(accessSvc.InvalidateUser)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -279,6 +281,7 @@ func newRBACHarness(t *testing.T) *rbacHarness {
 	return &rbacHarness{
 		router:         e,
 		users:          userRepo,
+		access:         accessSvc,
 		adminToken:     adminToken,
 		memberToken:    memberToken,
 		creatorToken:   creatorToken,
@@ -625,6 +628,7 @@ func TestRBAC_Creator_TopLevelRequiresExplicitCapability(t *testing.T) {
 	if err := h.users.Update(ctx, creator); err != nil {
 		t.Fatalf("enable top-level: %v", err)
 	}
+	h.access.InvalidateUser(h.creatorID)
 
 	allowed := h.do(t, http.MethodPost, "/api/monitors", h.creatorToken, body)
 	if allowed.Code != http.StatusCreated {
@@ -822,6 +826,7 @@ func TestRBAC_GroupMetadataEditor_CanEditMetadataButNotStructureOrDelete(t *test
 	if err := h.users.Update(ctx, metaUser); err != nil {
 		t.Fatalf("enable metadata: %v", err)
 	}
+	h.access.InvalidateUser(h.creatorID)
 	token := h.creatorToken
 
 	ok := h.do(t, http.MethodPut, "/api/monitor-groups/"+intToStr(h.groupVisible), token, map[string]any{

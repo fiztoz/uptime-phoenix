@@ -43,6 +43,7 @@ func newUserHarness(t *testing.T) *userHarness {
 	totp := auth.NewTOTPProvider("Phoenix")
 	svc := services.NewAuthService(userRepo, apiKeyRepo, authenticator, totp)
 	accessSvc := services.NewAccessService(userRepo, permRepo, groupRepo, monitorRepo)
+	svc.SetUserChangeHook(accessSvc.InvalidateUser)
 
 	e := echo.New()
 	e.HideBanner = true
