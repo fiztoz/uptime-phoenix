@@ -8,15 +8,15 @@ Also see: [Helm & Argo CD](helm-and-argocd.md) · [binaries](binaries.md) · [DE
 
 ---
 
-## Images (v0.3.2)
+## Images (v0.3.3)
 
 | Image | Use |
 |---|---|
-| `ghcr.io/fiztoz/uptime-phoenix:0.3.2` | All-in-one (API + worker + embedded UI) |
+| `ghcr.io/fiztoz/uptime-phoenix:0.3.3` | All-in-one (API + worker + embedded UI) |
 | `ghcr.io/fiztoz/uptime-phoenix:latest` | Same, floating tag (prefer pin for production) |
-| `ghcr.io/fiztoz/uptime-phoenix-api:0.3.2` | API tier only |
-| `ghcr.io/fiztoz/uptime-phoenix-worker:0.3.2` | Worker tier only |
-| `ghcr.io/fiztoz/uptime-phoenix-web:0.3.2` | Static UI (nginx) for split web tier |
+| `ghcr.io/fiztoz/uptime-phoenix-api:0.3.3` | API tier only |
+| `ghcr.io/fiztoz/uptime-phoenix-worker:0.3.3` | Worker tier only |
+| `ghcr.io/fiztoz/uptime-phoenix-web:0.3.3` | Static UI (nginx) for split web tier |
 
 Multi-arch: `linux/amd64`, `linux/arm64`. Images are **keyless cosign**-signed (optional verify below).
 
@@ -25,12 +25,12 @@ Multi-arch: `linux/amd64`, `linux/arm64`. Images are **keyless cosign**-signed (
 ## Pull
 
 ```bash
-docker pull ghcr.io/fiztoz/uptime-phoenix:0.3.2
+docker pull ghcr.io/fiztoz/uptime-phoenix:0.3.3
 
 # Split images
-docker pull ghcr.io/fiztoz/uptime-phoenix-api:0.3.2
-docker pull ghcr.io/fiztoz/uptime-phoenix-worker:0.3.2
-docker pull ghcr.io/fiztoz/uptime-phoenix-web:0.3.2
+docker pull ghcr.io/fiztoz/uptime-phoenix-api:0.3.3
+docker pull ghcr.io/fiztoz/uptime-phoenix-worker:0.3.3
+docker pull ghcr.io/fiztoz/uptime-phoenix-web:0.3.3
 ```
 
 No `docker login` needed for public packages. If a pull returns 401/403, ensure the
@@ -53,7 +53,7 @@ docker run -d --name uptime-phoenix \
   -e HOST=0.0.0.0 \
   -e PORT=3000 \
   -v uptime-phoenix-data:/data \
-  ghcr.io/fiztoz/uptime-phoenix:0.3.2
+  ghcr.io/fiztoz/uptime-phoenix:0.3.3
 
 # open http://localhost:3000
 docker logs -f uptime-phoenix
@@ -65,7 +65,7 @@ Compose equivalent:
 # compose.yaml
 services:
   uptime-phoenix:
-    image: ghcr.io/fiztoz/uptime-phoenix:0.3.2
+    image: ghcr.io/fiztoz/uptime-phoenix:0.3.3
     ports:
       - "3000:3000"
     environment:
@@ -101,7 +101,7 @@ docker run -d --name uptime-phoenix \
   -e BOOTSTRAP_PASSWORD='ChangeMe123!' \
   -e DB_ENGINE=mariadb \
   -e DB_DSN='phoenix:SECRET@tcp(host.docker.internal:3306)/phoenix?parseTime=true&loc=UTC&multiStatements=true' \
-  ghcr.io/fiztoz/uptime-phoenix:0.3.2
+  ghcr.io/fiztoz/uptime-phoenix:0.3.3
 ```
 
 Use a real hostname reachable from the container instead of `host.docker.internal` in production.
@@ -138,7 +138,7 @@ services:
       retries: 5
 
   api:
-    image: ghcr.io/fiztoz/uptime-phoenix-api:0.3.2
+    image: ghcr.io/fiztoz/uptime-phoenix-api:0.3.3
     depends_on:
       mariadb:
         condition: service_healthy
@@ -162,7 +162,7 @@ services:
       start_period: 30s
 
   worker:
-    image: ghcr.io/fiztoz/uptime-phoenix-worker:0.3.2
+    image: ghcr.io/fiztoz/uptime-phoenix-worker:0.3.3
     depends_on:
       api:
         condition: service_healthy
@@ -182,7 +182,7 @@ docker compose -f compose.split.ghcr.yaml up -d
 # UI + API: http://localhost:3000
 ```
 
-Optional separate web image (nginx SPA) is `ghcr.io/fiztoz/uptime-phoenix-web:0.3.2` —
+Optional separate web image (nginx SPA) is `ghcr.io/fiztoz/uptime-phoenix-web:0.3.3` —
 proxy `/api` and `/ws` to the API service (see `docker-compose.split.yml` in the repo
 for a full local reference).
 
@@ -199,7 +199,7 @@ Releases are signed with **keyless cosign** (Sigstore).
 cosign verify \
   --certificate-identity-regexp='https://github.com/fiztoz/uptime-phoenix/.*' \
   --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-  ghcr.io/fiztoz/uptime-phoenix:0.3.2
+  ghcr.io/fiztoz/uptime-phoenix:0.3.3
 ```
 
 Exact identity patterns are described in [`docs/RELEASING.md`](../RELEASING.md).
@@ -210,7 +210,7 @@ Exact identity patterns are described in [`docs/RELEASING.md`](../RELEASING.md).
 
 ```bash
 # Pin in production
-docker pull ghcr.io/fiztoz/uptime-phoenix:0.3.2
+docker pull ghcr.io/fiztoz/uptime-phoenix:0.3.3
 
 # Move to a newer release
 docker pull ghcr.io/fiztoz/uptime-phoenix:0.3.3
@@ -218,7 +218,7 @@ docker stop uptime-phoenix && docker rm uptime-phoenix
 # re-run with the new tag (keep the same volume for SQLite)
 ```
 
-Prefer **version tags** (`0.3.2`) over `latest` for reproducible deploys.
+Prefer **version tags** (`0.3.3`) over `latest` for reproducible deploys.
 
 ---
 

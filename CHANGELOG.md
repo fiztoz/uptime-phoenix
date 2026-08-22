@@ -11,6 +11,8 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-08-22
+
 ### Added
 
 - Monitors page: Collapse all / Expand all for groups (including nested
