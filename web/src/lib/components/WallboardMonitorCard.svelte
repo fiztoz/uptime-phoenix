@@ -13,6 +13,7 @@
   import Sparkline from "./charts/Sparkline.svelte";
   import StatusPill from "./StatusPill.svelte";
   import MonitorCardSignals from "./MonitorCardSignals.svelte";
+  import { whenVisible } from "$lib/actions/whenVisible";
   import * as m from "$lib/paraglide/messages.js";
 
   interface Props {
@@ -23,6 +24,7 @@
     conditionNow?: number;
     cardBody?: DashboardCardBody;
     sizePx?: number;
+    onNeedHistory?: () => void;
   }
 
   let {
@@ -33,6 +35,7 @@
     conditionNow = Date.now(),
     cardBody = "response",
     sizePx = WALLBOARD_CARD_DEFAULT_PX,
+    onNeedHistory,
   }: Props = $props();
 
   const sparklineData = $derived(sparklinePoints(heartbeatHistory));
@@ -55,6 +58,7 @@
 </script>
 
 <article
+  use:whenVisible={onNeedHistory}
   class="relative flex flex-col overflow-hidden rounded-xl border bg-card
 		{isDown
     ? 'border-danger/45 bg-danger/[0.055]'

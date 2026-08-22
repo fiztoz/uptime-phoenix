@@ -198,6 +198,23 @@ type HeartbeatBatchReader interface {
 	GetLatestForMonitors(ctx context.Context, monitorIDs []int64) (map[int64]*domain.Heartbeat, error)
 }
 
+// HeartbeatRecentReader returns the newest `limit` heartbeats in a window
+// without loading the rest of the range. GET /api/monitors/:id/heartbeats
+// always applies a cap (default 100; dashboard sparklines ask for 60), but
+// ListByMonitor used to SELECT the whole `hours` window and truncate in
+// memory — at 60 monitors × 6h that is thousands of rows per page load.
+//
+// Separate from HeartbeatRepository for the same reason as HeartbeatBatchReader:
+// widening the base interface would break every hand-written test fake.
+// HeartbeatService type-asserts and falls back to ListByMonitor + truncate.
+//
+// Implementations MUST order by `time DESC, id DESC` (same tie-break as
+// GetLatest) so the cap keeps the true latest rows on MariaDB's second-
+// precision TIMESTAMP.
+type HeartbeatRecentReader interface {
+	ListRecentByMonitor(ctx context.Context, monitorID int64, from, to time.Time, limit int) ([]*domain.Heartbeat, error)
+}
+
 // ReliabilityReader is an OPTIONAL heartbeat capability used by the reliability
 // / insights read model. It is deliberately batched: the endpoint must not issue
 // one transition query per visible monitor.

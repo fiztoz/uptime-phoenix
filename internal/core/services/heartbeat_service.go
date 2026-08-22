@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"time"
 
@@ -175,6 +176,35 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 // time.Now() instead of time.Now().UTC() still gets the right rows.
 func (s *HeartbeatService) ListByMonitor(ctx context.Context, monitorID int64, from, to time.Time) ([]*domain.Heartbeat, error) {
 	return s.heartbeats.ListByMonitor(ctx, monitorID, from.UTC(), to.UTC())
+}
+
+// ListRecentByMonitor returns the newest `limit` heartbeats in [from, to].
+//
+// Prefers HeartbeatRecentReader so the database applies LIMIT. Test fakes that
+// only implement ListByMonitor still work: we load the window and truncate
+// here, newest first, with the id tie-break.
+func (s *HeartbeatService) ListRecentByMonitor(ctx context.Context, monitorID int64, from, to time.Time, limit int) ([]*domain.Heartbeat, error) {
+	from, to = from.UTC(), to.UTC()
+	if limit <= 0 {
+		return s.heartbeats.ListByMonitor(ctx, monitorID, from, to)
+	}
+	if recent, ok := s.heartbeats.(ports.HeartbeatRecentReader); ok {
+		return recent.ListRecentByMonitor(ctx, monitorID, from, to, limit)
+	}
+	all, err := s.heartbeats.ListByMonitor(ctx, monitorID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(all, func(i, j int) bool {
+		if all[i].Time.Equal(all[j].Time) {
+			return all[i].ID > all[j].ID
+		}
+		return all[i].Time.After(all[j].Time)
+	})
+	if len(all) > limit {
+		all = all[:limit]
+	}
+	return all, nil
 }
 
 // ClearHistory deletes all heartbeats for a monitor.

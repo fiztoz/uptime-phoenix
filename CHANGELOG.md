@@ -16,6 +16,23 @@ at the bottom.
 - Monitors page: Collapse all / Expand all for groups (including nested
   folders). Ungrouped monitors stay visible. The unused action disables itself.
 
+### Changed
+
+- Dashboard no longer fetches sparkline history for every monitor on first
+  paint. Each card loads its last 60 beats only when it is near the viewport,
+  with a small concurrency cap. Live heartbeats append to that card only.
+- `GET /api/monitors/:id/heartbeats?limit=N` now applies the cap in SQL
+  (`time DESC, id DESC LIMIT N`) instead of loading the whole `hours` window
+  and truncating in memory. The monitors list page also paints without waiting
+  on the tag catalog.
+- Scheduler runs at most 8 monitor checks at once (a restart used to fire every
+  due monitor in the same second). Database checkers open one session per
+  probe (`SetMaxOpenConns(1)` / `MaxConns=1`) so mysql/mariadb monitors cannot
+  exhaust the target's `max_connections` (Error 1040) while the API is serving.
+- Access checks cache the user row (30s) and a non-admin's resolved visibility
+  set (15s, dropped immediately on grant/revoke). Concurrent users no longer
+  each hit MariaDB once per monitor on the dashboard. Heartbeats stay live.
+
 ## [0.3.2] — 2026-08-20
 
 ### Fixed

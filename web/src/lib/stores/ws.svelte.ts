@@ -240,6 +240,8 @@ function createWsStore() {
   let heartbeats = $state<Map<number, Heartbeat>>(new Map());
   /** Bumped on every heartbeat so UIs can subscribe without relying on monitors identity. */
   let heartbeatSeq = $state(0);
+  /** The heartbeat that last arrived over the socket; UIs merge this instead of scanning the map. */
+  let lastHeartbeat = $state<Heartbeat | null>(null);
   let conditions = $state<Map<string, MonitorCondition>>(new Map());
   let conditionSeq = $state(0);
   let reconnectAttempt = $state(0);
@@ -315,6 +317,7 @@ function createWsStore() {
         const next = new Map(heartbeats);
         next.set(hb.monitor_id, hb);
         heartbeats = next;
+        lastHeartbeat = hb;
         heartbeatSeq += 1;
         // Keep monitor status in sync with the latest check result (skip paused).
         if (hb.status === "up" || hb.status === "down") {
@@ -663,6 +666,9 @@ function createWsStore() {
     },
     get heartbeatSeq() {
       return heartbeatSeq;
+    },
+    get lastHeartbeat() {
+      return lastHeartbeat;
     },
     get conditions() {
       return conditions;

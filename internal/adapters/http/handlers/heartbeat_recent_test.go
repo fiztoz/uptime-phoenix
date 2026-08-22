@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/http/handlers"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/memory"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
+	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
@@ -105,5 +107,127 @@ func TestHeartbeatHandlers_ListReturnsMostRecentBeats_WhenOrderedAscending(t *te
 		if got[i].Time.Before(got[i-1].Time) {
 			t.Fatalf("page is not in ascending time order at index %d", i)
 		}
+	}
+}
+
+// countingRecentRepo records whether the list handler used the SQL-limited
+// path or fell back to loading the whole window.
+type countingRecentRepo struct {
+	mu      sync.Mutex
+	rows    []*domain.Heartbeat
+	list    int
+	recent  int
+	lastLim int
+}
+
+func (r *countingRecentRepo) Save(_ context.Context, h *domain.Heartbeat) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rows = append(r.rows, h)
+	return nil
+}
+func (r *countingRecentRepo) GetLatest(context.Context, int64) (*domain.Heartbeat, error) {
+	return nil, ports.ErrNotFound
+}
+func (r *countingRecentRepo) ListByMonitor(_ context.Context, monitorID int64, from, to time.Time) ([]*domain.Heartbeat, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.list++
+	return r.window(monitorID, from, to), nil
+}
+func (r *countingRecentRepo) ListRecentByMonitor(_ context.Context, monitorID int64, from, to time.Time, limit int) ([]*domain.Heartbeat, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.recent++
+	r.lastLim = limit
+	out := r.window(monitorID, from, to)
+	if limit > 0 && len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	// Newest first, matching the MariaDB/SQLite adapters.
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+func (r *countingRecentRepo) window(monitorID int64, from, to time.Time) []*domain.Heartbeat {
+	var out []*domain.Heartbeat
+	for _, h := range r.rows {
+		if h.MonitorID == monitorID && !h.Time.Before(from) && !h.Time.After(to) {
+			cp := *h
+			out = append(out, &cp)
+		}
+	}
+	return out
+}
+func (r *countingRecentRepo) DeleteByMonitor(context.Context, int64) error { return nil }
+func (r *countingRecentRepo) DeleteOlderThan(context.Context, time.Time) error {
+	return nil
+}
+func (r *countingRecentRepo) SaveAggregate1m(context.Context, *ports.Aggregate1m) error {
+	return nil
+}
+func (r *countingRecentRepo) SaveAggregate1h(context.Context, *ports.Aggregate1h) error {
+	return nil
+}
+func (r *countingRecentRepo) SaveAggregate1d(context.Context, *ports.Aggregate1d) error {
+	return nil
+}
+func (r *countingRecentRepo) GetAggregate1m(context.Context, int64, time.Time) ([]*ports.Aggregate1m, error) {
+	return nil, nil
+}
+func (r *countingRecentRepo) GetAggregate1h(context.Context, int64, time.Time) ([]*ports.Aggregate1h, error) {
+	return nil, nil
+}
+func (r *countingRecentRepo) GetAggregate1d(context.Context, int64, time.Time) ([]*ports.Aggregate1d, error) {
+	return nil, nil
+}
+
+func TestHeartbeatHandlers_ListUsesRecentReaderWhenLimitSet(t *testing.T) {
+	monRepo := newFakeMonitorRepo()
+	bus := newFakeMonitorBus()
+	mon := &domain.Monitor{UserID: 1, Name: "m", Type: "http", Active: true, Interval: 60}
+	if err := monRepo.Create(context.Background(), mon); err != nil {
+		t.Fatalf("create monitor: %v", err)
+	}
+
+	hbRepo := &countingRecentRepo{}
+	now := time.Now().UTC()
+	for i := range 20 {
+		_ = hbRepo.Save(context.Background(), &domain.Heartbeat{
+			ID: int64(i + 1), MonitorID: mon.ID, Status: domain.StatusUp, Ping: 10,
+			Time: now.Add(-time.Duration(19-i) * time.Minute),
+		})
+	}
+	hbSvc := services.NewHeartbeatService(hbRepo, bus)
+	userRepo := memory.NewUserRepo()
+	_ = userRepo.Create(context.Background(), &domain.User{Username: "admin", Active: true, IsAdmin: true})
+	accessSvc := services.NewAccessService(userRepo, memory.NewUserPermissionRepo(), nil, monRepo)
+
+	h := handlers.NewHeartbeatHandlers(hbSvc, accessSvc)
+	e := echo.New()
+	e.HideBanner, e.HidePort = true, true
+	g := e.Group("/api/monitors/:id/heartbeats", func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set(handlers.ContextUserIDKey, int64(1))
+			return next(c)
+		}
+	})
+	g.GET("", h.ListByMonitor)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/monitors/1/heartbeats?hours=6&limit=60&order=asc", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET heartbeats returned %d (body: %s)", rec.Code, rec.Body.String())
+	}
+	if hbRepo.recent != 1 {
+		t.Errorf("ListRecentByMonitor calls = %d; want 1 (SQL-limited path)", hbRepo.recent)
+	}
+	if hbRepo.list != 0 {
+		t.Errorf("ListByMonitor calls = %d; want 0 — the window must not be fully loaded", hbRepo.list)
+	}
+	if hbRepo.lastLim != 60 {
+		t.Errorf("limit passed to repo = %d; want 60", hbRepo.lastLim)
 	}
 }

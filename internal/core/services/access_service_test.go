@@ -19,7 +19,8 @@ type accFakePermRepo struct {
 	nextID int64
 	// listErr, when set, makes ListByUser fail. Used to prove the service fails
 	// CLOSED (sees nothing) rather than open when the grant store is unreadable.
-	listErr error
+	listErr   error
+	listCalls int
 }
 
 func newAccFakePermRepo() *accFakePermRepo {
@@ -83,6 +84,9 @@ func (r *accFakePermRepo) RevokeAll(_ context.Context, userID int64) error {
 }
 
 func (r *accFakePermRepo) ListByUser(_ context.Context, userID int64) ([]*domain.UserPermission, error) {
+	r.mu.Lock()
+	r.listCalls++
+	r.mu.Unlock()
 	if r.listErr != nil {
 		return nil, r.listErr
 	}
@@ -456,6 +460,7 @@ func TestAccessService_MonitorCreationIsLimitedToGrantedGroups(t *testing.T) {
 	if err := h.users.Update(ctx, creator); err != nil {
 		t.Fatalf("enable top-level: %v", err)
 	}
+	h.svc.InvalidateUser(creator.ID)
 	topOK, err := h.svc.CanCreateMonitorInGroup(ctx, creator.ID, nil)
 	if err != nil || !topOK {
 		t.Fatalf("CanCreateMonitorInGroup(top level with flag) = (%v, %v); want (true, nil)", topOK, err)
@@ -876,6 +881,7 @@ func TestAccessService_CreateCapabilityIsIndependentOfOwnership(t *testing.T) {
 	if err := h.users.Update(ctx, u); err != nil {
 		t.Fatalf("update user: %v", err)
 	}
+	h.svc.InvalidateUser(u.ID)
 
 	can, err = h.svc.CanCreateMonitors(ctx, u.ID)
 	if err != nil || can {
@@ -1010,5 +1016,79 @@ func TestAccessService_UnknownUserIsNotAdminAndSeesNothing(t *testing.T) {
 	all, ids, _ := h.svc.VisibleMonitorIDs(ctx, 4242)
 	if all || len(ids) != 0 {
 		t.Fatalf("unknown user sees all=%v ids=%v; want nothing", all, ids)
+	}
+}
+
+func TestAccessService_UserLookupIsCached(t *testing.T) {
+	h := newAccessHarness(t)
+	ctx := context.Background()
+	admin := h.addUser(t, "admin", true)
+
+	if _, err := h.svc.IsAdmin(ctx, admin); err != nil {
+		t.Fatalf("IsAdmin: %v", err)
+	}
+	for range 20 {
+		ok, err := h.svc.CanViewMonitor(ctx, admin, 1)
+		if err != nil {
+			t.Fatalf("CanViewMonitor: %v", err)
+		}
+		if !ok {
+			t.Fatal("admin should see the monitor")
+		}
+	}
+	if h.users.getByIDCalls != 1 {
+		t.Fatalf("GetByID calls = %d; want 1 (20 CanViewMonitor must reuse the user cache)", h.users.getByIDCalls)
+	}
+}
+
+func TestAccessService_UserCacheExpires(t *testing.T) {
+	h := newAccessHarness(t)
+	ctx := context.Background()
+	admin := h.addUser(t, "admin", true)
+	h.svc.userTTL = 15 * time.Millisecond
+
+	if _, err := h.svc.IsAdmin(ctx, admin); err != nil {
+		t.Fatalf("IsAdmin: %v", err)
+	}
+	time.Sleep(25 * time.Millisecond)
+	if _, err := h.svc.IsAdmin(ctx, admin); err != nil {
+		t.Fatalf("IsAdmin after TTL: %v", err)
+	}
+	if h.users.getByIDCalls != 2 {
+		t.Fatalf("GetByID calls = %d; want 2 after the user cache TTL elapsed", h.users.getByIDCalls)
+	}
+}
+
+func TestAccessService_ScopeCacheInvalidatedOnGrant(t *testing.T) {
+	h := newAccessHarness(t)
+	ctx := context.Background()
+	member := h.addUser(t, "member", false)
+	mon := h.addMonitor(t, "m1", nil)
+
+	can, err := h.svc.CanViewMonitor(ctx, member, mon)
+	if err != nil {
+		t.Fatalf("CanViewMonitor: %v", err)
+	}
+	if can {
+		t.Fatal("member saw a monitor before any grant")
+	}
+	firstLists := h.perms.listCalls
+
+	if _, err := h.svc.CanViewMonitor(ctx, member, mon); err != nil {
+		t.Fatalf("CanViewMonitor cached: %v", err)
+	}
+	if h.perms.listCalls != firstLists {
+		t.Fatalf("ListByUser calls = %d after a cached lookup; want %d", h.perms.listCalls, firstLists)
+	}
+
+	if err := h.svc.GrantMonitor(ctx, member, mon); err != nil {
+		t.Fatalf("GrantMonitor: %v", err)
+	}
+	can, err = h.svc.CanViewMonitor(ctx, member, mon)
+	if err != nil {
+		t.Fatalf("CanViewMonitor after grant: %v", err)
+	}
+	if !can {
+		t.Fatal("grant did not take effect — scope cache must drop on GrantMonitor")
 	}
 }

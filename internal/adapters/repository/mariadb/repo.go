@@ -468,10 +468,11 @@ type HeartbeatRepo struct{ db *bun.DB }
 // N+1 path when HeartbeatBatchReader is absent, so losing this method would be a
 // silent performance regression rather than a build error without this.
 var (
-	_ ports.HeartbeatRepository  = (*HeartbeatRepo)(nil)
-	_ ports.HeartbeatBatchReader = (*HeartbeatRepo)(nil)
-	_ ports.ReliabilityReader    = (*HeartbeatRepo)(nil)
-	_ ports.AggregateBatchReader = (*HeartbeatRepo)(nil)
+	_ ports.HeartbeatRepository   = (*HeartbeatRepo)(nil)
+	_ ports.HeartbeatBatchReader  = (*HeartbeatRepo)(nil)
+	_ ports.HeartbeatRecentReader = (*HeartbeatRepo)(nil)
+	_ ports.ReliabilityReader     = (*HeartbeatRepo)(nil)
+	_ ports.AggregateBatchReader  = (*HeartbeatRepo)(nil)
 )
 
 // ListImportantForMonitors returns effective status transitions for all requested
@@ -600,6 +601,33 @@ func (r *HeartbeatRepo) ListByMonitor(ctx context.Context, monitorID int64, from
 		// and the chart out of sequence. id is monotonic per insert; it is the real
 		// chronological order.
 		OrderExpr("time ASC, id ASC").
+		Scan(ctx)
+	if err != nil {
+		return nil, translateError(err)
+	}
+	out := make([]*domain.Heartbeat, len(models))
+	for i, m := range models {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
+// ListRecentByMonitor returns the newest `limit` heartbeats in [from, to].
+//
+// ORDER BY time DESC, id DESC matches GetLatest so a second-precision tie
+// keeps the later insert. LIMIT is applied in SQL — callers (dashboard
+// sparklines, recent-checks) must not have to pull the whole window.
+func (r *HeartbeatRepo) ListRecentByMonitor(ctx context.Context, monitorID int64, from, to time.Time, limit int) ([]*domain.Heartbeat, error) {
+	if limit <= 0 {
+		return r.ListByMonitor(ctx, monitorID, from, to)
+	}
+	var models []*repository.HeartbeatModel
+	err := r.db.NewSelect().Model(&models).
+		Where("monitor_id = ?", monitorID).
+		Where("time >= ?", from.UTC()).
+		Where("time <= ?", to.UTC()).
+		OrderExpr("time DESC, id DESC").
+		Limit(limit).
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)

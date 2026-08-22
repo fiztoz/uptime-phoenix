@@ -390,6 +390,61 @@ func TestHeartbeatListByMonitor_BreaksTimestampTieByID(t *testing.T) {
 	}
 }
 
+func TestHeartbeatListRecentByMonitor_CapsNewestWithIDTieBreak(t *testing.T) {
+	repo := setupTestDB(t)
+	ctx := context.Background()
+
+	user := &domain.User{Username: "recentuser", PasswordHash: "hash", Active: true}
+	if err := repo.UserRepo.Create(ctx, user); err != nil {
+		t.Fatalf("Create user: %v", err)
+	}
+	monitor := &domain.Monitor{
+		UserID: user.ID, Name: "Recent Monitor", Type: "push", Active: true,
+		Interval: 60, Timeout: 5.0, Config: map[string]any{},
+	}
+	if err := repo.MonitorRepo.Create(ctx, monitor); err != nil {
+		t.Fatalf("Create monitor: %v", err)
+	}
+
+	base := time.Now().UTC().Truncate(time.Second)
+	for i, status := range []domain.Status{
+		domain.StatusUp, domain.StatusUp, domain.StatusPending, domain.StatusDown,
+	} {
+		if err := repo.HeartbeatRepo.Save(ctx, &domain.Heartbeat{
+			MonitorID: monitor.ID, Status: status, Time: base.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatalf("Save heartbeat %v: %v", status, err)
+		}
+	}
+	// Same-second tie: PENDING then DOWN. Newest-by-id must win.
+	tie := base.Add(10 * time.Second)
+	if err := repo.HeartbeatRepo.Save(ctx, &domain.Heartbeat{
+		MonitorID: monitor.ID, Status: domain.StatusPending, Time: tie,
+	}); err != nil {
+		t.Fatalf("Save pending: %v", err)
+	}
+	if err := repo.HeartbeatRepo.Save(ctx, &domain.Heartbeat{
+		MonitorID: monitor.ID, Status: domain.StatusDown, Time: tie,
+	}); err != nil {
+		t.Fatalf("Save down: %v", err)
+	}
+
+	got, err := repo.HeartbeatRepo.ListRecentByMonitor(ctx, monitor.ID,
+		base.Add(-time.Minute), base.Add(time.Minute), 2)
+	if err != nil {
+		t.Fatalf("ListRecentByMonitor: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d heartbeats, want 2", len(got))
+	}
+	if got[0].Status != domain.StatusDown {
+		t.Errorf("newest = %v, want DOWN (later insert at the tied timestamp)", got[0].Status)
+	}
+	if got[1].Status != domain.StatusPending {
+		t.Errorf("second = %v, want PENDING", got[1].Status)
+	}
+}
+
 func TestHeartbeatAggregateQueries(t *testing.T) {
 	repo := setupTestDB(t)
 	ctx := context.Background()

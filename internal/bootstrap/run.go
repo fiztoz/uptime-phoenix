@@ -192,6 +192,7 @@ func Run(cfg Config) error {
 	// and monitor repos a group grant cannot be expanded, and the service would
 	// (correctly, but uselessly) fail closed on every non-admin.
 	accessSvc := services.NewAccessService(repos.user, repos.userPerm, repos.monitorGroup, repos.monitor)
+	authSvc.SetUserChangeHook(accessSvc.InvalidateUser)
 	log.Info("access service initialized")
 
 	backupSvc := services.NewBackupService(

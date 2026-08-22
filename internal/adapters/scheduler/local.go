@@ -25,6 +25,7 @@ type LocalScheduler struct {
 	stopCh         chan struct{}
 	lastCheck      sync.Map // monitorID int64 -> time.Time
 	proxyResolver  *proxyResolver
+	slots          *checkSlots
 }
 
 // NewLocalScheduler creates a new in-process scheduler.
@@ -45,6 +46,7 @@ func NewLocalScheduler(
 		logger:         logger,
 		stopCh:         make(chan struct{}),
 		proxyResolver:  newProxyResolver(nil),
+		slots:          newCheckSlots(defaultCheckConcurrency),
 	}
 }
 
@@ -93,10 +95,18 @@ func (s *LocalScheduler) tick(ctx context.Context) {
 		}
 
 		s.lastCheck.Store(m.ID, now)
-
-		// Run each check in a goroutine for concurrency.
-		go s.runCheck(ctx, m)
+		s.startCheck(ctx, m)
 	}
+}
+
+func (s *LocalScheduler) startCheck(ctx context.Context, m *domain.Monitor) {
+	go func() {
+		if !s.slots.acquire(ctx) {
+			return
+		}
+		defer s.slots.release()
+		s.runCheck(ctx, m)
+	}()
 }
 
 // checkConfigForMonitor builds the config map passed to checkers, merging

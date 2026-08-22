@@ -114,6 +114,10 @@ type AuthService struct {
 	oidcIdentities ports.OIDCIdentityRepository
 	oidcPerms      ports.UserPermissionRepository
 	oidcPolicy     OIDCPolicy
+
+	// Optional. AccessService.InvalidateUser so a flag/password change is not
+	// served from the 30s auth cache. Wired in bootstrap after both exist.
+	onUserChange func(userID int64)
 }
 
 // AuthServiceOption is a functional option for NewAuthService.
@@ -165,6 +169,18 @@ func NewAuthService(
 type realClock struct{}
 
 func (realClock) Now() time.Time { return time.Now().UTC() }
+
+// SetUserChangeHook registers a callback after a user row is written (update,
+// delete, TOTP). Used to drop AccessService's in-process user cache.
+func (s *AuthService) SetUserChangeHook(fn func(userID int64)) {
+	s.onUserChange = fn
+}
+
+func (s *AuthService) userChanged(userID int64) {
+	if s.onUserChange != nil {
+		s.onUserChange(userID)
+	}
+}
 
 // Login authenticates a user with username + password and returns a JWT.
 //
@@ -498,6 +514,7 @@ func (s *AuthService) UpdateUser(ctx context.Context, id int64, username *string
 		}
 		return nil, fmt.Errorf("auth service: update user: save: %w", err)
 	}
+	s.userChanged(user.ID)
 	return user, nil
 }
 
@@ -547,6 +564,7 @@ func (s *AuthService) DeleteUser(ctx context.Context, currentUserID, targetID in
 		}
 		return fmt.Errorf("auth service: delete user: %w", err)
 	}
+	s.userChanged(targetID)
 	return nil
 }
 
@@ -594,6 +612,7 @@ func (s *AuthService) SetupTOTP(ctx context.Context, userID int64) (secret, qrUR
 	if err := s.users.Update(ctx, user); err != nil {
 		return "", "", fmt.Errorf("auth service: setup totp: save: %w", err)
 	}
+	s.userChanged(user.ID)
 	return secret, qrURL, nil
 }
 
@@ -618,6 +637,7 @@ func (s *AuthService) EnableTOTP(ctx context.Context, userID int64, token string
 	if err := s.users.Update(ctx, user); err != nil {
 		return fmt.Errorf("auth service: enable totp: save: %w", err)
 	}
+	s.userChanged(user.ID)
 	return nil
 }
 
@@ -638,6 +658,7 @@ func (s *AuthService) DisableTOTP(ctx context.Context, userID int64) error {
 	if err := s.users.Update(ctx, user); err != nil {
 		return fmt.Errorf("auth service: disable totp: save: %w", err)
 	}
+	s.userChanged(user.ID)
 	return nil
 }
 

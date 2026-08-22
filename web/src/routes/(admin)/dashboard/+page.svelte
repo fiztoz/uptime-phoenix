@@ -375,10 +375,9 @@
 	let uptimePct = $derived(totalMonitors === 0 ? null : (upCount / totalMonitors) * 100);
 
 	// --- Heartbeat history (sparklines) -----------------------------------
-	// The list handler loads every row in `hours` then caps in memory, so the
-	// window size is the expensive part. 6h / 60 points is enough for a 40px
-	// sparkline. Cap concurrency so 69 cards cannot open 69 GETs the moment
-	// the snapshot arrives (that stampede canceled monitor.list).
+	// Fetch only when a card is near the viewport. Prefetching every monitor
+	// the instant the snapshot arrived used to open tens of GETs and stall
+	// first paint (the handler used to SELECT the whole `hours` window).
 	const SPARKLINE_HISTORY_HOURS = 6;
 	const SPARKLINE_HISTORY_LIMIT = 60;
 	const SPARKLINE_FETCH_CONCURRENCY = 3;
@@ -401,39 +400,34 @@
 		},
 	});
 
+	function requestSparkline(monitorId: number) {
+		if (!realtime.hasMonitorSnapshot) return;
+		if (realtime.status === 'connecting') return;
+		sparklinePool.enqueue([monitorId]);
+	}
+
 	$effect(() => {
 		return () => sparklinePool.clear();
 	});
 
+	// Append the heartbeat that just arrived — do not rescan every monitor.
 	$effect(() => {
-		if (!realtime.hasMonitorSnapshot) return;
-		if (realtime.status === 'connecting') return;
-		const ids = filteredMonitors.map((mon) => mon.id);
-		sparklinePool.enqueue(ids);
-	});
-
-	// Append live WS heartbeats into sparkline history.
-	$effect(() => {
-		void realtime.heartbeatSeq;
-		const hbMap = realtime.heartbeats;
-		let changed = false;
-		for (const [monitorId, live] of hbMap) {
-			const rows = heartbeatHistory.get(monitorId) ?? [];
-			const last = rows[rows.length - 1];
-			if (last?.time === live.time) continue;
-			const entry: Heartbeat = {
-				id: -Date.now(),
-				monitor_id: monitorId,
-				status: live.status,
-				ping: live.ping,
-				message: live.msg ?? '',
-				time: live.time,
-				important: false,
-			};
-			heartbeatHistory.set(monitorId, [...rows, entry].slice(-SPARKLINE_HISTORY_LIMIT));
-			changed = true;
-		}
-		if (changed) heartbeatHistory = new Map(heartbeatHistory);
+		const live = realtime.lastHeartbeat;
+		if (!live) return;
+		const rows = heartbeatHistory.get(live.monitor_id) ?? [];
+		const last = rows[rows.length - 1];
+		if (last?.time === live.time) return;
+		const entry: Heartbeat = {
+			id: -Date.now(),
+			monitor_id: live.monitor_id,
+			status: live.status,
+			ping: live.ping,
+			message: live.msg ?? '',
+			time: live.time,
+			important: false,
+		};
+		heartbeatHistory.set(live.monitor_id, [...rows, entry].slice(-SPARKLINE_HISTORY_LIMIT));
+		heartbeatHistory = new Map(heartbeatHistory);
 	});
 
 	const tiles = $derived([
@@ -676,6 +670,7 @@
 					{uptimePct}
 					filtered={filterActive}
 					respectOrder={criteria.sort !== 'default'}
+					onNeedHistory={requestSparkline}
 				/>
 				<a
 					href="/monitors"
@@ -765,6 +760,7 @@
 							conditions={conditionsByMonitor.get(mon.id) ?? []}
 							conditionNow={conditionClock}
 							{cardBody}
+							onNeedHistory={() => requestSparkline(mon.id)}
 						/>
 					{/each}
 				</div>
@@ -789,6 +785,7 @@
 						conditions={conditionsByMonitor.get(mon.id) ?? []}
 						conditionNow={conditionClock}
 						{cardBody}
+						onNeedHistory={() => requestSparkline(mon.id)}
 					/>
 				{/each}
 			</div>

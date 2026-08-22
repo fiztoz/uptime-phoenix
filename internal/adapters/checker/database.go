@@ -176,7 +176,18 @@ func (DatabaseChecker) Check(ctx context.Context, config map[string]any) (ports.
 
 func checkPostgres(ctx context.Context, connStr, health string, opts dbCapacityOpts) ports.CheckResult {
 	primaryStart := time.Now()
-	pool, err := pgxpool.New(ctx, connStr)
+	cfg, err := pgxpool.ParseConfig(connStr)
+	if err != nil {
+		return ports.CheckResult{
+			Status:  domain.StatusDown,
+			Message: fmt.Sprintf("failed to parse connection string: %s", err.Error()),
+		}
+	}
+	// One session per check. The default pool (4+) times 60 concurrent
+	// monitors on the same instance is how MariaDB/Postgres hit max_connections.
+	cfg.MaxConns = 1
+	cfg.MinConns = 0
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return ports.CheckResult{
 			Status:  domain.StatusDown,
@@ -211,7 +222,7 @@ func checkPostgres(ctx context.Context, connStr, health string, opts dbCapacityO
 
 func checkMySQL(ctx context.Context, connStr, health string, opts dbCapacityOpts, mariadb bool) ports.CheckResult {
 	primaryStart := time.Now()
-	db, err := sql.Open("mysql", connStr)
+	db, err := openProbeDB("mysql", connStr)
 	if err != nil {
 		return ports.CheckResult{
 			Status:  domain.StatusDown,
@@ -252,7 +263,7 @@ func checkMSSQL(ctx context.Context, connStr, health string, opts dbCapacityOpts
 	primaryStart := time.Now()
 	// Driver name "sqlserver" is registered by microsoft/go-mssqldb.
 	// Accept sqlserver:// URLs and ADO-style connection strings.
-	db, err := sql.Open("sqlserver", connStr)
+	db, err := openProbeDB("sqlserver", connStr)
 	if err != nil {
 		return ports.CheckResult{
 			Status:  domain.StatusDown,
@@ -287,7 +298,7 @@ func checkMSSQL(ctx context.Context, connStr, health string, opts dbCapacityOpts
 
 func checkMongoDB(ctx context.Context, connStr, health string, opts dbCapacityOpts) ports.CheckResult {
 	primaryStart := time.Now()
-	client, err := mongo.Connect(options.Client().ApplyURI(connStr))
+	client, err := mongo.Connect(options.Client().ApplyURI(connStr).SetMaxPoolSize(1).SetMinPoolSize(0))
 	if err != nil {
 		return ports.CheckResult{
 			Status:  domain.StatusDown,
@@ -330,6 +341,8 @@ func checkRedis(ctx context.Context, connStr, health string, capOpts dbCapacityO
 		opts = &redis.Options{Addr: connStr}
 	}
 
+	opts.PoolSize = 1
+	opts.MinIdleConns = 0
 	rdb := redis.NewClient(opts)
 	defer func() { _ = rdb.Close() }()
 
@@ -349,6 +362,20 @@ func checkRedis(ctx context.Context, connStr, health string, capOpts dbCapacityO
 		func(ctx context.Context) (*usage, error) { return queryRedisSessions(ctx, rdb) },
 		func(ctx context.Context) (*usage, error) { return queryRedisStorage(ctx, rdb, capOpts) },
 	)
+}
+
+// openProbeDB opens a one-connection pool for a single check. database/sql
+// defaults to unlimited MaxOpenConns; without this, concurrent mysql/mariadb
+// monitors against the same server (including Phoenix's own MariaDB) exhaust
+// max_connections (Error 1040) while the API is also serving the dashboard.
+func openProbeDB(driver, dsn string) (*sql.DB, error) {
+	db, err := sql.Open(driver, dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(0)
+	return db, nil
 }
 
 func elapsedMillis(start time.Time) int64 {

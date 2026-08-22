@@ -11,6 +11,7 @@
 		cardUsesSignals,
 		type DashboardCardBody,
 	} from '$lib/dashboard-card';
+	import { whenVisible } from '$lib/actions/whenVisible';
 	import * as m from '$lib/paraglide/messages.js';
 
 	interface Props {
@@ -20,6 +21,7 @@
 		conditions?: MonitorCondition[];
 		conditionNow?: number;
 		cardBody?: DashboardCardBody;
+		onNeedHistory?: () => void;
 	}
 
 	let {
@@ -29,6 +31,7 @@
 		conditions = [],
 		conditionNow = Date.now(),
 		cardBody = 'response',
+		onNeedHistory,
 	}: Props = $props();
 
 	/** Transform heartbeats into sparkline data points. */
@@ -40,6 +43,7 @@
 
 <a
 	href="/monitors/{monitor.id}"
+	use:whenVisible={onNeedHistory}
 	class="group relative block overflow-hidden rounded-xl border border-border bg-card p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_18px_40px_-24px_rgba(0,0,0,0.8)]"
 >
 	<!-- Left status accent on hover / when down -->

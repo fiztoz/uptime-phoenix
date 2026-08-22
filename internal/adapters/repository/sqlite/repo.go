@@ -472,10 +472,11 @@ type HeartbeatRepo struct{ db *bun.DB }
 // signature drifts, the build fails here instead of the fan-out quietly going
 // quadratic again.
 var (
-	_ ports.HeartbeatRepository  = (*HeartbeatRepo)(nil)
-	_ ports.HeartbeatBatchReader = (*HeartbeatRepo)(nil)
-	_ ports.ReliabilityReader    = (*HeartbeatRepo)(nil)
-	_ ports.AggregateBatchReader = (*HeartbeatRepo)(nil)
+	_ ports.HeartbeatRepository   = (*HeartbeatRepo)(nil)
+	_ ports.HeartbeatBatchReader  = (*HeartbeatRepo)(nil)
+	_ ports.HeartbeatRecentReader = (*HeartbeatRepo)(nil)
+	_ ports.ReliabilityReader     = (*HeartbeatRepo)(nil)
+	_ ports.AggregateBatchReader  = (*HeartbeatRepo)(nil)
 )
 
 // ListImportantForMonitors returns effective status transitions for all requested
@@ -605,6 +606,30 @@ func (r *HeartbeatRepo) ListByMonitor(ctx context.Context, monitorID int64, from
 		// makes same-second beats tie and come back in arbitrary order. Kept identical
 		// on both engines so SQLite-only tests mean something.
 		OrderExpr("time ASC, id ASC").
+		Scan(ctx)
+	if err != nil {
+		return nil, translateError(err)
+	}
+	out := make([]*domain.Heartbeat, len(models))
+	for i, m := range models {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
+// ListRecentByMonitor returns the newest `limit` heartbeats in [from, to].
+// Same ORDER BY / LIMIT contract as the MariaDB adapter.
+func (r *HeartbeatRepo) ListRecentByMonitor(ctx context.Context, monitorID int64, from, to time.Time, limit int) ([]*domain.Heartbeat, error) {
+	if limit <= 0 {
+		return r.ListByMonitor(ctx, monitorID, from, to)
+	}
+	var models []*repository.HeartbeatModel
+	err := r.db.NewSelect().Model(&models).
+		Where("monitor_id = ?", monitorID).
+		Where("time >= ?", from.UTC()).
+		Where("time <= ?", to.UTC()).
+		OrderExpr("time DESC, id DESC").
+		Limit(limit).
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)

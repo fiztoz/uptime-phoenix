@@ -532,6 +532,90 @@ func TestScheduler_Run_SkipsUnknownChecker(t *testing.T) {
 	}
 }
 
+func TestScheduler_CapsConcurrentChecks(t *testing.T) {
+	const n = 20
+	monitors := make([]*domain.Monitor, n)
+	for i := range n {
+		monitors[i] = &domain.Monitor{
+			ID: int64(i + 1), Name: "m", Type: "http", Active: true,
+			Interval: 60, Timeout: 5, Config: map[string]any{},
+		}
+	}
+	monitorRepo := newMockMonitorRepo(monitors...)
+	heartbeatRepo := newMockHeartbeatRepo()
+	heartbeatSvc := services.NewHeartbeatService(heartbeatRepo, newMockBus())
+
+	var (
+		mu       sync.Mutex
+		inFlight int
+		peak     int
+	)
+	gate := make(chan struct{})
+	checker := &mockChecker{
+		result: ports.CheckResult{Status: domain.StatusUp, Message: "ok"},
+	}
+	slow := &blockingChecker{inner: checker, started: make(chan struct{}, n), gate: gate, peak: &peak, inFlight: &inFlight, mu: &mu}
+
+	sched := NewLocalScheduler(
+		monitorRepo, heartbeatRepo,
+		func(string) (ports.Checker, bool) { return slow, true },
+		heartbeatSvc, nil, slog.New(slog.DiscardHandler),
+	)
+	sched.slots = newCheckSlots(2)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	sched.tick(ctx)
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-slow.started:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for a check slot")
+		}
+	}
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	gotPeak := peak
+	mu.Unlock()
+	close(gate)
+	if gotPeak > 2 {
+		t.Fatalf("peak in-flight checks = %d; want <= 2 (unbounded go runCheck exhausts MariaDB)", gotPeak)
+	}
+}
+
+type blockingChecker struct {
+	inner    ports.Checker
+	started  chan struct{}
+	gate     chan struct{}
+	mu       *sync.Mutex
+	inFlight *int
+	peak     *int
+}
+
+func (c *blockingChecker) Type() string                         { return c.inner.Type() }
+func (c *blockingChecker) Validate(config map[string]any) error { return c.inner.Validate(config) }
+func (c *blockingChecker) Check(ctx context.Context, config map[string]any) (ports.CheckResult, error) {
+	c.mu.Lock()
+	*c.inFlight++
+	if *c.inFlight > *c.peak {
+		*c.peak = *c.inFlight
+	}
+	c.mu.Unlock()
+	select {
+	case c.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-c.gate:
+	case <-ctx.Done():
+	}
+	c.mu.Lock()
+	*c.inFlight--
+	c.mu.Unlock()
+	return c.inner.Check(ctx, config)
+}
+
 // TestCheckConfigForMonitor_TLSIgnore asserts the scheduler plumbs
 // Monitor.TLSIgnore into the checker config map the same way it plumbs
 // accepted_statuscodes — this is the link that made the flag a dead surface

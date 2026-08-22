@@ -1,8 +1,8 @@
 /**
  * Cap in-flight async work so a page with many rows cannot open one request
- * per row at once. The dashboard used to fire a heartbeat-history GET for every
- * monitor the instant the snapshot arrived; at tens of monitors that saturates
- * the API and cancels the WebSocket monitor.list still being built.
+ * per row at once. Dashboard sparkline history is enqueued per visible card;
+ * the pool still serializes those fetches so a long scroll cannot stampede
+ * the API.
  */
 
 export interface KeyedPool<K> {

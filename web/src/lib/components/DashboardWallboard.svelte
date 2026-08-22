@@ -40,6 +40,7 @@
 		filtered: boolean;
 		/** Explicit dashboard sorts pass through; default mode keeps urgency-first wallboard order. */
 		respectOrder: boolean;
+		onNeedHistory?: (monitorId: number) => void;
 	}
 
 	let {
@@ -55,6 +56,7 @@
 		uptimePct,
 		filtered,
 		respectOrder,
+		onNeedHistory,
 	}: Props = $props();
 
 	const statusPriority: Record<Monitor['status'], number> = {
@@ -547,6 +549,7 @@
 								{conditionNow}
 								{cardBody}
 								sizePx={cardPx}
+								onNeedHistory={() => onNeedHistory?.(monitor.id)}
 							/>
 						{/each}
 					</div>

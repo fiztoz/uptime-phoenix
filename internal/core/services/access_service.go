@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -59,7 +61,32 @@ type AccessService struct {
 	perms    ports.UserPermissionRepository
 	groups   ports.MonitorGroupRepository
 	monitors ports.MonitorRepository
+
+	// In-process TTL cache. Dashboard/list pages hit CanViewMonitor once per
+	// monitor; without this, N concurrent users × M monitors is N×M GetByID
+	// (and grant-tree walks) against MariaDB. Heartbeats and monitor rows stay
+	// live over the WebSocket — do not cache those here.
+	mu           sync.Mutex
+	usersByID    map[int64]userCacheEntry
+	scopesByUser map[int64]scopeCacheEntry
+	userTTL      time.Duration
+	scopeTTL     time.Duration
 }
+
+type userCacheEntry struct {
+	user *domain.User
+	exp  time.Time
+}
+
+type scopeCacheEntry struct {
+	scope visibleScope
+	exp   time.Time
+}
+
+const (
+	defaultUserCacheTTL  = 30 * time.Second
+	defaultScopeCacheTTL = 15 * time.Second
+)
 
 // NewAccessService creates the access service.
 //
@@ -73,7 +100,16 @@ func NewAccessService(
 	groups ports.MonitorGroupRepository,
 	monitors ports.MonitorRepository,
 ) *AccessService {
-	return &AccessService{users: users, perms: perms, groups: groups, monitors: monitors}
+	return &AccessService{
+		users:        users,
+		perms:        perms,
+		groups:       groups,
+		monitors:     monitors,
+		usersByID:    make(map[int64]userCacheEntry),
+		scopesByUser: make(map[int64]scopeCacheEntry),
+		userTTL:      defaultUserCacheTTL,
+		scopeTTL:     defaultScopeCacheTTL,
+	}
 }
 
 // maxGroupAncestorWalk bounds the ParentID walk used when pulling in the
@@ -377,11 +413,46 @@ func (s *AccessService) user(ctx context.Context, userID int64) (*domain.User, e
 	if s.users == nil || userID <= 0 {
 		return nil, fmt.Errorf("access service: %w: no such user", domain.ErrNotFound)
 	}
+	if cached := s.cachedUser(userID); cached != nil {
+		return cached, nil
+	}
 	u, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("access service: load user %d: %w", userID, err)
 	}
-	return u, nil
+	s.storeUser(userID, u)
+	return cloneUser(u), nil
+}
+
+func (s *AccessService) cachedUser(userID int64) *domain.User {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.usersByID[userID]
+	if !ok || time.Now().After(e.exp) {
+		if ok {
+			delete(s.usersByID, userID)
+		}
+		return nil
+	}
+	return cloneUser(e.user)
+}
+
+func (s *AccessService) storeUser(userID int64, u *domain.User) {
+	ttl := s.userTTL
+	if ttl <= 0 {
+		ttl = defaultUserCacheTTL
+	}
+	s.mu.Lock()
+	s.usersByID[userID] = userCacheEntry{user: cloneUser(u), exp: time.Now().Add(ttl)}
+	s.mu.Unlock()
+}
+
+func cloneUser(u *domain.User) *domain.User {
+	if u == nil {
+		return nil
+	}
+	cp := *u
+	return &cp
 }
 
 // --- Visibility -----------------------------------------------------------
@@ -485,6 +556,67 @@ type visibleScope struct {
 // sets. It is the only place the group tree is walked, and it is cycle-safe: the
 // descendant walk is a BFS with a visited set, and the ancestor walk is bounded.
 func (s *AccessService) resolveScope(ctx context.Context, userID int64) (visibleScope, error) {
+	if cached, ok := s.cachedScope(userID); ok {
+		return cached, nil
+	}
+	scope, err := s.computeScope(ctx, userID)
+	if err != nil {
+		return scope, err
+	}
+	s.storeScope(userID, scope)
+	return cloneScope(scope), nil
+}
+
+func (s *AccessService) cachedScope(userID int64) (visibleScope, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.scopesByUser[userID]
+	if !ok || time.Now().After(e.exp) {
+		if ok {
+			delete(s.scopesByUser, userID)
+		}
+		return visibleScope{}, false
+	}
+	return cloneScope(e.scope), true
+}
+
+func (s *AccessService) storeScope(userID int64, scope visibleScope) {
+	ttl := s.scopeTTL
+	if ttl <= 0 {
+		ttl = defaultScopeCacheTTL
+	}
+	s.mu.Lock()
+	s.scopesByUser[userID] = scopeCacheEntry{scope: cloneScope(scope), exp: time.Now().Add(ttl)}
+	s.mu.Unlock()
+}
+
+func (s *AccessService) invalidateScope(userID int64) {
+	s.mu.Lock()
+	delete(s.scopesByUser, userID)
+	s.mu.Unlock()
+}
+
+func cloneScope(scope visibleScope) visibleScope {
+	// make(..., 0) is non-nil; append(nil, empty...) is nil, and VisibleMonitorIDs
+	// treats a nil slice as "not computed".
+	monitors := make([]int64, 0, len(scope.monitorIDs))
+	groups := make([]int64, 0, len(scope.groupIDs))
+	return visibleScope{
+		monitorIDs: append(monitors, scope.monitorIDs...),
+		groupIDs:   append(groups, scope.groupIDs...),
+	}
+}
+
+// InvalidateUser drops cached flags and visibility for one user. Call after a
+// user row or grant set changes. TTL still bounds staleness if a caller forgets.
+func (s *AccessService) InvalidateUser(userID int64) {
+	s.mu.Lock()
+	delete(s.usersByID, userID)
+	delete(s.scopesByUser, userID)
+	s.mu.Unlock()
+}
+
+func (s *AccessService) computeScope(ctx context.Context, userID int64) (visibleScope, error) {
 	scope := visibleScope{monitorIDs: []int64{}, groupIDs: []int64{}}
 
 	if s.perms == nil {
@@ -744,6 +876,7 @@ func (s *AccessService) SetPermissions(ctx context.Context, userID int64, monito
 	}
 
 	if err := s.perms.RevokeAll(ctx, userID); err != nil {
+		s.invalidateScope(userID)
 		return fmt.Errorf("access service: set permissions: revoke existing: %w", err)
 	}
 	for i := range monitorIDs {
@@ -762,6 +895,7 @@ func (s *AccessService) SetPermissions(ctx context.Context, userID int64, monito
 			return err
 		}
 	}
+	s.invalidateScope(userID)
 	return nil
 }
 
@@ -792,6 +926,7 @@ func (s *AccessService) RevokeMonitor(ctx context.Context, userID, monitorID int
 	if err := s.perms.RevokeMonitor(ctx, userID, monitorID); err != nil {
 		return fmt.Errorf("access service: revoke monitor grant: %w", err)
 	}
+	s.invalidateScope(userID)
 	return nil
 }
 
@@ -804,6 +939,7 @@ func (s *AccessService) RevokeGroup(ctx context.Context, userID, groupID int64) 
 	if err := s.perms.RevokeGroup(ctx, userID, groupID); err != nil {
 		return fmt.Errorf("access service: revoke group grant: %w", err)
 	}
+	s.invalidateScope(userID)
 	return nil
 }
 
@@ -817,6 +953,7 @@ func (s *AccessService) grant(ctx context.Context, p *domain.UserPermission) err
 	if err := s.perms.Grant(ctx, p); err != nil {
 		return fmt.Errorf("access service: grant: %w", err)
 	}
+	s.invalidateScope(p.UserID)
 	return nil
 }
 

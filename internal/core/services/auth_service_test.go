@@ -479,9 +479,10 @@ func TestAuthService_GetUser_NotFound(t *testing.T) {
 // the subset of the port surface that AuthService exercises.
 
 type inMemUserRepo struct {
-	users  map[int64]*domain.User
-	byName map[string]int64
-	next   int64
+	users        map[int64]*domain.User
+	byName       map[string]int64
+	next         int64
+	getByIDCalls int
 }
 
 func newInMemUserRepo() *inMemUserRepo {
@@ -506,6 +507,7 @@ func (r *inMemUserRepo) Create(_ context.Context, u *domain.User) error {
 }
 
 func (r *inMemUserRepo) GetByID(_ context.Context, id int64) (*domain.User, error) {
+	r.getByIDCalls++
 	u, ok := r.users[id]
 	if !ok {
 		return nil, ports.ErrNotFound

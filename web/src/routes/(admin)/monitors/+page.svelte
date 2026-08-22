@@ -55,8 +55,6 @@
 	/** Multi-select tag filter by name (OR) — same model as the dashboard. */
 	let filterTags = $state<string[]>([]);
 	let allTags = $state<Tag[]>([]);
-	let tagsLoading = $state(true);
-	let tagsError = $state<string | null>(null);
 	let groups = $state<MonitorGroupView[]>([]);
 	let groupsLoading = $state(true);
 	let groupsError = $state<string | null>(null);
@@ -64,17 +62,10 @@
 	let collapseOverrides = $state<Map<number, boolean>>(new Map());
 
 	async function loadTags() {
-		tagsLoading = true;
-		tagsError = null;
 		try {
 			allTags = await tagsApi.list();
-		} catch (error: unknown) {
+		} catch {
 			allTags = [];
-			tagsError = error && typeof error === 'object' && 'message' in error
-				? String((error as { message: string }).message)
-				: m.error_generic();
-		} finally {
-			tagsLoading = false;
 		}
 	}
 
@@ -98,11 +89,9 @@
 		loadGroups();
 	});
 
-	const pageLoading = $derived(
-		!realtime.hasMonitorSnapshot || tagsLoading || groupsLoading,
-	);
+	const pageLoading = $derived(!realtime.hasMonitorSnapshot || groupsLoading);
 	const pageError = $derived(
-		tagsError ?? groupsError ?? (!realtime.hasMonitorSnapshot ? realtime.lastError : null),
+		groupsError ?? (!realtime.hasMonitorSnapshot ? realtime.lastError : null),
 	);
 
 	function retryPageLoad() {

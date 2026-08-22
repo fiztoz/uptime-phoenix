@@ -32,6 +32,7 @@ type ShardedScheduler struct {
 
 	stopCh    chan struct{}
 	lastCheck sync.Map // monitorID int64 -> time.Time
+	slots     *checkSlots
 
 	proxyResolver *proxyResolver
 }
@@ -75,6 +76,7 @@ func NewShardedScheduler(
 		pollEvery:      cfg.PollEvery,
 		stopCh:         make(chan struct{}),
 		proxyResolver:  newProxyResolver(nil),
+		slots:          newCheckSlots(defaultCheckConcurrency),
 	}
 }
 
@@ -173,8 +175,18 @@ func (s *ShardedScheduler) tick(ctx context.Context) {
 		}
 
 		s.lastCheck.Store(m.ID, now)
-		go s.runCheck(ctx, m)
+		s.startCheck(ctx, m)
 	}
+}
+
+func (s *ShardedScheduler) startCheck(ctx context.Context, m *domain.Monitor) {
+	go func() {
+		if !s.slots.acquire(ctx) {
+			return
+		}
+		defer s.slots.release()
+		s.runCheck(ctx, m)
+	}()
 }
 
 // shouldRun checks whether enough time has elapsed since the last check.

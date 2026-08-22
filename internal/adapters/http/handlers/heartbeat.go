@@ -75,7 +75,16 @@ func (h *HeartbeatHandlers) ListByMonitor(c echo.Context) error {
 	// bound is rendered as its local wall-clock in the SQL, shifting the window by
 	// the server's UTC offset. See heartbeatWindow.
 	from, to := heartbeatWindow(hours)
-	heartbeats, err := h.svc.ListByMonitor(c.Request().Context(), monitorID, from, to)
+	ctx := c.Request().Context()
+	var heartbeats []*domain.Heartbeat
+	// `important=true` has to scan the window first (the cap applies after
+	// filtering). Everything else — including dashboard sparklines — can take
+	// the newest `limit` rows from the database.
+	if importantOnly != nil && *importantOnly {
+		heartbeats, err = h.svc.ListByMonitor(ctx, monitorID, from, to)
+	} else {
+		heartbeats, err = h.svc.ListRecentByMonitor(ctx, monitorID, from, to, limit)
+	}
 	if err != nil {
 		return mapMonitorError(c, err)
 	}
