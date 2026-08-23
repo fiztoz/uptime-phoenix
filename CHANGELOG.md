@@ -11,6 +11,31 @@ at the bottom.
 
 ## [Unreleased]
 
+### Added
+
+- Per-user extension visibility: new `can_view_extensions` capability flag
+  (Settings → Users → Access toggle + create-user checkbox). Admins always
+  hold it. Migration `031` backfills existing non-admins so their visibility
+  is unchanged; users created after the upgrade default to off. OIDC IdP
+  groups map onto it via `OIDC_CAP_VIEW_EXTENSIONS_GROUPS`.
+- Token-guarded extensions: the admin iframe now launches through
+  `GET /api/extensions/:id/frame` (same auth + view_extensions gate), which
+  redirects into the extension path and — when the Helm value
+  `extensions[].uiToken` is set — hands the extension's UI token over once
+  as `ui_token=…` for the extension to swap for a session cookie. The token
+  never appears in `GET /api/extensions`.
+- Helm: `extensions[].uiToken` is one value for both sides — it also injects
+  `UI_TOKEN` into the extension pod (via the managed Secret, `secretKeyRef`).
+
+### Changed
+
+- `GET /api/extensions` and the sidebar extension entries require the
+  view_extensions capability (previously any authenticated user). Existing
+  non-admins keep access through the migration backfill.
+- Helm: the `PHOENIX_EXTENSIONS` catalogue lives in the managed Secret
+  instead of the ConfigMap (it can now carry tokens); pods roll when
+  `extensions[]` changes.
+
 ## [0.3.4] — 2026-08-23
 
 ### Fixed
