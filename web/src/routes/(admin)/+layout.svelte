@@ -236,7 +236,7 @@
 							<img
 								src={item.iconSrc}
 								alt=""
-								class="h-[1.1rem] w-[1.1rem] shrink-0 object-contain"
+								class="h-[1.1rem] w-[1.1rem] shrink-0 object-contain dark:invert"
 								onerror={() => {
 									failedExtensionIcons = { ...failedExtensionIcons, [item.href]: true };
 								}}
