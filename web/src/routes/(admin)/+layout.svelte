@@ -62,14 +62,18 @@
 			.catch(() => {
 				serverVersion = null;
 			});
-		extensionsApi
-			.list()
-			.then((list) => {
-				extensions = list;
-			})
-			.catch(() => {
-				extensions = [];
-			});
+		if (auth.user?.is_admin || auth.user?.can_view_extensions) {
+			extensionsApi
+				.list()
+				.then((list) => {
+					extensions = list;
+				})
+				.catch(() => {
+					extensions = [];
+				});
+		} else {
+			extensions = [];
+		}
 	});
 
 	$effect(() => {
@@ -111,6 +115,7 @@
 	let isUserAdmin = $derived(auth.user?.is_admin ?? false);
 	let canManageNotifications = $derived(isUserAdmin || (auth.user?.can_manage_notifications ?? false));
 	let canManageMaintenance = $derived(isUserAdmin || (auth.user?.can_manage_maintenance ?? false));
+	let canViewExtensions = $derived(isUserAdmin || (auth.user?.can_view_extensions ?? false));
 
 	const navItems = $derived([
 		...allNavItems.filter((item) => {
@@ -120,12 +125,14 @@
 			if (item.gate === 'maintenance') return canManageMaintenance;
 			return true;
 		}),
-		...extensions.map((ext) => ({
-			href: `/extensions/${ext.id}`,
-			label: () => ext.title,
-			icon: Puzzle,
-			iconSrc: ext.icon,
-		})),
+		...(canViewExtensions
+			? extensions.map((ext) => ({
+					href: `/extensions/${ext.id}`,
+					label: () => ext.title,
+					icon: Puzzle,
+					iconSrc: ext.icon,
+				}))
+			: []),
 	]);
 
 	// Longest href prefix wins so /extensions/foo-bar does not light up /extensions/foo.

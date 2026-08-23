@@ -336,15 +336,18 @@ func (s *AuthService) Register(ctx context.Context, username, password string) (
 	return s.CreateUser(ctx, username, password, true, true, "UTC", UserCapabilities{})
 }
 
-// UserCapabilities carries the optional write powers a NON-admin user can be
-// given. They are grouped into a struct rather than bolted on as more positional
-// bools so a caller cannot silently transpose them, and so adding a capability
-// later does not churn every call site again.
+// UserCapabilities carries the optional account-level powers a NON-admin user
+// can be given. They are grouped into a struct rather than bolted on as more
+// positional bools so a caller cannot silently transpose them, and so adding a
+// capability later does not churn every call site again.
 //
 // Admins are unaffected by these: domain.User.IsAdmin implies all of them.
 type UserCapabilities struct {
 	CanManageNotifications bool
 	CanManageMaintenance   bool
+	// CanViewExtensions grants discovery and launching through the Phoenix UI.
+	// Extension services still own authorization on their direct Ingress paths.
+	CanViewExtensions bool
 	// CanCreateMonitors / CanCreateGroups let a non-admin create that resource
 	// type and then edit and delete what they created. Note the asymmetry with
 	// the two above: those are install-wide powers (a notification manager may
@@ -367,11 +370,12 @@ type UserCapabilities struct {
 // cannot silently strip it.
 //
 // This is a struct for the same reason UserCapabilities is, only more so —
-// positionally these are four interchangeable *bool, and a transposition would
+// positionally these are interchangeable *bool values, and a transposition would
 // hand out the wrong power silently and pass every type check.
 type CapabilityUpdate struct {
 	CanManageNotifications    *bool
 	CanManageMaintenance      *bool
+	CanViewExtensions         *bool
 	CanCreateMonitors         *bool
 	CanCreateTopLevelMonitors *bool
 	CanCreateGroups           *bool
@@ -407,6 +411,7 @@ func (s *AuthService) CreateUser(ctx context.Context, username, password string,
 		IsAdmin:                   isAdmin,
 		CanManageNotifications:    caps.CanManageNotifications,
 		CanManageMaintenance:      caps.CanManageMaintenance,
+		CanViewExtensions:         caps.CanViewExtensions,
 		CanCreateMonitors:         caps.CanCreateMonitors,
 		CanCreateTopLevelMonitors: caps.CanCreateTopLevelMonitors,
 		CanCreateGroups:           caps.CanCreateGroups,
@@ -478,6 +483,9 @@ func (s *AuthService) UpdateUser(ctx context.Context, id int64, username *string
 	}
 	if caps.CanManageMaintenance != nil {
 		user.CanManageMaintenance = *caps.CanManageMaintenance
+	}
+	if caps.CanViewExtensions != nil {
+		user.CanViewExtensions = *caps.CanViewExtensions
 	}
 	if caps.CanCreateMonitors != nil {
 		user.CanCreateMonitors = *caps.CanCreateMonitors

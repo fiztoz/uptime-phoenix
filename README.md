@@ -23,7 +23,7 @@ zero-dependency pod to a split API + worker deployment with Redis fan-out.
 | Folder alerting | Monitor groups (folders) alert on their own rollup transition, not per child |
 | Status pages | Slug + custom domain resolution, password gate, custom CSS, three dashboard styles (full / pills / grid), three-level public health, response-time charts, 90-day uptime, incidents with severity |
 | Badges | Embeddable SVG status badges (viewBox-scalable) |
-| RBAC | Per-monitor/group grants, capability flags (create monitors/groups, manage notifications/maintenance), admin grant UI, RBAC-scoped WebSocket hub |
+| RBAC | Per-monitor/group grants, capability flags (view extensions, create monitors/groups, manage notifications/maintenance), admin grant UI, RBAC-scoped WebSocket hub |
 | Auth | JWT sessions, TOTP 2FA, WebAuthn passkeys, opt-in OIDC SSO, scoped API keys (hashed at rest); open registration disabled by design — first admin via bootstrap env vars |
 | Config-as-code | Versioned `phoenix.dev/v1` YAML (`cmd/phoenix-config` + admin API): validate / plan / apply with secret redaction |
 | Maintenance windows | Single and cron strategies with real alert suppression (cron evaluates UTC) |

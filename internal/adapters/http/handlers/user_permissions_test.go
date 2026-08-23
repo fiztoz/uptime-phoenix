@@ -176,6 +176,7 @@ func TestUserHandlers_CapabilityFlags_RoundTrip(t *testing.T) {
 		"username":                 "bob",
 		"password":                 "supersecret",
 		"can_manage_notifications": true,
+		"can_view_extensions":      true,
 	}, adminToken)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("POST /api/users = %d; want 201 (body: %s)", rec.Code, rec.Body.String())
@@ -186,6 +187,7 @@ func TestUserHandlers_CapabilityFlags_RoundTrip(t *testing.T) {
 			IsAdmin                bool  `json:"is_admin"`
 			CanManageNotifications bool  `json:"can_manage_notifications"`
 			CanManageMaintenance   bool  `json:"can_manage_maintenance"`
+			CanViewExtensions      bool  `json:"can_view_extensions"`
 		} `json:"user"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
@@ -196,6 +198,9 @@ func TestUserHandlers_CapabilityFlags_RoundTrip(t *testing.T) {
 	}
 	if created.User.CanManageMaintenance {
 		t.Error("can_manage_maintenance defaulted to true; want false")
+	}
+	if !created.User.CanViewExtensions {
+		t.Error("can_view_extensions was not applied on create")
 	}
 	if created.User.IsAdmin {
 		t.Error("a capability must not imply admin")
@@ -209,6 +214,9 @@ func TestUserHandlers_CapabilityFlags_RoundTrip(t *testing.T) {
 	if ok, err := h.access.CanManageMaintenance(ctx, created.User.ID); err != nil || ok {
 		t.Errorf("CanManageMaintenance = (%v, %v); want (false, nil)", ok, err)
 	}
+	if ok, err := h.access.CanViewExtensions(ctx, created.User.ID); err != nil || !ok {
+		t.Errorf("CanViewExtensions = (%v, %v); want (true, nil)", ok, err)
+	}
 
 	// A PUT that omits the flags must LEAVE THEM ALONE, not silently strip them.
 	rec = h.doWithToken(t, http.MethodPut, "/api/users/"+intToStr(created.User.ID), map[string]any{
@@ -220,8 +228,25 @@ func TestUserHandlers_CapabilityFlags_RoundTrip(t *testing.T) {
 	if ok, err := h.access.CanManageNotifications(ctx, created.User.ID); err != nil || !ok {
 		t.Errorf("a PUT that omitted can_manage_notifications stripped it: (%v, %v)", ok, err)
 	}
+	if ok, err := h.access.CanViewExtensions(ctx, created.User.ID); err != nil || !ok {
+		t.Errorf("a PUT that omitted can_view_extensions stripped it: (%v, %v)", ok, err)
+	}
 
-	// And an explicit false revokes it.
+	// Revoking extension visibility must not disturb an unrelated capability.
+	rec = h.doWithToken(t, http.MethodPut, "/api/users/"+intToStr(created.User.ID), map[string]any{
+		"can_view_extensions": false,
+	}, adminToken)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT (revoke extension visibility) = %d; want 200", rec.Code)
+	}
+	if ok, err := h.access.CanViewExtensions(ctx, created.User.ID); err != nil || ok {
+		t.Errorf("CanViewExtensions after an explicit false = (%v, %v); want (false, nil)", ok, err)
+	}
+	if ok, err := h.access.CanManageNotifications(ctx, created.User.ID); err != nil || !ok {
+		t.Errorf("revoking extension visibility disturbed notifications: (%v, %v)", ok, err)
+	}
+
+	// And an explicit false revokes notifications too.
 	rec = h.doWithToken(t, http.MethodPut, "/api/users/"+intToStr(created.User.ID), map[string]any{
 		"can_manage_notifications": false,
 	}, adminToken)

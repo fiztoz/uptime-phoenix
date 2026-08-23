@@ -1,6 +1,7 @@
 package handlers_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +11,11 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/auth"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/http/handlers"
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/http/middleware"
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/memory"
+	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
 func serveExtensions(t *testing.T, raw string) *httptest.ResponseRecorder {
@@ -40,6 +45,65 @@ func decodeExtensionList(t *testing.T, rec *httptest.ResponseRecorder) []handler
 		t.Fatal("decoded list is nil; want empty slice")
 	}
 	return got
+}
+
+func TestExtensionCatalog_RequiresViewExtensionsCapability(t *testing.T) {
+	ctx := context.Background()
+	users := memory.NewUserRepo()
+	apiKeys := memory.NewAPIKeyRepo()
+	perms := memory.NewUserPermissionRepo()
+	authenticator := auth.NewJWTAuthenticator("extension-test-signing-key", 24, users)
+	authSvc := services.NewAuthService(users, apiKeys, authenticator, auth.NewTOTPProvider("Phoenix"))
+	accessSvc := services.NewAccessService(users, perms, nil, nil)
+
+	admin, err := authSvc.CreateUser(ctx, "extension-admin", "password123", true, true, "UTC", services.UserCapabilities{})
+	if err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+	viewer, err := authSvc.CreateUser(ctx, "extension-viewer", "password123", true, false, "UTC", services.UserCapabilities{CanViewExtensions: true})
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	member, err := authSvc.CreateUser(ctx, "extension-member", "password123", true, false, "UTC", services.UserCapabilities{})
+	if err != nil {
+		t.Fatalf("create member: %v", err)
+	}
+
+	e := echo.New()
+	e.GET(
+		"/api/extensions",
+		handlers.NewExtensionHandlers(`[{"id":"storage","title":"Storage","path":"/storage"}]`).List,
+		middleware.AuthMiddleware(authSvc),
+		middleware.RequireCapability(accessSvc, middleware.CapViewExtensions),
+	)
+
+	for _, tc := range []struct {
+		name     string
+		username string
+		userID   int64
+		wantCode int
+	}{
+		{name: "admin is implicit", username: admin.Username, userID: admin.ID, wantCode: http.StatusOK},
+		{name: "non-admin with flag", username: viewer.Username, userID: viewer.ID, wantCode: http.StatusOK},
+		{name: "non-admin without flag", username: member.Username, userID: member.ID, wantCode: http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			token, err := authSvc.Login(ctx, tc.username, "password123")
+			if err != nil {
+				t.Fatalf("login user %d: %v", tc.userID, err)
+			}
+			req := httptest.NewRequest(http.MethodGet, "/api/extensions", nil)
+			req.Header.Set(echo.HeaderAuthorization, "Bearer "+token)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if rec.Code != tc.wantCode {
+				t.Fatalf("GET /api/extensions = %d; want %d (body: %s)", rec.Code, tc.wantCode, rec.Body.String())
+			}
+			if tc.wantCode == http.StatusOK && len(decodeExtensionList(t, rec)) != 1 {
+				t.Fatal("authorized extension catalog did not return its registered item")
+			}
+		})
+	}
 }
 
 func TestExtensionHandlers_EmptyEnvReturnsEmptyArray(t *testing.T) {

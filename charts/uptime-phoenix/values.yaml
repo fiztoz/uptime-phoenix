@@ -350,6 +350,8 @@ oidc:
   capMaintenanceGroups: ""
   capCreateMonitorsGroups: ""
   capCreateGroupsGroups: ""
+  capEditGroupMetadataGroups: ""
+  capViewExtensionsGroups: ""
   # idp-group:group:<id> or idp-group:monitor:<id>[,shallow]
   grantMap: ""
 

@@ -21,6 +21,10 @@ type User struct {
 	// windows and assign/unassign monitors they can view. Admins always may,
 	// regardless of this flag.
 	CanManageMaintenance bool
+	// CanViewExtensions lets a non-admin discover and launch operator-registered
+	// extension pages through Phoenix. Admins always may, regardless of this flag.
+	// The extension's direct Ingress path must enforce its own authorization.
+	CanViewExtensions bool
 	// CanCreateMonitors lets a non-admin create monitors inside groups covered
 	// by one of their group grants. The creator is recorded in Monitor.UserID
 	// and may then edit, clone and delete that monitor — and only that monitor.

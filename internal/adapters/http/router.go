@@ -127,13 +127,14 @@ func NewRouter(
 	}
 
 	// RBAC gates. requireAdmin guards install-wide resources; the capability gates
-	// guard notification, maintenance and creation. Reads are not gated here — a
-	// middleware can reject a request but cannot narrow a result set, so read
-	// scoping lives in the handlers (which consult the same
-	// services.AccessService).
+	// guard notification/maintenance management, extension visibility and
+	// creation. Monitor/group reads are not gated here — a middleware can reject
+	// a request but cannot narrow a result set, so read scoping lives in the
+	// handlers (which consult the same services.AccessService).
 	requireAdmin := middleware.RequireAdmin(authSvc)
 	requireNotifications := middleware.RequireCapability(accessSvc, middleware.CapManageNotifications)
 	requireMaintenance := middleware.RequireCapability(accessSvc, middleware.CapManageMaintenance)
+	requireExtensions := middleware.RequireCapability(accessSvc, middleware.CapViewExtensions)
 	requireCreateMonitors := middleware.RequireCapability(accessSvc, middleware.CapCreateMonitors)
 	requireCreateGroups := middleware.RequireCapability(accessSvc, middleware.CapCreateGroups)
 
@@ -144,10 +145,11 @@ func NewRouter(
 		e.GET("/api/insights", insightsHandlers.GetInsights, middleware.AuthMiddleware(authSvc))
 	}
 
-	// K8s extensions catalog. Any authenticated user; no extra RBAC flag.
-	// Empty or unset PHOENIX_EXTENSIONS is []. Not a monitor type.
+	// K8s extensions catalog. Admins always have access; non-admins need the
+	// view_extensions capability. Empty or unset PHOENIX_EXTENSIONS is []. This
+	// gates Phoenix discovery/launching, not the plugin's direct Ingress path.
 	if extensionHandlers != nil && authSvc != nil {
-		e.GET("/api/extensions", extensionHandlers.List, middleware.AuthMiddleware(authSvc))
+		e.GET("/api/extensions", extensionHandlers.List, middleware.AuthMiddleware(authSvc), requireExtensions)
 	}
 
 	// Monitor routes (protected with auth middleware). Three different gates,

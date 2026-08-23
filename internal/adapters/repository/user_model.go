@@ -19,6 +19,7 @@ type UserModel struct {
 	IsAdmin                   bool      `bun:"is_admin,notnull,default:false"`
 	CanManageNotifications    bool      `bun:"can_manage_notifications,notnull,default:false"`
 	CanManageMaintenance      bool      `bun:"can_manage_maintenance,notnull,default:false"`
+	CanViewExtensions         bool      `bun:"can_view_extensions,notnull,default:false"`
 	CanCreateMonitors         bool      `bun:"can_create_monitors,notnull,default:false"`
 	CanCreateTopLevelMonitors bool      `bun:"can_create_top_level_monitors,notnull,default:false"`
 	CanCreateGroups           bool      `bun:"can_create_groups,notnull,default:false"`
@@ -40,6 +41,7 @@ func (m *UserModel) ToDomain() *domain.User {
 		IsAdmin:                   m.IsAdmin,
 		CanManageNotifications:    m.CanManageNotifications,
 		CanManageMaintenance:      m.CanManageMaintenance,
+		CanViewExtensions:         m.CanViewExtensions,
 		CanCreateMonitors:         m.CanCreateMonitors,
 		CanCreateTopLevelMonitors: m.CanCreateTopLevelMonitors,
 		CanCreateGroups:           m.CanCreateGroups,
@@ -62,6 +64,7 @@ func UserModelFromDomain(u *domain.User) *UserModel {
 		IsAdmin:                   u.IsAdmin,
 		CanManageNotifications:    u.CanManageNotifications,
 		CanManageMaintenance:      u.CanManageMaintenance,
+		CanViewExtensions:         u.CanViewExtensions,
 		CanCreateMonitors:         u.CanCreateMonitors,
 		CanCreateTopLevelMonitors: u.CanCreateTopLevelMonitors,
 		CanCreateGroups:           u.CanCreateGroups,

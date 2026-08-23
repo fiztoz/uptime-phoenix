@@ -592,7 +592,7 @@ type TwoFactor interface {
 - **JSON columns** for per-type monitor config and per-provider notification config (MariaDB `JSON` type; SQLite stores as TEXT).
 - **Partitioning** by RANGE on `time` for the `heartbeats` table (monthly partitions).
 - **Migrations** via `bun/migrate` — versioned `.sql` files, embedded in binary.
-  MariaDB and SQLite stay lockstep through `029_monitor_conditions`; every
+  MariaDB and SQLite stay lockstep through `031_user_extension_visibility`; every
   schema change has matching up/down files for both adapters.
 
 ### Core Tables
@@ -1020,13 +1020,18 @@ Operator-registered sidebar tabs that iframe a same-host Ingress path. This is
 **not** a 14th checker and carries no plugin client or credentials.
 
 `PHOENIX_EXTENSIONS` is a JSON array of `{id, title, path, icon}`. Empty or unset
-serves `GET /api/extensions` as `[]` (any authenticated user; no extra RBAC).
+serves `GET /api/extensions` as `[]`. Access to the catalog is gated by the
+`can_view_extensions` capability (admins always hold it implicitly); the admin
+user-management UI edits it per user (migration `031` backfills existing
+non-admins to preserve prior visibility, new users default to off).
 `icon` is a same-origin path the plugin image serves (default `{path}/icon.svg`);
 Helm cannot extract files from a container. Helm-only keys (`image`,
 `secretName`, credentials) are never echoed. The chart loops `extensions[]`
 into a Deployment, Service, NetworkPolicy, and an Ingress Prefix path
 inserted before `/`. Default is off; Compose / single-binary / SQLite-laptop
-still boot and get an empty list.
+still boot and get an empty list. This gate controls Phoenix discovery and
+launching only — the extension's direct Ingress path is not proxied through
+Phoenix and must enforce its own authorization.
 
 ### Example: HTTP Checker
 

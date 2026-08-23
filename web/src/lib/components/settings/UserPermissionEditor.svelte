@@ -34,6 +34,7 @@
 		FolderTree,
 		KeyRound,
 		PlusCircle,
+		Puzzle,
 		ShieldCheck,
 		X,
 	} from '@lucide/svelte';
@@ -74,6 +75,7 @@
 	type CapabilityKey =
 		| 'can_manage_notifications'
 		| 'can_manage_maintenance'
+		| 'can_view_extensions'
 		| 'can_create_monitors'
 		| 'can_create_top_level_monitors'
 		| 'can_create_groups'
@@ -124,6 +126,12 @@
 			label: 'Manage maintenance',
 			help: 'Schedule and cancel maintenance windows.',
 			icon: CalendarClock,
+		},
+		{
+			key: 'can_view_extensions' as const,
+			label: 'View extensions',
+			help: 'Discover and open registered extension pages in Phoenix. An extension may still require its own sign-in.',
+			icon: Puzzle,
 		},
 		{
 			key: 'can_create_monitors' as const,
@@ -177,10 +185,10 @@
 			<div class="min-w-0 text-sm">
 				<p class="font-medium text-foreground">This account is unrestricted.</p>
 				<p class="mt-1 text-xs leading-relaxed text-muted-foreground">
-					Admins see every monitor and every group, and can manage notifications and maintenance —
-					regardless of the grants or capability flags stored against them. To limit what
-					<span class="font-medium text-foreground">{user.username}</span> can reach, remove their admin
-					role first.
+					Admins see every monitor, group and registered extension, and can manage notifications
+					and maintenance — regardless of the grants or capability flags stored against them. To
+					limit what <span class="font-medium text-foreground">{user.username}</span> can reach,
+					remove their admin role first.
 				</p>
 				<dl class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
 					{#each capabilities as cap (cap.key)}
@@ -207,9 +215,10 @@
 					</h3>
 				</div>
 				<p class="mt-1 text-xs leading-relaxed text-muted-foreground">
-					Independent of the access granted below. Creating gives {user.username} control of what
-					<em class="not-italic font-medium text-foreground">they</em> make — never of monitors or folders
-					someone else created, however many they can see.
+					Account-level permissions are independent of the monitor access granted below. Create
+					permissions give {user.username} control of what
+					<em class="not-italic font-medium text-foreground">they</em> make — never of monitors or
+					folders someone else created, however many they can see.
 				</p>
 				<div class="mt-3 grid gap-2 sm:grid-cols-2">
 					{#each capabilities as cap (cap.key)}

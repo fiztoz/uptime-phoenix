@@ -149,6 +149,17 @@ func (s *AccessService) CanManageMaintenance(ctx context.Context, userID int64) 
 	return u.IsAdmin || u.CanManageMaintenance, nil
 }
 
+// CanViewExtensions reports whether the user may discover and launch registered
+// extensions through Phoenix. Admins always may. This controls the Phoenix
+// catalog and launcher only; extension services authorize their direct paths.
+func (s *AccessService) CanViewExtensions(ctx context.Context, userID int64) (bool, error) {
+	u, err := s.user(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return u.IsAdmin || u.CanViewExtensions, nil
+}
+
 // CanCreateMonitors reports whether the user holds the install-level capability
 // to create monitors. Admins always may.
 //

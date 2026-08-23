@@ -259,6 +259,7 @@ func TestAccessService_AdminSeesEverything(t *testing.T) {
 	for name, fn := range map[string]func(context.Context, int64) (bool, error){
 		"notifications": h.svc.CanManageNotifications,
 		"maintenance":   h.svc.CanManageMaintenance,
+		"extensions":    h.svc.CanViewExtensions,
 	} {
 		ok, err := fn(context.Background(), admin)
 		if err != nil || !ok {
@@ -701,7 +702,8 @@ func TestAccessService_CycleInGroupTreeTerminates(t *testing.T) {
 	}
 }
 
-// Capability flags are independent of each other, and independent of visibility.
+// Capability flags are independent of each other, and independent of monitor
+// visibility.
 func TestAccessService_CapabilitiesAreIndependent(t *testing.T) {
 	h := newAccessHarness(t)
 	ctx := context.Background()
@@ -714,13 +716,18 @@ func TestAccessService_CapabilitiesAreIndependent(t *testing.T) {
 	if err := h.users.Create(ctx, maintainer); err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	extensionViewer := &domain.User{Username: "extension-viewer", Active: true, CanViewExtensions: true}
+	if err := h.users.Create(ctx, extensionViewer); err != nil {
+		t.Fatalf("create: %v", err)
+	}
 
 	cases := []struct {
-		userID              int64
-		wantNotif, wantMain bool
+		userID                        int64
+		wantNotif, wantMain, wantExts bool
 	}{
-		{notifier.ID, true, false},
-		{maintainer.ID, false, true},
+		{notifier.ID, true, false, false},
+		{maintainer.ID, false, true, false},
+		{extensionViewer.ID, false, false, true},
 	}
 	for _, tc := range cases {
 		gotNotif, err := h.svc.CanManageNotifications(ctx, tc.userID)
@@ -731,7 +738,12 @@ func TestAccessService_CapabilitiesAreIndependent(t *testing.T) {
 		if err != nil || gotMain != tc.wantMain {
 			t.Errorf("CanManageMaintenance(%d) = (%v, %v); want %v", tc.userID, gotMain, err, tc.wantMain)
 		}
-		// A capability is NOT visibility: holding one grants no monitors.
+		gotExts, err := h.svc.CanViewExtensions(ctx, tc.userID)
+		if err != nil || gotExts != tc.wantExts {
+			t.Errorf("CanViewExtensions(%d) = (%v, %v); want %v", tc.userID, gotExts, err, tc.wantExts)
+		}
+		// An account-level capability is NOT monitor visibility: holding one grants
+		// no monitors.
 		assertVisibleMonitors(t, h.svc, tc.userID)
 	}
 }

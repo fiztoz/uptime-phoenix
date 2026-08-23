@@ -10,10 +10,10 @@ import "time"
 // that tree is the AccessService's job, not the domain's.
 //
 // Permissions are additive. A grant by itself is view-only: there is no "deny"
-// grant, and a grant never confers edit/delete access. The independent write
-// powers a non-admin can hold live on domain.User (CanManageNotifications,
-// CanManageMaintenance, CanCreateMonitors, CanCreateGroups), not here. The one
-// intentional composition is monitor creation: CanCreateMonitors is install-
+// grant, and a grant never confers edit/delete access. The independent account-
+// level capabilities a non-admin can hold live on domain.User
+// (CanManageNotifications, CanManageMaintenance, CanViewExtensions,
+// CanCreateMonitors, CanCreateGroups), not here. The one intentional composition is monitor creation: CanCreateMonitors is install-
 // level, while group grants bound which folders the new monitor may be placed in.
 //
 // Note what that means for the two creation capabilities: they let a user make

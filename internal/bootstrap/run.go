@@ -728,6 +728,7 @@ func buildOIDCOption(cfg Config, repos repoBundle, log *logger.SlogLogger) (serv
 		CapCreateTopLevelMonitorsGroups: services.SplitCSV(cfg.OIDCCapCreateTopLevelMonitorsGroups),
 		CapCreateGroupsGroups:           services.SplitCSV(cfg.OIDCCapCreateGroupsGroups),
 		CapEditGroupMetadataGroups:      services.SplitCSV(cfg.OIDCCapEditGroupMetadataGroups),
+		CapViewExtensionsGroups:         services.SplitCSV(cfg.OIDCCapViewExtensionsGroups),
 		GrantMap:                        grantMap,
 		StateSecret:                     cfg.JWTSecret,
 		FrontendRedirect:                strings.TrimRight(strings.TrimSpace(cfg.PublicURL), "/"),

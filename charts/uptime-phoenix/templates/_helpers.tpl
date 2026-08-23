@@ -396,6 +396,10 @@ Shared Phoenix application env (security, observability, rate limits).
   value: {{ .Values.oidc.capCreateMonitorsGroups | quote }}
 - name: OIDC_CAP_CREATE_GROUPS_GROUPS
   value: {{ .Values.oidc.capCreateGroupsGroups | quote }}
+- name: OIDC_CAP_EDIT_GROUP_METADATA_GROUPS
+  value: {{ .Values.oidc.capEditGroupMetadataGroups | quote }}
+- name: OIDC_CAP_VIEW_EXTENSIONS_GROUPS
+  value: {{ .Values.oidc.capViewExtensionsGroups | quote }}
 - name: OIDC_GRANT_MAP
   value: {{ .Values.oidc.grantMap | quote }}
 {{- end }}

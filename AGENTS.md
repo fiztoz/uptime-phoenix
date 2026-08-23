@@ -207,14 +207,18 @@ telegram, discord, slack, smtp, webhook, teams, mattermost, gotify, bark, feishu
     monitors. Grants live in the `user_permissions` table.
   - **Monitors and groups are READ-ONLY for non-admins**, whatever is granted. Writes carry
     `middleware.RequireAdmin`.
-  - **Two independent capability flags** on `domain.User`: `can_manage_notifications` and
-    `can_manage_maintenance`, gated by `middleware.RequireCapability`.
+  - **Independent capability flags** on `domain.User`: `can_manage_notifications`,
+    `can_manage_maintenance`, `can_view_extensions`, and the create flags, gated by
+    `middleware.RequireCapability`. `can_view_extensions` gates the extensions catalog
+    (`GET /api/extensions`) and sidebar entries; admins always hold it implicitly. It
+    controls Phoenix discovery/launching only — an extension's direct Ingress path must
+    enforce its own authorization.
   - **`services.AccessService` is the SINGLE authorization choke point.** Do not scatter access
     checks into handlers or repos — extend that service. It is also what scopes the WebSocket hub,
     which previously broadcast every monitor's heartbeats to every client.
   - A monitor the caller may not see returns **404, not 403** — never confirm its existence.
   - `/api/auth/me` reports the **RAW** capability flags, not the effective permission: an admin has
-    both flags `false` yet may do everything. **Every UI gate must be `is_admin || can_manage_x`.**
+    every flag `false` yet may do everything. **Every UI gate must be `is_admin || can_x`.**
 
   There is still no general roles table. Do not add further permission dimensions without user approval.
 - **User management API — `/api/users` (admin-only):** Create/List/Get/Update/Delete, guarded by

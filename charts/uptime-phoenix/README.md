@@ -230,6 +230,12 @@ config files are mounted. Set `cloudflareTunnel.replicas=2` (the default) for HA
 catalogue. Each item is a separate Deployment + ClusterIP Service + Ingress
 `Prefix` path (inserted after `/api` and `/ws`, before `/`).
 
+Phoenix gates the sidebar entries and the `GET /api/extensions` catalog behind the
+per-user **View extensions** capability (`Settings → Users → Access`; admins always
+see extensions). Note the boundary: the plugin's direct Ingress path is served by
+its own Deployment, not proxied through Phoenix, so a plugin that needs to stay
+private must enforce its own authentication.
+
 The plugin **image is operator-supplied**. This chart does not ship plugin
 images, does not run `CREATE USER` / SQL, and does not mount Phoenix's `DB_DSN`.
 Provision any dedicated database user and Secret yourself, then point

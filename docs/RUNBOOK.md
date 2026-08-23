@@ -415,7 +415,7 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `OIDC_LINK_BY_EMAIL` | `false` | Link an unlinked existing user when the IdP asserts a **verified** email matching the username. |
 | `OIDC_ALLOWED_GROUPS` | empty | When non-empty, require membership in at least one listed IdP group. |
 | `OIDC_ADMIN_GROUPS` | empty | IdP groups that set `is_admin` on every login. |
-| `OIDC_CAP_*_GROUPS` | empty | IdP groups for capability flags (`NOTIFICATIONS`, `MAINTENANCE`, `CREATE_MONITORS`, `CREATE_GROUPS`). |
+| `OIDC_CAP_*_GROUPS` | empty | IdP groups for capability flags (`NOTIFICATIONS`, `MAINTENANCE`, `CREATE_MONITORS`, `CREATE_TOP_LEVEL_MONITORS`, `CREATE_GROUPS`, `EDIT_GROUP_METADATA`, `VIEW_EXTENSIONS`). |
 | `OIDC_GRANT_MAP` | empty | Scoped grants: `idp-group:group:<id>,idp-team:monitor:<id>` (optional `:shallow`). |
 
 ### OIDC SSO (break-glass and IdP outage)

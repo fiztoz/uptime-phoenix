@@ -9,12 +9,13 @@ export interface User {
   active: boolean;
   is_admin: boolean;
   /**
-   * The four capability flags are RAW — an admin has every one of them false and
-   * may still do everything. Gate on `is_admin || can_x`, never on the flag
-   * alone, exactly as the server's AccessService does.
+   * Capability flags are RAW — an admin may have every one of them false and
+   * still do everything. Gate on `is_admin || can_x`, never on the flag alone,
+   * exactly as the server's AccessService does.
    */
   can_manage_notifications: boolean;
   can_manage_maintenance: boolean;
+  can_view_extensions: boolean;
   /**
    * Permission to CREATE. Not permission to edit a monitor already on screen —
    * that is per-resource ownership (`monitor.user_id === me.id`), which no
@@ -39,6 +40,7 @@ export interface CreateUserInput {
   is_admin?: boolean;
   can_manage_notifications?: boolean;
   can_manage_maintenance?: boolean;
+  can_view_extensions?: boolean;
   can_create_monitors?: boolean;
   can_create_top_level_monitors?: boolean;
   can_create_groups?: boolean;
@@ -52,6 +54,7 @@ export type UpdateUserInput = Partial<{
   is_admin: boolean;
   can_manage_notifications: boolean;
   can_manage_maintenance: boolean;
+  can_view_extensions: boolean;
   can_create_monitors: boolean;
   can_create_top_level_monitors: boolean;
   can_create_groups: boolean;

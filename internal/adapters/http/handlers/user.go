@@ -31,9 +31,8 @@ func NewUserHandlers(svc *services.AuthService, access *services.AccessService) 
 
 // CreateUserRequest is the body of POST /api/users.
 //
-// The four Can* fields are the capability flags a non-admin can hold; omitted
-// means false. They are meaningless for an admin, who implicitly holds all of
-// them.
+// The Can* fields are the capability flags a non-admin can hold; omitted means
+// false. They are meaningless for an admin, who implicitly holds all of them.
 type CreateUserRequest struct {
 	Username                  string `json:"username"`
 	Password                  string `json:"password"`
@@ -41,6 +40,7 @@ type CreateUserRequest struct {
 	IsAdmin                   *bool  `json:"is_admin"`
 	CanManageNotifications    *bool  `json:"can_manage_notifications"`
 	CanManageMaintenance      *bool  `json:"can_manage_maintenance"`
+	CanViewExtensions         *bool  `json:"can_view_extensions"`
 	CanCreateMonitors         *bool  `json:"can_create_monitors"`
 	CanCreateTopLevelMonitors *bool  `json:"can_create_top_level_monitors"`
 	CanCreateGroups           *bool  `json:"can_create_groups"`
@@ -56,6 +56,7 @@ type UpdateUserRequest struct {
 	IsAdmin                   *bool   `json:"is_admin"`
 	CanManageNotifications    *bool   `json:"can_manage_notifications"`
 	CanManageMaintenance      *bool   `json:"can_manage_maintenance"`
+	CanViewExtensions         *bool   `json:"can_view_extensions"`
 	CanCreateMonitors         *bool   `json:"can_create_monitors"`
 	CanCreateTopLevelMonitors *bool   `json:"can_create_top_level_monitors"`
 	CanCreateGroups           *bool   `json:"can_create_groups"`
@@ -188,6 +189,9 @@ func (h *UserHandlers) Create(c echo.Context) error {
 	if req.CanManageMaintenance != nil {
 		caps.CanManageMaintenance = *req.CanManageMaintenance
 	}
+	if req.CanViewExtensions != nil {
+		caps.CanViewExtensions = *req.CanViewExtensions
+	}
 	if req.CanCreateMonitors != nil {
 		caps.CanCreateMonitors = *req.CanCreateMonitors
 	}
@@ -247,6 +251,7 @@ func (h *UserHandlers) Update(c echo.Context) error {
 		services.CapabilityUpdate{
 			CanManageNotifications:    req.CanManageNotifications,
 			CanManageMaintenance:      req.CanManageMaintenance,
+			CanViewExtensions:         req.CanViewExtensions,
 			CanCreateMonitors:         req.CanCreateMonitors,
 			CanCreateTopLevelMonitors: req.CanCreateTopLevelMonitors,
 			CanCreateGroups:           req.CanCreateGroups,

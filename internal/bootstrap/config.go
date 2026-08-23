@@ -117,6 +117,7 @@ type Config struct {
 	OIDCCapCreateTopLevelMonitorsGroups string `env:"OIDC_CAP_CREATE_TOP_LEVEL_MONITORS_GROUPS" envDefault:""`
 	OIDCCapCreateGroupsGroups           string `env:"OIDC_CAP_CREATE_GROUPS_GROUPS" envDefault:""`
 	OIDCCapEditGroupMetadataGroups      string `env:"OIDC_CAP_EDIT_GROUP_METADATA_GROUPS" envDefault:""`
+	OIDCCapViewExtensionsGroups         string `env:"OIDC_CAP_VIEW_EXTENSIONS_GROUPS" envDefault:""`
 	// OIDCGrantMap is "idp-group:group:5,idp-team:monitor:12" (optional :shallow).
 	OIDCGrantMap string `env:"OIDC_GRANT_MAP" envDefault:""`
 

@@ -104,6 +104,7 @@ type UserView struct {
 	// a user's actual settings.
 	CanManageNotifications bool `json:"can_manage_notifications"`
 	CanManageMaintenance   bool `json:"can_manage_maintenance"`
+	CanViewExtensions      bool `json:"can_view_extensions"`
 	// CanCreateMonitors / CanCreateGroups gate creating those resources. They do
 	// NOT tell the frontend whether this user may edit a monitor already on
 	// screen: that is per-resource ownership (monitor.user_id == this user, or
@@ -127,10 +128,10 @@ type UserView struct {
 // toUserView projects a domain.User to the public DTO. Sensitive
 // fields are intentionally dropped — see UserView's docstring.
 //
-// IsAdmin and the two capability flags are included so the frontend can hide the
-// things the user cannot do (monitor/group editing, notification and maintenance
-// management, the admin-only pages) straight from /api/auth/me and the
-// login/register response, without a follow-up call.
+// IsAdmin and the capability flags are included so the frontend can hide the
+// things the user cannot reach or do (extensions, monitor/group editing,
+// notification and maintenance management, and admin-only pages) straight from
+// /api/auth/me and the login/register response, without a follow-up call.
 func toUserView(u *domain.User) *UserView {
 	if u == nil {
 		return nil
@@ -142,6 +143,7 @@ func toUserView(u *domain.User) *UserView {
 		IsAdmin:                   u.IsAdmin,
 		CanManageNotifications:    u.CanManageNotifications,
 		CanManageMaintenance:      u.CanManageMaintenance,
+		CanViewExtensions:         u.CanViewExtensions,
 		CanCreateMonitors:         u.CanCreateMonitors,
 		CanCreateTopLevelMonitors: u.CanCreateTopLevelMonitors,
 		CanCreateGroups:           u.CanCreateGroups,

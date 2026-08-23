@@ -46,15 +46,16 @@ type OIDCPolicy struct {
 	AllowedGroups []string
 	// AdminGroups grant is_admin on every successful login while a member.
 	AdminGroups []string
-	// CapNotificationsGroups / CapMaintenanceGroups / CapCreateMonitorsGroups /
-	// CapCreateTopLevelMonitorsGroups / CapCreateGroupsGroups map IdP groups onto
-	// the capability flags.
+	// Cap*Groups map IdP groups onto the capability flags
+	// (notifications, maintenance, monitor/group creation, group metadata,
+	// extension visibility).
 	CapNotificationsGroups          []string
 	CapMaintenanceGroups            []string
 	CapCreateMonitorsGroups         []string
 	CapCreateTopLevelMonitorsGroups []string
 	CapCreateGroupsGroups           []string
 	CapEditGroupMetadataGroups      []string
+	CapViewExtensionsGroups         []string
 	// GrantMap maps IdP group names onto scoped view grants. Keys are IdP
 	// group names; values describe the Phoenix resource.
 	GrantMap []OIDCGrantMapping
@@ -430,6 +431,7 @@ func (s *AuthService) syncOIDCPermissions(ctx context.Context, user *domain.User
 		CanCreateTopLevelMonitors: anyGroupMatch(groups, s.oidcPolicy.CapCreateTopLevelMonitorsGroups),
 		CanCreateGroups:           anyGroupMatch(groups, s.oidcPolicy.CapCreateGroupsGroups),
 		CanEditGroupMetadata:      anyGroupMatch(groups, s.oidcPolicy.CapEditGroupMetadataGroups),
+		CanViewExtensions:         anyGroupMatch(groups, s.oidcPolicy.CapViewExtensionsGroups),
 	}
 
 	changed := user.IsAdmin != isAdmin ||
@@ -438,7 +440,8 @@ func (s *AuthService) syncOIDCPermissions(ctx context.Context, user *domain.User
 		user.CanCreateMonitors != caps.CanCreateMonitors ||
 		user.CanCreateTopLevelMonitors != caps.CanCreateTopLevelMonitors ||
 		user.CanCreateGroups != caps.CanCreateGroups ||
-		user.CanEditGroupMetadata != caps.CanEditGroupMetadata
+		user.CanEditGroupMetadata != caps.CanEditGroupMetadata ||
+		user.CanViewExtensions != caps.CanViewExtensions
 
 	if changed {
 		user.IsAdmin = isAdmin
@@ -448,6 +451,7 @@ func (s *AuthService) syncOIDCPermissions(ctx context.Context, user *domain.User
 		user.CanCreateTopLevelMonitors = caps.CanCreateTopLevelMonitors
 		user.CanCreateGroups = caps.CanCreateGroups
 		user.CanEditGroupMetadata = caps.CanEditGroupMetadata
+		user.CanViewExtensions = caps.CanViewExtensions
 		if err := s.users.Update(ctx, user); err != nil {
 			return fmt.Errorf("update user flags: %w", err)
 		}

@@ -8,8 +8,8 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-// Capability names one of the optional write powers a non-admin user can hold.
-// Admins implicitly hold every capability — see services.AccessService.
+// Capability names an optional account-level permission a non-admin user can
+// hold. Admins implicitly hold every capability — see services.AccessService.
 type Capability string
 
 const (
@@ -19,6 +19,9 @@ const (
 	// CapManageMaintenance allows creating/updating/deleting maintenance windows
 	// and assigning monitors the user can view to them.
 	CapManageMaintenance Capability = "manage_maintenance"
+	// CapViewExtensions allows discovering and launching operator-registered
+	// extensions through Phoenix. Direct extension paths own their authorization.
+	CapViewExtensions Capability = "view_extensions"
 	// CapCreateMonitors allows creating monitors. It does NOT allow touching a
 	// monitor somebody else created — that is decided per-resource by ownership,
 	// which middleware cannot check because it does not know the target's owner.
@@ -58,6 +61,8 @@ func RequireCapability(access *services.AccessService, capability Capability) ec
 				allowed, err = access.CanManageNotifications(c.Request().Context(), userID)
 			case CapManageMaintenance:
 				allowed, err = access.CanManageMaintenance(c.Request().Context(), userID)
+			case CapViewExtensions:
+				allowed, err = access.CanViewExtensions(c.Request().Context(), userID)
 			case CapCreateMonitors:
 				allowed, err = access.CanCreateMonitors(c.Request().Context(), userID)
 			case CapCreateGroups:

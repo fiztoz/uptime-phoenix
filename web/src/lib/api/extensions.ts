@@ -1,6 +1,6 @@
 /**
- * Admin extension catalog. GET /api/extensions returns iframe plugins
- * listed by the server; an empty list is a valid (no-plugins) response.
+ * Permission-scoped extension catalog. GET /api/extensions returns iframe
+ * plugins the current user may launch; an empty list is a valid response.
  */
 import { api } from "./client";
 

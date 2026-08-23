@@ -88,6 +88,7 @@
 	let newUserIsAdmin = $state(false);
 	let newUserCanManageNotifications = $state(false);
 	let newUserCanManageMaintenance = $state(false);
+	let newUserCanViewExtensions = $state(false);
 	let userLoading = $state(false);
 	let permissionEditorUserId = $state<number | null>(null);
 	let permissionLoadingUserId = $state<number | null>(null);
@@ -710,6 +711,7 @@
 			const res = await usersApi.update(targetUser.id, {
 				can_manage_notifications: targetUser.can_manage_notifications,
 				can_manage_maintenance: targetUser.can_manage_maintenance,
+				can_view_extensions: targetUser.can_view_extensions,
 				can_create_monitors: targetUser.can_create_monitors,
 				can_create_top_level_monitors: targetUser.can_create_top_level_monitors,
 				can_create_groups: targetUser.can_create_groups,
@@ -736,6 +738,7 @@
 		key:
 			| 'can_manage_notifications'
 			| 'can_manage_maintenance'
+			| 'can_view_extensions'
 			| 'can_create_monitors'
 			| 'can_create_top_level_monitors'
 			| 'can_create_groups'
@@ -778,6 +781,7 @@
 				is_admin: newUserIsAdmin,
 				can_manage_notifications: newUserCanManageNotifications,
 				can_manage_maintenance: newUserCanManageMaintenance,
+				can_view_extensions: newUserCanViewExtensions,
 			});
 			newUsername = '';
 			newUserPassword = '';
@@ -785,6 +789,7 @@
 			newUserIsAdmin = false;
 			newUserCanManageNotifications = false;
 			newUserCanManageMaintenance = false;
+			newUserCanViewExtensions = false;
 			await loadUsers();
 			toast.success('User created');
 		} catch (e: any) {
@@ -1346,9 +1351,8 @@
 			</div>
 
 			<!--
-				Create-user form. The credentials and the four flags are separate rows:
-				cramming two inputs, four checkboxes and a button onto one line overflowed
-				every phone-width viewport. The flags wrap into two columns from `sm` up.
+				Create-user form. Credentials and capability flags are separate rows so
+				the controls wrap cleanly instead of overflowing phone-width viewports.
 			-->
 			<div class="mt-4 rounded-lg border border-border bg-surface/40 p-3 sm:p-4">
 				<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1386,13 +1390,19 @@
 						<input type="checkbox" class="h-4 w-4 shrink-0 rounded border-border accent-primary" bind:checked={newUserCanManageMaintenance} />
 						Manage maintenance
 					</label>
+					<label class="flex items-center gap-2 text-sm text-muted-foreground" title="Show registered extension pages in the Phoenix sidebar">
+						<input type="checkbox" class="h-4 w-4 shrink-0 rounded border-border accent-primary" bind:checked={newUserCanViewExtensions} />
+						View extensions
+					</label>
 				</div>
 
 				<button type="button" onclick={createUser} disabled={userLoading} class="{primaryBtn} mt-3 w-full justify-center sm:w-auto">
 					<Plus class="h-4 w-4" /> Create user
 				</button>
 				<p class="mt-2 text-xs text-muted-foreground">
-					A new non-admin sees <strong class="font-medium text-foreground">no monitors at all</strong> until you grant some below.
+					Monitor and extension access are independent: grant monitors below and use
+					<strong class="font-medium text-foreground">View extensions</strong> above for registered
+					extension pages.
 				</p>
 			</div>
 
