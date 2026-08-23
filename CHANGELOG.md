@@ -11,6 +11,8 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.3.5] — 2026-08-23
+
 ### Added
 
 - Per-user extension visibility: new `can_view_extensions` capability flag
