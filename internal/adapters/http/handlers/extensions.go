@@ -20,29 +20,37 @@ type ExtensionView struct {
 	Icon  string `json:"icon"`
 }
 
+// extensionEntry is the internal catalog row. It extends the public view with
+// operator-supplied launch wiring that must never be serialized into any
+// response (see extensions_frame.go).
+type extensionEntry struct {
+	ExtensionView
+	UIToken string `json:"uiToken"`
+}
+
 // ExtensionHandlers serves GET /api/extensions from the process-start catalog.
 type ExtensionHandlers struct {
-	items []ExtensionView
+	items []extensionEntry
 }
 
 // NewExtensionHandlers parses raw PHOENIX_EXTENSIONS JSON once and stores the
-// view list. Empty, unset, or malformed input logs and becomes an empty
-// catalog so the sidebar never 500s.
+// catalog. Empty, unset, or malformed input logs and becomes an empty catalog
+// so the sidebar never 500s.
 func NewExtensionHandlers(raw string) *ExtensionHandlers {
-	return &ExtensionHandlers{items: parseExtensionViews(raw)}
+	return &ExtensionHandlers{items: parseExtensionEntries(raw)}
 }
 
-func parseExtensionViews(raw string) []ExtensionView {
+func parseExtensionEntries(raw string) []extensionEntry {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return []ExtensionView{}
+		return []extensionEntry{}
 	}
-	var parsed []ExtensionView
+	var parsed []extensionEntry
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
 		slog.Warn("invalid PHOENIX_EXTENSIONS JSON; serving empty catalog", "error", err)
-		return []ExtensionView{}
+		return []extensionEntry{}
 	}
-	out := make([]ExtensionView, 0, len(parsed))
+	out := make([]extensionEntry, 0, len(parsed))
 	for _, item := range parsed {
 		id := strings.TrimSpace(item.ID)
 		title := strings.TrimSpace(item.Title)
@@ -50,12 +58,24 @@ func parseExtensionViews(raw string) []ExtensionView {
 		if id == "" || title == "" || path == "" {
 			continue
 		}
-		out = append(out, ExtensionView{
-			ID:    id,
-			Title: title,
-			Path:  path,
-			Icon:  extensionIconPath(path, item.Icon),
+		out = append(out, extensionEntry{
+			ExtensionView: ExtensionView{
+				ID:    id,
+				Title: title,
+				Path:  path,
+				Icon:  extensionIconPath(path, item.Icon),
+			},
+			UIToken: strings.TrimSpace(item.UIToken),
 		})
+	}
+	return out
+}
+
+// views returns only the public wire shape of the catalog.
+func (h *ExtensionHandlers) views() []ExtensionView {
+	out := make([]ExtensionView, 0, len(h.items))
+	for _, item := range h.items {
+		out = append(out, item.ExtensionView)
 	}
 	return out
 }
@@ -84,11 +104,7 @@ func safeExtensionIconPath(icon string) bool {
 }
 
 // List handles GET /api/extensions. Always a JSON array, never null.
-// Authentication is applied in the router (any authenticated user).
+// Authentication and the view_extensions capability are applied in the router.
 func (h *ExtensionHandlers) List(c echo.Context) error {
-	items := h.items
-	if items == nil {
-		items = []ExtensionView{}
-	}
-	return c.JSON(http.StatusOK, items)
+	return c.JSON(http.StatusOK, h.views())
 }

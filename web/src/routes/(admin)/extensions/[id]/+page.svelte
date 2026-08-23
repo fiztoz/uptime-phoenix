@@ -11,6 +11,10 @@
 
 	let extensionId = $derived($page.params.id ?? '');
 	let extension = $derived(extensions.find((ext) => ext.id === extensionId) ?? null);
+	// Launch through the server-side redirect endpoint: it enforces the
+	// view_extensions capability at load time and hands over any extension
+	// launch credential without ever exposing it to the frontend.
+	let frameSrc = $derived(extension ? `/api/extensions/${extension.id}/frame` : '');
 
 	onMount(async () => {
 		try {
@@ -37,7 +41,7 @@
 	</div>
 {:else}
 	<iframe
-		src={extension.path}
+		src={frameSrc}
 		title={extension.title}
 		class="block h-full min-h-0 w-full flex-1 border-0"
 	></iframe>

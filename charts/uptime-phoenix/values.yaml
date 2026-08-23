@@ -467,6 +467,10 @@ observability:
 #     resources: {}          # optional
 #     env: []                # optional extra env
 #     envFromSecret: ""      # optional Secret name, all keys as env
+#     uiToken: ""            # optional; the plugin's UI_TOKEN. Phoenix's gated
+#                            # /api/extensions/:id/frame redirect hands it over
+#                            # once so the iframe can open a token-guarded plugin.
+#                            # Kept in the managed Secret, never in the catalog API.
 #     database:
 #       secretName: ""       # optional; if set, mounted as DATABASE_DSN
 #       secretKey: dsn

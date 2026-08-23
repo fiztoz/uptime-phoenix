@@ -356,7 +356,7 @@ Shared Phoenix application env (security, observability, rate limits).
       key: public-url
 - name: PHOENIX_EXTENSIONS
   valueFrom:
-    configMapKeyRef:
+    secretKeyRef:
       name: {{ include "phoenix.fullname" . }}
       key: extensions-json
 {{- if .Values.oidc.enabled }}
@@ -416,6 +416,7 @@ cluster access (Argo CD `helm template`).
 {{- define "phoenix.secretFingerprint" -}}
 redis:{{ .Values.redis | toYaml }}
 oidc:{{ .Values.oidc | toYaml }}
+extensions:{{ .Values.extensions | toYaml }}
 bootstrap:{{ .Values.bootstrap | toYaml }}
 mariadb.enabled={{ .Values.mariadb.enabled }}
 mariadb.rootPassword={{ .Values.mariadb.rootPassword }}
@@ -535,8 +536,12 @@ Fail the render when extensions[] is incomplete, collides, or is not DNS-1123.
 {{- end }}
 
 {{/*
-Public catalogue JSON: [{id,title,path,icon}, …] only. Never image or secrets.
-icon defaults to {path}/icon.svg — the plugin image must serve that file.
+Public catalogue JSON: [{id,title,path,icon(,uiToken)}, …] only. Never image
+or DB credentials. uiToken (optional) is the extension's UI_TOKEN launch
+credential; Phoenix releases it only through the gated /frame redirect and
+never echoes it on GET /api/extensions. The whole catalogue lives in the
+managed Secret because of it. icon defaults to {path}/icon.svg — the plugin
+image must serve that file.
 Always validates extensions[] first so a bad values file fails the render.
 */}}
 {{- define "phoenix.extensionsCatalog" -}}
@@ -548,7 +553,11 @@ Always validates extensions[] first so a bad values file fails the render.
 {{- if empty $icon -}}
 {{- $icon = printf "%s/icon.svg" (trimSuffix "/" $path) -}}
 {{- end }}
-{{- $catalog = append $catalog (dict "id" (.id | toString) "title" (.title | toString) "path" $path "icon" $icon) -}}
+{{- $entry := dict "id" (.id | toString) "title" (.title | toString) "path" $path "icon" $icon -}}
+{{- with .uiToken | default "" | toString }}
+{{- $_ := set $entry "uiToken" . -}}
+{{- end }}
+{{- $catalog = append $catalog $entry -}}
 {{- end }}
 {{- $catalog | toJson -}}
 {{- end }}

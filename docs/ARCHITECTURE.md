@@ -1033,6 +1033,14 @@ still boot and get an empty list. This gate controls Phoenix discovery and
 launching only — the extension's direct Ingress path is not proxied through
 Phoenix and must enforce its own authorization.
 
+Token-guarded extensions: an optional Helm-only `uiToken` per entry (stored in
+the managed Secret with the catalog, never in the catalog response). The admin
+UI iframes `GET /api/extensions/:id/frame` — same auth + capability gates —
+which 302s into `{path}` and, when `uiToken` is set, appends it as the
+`ui_token` query parameter the extension accepts. The extension is expected to
+exchange that one-time hand-off for a session cookie so its internal links and
+form posts stay authenticated.
+
 ### Example: HTTP Checker
 
 ```go

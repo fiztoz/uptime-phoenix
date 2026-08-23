@@ -147,9 +147,13 @@ func NewRouter(
 
 	// K8s extensions catalog. Admins always have access; non-admins need the
 	// view_extensions capability. Empty or unset PHOENIX_EXTENSIONS is []. This
-	// gates Phoenix discovery/launching, not the plugin's direct Ingress path.
+	// gates Phoenix discovery/launching; the :id/frame redirect is the launch
+	// point the iframe uses (and the only surface that releases an entry's
+	// launch credential). The extension's direct Ingress path must enforce its
+	// own authorization.
 	if extensionHandlers != nil && authSvc != nil {
 		e.GET("/api/extensions", extensionHandlers.List, middleware.AuthMiddleware(authSvc), requireExtensions)
+		e.GET("/api/extensions/:id/frame", extensionHandlers.Frame, middleware.AuthMiddleware(authSvc), requireExtensions)
 	}
 
 	// Monitor routes (protected with auth middleware). Three different gates,

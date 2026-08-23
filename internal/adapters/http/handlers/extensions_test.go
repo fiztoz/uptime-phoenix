@@ -76,6 +76,12 @@ func TestExtensionCatalog_RequiresViewExtensionsCapability(t *testing.T) {
 		middleware.AuthMiddleware(authSvc),
 		middleware.RequireCapability(accessSvc, middleware.CapViewExtensions),
 	)
+	e.GET(
+		"/api/extensions/:id/frame",
+		handlers.NewExtensionHandlers(`[{"id":"storage","title":"Storage","path":"/storage"}]`).Frame,
+		middleware.AuthMiddleware(authSvc),
+		middleware.RequireCapability(accessSvc, middleware.CapViewExtensions),
+	)
 
 	for _, tc := range []struct {
 		name     string
@@ -102,7 +108,80 @@ func TestExtensionCatalog_RequiresViewExtensionsCapability(t *testing.T) {
 			if tc.wantCode == http.StatusOK && len(decodeExtensionList(t, rec)) != 1 {
 				t.Fatal("authorized extension catalog did not return its registered item")
 			}
+
+			// The iframe launch point carries the same gate.
+			frameReq := httptest.NewRequest(http.MethodGet, "/api/extensions/storage/frame", nil)
+			frameReq.Header.Set(echo.HeaderAuthorization, "Bearer "+token)
+			frameRec := httptest.NewRecorder()
+			e.ServeHTTP(frameRec, frameReq)
+			wantFrame := tc.wantCode
+			if wantFrame == http.StatusOK {
+				wantFrame = http.StatusFound
+			}
+			if frameRec.Code != wantFrame {
+				t.Errorf("GET frame = %d; want %d", frameRec.Code, wantFrame)
+			}
 		})
+	}
+}
+
+func TestExtensionHandlers_FrameRedirectsIntoExtensionPath(t *testing.T) {
+	e := echo.New()
+	h := handlers.NewExtensionHandlers(`[{"id":"storage","title":"Storage","path":"/storage"}]`)
+	e.GET("/api/extensions/:id/frame", h.Frame)
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/extensions/storage/frame", nil))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("frame = %d; want 302", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/storage" {
+		t.Errorf("Location = %q; want /storage", loc)
+	}
+	if rec.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("Cache-Control = %q; want no-store", rec.Header().Get("Cache-Control"))
+	}
+}
+
+func TestExtensionHandlers_FrameHandsOverLaunchCredential(t *testing.T) {
+	e := echo.New()
+	h := handlers.NewExtensionHandlers(`[{"id":"storage","title":"Storage","path":"/storage","uiToken":"s3cr3t-launch"}]`)
+	e.GET("/api/extensions/:id/frame", h.Frame)
+	e.GET("/api/extensions", h.List)
+
+	// The redirect carries the credential as the ui_token query parameter the
+	// extension accepts.
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/extensions/storage/frame", nil))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("frame = %d; want 302", rec.Code)
+	}
+	want := "/storage?ui_token=s3cr3t-launch"
+	if loc := rec.Header().Get("Location"); loc != want {
+		t.Errorf("Location = %q; want %q", loc, want)
+	}
+
+	// The catalog response must never carry it.
+	listRec := httptest.NewRecorder()
+	e.ServeHTTP(listRec, httptest.NewRequest(http.MethodGet, "/api/extensions", nil))
+	if body := listRec.Body.String(); strings.Contains(body, "s3cr3t-launch") || strings.Contains(body, "uiToken") {
+		t.Errorf("catalog leaked the launch credential: %s", body)
+	}
+	got := decodeExtensionList(t, listRec)
+	if len(got) != 1 || got[0].Path != "/storage" {
+		t.Errorf("catalog = %#v; want the one storage entry", got)
+	}
+}
+
+func TestExtensionHandlers_FrameUnknownIDIs404(t *testing.T) {
+	e := echo.New()
+	h := handlers.NewExtensionHandlers(`[{"id":"storage","title":"Storage","path":"/storage"}]`)
+	e.GET("/api/extensions/:id/frame", h.Frame)
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/extensions/nope/frame", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("frame for unknown id = %d; want 404", rec.Code)
 	}
 }
 
