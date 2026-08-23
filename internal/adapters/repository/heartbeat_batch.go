@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/uptrace/bun"
 
@@ -29,6 +30,12 @@ const latestBatchChunk = 500
 // that cannot prune without a time predicate, SHOW PROCESSLIST showed the
 // query stuck in "Sending data" for minutes and holding a pool connection each.
 const latestHeartbeatSelect = `SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM (SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM heartbeats WHERE monitor_id = ? ORDER BY time DESC, id DESC LIMIT 1) AS latest_hb`
+
+// latestImportantBeforeSelect is one leading Insights transition: the newest
+// important heartbeat strictly before the window. LIMIT 1 per monitor. The old
+// "ORDER BY time DESC then keep first in Go" form loaded every historical
+// important row for 69 monitors and is why /insights sat on skeleton for seconds.
+const latestImportantBeforeSelect = `SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM (SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM heartbeats WHERE monitor_id = ? AND important = TRUE AND time < ? ORDER BY time DESC, id DESC LIMIT 1) AS latest_imp`
 
 // latestHeartbeatsUnionSQL builds n GetLatest SELECTs glued with UNION ALL.
 func latestHeartbeatsUnionSQL(n int) string {
@@ -100,6 +107,90 @@ func LatestHeartbeatsForMonitors(
 
 		var models []HeartbeatModel
 		err := db.NewRaw(latestHeartbeatsUnionSQL(len(chunk)), args...).Scan(ctx, &models)
+		if err != nil {
+			return nil, err
+		}
+
+		for i := range models {
+			m := models[i]
+			out[m.MonitorID] = m.ToDomain()
+		}
+	}
+
+	return out, nil
+}
+
+// latestImportantBeforeUnionSQL builds n leading-transition SELECTs glued with
+// UNION ALL. Each arm has two placeholders: monitor_id, then the exclusive
+// before bound.
+func latestImportantBeforeUnionSQL(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	sep := " UNION ALL "
+	b.Grow(len(latestImportantBeforeSelect)*n + len(sep)*(n-1))
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			b.WriteString(sep)
+		}
+		b.WriteString(latestImportantBeforeSelect)
+	}
+	return b.String()
+}
+
+// LatestImportantBeforeForMonitors returns the newest important heartbeat
+// strictly before `before` for each monitor, in O(len(ids)/latestBatchChunk)
+// queries.
+//
+// Both adapters delegate here. The previous form selected every important row
+// before the bound and kept the first per monitor in Go — on 69 monitors with
+// days of 60s checks that scan is why /insights sat on skeleton for seconds
+// and, when the HTTP budget ran out first, why every row came back
+// insufficient_data (no Leading means the whole window is unknown).
+//
+// Each arm is LIMIT 1 on idx_hb_monitor_important_time. Monitors with no
+// important heartbeat before the bound are absent from the map.
+func LatestImportantBeforeForMonitors(
+	ctx context.Context,
+	db *bun.DB,
+	monitorIDs []int64,
+	before time.Time,
+) (map[int64]*domain.Heartbeat, error) {
+	out := make(map[int64]*domain.Heartbeat, len(monitorIDs))
+	if len(monitorIDs) == 0 {
+		return out, nil
+	}
+
+	bound := before.UTC()
+
+	seen := make(map[int64]bool, len(monitorIDs))
+	ids := make([]int64, 0, len(monitorIDs))
+	for _, id := range monitorIDs {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return out, nil
+	}
+
+	for start := 0; start < len(ids); start += latestBatchChunk {
+		end := start + latestBatchChunk
+		if end > len(ids) {
+			end = len(ids)
+		}
+		chunk := ids[start:end]
+
+		args := make([]any, 0, len(chunk)*2)
+		for _, id := range chunk {
+			args = append(args, id, bound)
+		}
+
+		var models []HeartbeatModel
+		err := db.NewRaw(latestImportantBeforeUnionSQL(len(chunk)), args...).Scan(ctx, &models)
 		if err != nil {
 			return nil, err
 		}

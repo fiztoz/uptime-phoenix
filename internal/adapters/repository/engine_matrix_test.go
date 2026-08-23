@@ -310,6 +310,79 @@ func runRepositoryContract(t *testing.T, factory repositoryFactory) {
 		}
 	})
 
+	// Insights leading state: newest important heartbeat strictly before the
+	// window. LIMIT 1 per monitor must ignore later non-important beats, ignore
+	// important beats at/after the bound, and break a same-second tie by id
+	// (MariaDB TIMESTAMP is second precision — same GetLatest contract).
+	t.Run("TestMariaDBRegression_LatestImportantBeforeTimestampTie", func(t *testing.T) {
+		repos := factory(t)
+		ctx := context.Background()
+		rel, ok := repos.heartbeats.(ports.ReliabilityReader)
+		if !ok {
+			t.Fatalf("heartbeat repository %T does not implement ports.ReliabilityReader", repos.heartbeats)
+		}
+		user := createUser(t, ctx, repos, "insights-leading-user")
+		stable := createMonitor(t, ctx, repos, user.ID, "Stable UP")
+		tied := createMonitor(t, ctx, repos, user.ID, "Tied important")
+		afterOnly := createMonitor(t, ctx, repos, user.ID, "After bound")
+		bare := createMonitor(t, ctx, repos, user.ID, "No heartbeats")
+
+		before := time.Now().UTC().Truncate(time.Second)
+		older := before.Add(-2 * time.Hour)
+		newer := before.Add(-time.Minute)
+		tie := before.Add(-30 * time.Second)
+
+		if err := repos.heartbeats.Save(ctx, &domain.Heartbeat{
+			MonitorID: stable.ID, Status: domain.StatusUp, Time: older, Important: true, Msg: "lead",
+		}); err != nil {
+			t.Fatalf("Save stable important: %v", err)
+		}
+		if err := repos.heartbeats.Save(ctx, &domain.Heartbeat{
+			MonitorID: stable.ID, Status: domain.StatusUp, Time: newer, Important: false, Msg: "noise",
+		}); err != nil {
+			t.Fatalf("Save stable non-important: %v", err)
+		}
+
+		for _, status := range []domain.Status{domain.StatusPending, domain.StatusDown} {
+			if err := repos.heartbeats.Save(ctx, &domain.Heartbeat{
+				MonitorID: tied.ID, Status: status, Time: tie, Important: true,
+			}); err != nil {
+				t.Fatalf("Save tied important %s: %v", status, err)
+			}
+		}
+
+		if err := repos.heartbeats.Save(ctx, &domain.Heartbeat{
+			MonitorID: afterOnly.ID, Status: domain.StatusUp, Time: before, Important: true,
+		}); err != nil {
+			t.Fatalf("Save after-bound heartbeat: %v", err)
+		}
+
+		got, err := rel.LatestImportantBeforeForMonitors(ctx, []int64{stable.ID, tied.ID, afterOnly.ID, bare.ID}, before)
+		if err != nil {
+			t.Fatalf("LatestImportantBeforeForMonitors: %v", err)
+		}
+		if got[stable.ID] == nil || got[stable.ID].Status != domain.StatusUp || !got[stable.ID].Important || got[stable.ID].Msg != "lead" {
+			t.Fatalf("stable leading = %+v; want the older important UP, not the later non-important beat", got[stable.ID])
+		}
+		if got[tied.ID] == nil || got[tied.ID].Status != domain.StatusDown {
+			t.Fatalf("tied leading = %v; want DOWN from the later row sharing the timestamp", got[tied.ID])
+		}
+		if _, present := got[afterOnly.ID]; present {
+			t.Fatalf("heartbeat at the bound must be excluded (time < before), got %v", got[afterOnly.ID])
+		}
+		if _, present := got[bare.ID]; present {
+			t.Fatalf("monitor with no heartbeats must be absent from the map, got %v", got[bare.ID])
+		}
+
+		empty, err := rel.LatestImportantBeforeForMonitors(ctx, nil, before)
+		if err != nil {
+			t.Fatalf("LatestImportantBeforeForMonitors(nil): %v", err)
+		}
+		if empty == nil || len(empty) != 0 {
+			t.Fatalf("LatestImportantBeforeForMonitors(nil) = %v; want empty non-nil map", empty)
+		}
+	})
+
 	t.Run("TestMariaDBRegression_GetByMonitorIDJoin", func(t *testing.T) {
 		repos := factory(t)
 		ctx := context.Background()

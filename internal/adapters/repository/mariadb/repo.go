@@ -501,27 +501,13 @@ func (r *HeartbeatRepo) ListImportantForMonitors(ctx context.Context, monitorIDs
 }
 
 // LatestImportantBeforeForMonitors returns one leading transition per requested
-// monitor. Ordering by monitor, time, and id lets the first row for each monitor
-// be selected deterministically on both database engines.
+// monitor. Delegated to the shared UNION ALL LIMIT 1 helper so MariaDB never
+// materializes every historical important row before the bound (see that
+// function). The `time DESC, id DESC` tie-break matches GetLatest.
 func (r *HeartbeatRepo) LatestImportantBeforeForMonitors(ctx context.Context, monitorIDs []int64, before time.Time) (map[int64]*domain.Heartbeat, error) {
-	out := make(map[int64]*domain.Heartbeat, len(monitorIDs))
-	if len(monitorIDs) == 0 {
-		return out, nil
-	}
-	var models []*repository.HeartbeatModel
-	err := r.db.NewSelect().Model(&models).
-		Where("monitor_id IN (?)", bun.List(monitorIDs)).
-		Where("important = ?", true).
-		Where("time < ?", before.UTC()).
-		OrderExpr("monitor_id ASC, time DESC, id DESC").
-		Scan(ctx)
+	out, err := repository.LatestImportantBeforeForMonitors(ctx, r.db, monitorIDs, before.UTC())
 	if err != nil {
 		return nil, translateError(err)
-	}
-	for _, model := range models {
-		if _, exists := out[model.MonitorID]; !exists {
-			out[model.MonitorID] = model.ToDomain()
-		}
 	}
 	return out, nil
 }

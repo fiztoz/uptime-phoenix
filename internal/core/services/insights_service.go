@@ -276,11 +276,19 @@ func (s *InsightsService) computeRow(
 	observedSeconds := observationSecondsFromRollups(hourly, daily, from, to, m.Interval)
 	observationCount := observationCountFromRollups(hourly, daily, from, to)
 	in := ReliabilityInput{
-		From:               from.UTC(),
-		To:                 to.UTC(),
-		Transitions:        transitions,
-		ObservationSeconds: &observedSeconds,
-		ObservationCount:   observationCount,
+		From:        from.UTC(),
+		To:          to.UTC(),
+		Transitions: transitions,
+	}
+	// Rollups cap timeline coverage when they actually observed the window.
+	// Passing &0 for an empty read model used to wipe KnownSeconds — a
+	// days-old UP monitor then ranked as insufficient_data because
+	// heartbeat_1h/1d had not been catch-up rolled yet, not because it was
+	// unobserved. nil means "no rollup data"; ComputeReliability then trusts
+	// the leading+transition timeline.
+	if observationCount > 0 {
+		in.ObservationSeconds = &observedSeconds
+		in.ObservationCount = observationCount
 	}
 	if lead != nil {
 		st := lead.Status

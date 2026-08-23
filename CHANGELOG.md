@@ -11,6 +11,16 @@ at the bottom.
 
 ## [Unreleased]
 
+### Fixed
+
+- Insights no longer sits on skeleton for several seconds, then ranks every
+  monitor as "No qualified data", after days of UP checks. The leading-
+  transition query is now `LIMIT 1` per monitor (migration `030` index
+  `(monitor_id, important, time, id)`) instead of loading the full important
+  history. Empty `heartbeat_1h`/`1d` rollups no longer wipe a complete
+  timeline. Startup catch-up fills 26h of 1m/1h and 90d of 1d so 24h latency
+  has buckets after a restart.
+
 ## [0.3.3] — 2026-08-22
 
 ### Added

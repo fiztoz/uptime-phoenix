@@ -105,6 +105,41 @@ func TestLatencyFromRollups_UsesPingCountNotTotalChecks(t *testing.T) {
 	}
 }
 
+func TestComputeRow_EmptyRollupsDoNotVetoLeadingTimeline(t *testing.T) {
+	svc := &InsightsService{}
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := from.Add(24 * time.Hour)
+	lead := &domain.Heartbeat{Status: domain.StatusUp, Time: from.Add(-time.Hour), Important: true}
+	row := svc.computeRow(
+		&domain.Monitor{ID: 1, Name: "stable", Type: "http", Interval: 60},
+		from, to, nil, lead, nil, nil,
+	)
+	if row.Qualification != QualificationQualified {
+		t.Fatalf("qualification = %s; want qualified (days of UP heartbeats, empty 1h/1d must not wipe the timeline)", row.Qualification)
+	}
+	if row.AvailabilityPercent == nil || *row.AvailabilityPercent != 100 {
+		t.Fatalf("availability = %v; want 100", row.AvailabilityPercent)
+	}
+}
+
+func TestComputeRow_RollupObservationsStillCapCoverage(t *testing.T) {
+	svc := &InsightsService{}
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	to := from.Add(24 * time.Hour)
+	lead := &domain.Heartbeat{Status: domain.StatusUp, Time: from.Add(-time.Hour), Important: true}
+	// One hour of checks in a 24h window is real observation — coverage must
+	// stay below MinCoverageToQualify rather than falling back to the timeline.
+	row := svc.computeRow(
+		&domain.Monitor{ID: 1, Name: "sparse", Type: "http", Interval: 60},
+		from, to, nil, lead,
+		[]*ports.Aggregate1h{{Bucket: from, TotalChecks: 60}},
+		nil,
+	)
+	if row.Qualification != QualificationInsufficient {
+		t.Fatalf("qualification = %s; want insufficient_data when rollups cover only 1/24 of the window", row.Qualification)
+	}
+}
+
 func TestObservationSecondsFromRollups_ClipsBoundary(t *testing.T) {
 	from := time.Date(2026, 1, 1, 0, 30, 0, 0, time.UTC)
 	to := from.Add(90 * time.Minute)
