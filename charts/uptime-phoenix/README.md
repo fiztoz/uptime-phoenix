@@ -86,7 +86,7 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 | `extensions[].envFromSecret` | string | `""` | Optional Secret; all keys injected as env |
 | `extensions[].database.secretName` | string | `""` | Optional Secret mounted as `DATABASE_DSN` (never Phoenix's `DB_DSN`) |
 | `extensions[].database.secretKey` | string | `dsn` | Key within `database.secretName` |
-| `extensions[].uiToken` | string | `""` | Optional. The extension's `UI_TOKEN`: Phoenix's gated `/api/extensions/:id/frame` redirect hands it to the browser as `ui_token=…`, letting the iframe open a token-guarded extension. Stored in the managed Secret (the catalogue is secret material once any token is set), never returned by `GET /api/extensions` |
+| `extensions[].uiToken` | string | `""` | Optional. Sets `UI_TOKEN` on the extension pod (via the managed Secret) and makes Phoenix's gated `/api/extensions/:id/frame` redirect hand it to the browser as `ui_token=…` — one value configures both sides. Never returned by `GET /api/extensions` |
 
 Env vars exposed to container: `DB_ENGINE`, `DB_DSN`, `JWT_SECRET` (auto-generated for Helm CLI, supplied by `secret.jwt`, or read from `secret.existingSecret`), `JWT_EXPIRE_HOURS`, `TOTP_ISSUER`, `HOST`, `PORT`, `LOG_LEVEL`, `PHOENIX_EXTENSIONS` (JSON catalogue of `{id,title,path}` plus any `uiToken`, sourced from the managed Secret), and optional `REDIS_URL`.
 
@@ -234,12 +234,15 @@ catalogue. Each item is a separate Deployment + ClusterIP Service + Ingress
 Phoenix gates the sidebar entries and the `GET /api/extensions` catalog behind the
 per-user **View extensions** capability (`Settings → Users → Access`; admins always
 see extensions). The iframe launches through `GET /api/extensions/:id/frame`
-(same gates), which redirects into the plugin path. For token-guarded plugins,
-set `extensions[].uiToken` to the plugin's `UI_TOKEN`: the redirect hands it over
-once as `ui_token=…`, and the plugin exchanges it for a session cookie. Note the
-boundary: the plugin's direct Ingress path is served by its own Deployment, not
-proxied through Phoenix, so a plugin that needs to stay private must enforce its
-own authentication (`UI_TOKEN` being exactly that).
+(same gates), which redirects into the plugin path.
+
+For token-guarded plugins set `extensions[].uiToken` once: the chart injects it as
+`UI_TOKEN` into the extension pod (via the managed Secret) **and** into Phoenix's
+catalogue, so the `/frame` redirect hands it over once as `ui_token=…` and the
+plugin exchanges it for a session cookie. Note the boundary: the plugin's direct
+Ingress path is served by its own Deployment, not proxied through Phoenix, so a
+plugin that needs to stay private must enforce its own authentication (`UI_TOKEN`
+being exactly that).
 
 The plugin **image is operator-supplied**. This chart does not ship plugin
 images, does not run `CREATE USER` / SQL, and does not mount Phoenix's `DB_DSN`.

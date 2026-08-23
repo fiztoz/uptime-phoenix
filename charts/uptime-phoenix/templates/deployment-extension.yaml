@@ -39,8 +39,18 @@ spec:
                 name: {{ .envFromSecret | quote }}
           {{- end }}
           {{- $db := .database | default dict }}
-          {{- if or $db.secretName .env }}
+          {{- if or $db.secretName .env .uiToken }}
           env:
+            {{- if .uiToken }}
+            # Single source of truth: extensions[].uiToken also lands in the
+            # Phoenix catalogue Secret (frame redirect hand-off). secretKeyRef
+            # keeps the value out of the pod spec / kubectl describe.
+            - name: UI_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phoenix.fullname" $ }}
+                  key: {{ printf "ext-%s-ui-token" .id }}
+            {{- end }}
             {{- if $db.secretName }}
             - name: DATABASE_DSN
               valueFrom:
