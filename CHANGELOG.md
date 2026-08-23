@@ -11,6 +11,8 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.3.4] — 2026-08-23
+
 ### Fixed
 
 - Insights no longer sits on skeleton for several seconds, then ranks every
@@ -20,6 +22,8 @@ at the bottom.
   history. Empty `heartbeat_1h`/`1d` rollups no longer wipe a complete
   timeline. Startup catch-up fills 26h of 1m/1h and 90d of 1d so 24h latency
   has buckets after a restart.
+- Extension sidebar icons loaded as `<img>` stay visible in dark mode
+  (`dark:invert`) instead of remaining black against the dark nav.
 
 ## [0.3.3] — 2026-08-22
 
