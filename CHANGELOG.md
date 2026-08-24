@@ -11,6 +11,25 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.3.6] — 2026-08-24
+
+### Fixed
+
+- Extension iframe launch no longer returns `401 {"error":"missing
+  authorization header"}`. The admin iframe loads
+  `/api/extensions/:id/frame`, which is gated by header auth — but an
+  `<iframe src>` navigation cannot carry the `Authorization: Bearer` header
+  (the session JWT lives in `localStorage` and is attached only by the SPA
+  fetch client). A scoped `phoenix_session` cookie (HttpOnly,
+  `Path=/api/extensions`, `SameSite=Lax`, Secure under TLS) is now issued by
+  the Bearer-authenticated `GET /api/extensions` catalog fetch, and the
+  `/frame` route accepts the Bearer header *or* that cookie. The documented
+  `ui_token` hand-off is unchanged: the redirect releases it once as
+  `?ui_token=…` for the extension to swap for its own session cookie, and the
+  token never appears in `GET /api/extensions`. The cookie is scoped to
+  `/api/extensions` so state-changing routes (`POST /api/monitors`, etc.)
+  never receive it — no CSRF surface is added.
+
 ## [0.3.5] — 2026-08-23
 
 ### Added
