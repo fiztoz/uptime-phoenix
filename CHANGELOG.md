@@ -9,7 +9,31 @@ The project's first ~4 weeks (2026-06-23 – 2026-06-30, pre conventional-commit
 summarized rather than itemized — see [Earlier foundation](#earlier-foundation-2026-06-23--2026-06-30)
 at the bottom.
 
-## [Unreleased]
+## [0.3.7] — 2026-08-24
+
+### Changed
+
+- Release workflow now supports a **selective, fast publish** via `workflow_dispatch`
+  checkboxes (`build_chart`/`build_split` default on; `build_all_in_one`/`build_binaries`
+  default off) gated by `publish=true`. Patch releases no longer have to rebuild every
+  image and binary. Dispatch-publish still requires the `v<version>` tag to already
+  exist, binds the build to that tag commit, and is gated by the `release` Environment
+  approval; tag-push remains a full release of all artifacts. See `docs/RELEASING.md`.
+
+### Fixed
+
+- Extension iframe launch still returned `401 {"error":"missing authorization
+  header"}` in v0.3.6 despite the session-cookie fix: `IssueSessionCookieOnBearer`
+  wrote the scoped `phoenix_session` cookie *after* the catalog handler had
+  already written its JSON body, which commits the response headers. On a real
+  `http.ResponseWriter` the header block flushes on that first write, so the
+  late `Set-Cookie` was silently dropped and never reached the browser — the
+  iframe navigation then arrived with no cookie and no `Authorization` header.
+  The cookie is now written on a `Response.Before` hook so it lands in the
+  header block just before it flushes. The v0.3.6 unit test passed only because
+  `httptest.ResponseRecorder` keeps its header map readable after the write; a
+  new real-server (`httptest.NewServer`) regression test now asserts the cookie
+  on the actual wire.
 
 ## [0.3.6] — 2026-08-24
 
