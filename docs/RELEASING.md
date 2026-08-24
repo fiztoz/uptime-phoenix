@@ -2,9 +2,10 @@
 
 > **CI is restored (owner, 2026-07-28).** `.github/workflows/ci.yml` gates PRs and
 > `main`. Release automation lives in `.github/workflows/release.yml`: every run
-> **dry-runs** first; **publish** only happens on a `v*` tag push (see below).
-> The local script `./scripts/release/dry-run.sh` remains the offline equivalent
-> and **never publishes**.
+> **dry-runs** first; **publish** happens on a `v*` tag push (full release) or a
+> `workflow_dispatch` run with `publish=true` against an existing tag (selective
+> release — see below). The local script `./scripts/release/dry-run.sh` remains the
+> offline equivalent and **never publishes**.
 
 This document describes how Uptime Phoenix prepares release artifacts and how optional
 publish to GHCR / Helm OCI / GitHub Releases is owner-gated. `LICENSE` (MIT) is
@@ -15,13 +16,18 @@ present at the repo root.
 1. **No publish from dry-run.** The dry-run script and the `dry-run` job never push
    images, never push Helm charts, never create git tags, and never open a GitHub
    Release.
-2. **Publish is tag-push only.** Only a push of an existing `v*` tag may publish.
-   `workflow_dispatch` is **dry-run only** (there is no `publish=true` input).
-   Publish also requires approval on the GitHub Environment named `release`
-   (configure required reviewers in repo settings).
-3. **Publish is bound to the tag commit.** Both dry-run (on tag push) and publish
-   check out `refs/tags/v<version>` and assert `HEAD == tag^{commit}` before any
-   build or push. Branch code cannot be published under a different tag.
+2. **Publish requires an existing tag + approval.** Publish happens on a `v*` tag
+   push (full release), **or** a `workflow_dispatch` run with `publish=true` — but
+   dispatch-publish only proceeds when the git tag `v<version>` **already exists**
+   and is checked out (see rule 3). Publish always requires approval on the GitHub
+   Environment named `release` (configure required reviewers in repo settings).
+   Dispatch-publish lets you build only the artifacts you tick (default: chart +
+   split images) so a patch release does not rebuild every image and binary.
+3. **Publish is bound to the tag commit.** On any publish path (tag-push or
+   dispatch `publish=true`), both the dry-run and publish jobs check out
+   `refs/tags/v<version>` and assert `HEAD == tag^{commit}` before any build or
+   push. Branch code cannot be published under a different tag, and a
+   dispatch-publish can never publish an arbitrary branch head.
 4. **This workflow never creates git tags.** The owner creates and pushes tags by
    hand (`git tag` + `git push origin v…`).
 5. **Version strings are validated.** SemVer-compatible `X.Y.Z` or
@@ -73,8 +79,9 @@ Workflow file: [`.github/workflows/release.yml`](../.github/workflows/release.ym
 
 | Trigger | Behaviour |
 |---|---|
-| `workflow_dispatch` | **Dry-run only.** Inputs: `version` (required), `skip_docker` (default `false`). Never publishes. |
-| `push` of tags matching `v*` | Dry-run bound to that tag commit, then **publish** (after Environment approval). |
+| `workflow_dispatch` (`publish=false`, default) | **Dry-run only.** Inputs: `version` (required), `skip_docker`. Never publishes. |
+| `workflow_dispatch` (`publish=true`) | **Selective publish** of the ticked artifacts (`build_chart`/`build_split` default on; `build_all_in_one`/`build_binaries` default off). Requires the `v<version>` tag to already exist + Environment approval. Bound to the tag commit. |
+| `push` of tags matching `v*` | Dry-run bound to that tag commit, then **publish all artifacts** (after Environment approval). |
 
 ### Dry-run job
 
@@ -96,8 +103,8 @@ SHAs (see comments next to each `uses:` line).
 
 ### How to trigger a dry-run only
 
-**GitHub UI:** Actions → **Release** → Run workflow → set `version`. Optionally
-set `skip_docker` for a faster binary/helm-only run.
+**GitHub UI:** Actions → **Release** → Run workflow → set `version`, leave
+`publish` unticked. Optionally set `skip_docker` for a faster binary/helm-only run.
 
 **CLI:**
 
@@ -109,30 +116,63 @@ gh workflow run release.yml -f version=0.0.0-snapshot.2 -f skip_docker=true
 
 Download the artifact from the run summary when it finishes.
 
-### Publish job (tag-push only, owner-gated)
+### How to trigger a selective (fast) publish
+
+Use this for patch releases where you do not want to rebuild every image and
+binary. The tag must already exist (create + push it by hand first).
+
+**GitHub UI:** Actions → **Release** → Run workflow → set `version`, tick
+`publish`, and tick only the artifacts you want (defaults: `build_chart` +
+`build_split` on; `build_all_in_one` + `build_binaries` off). Approve the
+`release` Environment when prompted.
+
+**CLI:**
+
+```bash
+# Owner has already pushed the tag: git tag v0.3.7 && git push origin v0.3.7
+# Chart + split images only (the defaults):
+gh workflow run release.yml -f version=0.3.7 -f publish=true
+
+# Everything (equivalent to a tag-push full release):
+gh workflow run release.yml -f version=0.3.7 -f publish=true \
+  -f build_all_in_one=true -f build_binaries=true
+
+# Chart only (e.g. a values/template-only fix):
+gh workflow run release.yml -f version=0.3.7 -f publish=true -f build_split=false
+```
+
+### Publish job (owner-gated)
 
 Runs only when:
 
-1. The event is a `v*` **tag push**, **and**
+1. The resolved `publish` flag is `1` — a `v*` **tag push**, or a
+   `workflow_dispatch` run with `publish=true`, **and**
 2. Dry-run succeeded, **and**
 3. The GitHub Environment **`release`** is approved (configure **required
    reviewers** on that environment in Settings → Environments), **and**
 4. Checkout is forced to `refs/tags/v<version>` with
-   `HEAD == $(git rev-list -n1 v<version>)` (fails closed otherwise).
+   `HEAD == $(git rev-list -n1 v<version>)` (fails closed if the tag is missing
+   or does not match — this is what makes a dispatch-publish safe).
 
-Publish steps:
+Each publish step is gated by its artifact flag, so an unticked artifact skips its
+build, login, and sign steps entirely:
 
-1. Log in to GHCR with `GITHUB_TOKEN`.
+1. Log in to GHCR with `GITHUB_TOKEN` (only when an image is selected).
 2. Multi-arch (`linux/amd64,linux/arm64`) buildx **push** from the **tag tree**:
-   - `ghcr.io/<owner>/uptime-phoenix:<version>` and `:latest` (all-in-one `Dockerfile`)
-   - `ghcr.io/<owner>/uptime-phoenix-{api,worker,web}:<version>` and `:latest` (`Dockerfile.split`)
+   - `ghcr.io/<owner>/uptime-phoenix:<version>` and `:latest` (all-in-one
+     `Dockerfile`) — only when `build_all_in_one` is ticked.
+   - `ghcr.io/<owner>/uptime-phoenix-{api,worker,web}:<version>` and `:latest`
+     (`Dockerfile.split`) — only when `build_split` is ticked.
    - `<owner>` is `github.repository_owner` lowercased (chart defaults use
      `ghcr.io/fiztoz/...`; forks publish under their own namespace).
-3. **Cosign keyless sign** each image digest (Sigstore OIDC via `id-token: write`).
-   Normal `docker pull` is unchanged — verification is optional for consumers.
-4. `helm push` the dry-run chart package to `oci://ghcr.io/<owner>/charts`.
-5. Create/update a GitHub Release for tag `v<version>`, attaching binaries,
-   `SHA256SUMS`, chart `.tgz`, and `INVENTORY.md` from the dry-run artifact.
+3. **Cosign keyless sign** each pushed image digest (Sigstore OIDC via
+   `id-token: write`). Normal `docker pull` is unchanged.
+4. `helm push` the chart package to `oci://ghcr.io/<owner>/charts` — only when
+   `build_chart` is ticked.
+5. Create/update a GitHub Release for tag `v<version>`, attaching the selected
+   artifacts (chart `.tgz` when `build_chart`; binaries + `SHA256SUMS` when
+   `build_binaries`) and always `INVENTORY.md`. Unselected artifact directories are
+   pruned before the release step, so their globs simply match nothing.
 
 ### Optional: verify a published image (cosign)
 
@@ -162,10 +202,10 @@ git push origin v0.1.0
 # Tag push triggers dry-run + publish (after Environment approval).
 ```
 
-There is **no** dispatch-based publish path. To re-publish the same version after a
-failed run, delete the failed GitHub Release (if any) and re-run the failed jobs
-from the Actions UI on the original tag-push workflow run, or move the tag only
-with extreme care (prefer a new patch version).
+To re-publish the same version after a failed run, re-run the failed jobs from the
+Actions UI on the original run, or trigger a fresh `workflow_dispatch` with
+`publish=true` against the same existing tag (move the tag only with extreme care —
+prefer a new patch version).
 
 No secrets beyond `GITHUB_TOKEN` are required for public GHCR packages in the same
 repo. The workflow never force-pushes and never commits to `main`.
@@ -177,8 +217,9 @@ Create a GitHub Environment named **`release`** and enable:
 - Required reviewers (owner or trusted maintainers)
 - Optional: limit deployment branches/tags if your plan supports it
 
-Even though dispatch cannot publish, Environment approval still gates every tag-push
-publish. Protect the environment before the first real release.
+Environment approval gates **every** publish, whether triggered by a tag push or a
+`workflow_dispatch` with `publish=true`. Protect the environment before the first
+real release.
 
 ## Artifact inventory
 
@@ -246,7 +287,7 @@ Do **not** promote dry-run artifacts to a public release until every item is cle
 | GitHub Releases + checksum attach | User | Workflow attaches dry-run binaries/chart |
 | Image / binary names aligned with repo (`uptime-phoenix*`) | Owner | **Done — 2026-08** (GHCR + release artifacts) |
 | Provenance / cosign signing policy | Owner | **Done — 2026-08** (keyless cosign on publish; verify optional for users) |
-| Tag-bound publish + no dispatch publish | Owner | **Done — 2026-08** (see Hard rules) |
+| Tag-bound publish (tag-push + dispatch bound to existing tag) | Owner | **Done — 2026-08** (see Hard rules) |
 | Version via env + SemVer regex | Owner | **Done — 2026-08** |
 | Pinned Actions (release.yml) + pinned Bun | Owner | **Done — 2026-08** (full digests for images still open) |
 | No curl\|sh from `main` (syft / actionlint) | Owner | **Done — 2026-08** (versioned + SHA-256) |

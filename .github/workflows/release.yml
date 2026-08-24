@@ -1,13 +1,19 @@
 # Uptime Phoenix release — dry-run always, publish only from tag-push (bound to that tag).
 #
 # Triggers:
-#   - workflow_dispatch: dry-run only (never publishes). Safe for snapshot versions.
-#   - push of tags matching v*: dry-run then publish for that tag commit only.
+#   - workflow_dispatch: dry-run by default; may publish the SELECTED artifacts
+#     when publish=true AND the git tag v<version> already exists. This is the
+#     checkbox UI for fast patch releases (e.g. chart + split images only,
+#     skipping the all-in-one image and binaries you will never deploy).
+#   - push of tags matching v*: dry-run then publish ALL artifacts for that tag
+#     (the full-release path, unchanged).
 #
 # Integrity rules:
-#   - workflow_dispatch cannot publish (removed publish=true path).
-#   - Publish checks out refs/tags/v<version> and asserts HEAD == tag^{commit}
-#     before any privileged build/push.
+#   - Publish (either trigger) checks out refs/tags/v<version> and asserts
+#     HEAD == tag^{commit} before any privileged build/push, so a
+#     dispatch-publish is bound to the tagged commit, never an arbitrary branch
+#     head. This workflow never creates tags — the maintainer pushes v<version>
+#     by hand first.
 #   - Version strings are validated (SemVer-compatible) via env, never raw
 #     expression interpolation into shell.
 #   - External tools (syft) are installed from a versioned release with SHA-256
@@ -28,6 +34,31 @@ on:
         description: "Version string without leading v (e.g. 0.1.0 or 0.0.0-snapshot.2)"
         required: true
         type: string
+      publish:
+        description: "Publish the selected artifacts (needs an existing v<version> tag + release approval). Off = dry-run only."
+        required: false
+        type: boolean
+        default: false
+      build_chart:
+        description: "Chart: build/publish the Helm chart"
+        required: false
+        type: boolean
+        default: true
+      build_split:
+        description: "Split images: build/publish api, worker, web"
+        required: false
+        type: boolean
+        default: true
+      build_all_in_one:
+        description: "All-in-one image: build/publish the single combined image"
+        required: false
+        type: boolean
+        default: false
+      build_binaries:
+        description: "Binaries: attach cross-compiled binaries to the GitHub Release"
+        required: false
+        type: boolean
+        default: false
       skip_docker:
         description: "Skip Docker image builds in dry-run (faster debug)"
         required: false
@@ -64,6 +95,11 @@ jobs:
       image_owner: ${{ steps.meta.outputs.image_owner }}
       skip_docker: ${{ steps.meta.outputs.skip_docker }}
       tag_name: ${{ steps.meta.outputs.tag_name }}
+      publish: ${{ steps.meta.outputs.publish }}
+      build_aio: ${{ steps.meta.outputs.build_aio }}
+      build_split: ${{ steps.meta.outputs.build_split }}
+      build_chart: ${{ steps.meta.outputs.build_chart }}
+      build_binaries: ${{ steps.meta.outputs.build_binaries }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -78,31 +114,60 @@ jobs:
           # Pass dispatch inputs only via env (never ${{ inputs.* }} inside run scripts).
           RAW_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
           SKIP_DOCKER_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_docker || false }}
+          PUBLISH_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.publish || false }}
+          BUILD_CHART_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.build_chart || false }}
+          BUILD_SPLIT_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.build_split || false }}
+          BUILD_AIO_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.build_all_in_one || false }}
+          BUILD_BINARIES_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.build_binaries || false }}
           REPO_OWNER: ${{ github.repository_owner }}
           VERSION_REGEX: ${{ env.VERSION_REGEX }}
         run: |
           set -euo pipefail
           owner="$(printf '%s' "${REPO_OWNER}" | tr '[:upper:]' '[:lower:]')"
 
+          to01() { if [ "$1" = "true" ]; then echo 1; else echo 0; fi; }
+
           if [ "${EVENT_NAME}" = "push" ]; then
+            # Tag-push = full release: build and publish every artifact.
             raw="${REF_NAME}"
             version="${raw#v}"
             tag_name="v${version}"
+            publish=1
+            build_aio=1
+            build_split=1
+            build_chart=1
+            build_binaries=1
             skip_docker=0
-            echo "tag_push: version=${version} tag=${tag_name} (publish after dry-run if Environment approves)"
+            echo "tag_push: full release version=${version} tag=${tag_name} (publish after dry-run if Environment approves)"
           else
             version="${RAW_VERSION#v}"
-            tag_name=""
             if [ -z "${version}" ]; then
               echo "version input is empty" >&2
               exit 2
             fi
-            if [ "${SKIP_DOCKER_INPUT}" = "true" ]; then
+            publish="$(to01 "${PUBLISH_INPUT}")"
+            build_aio="$(to01 "${BUILD_AIO_INPUT}")"
+            build_split="$(to01 "${BUILD_SPLIT_INPUT}")"
+            build_chart="$(to01 "${BUILD_CHART_INPUT}")"
+            build_binaries="$(to01 "${BUILD_BINARIES_INPUT}")"
+            # Dry-run can skip local image builds when no image artifact is
+            # selected (or when the debug toggle is set) — the real multi-arch
+            # push happens in the publish job.
+            if [ "${SKIP_DOCKER_INPUT}" = "true" ] || { [ "${build_aio}" = "0" ] && [ "${build_split}" = "0" ]; }; then
               skip_docker=1
             else
               skip_docker=0
             fi
-            echo "dispatch: version=${version} skip_docker=${skip_docker} (dry-run only; never publishes)"
+            if [ "${publish}" = "1" ]; then
+              tag_name="v${version}"
+              if [ "${build_aio}${build_split}${build_chart}${build_binaries}" = "0000" ]; then
+                echo "ERROR: publish=true but no artifact selected (tick at least one of chart / split / all-in-one / binaries)." >&2
+                exit 2
+              fi
+            else
+              tag_name=""
+            fi
+            echo "dispatch: version=${version} publish=${publish} aio=${build_aio} split=${build_split} chart=${build_chart} binaries=${build_binaries} skip_docker=${skip_docker}"
           fi
 
           if ! printf '%s' "${version}" | grep -Eq "${VERSION_REGEX}"; then
@@ -115,15 +180,30 @@ jobs:
             echo "version=${version}"
             echo "skip_docker=${skip_docker}"
             echo "tag_name=${tag_name}"
+            echo "publish=${publish}"
+            echo "build_aio=${build_aio}"
+            echo "build_split=${build_split}"
+            echo "build_chart=${build_chart}"
+            echo "build_binaries=${build_binaries}"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Bind checkout to release tag (tag-push only)
-        if: github.event_name == 'push'
+      - name: Bind checkout to release tag (publish only)
+        # Any publish path (tag-push OR dispatch publish=true) must build the
+        # exact tagged commit, so the artifacts attached to the release match
+        # the tag. Pure dry-run (publish=0) keeps the dispatched branch head.
+        if: steps.meta.outputs.publish == '1'
         env:
           TAG_NAME: ${{ steps.meta.outputs.tag_name }}
         run: |
           set -euo pipefail
-          git fetch --force origin "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}"
+          if ! git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
+            git fetch --force origin "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}" || true
+          fi
+          if ! git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
+            echo "ERROR: publish requires an existing git tag '${TAG_NAME}'." >&2
+            echo "Push the tag by hand first (this workflow never creates tags)." >&2
+            exit 1
+          fi
           git checkout --force "refs/tags/${TAG_NAME}"
           tag_commit="$(git rev-list -n1 "refs/tags/${TAG_NAME}")"
           head_commit="$(git rev-parse HEAD)"
@@ -197,10 +277,11 @@ jobs:
 
   publish:
     name: publish
-    # Only tag-push events may publish. Dispatch is dry-run only.
+    # Publishes when publish==1: tag-push (full release) OR a dispatch run with
+    # publish=true and an existing v<version> tag (selective fast release).
     # Environment "release" should require reviewers in repo settings.
     needs: dry-run
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: needs.dry-run.outputs.publish == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     environment: release
@@ -212,6 +293,10 @@ jobs:
       VERSION: ${{ needs.dry-run.outputs.version }}
       IMAGE_OWNER: ${{ needs.dry-run.outputs.image_owner }}
       TAG_NAME: ${{ needs.dry-run.outputs.tag_name }}
+      BUILD_AIO: ${{ needs.dry-run.outputs.build_aio }}
+      BUILD_SPLIT: ${{ needs.dry-run.outputs.build_split }}
+      BUILD_CHART: ${{ needs.dry-run.outputs.build_chart }}
+      BUILD_BINARIES: ${{ needs.dry-run.outputs.build_binaries }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -273,12 +358,15 @@ jobs:
           version: v3.16.4
 
       - name: Set up QEMU
+        if: env.BUILD_AIO == '1' || env.BUILD_SPLIT == '1'
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
       - name: Set up Docker Buildx
+        if: env.BUILD_AIO == '1' || env.BUILD_SPLIT == '1'
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Log in to GHCR (docker)
+        if: env.BUILD_AIO == '1' || env.BUILD_SPLIT == '1'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
@@ -286,6 +374,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to GHCR (helm OCI)
+        if: env.BUILD_CHART == '1'
         env:
           HELM_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
@@ -295,6 +384,7 @@ jobs:
             -u "${ACTOR}" --password-stdin
 
       - name: Build frontend for Docker prebuilt
+        if: env.BUILD_AIO == '1' || env.BUILD_SPLIT == '1'
         run: |
           set -euo pipefail
           # Subshell keeps cwd at repo root so the web/dist check below is valid
@@ -311,10 +401,12 @@ jobs:
       # Keyless Sigstore signing (OIDC). Does not change docker pull for users who
       # skip verification — only adds optional cosign verify for those who want it.
       - name: Install cosign
+        if: env.BUILD_AIO == '1' || env.BUILD_SPLIT == '1'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Push multi-arch all-in-one image
         id: push_aio
+        if: env.BUILD_AIO == '1'
         env:
           VERSION: ${{ env.VERSION }}
           IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
@@ -337,6 +429,7 @@ jobs:
           echo "Pushed ${IMAGE}@${digest}"
 
       - name: Sign all-in-one image (keyless)
+        if: env.BUILD_AIO == '1'
         env:
           IMAGE: ${{ steps.push_aio.outputs.image }}
           DIGEST: ${{ steps.push_aio.outputs.digest }}
@@ -345,6 +438,7 @@ jobs:
           cosign sign --yes "${IMAGE}@${DIGEST}"
 
       - name: Push and sign multi-arch split images (api, worker, web)
+        if: env.BUILD_SPLIT == '1'
         env:
           VERSION: ${{ env.VERSION }}
           IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
@@ -370,6 +464,7 @@ jobs:
           done
 
       - name: Package and push Helm chart to OCI
+        if: env.BUILD_CHART == '1'
         env:
           VERSION: ${{ env.VERSION }}
           IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
@@ -419,6 +514,27 @@ jobs:
           if ! helm push "${CHART_TGZ}" "oci://ghcr.io/${IMAGE_OWNER}/charts"; then
             echo "WARN: helm OCI push failed — images and GitHub Release will still proceed." >&2
             echo "Inspect chart tgz attached to the GitHub Release." >&2
+          fi
+
+      - name: Select release assets
+        # Only attach the artifact groups that were selected. INVENTORY.md is
+        # always attached; unselected globs match nothing (tolerated below by
+        # fail_on_unmatched_files: false).
+        env:
+          VERSION: ${{ env.VERSION }}
+          BUILD_BINARIES: ${{ env.BUILD_BINARIES }}
+          BUILD_CHART: ${{ env.BUILD_CHART }}
+        run: |
+          set -euo pipefail
+          rel="dist/release-${VERSION}"
+          mkdir -p "${rel}"
+          if [ "${BUILD_BINARIES}" != "1" ]; then
+            rm -rf "${rel}/binaries"
+            echo "binaries not selected — omitting from GitHub Release"
+          fi
+          if [ "${BUILD_CHART}" != "1" ]; then
+            rm -rf "${rel}/charts"
+            echo "chart not selected — omitting from GitHub Release"
           fi
 
       - name: Create GitHub Release
