@@ -132,20 +132,33 @@ func BearerOrSessionCookie(authSvc *services.AuthService) echo.MiddlewareFunc {
 }
 
 // IssueSessionCookieOnBearer sets the phoenix_session cookie (see
-// SetSessionCookie) after a successful Bearer-authenticated response, so a
+// SetSessionCookie) on a successful Bearer-authenticated catalog response, so a
 // subsequent <iframe src=/api/extensions/:id/frame> navigation can reach the
 // gated launch redirect. Apply after AuthMiddleware on the catalog list
 // route; it reads the Bearer token from the request header and only writes
 // the cookie when the handler succeeded (2xx). An iframe navigation cannot
 // carry the Authorization header, so this cookie is the launch transport.
+//
+// The cookie MUST be written on a Response.Before hook, not after next(c)
+// returns. The catalog handler writes its JSON body inside next(c), and on a
+// real http.ResponseWriter the header block flushes on that first write — a
+// SetCookie call made afterwards is silently dropped and never reaches the
+// browser. The Before hook runs inside Response.WriteHeader, after the status
+// is assigned but before the headers flush, so the Set-Cookie lands on the
+// wire. (An httptest.ResponseRecorder keeps its header map readable after the
+// write, so a recorder-based test would see the cookie even though a browser
+// never would — assert this against a real server.)
 func IssueSessionCookieOnBearer(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		token := BearerToken(c.Request())
-		err := next(c)
-		if token != "" && err == nil && c.Response().Status < http.StatusBadRequest {
-			SetSessionCookie(c, token)
+		if token != "" {
+			c.Response().Before(func() {
+				if c.Response().Status < http.StatusBadRequest {
+					SetSessionCookie(c, token)
+				}
+			})
 		}
-		return err
+		return next(c)
 	}
 }
 

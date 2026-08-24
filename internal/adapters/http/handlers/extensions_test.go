@@ -201,6 +201,87 @@ func TestExtensionFrame_NavigationWithoutCredentialIsRejected(t *testing.T) {
 	}
 }
 
+// TestExtensionCatalog_IssuesCookieOverRealServer pins the launch cookie to
+// the actual wire, not to an httptest.ResponseRecorder. The catalog handler
+// writes its JSON body inside the request, which commits the response headers;
+// a Set-Cookie written after that first flush is silently dropped on a real
+// http.ResponseWriter and never reaches the browser (the production symptom:
+// v0.3.6 deployed, health OK, yet no phoenix_session cookie and the iframe
+// gets 401). A ResponseRecorder keeps its header map readable after the write,
+// so it would mask this regression — hence a real httptest.NewServer here.
+func TestExtensionCatalog_IssuesCookieOverRealServer(t *testing.T) {
+	ctx := context.Background()
+	users := memory.NewUserRepo()
+	apiKeys := memory.NewAPIKeyRepo()
+	perms := memory.NewUserPermissionRepo()
+	authenticator := auth.NewJWTAuthenticator("extension-realserver-key", 24, users)
+	authSvc := services.NewAuthService(users, apiKeys, authenticator, auth.NewTOTPProvider("Phoenix"))
+	accessSvc := services.NewAccessService(users, perms, nil, nil)
+
+	if _, err := authSvc.CreateUser(ctx, "realserver-admin", "password123", true, true, "UTC", services.UserCapabilities{}); err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+	token, err := authSvc.Login(ctx, "realserver-admin", "password123")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	e := echo.New()
+	catalog := handlers.NewExtensionHandlers(`[{"id":"storage","title":"Storage","path":"/storage","uiToken":"launch-secret"}]`)
+	e.GET(
+		"/api/extensions",
+		catalog.List,
+		middleware.AuthMiddleware(authSvc),
+		middleware.IssueSessionCookieOnBearer,
+		middleware.RequireCapability(accessSvc, middleware.CapViewExtensions),
+	)
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	// Authorized fetch must land the cookie on the actual wire.
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/api/extensions", nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set(echo.HeaderAuthorization, "Bearer "+token)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/extensions = %d; want 200", resp.StatusCode)
+	}
+	var found *http.Cookie
+	for _, ck := range resp.Cookies() {
+		if ck.Name == middleware.SessionCookieName {
+			found = ck
+		}
+	}
+	if found == nil {
+		t.Fatalf("authorized catalog fetch set no %s cookie on the wire (Set-Cookie: %q)",
+			middleware.SessionCookieName, resp.Header.Get("Set-Cookie"))
+	}
+	if found.Value != token {
+		t.Errorf("cookie value = %q; want the session token", found.Value)
+	}
+	if found.Path != "/api/extensions" || !found.HttpOnly {
+		t.Errorf("cookie = %+v; want Path=/api/extensions, HttpOnly", found)
+	}
+
+	// An unauthenticated fetch (no Bearer) must set no cookie.
+	anonResp, err := srv.Client().Get(srv.URL + "/api/extensions")
+	if err != nil {
+		t.Fatalf("anon request: %v", err)
+	}
+	defer anonResp.Body.Close()
+	for _, ck := range anonResp.Cookies() {
+		if ck.Name == middleware.SessionCookieName {
+			t.Errorf("unauthenticated catalog fetch leaked a %s cookie", middleware.SessionCookieName)
+		}
+	}
+}
+
 func TestExtensionHandlers_FrameRedirectsIntoExtensionPath(t *testing.T) {
 	e := echo.New()
 	h := handlers.NewExtensionHandlers(`[{"id":"storage","title":"Storage","path":"/storage"}]`)
