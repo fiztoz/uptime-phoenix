@@ -181,6 +181,16 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         section: "success",
       },
       {
+        key: "keyword_regex",
+        label: "Keyword (regex)",
+        type: "text",
+        placeholder: "kafka_server.*consumerlag.*\\s([0-9]+)$",
+        help:
+          'Regular expression tested per line (like grep). Use to validate Prometheus /metrics values. Example: match lines where lag ≤ 100 — `kafka_server.*consumerlag.* ([0-9]|[1-9][0-9]|100)(\\.\\d+)?$`',
+        section: "success",
+        monospace: true,
+      },
+      {
         key: "headers",
         label: "Headers",
         type: "textarea",

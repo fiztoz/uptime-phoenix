@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -45,6 +46,11 @@ func (HTTPChecker) Validate(config map[string]any) error {
 	}
 	if err := validateJSONAssertion(config); err != nil {
 		return err
+	}
+	if pattern, ok := config["keyword_regex"].(string); ok && pattern != "" {
+		if _, err := regexp.Compile(pattern); err != nil {
+			return fmt.Errorf("keyword_regex is not a valid regular expression: %w", err)
+		}
 	}
 	return nil
 }
@@ -550,6 +556,26 @@ func (HTTPChecker) Check(ctx context.Context, config map[string]any) (ports.Chec
 	if keyword, ok := config["keyword"].(string); ok && keyword != "" {
 		if !strings.Contains(bodyStr, keyword) {
 			return finish(domain.StatusDown, fmt.Sprintf("keyword %q not found in response body", keyword)), nil
+		}
+	}
+
+	// Check keyword regex against body. The pattern is tested against each
+	// line individually (like grep -E), so Prometheus /metrics endpoints can
+	// be validated per-metric-line.
+	if pattern, ok := config["keyword_regex"].(string); ok && pattern != "" {
+		rx, err := regexp.Compile(pattern)
+		if err != nil {
+			return finish(domain.StatusDown, fmt.Sprintf("invalid keyword_regex: %v", err)), nil
+		}
+		matched := false
+		for _, line := range strings.Split(bodyStr, "\n") {
+			if rx.MatchString(line) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return finish(domain.StatusDown, fmt.Sprintf("keyword_regex %q matched no line in response body", pattern)), nil
 		}
 	}
 

@@ -211,6 +211,69 @@ func TestHTTPChecker_Check_KeywordNotFound(t *testing.T) {
 	}
 }
 
+func TestHTTPChecker_Check_KeywordRegex(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("kafka_server_fetcherlagmetrics_consumerlag{topic=\"orders\"} 42\n"))
+	}))
+	defer srv.Close()
+
+	c := HTTPChecker{}
+	result, err := c.Check(context.Background(), map[string]any{
+		"url":           srv.URL,
+		"keyword_regex": `kafka_server.*consumerlag.*\s([0-9]+)$`,
+		"timeout":       5.0,
+	})
+	if err != nil {
+		t.Errorf("Check() returned unexpected error: %v", err)
+	}
+	if result.Status.String() != "UP" {
+		t.Errorf("Check() status = %v, want UP (message: %s)", result.Status, result.Message)
+	}
+}
+
+func TestHTTPChecker_Check_KeywordRegexNoMatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("kafka_server_fetcherlagmetrics_consumerlag{topic=\"orders\"} 99999\n"))
+	}))
+	defer srv.Close()
+
+	c := HTTPChecker{}
+	// This regex asserts the lag number is at most 3 digits (0-999).
+	result, err := c.Check(context.Background(), map[string]any{
+		"url":           srv.URL,
+		"keyword_regex": `kafka_server.*consumerlag.*\s([0-9]{1,3})$`,
+		"timeout":       5.0,
+	})
+	if err != nil {
+		t.Errorf("Check() returned unexpected error: %v", err)
+	}
+	if result.Status.String() != "DOWN" {
+		t.Errorf("Check() status = %v, want DOWN (message: %s)", result.Status, result.Message)
+	}
+}
+
+func TestHTTPChecker_Check_KeywordRegexInvalid(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := HTTPChecker{}
+	result, err := c.Check(context.Background(), map[string]any{
+		"url":           srv.URL,
+		"keyword_regex": `[invalid`,
+		"timeout":       5.0,
+	})
+	if err != nil {
+		t.Errorf("Check() returned unexpected error: %v", err)
+	}
+	if result.Status.String() != "DOWN" {
+		t.Errorf("Check() status = %v, want DOWN (message: %s)", result.Status, result.Message)
+	}
+}
+
 func TestHTTPChecker_Check_JSONQuery(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
