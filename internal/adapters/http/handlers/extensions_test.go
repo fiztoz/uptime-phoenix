@@ -70,16 +70,18 @@ func TestExtensionCatalog_RequiresViewExtensionsCapability(t *testing.T) {
 	}
 
 	e := echo.New()
+	catalog := handlers.NewExtensionHandlers(`[{"id":"storage","title":"Storage","path":"/storage","uiToken":"launch-secret"}]`)
 	e.GET(
 		"/api/extensions",
-		handlers.NewExtensionHandlers(`[{"id":"storage","title":"Storage","path":"/storage"}]`).List,
+		catalog.List,
 		middleware.AuthMiddleware(authSvc),
+		middleware.IssueSessionCookieOnBearer,
 		middleware.RequireCapability(accessSvc, middleware.CapViewExtensions),
 	)
 	e.GET(
 		"/api/extensions/:id/frame",
-		handlers.NewExtensionHandlers(`[{"id":"storage","title":"Storage","path":"/storage"}]`).Frame,
-		middleware.AuthMiddleware(authSvc),
+		catalog.Frame,
+		middleware.BearerOrSessionCookie(authSvc),
 		middleware.RequireCapability(accessSvc, middleware.CapViewExtensions),
 	)
 
@@ -109,7 +111,22 @@ func TestExtensionCatalog_RequiresViewExtensionsCapability(t *testing.T) {
 				t.Fatal("authorized extension catalog did not return its registered item")
 			}
 
-			// The iframe launch point carries the same gate.
+			// A Bearer-authenticated catalog fetch issues the scoped session
+			// cookie so the subsequent iframe navigation can reach /frame. The
+			// recorder's Result().Cookies() is unreliable with Echo; assert the
+			// raw Set-Cookie header, which is what a real browser stores.
+			if tc.wantCode == http.StatusOK {
+				sc := rec.Header().Get("Set-Cookie")
+				if !strings.Contains(sc, "phoenix_session="+token) ||
+					!strings.Contains(sc, "Path=/api/extensions") ||
+					!strings.Contains(sc, "HttpOnly") {
+					t.Errorf("catalog fetch did not issue the scoped phoenix_session cookie: %q", sc)
+				}
+			}
+
+			// The iframe launch point carries the same gate. A real browser
+			// iframe cannot send the Bearer header, so also cover the
+			// cookie-only path the scoped session cookie enables.
 			frameReq := httptest.NewRequest(http.MethodGet, "/api/extensions/storage/frame", nil)
 			frameReq.Header.Set(echo.HeaderAuthorization, "Bearer "+token)
 			frameRec := httptest.NewRecorder()
@@ -119,9 +136,68 @@ func TestExtensionCatalog_RequiresViewExtensionsCapability(t *testing.T) {
 				wantFrame = http.StatusFound
 			}
 			if frameRec.Code != wantFrame {
-				t.Errorf("GET frame = %d; want %d", frameRec.Code, wantFrame)
+				t.Errorf("GET frame with header = %d; want %d", frameRec.Code, wantFrame)
+			}
+
+			if tc.wantCode == http.StatusOK {
+				cookieReq := httptest.NewRequest(http.MethodGet, "/api/extensions/storage/frame", nil)
+				cookieReq.AddCookie(&http.Cookie{Name: middleware.SessionCookieName, Value: token})
+				cookieRec := httptest.NewRecorder()
+				e.ServeHTTP(cookieRec, cookieReq)
+				if cookieRec.Code != http.StatusFound {
+					t.Errorf("GET frame with cookie only = %d; want 302 (iframe launch)", cookieRec.Code)
+				}
+				if loc := cookieRec.Header().Get("Location"); loc != "/storage?ui_token=launch-secret" {
+					t.Errorf("cookie frame Location = %q; want /storage?ui_token=launch-secret", loc)
+				}
 			}
 		})
+	}
+}
+
+// TestExtensionFrame_NavigationWithoutCredentialIsRejected pins the
+// launch transport contract: GET /api/extensions/:id/frame is the surface
+// that releases an entry's ui_token credential, so it must never answer a
+// request with neither the Authorization header nor the scoped
+// phoenix_session cookie. The cookie is the iframe's transport; a
+// header-less, cookie-less request is exactly what an attacker probing the
+// endpoint would send, and the only safe answer is 401, never a redirect
+// carrying the token.
+func TestExtensionFrame_NavigationWithoutCredentialIsRejected(t *testing.T) {
+	ctx := context.Background()
+	users := memory.NewUserRepo()
+	apiKeys := memory.NewAPIKeyRepo()
+	perms := memory.NewUserPermissionRepo()
+	authenticator := auth.NewJWTAuthenticator("extension-frame-nav-key", 24, users)
+	authSvc := services.NewAuthService(users, apiKeys, authenticator, auth.NewTOTPProvider("Phoenix"))
+	accessSvc := services.NewAccessService(users, perms, nil, nil)
+
+	if _, err := authSvc.CreateUser(ctx, "frame-admin", "password123", true, true, "UTC", services.UserCapabilities{}); err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+
+	e := echo.New()
+	e.GET(
+		"/api/extensions/:id/frame",
+		handlers.NewExtensionHandlers(`[{"id":"storage","title":"ECS Usage","path":"/storage","uiToken":"tok"}]`).Frame,
+		middleware.BearerOrSessionCookie(authSvc),
+		middleware.RequireCapability(accessSvc, middleware.CapViewExtensions),
+	)
+
+	// An iframe navigation carrying neither a Bearer header (impossible for
+	// <iframe src>) nor the scoped session cookie: must be 401, never a
+	// redirect that would leak the ui_token in the Location.
+	req := httptest.NewRequest(http.MethodGet, "/api/extensions/storage/frame", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("header-less frame navigation = %d; want 401", rec.Code)
+	}
+	if rec.Header().Get("Location") != "" {
+		t.Error("header-less frame navigation must not redirect (credential leak)")
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "missing authorization header") {
+		t.Errorf("body = %q; want the missing-authorization-header error", body)
 	}
 }
 

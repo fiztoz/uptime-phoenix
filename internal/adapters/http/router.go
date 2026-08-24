@@ -152,8 +152,8 @@ func NewRouter(
 	// launch credential). The extension's direct Ingress path must enforce its
 	// own authorization.
 	if extensionHandlers != nil && authSvc != nil {
-		e.GET("/api/extensions", extensionHandlers.List, middleware.AuthMiddleware(authSvc), requireExtensions)
-		e.GET("/api/extensions/:id/frame", extensionHandlers.Frame, middleware.AuthMiddleware(authSvc), requireExtensions)
+		e.GET("/api/extensions", extensionHandlers.List, middleware.AuthMiddleware(authSvc), middleware.IssueSessionCookieOnBearer, requireExtensions)
+		e.GET("/api/extensions/:id/frame", extensionHandlers.Frame, middleware.BearerOrSessionCookie(authSvc), requireExtensions)
 	}
 
 	// Monitor routes (protected with auth middleware). Three different gates,
