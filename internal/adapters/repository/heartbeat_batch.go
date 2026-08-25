@@ -21,20 +21,14 @@ const latestBatchChunk = 500
 
 // latestHeartbeatSelect is one GetLatest. ORDER BY/LIMIT live on the inner
 // query so they bind per monitor. The derived table is aliased: MariaDB
-// rejected the un-aliased form in CI (Error 1064 near UNION ALL). Outer
-// parentheses around each UNION arm are a SQLite syntax error (`near "("`),
-// so the arm stays an unparenthesized SELECT-from-subquery.
-//
-// The previous ROW_NUMBER() OVER (PARTITION BY monitor_id) form ranked every
-// historical row for those monitors — on a RANGE-partitioned heartbeats table
-// that cannot prune without a time predicate, SHOW PROCESSLIST showed the
-// query stuck in "Sending data" for minutes and holding a pool connection each.
+// rejects the un-aliased form (Error 1064 near UNION ALL). Outer parentheses
+// around each UNION arm are a SQLite syntax error (`near "("`), so the arm
+// stays an unparenthesized SELECT-from-subquery.
 const latestHeartbeatSelect = `SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM (SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM heartbeats WHERE monitor_id = ? ORDER BY time DESC, id DESC LIMIT 1) AS latest_hb`
 
 // latestImportantBeforeSelect is one leading Insights transition: the newest
-// important heartbeat strictly before the window. LIMIT 1 per monitor. The old
-// "ORDER BY time DESC then keep first in Go" form loaded every historical
-// important row for 69 monitors and is why /insights sat on skeleton for seconds.
+// important heartbeat strictly before the window, LIMIT 1 per monitor, so the
+// query never loads more than one historical row per monitor.
 const latestImportantBeforeSelect = `SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM (SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM heartbeats WHERE monitor_id = ? AND important = TRUE AND time < ? ORDER BY time DESC, id DESC LIMIT 1) AS latest_imp`
 
 // latestHeartbeatsUnionSQL builds n GetLatest SELECTs glued with UNION ALL.
@@ -143,14 +137,10 @@ func latestImportantBeforeUnionSQL(n int) string {
 // strictly before `before` for each monitor, in O(len(ids)/latestBatchChunk)
 // queries.
 //
-// Both adapters delegate here. The previous form selected every important row
-// before the bound and kept the first per monitor in Go — on 69 monitors with
-// days of 60s checks that scan is why /insights sat on skeleton for seconds
-// and, when the HTTP budget ran out first, why every row came back
-// insufficient_data (no Leading means the whole window is unknown).
-//
-// Each arm is LIMIT 1 on idx_hb_monitor_important_time. Monitors with no
-// important heartbeat before the bound are absent from the map.
+// Both adapters delegate here. Each arm is LIMIT 1 on
+// idx_hb_monitor_important_time, so the query never loads the full important
+// history per monitor. Monitors with no important heartbeat before the bound
+// are absent from the map.
 func LatestImportantBeforeForMonitors(
 	ctx context.Context,
 	db *bun.DB,

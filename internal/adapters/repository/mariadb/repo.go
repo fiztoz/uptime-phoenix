@@ -527,18 +527,13 @@ func (r *HeartbeatRepo) Save(ctx context.Context, h *domain.Heartbeat) error {
 
 // GetLatest returns the monitor's most recent heartbeat.
 //
-// The `id DESC` tie-break is LOAD-BEARING on MariaDB, and its absence was a real
-// bug. heartbeats.time is a TIMESTAMP with SECOND precision here (001_init), so a
-// retry PENDING and the confirmed DOWN that follows it milliseconds later carry
-// the SAME time value. Ordering by time alone leaves that tie to the engine, and
-// MariaDB happily returns the older PENDING row — so a monitor that had just gone
-// DOWN read back as PENDING, and every consumer of "latest status" (the group
-// rollup, folder alerting, the dashboard) silently saw the wrong thing.
-//
-// SQLite stores timestamps as higher-precision text, so it never produces the tie
-// and the repo's SQLite-only tests cannot catch this. The tie-break is applied to
-// BOTH engines so they stay observably identical. id is monotonic per insert, so
-// within one second the newest row wins.
+// The `id DESC` tie-break is LOAD-BEARING: heartbeats.time is a TIMESTAMP with
+// SECOND precision here (001_init), so beats written within the same second
+// carry the SAME time value, and ordering by time alone leaves the winner to
+// the engine. SQLite stores higher-precision timestamps and never produces the
+// tie, so the tie-break is applied to BOTH engines to keep them observably
+// identical. id is monotonic per insert, so within one second the newest row
+// wins.
 func (r *HeartbeatRepo) GetLatest(ctx context.Context, monitorID int64) (*domain.Heartbeat, error) {
 	m := new(repository.HeartbeatModel)
 	err := r.db.NewSelect().Model(m).
@@ -557,9 +552,8 @@ func (r *HeartbeatRepo) GetLatest(ctx context.Context, monitorID int64) (*domain
 //
 // The ordering is delegated to repository.LatestHeartbeatsForMonitors, which
 // reproduces GetLatest's `time DESC, id DESC` exactly. That tie-break is not
-// cosmetic here: heartbeats.time is second-precision on MariaDB, so dropping it
-// would resurrect the bug where a monitor that had just gone DOWN read back as
-// PENDING — only now for every monitor on the dashboard at once.
+// cosmetic: heartbeats.time is second-precision here, so dropping it would
+// let same-second beats resolve in engine-chosen order.
 func (r *HeartbeatRepo) GetLatestForMonitors(ctx context.Context, monitorIDs []int64) (map[int64]*domain.Heartbeat, error) {
 	out, err := repository.LatestHeartbeatsForMonitors(ctx, r.db, monitorIDs)
 	if err != nil {
@@ -1405,8 +1399,7 @@ func NewGroupNotificationRepo(db *bun.DB) *GroupNotificationRepo {
 // ON DUPLICATE KEY UPDATE id = id — a deliberate no-op assignment — makes the
 // re-attach silent while leaving every other error loud. Plain INSERT IGNORE
 // would ALSO downgrade a foreign-key violation to a warning, so attaching to a
-// group that does not exist would return 204 and write nothing: exactly the
-// stub-that-returns-success failure this codebase has already shipped once.
+// nonexistent group would silently write nothing.
 // The SQLite adapter's ON CONFLICT DO NOTHING has the same narrow scope.
 func (r *GroupNotificationRepo) Attach(ctx context.Context, groupID, notificationID int64) error {
 	_, err := r.db.ExecContext(ctx,

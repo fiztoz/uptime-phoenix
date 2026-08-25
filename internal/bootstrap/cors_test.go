@@ -2,10 +2,8 @@ package bootstrap
 
 import "testing"
 
-// TestCORSConfigFromEnv_ProductionNeverShipsWildcard is the R2.5 assertion:
-// whatever the env looks like, the production path must never fall back to
-// AllowOrigins ["*"]. Before this gate existed, an unset CORS_ALLOW_ORIGINS
-// silently shipped the dev wildcard to production.
+// TestCORSConfigFromEnv_ProductionNeverShipsWildcard asserts that whatever the
+// env looks like, the production path must never fall back to AllowOrigins ["*"].
 func TestCORSConfigFromEnv_ProductionNeverShipsWildcard(t *testing.T) {
 	cases := []struct {
 		name string

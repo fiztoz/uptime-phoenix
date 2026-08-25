@@ -33,8 +33,8 @@ type meResponse struct {
 	} `json:"user"`
 }
 
-// TestAPIKeyHandlers_CreateListDelete_Ownership exercises the shipped JWT → userIDFromContext
-// path: POST must not 500, created key belongs to /api/auth/me user, DELETE succeeds, GET is empty.
+// TestAPIKeyHandlers_CreateListDelete_Ownership: POST must not 500, created key
+// belongs to /api/auth/me user, DELETE succeeds, GET is empty.
 func TestAPIKeyHandlers_CreateListDelete_Ownership(t *testing.T) {
 	h := newHarness(t)
 

@@ -582,11 +582,8 @@ func (h *Hub) sendMonitorList(ctx context.Context, client *Client) {
 	}
 
 	// Resolve every monitor's status in ONE batched lookup, the same way
-	// emitStatsUpdate does. This used to be a GetLatest per monitor per CONNECT:
-	// at 1,000 monitors and 50 clients that was 50,000 serialized queries, and it
-	// is why WebSocket connect p95 still failed its 1 s threshold after the
-	// fan-out path itself had been fixed. Tags on the line below were already
-	// batched; heartbeats were the straggler.
+	// emitStatsUpdate does. A GetLatest per monitor per CONNECT would be
+	// O(monitors × clients) serialized queries.
 	statuses := h.latestStatuses(ctx, monitors)
 
 	views := make([]MonitorView, len(monitors))

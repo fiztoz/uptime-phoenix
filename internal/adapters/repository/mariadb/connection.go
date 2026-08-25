@@ -12,12 +12,9 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// PoolSettings bounds the database/sql connection pool.
-//
-// The previous defaults (25 open / 25 idle, no idle timeout) left every
-// borrowed connection sitting in Sleep until ConnMaxLifetime. Split API+worker
-// therefore showed ~50 sessions in SHOW PROCESSLIST even when the app was
-// idle, and a slow heartbeat lookup filled the rest.
+// PoolSettings bounds the database/sql connection pool. The idle timeout
+// ensures returned connections are closed instead of sleeping until
+// ConnMaxLifetime.
 type PoolSettings struct {
 	MaxOpenConns    int
 	MaxIdleConns    int

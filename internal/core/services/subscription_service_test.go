@@ -652,11 +652,9 @@ func TestSubscribe_HTMLEscapesPageTitle(t *testing.T) {
 }
 
 // A fan-out that cannot load its SMTP channel for a REAL reason must surface
-// that error. It used to return nil for every failure mode, so a database
-// error, a dangling notification reference or a deactivated channel silently
-// stopped all subscriber email — and because the caller only logs on a non-nil
-// error, it did so without producing a single log line. Only a page with no
-// channel configured at all is allowed to skip quietly.
+// that error — a database error, a dangling notification reference or a
+// deactivated channel must not silently stop all subscriber email. Only a page
+// with no channel configured at all is allowed to skip quietly.
 func TestNotifyIncident_ChannelFailureIsReportedNotSwallowed(t *testing.T) {
 	seed := func() (*subFakePageRepo, *subFakeSubRepo, *subFakeNotifRepo, *subFakeMailer, *domain.StatusPage) {
 		pages := newSubFakePageRepo()

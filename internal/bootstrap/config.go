@@ -16,9 +16,9 @@ type Config struct {
 	LogLevel string `env:"LOG_LEVEL" envDefault:"info"`
 	DBEngine string `env:"DB_ENGINE" envDefault:"sqlite"`
 	DBDSN    string `env:"DB_DSN" envDefault:"file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)"`
-	// MariaDB pool. Ignored for SQLite (which is one connection). Defaults keep
-	// SHOW PROCESSLIST small: the old 25/25 with no idle timeout left every
-	// borrowed session in Sleep until ConnMaxLifetime.
+	// MariaDB pool. Ignored for SQLite (which is one connection). The idle
+	// timeout keeps returned sessions from sitting on the server until
+	// ConnMaxLifetime.
 	DBMaxOpenConns           int    `env:"DB_MAX_OPEN_CONNS" envDefault:"10"`
 	DBMaxIdleConns           int    `env:"DB_MAX_IDLE_CONNS" envDefault:"2"`
 	DBConnMaxIdleSeconds     int    `env:"DB_CONN_MAX_IDLE_SECONDS" envDefault:"30"`
