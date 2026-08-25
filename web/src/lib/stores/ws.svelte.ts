@@ -437,9 +437,8 @@ function createWsStore() {
    * the dashboard. Live heartbeats then patch status on the REST rows.
    *
    * Retries a couple of times: a canceled request (navigation, a reconnect
-   * that aborted the previous fetch) used to leave the grid on skeleton
-   * cards until monitor.list finished — 17s+ when the heartbeat lookup
-   * was saturated.
+   * that aborted the previous fetch) must not leave the grid on skeleton
+   * cards until monitor.list finishes.
    */
   function snapshotIsFromWs(): boolean {
     return snapshotSource === "ws";

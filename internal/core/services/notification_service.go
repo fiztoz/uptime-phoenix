@@ -59,8 +59,6 @@ func NewNotificationService(
 //
 // Optional, and it fails CLOSED when unset: the group attach/detach/list methods
 // return an error rather than pretending to work, and NotifyGroup sends nothing.
-// A silent no-op here would be the exact shape of bug AGENTS.md rule 7 is about —
-// every route would answer 2xx while no group ever alerted.
 func (s *NotificationService) SetGroupNotificationRepo(repo ports.GroupNotificationRepository) {
 	s.groupNotifRepo = repo
 }
@@ -289,13 +287,11 @@ func (s *NotificationService) DispatchTracked(ctx context.Context, monitor *doma
 // step (F2.3) pages its own ladder rung without inheriting whatever happens to
 // be wired to the monitor.
 //
-// It deliberately does not return nil on every path. The subscription fan-out
-// bug this repo shipped in Sprint C returned nil for five distinct failures and
-// went silent with no log line and green tests (AGENTS.md rule 6), so:
-// per-channel failures are collected and returned joined, and a non-empty list
-// that reached NOBODY — every id missing, inactive, or backed by an unknown
-// sender type — is itself an error. Callers log and continue; the point is that
-// the failure is visible at all.
+// It deliberately does not return nil on every path: per-channel failures are
+// collected and returned joined, and a non-empty list that reached NOBODY —
+// every id missing, inactive, or backed by an unknown sender type — is itself
+// an error. Callers log and continue; the point is that the failure is visible
+// at all.
 func (s *NotificationService) DispatchToNotificationIDs(ctx context.Context, notificationIDs []int64, alert domain.AlertContext) error {
 	if len(notificationIDs) == 0 {
 		return nil

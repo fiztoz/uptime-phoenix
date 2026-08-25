@@ -15,9 +15,7 @@ import (
 
 // Both unique columns behind mapSPError are user-chosen — status_pages.slug and
 // status_page_cnames.domain — so a collision is a client error, not a server
-// fault. It used to fall through to the default arm and return 500 "internal
-// error", which told the user the server had broken when they had simply picked
-// a name that was taken.
+// fault.
 func TestMapSPError(t *testing.T) {
 	tests := []struct {
 		name     string

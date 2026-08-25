@@ -99,11 +99,8 @@ func (r *fakeMaintenanceRepo) Delete(_ context.Context, id int64) error {
 }
 
 // fakeMaintenanceLinkRepo is an in-memory ports.MaintenanceWindowMonitorRepository.
-//
-// It used to be a no-op stand-in, on the theory that the assign/unassign endpoints
-// were "still stubs at the handler level" — which is exactly why the dead feature
-// went unnoticed: the tests were shaped around the stub. Alert suppression depends
-// entirely on these links existing, so they are now modeled for real.
+// Alert suppression depends entirely on these links existing, so they are
+// modeled for real.
 type fakeMaintenanceLinkRepo struct {
 	mu    sync.Mutex
 	links map[int64][]int64 // maintenanceID -> monitorIDs
@@ -311,11 +308,9 @@ func (h *maintenanceTestHarness) do(t *testing.T, method, path, token string, bo
 
 // --- Tests -----------------------------------------------------------------
 
-// TestMaintenanceHandlers_Create_SetsUserIDFromContext is a regression guard
-// for the FK-violation bug: Create used to build a domain.MaintenanceWindow
-// without ever setting UserID, inserting user_id=0 and failing MariaDB's FK
-// constraint. This asserts the created window's UserID comes from the
-// authenticated principal, not a caller-supplied or zero value.
+// TestMaintenanceHandlers_Create_SetsUserIDFromContext asserts the created
+// window's UserID comes from the authenticated principal, not a caller-supplied
+// or zero value.
 func TestMaintenanceHandlers_Create_SetsUserIDFromContext(t *testing.T) {
 	h := newMaintenanceHarness(t)
 
@@ -495,16 +490,10 @@ func TestMaintenanceHandlers_Delete_RequiresCapability(t *testing.T) {
 
 // --- Monitor assignment (alert suppression) --------------------------------
 //
-// These are the regression guards for the bug where maintenance windows never
-// suppressed anything: Create bound the monitor list as `monitors` (the frontend
-// sends `monitor_ids`) and then dropped it entirely — "TODO: assign monitors if
-// provided" — while AssignMonitor/UnassignMonitor returned 204 without writing a
-// link and ListMonitors returned a hardcoded []. Every endpoint answered 2xx, so
-// the feature looked healthy while no monitor was ever linked to a window, leaving
-// IsActive() permanently false and alerts firing straight through the window.
-//
+// These guard the monitor-to-window links that alert suppression depends on.
 // The load-bearing assertion in each test is IsActive() — the single thing the
-// scheduler and the notification dispatcher actually consult. A 201 proves nothing.
+// scheduler and the notification dispatcher actually consult. A 201 proves
+// nothing.
 
 func TestMaintenanceHandlers_Create_LinksMonitorsSoAlertsAreSuppressed(t *testing.T) {
 	h := newMaintenanceHarness(t)
@@ -695,7 +684,7 @@ func TestMaintenanceHandlers_AssignUnassignMonitor_RoundTrip(t *testing.T) {
 		t.Fatal("IsActive = false after POST /monitors; the assign endpoint did not persist a link")
 	}
 
-	// ListMonitors must reflect it (it used to return a hardcoded []).
+	// ListMonitors must reflect it.
 	rec = h.do(t, http.MethodGet, base, h.tokenA, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list monitors returned %d; want 200", rec.Code)

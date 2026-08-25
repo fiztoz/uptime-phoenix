@@ -61,17 +61,21 @@
     ),
   );
   const sortedRows = $derived([...visibleRows].sort(compareRows));
-  const qualifiedRows = $derived(sortedRows.filter((row) => row.qualification === "qualified"));
+  // Highlights use observed extrema even when coverage is below the ranking threshold.
   const lowestAvailability = $derived(
-    qualifiedRows
+    visibleRows
       .filter((row) => row.availability_percent !== null)
       .toSorted((a, b) => (a.availability_percent ?? 101) - (b.availability_percent ?? 101))[0],
   );
   const mostDowntime = $derived(
-    qualifiedRows.toSorted((a, b) => b.downtime_seconds - a.downtime_seconds)[0],
+    visibleRows
+      .filter((row) => row.downtime_seconds > 0)
+      .toSorted((a, b) => b.downtime_seconds - a.downtime_seconds)[0],
   );
   const mostFlapping = $derived(
-    qualifiedRows.toSorted((a, b) => b.flap_count - a.flap_count)[0],
+    visibleRows
+      .filter((row) => row.flap_count > 0)
+      .toSorted((a, b) => b.flap_count - a.flap_count)[0],
   );
 
   onMount(async () => {
@@ -177,6 +181,10 @@
     return value === null ? "—" : `${value.toFixed(2)}%`;
   }
 
+  function isPartialHighlight(row: InsightsRow): boolean {
+    return row.qualification !== "qualified";
+  }
+
   function formatDuration(seconds: number): string {
     if (seconds < 60) return `${Math.round(seconds)}s`;
     const minutes = Math.round(seconds / 60);
@@ -243,6 +251,9 @@
       {:else if lowestAvailability}
         <p class="mt-3 truncate text-lg font-semibold">{lowestAvailability.monitor_name}</p>
         <p class="mt-1 text-sm text-danger">{formatPercent(lowestAvailability.availability_percent)}</p>
+        {#if isPartialHighlight(lowestAvailability)}
+          <p class="mt-2 text-xs text-warning">{m.insights_highlight_partial({ coverage: lowestAvailability.coverage_percent.toFixed(1) })}</p>
+        {/if}
       {:else}
         <p class="mt-4 text-sm text-muted-foreground">{m.insights_no_qualified_data()}</p>
       {/if}
@@ -258,6 +269,9 @@
       {:else if mostDowntime}
         <p class="mt-3 truncate text-lg font-semibold">{mostDowntime.monitor_name}</p>
         <p class="mt-1 text-sm text-warning">{formatDuration(mostDowntime.downtime_seconds)}</p>
+        {#if isPartialHighlight(mostDowntime)}
+          <p class="mt-2 text-xs text-warning">{m.insights_highlight_partial({ coverage: mostDowntime.coverage_percent.toFixed(1) })}</p>
+        {/if}
       {:else}
         <p class="mt-4 text-sm text-muted-foreground">{m.insights_no_qualified_data()}</p>
       {/if}
@@ -273,6 +287,9 @@
       {:else if mostFlapping}
         <p class="mt-3 truncate text-lg font-semibold">{mostFlapping.monitor_name}</p>
         <p class="mt-1 text-sm text-info">{mostFlapping.flap_count} {m.insights_transitions()}</p>
+        {#if isPartialHighlight(mostFlapping)}
+          <p class="mt-2 text-xs text-warning">{m.insights_highlight_partial({ coverage: mostFlapping.coverage_percent.toFixed(1) })}</p>
+        {/if}
       {:else}
         <p class="mt-4 text-sm text-muted-foreground">{m.insights_no_qualified_data()}</p>
       {/if}

@@ -14,8 +14,7 @@ import (
 
 // F2.3 escalation repository contract. It runs on BOTH engines, because SQLite
 // silently accepts things MariaDB rejects and stores higher-precision
-// timestamps than MariaDB's second-granularity TIMESTAMP — the two facts that
-// have produced the last several shipped repository bugs in this project.
+// timestamps than MariaDB's second-granularity TIMESTAMP.
 
 func TestEscalationContract_SQLite(t *testing.T) {
 	runEscalationContract(t, sqliteFactory)
@@ -467,8 +466,7 @@ func runEscalationContract(t *testing.T, factory repositoryFactory) {
 
 	// MariaDB stores TIMESTAMP at second precision, so two rows scheduled inside
 	// the same second carry the identical stored value. A batch a human reads as
-	// a sequence needs a tie-break on id (AGENTS.md rule 8) — this is the same
-	// class of bug that once made a DOWN monitor read back as PENDING.
+	// a sequence needs a tie-break on id (AGENTS.md rule 8).
 	t.Run("ClaimOrderBreaksTimestampTieByID", func(t *testing.T) {
 		repos := factory(t)
 		ctx := context.Background()

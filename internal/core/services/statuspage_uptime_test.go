@@ -77,9 +77,8 @@ func requireUptimePercent(t *testing.T, percentage *float64) float64 {
 	return *percentage
 }
 
-// The uptime percentage used to be hardcoded to 100.0 and uptime_data did not
-// exist at all, so every public status page claimed perfect uptime and rendered
-// an empty 90-day bar no matter how much downtime the monitor had actually had.
+// TestMonitorUptimeBar_ReportsRealDowntime asserts the uptime bar reflects real
+// downtime instead of claiming perfect uptime.
 func TestMonitorUptimeBar_ReportsRealDowntime(t *testing.T) {
 	repo := &spUptimeHeartbeatRepo{
 		aggs: []*ports.Aggregate1d{

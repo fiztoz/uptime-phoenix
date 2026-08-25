@@ -1132,9 +1132,8 @@ func mapSPError(c echo.Context, err error) error {
 		return c.JSON(http.StatusForbidden, errorBody("access denied"))
 	case errors.Is(err, ports.ErrConflict):
 		// Both unique columns behind this mapper are user-chosen: status_pages.slug
-		// and status_page_cnames.domain. Without this case a taken slug surfaced as
-		// a 500 "internal error", telling the user the server broke when in fact
-		// their input was simply already in use.
+		// and status_page_cnames.domain, so a collision is a client error, not a
+		// server fault.
 		return c.JSON(http.StatusConflict, errorBody("slug or custom domain already in use"))
 	case errors.Is(err, ports.ErrMonitorAlreadyLinked):
 		return c.JSON(http.StatusConflict, errorBody("monitor is already linked to this status page"))

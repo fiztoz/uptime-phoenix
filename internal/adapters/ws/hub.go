@@ -530,8 +530,8 @@ func (h *Hub) send(client *Client, data []byte) {
 //
 // A disconnected client (closed send channel, or the request ctx canceled by
 // readPump/writePump) unblocks this without panicking. It must NEVER use the
-// drop-on-full default: that is how "client send buffer full, dropped
-// monitor.list" left production dashboards spinning on skeleton cards.
+// drop-on-full default, or the dashboard would silently lose the snapshot it
+// is blocked on.
 func (h *Hub) sendCritical(ctx context.Context, client *Client, data []byte) {
 	if client == nil || client.closed.Load() {
 		return
@@ -715,18 +715,14 @@ func (h *Hub) HandleWebSocket(ctx context.Context, conn *websocket.Conn, authSvc
 	client := NewClient(fmt.Sprintf("ws-%d-%d", userID, time.Now().UnixNano()), userID)
 
 	// Pumps MUST start before sendMonitorList. Building the snapshot hits the
-	// database (List + tags + latestStatuses). The previous order ran that
-	// work first, with the client already in the hub, so heartbeats filled the
-	// 256-slot send buffer while nobody was draining it. sendMonitorList then
-	// drop-on-full'd the snapshot, writePump started, the first Write hit a
-	// proxy that had already timed out the silent socket (broken pipe), and
-	// the dashboard sat on skeleton cards waiting for a monitor.list that
-	// never came.
+	// database (List + tags + latestStatuses); if that ran first with the
+	// client already in the hub, heartbeats would fill the send buffer while
+	// nobody drained it and the snapshot could be dropped.
 	//
 	// Starting the pumps first means: pings keep idle proxies alive, a client
-	// close is detected immediately (no 4-minute zombie), and heartbeats drain
-	// while the snapshot is built. sendCritical then waits for a buffer slot
-	// instead of dropping the frame.
+	// close is detected immediately, and heartbeats drain while the snapshot
+	// is built. sendCritical then waits for a buffer slot instead of dropping
+	// the frame.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

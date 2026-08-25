@@ -248,7 +248,7 @@ func TestExtensionCatalog_IssuesCookieOverRealServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("do request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /api/extensions = %d; want 200", resp.StatusCode)
 	}
@@ -274,7 +274,7 @@ func TestExtensionCatalog_IssuesCookieOverRealServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("anon request: %v", err)
 	}
-	defer anonResp.Body.Close()
+	defer func() { _ = anonResp.Body.Close() }()
 	for _, ck := range anonResp.Cookies() {
 		if ck.Name == middleware.SessionCookieName {
 			t.Errorf("unauthenticated catalog fetch leaked a %s cookie", middleware.SessionCookieName)

@@ -886,9 +886,8 @@ func aggregateRollupLoop(ctx context.Context, aggSvc *services.AggregateService,
 	defer ticker1d.Stop()
 
 	// Catch up on startup. Periodic ticks only look back 2m / 2h / 2d, so a
-	// restart (or a first boot after Insights shipped) left heartbeat_1h/1d
-	// empty for the 24h Insights window — every row then failed qualification
-	// even though raw heartbeats existed for days.
+	// restart would otherwise leave heartbeat_1h/1d empty for the 24h Insights
+	// window.
 	now := time.Now().UTC()
 	rollupCtx, rollupCancel := context.WithTimeout(ctx, 5*time.Minute)
 	if err := aggSvc.Rollup1m(rollupCtx, now.Add(-26*time.Hour), now); err != nil {

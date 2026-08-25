@@ -296,17 +296,10 @@ func TestHeartbeatRepository(t *testing.T) {
 
 // GetLatest must break a timestamp tie by id, or it returns a stale status.
 //
-// This is a regression test for a REAL bug, and the bug was MariaDB-only: there
-// heartbeats.time is a second-precision TIMESTAMP, so the retry PENDING and the
-// DOWN that confirms it milliseconds later carry the SAME time. Ordering by time
-// alone left the winner to the engine, and MariaDB returned the older PENDING —
-// so a monitor that had just gone DOWN read back as PENDING, and folder alerting
-// never fired.
-//
-// SQLite's timestamps are precise enough that it does not produce the tie on its
-// own, which is exactly why nothing here caught it. So the tie is CONSTRUCTED:
-// two heartbeats written with an identical Time. The assertion pins the ordering
-// contract both adapters now implement (`time DESC, id DESC`).
+// SQLite's timestamps are precise enough that they do not produce the tie on
+// their own, so the tie is CONSTRUCTED: two heartbeats written with an
+// identical Time. The assertion pins the ordering contract both adapters
+// implement (`time DESC, id DESC`).
 func TestHeartbeatGetLatest_BreaksTimestampTieByID(t *testing.T) {
 	repo := setupTestDB(t)
 	ctx := context.Background()
@@ -346,8 +339,7 @@ func TestHeartbeatGetLatest_BreaksTimestampTieByID(t *testing.T) {
 
 // ListByMonitor must also break a timestamp tie by id, or the chart and the
 // recent-checks strip render same-second beats out of chronological order.
-// Same root cause as TestHeartbeatGetLatest_BreaksTimestampTieByID; the tie is
-// constructed for the same reason.
+// The tie is constructed, as in TestHeartbeatGetLatest_BreaksTimestampTieByID.
 func TestHeartbeatListByMonitor_BreaksTimestampTieByID(t *testing.T) {
 	repo := setupTestDB(t)
 	ctx := context.Background()
@@ -639,22 +631,16 @@ func TestNotificationRepository(t *testing.T) {
 	}
 }
 
-// TestMaintenanceRepository is a regression guard for two real bugs proven
-// live against MariaDB:
+// TestMaintenanceRepository guards two MariaDB contracts:
 //
-//  1. ERROR 1452 (FK violation): the maintenance handler never set UserID,
-//     so it inserted user_id=0, which fails the FOREIGN KEY to users(id).
-//     This test creates the window with a real UserID and asserts it
-//     round-trips.
-//  2. ERROR 1292 (invalid datetime): MaintenanceWindowModel mapped
-//     StartDate/EndDate as non-pointer time.Time without `nullzero`, so a
-//     cron-strategy window (which legitimately has no start/end date --
-//     it relies on CronExpr + Duration instead) sent Go's zero time
-//     (0001-01-01 00:00:00) to the NULLABLE start_date/end_date columns.
-//     MariaDB rejects that outright; SQLite is lenient, so this test
-//     exercises the exact "cron strategy, no dates" shape that used to be
-//     impossible to create at all, asserting Create succeeds and the
-//     dates round-trip as zero (i.e. as if NULL).
+//  1. FK integrity: the window is created with a real UserID and must
+//     round-trip.
+//  2. Nullable dates: a cron-strategy window legitimately has no start/end
+//     date — it relies on CronExpr + Duration instead — so StartDate/EndDate
+//     must map through `nullzero`. MariaDB rejects Go's zero time
+//     (0001-01-01 00:00:00) outright; SQLite is lenient, so this test
+//     exercises the exact "cron strategy, no dates" shape, asserting Create
+//     succeeds and the dates round-trip as zero (i.e. as if NULL).
 func TestMaintenanceRepository(t *testing.T) {
 	repo := setupTestDB(t)
 	ctx := context.Background()
@@ -850,12 +836,10 @@ func assertTimeAdvanced(t *testing.T, label string, before, after time.Time) {
 	}
 }
 
-// TestCreateSetsTimestamps is a regression guard for a real MariaDB bug: some
-// repo Create methods mapped domain -> model and inserted WITHOUT populating
-// CreatedAt/UpdatedAt. The model fields are tagged `notnull` with no
-// `nullzero`, so Bun sent Go's zero time.Time (0001-01-01 00:00:00), which
-// MariaDB rejects outright but SQLite silently accepts — exactly why the
-// prior test suite never caught it.
+// TestCreateSetsTimestamps asserts that every repo Create populates
+// CreatedAt/UpdatedAt before insert: the model fields are tagged `notnull`
+// with no `nullzero`, so an unset zero time.Time is rejected by MariaDB while
+// SQLite silently accepts it.
 //
 // Each step below asserts the entity whose table actually has a created_at
 // and/or updated_at column comes back from Create with non-zero timestamps.
@@ -952,9 +936,8 @@ func createTimestampTestNotification(t *testing.T, repo *Repository, ctx context
 	assertNonZeroTime(t, "Notification.UpdatedAt", notif.UpdatedAt)
 }
 
-// createTimestampTestStatusPage covers the exact bug reported live against
-// MariaDB: creating a status page returned HTTP 500 because CreatedAt/
-// UpdatedAt were never populated before insert.
+// createTimestampTestStatusPage asserts StatusPage Create populates
+// CreatedAt/UpdatedAt.
 func createTimestampTestStatusPage(t *testing.T, repo *Repository, ctx context.Context, slug string) *domain.StatusPage {
 	t.Helper()
 	sp := &domain.StatusPage{
@@ -995,9 +978,8 @@ func createTimestampTestSubscriber(t *testing.T, repo *Repository, ctx context.C
 	assertIDSet(t, "StatusPageSubscriber", sub.ID)
 }
 
-// createTimestampTestIncident covers the second bug reported live against
-// MariaDB: creating an incident (and, by the same code path, a maintenance
-// window) returned HTTP 500.
+// createTimestampTestIncident asserts Incident Create populates
+// CreatedAt/UpdatedAt.
 func createTimestampTestIncident(t *testing.T, repo *Repository, ctx context.Context, statusPageID int64) {
 	t.Helper()
 	inc := &domain.Incident{
@@ -1327,9 +1309,7 @@ func TestMonitorGroupRepository(t *testing.T) {
 // the core Delete contract: removing a group must re-home its child monitors
 // and child subgroups to the deleted group's own parent, never cascade-delete
 // them. It asserts the effect — the monitor and subgroup still exist and now
-// point at the new parent — rather than merely that Delete returns no error
-// (a silent-failure bug here would leave children pointed at a group ID that
-// no longer exists, or orphan them, while every call still returns 2xx/nil).
+// point at the new parent — rather than merely that Delete returns no error.
 func TestMonitorGroupRepositoryDeleteRehomesChildren(t *testing.T) {
 	repo := setupTestDB(t)
 	ctx := context.Background()
