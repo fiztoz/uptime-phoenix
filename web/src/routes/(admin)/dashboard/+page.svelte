@@ -124,7 +124,7 @@
 		try {
 			const result = await insightsApi.list({ period: '24h', metric: 'availability' });
 			reliabilityPreview = result.rows
-				.filter((row) => row.qualification === 'qualified' && (row.outage_count > 0 || (row.availability_percent ?? 100) < 100))
+				.filter((row) => row.outage_count > 0 || (row.availability_percent ?? 100) < 100)
 				.slice(0, 5);
 		} catch {
 			reliabilityPreview = [];
