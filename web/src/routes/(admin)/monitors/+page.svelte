@@ -89,9 +89,14 @@
 		loadGroups();
 	});
 
-	const pageLoading = $derived(!realtime.hasMonitorSnapshot || groupsLoading);
+	// Progressive loading: the page only waits for the monitor snapshot —
+	// rows, counters and filters all derive from it. Groups fill in on their
+	// own: a skeleton strip holds their place in the tree while they load, and
+	// a failed groups fetch degrades to an inline retry instead of blanking
+	// the whole page.
+	const pageLoading = $derived(!realtime.hasMonitorSnapshot);
 	const pageError = $derived(
-		groupsError ?? (!realtime.hasMonitorSnapshot ? realtime.lastError : null),
+		!realtime.hasMonitorSnapshot ? realtime.lastError : null,
 	);
 
 	function retryPageLoad() {
@@ -569,6 +574,22 @@
 			</div>
 		{/if}
 	</div>
+
+	{#if groupsLoading}
+		<!-- Group rows arrive with the groups fetch; the monitor rows below are
+		     already live from the snapshot, so only the tree header is skeletoned. -->
+		<div class="space-y-4 rounded-xl border border-border bg-card p-4" role="status">
+			<span class="sr-only">{m.loading()}</span>
+			<Skeleton class="h-9 w-1/3" />
+			<Skeleton class="h-12 w-full" />
+			<Skeleton class="h-12 w-full" />
+		</div>
+	{:else if groupsError}
+		<div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/25 bg-danger/5 px-4 py-3">
+			<span class="flex items-center gap-2 text-sm text-danger"><AlertTriangle class="h-4 w-4 shrink-0" />{groupsError}</span>
+			<button type="button" onclick={() => loadGroups()} class="inline-flex items-center rounded-lg border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-accent">{m.monitor_group_form_retry()}</button>
+		</div>
+	{/if}
 
 	<!-- Mobile cards (hidden on md+) -->
 	<div class="space-y-3 md:hidden">

@@ -167,9 +167,14 @@
 		});
 	});
 
-	const pageLoading = $derived(!realtime.hasMonitorSnapshot || groupsLoading);
+	// Progressive loading: the page only waits for the monitor snapshot —
+	// every stat, banner and card derives from it. Groups (folders) fill in
+	// on their own: the browse view shows skeleton cards while they load, and
+	// a failed groups fetch degrades to an inline retry instead of blanking
+	// the whole dashboard.
+	const pageLoading = $derived(!realtime.hasMonitorSnapshot);
 	const pageError = $derived(
-		groupsError ?? (!realtime.hasMonitorSnapshot ? realtime.lastError : null),
+		!realtime.hasMonitorSnapshot ? realtime.lastError : null,
 	);
 
 	function retryPageLoad() {
@@ -734,7 +739,16 @@
 		{:else if flatMonitorView}
 			<!-- Filtering or explicit sorting is a global monitor operation, so use a
 			     flat grid rather than mixing monitor cards with folder cards. -->
-			{#if filteredMonitors.length === 0}
+			{#if groupsLoading && typeof criteria.group === 'number'}
+				<!-- Deep-linked into a group (?group=N) while the group tree is still
+				     loading: the filter cannot resolve the subtree yet, so show
+				     skeletons instead of a misleading "no matches" flash. -->
+				<div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+					{#each Array(3) as _}
+						<div class="rounded-xl border border-border bg-card p-5"><Skeleton class="h-5 w-40" /><Skeleton class="mt-4 h-3 w-full" /><Skeleton class="mt-3 h-10 w-full" /></div>
+					{/each}
+				</div>
+			{:else if filteredMonitors.length === 0}
 				<div class="rounded-xl border border-dashed border-border p-12 text-center">
 					<div
 						class="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-xl bg-muted/50 text-muted-foreground"
@@ -769,6 +783,18 @@
 			<!-- Default browse view: one flat grid of top-level GROUP cards followed
 			     by the ungrouped monitors. No tree, no nesting, no chevrons. -->
 			<div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+				{#if groupsLoading}
+					<!-- Folder cards arrive with the groups fetch; skeleton placeholders
+					     hold their place so the rest of the dashboard paints immediately. -->
+					{#each Array(3) as _}
+						<div class="rounded-xl border border-border bg-card p-5"><Skeleton class="h-5 w-40" /><Skeleton class="mt-4 h-3 w-full" /><Skeleton class="mt-3 h-10 w-full" /></div>
+					{/each}
+				{:else if groupsError}
+					<div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/25 bg-danger/5 px-4 py-3 md:col-span-2 xl:col-span-3">
+						<span class="flex items-center gap-2 text-sm text-danger"><AlertTriangle class="h-4 w-4 shrink-0" />{groupsError}</span>
+						<button type="button" onclick={() => loadGroups()} class="inline-flex items-center rounded-lg border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-accent">{m.monitor_group_form_retry()}</button>
+					</div>
+				{/if}
 				{#each topGroups as g (g.id)}
 					<GroupCard
 						group={g}
