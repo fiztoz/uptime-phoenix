@@ -18,6 +18,21 @@ type DiscordEmbedFieldTemplate struct {
 	Inline        bool
 }
 
+// DiscordButtonTemplate is a Discord Link button. Webhooks can only send Link
+// buttons (URL), not interactive ones. Label and URL are Phoenix templates;
+// an empty rendered URL omits the button, so {{ ack_url }} only appears on DOWN.
+type DiscordButtonTemplate struct {
+	LabelTemplate string
+	URLTemplate   string
+}
+
+// Discord webhook component limits. Link buttons occupy one action row slot.
+const (
+	MaxDiscordButtons     = 5
+	DiscordButtonLabelMax = 80
+	DiscordButtonURLMax   = 512
+)
+
 // DiscordTemplateConfig contains the Discord-only portions of a reusable
 // notification template. Title and description remain on NotificationTemplate
 // because SMTP, Webhook, and LINE share those fields.
@@ -27,6 +42,7 @@ type DiscordTemplateConfig struct {
 	ShowTimestamp    bool
 	Colors           DiscordStatusColors
 	Fields           []DiscordEmbedFieldTemplate
+	Buttons          []DiscordButtonTemplate
 }
 
 // DefaultDiscordTemplateConfig returns the structured layout used by new and
@@ -131,7 +147,64 @@ func ParseDiscordTemplateConfig(values map[string]any) (DiscordTemplateConfig, e
 		}
 	}
 
+	if value, ok := values["buttons"]; ok {
+		buttons, err := parseDiscordButtonTemplates(value)
+		if err != nil {
+			return config, err
+		}
+		config.Buttons = buttons
+	}
+
 	return config, nil
+}
+
+// ParseDiscordNotificationButtons reads optional Link buttons from a Discord
+// notification's provider config (`buttons: [{label, url}]`).
+func ParseDiscordNotificationButtons(config map[string]any) ([]DiscordButtonTemplate, error) {
+	if config == nil {
+		return nil, nil
+	}
+	raw, ok := config["buttons"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	return parseDiscordButtonTemplates(raw)
+}
+
+func parseDiscordButtonTemplates(value any) ([]DiscordButtonTemplate, error) {
+	items, ok := value.([]any)
+	if !ok {
+		return nil, fmt.Errorf("buttons must be an array")
+	}
+	if len(items) > MaxDiscordButtons {
+		return nil, fmt.Errorf("buttons support at most %d entries", MaxDiscordButtons)
+	}
+	buttons := make([]DiscordButtonTemplate, 0, len(items))
+	for i, item := range items {
+		button, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("buttons[%d] must be an object", i)
+		}
+		label, labelOK := buttonString(button, "label_template", "label")
+		url, urlOK := buttonString(button, "url_template", "url")
+		if !labelOK || !urlOK {
+			return nil, fmt.Errorf("buttons[%d] label and url must be strings", i)
+		}
+		buttons = append(buttons, DiscordButtonTemplate{LabelTemplate: label, URLTemplate: url})
+	}
+	return buttons, nil
+}
+
+func buttonString(button map[string]any, primary, fallback string) (string, bool) {
+	if raw, ok := button[primary]; ok {
+		text, valid := raw.(string)
+		return text, valid
+	}
+	if raw, ok := button[fallback]; ok {
+		text, valid := raw.(string)
+		return text, valid
+	}
+	return "", true
 }
 
 // DiscordTemplateConfigMap converts typed Discord settings into the JSON-safe
@@ -145,6 +218,13 @@ func DiscordTemplateConfigMap(config DiscordTemplateConfig) map[string]any {
 			"inline":         field.Inline,
 		}
 	}
+	buttons := make([]any, len(config.Buttons))
+	for i, button := range config.Buttons {
+		buttons[i] = map[string]any{
+			"label_template": button.LabelTemplate,
+			"url_template":   button.URLTemplate,
+		}
+	}
 	return map[string]any{
 		"title_url_template": config.TitleURLTemplate,
 		"footer_template":    config.FooterTemplate,
@@ -154,6 +234,7 @@ func DiscordTemplateConfigMap(config DiscordTemplateConfig) map[string]any {
 			"pending": config.Colors.Pending, "maintenance": config.Colors.Maintenance,
 			"certificate": config.Colors.Certificate,
 		},
-		"fields": fields,
+		"fields":  fields,
+		"buttons": buttons,
 	}
 }

@@ -386,16 +386,17 @@ type MonitorCondition struct {
 package domain
 
 type Notification struct {
-    ID         int64
-    UserID     int64
-    Name       string
-    Type       string            // "telegram", "discord", "slack", ...
-    Active     bool
-    IsDefault  bool
-    TemplateID *int64           // nil = provider's built-in layout
-    Config     map[string]any    // per-provider config (JSONB in DB)
-    CreatedAt  time.Time
-    UpdatedAt  time.Time
+    ID            int64
+    UserID        int64
+    Name          string
+    Type          string            // "telegram", "discord", "slack", ...
+    Active        bool
+    IsDefault     bool
+    IncludeAckURL bool              // default false; Discord uses a Link button when on
+    TemplateID    *int64           // nil = provider's built-in layout
+    Config        map[string]any    // per-provider config (JSONB in DB)
+    CreatedAt     time.Time
+    UpdatedAt     time.Time
 }
 
 type NotificationTemplate struct {
@@ -736,10 +737,11 @@ CREATE TABLE notifications (
     user_id     BIGINT,
     name        VARCHAR(255) NOT NULL,
     type        VARCHAR(50) NOT NULL,        -- telegram, discord, slack, ...
-    active      BOOLEAN NOT NULL DEFAULT TRUE,
-    is_default  BOOLEAN NOT NULL DEFAULT FALSE,
-    template_id BIGINT,
-    config      JSON NOT NULL,               -- per-provider config
+    active           BOOLEAN NOT NULL DEFAULT TRUE,
+    is_default       BOOLEAN NOT NULL DEFAULT FALSE,
+    include_ack_url  BOOLEAN NOT NULL DEFAULT FALSE,
+    template_id      BIGINT,
+    config           JSON NOT NULL,               -- per-provider config
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -1196,8 +1198,12 @@ status alerts take `started_at` and `duration` from the persisted alert row, so
 DOWN resends and recovery messages retain the original outage start; monitor
 `tags` are resolved through `TagService`. Groups have no persisted outage
 lifecycle or tags, so their lifecycle/tag variables are empty. `ack_url` is
-present only for monitor DOWN alerts when `PUBLIC_URL` is configured; group and
-recovery alerts leave it empty. Plain rendering emits an empty string for an
+present only for monitor DOWN alerts when `PUBLIC_URL` is configured and the
+channel has `include_ack_url` enabled (off by default). Discord renders it as a
+Link button; other providers append `Acknowledge: …` to the message. Group
+alerts, recovery alerts, and channels with the toggle off leave it empty.
+Discord webhooks also accept extra Link buttons (`label` + `url` templates) on
+the channel or on a reusable Discord template. Plain rendering emits an empty string for an
 unknown optional value, while the corresponding `json.*` timestamp emits null.
 
 Discord templates additionally persist a structured embed configuration in the

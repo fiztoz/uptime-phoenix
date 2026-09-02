@@ -9,6 +9,7 @@
   import { escapeEmailHTML } from "$lib/utils/email-preview";
   import {
     notificationTemplatesApi,
+    type DiscordButtonTemplate,
     type DiscordEmbedFieldTemplate,
     type DiscordStatusColors,
     type DiscordTemplateConfig,
@@ -31,7 +32,8 @@
   type SMTPEditorPane = "html" | "plain";
   type ActiveTarget =
     | { kind: "title" | "body" | "smtp_html_body" | "title_url" | "footer" }
-    | { kind: "field_name" | "field_value"; index: number };
+    | { kind: "field_name" | "field_value"; index: number }
+    | { kind: "button_label" | "button_url"; index: number };
 
   const providerOptions: Array<{ value: TemplateProvider; label: string }> = [
     { value: "discord", label: "Discord" },
@@ -100,6 +102,7 @@
         inline: true,
       },
     ],
+    buttons: [],
   };
 
   const defaultSMTPHTML = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;background:#f3f4f6;padding:24px 12px;">
@@ -145,7 +148,8 @@
       ...source,
       colors: { ...source.colors },
       fields: source.fields.map((field) => ({ ...field })),
-    };
+      buttons: (source.buttons ?? []).map((button) => ({ ...button })),
+    } satisfies DiscordTemplateConfig;
   }
 
   function cloneSMTPConfig(
@@ -215,6 +219,14 @@
         value: renderPreview(field.value_template).trim(),
       }))
       .filter((field) => field.name && field.value),
+  );
+  const previewButtons = $derived(
+    discordConfig.buttons
+      .map((button) => ({
+        label: renderPreview(button.label_template).trim(),
+        url: renderPreview(button.url_template).trim(),
+      }))
+      .filter((button) => button.label && button.url),
   );
   const previewColor = $derived(
     discordConfig.colors[
@@ -466,6 +478,10 @@
         return discordConfig.fields[activeTarget.index]?.name_template ?? "";
       case "field_value":
         return discordConfig.fields[activeTarget.index]?.value_template ?? "";
+      case "button_label":
+        return discordConfig.buttons[activeTarget.index]?.label_template ?? "";
+      case "button_url":
+        return discordConfig.buttons[activeTarget.index]?.url_template ?? "";
     }
   }
 
@@ -494,6 +510,14 @@
         if (discordConfig.fields[activeTarget.index])
           discordConfig.fields[activeTarget.index].value_template = value;
         break;
+      case "button_label":
+        if (discordConfig.buttons[activeTarget.index])
+          discordConfig.buttons[activeTarget.index].label_template = value;
+        break;
+      case "button_url":
+        if (discordConfig.buttons[activeTarget.index])
+          discordConfig.buttons[activeTarget.index].url_template = value;
+        break;
     }
   }
 
@@ -518,6 +542,22 @@
       value_template: "{{ alert.name }}",
       inline: false,
     });
+  }
+
+  function addButton() {
+    discordConfig.buttons ??= [];
+    if (discordConfig.buttons.length >= 5) return;
+    const next: DiscordButtonTemplate =
+      discordConfig.buttons.length === 0
+        ? { label_template: "Acknowledge", url_template: "{{ ack_url }}" }
+        : { label_template: "", url_template: "" };
+    discordConfig.buttons.push(next);
+  }
+
+  function removeButton(index: number) {
+    discordConfig.buttons.splice(index, 1);
+    activeTarget = { kind: "body" };
+    activeInput = undefined;
   }
 
   function removeField(index: number) {
@@ -575,6 +615,8 @@
       );
       for (const field of discordConfig.fields)
         sources.push(field.name_template, field.value_template);
+      for (const button of discordConfig.buttons)
+        sources.push(button.label_template, button.url_template);
     }
     if (provider === "smtp" && smtpConfig.format === "html")
       sources.push(smtpConfig.html_body_template);
@@ -607,7 +649,14 @@
         body_template: bodyTemplate,
         discord_config:
           provider === "discord"
-            ? cloneDiscordConfig(discordConfig)
+            ? {
+                ...cloneDiscordConfig(discordConfig),
+                buttons: discordConfig.buttons.filter(
+                  (button) =>
+                    button.label_template.trim() !== "" &&
+                    button.url_template.trim() !== "",
+                ),
+              }
             : undefined,
         smtp_config:
           provider === "smtp"
@@ -1085,6 +1134,86 @@
                 </div>
               {/if}
             </section>
+
+            <section class="space-y-3 border-t border-border pt-6">
+              <div
+                class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+              >
+                <div>
+                  <h3 class="text-sm font-semibold">
+                    {m.notification_template_discord_buttons_title()}
+                  </h3>
+                  <p
+                    class="mt-0.5 max-w-2xl text-xs leading-5 text-muted-foreground"
+                  >
+                    {m.notification_template_discord_buttons_help()}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onclick={addButton}
+                  disabled={discordConfig.buttons.length >= 5}
+                  class="{ghostBtn} shrink-0 disabled:opacity-50"
+                >
+                  <Plus class="h-4 w-4" />
+                  {m.notification_template_discord_add_button()}
+                </button>
+              </div>
+              {#if discordConfig.buttons.length > 0}
+                <div
+                  class="overflow-hidden rounded-xl border border-border bg-surface/30"
+                >
+                  {#each discordConfig.buttons as button, index (`discord-button-${index}`)}
+                    <div
+                      class="grid gap-3 border-b border-border p-4 last:border-0 sm:grid-cols-[1fr_minmax(0,1.4fr)_auto]"
+                    >
+                      <div>
+                        <label
+                          class="text-xs font-medium text-muted-foreground"
+                          for="discord-button-label-{index}"
+                          >{m.notification_template_discord_button_label()}</label
+                        >
+                        <input
+                          id="discord-button-label-{index}"
+                          type="text"
+                          bind:value={button.label_template}
+                          onfocus={(event) =>
+                            activate(event, { kind: "button_label", index })}
+                          maxlength="80"
+                          class="{inputClass} mt-1"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          class="text-xs font-medium text-muted-foreground"
+                          for="discord-button-url-{index}"
+                          >{m.notification_template_discord_button_url()}</label
+                        >
+                        <input
+                          id="discord-button-url-{index}"
+                          type="text"
+                          bind:value={button.url_template}
+                          onfocus={(event) =>
+                            activate(event, { kind: "button_url", index })}
+                          maxlength="512"
+                          class="{inputClass} mt-1"
+                        />
+                      </div>
+                      <div class="flex items-end justify-end">
+                        <button
+                          type="button"
+                          onclick={() => removeButton(index)}
+                          class="grid h-10 w-10 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-danger/10 hover:text-danger"
+                          aria-label={m.notification_template_discord_remove_button()}
+                        >
+                          <Trash2 class="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </section>
           {/if}
 
           <div class="rounded-xl border border-border bg-surface/50 p-4">
@@ -1241,6 +1370,7 @@
                   description={previewBody}
                   titleUrl={previewTitleURL}
                   fields={previewFields}
+                  buttons={previewButtons}
                   footer={previewFooter}
                   showTimestamp={discordConfig.show_timestamp}
                   color={previewColor}

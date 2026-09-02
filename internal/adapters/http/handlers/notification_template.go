@@ -62,6 +62,12 @@ type DiscordEmbedFieldView struct {
 	Inline        bool   `json:"inline"`
 }
 
+// DiscordButtonView is the wire shape for one Discord Link button.
+type DiscordButtonView struct {
+	LabelTemplate string `json:"label_template"`
+	URLTemplate   string `json:"url_template"`
+}
+
 // DiscordTemplateConfigView is the explicit public shape for Discord embed settings.
 type DiscordTemplateConfigView struct {
 	TitleURLTemplate string                  `json:"title_url_template"`
@@ -69,6 +75,7 @@ type DiscordTemplateConfigView struct {
 	ShowTimestamp    bool                    `json:"show_timestamp"`
 	Colors           DiscordStatusColorsView `json:"colors"`
 	Fields           []DiscordEmbedFieldView `json:"fields"`
+	Buttons          []DiscordButtonView     `json:"buttons"`
 }
 
 // SMTPTemplateConfigView is the explicit public shape for SMTP email layout settings.
@@ -136,6 +143,12 @@ func toDiscordTemplateConfigView(config domain.DiscordTemplateConfig) *DiscordTe
 			NameTemplate: field.NameTemplate, ValueTemplate: field.ValueTemplate, Inline: field.Inline,
 		}
 	}
+	buttons := make([]DiscordButtonView, len(config.Buttons))
+	for i, button := range config.Buttons {
+		buttons[i] = DiscordButtonView{
+			LabelTemplate: button.LabelTemplate, URLTemplate: button.URLTemplate,
+		}
+	}
 	return &DiscordTemplateConfigView{
 		TitleURLTemplate: config.TitleURLTemplate,
 		FooterTemplate:   config.FooterTemplate,
@@ -144,7 +157,8 @@ func toDiscordTemplateConfigView(config domain.DiscordTemplateConfig) *DiscordTe
 			Up: config.Colors.Up, Down: config.Colors.Down, Pending: config.Colors.Pending,
 			Maintenance: config.Colors.Maintenance, Certificate: config.Colors.Certificate,
 		},
-		Fields: fields,
+		Fields:  fields,
+		Buttons: buttons,
 	}
 }
 
@@ -158,6 +172,12 @@ func discordTemplateConfigFromView(view *DiscordTemplateConfigView) map[string]a
 			NameTemplate: field.NameTemplate, ValueTemplate: field.ValueTemplate, Inline: field.Inline,
 		}
 	}
+	buttons := make([]domain.DiscordButtonTemplate, len(view.Buttons))
+	for i, button := range view.Buttons {
+		buttons[i] = domain.DiscordButtonTemplate{
+			LabelTemplate: button.LabelTemplate, URLTemplate: button.URLTemplate,
+		}
+	}
 	return domain.DiscordTemplateConfigMap(domain.DiscordTemplateConfig{
 		TitleURLTemplate: view.TitleURLTemplate,
 		FooterTemplate:   view.FooterTemplate,
@@ -166,7 +186,8 @@ func discordTemplateConfigFromView(view *DiscordTemplateConfigView) map[string]a
 			Up: view.Colors.Up, Down: view.Colors.Down, Pending: view.Colors.Pending,
 			Maintenance: view.Colors.Maintenance, Certificate: view.Colors.Certificate,
 		},
-		Fields: fields,
+		Fields:  fields,
+		Buttons: buttons,
 	})
 }
 

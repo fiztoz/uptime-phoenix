@@ -73,13 +73,16 @@ type BackupProxy struct {
 
 // BackupNotification is the export shape of a notification (config includes secrets).
 type BackupNotification struct {
-	ID         int64          `json:"id"`
-	Name       string         `json:"name"`
-	Type       string         `json:"type"`
-	Active     bool           `json:"active"`
-	IsDefault  bool           `json:"is_default"`
-	TemplateID *int64         `json:"template_id,omitempty"`
-	Config     map[string]any `json:"config"`
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Active    bool   `json:"active"`
+	IsDefault bool   `json:"is_default"`
+	// IncludeAckURL is a pointer so backups taken before this field existed
+	// unmarshal as nil and restore to the create default (off).
+	IncludeAckURL *bool          `json:"include_ack_url,omitempty"`
+	TemplateID    *int64         `json:"template_id,omitempty"`
+	Config        map[string]any `json:"config"`
 }
 
 // BackupNotificationTemplate is the export shape of a reusable provider layout.
@@ -411,14 +414,16 @@ func (s *BackupService) Export(ctx context.Context, userID int64) (*BackupDocume
 		return nil, fmt.Errorf("backup export: list notifications: %w", err)
 	}
 	for _, n := range notifs {
+		includeAckURL := n.IncludeAckURL
 		doc.Notifications = append(doc.Notifications, BackupNotification{
-			ID:         n.ID,
-			Name:       n.Name,
-			Type:       n.Type,
-			Active:     n.Active,
-			IsDefault:  n.IsDefault,
-			TemplateID: n.TemplateID,
-			Config:     n.Config,
+			ID:            n.ID,
+			Name:          n.Name,
+			Type:          n.Type,
+			Active:        n.Active,
+			IsDefault:     n.IsDefault,
+			IncludeAckURL: &includeAckURL,
+			TemplateID:    n.TemplateID,
+			Config:        n.Config,
 		})
 	}
 	if s.notificationTemplates != nil {
@@ -785,14 +790,19 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 				templateID = &mapped
 			}
 		}
+		includeAckURL := domain.DefaultIncludeAckURL
+		if bn.IncludeAckURL != nil {
+			includeAckURL = *bn.IncludeAckURL
+		}
 		n := &domain.Notification{
-			UserID:     userID,
-			Name:       bn.Name,
-			Type:       bn.Type,
-			Active:     bn.Active,
-			IsDefault:  bn.IsDefault,
-			TemplateID: templateID,
-			Config:     bn.Config,
+			UserID:        userID,
+			Name:          bn.Name,
+			Type:          bn.Type,
+			Active:        bn.Active,
+			IsDefault:     bn.IsDefault,
+			IncludeAckURL: includeAckURL,
+			TemplateID:    templateID,
+			Config:        bn.Config,
 		}
 		if n.Config == nil {
 			n.Config = map[string]any{}

@@ -17,6 +17,11 @@ export interface Notification {
    * (see $lib/group-notifications).
    */
   is_default: boolean;
+  /**
+   * When true, DOWN messages include the public acknowledgement deep-link
+   * (Discord: Acknowledge button; other providers: a text link). Default off.
+   */
+  include_ack_url: boolean;
   /** Reusable provider-specific message layout, or null for the built-in layout. */
   template_id: number | null;
   created_at: string;
@@ -29,6 +34,7 @@ export interface CreateNotificationInput {
   config: Record<string, unknown>;
   active?: boolean;
   is_default?: boolean;
+  include_ack_url?: boolean;
   template_id?: number | null;
 }
 

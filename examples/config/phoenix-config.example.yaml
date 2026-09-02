@@ -45,6 +45,9 @@ spec:
       name: Slack Ops
       type: slack
       active: true
+      # Default false. Set true to include the public acknowledgement link
+      # (Discord: Acknowledge button; other providers: a text link).
+      include_ack_url: false
       config:
         # Supply the real URL via a sealed secret overlay in CI, or set once
         # via the UI and leave __REDACTED__ here after export.

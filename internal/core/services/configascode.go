@@ -195,9 +195,10 @@ func (s *ConfigService) Export(ctx context.Context, userID int64) (*ConfigDocume
 			continue
 		}
 		active := n.Active
+		includeAckURL := n.IncludeAckURL
 		doc.Spec.Notifications = append(doc.Spec.Notifications, ConfigNotification{
 			Key: k.KeyName, Name: n.Name, Type: n.Type, Active: &active,
-			IsDefault: n.IsDefault, Config: redactConfigMap(n.Config),
+			IsDefault: n.IsDefault, IncludeAckURL: &includeAckURL, Config: redactConfigMap(n.Config),
 		})
 	}
 
@@ -998,6 +999,7 @@ func (s *ConfigService) applyNotification(ctx context.Context, userID int64, n C
 	if n.Active != nil {
 		active = *n.Active
 	}
+	includeAckURL := configIncludeAckURL(n)
 	if action == ConfigActionCreate {
 		cfg := n.Config
 		if cfg == nil {
@@ -1005,7 +1007,7 @@ func (s *ConfigService) applyNotification(ctx context.Context, userID int64, n C
 		}
 		notif := &domain.Notification{
 			UserID: userID, Name: n.Name, Type: n.Type, Active: active,
-			IsDefault: n.IsDefault, Config: stripRedacted(cfg),
+			IsDefault: n.IsDefault, IncludeAckURL: includeAckURL, Config: stripRedacted(cfg),
 		}
 		if err := s.notifications.Create(ctx, notif); err != nil {
 			return fmt.Errorf("create notification %s: %w", n.Key, err)
@@ -1024,6 +1026,7 @@ func (s *ConfigService) applyNotification(ctx context.Context, userID int64, n C
 	cur.Type = n.Type
 	cur.Active = active
 	cur.IsDefault = n.IsDefault
+	cur.IncludeAckURL = includeAckURL
 	cur.Config = mergeConfigMaps(cur.Config, n.Config)
 	return s.notifications.Update(ctx, cur)
 }
@@ -1508,11 +1511,19 @@ func notificationEqual(cur *domain.Notification, want ConfigNotification) bool {
 	if want.Active != nil {
 		active = *want.Active
 	}
-	if cur.Name != want.Name || cur.Type != want.Type || cur.Active != active || cur.IsDefault != want.IsDefault {
+	if cur.Name != want.Name || cur.Type != want.Type || cur.Active != active || cur.IsDefault != want.IsDefault ||
+		cur.IncludeAckURL != configIncludeAckURL(want) {
 		return false
 	}
 	// Compare config ignoring redacted secrets.
 	return configMapsEqualIgnoringSecrets(cur.Config, want.Config)
+}
+
+func configIncludeAckURL(n ConfigNotification) bool {
+	if n.IncludeAckURL == nil {
+		return domain.DefaultIncludeAckURL
+	}
+	return *n.IncludeAckURL
 }
 
 func proxyEqual(cur *domain.Proxy, want ConfigProxy) bool {

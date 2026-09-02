@@ -706,6 +706,9 @@ func TestNotificationHandlers_Create_CapabilityHolderSucceeds(t *testing.T) {
 	if view["is_default"] != true {
 		t.Errorf("is_default = %v; want true", view["is_default"])
 	}
+	if view["include_ack_url"] != false {
+		t.Errorf("include_ack_url = %v; want false (default when omitted)", view["include_ack_url"])
+	}
 	// user_id must come from the authenticated principal, not the body.
 	if uid, ok := view["user_id"].(float64); !ok || int64(uid) != h.userBID {
 		t.Errorf("user_id = %v; want %d (capability holder's id)", view["user_id"], h.userBID)
@@ -721,8 +724,8 @@ func TestNotificationHandlers_Create_CapabilityHolderSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("svc.GetByID after create: %v", err)
 	}
-	if stored.Name != "Pager webhook" || stored.Type != "webhook" || !stored.IsDefault || !stored.Active {
-		t.Errorf("stored = %+v; want name/type/is_default/active matching request", stored)
+	if stored.Name != "Pager webhook" || stored.Type != "webhook" || !stored.IsDefault || !stored.Active || stored.IncludeAckURL {
+		t.Errorf("stored = %+v; want name/type/is_default/active matching request and include_ack_url=false", stored)
 	}
 	if stored.UserID != h.userBID {
 		t.Errorf("stored.UserID = %d; want %d", stored.UserID, h.userBID)
@@ -1117,6 +1120,55 @@ func TestNotificationHandlers_Update_CapabilityHolderMutatesAny(t *testing.T) {
 	}
 	if stored.Name != "renamed-by-manager" || stored.Active {
 		t.Errorf("stored after update = name=%q active=%v; want renamed/inactive", stored.Name, stored.Active)
+	}
+}
+
+// TestNotificationHandlers_CreateAndUpdate_IncludeAckURLToggle asserts the
+// acknowledgement-link flag defaults on, can be created off, and can be
+// flipped on update. The effect is the persisted row, not the status code.
+func TestNotificationHandlers_CreateAndUpdate_IncludeAckURLToggle(t *testing.T) {
+	h := newNotifHTTPHarness(t)
+	ctx := context.Background()
+
+	include := true
+	rec := h.do(t, http.MethodPost, "/api/notifications", h.tokenB, map[string]any{
+		"name":            "ack-pager",
+		"type":            "webhook",
+		"include_ack_url": include,
+		"config":          map[string]any{"url": "https://hooks.example/ack"},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST with include_ack_url=true returned %d; want 201 (%s)", rec.Code, rec.Body.String())
+	}
+	var view map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+	if view["include_ack_url"] != true {
+		t.Errorf("create view include_ack_url = %v; want true", view["include_ack_url"])
+	}
+	id := int64(view["id"].(float64))
+	stored, err := h.svc.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetByID after create: %v", err)
+	}
+	if !stored.IncludeAckURL {
+		t.Fatal("stored IncludeAckURL = false after explicit true create")
+	}
+
+	disable := false
+	updateRec := h.do(t, http.MethodPut, "/api/notifications/"+floatToIntStr(float64(id)), h.tokenB, map[string]any{
+		"include_ack_url": disable,
+	})
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("PUT include_ack_url=false returned %d; want 200 (%s)", updateRec.Code, updateRec.Body.String())
+	}
+	updated, err := h.svc.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetByID after update: %v", err)
+	}
+	if updated.IncludeAckURL {
+		t.Fatal("stored IncludeAckURL = true after update to false")
 	}
 }
 

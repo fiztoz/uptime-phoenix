@@ -588,12 +588,13 @@ func TestNotificationRepository(t *testing.T) {
 
 	// Create notification
 	notif := &domain.Notification{
-		UserID:    user.ID,
-		Name:      "Test Slack",
-		Type:      "slack",
-		Active:    true,
-		IsDefault: false,
-		Config:    map[string]any{"webhook_url": "https://hooks.slack.com/test"},
+		UserID:        user.ID,
+		Name:          "Test Slack",
+		Type:          "slack",
+		Active:        true,
+		IsDefault:     false,
+		IncludeAckURL: true,
+		Config:        map[string]any{"webhook_url": "https://hooks.slack.com/test"},
 	}
 	if err := repo.NotificationRepo.Create(ctx, notif); err != nil {
 		t.Fatalf("Create notification: %v", err)
@@ -609,6 +610,21 @@ func TestNotificationRepository(t *testing.T) {
 	}
 	if fetched.Name != notif.Name {
 		t.Errorf("expected name %q, got %q", notif.Name, fetched.Name)
+	}
+	if !fetched.IncludeAckURL {
+		t.Errorf("IncludeAckURL = false; want true")
+	}
+
+	fetched.IncludeAckURL = false
+	if err := repo.NotificationRepo.Update(ctx, fetched); err != nil {
+		t.Fatalf("Update IncludeAckURL: %v", err)
+	}
+	toggled, err := repo.NotificationRepo.GetByID(ctx, notif.ID)
+	if err != nil {
+		t.Fatalf("GetByID after ack-url toggle: %v", err)
+	}
+	if toggled.IncludeAckURL {
+		t.Errorf("IncludeAckURL after update = true; want false")
 	}
 
 	// List
@@ -628,6 +644,27 @@ func TestNotificationRepository(t *testing.T) {
 	_, err = repo.NotificationRepo.GetByID(ctx, notif.ID)
 	if err != ports.ErrNotFound {
 		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+
+	// bun must persist an explicit false on INSERT. A `default:true` tag would
+	// marshal the zero value as SQL DEFAULT and silently store true.
+	off := &domain.Notification{
+		UserID:        user.ID,
+		Name:          "No Ack",
+		Type:          "webhook",
+		Active:        true,
+		IncludeAckURL: false,
+		Config:        map[string]any{"url": "https://example.test/no-ack"},
+	}
+	if err := repo.NotificationRepo.Create(ctx, off); err != nil {
+		t.Fatalf("Create IncludeAckURL=false: %v", err)
+	}
+	gotOff, err := repo.NotificationRepo.GetByID(ctx, off.ID)
+	if err != nil {
+		t.Fatalf("GetByID IncludeAckURL=false: %v", err)
+	}
+	if gotOff.IncludeAckURL {
+		t.Fatal("Create IncludeAckURL=false persisted as true")
 	}
 }
 

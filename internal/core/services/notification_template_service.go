@@ -192,6 +192,26 @@ func validateDiscordTemplateConfig(template *domain.NotificationTemplate) error 
 			return fmt.Errorf("notification template: %w: invalid Discord field %d value: %v", domain.ErrValidation, i+1, err)
 		}
 	}
+	if len(config.Buttons) > domain.MaxDiscordButtons {
+		return fmt.Errorf("notification template: %w: Discord supports at most %d buttons", domain.ErrValidation, domain.MaxDiscordButtons)
+	}
+	for i, button := range config.Buttons {
+		if strings.TrimSpace(button.LabelTemplate) == "" || strings.TrimSpace(button.URLTemplate) == "" {
+			return fmt.Errorf("notification template: %w: Discord button %d requires a label and url", domain.ErrValidation, i+1)
+		}
+		if utf8.RuneCountInString(button.LabelTemplate) > domain.DiscordButtonLabelMax {
+			return fmt.Errorf("notification template: %w: Discord button %d label exceeds %d characters", domain.ErrValidation, i+1, domain.DiscordButtonLabelMax)
+		}
+		if utf8.RuneCountInString(button.URLTemplate) > domain.DiscordButtonURLMax {
+			return fmt.Errorf("notification template: %w: Discord button %d url exceeds %d characters", domain.ErrValidation, i+1, domain.DiscordButtonURLMax)
+		}
+		if err := domain.ValidateNotificationTemplateText(button.LabelTemplate); err != nil {
+			return fmt.Errorf("notification template: %w: invalid Discord button %d label: %v", domain.ErrValidation, i+1, err)
+		}
+		if err := domain.ValidateNotificationTemplateText(button.URLTemplate); err != nil {
+			return fmt.Errorf("notification template: %w: invalid Discord button %d url: %v", domain.ErrValidation, i+1, err)
+		}
+	}
 	if strings.TrimSpace(template.TitleTemplate) == "" && strings.TrimSpace(template.BodyTemplate) == "" && len(config.Fields) == 0 {
 		return fmt.Errorf("notification template: %w: Discord embed requires a title, body, or field", domain.ErrValidation)
 	}

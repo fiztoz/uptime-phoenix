@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -473,7 +474,11 @@ func (s *NotificationService) validateTemplateAssignment(ctx context.Context, n 
 }
 
 func (s *NotificationService) alertForNotification(ctx context.Context, n *domain.Notification, alert domain.AlertContext) (domain.AlertContext, error) {
-	if n == nil || n.TemplateID == nil {
+	if n == nil {
+		return alert, nil
+	}
+	alert = applyAckURLPolicy(n, alert)
+	if n.TemplateID == nil {
 		return alert, nil
 	}
 	if s.templateRepo == nil {
@@ -490,6 +495,18 @@ func (s *NotificationService) alertForNotification(ctx context.Context, n *domai
 	alert.TemplateBody = template.BodyTemplate
 	alert.TemplateConfig = template.Config
 	return alert, nil
+}
+
+// applyAckURLPolicy strips the public acknowledgement link when this channel
+// has include_ack_url turned off. It runs before template resolution so both
+// the default "Acknowledge: …" line and {{ ack_url }} stay empty.
+func applyAckURLPolicy(n *domain.Notification, alert domain.AlertContext) domain.AlertContext {
+	if n.IncludeAckURL || alert.AckURL == "" {
+		return alert
+	}
+	alert.Message = strings.ReplaceAll(alert.Message, "\nAcknowledge: "+alert.AckURL, "")
+	alert.AckURL = ""
+	return alert
 }
 
 // AttachToMonitor links a notification to a monitor so the notification is

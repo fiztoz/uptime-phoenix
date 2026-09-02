@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -140,6 +141,80 @@ func TestDiscordSender_Send_StructuredGroupTemplate(t *testing.T) {
 	}
 	if fields[0].(map[string]any)["name"] != "Condition" || fields[1].(map[string]any)["value"] != "2" {
 		t.Fatalf("unexpected group fields: %#v", fields)
+	}
+}
+
+func TestDiscordSender_Send_AckURLBecomesLinkButton(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	ackURL := "https://status.example.com/ack/token"
+	alert := domain.AlertContext{
+		MonitorName: "API", Status: domain.StatusDown,
+		Message: "API is DOWN\nAcknowledge: " + ackURL,
+		AckURL:  ackURL,
+	}
+	if err := (DiscordSender{}).Send(context.Background(), map[string]any{"webhook_url": srv.URL}, alert); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	embed := received["embeds"].([]any)[0].(map[string]any)
+	if desc, _ := embed["description"].(string); strings.Contains(desc, "Acknowledge:") {
+		t.Fatalf("description still contains ack text: %q", desc)
+	}
+	rows := received["components"].([]any)
+	buttons := rows[0].(map[string]any)["components"].([]any)
+	button := buttons[0].(map[string]any)
+	if button["style"] != float64(5) || button["label"] != "Acknowledge" || button["url"] != ackURL {
+		t.Fatalf("ack button = %#v", button)
+	}
+}
+
+func TestDiscordSender_Send_CustomAndAckButtons(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	ackURL := "https://status.example.com/ack/token"
+	config := domain.DefaultDiscordTemplateConfig()
+	config.Buttons = []domain.DiscordButtonTemplate{
+		{LabelTemplate: "Dashboard", URLTemplate: "https://phoenix.example.com/monitors/{{ monitor.id }}"},
+		{LabelTemplate: "Ack again", URLTemplate: "{{ ack_url }}"},
+	}
+	alert := domain.AlertContext{
+		MonitorID: 42, MonitorName: "API", Status: domain.StatusDown,
+		AckURL: ackURL, TemplateConfig: domain.DiscordTemplateConfigMap(config),
+	}
+	channelCfg := map[string]any{
+		"webhook_url": srv.URL,
+		"buttons": []any{
+			map[string]any{"label": "Runbook", "url": "https://runbook.example.com/api"},
+		},
+	}
+	if err := (DiscordSender{}).Send(context.Background(), channelCfg, alert); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	rows := received["components"].([]any)
+	buttons := rows[0].(map[string]any)["components"].([]any)
+	if len(buttons) != 3 {
+		t.Fatalf("buttons = %#v; want ack + dashboard + runbook (duplicate ack omitted)", buttons)
+	}
+	labels := []string{
+		buttons[0].(map[string]any)["label"].(string),
+		buttons[1].(map[string]any)["label"].(string),
+		buttons[2].(map[string]any)["label"].(string),
+	}
+	if labels[0] != "Acknowledge" || labels[1] != "Dashboard" || labels[2] != "Runbook" {
+		t.Fatalf("button order = %v", labels)
+	}
+	if buttons[1].(map[string]any)["url"] != "https://phoenix.example.com/monitors/42" {
+		t.Fatalf("dashboard url = %v", buttons[1].(map[string]any)["url"])
 	}
 }
 

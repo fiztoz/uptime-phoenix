@@ -58,12 +58,15 @@ type ConfigProxy struct {
 
 // ConfigNotification is a notification channel declaration.
 type ConfigNotification struct {
-	Key       string         `json:"key" yaml:"key"`
-	Name      string         `json:"name" yaml:"name"`
-	Type      string         `json:"type" yaml:"type"`
-	Active    *bool          `json:"active,omitempty" yaml:"active,omitempty"`
-	IsDefault bool           `json:"is_default,omitempty" yaml:"is_default,omitempty"`
-	Config    map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
+	Key       string `json:"key" yaml:"key"`
+	Name      string `json:"name" yaml:"name"`
+	Type      string `json:"type" yaml:"type"`
+	Active    *bool  `json:"active,omitempty" yaml:"active,omitempty"`
+	IsDefault bool   `json:"is_default,omitempty" yaml:"is_default,omitempty"`
+	// IncludeAckURL is a pointer so omitted YAML keeps the create default
+	// (false). Explicit true enables the public acknowledgement link.
+	IncludeAckURL *bool          `json:"include_ack_url,omitempty" yaml:"include_ack_url,omitempty"`
+	Config        map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
 }
 
 // ConfigMonitorGroup is a folder declaration.

@@ -8,11 +8,17 @@
 		value: string;
 	}
 
+	interface PreviewButton {
+		label: string;
+		url: string;
+	}
+
 	interface Props {
 		title: string;
 		description: string;
 		titleUrl?: string;
 		fields?: PreviewField[];
+		buttons?: PreviewButton[];
 		footer?: string;
 		showTimestamp?: boolean;
 		color: string;
@@ -23,6 +29,7 @@
 		description,
 		titleUrl = '',
 		fields = [],
+		buttons = [],
 		footer = '',
 		showTimestamp = true,
 		color,
@@ -102,6 +109,20 @@
 					</div>
 				{/if}
 			</div>
+			{#if buttons.length > 0}
+				<div class="mt-2 flex max-w-[520px] flex-wrap gap-2">
+					{#each buttons as button, index (`${button.label}-${index}`)}
+						<a
+							href={button.url}
+							target="_blank"
+							rel="noreferrer"
+							class="discord-button inline-flex min-h-8 items-center rounded px-3 text-sm font-medium"
+						>
+							{button.label}
+						</a>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	</div>
 </div>
@@ -120,6 +141,17 @@
 
 	.discord-avatar {
 		background: var(--discord-avatar);
+	}
+
+	.discord-button {
+		background: var(--discord-embed);
+		border: 1px solid var(--discord-embed-border);
+		color: var(--discord-heading);
+		text-decoration: none;
+	}
+
+	.discord-button:hover {
+		background: var(--discord-embed-border);
 	}
 
 	.discord-markdown :global(p) {

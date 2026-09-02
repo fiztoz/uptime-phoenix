@@ -4,17 +4,24 @@ import "time"
 
 // Notification represents a notification provider configuration.
 type Notification struct {
-	ID         int64
-	UserID     int64
-	Name       string
-	Type       string // "telegram", "discord", "slack", ...
-	Active     bool
-	IsDefault  bool
-	TemplateID *int64
-	Config     map[string]any // per-provider config (JSONB in DB)
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID        int64
+	UserID    int64
+	Name      string
+	Type      string // "telegram", "discord", "slack", ...
+	Active    bool
+	IsDefault bool
+	// IncludeAckURL controls whether DOWN messages on this channel carry the
+	// public acknowledgement deep-link. False is the default: Discord gets an
+	// Acknowledge button when this is on; other providers append a text link.
+	IncludeAckURL bool
+	TemplateID    *int64
+	Config        map[string]any // per-provider config (JSONB in DB)
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
+
+// DefaultIncludeAckURL is the create-time default when the field is omitted.
+const DefaultIncludeAckURL = false
 
 // MonitorNotification represents the link between a monitor and a notification.
 type MonitorNotification struct {

@@ -16,12 +16,18 @@ export interface DiscordEmbedFieldTemplate {
   inline: boolean;
 }
 
+export interface DiscordButtonTemplate {
+  label_template: string;
+  url_template: string;
+}
+
 export interface DiscordTemplateConfig {
   title_url_template: string;
   footer_template: string;
   show_timestamp: boolean;
   colors: DiscordStatusColors;
   fields: DiscordEmbedFieldTemplate[];
+  buttons: DiscordButtonTemplate[];
 }
 
 export interface SMTPTemplateConfig {

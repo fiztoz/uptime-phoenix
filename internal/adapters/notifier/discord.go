@@ -27,6 +27,9 @@ func (DiscordSender) Validate(config map[string]any) error {
 	if v, ok := config["webhook_url"].(string); !ok || v == "" {
 		return fmt.Errorf("webhook_url is required")
 	}
+	if _, err := domain.ParseDiscordNotificationButtons(config); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -103,6 +106,18 @@ func (DiscordSender) Send(ctx context.Context, config map[string]any, alert doma
 		return fmt.Errorf("discord: rendered embed exceeds 6000 total characters")
 	}
 
+	channelButtons, err := domain.ParseDiscordNotificationButtons(config)
+	if err != nil {
+		return fmt.Errorf("discord: %w", err)
+	}
+	components, err := renderDiscordComponents(embedConfig.Buttons, channelButtons, alert, now)
+	if err != nil {
+		return fmt.Errorf("discord: %w", err)
+	}
+	if len(components) > 0 {
+		desc = stripAckLine(desc, alert.AckURL)
+	}
+
 	embed := map[string]any{
 		"title":       title,
 		"description": desc,
@@ -127,6 +142,9 @@ func (DiscordSender) Send(ctx context.Context, config map[string]any, alert doma
 	}
 	if avatarURL != "" {
 		body["avatar_url"] = avatarURL
+	}
+	if len(components) > 0 {
+		body["components"] = components
 	}
 	payload, _ := json.Marshal(body)
 
@@ -217,4 +235,80 @@ func renderDiscordFields(fields []domain.DiscordEmbedFieldTemplate, alert domain
 		rendered = append(rendered, map[string]any{"name": name, "value": value, "inline": field.Inline})
 	}
 	return rendered, totalCharacters, nil
+}
+
+func renderDiscordComponents(
+	templateButtons, channelButtons []domain.DiscordButtonTemplate,
+	alert domain.AlertContext,
+	now time.Time,
+) ([]map[string]any, error) {
+	var specs []domain.DiscordButtonTemplate
+	if alert.AckURL != "" {
+		specs = append(specs, domain.DiscordButtonTemplate{
+			LabelTemplate: "Acknowledge",
+			URLTemplate:   alert.AckURL,
+		})
+	}
+	specs = append(specs, templateButtons...)
+	specs = append(specs, channelButtons...)
+
+	rendered := make([]map[string]any, 0, len(specs))
+	seen := make(map[string]struct{}, len(specs))
+	for i, spec := range specs {
+		label, err := domain.RenderNotificationTemplate(spec.LabelTemplate, alert, now)
+		if err != nil {
+			return nil, fmt.Errorf("render button %d label: %w", i+1, err)
+		}
+		rawURL, err := domain.RenderNotificationTemplate(spec.URLTemplate, alert, now)
+		if err != nil {
+			return nil, fmt.Errorf("render button %d url: %w", i+1, err)
+		}
+		label = strings.TrimSpace(label)
+		rawURL = strings.TrimSpace(rawURL)
+		if label == "" || rawURL == "" {
+			continue
+		}
+		if utf8.RuneCountInString(label) > domain.DiscordButtonLabelMax {
+			return nil, fmt.Errorf("rendered button %d label exceeds %d characters", i+1, domain.DiscordButtonLabelMax)
+		}
+		if utf8.RuneCountInString(rawURL) > domain.DiscordButtonURLMax {
+			return nil, fmt.Errorf("rendered button %d url exceeds %d characters", i+1, domain.DiscordButtonURLMax)
+		}
+		parsed, parseErr := url.ParseRequestURI(rawURL)
+		if parseErr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return nil, fmt.Errorf("rendered button %d url must use http or https", i+1)
+		}
+		if _, dup := seen[rawURL]; dup {
+			continue
+		}
+		seen[rawURL] = struct{}{}
+		rendered = append(rendered, map[string]any{
+			"type":  2,
+			"style": 5,
+			"label": label,
+			"url":   rawURL,
+		})
+	}
+	if len(rendered) == 0 {
+		return nil, nil
+	}
+	rows := make([]map[string]any, 0, (len(rendered)+domain.MaxDiscordButtons-1)/domain.MaxDiscordButtons)
+	for start := 0; start < len(rendered); start += domain.MaxDiscordButtons {
+		end := start + domain.MaxDiscordButtons
+		if end > len(rendered) {
+			end = len(rendered)
+		}
+		rows = append(rows, map[string]any{
+			"type":       1,
+			"components": rendered[start:end],
+		})
+	}
+	return rows, nil
+}
+
+func stripAckLine(text, ackURL string) string {
+	if ackURL == "" {
+		return text
+	}
+	return strings.TrimSpace(strings.ReplaceAll(text, "\nAcknowledge: "+ackURL, ""))
 }

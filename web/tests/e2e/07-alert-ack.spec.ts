@@ -237,6 +237,7 @@ test("anonymous deep link acknowledges the exact alert from a real notification"
         type: "webhook",
         active: true,
         is_default: true,
+        include_ack_url: true,
         config: { url: `${STUB_BASE}/notify` },
       },
     },

@@ -384,6 +384,11 @@
                       {templateName(n.template_id)}
                     </p>
                   {/if}
+                  {#if n.include_ack_url}
+                    <p class="mt-0.5 text-xs text-faint">
+                      {m.notifications_ack_link_on()}
+                    </p>
+                  {/if}
                 </div>
               </div>
               <span

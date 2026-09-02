@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -130,5 +131,56 @@ func TestNotificationService_GroupContextLeavesUnsupportedMonitorValuesEmpty(t *
 	if !alert.StartedAt.IsZero() || alert.Duration != 0 || alert.AckURL != "" || len(alert.Tags) != 0 {
 		t.Errorf("group-only optional values = started:%s duration:%s ack:%q tags:%#v; want empty",
 			alert.StartedAt, alert.Duration, alert.AckURL, alert.Tags)
+	}
+}
+
+func TestNotificationService_IncludeAckURLToggle(t *testing.T) {
+	const ackURL = "https://status.example.com/ack/token"
+
+	cases := []struct {
+		name          string
+		includeAckURL bool
+		wantAckURL    string
+		wantAckLine   bool
+	}{
+		{name: "include", includeAckURL: true, wantAckURL: ackURL, wantAckLine: true},
+		{name: "omit", includeAckURL: false, wantAckURL: "", wantAckLine: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			baseRepo := newFakeNotifRepo()
+			notification := &domain.Notification{
+				UserID: 1, Name: "pager", Type: "delivery-context", Active: true,
+				IncludeAckURL: tc.includeAckURL,
+			}
+			if err := baseRepo.Create(ctx, notification); err != nil {
+				t.Fatalf("create notification: %v", err)
+			}
+			repo := &deliveryContextNotifRepo{
+				fakeNotifRepo: baseRepo,
+				byMonitor:     map[int64][]*domain.Notification{9: {notification}},
+			}
+			sender := &deliveryContextSender{}
+			svc := NewNotificationService(repo, newFakeMonitorNotifLinkRepo())
+			svc.RegisterSender(sender)
+
+			monitor := &domain.Monitor{
+				ID: 9, UserID: 1, Name: "API", Type: "http",
+				Config: map[string]any{"url": "https://api.example.com/health"},
+			}
+			if err := svc.NotifyWithAck(ctx, monitor, domain.StatusDown, domain.StatusUp, ackURL, "timeout"); err != nil {
+				t.Fatalf("NotifyWithAck: %v", err)
+			}
+
+			alert := sender.last(t)
+			if alert.AckURL != tc.wantAckURL {
+				t.Errorf("AckURL = %q; want %q", alert.AckURL, tc.wantAckURL)
+			}
+			hasLine := strings.Contains(alert.Message, "Acknowledge: "+ackURL)
+			if hasLine != tc.wantAckLine {
+				t.Errorf("message %q: ack line present=%v; want %v", alert.Message, hasLine, tc.wantAckLine)
+			}
+		})
 	}
 }

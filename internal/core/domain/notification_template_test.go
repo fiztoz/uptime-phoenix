@@ -149,12 +149,18 @@ func TestDiscordTemplateConfig_RoundTripAndDefaults(t *testing.T) {
 	want.FooterTemplate = "Phoenix • {{ alert.scope }}"
 	want.ShowTimestamp = false
 	want.Fields = []DiscordEmbedFieldTemplate{}
+	want.Buttons = []DiscordButtonTemplate{
+		{LabelTemplate: "Acknowledge", URLTemplate: "{{ ack_url }}"},
+	}
 	got, err := ParseDiscordTemplateConfig(DiscordTemplateConfigMap(want))
 	if err != nil {
 		t.Fatalf("round-trip config: %v", err)
 	}
 	if got.TitleURLTemplate != want.TitleURLTemplate || got.FooterTemplate != want.FooterTemplate || got.ShowTimestamp || len(got.Fields) != 0 {
 		t.Fatalf("round-trip config = %+v; want %+v", got, want)
+	}
+	if len(got.Buttons) != 1 || got.Buttons[0].URLTemplate != "{{ ack_url }}" {
+		t.Fatalf("round-trip buttons = %+v", got.Buttons)
 	}
 
 	if _, err := ParseDiscordTemplateConfig(map[string]any{"fields": "invalid"}); err == nil {

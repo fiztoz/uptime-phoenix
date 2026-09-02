@@ -496,6 +496,8 @@ When automated tests aren't sufficient, verify these flows manually.
 - [ ] Webhook `json.*` variables remain valid JSON when monitor/message values contain quotes
 - [ ] Test-send button fires test notification
 - [ ] Edit notification config
+- [ ] Leave "Include acknowledgement link" off (the default), trigger a DOWN, and confirm no ack URL/button is sent; turn it on and confirm Discord gets an Acknowledge button while other providers append `Acknowledge: …`
+- [ ] On a Discord webhook, add extra Link buttons (label + URL or `{{ ack_url }}`) and confirm they appear under the embed
 - [ ] Delete notification
 - [ ] Assign notification to monitor
 - [ ] Monitor goes DOWN → notification fires
