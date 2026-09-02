@@ -31,6 +31,10 @@ func (TeamsSender) Send(ctx context.Context, config map[string]any, alert domain
 	themeColor := "808080"
 	var title, text string
 	var facts []map[string]any
+	targetLine := ""
+	if alert.MonitorTarget != "" {
+		targetLine = fmt.Sprintf("\nTarget: %s (%s)", alert.MonitorTarget, alert.MonitorType)
+	}
 	if isAuxiliaryAlert(alert) {
 		themeColor = "FFA500"
 		if isCapacityCondition(alert) {
@@ -42,7 +46,7 @@ func (TeamsSender) Send(ctx context.Context, config map[string]any, alert domain
 			}
 		}
 		title = alertTitleWithPrefix("Phoenix Alert:", alert)
-		text = fmt.Sprintf("%s\nTarget: %s (%s)", alertBody(alert), alert.MonitorTarget, alert.MonitorType)
+		text = alertBody(alert) + targetLine
 		facts = []map[string]any{
 			{"name": "Event", "value": alert.EventKind},
 			{"name": "Monitor", "value": alert.MonitorName},
@@ -68,7 +72,7 @@ func (TeamsSender) Send(ctx context.Context, config map[string]any, alert domain
 			themeColor = "808080"
 		}
 		title = fmt.Sprintf("Phoenix Alert: %s is %s", alert.MonitorName, alert.Status)
-		text = fmt.Sprintf("%s\nTarget: %s (%s)", alert.Message, alert.MonitorTarget, alert.MonitorType)
+		text = alert.Message + targetLine
 		if alert.CheckOutput != "" {
 			text += "\n" + alert.CheckOutput
 		}

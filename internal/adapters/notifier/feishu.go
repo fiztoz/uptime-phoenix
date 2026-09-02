@@ -32,7 +32,11 @@ func (FeishuSender) Send(ctx context.Context, config map[string]any, alert domai
 	emoji := "✅"
 	color := "green"
 	var headerContent string
-	bodyContent := fmt.Sprintf("**Monitor:** %s\n**Type:** %s\n**Target:** %s\n**Message:** %s", alert.MonitorName, alert.MonitorType, alert.MonitorTarget, alert.Message)
+	targetLine := ""
+	if alert.MonitorTarget != "" {
+		targetLine = fmt.Sprintf("**Target:** %s\n", alert.MonitorTarget)
+	}
+	bodyContent := fmt.Sprintf("**Monitor:** %s\n**Type:** %s\n%s**Message:** %s", alert.MonitorName, alert.MonitorType, targetLine, alert.Message)
 	if isAuxiliaryAlert(alert) {
 		emoji = alertEmoji(alert)
 		color = "orange"
@@ -45,8 +49,8 @@ func (FeishuSender) Send(ctx context.Context, config map[string]any, alert domai
 			}
 		}
 		headerContent = fmt.Sprintf("%s %s", emoji, alertTitle(alert))
-		bodyContent = fmt.Sprintf("**Monitor:** %s\n**Type:** %s\n**Target:** %s\n**Event:** %s\n**Message:** %s",
-			alert.MonitorName, alert.MonitorType, alert.MonitorTarget, alert.EventKind, alertBody(alert))
+		bodyContent = fmt.Sprintf("**Monitor:** %s\n**Type:** %s\n%s**Event:** %s\n**Message:** %s",
+			alert.MonitorName, alert.MonitorType, targetLine, alert.EventKind, alertBody(alert))
 	} else {
 		switch alert.Status {
 		case domain.StatusDown:

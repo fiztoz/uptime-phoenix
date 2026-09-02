@@ -70,15 +70,19 @@ func (SMTPSender) Send(ctx context.Context, config map[string]any, alert domain.
 	}
 
 	var subject, body string
+	targetLine := ""
+	if alert.MonitorTarget != "" {
+		targetLine = fmt.Sprintf("Target: %s\n", alert.MonitorTarget)
+	}
 	if isAuxiliaryAlert(alert) {
 		subject = alertTitleWithPrefix("Phoenix Alert:", alert)
-		body = fmt.Sprintf("Monitor: %s\nType: %s\nTarget: %s\nEvent: %s\n%s\nTime: %s\n",
-			alert.MonitorName, alert.MonitorType, alert.MonitorTarget, alert.EventKind, alertBody(alert),
+		body = fmt.Sprintf("Monitor: %s\nType: %s\n%sEvent: %s\n%s\nTime: %s\n",
+			alert.MonitorName, alert.MonitorType, targetLine, alert.EventKind, alertBody(alert),
 			time.Now().Format(time.RFC3339))
 	} else {
 		subject = fmt.Sprintf("Phoenix Alert: %s is %s", alert.MonitorName, alert.Status)
-		body = fmt.Sprintf("Monitor: %s\nType: %s\nTarget: %s\nStatus: %s\nMessage: %s\nTime: %s\nDuration: %s\n\n%s",
-			alert.MonitorName, alert.MonitorType, alert.MonitorTarget, alert.Status, alert.Message,
+		body = fmt.Sprintf("Monitor: %s\nType: %s\n%sStatus: %s\nMessage: %s\nTime: %s\nDuration: %s\n\n%s",
+			alert.MonitorName, alert.MonitorType, targetLine, alert.Status, alert.Message,
 			time.Now().Format(time.RFC3339), alert.Duration, alert.CheckOutput)
 	}
 	renderedAt := time.Now().UTC()

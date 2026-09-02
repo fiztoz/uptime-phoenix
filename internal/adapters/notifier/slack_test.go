@@ -67,3 +67,24 @@ func TestSlackSender_RateLimitRetry(t *testing.T) {
 		t.Errorf("expected retry, got %d attempts", attempts)
 	}
 }
+
+func TestSlackSender_Send_EmptyTargetOmitted(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	alert := domain.AlertContext{MonitorName: "api", MonitorType: "http", Status: domain.StatusDown, Message: "fail"}
+	if err := (SlackSender{}).Send(context.Background(), map[string]any{"webhook_url": srv.URL}, alert); err != nil {
+		t.Fatalf("send failed: %v", err)
+	}
+	blocks := received["blocks"].([]any)
+	// Header is block 0; the section with the body text is block 1.
+	section := blocks[1].(map[string]any)
+	text := section["text"].(map[string]any)["text"].(string)
+	if strings.Contains(text, "Target:") {
+		t.Errorf("empty target must not render a Target line, got %q", text)
+	}
+}

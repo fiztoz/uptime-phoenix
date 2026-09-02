@@ -175,3 +175,21 @@ func TestTeamsSender_RateLimitRetry(t *testing.T) {
 		t.Errorf("expected 2 attempts (retry), got %d", attempts)
 	}
 }
+
+func TestTeamsSender_Send_EmptyTargetOmitted(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	alert := domain.AlertContext{MonitorName: "db", MonitorType: "tcp", Status: domain.StatusDown, Message: "conn refused"}
+	if err := (TeamsSender{}).Send(context.Background(), map[string]any{"webhook_url": srv.URL}, alert); err != nil {
+		t.Fatalf("send failed: %v", err)
+	}
+	text, _ := received["text"].(string)
+	if strings.Contains(text, "Target:") {
+		t.Errorf("empty target must not render a Target line, got %q", text)
+	}
+}

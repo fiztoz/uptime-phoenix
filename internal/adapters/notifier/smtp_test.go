@@ -536,3 +536,33 @@ func TestSMTPSender_Send_ProviderRejection(t *testing.T) {
 		t.Errorf("expected no message accepted when MAIL FROM is rejected, got %d", len(srv.received()))
 	}
 }
+
+func TestSMTPSender_Send_EmptyTargetOmitted(t *testing.T) {
+	srv := newFakeSMTPServer(t)
+	host, port := srv.hostPort(t)
+
+	cfg := map[string]any{
+		"host": host,
+		"port": float64(port),
+		"from": "alerts@phoenix.local",
+		"to":   "oncall@example.com",
+		"tls":  false,
+	}
+	alert := domain.AlertContext{
+		MonitorName: "api",
+		MonitorType: "http",
+		Status:      domain.StatusDown,
+		Message:     "connection refused",
+	}
+	if err := (SMTPSender{}).Send(context.Background(), cfg, alert); err != nil {
+		t.Fatalf("send failed: %v", err)
+	}
+	msgs := srv.received()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	body := decodeQPBody(t, msgs[0].Data)
+	if strings.Contains(body, "Target:") {
+		t.Errorf("empty target must not render a Target line, got:\n%s", body)
+	}
+}

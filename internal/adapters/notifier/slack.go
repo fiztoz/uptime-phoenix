@@ -34,10 +34,14 @@ func (SlackSender) Send(ctx context.Context, config map[string]any, alert domain
 	}
 
 	var emoji, fallback, sectionText string
+	targetLine := ""
+	if alert.MonitorTarget != "" {
+		targetLine = fmt.Sprintf("\n*Target:* %s", alert.MonitorTarget)
+	}
 	if isAuxiliaryAlert(alert) {
 		emoji = alertEmoji(alert)
 		fallback = alertTitle(alert)
-		sectionText = fmt.Sprintf("*Event:* %s\n*Message:* %s\n*Target:* %s", alert.EventKind, alertBody(alert), alert.MonitorTarget)
+		sectionText = fmt.Sprintf("*Event:* %s\n*Message:* %s%s", alert.EventKind, alertBody(alert), targetLine)
 	} else {
 		emoji = ":white_check_mark:"
 		switch alert.Status {
@@ -49,7 +53,7 @@ func (SlackSender) Send(ctx context.Context, config map[string]any, alert domain
 			emoji = ":tools:"
 		}
 		fallback = fmt.Sprintf("%s %s is %s", emoji, alert.MonitorName, alert.Status)
-		sectionText = fmt.Sprintf("*Status:* %s\n*Message:* %s\n*Target:* %s", alert.Status, alert.Message, alert.MonitorTarget)
+		sectionText = fmt.Sprintf("*Status:* %s\n*Message:* %s%s", alert.Status, alert.Message, targetLine)
 	}
 
 	blocks := []map[string]any{

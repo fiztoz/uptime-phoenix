@@ -65,15 +65,19 @@ func (MattermostSender) Send(ctx context.Context, config map[string]any, alert d
 		}
 	}
 
+	fields := []map[string]any{
+		{"short": true, "title": "Type", "value": alert.MonitorType},
+	}
+	if alert.MonitorTarget != "" {
+		fields = append(fields, map[string]any{"short": true, "title": "Target", "value": alert.MonitorTarget})
+	}
+
 	attachment := map[string]any{
 		"fallback": title,
 		"color":    color,
 		"title":    title,
 		"text":     text,
-		"fields": []map[string]any{
-			{"short": true, "title": "Type", "value": alert.MonitorType},
-			{"short": true, "title": "Target", "value": alert.MonitorTarget},
-		},
+		"fields":   fields,
 	}
 
 	body := map[string]any{

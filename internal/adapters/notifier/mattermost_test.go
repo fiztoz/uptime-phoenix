@@ -163,3 +163,24 @@ func TestMattermostSender_RateLimitRetry(t *testing.T) {
 		t.Errorf("expected 2 attempts (retry), got %d", attempts)
 	}
 }
+
+func TestMattermostSender_Send_EmptyTargetOmitted(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	alert := domain.AlertContext{MonitorName: "db", MonitorType: "tcp", Status: domain.StatusDown, Message: "conn refused"}
+	if err := (MattermostSender{}).Send(context.Background(), map[string]any{"webhook_url": srv.URL}, alert); err != nil {
+		t.Fatalf("send failed: %v", err)
+	}
+	attachments := received["attachments"].([]any)
+	fields := attachments[0].(map[string]any)["fields"].([]any)
+	for _, f := range fields {
+		if f.(map[string]any)["title"] == "Target" {
+			t.Fatalf("empty target must omit the Target field, got %#v", fields)
+		}
+	}
+}

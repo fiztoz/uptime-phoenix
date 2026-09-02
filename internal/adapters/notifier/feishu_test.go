@@ -162,3 +162,23 @@ func TestFeishuSender_RateLimitRetry(t *testing.T) {
 		t.Errorf("expected 2 attempts (retry), got %d", attempts)
 	}
 }
+
+func TestFeishuSender_Send_EmptyTargetOmitted(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	alert := domain.AlertContext{MonitorName: "db", MonitorType: "tcp", Status: domain.StatusDown, Message: "conn refused"}
+	if err := (FeishuSender{}).Send(context.Background(), map[string]any{"webhook_url": srv.URL}, alert); err != nil {
+		t.Fatalf("send failed: %v", err)
+	}
+	card := received["card"].(map[string]any)
+	elements := card["elements"].([]any)
+	body := elements[0].(map[string]any)["text"].(map[string]any)["content"].(string)
+	if strings.Contains(body, "Target:") {
+		t.Errorf("empty target must not render a Target line, got %q", body)
+	}
+}
