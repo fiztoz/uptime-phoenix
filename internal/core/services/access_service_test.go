@@ -260,6 +260,7 @@ func TestAccessService_AdminSeesEverything(t *testing.T) {
 		"notifications": h.svc.CanManageNotifications,
 		"maintenance":   h.svc.CanManageMaintenance,
 		"extensions":    h.svc.CanViewExtensions,
+		"view-all":      h.svc.CanViewAllMonitors,
 	} {
 		ok, err := fn(context.Background(), admin)
 		if err != nil || !ok {
@@ -742,9 +743,131 @@ func TestAccessService_CapabilitiesAreIndependent(t *testing.T) {
 		if err != nil || gotExts != tc.wantExts {
 			t.Errorf("CanViewExtensions(%d) = (%v, %v); want %v", tc.userID, gotExts, err, tc.wantExts)
 		}
+		gotViewAll, err := h.svc.CanViewAllMonitors(ctx, tc.userID)
+		if err != nil || gotViewAll {
+			t.Errorf("CanViewAllMonitors(%d) = (%v, %v); want false", tc.userID, gotViewAll, err)
+		}
 		// An account-level capability is NOT monitor visibility: holding one grants
-		// no monitors.
+		// no monitors. CanViewAllMonitors is the exception — see
+		// TestAccessService_ViewAllMonitorsSeesEverything.
 		assertVisibleMonitors(t, h.svc, tc.userID)
+	}
+}
+
+// CanViewAllMonitors is the read-only variant of admin visibility: all=true for
+// monitors AND groups, including resources created after the flag was set, and
+// with no write implied.
+func TestAccessService_ViewAllMonitorsSeesEverything(t *testing.T) {
+	h := newAccessHarness(t)
+	ctx := context.Background()
+	h.addUser(t, "admin", true)
+	viewer := &domain.User{Username: "viewer", Active: true, CanViewAllMonitors: true}
+	if err := h.users.Create(ctx, viewer); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	m1 := h.addMonitor(t, "m1", nil)
+	g1 := h.addGroup(t, "g1", nil)
+	m2 := h.addMonitor(t, "m2", &g1)
+
+	all, ids, err := h.svc.VisibleMonitorIDs(ctx, viewer.ID)
+	if err != nil {
+		t.Fatalf("VisibleMonitorIDs: %v", err)
+	}
+	if !all {
+		t.Fatalf("view-all got all=false (ids=%v); want every monitor in the install", ids)
+	}
+
+	allGroups, _, err := h.svc.VisibleGroupIDs(ctx, viewer.ID)
+	if err != nil {
+		t.Fatalf("VisibleGroupIDs: %v", err)
+	}
+	if !allGroups {
+		t.Fatal("view-all got all=false for groups; want every group")
+	}
+
+	ok, err := h.svc.CanViewMonitor(ctx, viewer.ID, m1)
+	if err != nil || !ok {
+		t.Errorf("CanViewMonitor(m1) = (%v, %v); want (true, nil)", ok, err)
+	}
+	ok, err = h.svc.CanViewMonitor(ctx, viewer.ID, m2)
+	if err != nil || !ok {
+		t.Errorf("CanViewMonitor(m2) = (%v, %v); want (true, nil)", ok, err)
+	}
+	ok, err = h.svc.CanViewGroup(ctx, viewer.ID, g1)
+	if err != nil || !ok {
+		t.Errorf("CanViewGroup = (%v, %v); want (true, nil)", ok, err)
+	}
+
+	// Resources created after the flag still match — that is the gap a grant
+	// expansion at login time cannot close.
+	m3 := h.addMonitor(t, "m3", nil)
+	ok, err = h.svc.CanViewMonitor(ctx, viewer.ID, m3)
+	if err != nil || !ok {
+		t.Errorf("CanViewMonitor(new monitor) = (%v, %v); want (true, nil)", ok, err)
+	}
+
+	effective, err := h.svc.CanViewAllMonitors(ctx, viewer.ID)
+	if err != nil || !effective {
+		t.Errorf("CanViewAllMonitors = (%v, %v); want (true, nil)", effective, err)
+	}
+}
+
+// View-all is visibility only. The viewer may see someone else's monitor and
+// still may not edit it — that remains admin or owner.
+func TestAccessService_ViewAllMonitorsDoesNotGrantWrite(t *testing.T) {
+	h := newAccessHarness(t)
+	ctx := context.Background()
+	admin := h.addUser(t, "admin", true)
+	alice := h.addUser(t, "alice", false)
+	viewer := &domain.User{Username: "viewer", Active: true, CanViewAllMonitors: true}
+	if err := h.users.Create(ctx, viewer); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	alices := h.addMonitorOwnedBy(t, "alices-monitor", alice)
+	alicesGroup := h.addGroupOwnedBy(t, "alices-group", alice)
+
+	ok, err := h.svc.CanViewMonitor(ctx, viewer.ID, alices)
+	if err != nil || !ok {
+		t.Fatalf("viewer should see alice's monitor: (%v, %v)", ok, err)
+	}
+	ok, err = h.svc.CanEditMonitor(ctx, viewer.ID, alices)
+	if err != nil {
+		t.Fatalf("CanEditMonitor: %v", err)
+	}
+	if ok {
+		t.Error("view-all must not grant CanEditMonitor on someone else's monitor")
+	}
+	ok, err = h.svc.CanEditGroup(ctx, viewer.ID, alicesGroup)
+	if err != nil {
+		t.Fatalf("CanEditGroup: %v", err)
+	}
+	if ok {
+		t.Error("view-all must not grant CanEditGroup on someone else's group")
+	}
+	ok, err = h.svc.CanCreateMonitors(ctx, viewer.ID)
+	if err != nil || ok {
+		t.Errorf("view-all CanCreateMonitors = (%v, %v); want (false, nil)", ok, err)
+	}
+	ok, err = h.svc.CanCreateMonitorInGroup(ctx, viewer.ID, nil)
+	if err != nil || ok {
+		t.Errorf("view-all CanCreateMonitorInGroup(top-level) = (%v, %v); want (false, nil)", ok, err)
+	}
+	ok, err = h.svc.CanCreateMonitorInGroup(ctx, viewer.ID, &alicesGroup)
+	if err != nil || ok {
+		t.Errorf("view-all CanCreateMonitorInGroup(alice's folder) = (%v, %v); want (false, nil)", ok, err)
+	}
+	ok, err = h.svc.CanEditGroupMetadata(ctx, viewer.ID, alicesGroup)
+	if err != nil || ok {
+		t.Errorf("view-all without CanEditGroupMetadata = (%v, %v); want (false, nil)", ok, err)
+	}
+
+	// Contrast: admin still writes, owner still writes their own.
+	if ok, err = h.svc.CanEditMonitor(ctx, admin, alices); err != nil || !ok {
+		t.Errorf("admin CanEditMonitor = (%v, %v); want (true, nil)", ok, err)
+	}
+	if ok, err = h.svc.CanEditMonitor(ctx, alice, alices); err != nil || !ok {
+		t.Errorf("owner CanEditMonitor = (%v, %v); want (true, nil)", ok, err)
 	}
 }
 

@@ -469,12 +469,13 @@ func TestOIDCComplete_AllowedGroupsGate(t *testing.T) {
 func TestOIDCComplete_SyncsAdminAndCapabilities(t *testing.T) {
 	oidc := &fakeOIDC{enabled: true}
 	svc, users, _, _ := newOIDCAuthService(t, oidc, services.OIDCPolicy{
-		JITEnabled:              true,
-		AdminGroups:             []string{"phoenix-admins"},
-		CapNotificationsGroups:  []string{"notify-ops"},
-		CapMaintenanceGroups:    []string{"maint-ops"},
-		CapCreateMonitorsGroups: []string{"mon-creators"},
-		CapCreateGroupsGroups:   []string{"grp-creators"},
+		JITEnabled:               true,
+		AdminGroups:              []string{"phoenix-admins"},
+		CapNotificationsGroups:   []string{"notify-ops"},
+		CapMaintenanceGroups:     []string{"maint-ops"},
+		CapCreateMonitorsGroups:  []string{"mon-creators"},
+		CapCreateGroupsGroups:    []string{"grp-creators"},
+		CapViewAllMonitorsGroups: []string{"phoenix-viewers"},
 	})
 	ctx := context.Background()
 	_, state, _ := svc.BeginOIDCLogin(ctx)
@@ -511,6 +512,49 @@ func TestOIDCComplete_SyncsAdminAndCapabilities(t *testing.T) {
 	got, _ := users.GetByID(ctx, user.ID)
 	if got.IsAdmin {
 		t.Fatal("persisted is_admin still true")
+	}
+}
+
+func TestOIDCComplete_SyncsViewAllMonitors(t *testing.T) {
+	oidc := &fakeOIDC{enabled: true}
+	svc, users, _, _ := newOIDCAuthService(t, oidc, services.OIDCPolicy{
+		JITEnabled:               true,
+		CapViewAllMonitorsGroups: []string{"phoenix-viewers"},
+	})
+	ctx := context.Background()
+	_, state, _ := svc.BeginOIDCLogin(ctx)
+	oidc.claims = &ports.OIDCClaims{
+		Issuer:  oidc.Issuer(),
+		Subject: "viewer-1",
+		Groups:  []string{"phoenix-viewers"},
+	}
+	_, user, err := svc.CompleteOIDCLogin(ctx, "c", state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.IsAdmin {
+		t.Fatal("view-all must not imply admin")
+	}
+	if !user.CanViewAllMonitors {
+		t.Fatal("expected can_view_all_monitors from IdP group")
+	}
+
+	_, state2, _ := svc.BeginOIDCLogin(ctx)
+	oidc.claims = &ports.OIDCClaims{
+		Issuer:  oidc.Issuer(),
+		Subject: "viewer-1",
+		Groups:  []string{"other"},
+	}
+	_, user2, err := svc.CompleteOIDCLogin(ctx, "c", state2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user2.CanViewAllMonitors {
+		t.Fatal("view-all should be revoked after group loss")
+	}
+	got, _ := users.GetByID(ctx, user.ID)
+	if got.CanViewAllMonitors {
+		t.Fatal("persisted can_view_all_monitors still true")
 	}
 }
 

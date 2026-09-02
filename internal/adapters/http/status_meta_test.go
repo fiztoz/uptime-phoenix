@@ -57,13 +57,14 @@ func TestInjectStatusPageMeta_SlugPublished(t *testing.T) {
 	}
 }
 
-func TestInjectStatusPageMeta_BareSlugPath(t *testing.T) {
+func TestInjectStatusPageMeta_BareSlugPathIsNotAStatusPage(t *testing.T) {
+	idx := baseIndex()
 	r := &fakeMetaResolver{bySlug: map[string]*domain.StatusPage{
 		"acme": {Slug: "acme", Title: "Acme", Published: true},
 	}}
-	out := InjectStatusPageMeta(context.Background(), r, "/acme", "localhost", "https://example.com", baseIndex())
-	if !strings.Contains(string(out), `og:title" content="Acme"`) {
-		t.Fatalf("bare slug path should resolve: %s", out)
+	out := InjectStatusPageMeta(context.Background(), r, "/acme", "localhost", "https://example.com", idx)
+	if !bytes.Equal(out, idx) {
+		t.Fatalf("bare /:slug must not be treated as a status page: %s", out)
 	}
 }
 
@@ -181,7 +182,8 @@ func TestExtractStatusSlug(t *testing.T) {
 	}{
 		{"/status/acme", "acme"},
 		{"/status/Acme", "acme"},
-		{"/acme", "acme"},
+		{"/status/acme/history", "acme"},
+		{"/acme", ""},
 		{"/", ""},
 		{"/status", ""},
 		{"/api/foo", ""}, // multi-segment non-status
