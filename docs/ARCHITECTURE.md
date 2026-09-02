@@ -1596,10 +1596,14 @@ export const realtime = createWsStore(`${location.protocol === 'https:' ? 'wss' 
    → redirect to SPA with session JWT in the URL fragment. Identities are keyed by
    immutable `(issuer, subject)` (migration `019`). Group claims map onto existing
    `is_admin`, capability flags (including `can_view_all_monitors` via
-   `OIDC_CAP_VIEW_ALL_MONITORS_GROUPS`), and scoped grants — see service tests under
+   `OIDC_CAP_VIEW_ALL_MONITORS_GROUPS`), and scoped grants via env
+   `OIDC_GRANT_MAP` — see service tests under
    `internal/core/services/auth_oidc*_test.go` (local agent contracts:
    `docs/local/F5-S13-OIDC-CONTRACTS.md`, gitignored).
    Local password + TOTP/passkey remain available for break-glass when OIDC is on.
+   A later admin UI for Keycloak/OIDC **group** grants (DB-persisted, DB-first
+   over env unless an init/env flag says otherwise) is queued after v0.5 / v0.6
+   — see `docs/ROADMAP.md` Backlog. Do not implement before then.
 5. **JWT verification:** Echo middleware validates JWT on every `/api/*` and `/ws` request
 6. **API keys:** `GET /metrics` and external API access use API keys (hashed in DB, shown once at creation)
 

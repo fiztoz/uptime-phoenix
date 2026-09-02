@@ -279,6 +279,7 @@ Ongoing, prioritized by user feedback. Each sprint is 2 weeks.
 - [x] **Grafana data source plugin** — provisioned Prometheus datasource + curated `phoenix-overview` dashboard + `docker compose` quickstart under `deploy/grafana/` (built on the existing `/metrics` exposition; Prometheus-in-the-middle is the supported topology)
 
 ### Backlog (Unscheduled)
+- [ ] **OIDC / Keycloak group grant UI (after v0.5 or v0.6 — do not start before then)** — today IdP group → scoped grants exist only as env (`OIDC_GRANT_MAP` / Helm `oidc.grantMap`); per-user grants are already first-class in the admin UI + `user_permissions`. Add an admin UI to grant monitor/folder (and capability) permissions to Keycloak/OIDC groups and persist those mappings in the database. When the same grant exists in both env and DB, **database is first-class by default** (UI/DB wins; env must not overwrite a DB-owned mapping on login). Keep env as a bootstrap/init path: an explicit env (e.g. `OIDC_GRANT_SOURCE=env` or an init-only seed) can still treat config env as first-class for GitOps/first-boot. Owner decision 2026-09-02.
 - [ ] **Persist monitor `last_status` + `down_count` instead of re-deriving them from `GetLatest`** — the alerting path currently reconstructs the previous status and the retry count by re-reading the latest heartbeat (`HeartbeatService.Record`). That read was returning a **stale row** on MariaDB until the `id` tie-break landed (2026-07-13; AGENTS.md rule 8), which could re-alert an already-alerted DOWN, miscount the retry window, or swallow a recovery. The tie-break makes the read correct, but the alerting path still depends on *sorting a table right* rather than on state it owns. Storing `last_status`/`down_count` on the monitor — exactly what `monitor_groups.last_status` now does for folders, claimed via compare-and-set — removes the class of bug by construction and closes the same multi-worker race for monitors. Needs a migration + a persisted-state path through `NotificationDispatcher`.
 - [ ] Additional monitor types (RADIUS, Kafka if demand exists) — one-file plugin
 - [ ] Tauri desktop wrapper (thin shell around the web build)
@@ -308,6 +309,10 @@ Ongoing, prioritized by user feedback. Each sprint is 2 weeks.
 - [x] **SSO assurance** — service + handler tests for state/nonce, callback failures, allowed
       groups, JIT, email link, grant sync, local login with OIDC on; multi-pod-safe signed
       state (no Redis). Local contracts: `docs/local/F5-S13-OIDC-CONTRACTS.md` (gitignored).
+- [ ] **Later (after v0.5 / v0.6):** admin UI to grant permissions to Keycloak/OIDC groups
+      (DB-persisted). Env `OIDC_GRANT_MAP` remains the bootstrap path. When both env and
+      DB define a grant, **database wins by default** unless an explicit init/env flag
+      treats config env as first-class. See Backlog.
 
 ### Sprint 14 (Weeks 29–30): Declarative Config-as-Code
 
