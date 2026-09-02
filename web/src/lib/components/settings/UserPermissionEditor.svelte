@@ -30,6 +30,7 @@
 		AlertCircle,
 		Bell,
 		CalendarClock,
+		Eye,
 		FolderPlus,
 		FolderTree,
 		KeyRound,
@@ -76,6 +77,7 @@
 		| 'can_manage_notifications'
 		| 'can_manage_maintenance'
 		| 'can_view_extensions'
+		| 'can_view_all_monitors'
 		| 'can_create_monitors'
 		| 'can_create_top_level_monitors'
 		| 'can_create_groups'
@@ -132,6 +134,12 @@
 			label: 'View extensions',
 			help: 'Discover and open registered extension pages in Phoenix. An extension may still require its own sign-in.',
 			icon: Puzzle,
+		},
+		{
+			key: 'can_view_all_monitors' as const,
+			label: 'View all monitors',
+			help: 'See every monitor and group in this install, including ones added later. Read-only — does not grant edit of anyone else’s monitors.',
+			icon: Eye,
 		},
 		{
 			key: 'can_create_monitors' as const,
@@ -252,6 +260,25 @@
 					{/each}
 				</div>
 			</section>
+
+			{#if user.can_view_all_monitors}
+				<div
+					class="flex flex-col gap-3 rounded-lg border border-primary/25 bg-primary/5 p-4 sm:flex-row"
+					data-testid="user-permission-view-all"
+				>
+					<span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+						<Eye class="h-4 w-4" />
+					</span>
+					<div class="min-w-0 text-sm">
+						<p class="font-medium text-foreground">This account can see every monitor.</p>
+						<p class="mt-1 text-xs leading-relaxed text-muted-foreground">
+							View-all is read-only: {user.username} sees every monitor and group, including ones added
+							later, but cannot edit anyone else’s. Grants below are redundant while the flag is on;
+							they take effect if it is later revoked.
+						</p>
+					</div>
+				</div>
+			{/if}
 
 			<!-- Grants -->
 			<section>

@@ -16,6 +16,8 @@ export interface User {
   can_manage_notifications: boolean;
   can_manage_maintenance: boolean;
   can_view_extensions: boolean;
+  /** Install-wide read-only visibility. Does not grant write. */
+  can_view_all_monitors: boolean;
   /**
    * Permission to CREATE. Not permission to edit a monitor already on screen —
    * that is per-resource ownership (`monitor.user_id === me.id`), which no
@@ -41,6 +43,7 @@ export interface CreateUserInput {
   can_manage_notifications?: boolean;
   can_manage_maintenance?: boolean;
   can_view_extensions?: boolean;
+  can_view_all_monitors?: boolean;
   can_create_monitors?: boolean;
   can_create_top_level_monitors?: boolean;
   can_create_groups?: boolean;
@@ -55,6 +58,7 @@ export type UpdateUserInput = Partial<{
   can_manage_notifications: boolean;
   can_manage_maintenance: boolean;
   can_view_extensions: boolean;
+  can_view_all_monitors: boolean;
   can_create_monitors: boolean;
   can_create_top_level_monitors: boolean;
   can_create_groups: boolean;

@@ -9,6 +9,24 @@ The project's first ~4 weeks (2026-06-23 – 2026-06-30, pre conventional-commit
 summarized rather than itemized — see [Earlier foundation](#earlier-foundation-2026-06-23--2026-06-30)
 at the bottom.
 
+## [Unreleased]
+
+### Changed
+
+- Helm OIDC group/scope/grant fields accept a YAML list or a comma-separated
+  string (`oidc.adminGroups: [phoenix-admins]`, `oidc.capViewAllMonitorsGroups`,
+  `oidc.scopes`, `oidc.grantMap`, …). Lists are joined into the CSV env vars
+  Phoenix already reads; existing string values keep working.
+
+### Added
+
+- Read-only install-wide visibility: new `can_view_all_monitors` capability flag
+  (Settings → Users → Access toggle + create-user checkbox). Admins already see
+  everything via `is_admin`. Non-admins with the flag see every monitor and
+  group — including ones created later — but still cannot edit anyone else's.
+  Migration `032` defaults existing users off. OIDC IdP groups map onto it via
+  `OIDC_CAP_VIEW_ALL_MONITORS_GROUPS`.
+
 ## [0.3.7] — 2026-08-24
 
 ### Changed

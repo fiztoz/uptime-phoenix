@@ -41,6 +41,7 @@ type CreateUserRequest struct {
 	CanManageNotifications    *bool  `json:"can_manage_notifications"`
 	CanManageMaintenance      *bool  `json:"can_manage_maintenance"`
 	CanViewExtensions         *bool  `json:"can_view_extensions"`
+	CanViewAllMonitors        *bool  `json:"can_view_all_monitors"`
 	CanCreateMonitors         *bool  `json:"can_create_monitors"`
 	CanCreateTopLevelMonitors *bool  `json:"can_create_top_level_monitors"`
 	CanCreateGroups           *bool  `json:"can_create_groups"`
@@ -57,6 +58,7 @@ type UpdateUserRequest struct {
 	CanManageNotifications    *bool   `json:"can_manage_notifications"`
 	CanManageMaintenance      *bool   `json:"can_manage_maintenance"`
 	CanViewExtensions         *bool   `json:"can_view_extensions"`
+	CanViewAllMonitors        *bool   `json:"can_view_all_monitors"`
 	CanCreateMonitors         *bool   `json:"can_create_monitors"`
 	CanCreateTopLevelMonitors *bool   `json:"can_create_top_level_monitors"`
 	CanCreateGroups           *bool   `json:"can_create_groups"`
@@ -192,6 +194,9 @@ func (h *UserHandlers) Create(c echo.Context) error {
 	if req.CanViewExtensions != nil {
 		caps.CanViewExtensions = *req.CanViewExtensions
 	}
+	if req.CanViewAllMonitors != nil {
+		caps.CanViewAllMonitors = *req.CanViewAllMonitors
+	}
 	if req.CanCreateMonitors != nil {
 		caps.CanCreateMonitors = *req.CanCreateMonitors
 	}
@@ -252,6 +257,7 @@ func (h *UserHandlers) Update(c echo.Context) error {
 			CanManageNotifications:    req.CanManageNotifications,
 			CanManageMaintenance:      req.CanManageMaintenance,
 			CanViewExtensions:         req.CanViewExtensions,
+			CanViewAllMonitors:        req.CanViewAllMonitors,
 			CanCreateMonitors:         req.CanCreateMonitors,
 			CanCreateTopLevelMonitors: req.CanCreateTopLevelMonitors,
 			CanCreateGroups:           req.CanCreateGroups,

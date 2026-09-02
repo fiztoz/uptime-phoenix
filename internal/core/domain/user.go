@@ -25,6 +25,11 @@ type User struct {
 	// extension pages through Phoenix. Admins always may, regardless of this flag.
 	// The extension's direct Ingress path must enforce its own authorization.
 	CanViewExtensions bool
+	// CanViewAllMonitors is the read-only variant of admin visibility: the user
+	// sees every monitor and group in the install, including ones created after
+	// the flag was set. It never implies write — CanEditMonitor / CanEditGroup
+	// still require admin or ownership. Admins always may, regardless of this flag.
+	CanViewAllMonitors bool
 	// CanCreateMonitors lets a non-admin create monitors inside groups covered
 	// by one of their group grants. The creator is recorded in Monitor.UserID
 	// and may then edit, clone and delete that monitor — and only that monitor.

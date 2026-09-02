@@ -1595,7 +1595,8 @@ export const realtime = createWsStore(`${location.protocol === 'https:' ? 'wss' 
 4. **OIDC SSO (opt-in):** `GET /api/auth/oidc/login` → IdP → `GET /api/auth/oidc/callback`
    → redirect to SPA with session JWT in the URL fragment. Identities are keyed by
    immutable `(issuer, subject)` (migration `019`). Group claims map onto existing
-   `is_admin`, capability flags, and scoped grants — see service tests under
+   `is_admin`, capability flags (including `can_view_all_monitors` via
+   `OIDC_CAP_VIEW_ALL_MONITORS_GROUPS`), and scoped grants — see service tests under
    `internal/core/services/auth_oidc*_test.go` (local agent contracts:
    `docs/local/F5-S13-OIDC-CONTRACTS.md`, gitignored).
    Local password + TOTP/passkey remain available for break-glass when OIDC is on.

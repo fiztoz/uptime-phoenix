@@ -264,6 +264,8 @@ func (h *MaintenanceHandlers) List(c echo.Context) error {
 			return mapMaintenanceError(c, vErr)
 		}
 		if all {
+			// all=true is admin or can_view_all_monitors. A view-all non-manager
+			// hits this branch; widen rather than silently showing nothing.
 			windows, err = h.svc.ListAll(c.Request().Context())
 		} else {
 			windows, err = h.svc.ListForMonitors(c.Request().Context(), visibleIDs)

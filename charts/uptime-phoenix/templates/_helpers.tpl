@@ -291,6 +291,32 @@ falls back to the in-memory bus, so split API/worker must not race Valkey.
 {{- end }}
 
 {{/*
+Join a Helm value that may be a YAML list or a comma-separated string into the
+CSV form Phoenix env vars expect (OIDC_ADMIN_GROUPS, OIDC_SCOPES, …).
+
+  oidc.adminGroups: ["a", "b"]     →  a,b
+  oidc.adminGroups: "a, b"         →  a, b
+  oidc.adminGroups: []  /  ""      →  (empty)
+
+Empty items are dropped. A comma-separated string is passed through so existing
+values files keep working.
+*/}}
+{{- define "phoenix.csv" -}}
+{{- if kindIs "slice" . -}}
+{{- $parts := list -}}
+{{- range . -}}
+{{- $s := trim (toString .) -}}
+{{- if $s -}}
+{{- $parts = append $parts $s -}}
+{{- end -}}
+{{- end -}}
+{{- join "," $parts -}}
+{{- else if not (empty .) -}}
+{{- trim (toString .) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Shared Phoenix application env (security, observability, rate limits).
 */}}
 {{- define "phoenix.envAppConfig" -}}
@@ -377,7 +403,7 @@ Shared Phoenix application env (security, observability, rate limits).
 - name: OIDC_REDIRECT_URL
   value: {{ .Values.oidc.redirectUrl | quote }}
 - name: OIDC_SCOPES
-  value: {{ .Values.oidc.scopes | quote }}
+  value: {{ include "phoenix.csv" .Values.oidc.scopes | quote }}
 - name: OIDC_GROUPS_CLAIM
   value: {{ .Values.oidc.groupsClaim | quote }}
 - name: OIDC_JIT_ENABLED
@@ -385,23 +411,25 @@ Shared Phoenix application env (security, observability, rate limits).
 - name: OIDC_LINK_BY_EMAIL
   value: {{ .Values.oidc.linkByEmail | quote }}
 - name: OIDC_ALLOWED_GROUPS
-  value: {{ .Values.oidc.allowedGroups | quote }}
+  value: {{ include "phoenix.csv" .Values.oidc.allowedGroups | quote }}
 - name: OIDC_ADMIN_GROUPS
-  value: {{ .Values.oidc.adminGroups | quote }}
+  value: {{ include "phoenix.csv" .Values.oidc.adminGroups | quote }}
 - name: OIDC_CAP_NOTIFICATIONS_GROUPS
-  value: {{ .Values.oidc.capNotificationsGroups | quote }}
+  value: {{ include "phoenix.csv" .Values.oidc.capNotificationsGroups | quote }}
 - name: OIDC_CAP_MAINTENANCE_GROUPS
-  value: {{ .Values.oidc.capMaintenanceGroups | quote }}
+  value: {{ include "phoenix.csv" .Values.oidc.capMaintenanceGroups | quote }}
 - name: OIDC_CAP_CREATE_MONITORS_GROUPS
-  value: {{ .Values.oidc.capCreateMonitorsGroups | quote }}
+  value: {{ include "phoenix.csv" .Values.oidc.capCreateMonitorsGroups | quote }}
 - name: OIDC_CAP_CREATE_GROUPS_GROUPS
-  value: {{ .Values.oidc.capCreateGroupsGroups | quote }}
+  value: {{ include "phoenix.csv" .Values.oidc.capCreateGroupsGroups | quote }}
 - name: OIDC_CAP_EDIT_GROUP_METADATA_GROUPS
-  value: {{ .Values.oidc.capEditGroupMetadataGroups | quote }}
+  value: {{ include "phoenix.csv" .Values.oidc.capEditGroupMetadataGroups | quote }}
 - name: OIDC_CAP_VIEW_EXTENSIONS_GROUPS
-  value: {{ .Values.oidc.capViewExtensionsGroups | quote }}
+  value: {{ include "phoenix.csv" .Values.oidc.capViewExtensionsGroups | quote }}
+- name: OIDC_CAP_VIEW_ALL_MONITORS_GROUPS
+  value: {{ include "phoenix.csv" .Values.oidc.capViewAllMonitorsGroups | quote }}
 - name: OIDC_GRANT_MAP
-  value: {{ .Values.oidc.grantMap | quote }}
+  value: {{ include "phoenix.csv" .Values.oidc.grantMap | quote }}
 {{- end }}
 {{- end }}
 

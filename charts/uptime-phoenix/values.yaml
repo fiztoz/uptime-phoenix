@@ -339,21 +339,28 @@ oidc:
   # Absolute callback URL registered with the IdP. Empty derives from
   # config.publicUrl + /api/auth/oidc/callback.
   redirectUrl: ""
-  scopes: "openid,profile,email"
+  # YAML list or comma-separated string. Both render as OIDC_SCOPES CSV.
+  scopes:
+    - openid
+    - profile
+    - email
   groupsClaim: groups
   jitEnabled: true
   linkByEmail: false
-  # Comma-separated IdP group names. Empty allowedGroups = any authenticated subject.
-  allowedGroups: ""
-  adminGroups: ""
-  capNotificationsGroups: ""
-  capMaintenanceGroups: ""
-  capCreateMonitorsGroups: ""
-  capCreateGroupsGroups: ""
-  capEditGroupMetadataGroups: ""
-  capViewExtensionsGroups: ""
+  # IdP group names: YAML list or comma-separated string. Empty allowedGroups
+  # = any authenticated subject. Same dual form for every *Groups / grantMap field.
+  allowedGroups: []
+  adminGroups: []
+  capNotificationsGroups: []
+  capMaintenanceGroups: []
+  capCreateMonitorsGroups: []
+  capCreateGroupsGroups: []
+  capEditGroupMetadataGroups: []
+  capViewExtensionsGroups: []
+  # Read-only visibility of every monitor/group. Does not grant write.
+  capViewAllMonitorsGroups: []
   # idp-group:group:<id> or idp-group:monitor:<id>[,shallow]
-  grantMap: ""
+  grantMap: []
 
 # ── Bootstrap user (first launch only) ───────────────────────────────────────
 # When enabled, the first user is created automatically on startup.

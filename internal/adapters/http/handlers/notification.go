@@ -196,9 +196,9 @@ func (h *NotificationHandlers) List(c echo.Context) error {
 			return mapNotifError(c, vErr)
 		}
 		if all {
-			// Unreachable in practice (all==true implies admin implies manage==true),
-			// but if that ever changes, widen to the full list rather than silently
-			// showing nothing.
+			// all=true is admin or can_view_all_monitors. A view-all non-manager
+			// does not hold can_manage, so this branch is reachable — widen to
+			// the full list rather than silently showing nothing.
 			notifications, err = h.svc.ListAll(c.Request().Context())
 		} else {
 			notifications, err = h.svc.ListForMonitors(c.Request().Context(), visibleIDs)
