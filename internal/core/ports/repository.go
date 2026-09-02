@@ -348,8 +348,11 @@ type UserRepository interface {
 
 // MonitorNotificationRepository defines persistence for monitor-notification links.
 type MonitorNotificationRepository interface {
-	Attach(ctx context.Context, monitorID, notificationID int64) error
+	Attach(ctx context.Context, monitorID, notificationID int64, includeTarget bool) error
 	Detach(ctx context.Context, monitorID, notificationID int64) error
+	// SetIncludeTarget updates the per-link target-inclusion flag on an
+	// existing monitor↔notification link.
+	SetIncludeTarget(ctx context.Context, monitorID, notificationID int64, includeTarget bool) error
 	ListByMonitor(ctx context.Context, monitorID int64) ([]*domain.MonitorNotification, error)
 	ListByNotification(ctx context.Context, notificationID int64) ([]*domain.MonitorNotification, error)
 }

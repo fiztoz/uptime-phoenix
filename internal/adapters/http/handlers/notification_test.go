@@ -113,18 +113,30 @@ func newNotifHMonLinkRepo() *notifHMonLinkRepo {
 	return &notifHMonLinkRepo{}
 }
 
-func (r *notifHMonLinkRepo) Attach(_ context.Context, monitorID, notificationID int64) error {
+func (r *notifHMonLinkRepo) Attach(_ context.Context, monitorID, notificationID int64, includeTarget bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, l := range r.links {
 		if l.MonitorID == monitorID && l.NotificationID == notificationID {
+			l.IncludeTarget = includeTarget
 			return nil // idempotent
 		}
 	}
 	r.nextID++
 	r.links = append(r.links, domain.MonitorNotification{
-		ID: r.nextID, MonitorID: monitorID, NotificationID: notificationID,
+		ID: r.nextID, MonitorID: monitorID, NotificationID: notificationID, IncludeTarget: includeTarget,
 	})
+	return nil
+}
+
+func (r *notifHMonLinkRepo) SetIncludeTarget(_ context.Context, monitorID, notificationID int64, includeTarget bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.links {
+		if r.links[i].MonitorID == monitorID && r.links[i].NotificationID == notificationID {
+			r.links[i].IncludeTarget = includeTarget
+		}
+	}
 	return nil
 }
 
@@ -578,6 +590,7 @@ func newNotifHTTPHarness(t *testing.T) *notifHTTPHarness {
 	notifGroup.DELETE("/:id", nh.Delete, requireNotifications)
 	notifGroup.POST("/:id/test", nh.Test, requireNotifications)
 	notifGroup.POST("/:id/monitor/:monitorId", nh.AttachToMonitor, requireNotifications)
+	notifGroup.PUT("/:id/monitor/:monitorId", nh.UpdateMonitorLink, requireNotifications)
 	notifGroup.DELETE("/:id/monitor/:monitorId", nh.DetachFromMonitor, requireNotifications)
 	notifGroup.POST("/:id/group/:groupId", nh.AttachToGroup, requireNotifications)
 	notifGroup.DELETE("/:id/group/:groupId", nh.DetachFromGroup, requireNotifications)
@@ -1169,6 +1182,60 @@ func TestNotificationHandlers_CreateAndUpdate_IncludeAckURLToggle(t *testing.T) 
 	}
 	if updated.IncludeAckURL {
 		t.Fatal("stored IncludeAckURL = true after update to false")
+	}
+}
+
+// TestNotificationHandlers_MonitorLink_IncludeTargetToggle asserts the per-link
+// include_target flag defaults true on attach, is exposed by the monitor detail
+// read path, and flips via PUT.
+func TestNotificationHandlers_MonitorLink_IncludeTargetToggle(t *testing.T) {
+	h := newNotifHTTPHarness(t)
+	ctx := context.Background()
+
+	id := h.createNotif(t, h.tokenB, "target-link")
+	path := "/api/notifications/" + floatToIntStr(float64(id)) +
+		"/monitor/" + floatToIntStr(float64(h.monitorBID))
+
+	// Attach with no body → include_target defaults true.
+	attach := h.do(t, http.MethodPost, path, h.tokenB, nil)
+	if attach.Code != http.StatusNoContent {
+		t.Fatalf("AttachToMonitor returned %d; want 204 (%s)", attach.Code, attach.Body.String())
+	}
+
+	listRec := h.do(t, http.MethodGet,
+		"/api/monitors/"+floatToIntStr(float64(h.monitorBID))+"/notifications", h.tokenB, nil)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("ListForMonitor = %d; want 200", listRec.Code)
+	}
+	var monNotifs []map[string]any
+	if err := json.Unmarshal(listRec.Body.Bytes(), &monNotifs); err != nil {
+		t.Fatalf("decode ListForMonitor: %v", err)
+	}
+	if len(monNotifs) != 1 || monNotifs[0]["include_target"] != true {
+		t.Fatalf("ListForMonitor after attach = %v; want one link with include_target=true", monNotifs)
+	}
+
+	// Explicit false.
+	update := h.do(t, http.MethodPut, path, h.tokenB, map[string]any{"include_target": false})
+	if update.Code != http.StatusNoContent {
+		t.Fatalf("PUT include_target=false returned %d; want 204 (%s)", update.Code, update.Body.String())
+	}
+	links, err := h.monLinks.ListByMonitor(ctx, h.monitorBID)
+	if err != nil {
+		t.Fatalf("ListByMonitor: %v", err)
+	}
+	if len(links) != 1 || links[0].IncludeTarget {
+		t.Fatalf("after PUT false = %#v; want IncludeTarget=false", links)
+	}
+
+	// Explicit true flips it back.
+	update = h.do(t, http.MethodPut, path, h.tokenB, map[string]any{"include_target": true})
+	if update.Code != http.StatusNoContent {
+		t.Fatalf("PUT include_target=true returned %d; want 204 (%s)", update.Code, update.Body.String())
+	}
+	links, _ = h.monLinks.ListByMonitor(ctx, h.monitorBID)
+	if len(links) != 1 || !links[0].IncludeTarget {
+		t.Fatalf("after PUT true = %#v; want IncludeTarget=true", links)
 	}
 }
 

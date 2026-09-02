@@ -118,6 +118,9 @@ type ConfigMonitorTag struct {
 type ConfigMonitorNotification struct {
 	Monitor      string `json:"monitor" yaml:"monitor"`
 	Notification string `json:"notification" yaml:"notification"`
+	// IncludeTarget is a pointer so omitted YAML keeps the create default (true).
+	// Explicit false omits the monitor target from this link's alerts.
+	IncludeTarget *bool `json:"include_target,omitempty" yaml:"include_target,omitempty"`
 }
 
 // ConfigGroupNotification links a group key to a notification key.

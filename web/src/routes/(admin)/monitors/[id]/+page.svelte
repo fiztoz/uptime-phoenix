@@ -7,7 +7,7 @@
   import { heartbeatsApi, type Heartbeat } from "$lib/api/heartbeats.js";
   import { statsApi, type MonitorStats } from "$lib/api/stats.js";
   import { conditionsApi, type MonitorCondition } from "$lib/api/conditions";
-  import { notificationsApi } from "$lib/api/notifications";
+  import { notificationsApi, type MonitorNotification } from "$lib/api/notifications";
   import { tagsApi, type MonitorTag, type Tag } from "$lib/api/tags";
   import StatusPill from "$lib/components/StatusPill.svelte";
   import MetricCard from "$lib/components/MetricCard.svelte";
@@ -82,7 +82,7 @@
   let lastKnownStatus = $state<string | null>(null);
   let lastProcessedHeartbeatTime = $state<string | null>(null);
 
-  let assignedNotifications = $state<any[]>([]);
+  let assignedNotifications = $state<MonitorNotification[]>([]);
   let allNotifications = $state<any[]>([]);
   let assignedTags = $state<MonitorTag[]>([]);
   let allTags = $state<Tag[]>([]);
@@ -460,6 +460,18 @@
       await loadDetails();
     } catch (e: any) {
       toast.error(e?.message || m.monitor_detail_page_unassign_failed());
+    }
+  }
+
+  async function toggleIncludeTarget(n: MonitorNotification) {
+    const next = !n.include_target;
+    // Optimistic flip so the checkbox responds immediately; reload reconciles.
+    n.include_target = next;
+    try {
+      await notificationsApi.setMonitorIncludeTarget(monitorId, n.id, next);
+    } catch (e: any) {
+      n.include_target = !next;
+      toast.error(e?.message || m.monitor_detail_page_assign_failed());
     }
   }
 
@@ -1113,11 +1125,22 @@
                 <div class="font-medium">{n.name}</div>
                 <div class="text-xs text-muted-foreground">{n.type}</div>
               </div>
-              <button
-                onclick={() => unassignNotification(n.id)}
-                class="text-xs text-danger transition-colors hover:text-danger/80"
-                >{m.btn_remove()}</button
-              >
+              <div class="flex items-center gap-3">
+                <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={n.include_target}
+                    onchange={() => toggleIncludeTarget(n)}
+                    class="h-4 w-4 rounded border-border accent-primary"
+                  />
+                  {m.monitor_detail_include_target()}
+                </label>
+                <button
+                  onclick={() => unassignNotification(n.id)}
+                  class="text-xs text-danger transition-colors hover:text-danger/80"
+                  >{m.btn_remove()}</button
+                >
+              </div>
             </div>
           {/each}
         </div>

@@ -755,6 +755,7 @@ CREATE TABLE monitor_notification (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY,
     monitor_id      BIGINT NOT NULL,
     notification_id BIGINT NOT NULL,
+    include_target  BOOLEAN NOT NULL DEFAULT TRUE,  -- per-link: monitor A may include target, monitor B not
     UNIQUE KEY uq_pair (monitor_id, notification_id),
     FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE,
     FOREIGN KEY (notification_id) REFERENCES notifications(id) ON DELETE CASCADE
@@ -1202,6 +1203,12 @@ present only for monitor DOWN alerts when `PUBLIC_URL` is configured and the
 channel has `include_ack_url` enabled (off by default). Discord renders it as a
 Link button; other providers append `Acknowledge: …` to the message. Group
 alerts, recovery alerts, and channels with the toggle off leave it empty.
+The monitor target shown in sender layouts and `{{ monitor.target }}` is gated
+by the per-link `include_target` flag on `monitor_notification` (on by default).
+Two monitors sharing one channel can therefore differ: setting the link flag off
+blanks `MonitorTarget` at dispatch, so no provider or template leaks the
+URL/host for that monitor — and Discord's field renderer drops the empty Target
+embed field.
 Discord webhooks also accept extra Link buttons (`label` + `url` templates) on
 the channel or on a reusable Discord template. Plain rendering emits an empty string for an
 unknown optional value, while the corresponding `json.*` timestamp emits null.

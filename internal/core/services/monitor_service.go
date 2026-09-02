@@ -105,7 +105,7 @@ func (s *MonitorService) attachDefaultNotifications(ctx context.Context, m *doma
 		if !n.IsDefault || !n.Active {
 			continue
 		}
-		if err := s.monitorNotifRepo.Attach(ctx, m.ID, n.ID); err != nil {
+		if err := s.monitorNotifRepo.Attach(ctx, m.ID, n.ID, domain.DefaultIncludeTarget); err != nil {
 			return fmt.Errorf("attach notification %d: %w", n.ID, err)
 		}
 	}

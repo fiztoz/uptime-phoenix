@@ -1,0 +1,1 @@
+ALTER TABLE monitor_notification DROP COLUMN include_target;

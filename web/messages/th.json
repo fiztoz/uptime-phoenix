@@ -515,6 +515,7 @@
   "notification_form_include_ack_label": "ใส่ลิงก์รับทราบแจ้งเตือน",
   "notification_form_include_ack_help": "เมื่อมอนิเตอร์ล่ม จะใส่ลิงก์สาธารณะสำหรับรับทราบการแจ้งเตือน Discord แสดงเป็นปุ่ม ผู้ให้บริการอื่นแนบในข้อความ ค่าเริ่มต้นคือปิด",
   "notifications_ack_link_on": "ใส่ลิงก์รับทราบ",
+  "monitor_detail_include_target": "ใส่เป้าหมาย",
   "notification_form_discord_buttons_title": "ปุ่มลิงก์",
   "notification_form_discord_buttons_help": "เพิ่มได้สูงสุด 5 ปุ่มใน Discord ใช้ URL เต็ม หรือตัวแปร ack_url สำหรับลิงก์รับทราบ (ต้องเปิดสวิตช์ด้านบน)",
   "notification_form_discord_add_button": "เพิ่มปุ่ม",

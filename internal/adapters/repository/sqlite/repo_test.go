@@ -668,6 +668,55 @@ func TestNotificationRepository(t *testing.T) {
 	}
 }
 
+// TestMonitorNotificationIncludeTarget guards the link-level include_target
+// column: it defaults true on attach and SetIncludeTarget persists an explicit
+// false (and back).
+func TestMonitorNotificationIncludeTarget(t *testing.T) {
+	repo := setupTestDB(t)
+	ctx := context.Background()
+
+	user := &domain.User{Username: "linkuser", PasswordHash: "hash", Active: true}
+	if err := repo.UserRepo.Create(ctx, user); err != nil {
+		t.Fatalf("Create user: %v", err)
+	}
+	monitor := &domain.Monitor{ID: 0, UserID: user.ID, Name: "A", Type: "http", Config: map[string]any{"url": "https://a.example"}}
+	if err := repo.MonitorRepo.Create(ctx, monitor); err != nil {
+		t.Fatalf("Create monitor: %v", err)
+	}
+	notif := &domain.Notification{UserID: user.ID, Name: "pager", Type: "webhook", Active: true, Config: map[string]any{"url": "https://hooks.example"}}
+	if err := repo.NotificationRepo.Create(ctx, notif); err != nil {
+		t.Fatalf("Create notification: %v", err)
+	}
+
+	// Attach with the default (true).
+	if err := repo.MonitorNotificationRepo.Attach(ctx, monitor.ID, notif.ID, true); err != nil {
+		t.Fatalf("Attach include_target=true: %v", err)
+	}
+	links, err := repo.MonitorNotificationRepo.ListByMonitor(ctx, monitor.ID)
+	if err != nil {
+		t.Fatalf("ListByMonitor: %v", err)
+	}
+	if len(links) != 1 || !links[0].IncludeTarget {
+		t.Fatalf("after attach = %#v; want one link with IncludeTarget=true", links)
+	}
+
+	// Flip to false and back, verifying persistence.
+	if err := repo.MonitorNotificationRepo.SetIncludeTarget(ctx, monitor.ID, notif.ID, false); err != nil {
+		t.Fatalf("SetIncludeTarget false: %v", err)
+	}
+	links, _ = repo.MonitorNotificationRepo.ListByMonitor(ctx, monitor.ID)
+	if len(links) != 1 || links[0].IncludeTarget {
+		t.Fatalf("after SetIncludeTarget(false) = %#v; want IncludeTarget=false", links)
+	}
+	if err := repo.MonitorNotificationRepo.SetIncludeTarget(ctx, monitor.ID, notif.ID, true); err != nil {
+		t.Fatalf("SetIncludeTarget true: %v", err)
+	}
+	links, _ = repo.MonitorNotificationRepo.ListByMonitor(ctx, monitor.ID)
+	if len(links) != 1 || !links[0].IncludeTarget {
+		t.Fatalf("after SetIncludeTarget(true) = %#v; want IncludeTarget=true", links)
+	}
+}
+
 // TestMaintenanceRepository guards two MariaDB contracts:
 //
 //  1. FK integrity: the window is created with a real UserID and must

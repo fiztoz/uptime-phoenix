@@ -163,7 +163,7 @@ func TestNotificationService_ResolvesMatchingTemplateForDispatch(t *testing.T) {
 	notificationSvc := NewNotificationService(nil, nil)
 	notificationSvc.SetTemplateRepository(repo)
 	notification := &domain.Notification{Type: "line", TemplateID: &template.ID}
-	alert, err := notificationSvc.alertForNotification(context.Background(), notification, domain.AlertContext{MonitorName: "API", Status: domain.StatusDown})
+	alert, err := notificationSvc.alertForNotification(context.Background(), notification, domain.DefaultIncludeTarget, domain.AlertContext{MonitorName: "API", Status: domain.StatusDown})
 	if err != nil {
 		t.Fatalf("alertForNotification: %v", err)
 	}

@@ -74,6 +74,9 @@ spec:
   monitor_notifications:
     - monitor: api-health
       notification: slack-ops
+      # Default true. Set false to omit the monitor target (URL, host:port,
+      # connection string, ...) from this specific monitor's alerts.
+      include_target: true
 
   monitor_tags:
     - monitor: api-health

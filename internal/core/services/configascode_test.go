@@ -252,8 +252,9 @@ func (cfgNilMT) ListByMonitors(context.Context, []int64) (map[int64][]*domain.Mo
 
 type cfgNilMN struct{}
 
-func (cfgNilMN) Attach(context.Context, int64, int64) error { return nil }
-func (cfgNilMN) Detach(context.Context, int64, int64) error { return nil }
+func (cfgNilMN) Attach(context.Context, int64, int64, bool) error           { return nil }
+func (cfgNilMN) Detach(context.Context, int64, int64) error                 { return nil }
+func (cfgNilMN) SetIncludeTarget(context.Context, int64, int64, bool) error { return nil }
 func (cfgNilMN) ListByMonitor(context.Context, int64) ([]*domain.MonitorNotification, error) {
 	return nil, nil
 }

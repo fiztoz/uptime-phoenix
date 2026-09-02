@@ -395,7 +395,7 @@ func runRepositoryContract(t *testing.T, factory repositoryFactory) {
 				t.Fatalf("Create notification %q: %v", notification.Name, err)
 			}
 		}
-		if err := repos.monitorNotifications.Attach(ctx, monitor.ID, linked.ID); err != nil {
+		if err := repos.monitorNotifications.Attach(ctx, monitor.ID, linked.ID, true); err != nil {
 			t.Fatalf("Attach notification: %v", err)
 		}
 		got, err := repos.notifications.GetByMonitorID(ctx, monitor.ID)

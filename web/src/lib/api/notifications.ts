@@ -28,6 +28,18 @@ export interface Notification {
   updated_at: string;
 }
 
+/**
+ * A notification attached to a specific monitor (GET /monitors/:id/notifications).
+ * Adds the link-level include_target flag on top of the notification.
+ */
+export interface MonitorNotification extends Notification {
+  /**
+   * Whether alerts through this monitor↔notification link carry the monitor
+   * target (URL, host:port, etc.). Default on.
+   */
+  include_target: boolean;
+}
+
 export interface CreateNotificationInput {
   name: string;
   type: string;
@@ -69,15 +81,30 @@ export const notificationsApi = {
   },
 
   // Assignment helpers (paths match backend routes under /api/notifications for consistency)
-  async listForMonitor(monitorId: number): Promise<Notification[]> {
-    return api.get<Notification[]>(`/monitors/${monitorId}/notifications`);
+  async listForMonitor(monitorId: number): Promise<MonitorNotification[]> {
+    return api.get<MonitorNotification[]>(
+      `/monitors/${monitorId}/notifications`,
+    );
   },
 
   async assignToMonitor(
     monitorId: number,
     notificationId: number,
+    includeTarget = true,
   ): Promise<void> {
-    return api.post(`/notifications/${notificationId}/monitor/${monitorId}`);
+    return api.post(`/notifications/${notificationId}/monitor/${monitorId}`, {
+      include_target: includeTarget,
+    });
+  },
+
+  async setMonitorIncludeTarget(
+    monitorId: number,
+    notificationId: number,
+    includeTarget: boolean,
+  ): Promise<void> {
+    return api.put(`/notifications/${notificationId}/monitor/${monitorId}`, {
+      include_target: includeTarget,
+    });
   },
 
   async unassignFromMonitor(

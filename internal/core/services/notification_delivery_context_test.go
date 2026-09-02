@@ -184,3 +184,52 @@ func TestNotificationService_IncludeAckURLToggle(t *testing.T) {
 		})
 	}
 }
+
+func TestNotificationService_IncludeTargetToggle(t *testing.T) {
+	const target = "https://api.example.com/health"
+
+	cases := []struct {
+		name          string
+		includeTarget bool
+		wantTarget    string
+	}{
+		{name: "include", includeTarget: true, wantTarget: target},
+		{name: "omit", includeTarget: false, wantTarget: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			baseRepo := newFakeNotifRepo()
+			notification := &domain.Notification{
+				UserID: 1, Name: "pager", Type: "delivery-context", Active: true,
+			}
+			if err := baseRepo.Create(ctx, notification); err != nil {
+				t.Fatalf("create notification: %v", err)
+			}
+			linkRepo := newFakeMonitorNotifLinkRepo()
+			if err := linkRepo.Attach(ctx, 9, notification.ID, tc.includeTarget); err != nil {
+				t.Fatalf("attach link: %v", err)
+			}
+			repo := &deliveryContextNotifRepo{
+				fakeNotifRepo: baseRepo,
+				byMonitor:     map[int64][]*domain.Notification{9: {notification}},
+			}
+			sender := &deliveryContextSender{}
+			svc := NewNotificationService(repo, linkRepo)
+			svc.RegisterSender(sender)
+
+			monitor := &domain.Monitor{
+				ID: 9, UserID: 1, Name: "API", Type: "http",
+				Config: map[string]any{"url": target},
+			}
+			if err := svc.NotifyWithAck(ctx, monitor, domain.StatusDown, domain.StatusUp, "", "timeout"); err != nil {
+				t.Fatalf("NotifyWithAck: %v", err)
+			}
+
+			alert := sender.last(t)
+			if alert.MonitorTarget != tc.wantTarget {
+				t.Errorf("MonitorTarget = %q; want %q", alert.MonitorTarget, tc.wantTarget)
+			}
+		})
+	}
+}

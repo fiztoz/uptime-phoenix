@@ -290,8 +290,9 @@ func (s *ConfigService) Export(ctx context.Context, userID int64) (*ConfigDocume
 			mns, _ := s.monitorNotifs.ListByMonitor(ctx, m.ID)
 			for _, mn := range mns {
 				if nk, err := s.keys.GetByResource(ctx, domain.ConfigResourceNotification, mn.NotificationID); err == nil {
+					includeTarget := mn.IncludeTarget
 					doc.Spec.MonitorNotifications = append(doc.Spec.MonitorNotifications, ConfigMonitorNotification{
-						Monitor: k.KeyName, Notification: nk.KeyName,
+						Monitor: k.KeyName, Notification: nk.KeyName, IncludeTarget: &includeTarget,
 					})
 				}
 			}
@@ -1302,27 +1303,30 @@ func (s *ConfigService) syncLinks(ctx context.Context, doc *ConfigDocument) erro
 	}
 
 	// Monitor notifications
-	monNotifDesired := map[string][]string{}
+	monNotifDesired := map[string][]ConfigMonitorNotification{}
 	for _, l := range doc.Spec.MonitorNotifications {
-		monNotifDesired[l.Monitor] = append(monNotifDesired[l.Monitor], l.Notification)
+		monNotifDesired[l.Monitor] = append(monNotifDesired[l.Monitor], l)
 	}
 	for _, m := range doc.Spec.Monitors {
 		mk, err := s.keys.GetByKey(ctx, domain.ConfigResourceMonitor, m.Key)
 		if err != nil {
 			continue
 		}
-		want := map[int64]struct{}{}
-		for _, nk := range monNotifDesired[m.Key] {
-			nck, err := s.keys.GetByKey(ctx, domain.ConfigResourceNotification, nk)
+		want := map[int64]bool{}
+		for _, l := range monNotifDesired[m.Key] {
+			nck, err := s.keys.GetByKey(ctx, domain.ConfigResourceNotification, l.Notification)
 			if err != nil {
 				return err
 			}
-			want[nck.ResourceID] = struct{}{}
-			_ = s.monitorNotifs.Attach(ctx, mk.ResourceID, nck.ResourceID)
+			want[nck.ResourceID] = true
+			includeTarget := configMonitorNotifIncludeTarget(l)
+			_ = s.monitorNotifs.Attach(ctx, mk.ResourceID, nck.ResourceID, includeTarget)
+			// Reconcile the flag on links that already existed.
+			_ = s.monitorNotifs.SetIncludeTarget(ctx, mk.ResourceID, nck.ResourceID, includeTarget)
 		}
 		if cur, err := s.monitorNotifs.ListByMonitor(ctx, mk.ResourceID); err == nil {
 			for _, link := range cur {
-				if _, ok := want[link.NotificationID]; !ok {
+				if !want[link.NotificationID] {
 					_ = s.monitorNotifs.Detach(ctx, mk.ResourceID, link.NotificationID)
 				}
 			}
@@ -1524,6 +1528,13 @@ func configIncludeAckURL(n ConfigNotification) bool {
 		return domain.DefaultIncludeAckURL
 	}
 	return *n.IncludeAckURL
+}
+
+func configMonitorNotifIncludeTarget(l ConfigMonitorNotification) bool {
+	if l.IncludeTarget == nil {
+		return domain.DefaultIncludeTarget
+	}
+	return *l.IncludeTarget
 }
 
 func proxyEqual(cur *domain.Proxy, want ConfigProxy) bool {

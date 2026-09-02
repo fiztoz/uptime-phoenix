@@ -515,6 +515,7 @@
   "notification_form_include_ack_label": "Include acknowledgement link",
   "notification_form_include_ack_help": "When a monitor goes down, include a public acknowledgement link. Discord shows it as a button; other providers append it to the message. Off by default.",
   "notifications_ack_link_on": "Ack link on",
+  "monitor_detail_include_target": "Include target",
   "notification_form_discord_buttons_title": "Link buttons",
   "notification_form_discord_buttons_help": "Up to 5 extra Discord buttons. Use a full URL, or the ack_url template variable for the acknowledgement link (requires the toggle above).",
   "notification_form_discord_add_button": "Add button",

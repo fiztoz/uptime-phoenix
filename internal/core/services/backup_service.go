@@ -154,6 +154,9 @@ type BackupMonitorTag struct {
 type BackupMonitorNotification struct {
 	MonitorID      int64 `json:"monitor_id"`
 	NotificationID int64 `json:"notification_id"`
+	// IncludeTarget is a pointer so backups taken before this field existed
+	// unmarshal as nil and restore to the create default (true).
+	IncludeTarget *bool `json:"include_target,omitempty"`
 }
 
 // BackupGroupNotification links a monitor GROUP to a notification in the export.
@@ -544,9 +547,11 @@ func (s *BackupService) Export(ctx context.Context, userID int64) (*BackupDocume
 			if _, ok := userMonitorIDs[link.MonitorID]; !ok {
 				continue
 			}
+			includeTarget := link.IncludeTarget
 			doc.MonitorNotifications = append(doc.MonitorNotifications, BackupMonitorNotification{
 				MonitorID:      link.MonitorID,
 				NotificationID: link.NotificationID,
+				IncludeTarget:  &includeTarget,
 			})
 		}
 	}
@@ -999,7 +1004,11 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 			})
 			continue
 		}
-		if err := s.monitorNotifs.Attach(ctx, newMon, newNotif); err != nil {
+		includeTarget := domain.DefaultIncludeTarget
+		if mn.IncludeTarget != nil {
+			includeTarget = *mn.IncludeTarget
+		}
+		if err := s.monitorNotifs.Attach(ctx, newMon, newNotif, includeTarget); err != nil {
 			summary.Skipped = append(summary.Skipped, ImportSkipped{
 				Kind: "monitor_notification", Reason: err.Error(),
 			})

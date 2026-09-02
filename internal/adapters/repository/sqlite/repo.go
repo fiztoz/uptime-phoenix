@@ -1345,8 +1345,8 @@ func NewMonitorNotificationRepo(db *bun.DB) *MonitorNotificationRepo {
 	return &MonitorNotificationRepo{db: db}
 }
 
-func (r *MonitorNotificationRepo) Attach(ctx context.Context, monitorID, notificationID int64) error {
-	m := &repository.MonitorNotificationModel{MonitorID: monitorID, NotificationID: notificationID}
+func (r *MonitorNotificationRepo) Attach(ctx context.Context, monitorID, notificationID int64, includeTarget bool) error {
+	m := &repository.MonitorNotificationModel{MonitorID: monitorID, NotificationID: notificationID, IncludeTarget: includeTarget}
 	_, err := r.db.NewInsert().Model(m).Exec(ctx)
 	return translateError(err)
 }
@@ -1354,6 +1354,16 @@ func (r *MonitorNotificationRepo) Attach(ctx context.Context, monitorID, notific
 func (r *MonitorNotificationRepo) Detach(ctx context.Context, monitorID, notificationID int64) error {
 	_, err := r.db.NewDelete().
 		Model((*repository.MonitorNotificationModel)(nil)).
+		Where("monitor_id = ?", monitorID).
+		Where("notification_id = ?", notificationID).
+		Exec(ctx)
+	return translateError(err)
+}
+
+func (r *MonitorNotificationRepo) SetIncludeTarget(ctx context.Context, monitorID, notificationID int64, includeTarget bool) error {
+	_, err := r.db.NewUpdate().
+		Model((*repository.MonitorNotificationModel)(nil)).
+		Set("include_target = ?", includeTarget).
 		Where("monitor_id = ?", monitorID).
 		Where("notification_id = ?", notificationID).
 		Exec(ctx)

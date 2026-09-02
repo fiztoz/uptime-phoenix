@@ -250,10 +250,20 @@ type backupFakeMonitorNotifRepo struct {
 	links []domain.MonitorNotification
 }
 
-func (r *backupFakeMonitorNotifRepo) Attach(_ context.Context, monitorID, notificationID int64) error {
+func (r *backupFakeMonitorNotifRepo) Attach(_ context.Context, monitorID, notificationID int64, includeTarget bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.links = append(r.links, domain.MonitorNotification{MonitorID: monitorID, NotificationID: notificationID})
+	r.links = append(r.links, domain.MonitorNotification{MonitorID: monitorID, NotificationID: notificationID, IncludeTarget: includeTarget})
+	return nil
+}
+func (r *backupFakeMonitorNotifRepo) SetIncludeTarget(_ context.Context, monitorID, notificationID int64, includeTarget bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.links {
+		if r.links[i].MonitorID == monitorID && r.links[i].NotificationID == notificationID {
+			r.links[i].IncludeTarget = includeTarget
+		}
+	}
 	return nil
 }
 func (r *backupFakeMonitorNotifRepo) Detach(_ context.Context, _, _ int64) error { return nil }
@@ -775,7 +785,7 @@ func TestBackupService_ExportImport_RemapsRelationships(t *testing.T) {
 	if err := src.monitorTags.Assign(ctx, child.ID, tag.ID, "primary"); err != nil {
 		t.Fatalf("assign tag: %v", err)
 	}
-	if err := src.monitorNotifs.Attach(ctx, child.ID, notif.ID); err != nil {
+	if err := src.monitorNotifs.Attach(ctx, child.ID, notif.ID, true); err != nil {
 		t.Fatalf("attach notif: %v", err)
 	}
 

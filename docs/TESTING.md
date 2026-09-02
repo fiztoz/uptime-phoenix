@@ -497,6 +497,7 @@ When automated tests aren't sufficient, verify these flows manually.
 - [ ] Test-send button fires test notification
 - [ ] Edit notification config
 - [ ] Leave "Include acknowledgement link" off (the default), trigger a DOWN, and confirm no ack URL/button is sent; turn it on and confirm Discord gets an Acknowledge button while other providers append `Acknowledge: …`
+- [ ] On a monitor's detail page, leave "Include target" on (default) and confirm its alert carries the URL/host; turn it off for one monitor sharing a channel and confirm its alert omits the target while the sibling monitor still includes it
 - [ ] On a Discord webhook, add extra Link buttons (label + URL or `{{ ack_url }}`) and confirm they appear under the embed
 - [ ] Delete notification
 - [ ] Assign notification to monitor

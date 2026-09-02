@@ -251,6 +251,7 @@ func NewRouter(
 
 		// Monitor-notification association.
 		notifGroup.POST("/:id/monitor/:monitorId", notificationHandlers.AttachToMonitor, requireNotifications)
+		notifGroup.PUT("/:id/monitor/:monitorId", notificationHandlers.UpdateMonitorLink, requireNotifications)
 		notifGroup.DELETE("/:id/monitor/:monitorId", notificationHandlers.DetachFromMonitor, requireNotifications)
 
 		// Group-notification association — the folder alerts on its own rollup.

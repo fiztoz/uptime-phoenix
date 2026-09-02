@@ -512,6 +512,7 @@ type MonitorNotificationModel struct {
 	ID             int64 `bun:"id,pk,autoincrement"`
 	MonitorID      int64 `bun:"monitor_id,notnull"`
 	NotificationID int64 `bun:"notification_id,notnull"`
+	IncludeTarget  bool  `bun:"include_target,notnull"`
 }
 
 // MaintenanceWindowMonitorModel maps the maintenance_window_monitors table.
@@ -610,6 +611,7 @@ func MonitorNotificationFromDomain(mn *domain.MonitorNotification) *MonitorNotif
 		ID:             mn.ID,
 		MonitorID:      mn.MonitorID,
 		NotificationID: mn.NotificationID,
+		IncludeTarget:  mn.IncludeTarget,
 	}
 }
 
@@ -619,6 +621,7 @@ func (m *MonitorNotificationModel) ToDomainMonitorNotification() *domain.Monitor
 		ID:             m.ID,
 		MonitorID:      m.MonitorID,
 		NotificationID: m.NotificationID,
+		IncludeTarget:  m.IncludeTarget,
 	}
 }
 

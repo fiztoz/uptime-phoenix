@@ -220,6 +220,7 @@ func (s *NotificationService) Dispatch(ctx context.Context, monitor *domain.Moni
 	if err != nil {
 		return fmt.Errorf("notification service: get by monitor: %w", err)
 	}
+	includeByID := s.includeTargetByNotification(ctx, monitor.ID)
 
 	for _, n := range notifications {
 		if !n.Active {
@@ -231,7 +232,7 @@ func (s *NotificationService) Dispatch(ctx context.Context, monitor *domain.Moni
 				"type", n.Type, "notification_id", n.ID, "monitor_id", monitor.ID)
 			continue
 		}
-		notificationAlert, err := s.alertForNotification(ctx, n, alert)
+		notificationAlert, err := s.alertForNotification(ctx, n, includeTargetFor(includeByID, n.ID), alert)
 		if err != nil {
 			slog.Error("notification service: resolve template failed",
 				"type", n.Type, "notification_id", n.ID, "monitor_id", monitor.ID, "error", err)
@@ -257,6 +258,7 @@ func (s *NotificationService) DispatchTracked(ctx context.Context, monitor *doma
 	if err != nil {
 		return false, fmt.Errorf("notification service: get by monitor: %w", err)
 	}
+	includeByID := s.includeTargetByNotification(ctx, monitor.ID)
 
 	delivered := 0
 	var errs []error
@@ -269,7 +271,7 @@ func (s *NotificationService) DispatchTracked(ctx context.Context, monitor *doma
 			errs = append(errs, fmt.Errorf("notification %d: unknown sender type %q", n.ID, n.Type))
 			continue
 		}
-		notificationAlert, templateErr := s.alertForNotification(ctx, n, alert)
+		notificationAlert, templateErr := s.alertForNotification(ctx, n, includeTargetFor(includeByID, n.ID), alert)
 		if templateErr != nil {
 			errs = append(errs, fmt.Errorf("notification %d template: %w", n.ID, templateErr))
 			continue
@@ -318,7 +320,7 @@ func (s *NotificationService) DispatchToNotificationIDs(ctx context.Context, not
 			errs = append(errs, fmt.Errorf("notification %d: unknown sender type %q", id, n.Type))
 			continue
 		}
-		notificationAlert, err := s.alertForNotification(ctx, n, alert)
+		notificationAlert, err := s.alertForNotification(ctx, n, domain.DefaultIncludeTarget, alert)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("notification %d template: %w", id, err))
 			continue
@@ -389,7 +391,7 @@ func (s *NotificationService) NotifyGroup(ctx context.Context, group *domain.Mon
 				"type", n.Type, "notification_id", n.ID, "group_id", group.ID)
 			continue
 		}
-		notificationAlert, err := s.alertForNotification(ctx, n, alert)
+		notificationAlert, err := s.alertForNotification(ctx, n, domain.DefaultIncludeTarget, alert)
 		if err != nil {
 			slog.Error("notification service: resolve group template failed",
 				"type", n.Type, "notification_id", n.ID, "group_id", group.ID, "error", err)
@@ -446,7 +448,7 @@ func (s *NotificationService) SendTest(ctx context.Context, n *domain.Notificati
 		Status:        domain.StatusUp,
 		Message:       "This is a test notification from Phoenix.",
 	}
-	notificationAlert, err := s.alertForNotification(ctx, n, alert)
+	notificationAlert, err := s.alertForNotification(ctx, n, domain.DefaultIncludeTarget, alert)
 	if err != nil {
 		return fmt.Errorf("notification service: resolve test template: %w", err)
 	}
@@ -473,11 +475,12 @@ func (s *NotificationService) validateTemplateAssignment(ctx context.Context, n 
 	return nil
 }
 
-func (s *NotificationService) alertForNotification(ctx context.Context, n *domain.Notification, alert domain.AlertContext) (domain.AlertContext, error) {
+func (s *NotificationService) alertForNotification(ctx context.Context, n *domain.Notification, includeTarget bool, alert domain.AlertContext) (domain.AlertContext, error) {
 	if n == nil {
 		return alert, nil
 	}
 	alert = applyAckURLPolicy(n, alert)
+	alert = applyTargetPolicy(includeTarget, alert)
 	if n.TemplateID == nil {
 		return alert, nil
 	}
@@ -509,10 +512,59 @@ func applyAckURLPolicy(n *domain.Notification, alert domain.AlertContext) domain
 	return alert
 }
 
+// applyTargetPolicy blanks the monitor target when this channel's link has
+// include_target turned off. It runs before template resolution so every
+// sender's target line/field and the {{ monitor.target }}/{{ alert.target }}
+// variables stay empty (which lets Discord's field renderer drop the Target
+// embed field).
+func applyTargetPolicy(includeTarget bool, alert domain.AlertContext) domain.AlertContext {
+	if includeTarget || alert.MonitorTarget == "" {
+		return alert
+	}
+	alert.MonitorTarget = ""
+	return alert
+}
+
+// includeTargetByNotification resolves the per-link include_target flag for a
+// monitor's attached notifications. Missing entries mean "not decided here" —
+// includeTargetFor falls back to the default (true).
+func (s *NotificationService) includeTargetByNotification(ctx context.Context, monitorID int64) map[int64]bool {
+	out := map[int64]bool{}
+	if s.monitorNotifRepo == nil {
+		return out
+	}
+	links, err := s.monitorNotifRepo.ListByMonitor(ctx, monitorID)
+	if err != nil {
+		slog.Warn("notification service: monitor-notification link lookup failed; including target",
+			"monitor_id", monitorID, "error", err)
+		return out
+	}
+	for _, l := range links {
+		out[l.NotificationID] = l.IncludeTarget
+	}
+	return out
+}
+
+// includeTargetFor resolves a notification's include-target flag, defaulting to
+// true when the link is absent (escalation, test, group, or lookup failure).
+func includeTargetFor(m map[int64]bool, notificationID int64) bool {
+	if v, ok := m[notificationID]; ok {
+		return v
+	}
+	return domain.DefaultIncludeTarget
+}
+
 // AttachToMonitor links a notification to a monitor so the notification is
-// triggered whenever that monitor changes status.
-func (s *NotificationService) AttachToMonitor(ctx context.Context, monitorID, notificationID int64) error {
-	return s.monitorNotifRepo.Attach(ctx, monitorID, notificationID)
+// triggered whenever that monitor changes status. includeTarget is the per-link
+// flag deciding whether alerts through this link carry the monitor target.
+func (s *NotificationService) AttachToMonitor(ctx context.Context, monitorID, notificationID int64, includeTarget bool) error {
+	return s.monitorNotifRepo.Attach(ctx, monitorID, notificationID, includeTarget)
+}
+
+// SetIncludeTarget updates the per-link target-inclusion flag on an existing
+// monitor↔notification link.
+func (s *NotificationService) SetIncludeTarget(ctx context.Context, monitorID, notificationID int64, includeTarget bool) error {
+	return s.monitorNotifRepo.SetIncludeTarget(ctx, monitorID, notificationID, includeTarget)
 }
 
 // DetachFromMonitor removes the link between a notification and a monitor.
@@ -523,6 +575,11 @@ func (s *NotificationService) DetachFromMonitor(ctx context.Context, monitorID, 
 // GetByMonitorID retrieves all notifications assigned to a monitor.
 func (s *NotificationService) GetByMonitorID(ctx context.Context, monitorID int64) ([]*domain.Notification, error) {
 	return s.repo.GetByMonitorID(ctx, monitorID)
+}
+
+// ListByMonitor retrieves all monitor-notification associations for a monitor.
+func (s *NotificationService) ListByMonitor(ctx context.Context, monitorID int64) ([]*domain.MonitorNotification, error) {
+	return s.monitorNotifRepo.ListByMonitor(ctx, monitorID)
 }
 
 // ListByNotification retrieves all monitor-notification associations for a

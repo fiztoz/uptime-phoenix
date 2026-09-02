@@ -71,6 +71,40 @@ func TestDiscordSender_Send_DownSeverity(t *testing.T) {
 	}
 }
 
+func TestDiscordSender_Send_EmptyTargetOmitted(t *testing.T) {
+	var received map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	// Monitor alert whose target was blanked by include_target=false: the
+	// default embed's Target field must disappear, never an empty value.
+	alert := domain.AlertContext{
+		AlertScope:    domain.AlertScopeMonitor,
+		MonitorName:   "test-monitor",
+		MonitorType:   "http",
+		MonitorTarget: "",
+		Status:        domain.StatusDown,
+		Message:       "down",
+	}
+	if err := (DiscordSender{}).Send(context.Background(), map[string]any{"webhook_url": srv.URL}, alert); err != nil {
+		t.Fatalf("send failed: %v", err)
+	}
+	embed := received["embeds"].([]any)[0].(map[string]any)
+	fields, ok := embed["fields"].([]any)
+	if !ok {
+		t.Fatal("expected embed fields array")
+	}
+	for _, f := range fields {
+		field := f.(map[string]any)
+		if field["name"] == "Target" {
+			t.Fatalf("Target field should be omitted when the target is empty, got %#v", field)
+		}
+	}
+}
+
 func TestDiscordSender_Send_CustomTemplate(t *testing.T) {
 	var received map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

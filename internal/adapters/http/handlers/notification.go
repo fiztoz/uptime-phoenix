@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -106,6 +108,13 @@ type NotificationView struct {
 	Config        map[string]any `json:"config"`
 	CreatedAt     string         `json:"created_at"`
 	UpdatedAt     string         `json:"updated_at"`
+}
+
+// MonitorNotificationView is the wire shape of a monitor↔notification link: the
+// notification plus the link-specific include_target flag.
+type MonitorNotificationView struct {
+	*NotificationView
+	IncludeTarget bool `json:"include_target"`
 }
 
 func toNotificationView(n *domain.Notification) *NotificationView {
@@ -225,7 +234,8 @@ func (h *NotificationHandlers) List(c echo.Context) error {
 }
 
 // ListForMonitor handles GET /api/monitors/:monitorId/notifications.
-// Returns the notifications assigned to a specific monitor (used by monitor detail page).
+// Returns the notifications assigned to a specific monitor, each carrying the
+// link-specific include_target flag (used by monitor detail page).
 func (h *NotificationHandlers) ListForMonitor(c echo.Context) error {
 	monitorID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -235,15 +245,29 @@ func (h *NotificationHandlers) ListForMonitor(c echo.Context) error {
 		return err
 	}
 
-	// Delegate to service (GetByMonitorID already exists and is used in notification dispatch path).
 	notifications, err := h.svc.GetByMonitorID(c.Request().Context(), monitorID)
 	if err != nil {
 		return mapNotifError(c, err)
 	}
+	links, err := h.svc.ListByMonitor(c.Request().Context(), monitorID)
+	if err != nil {
+		return mapNotifError(c, err)
+	}
+	includeByID := make(map[int64]bool, len(links))
+	for _, l := range links {
+		includeByID[l.NotificationID] = l.IncludeTarget
+	}
 
-	views := make([]*NotificationView, len(notifications))
-	for i, n := range notifications {
-		views[i] = toNotificationView(n)
+	views := make([]*MonitorNotificationView, 0, len(notifications))
+	for _, n := range notifications {
+		includeTarget := domain.DefaultIncludeTarget
+		if v, ok := includeByID[n.ID]; ok {
+			includeTarget = v
+		}
+		views = append(views, &MonitorNotificationView{
+			NotificationView: toNotificationView(n),
+			IncludeTarget:    includeTarget,
+		})
 	}
 	return c.JSON(http.StatusOK, views)
 }
@@ -413,11 +437,31 @@ func (h *NotificationHandlers) AttachToMonitor(c echo.Context) error {
 		return err
 	}
 
-	if err := h.svc.AttachToMonitor(c.Request().Context(), monitorID, notifID); err != nil {
+	includeTarget, err := bindIncludeTarget(c)
+	if err != nil {
+		return err
+	}
+	if err := h.svc.AttachToMonitor(c.Request().Context(), monitorID, notifID, includeTarget); err != nil {
 		return mapNotifError(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+// bindIncludeTarget reads an optional JSON body { "include_target": bool },
+// defaulting to true. An empty body (legacy attach) is not an error.
+func bindIncludeTarget(c echo.Context) (bool, error) {
+	var req struct {
+		IncludeTarget *bool `json:"include_target"`
+	}
+	if err := json.NewDecoder(c.Request().Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		return false, badRequest(c, "invalid request body")
+	}
+	includeTarget := domain.DefaultIncludeTarget
+	if req.IncludeTarget != nil {
+		includeTarget = *req.IncludeTarget
+	}
+	return includeTarget, nil
 }
 
 // DetachFromMonitor handles DELETE /api/notifications/:id/monitor/:monitorId.
@@ -444,6 +488,40 @@ func (h *NotificationHandlers) DetachFromMonitor(c echo.Context) error {
 	}
 
 	if err := h.svc.DetachFromMonitor(c.Request().Context(), monitorID, notifID); err != nil {
+		return mapNotifError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// UpdateMonitorLink handles PUT /api/notifications/:id/monitor/:monitorId and
+// updates the link-specific include_target flag. Same two gates as AttachToMonitor.
+func (h *NotificationHandlers) UpdateMonitorLink(c echo.Context) error {
+	if _, err := h.requireManageNotifications(c); err != nil {
+		return err
+	}
+
+	notifID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return badRequest(c, "invalid notification id")
+	}
+	monitorID, err := strconv.ParseInt(c.Param("monitorId"), 10, 64)
+	if err != nil {
+		return badRequest(c, "invalid monitor id")
+	}
+
+	if _, err := h.svc.GetByID(c.Request().Context(), notifID); err != nil {
+		return mapNotifError(c, err)
+	}
+	if err := requireMonitorViewAccess(c, h.access, monitorID); err != nil {
+		return err
+	}
+
+	includeTarget, err := bindIncludeTarget(c)
+	if err != nil {
+		return err
+	}
+	if err := h.svc.SetIncludeTarget(c.Request().Context(), monitorID, notifID, includeTarget); err != nil {
 		return mapNotifError(c, err)
 	}
 
