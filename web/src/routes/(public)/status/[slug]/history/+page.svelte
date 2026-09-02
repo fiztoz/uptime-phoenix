@@ -11,6 +11,7 @@
     type PublicStatusResponse,
   } from "$lib/api/statuspages";
   import { computeOverall } from "$lib/status-page-health";
+  import { customStatusPageIcon } from "$lib/status-page-icon";
   import { publicTheme } from "$lib/stores/publicTheme.svelte.ts";
   import {
     AlertTriangle,
@@ -25,6 +26,7 @@
     $page.url.pathname.replace(/\/history\/?$/, "") || "/",
   );
   let data = $state<PublicStatusResponse | null>(null);
+  let customIcon = $derived(customStatusPageIcon(data?.status_page?.icon));
   let loading = $state(true);
   let accessCode = $state("");
   let accessError = $state("");
@@ -146,10 +148,10 @@
 					<Moon class="h-4 w-4" />
 				{/if}
 			</button>
-			{#if data?.status_page?.icon}
+			{#if customIcon}
 				<div class="mb-4 flex items-center justify-center">
 					<img
-						src={data.status_page.icon}
+						src={customIcon}
 						alt=""
 						class="h-14 w-14 rounded-xl object-contain"
 					/>

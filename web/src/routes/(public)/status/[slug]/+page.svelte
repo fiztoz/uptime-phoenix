@@ -14,12 +14,14 @@
 		type PublicStatusResponse,
 	} from '$lib/api/statuspages';
 	import { computeOverall } from '$lib/status-page-health';
+	import { customStatusPageIcon } from '$lib/status-page-icon';
 	import { publicTheme } from '$lib/stores/publicTheme.svelte.ts';
 	import { AlertTriangle, CalendarDays, LockKeyhole, Moon, Sun, Mail, Rss } from '@lucide/svelte';
 
 	let slug = $derived($page.params.slug);
 	let historyURL = $derived(`${$page.url.pathname.replace(/\/$/, '')}/history`);
 	let data = $state<PublicStatusResponse | null>(null);
+	let customIcon = $derived(customStatusPageIcon(data?.status_page?.icon));
 	let loading = $state(true);
 	let accessCode = $state('');
 	let accessError = $state('');
@@ -267,8 +269,8 @@
 	{#if data?.status_page?.favicon}
 		<link rel="icon" href={data.status_page.favicon} />
 	{/if}
-	{#if data?.status_page?.icon}
-		<meta property="og:image" content={data.status_page.icon} />
+	{#if customIcon}
+		<meta property="og:image" content={customIcon} />
 	{/if}
 	{#if data?.status_page?.custom_css}
 		<!-- prettier-ignore -->
@@ -299,10 +301,10 @@
           <Moon class="h-4 w-4" />
         {/if}
       </button>
-      {#if data?.status_page?.icon}
+      {#if customIcon}
         <div class="mb-4 flex items-center justify-center">
           <img
-            src={data.status_page.icon}
+            src={customIcon}
             alt=""
             class="h-16 w-16 rounded-xl object-contain"
           />

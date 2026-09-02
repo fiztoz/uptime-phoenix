@@ -53,3 +53,19 @@ func TestValidateBrandAsset_EmptyOK(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestValidateBrandAsset_AcceptsSameOriginPath(t *testing.T) {
+	for _, path := range []string{"/icon.svg", "/favicon.svg", "/brand/phoenix-mascot.svg"} {
+		if err := validateStatusPageBranding(&domain.StatusPage{Icon: path}); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+	}
+}
+
+func TestValidateBrandAsset_RejectsUnsafePaths(t *testing.T) {
+	for _, path := range []string{"//evil.example/x.svg", "/../etc/passwd", `/\evil`} {
+		if err := validateStatusPageBranding(&domain.StatusPage{Icon: path}); !errors.Is(err, domain.ErrValidation) {
+			t.Fatalf("%s: got %v, want ErrValidation", path, err)
+		}
+	}
+}

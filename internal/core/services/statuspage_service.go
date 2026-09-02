@@ -691,7 +691,7 @@ func (s *StatusPageService) Update(ctx context.Context, sp *domain.StatusPage) e
 }
 
 // validateStatusPageBranding enforces F3.5 logo/favicon rules: empty, http(s),
-// or data:image/* data-URLs under the size cap.
+// same-origin path (/icon.svg), or data:image/* data-URLs under the size cap.
 func validateStatusPageBranding(sp *domain.StatusPage) error {
 	if err := validateBrandAsset("icon", sp.Icon); err != nil {
 		return err
@@ -707,11 +707,24 @@ func validateBrandAsset(field, raw string) error {
 	if raw == "" {
 		return nil
 	}
+	// Same-origin path (Kuma-style /icon.svg, or /brand/phoenix-mascot.svg).
+	// Reject protocol-relative //host and path traversal; anything else is
+	// fetched by the browser from this Phoenix origin.
+	if strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") {
+		if strings.Contains(raw, "\\") || strings.Contains(raw, "..") {
+			return fmt.Errorf("status page service: %w: %s must be a data:image/* data-URL, http(s) URL, or same-origin path", domain.ErrValidation, field)
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Host != "" || u.Scheme != "" {
+			return fmt.Errorf("status page service: %w: %s must be a data:image/* data-URL, http(s) URL, or same-origin path", domain.ErrValidation, field)
+		}
+		return nil
+	}
 	if strings.HasPrefix(raw, "data:") {
 		// data:image/png;base64,....
 		meta, payload, ok := strings.Cut(raw, ",")
 		if !ok || !strings.HasPrefix(meta, "data:image/") {
-			return fmt.Errorf("status page service: %w: %s must be a data:image/* data-URL or http(s) URL", domain.ErrValidation, field)
+			return fmt.Errorf("status page service: %w: %s must be a data:image/* data-URL, http(s) URL, or same-origin path", domain.ErrValidation, field)
 		}
 		if !strings.Contains(meta, ";base64") {
 			return fmt.Errorf("status page service: %w: %s data-URL must be base64-encoded", domain.ErrValidation, field)
@@ -731,7 +744,7 @@ func validateBrandAsset(field, raw string) error {
 	}
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return fmt.Errorf("status page service: %w: %s must be an http(s) URL or data:image data-URL", domain.ErrValidation, field)
+		return fmt.Errorf("status page service: %w: %s must be an http(s) URL, same-origin path, or data:image data-URL", domain.ErrValidation, field)
 	}
 	return nil
 }

@@ -26,3 +26,16 @@ func TestNormalizeDashboardStyle(t *testing.T) {
 		})
 	}
 }
+
+func TestIsStockKumaStatusPageIcon(t *testing.T) {
+	t.Parallel()
+	if IsStockKumaStatusPageIcon("") {
+		t.Fatal("empty is not a Kuma stock icon")
+	}
+	if !IsStockKumaStatusPageIcon("/icon.svg") || !IsStockKumaStatusPageIcon("https://host/icon.png") {
+		t.Fatal("Kuma defaults must match")
+	}
+	if IsStockKumaStatusPageIcon("/brand/phoenix-mascot.svg") {
+		t.Fatal("Phoenix mascot is a real asset")
+	}
+}

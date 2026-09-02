@@ -268,6 +268,9 @@ func TestConvertClassicSchema(t *testing.T) {
 	if len(doc.StatusPages) != 1 || doc.StatusPages[0].Slug != "public" {
 		t.Fatalf("status pages: %+v", doc.StatusPages)
 	}
+	if doc.StatusPages[0].Icon != "" {
+		t.Fatalf("Kuma default /icon.png should import as empty (Phoenix mascot), got %q", doc.StatusPages[0].Icon)
+	}
 	if len(doc.StatusPageCNAMEs) != 1 || doc.StatusPageCNAMEs[0].Domain != "status.example.com" {
 		t.Fatalf("cnames: %+v", doc.StatusPageCNAMEs)
 	}

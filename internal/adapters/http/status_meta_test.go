@@ -55,6 +55,23 @@ func TestInjectStatusPageMeta_SlugPublished(t *testing.T) {
 	if !strings.Contains(s, `og:site_name" content="Phoenix"`) {
 		t.Fatalf("missing og:site_name")
 	}
+	if !strings.Contains(s, `og:image" content="https://status.example.com/brand/phoenix-mascot.png"`) {
+		t.Fatalf("empty icon must fall back to mascot: %s", s)
+	}
+}
+
+func TestInjectStatusPageMeta_KumaDefaultIconFallsBackToMascot(t *testing.T) {
+	r := &fakeMetaResolver{bySlug: map[string]*domain.StatusPage{
+		"acme": {Slug: "acme", Title: "Acme", Published: true, Icon: "/icon.svg"},
+	}}
+	out := InjectStatusPageMeta(context.Background(), r, "/status/acme", "localhost", "https://status.example.com", baseIndex())
+	s := string(out)
+	if strings.Contains(s, "/icon.svg") {
+		t.Fatalf("Kuma /icon.svg must not be used as og:image: %s", s)
+	}
+	if !strings.Contains(s, `og:image" content="https://status.example.com/brand/phoenix-mascot.png"`) {
+		t.Fatalf("want mascot og:image, got: %s", s)
+	}
 }
 
 func TestInjectStatusPageMeta_BareSlugPathIsNotAStatusPage(t *testing.T) {

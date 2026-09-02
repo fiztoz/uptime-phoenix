@@ -174,10 +174,11 @@ func injectMetaTags(indexHTML []byte, sp *domain.StatusPage, path, origin string
 	}
 	escURL := html.EscapeString(ogURL)
 
-	// Prefer the page icon when it looks like an absolute/relative image URL;
-	// otherwise fall back to the Phoenix brand mark.
+	// Prefer a real custom logo; Kuma's default /icon.svg is not a Phoenix asset.
+	// Fall back to the mascot used by BrandMark on the public status page.
 	image := "/brand/phoenix-mascot.png"
-	if icon := strings.TrimSpace(sp.Icon); icon != "" && (strings.HasPrefix(icon, "http://") || strings.HasPrefix(icon, "https://") || strings.HasPrefix(icon, "/")) {
+	if icon := strings.TrimSpace(sp.Icon); icon != "" && !domain.IsStockKumaStatusPageIcon(icon) &&
+		(strings.HasPrefix(icon, "http://") || strings.HasPrefix(icon, "https://") || strings.HasPrefix(icon, "/")) {
 		image = icon
 	}
 	if origin != "" && strings.HasPrefix(image, "/") {

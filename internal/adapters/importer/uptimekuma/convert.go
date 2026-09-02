@@ -757,6 +757,10 @@ func convertStatusPages(src *source, doc *services.BackupDocument, monitorIDs ma
 		sp.ShowTags = showTags != 0
 		sp.DashboardStyle = domain.DashboardStyleFull
 		sp.AutoResolveIncidents = false
+		// Kuma's default /icon.svg is not shipped by Phoenix; empty uses the mascot.
+		if domain.IsStockKumaStatusPageIcon(sp.Icon) {
+			sp.Icon = ""
+		}
 		// Password in Kuma is stored as a hash when set; we pass it through
 		// so a protected page stays protected after Phoenix import.
 		doc.StatusPages = append(doc.StatusPages, sp)

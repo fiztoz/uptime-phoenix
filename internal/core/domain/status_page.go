@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"net/url"
+	"strings"
+	"time"
+)
 
 const (
 	// DashboardStyleFull renders the detailed monitor presentation.
@@ -43,11 +47,11 @@ type StatusPage struct {
 	Slug        string
 	Title       string
 	Description string
-	// Icon is the page logo (http(s) URL or data:image data-URL). Empty uses
-	// the default Phoenix mark when ShowPoweredBy is true.
+	// Icon is the page logo (http(s) URL, same-origin path, or data:image
+	// data-URL). Empty uses the default Phoenix mark when ShowPoweredBy is true.
 	Icon string
-	// Favicon is the browser-tab icon (http(s) or data:image). Empty leaves
-	// the default site favicon.
+	// Favicon is the browser-tab icon (http(s), same-origin path, or data:image).
+	// Empty leaves the default site favicon.
 	Favicon              string
 	Theme                string // "light", "dark", "auto"
 	Published            bool
@@ -90,4 +94,24 @@ type StatusPageSubscriber struct {
 type StatusPageSubscriptionChannel struct {
 	StatusPageID   int64
 	NotificationID int64
+}
+
+// IsStockKumaStatusPageIcon reports Uptime Kuma's default logo path
+// (/icon.svg and siblings). Phoenix does not serve those files; public pages
+// should use the Phoenix mascot at /brand/phoenix-mascot.svg instead.
+func IsStockKumaStatusPageIcon(icon string) bool {
+	s := strings.TrimSpace(icon)
+	if s == "" {
+		return false
+	}
+	path := s
+	if u, err := url.Parse(s); err == nil && u.Path != "" {
+		path = u.Path
+	}
+	switch strings.ToLower(path) {
+	case "/icon.svg", "/icon.png", "/icon.ico":
+		return true
+	default:
+		return false
+	}
 }
