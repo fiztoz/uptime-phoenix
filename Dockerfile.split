@@ -38,7 +38,7 @@ FROM web-from-context AS web-builder-1
 FROM web-builder-${USE_PREBUILT_WEB} AS web-builder
 
 # ─── Stage 2: Build the Go binaries (CGO-free, static) ───────────────────────
-FROM golang:1.26-alpine AS go-builder
+FROM golang:1.27-alpine AS go-builder
 
 # Multi-arch: buildx sets TARGETOS/TARGETARCH; never hardcode amd64.
 ARG TARGETOS=linux
