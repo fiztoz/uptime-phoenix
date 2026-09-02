@@ -11,12 +11,7 @@ at the bottom.
 
 ## [Unreleased]
 
-### Changed
-
-- Helm OIDC group/scope/grant fields accept a YAML list or a comma-separated
-  string (`oidc.adminGroups: [phoenix-admins]`, `oidc.capViewAllMonitorsGroups`,
-  `oidc.scopes`, `oidc.grantMap`, …). Lists are joined into the CSV env vars
-  Phoenix already reads; existing string values keep working.
+## [0.4.0] — 2026-09-02
 
 ### Added
 
@@ -26,6 +21,33 @@ at the bottom.
   group — including ones created later — but still cannot edit anyone else's.
   Migration `032` defaults existing users off. OIDC IdP groups map onto it via
   `OIDC_CAP_VIEW_ALL_MONITORS_GROUPS`.
+- HTTP monitors: `keyword_regex` matches the response body line-by-line
+  (Go RE2). Complements the existing whole-body keyword search.
+- Dashboard group drill-down now shows that group's immediate subgroup cards
+  plus its directly assigned monitors, instead of flattening every descendant
+  monitor. Subgroup cards still carry recursive totals and rolled-up status.
+  Search, tag, status, type, or sort still produce the flat matching-monitor
+  view.
+
+### Changed
+
+- Helm OIDC group/scope/grant fields accept a YAML list or a comma-separated
+  string (`oidc.adminGroups: [phoenix-admins]`, `oidc.capViewAllMonitorsGroups`,
+  `oidc.scopes`, `oidc.grantMap`, …). Lists are joined into the CSV env vars
+  Phoenix already reads; existing string values keep working.
+- Public status pages are served at `/status/:slug` (and `/status/:slug/history`).
+  Custom-domain roots still rewrite onto that path.
+
+### Fixed
+
+- Unknown SPA paths such as `/ab` no longer render as
+  "Status page not found or unpublished". They use the generic Page not found
+  screen. Favicon and `/_app` URLs are root-absolute so nested `/status/:slug`
+  pages keep the icon and bundle.
+- Insights highlight cards paint as soon as they have enough data instead of
+  waiting for full coverage.
+- Dashboard and monitors group loading/error states no longer leave an empty
+  folder view while groups are still fetching.
 
 ## [0.3.7] — 2026-08-24
 
