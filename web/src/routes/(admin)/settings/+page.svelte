@@ -89,6 +89,7 @@
 	let newUserCanManageNotifications = $state(false);
 	let newUserCanManageMaintenance = $state(false);
 	let newUserCanViewExtensions = $state(false);
+	let newUserCanViewAllMonitors = $state(false);
 	let userLoading = $state(false);
 	let permissionEditorUserId = $state<number | null>(null);
 	let permissionLoadingUserId = $state<number | null>(null);
@@ -712,6 +713,7 @@
 				can_manage_notifications: targetUser.can_manage_notifications,
 				can_manage_maintenance: targetUser.can_manage_maintenance,
 				can_view_extensions: targetUser.can_view_extensions,
+				can_view_all_monitors: targetUser.can_view_all_monitors,
 				can_create_monitors: targetUser.can_create_monitors,
 				can_create_top_level_monitors: targetUser.can_create_top_level_monitors,
 				can_create_groups: targetUser.can_create_groups,
@@ -739,6 +741,7 @@
 			| 'can_manage_notifications'
 			| 'can_manage_maintenance'
 			| 'can_view_extensions'
+			| 'can_view_all_monitors'
 			| 'can_create_monitors'
 			| 'can_create_top_level_monitors'
 			| 'can_create_groups'
@@ -782,6 +785,7 @@
 				can_manage_notifications: newUserCanManageNotifications,
 				can_manage_maintenance: newUserCanManageMaintenance,
 				can_view_extensions: newUserCanViewExtensions,
+				can_view_all_monitors: newUserCanViewAllMonitors,
 			});
 			newUsername = '';
 			newUserPassword = '';
@@ -790,6 +794,7 @@
 			newUserCanManageNotifications = false;
 			newUserCanManageMaintenance = false;
 			newUserCanViewExtensions = false;
+			newUserCanViewAllMonitors = false;
 			await loadUsers();
 			toast.success('User created');
 		} catch (e: any) {
@@ -1393,6 +1398,10 @@
 					<label class="flex items-center gap-2 text-sm text-muted-foreground" title="Show registered extension pages in the Phoenix sidebar">
 						<input type="checkbox" class="h-4 w-4 shrink-0 rounded border-border accent-primary" bind:checked={newUserCanViewExtensions} />
 						View extensions
+					</label>
+					<label class="flex items-center gap-2 text-sm text-muted-foreground" title="See every monitor and group without granting edit">
+						<input type="checkbox" class="h-4 w-4 shrink-0 rounded border-border accent-primary" bind:checked={newUserCanViewAllMonitors} />
+						View all monitors
 					</label>
 				</div>
 

@@ -72,8 +72,13 @@ export const handle: Handle = async ({ event, resolve }) => {
   // Resolve custom domain to status page slug.
   const slug = await resolveDomainToSlug(hostname);
   if (slug) {
-    // Rewrite the URL to serve the status page under the slug path.
-    event.url.pathname = `/${slug}${event.url.pathname}`;
+    // Public pages live at /status/:slug. Rewrite / → /status/:slug and
+    // /history → /status/:slug/history so the custom-domain root still works.
+    const prefix = `/status/${slug}`;
+    if (!event.url.pathname.startsWith(prefix)) {
+      const rest = event.url.pathname === "/" ? "" : event.url.pathname;
+      event.url.pathname = `${prefix}${rest}`;
+    }
   }
 
   return resolve(event, { transformPageChunk: injectOgTags(event.url.origin) });

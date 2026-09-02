@@ -105,6 +105,9 @@ type UserView struct {
 	CanManageNotifications bool `json:"can_manage_notifications"`
 	CanManageMaintenance   bool `json:"can_manage_maintenance"`
 	CanViewExtensions      bool `json:"can_view_extensions"`
+	// CanViewAllMonitors is install-wide read-only visibility. It does not
+	// grant write; gate edit buttons on ownership / is_admin, never on this flag.
+	CanViewAllMonitors bool `json:"can_view_all_monitors"`
 	// CanCreateMonitors / CanCreateGroups gate creating those resources. They do
 	// NOT tell the frontend whether this user may edit a monitor already on
 	// screen: that is per-resource ownership (monitor.user_id == this user, or
@@ -144,6 +147,7 @@ func toUserView(u *domain.User) *UserView {
 		CanManageNotifications:    u.CanManageNotifications,
 		CanManageMaintenance:      u.CanManageMaintenance,
 		CanViewExtensions:         u.CanViewExtensions,
+		CanViewAllMonitors:        u.CanViewAllMonitors,
 		CanCreateMonitors:         u.CanCreateMonitors,
 		CanCreateTopLevelMonitors: u.CanCreateTopLevelMonitors,
 		CanCreateGroups:           u.CanCreateGroups,

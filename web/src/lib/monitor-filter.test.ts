@@ -13,6 +13,7 @@ import {
   groupPath,
   groupSubtreeIds,
   hasActiveFilters,
+  isGroupBrowseCriteria,
   monitorTags,
   monitorsInGroup,
   normalizeStatusOrder,
@@ -101,6 +102,35 @@ describe("groupPath", () => {
 
   test("unknown group has no path", () => {
     expect(groupPath(GROUPS, 99)).toEqual([]);
+  });
+});
+
+describe("isGroupBrowseCriteria", () => {
+  test("treats a numeric group by itself as hierarchy navigation", () => {
+    expect(isGroupBrowseCriteria(criteria({ group: 1 }))).toBe(true);
+    expect(isGroupBrowseCriteria(criteria({ group: 1, search: "   " }))).toBe(
+      true,
+    );
+  });
+
+  test("keeps non-group selections and explicit filtering flat", () => {
+    expect(isGroupBrowseCriteria(EMPTY_CRITERIA)).toBe(false);
+    expect(isGroupBrowseCriteria(criteria({ group: UNGROUPED }))).toBe(false);
+    expect(
+      isGroupBrowseCriteria(criteria({ group: 1, search: "payments" })),
+    ).toBe(false);
+    expect(isGroupBrowseCriteria(criteria({ group: 1, tags: ["prod"] }))).toBe(
+      false,
+    );
+    expect(
+      isGroupBrowseCriteria(criteria({ group: 1, statuses: ["down"] })),
+    ).toBe(false);
+    expect(isGroupBrowseCriteria(criteria({ group: 1, type: "http" }))).toBe(
+      false,
+    );
+    expect(
+      isGroupBrowseCriteria(criteria({ group: 1, sort: "name-asc" })),
+    ).toBe(false);
   });
 });
 

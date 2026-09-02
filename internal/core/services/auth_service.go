@@ -348,6 +348,9 @@ type UserCapabilities struct {
 	// CanViewExtensions grants discovery and launching through the Phoenix UI.
 	// Extension services still own authorization on their direct Ingress paths.
 	CanViewExtensions bool
+	// CanViewAllMonitors grants install-wide read-only visibility of every
+	// monitor and group. It does not grant write — that remains admin or owner.
+	CanViewAllMonitors bool
 	// CanCreateMonitors / CanCreateGroups let a non-admin create that resource
 	// type and then edit and delete what they created. Note the asymmetry with
 	// the two above: those are install-wide powers (a notification manager may
@@ -376,6 +379,7 @@ type CapabilityUpdate struct {
 	CanManageNotifications    *bool
 	CanManageMaintenance      *bool
 	CanViewExtensions         *bool
+	CanViewAllMonitors        *bool
 	CanCreateMonitors         *bool
 	CanCreateTopLevelMonitors *bool
 	CanCreateGroups           *bool
@@ -412,6 +416,7 @@ func (s *AuthService) CreateUser(ctx context.Context, username, password string,
 		CanManageNotifications:    caps.CanManageNotifications,
 		CanManageMaintenance:      caps.CanManageMaintenance,
 		CanViewExtensions:         caps.CanViewExtensions,
+		CanViewAllMonitors:        caps.CanViewAllMonitors,
 		CanCreateMonitors:         caps.CanCreateMonitors,
 		CanCreateTopLevelMonitors: caps.CanCreateTopLevelMonitors,
 		CanCreateGroups:           caps.CanCreateGroups,
@@ -486,6 +491,9 @@ func (s *AuthService) UpdateUser(ctx context.Context, id int64, username *string
 	}
 	if caps.CanViewExtensions != nil {
 		user.CanViewExtensions = *caps.CanViewExtensions
+	}
+	if caps.CanViewAllMonitors != nil {
+		user.CanViewAllMonitors = *caps.CanViewAllMonitors
 	}
 	if caps.CanCreateMonitors != nil {
 		user.CanCreateMonitors = *caps.CanCreateMonitors

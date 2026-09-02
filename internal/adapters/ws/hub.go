@@ -157,7 +157,7 @@ type Client struct {
 	closed atomic.Bool
 
 	visMu      sync.Mutex
-	visAll     bool           // true for admins: every monitor, no id set needed
+	visAll     bool           // true for admins / can_view_all_monitors: every monitor, no id set needed
 	visIDs     map[int64]bool // the allowlist when visAll is false
 	visResolve time.Time      // when the set was last resolved; zero = never/invalidated
 }

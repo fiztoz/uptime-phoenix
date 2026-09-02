@@ -31,6 +31,7 @@
 		filterMonitors,
 		groupPath,
 		hasActiveFilters,
+		isGroupBrowseCriteria,
 		monitorTags,
 		sortDashboardMonitors,
 		summarizeGroup,
@@ -258,7 +259,6 @@
 	});
 
 	let filterActive = $derived(hasActiveFilters(criteria));
-	let flatMonitorView = $derived(filterActive || criteria.sort !== 'default');
 	let tagOptions = $derived.by((): NormalizedTag[] => {
 		return [...catalogTags]
 			.map((t) => ({ id: t.id, name: t.name, color: t.color ?? '', value: '' }))
@@ -291,6 +291,16 @@
 	let activeGroupPath = $derived(
 		typeof criteria.group === 'number' ? groupPath(groups, criteria.group) : []
 	);
+	// A group-only selection is navigation, not a flattening filter: keep the
+	// folder hierarchy visible. Explicit search/facet/sort operations still
+	// produce the existing flat result grid. While groups load, preserve the
+	// browse branch so a deep link shows folder skeletons instead of no matches.
+	let groupBrowseView = $derived(
+		isGroupBrowseCriteria(criteria) && (groupsLoading || activeGroupPath.length > 0),
+	);
+	let flatMonitorView = $derived(
+		!groupBrowseView && (filterActive || criteria.sort !== 'default'),
+	);
 
 	/**
 	 * Live-recomputed group statuses, ported from internal/core/domain/monitor_group.go
@@ -308,12 +318,16 @@
 		return resolveGroupStatuses(groups, withStatus);
 	});
 
-	// Top-level groups + the monitors that sit in no group at all. Only used for
-	// the DEFAULT (unfiltered) browse view — once a filter is on we show a flat
-	// grid of matching monitors instead.
+	// Hierarchical browse buckets. At the dashboard root these are top-level
+	// groups and ungrouped monitors. Inside a selected group they are that
+	// group's immediate subgroups and directly assigned monitors; recursive
+	// totals/statuses remain visible on each subgroup card.
 	let groupIndex = $derived(indexGroupChildren(groups, allMonitors));
-	let topGroups = $derived(groupIndex.subgroupsByParent.get(null) ?? []);
-	let ungroupedMonitors = $derived(groupIndex.monitorsByGroup.get(null) ?? []);
+	let browseParentId = $derived(
+		groupBrowseView && typeof criteria.group === 'number' ? criteria.group : null,
+	);
+	let browseGroups = $derived(groupIndex.subgroupsByParent.get(browseParentId) ?? []);
+	let browseMonitors = $derived(groupIndex.monitorsByGroup.get(browseParentId) ?? []);
 
 	// --- Stats ------------------------------------------------------------
 	// The tiles, the health banner and "Needs attention" all describe the
@@ -780,8 +794,8 @@
 				</div>
 			{/if}
 		{:else}
-			<!-- Default browse view: one flat grid of top-level GROUP cards followed
-			     by the ungrouped monitors. No tree, no nesting, no chevrons. -->
+			<!-- Hierarchical browse view: show only the current level. Subgroup cards
+			     carry recursive totals/status, while monitor cards are direct children. -->
 			<div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
 				{#if groupsLoading}
 					<!-- Folder cards arrive with the groups fetch; skeleton placeholders
@@ -795,7 +809,7 @@
 						<button type="button" onclick={() => loadGroups()} class="inline-flex items-center rounded-lg border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-accent">{m.monitor_group_form_retry()}</button>
 					</div>
 				{/if}
-				{#each topGroups as g (g.id)}
+				{#each browseGroups as g (g.id)}
 					<GroupCard
 						group={g}
 						summary={summarizeGroup(groups, allMonitors, g.id)}
@@ -803,7 +817,7 @@
 						ondrill={() => drillIntoGroup(g.id)}
 					/>
 				{/each}
-				{#each ungroupedMonitors as mon (mon.id)}
+				{#each browseMonitors as mon (mon.id)}
 					<MonitorCard
 						monitor={mon}
 						heartbeat={realtime.heartbeats.get(mon.id)}

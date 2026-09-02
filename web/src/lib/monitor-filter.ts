@@ -146,6 +146,23 @@ export function hasActiveFilters(c: FilterCriteria): boolean {
   );
 }
 
+/**
+ * True when a numeric group selection is acting as folder navigation rather
+ * than as one facet in a global monitor search. In this mode the dashboard
+ * keeps immediate subgroup cards visible and shows only directly assigned
+ * monitors; any explicit search, facet, or sort switches back to flat results.
+ */
+export function isGroupBrowseCriteria(c: FilterCriteria): boolean {
+  return (
+    typeof c.group === "number" &&
+    c.search.trim() === "" &&
+    c.tags.length === 0 &&
+    c.statuses.length === 0 &&
+    c.type === "" &&
+    c.sort === "default"
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Tags — read defensively.
 // ─────────────────────────────────────────────────────────────────────────

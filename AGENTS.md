@@ -204,15 +204,19 @@ telegram, discord, slack, smtp, webhook, teams, mattermost, gotify, bark, feishu
   `006`) still exists and still means *unrestricted*: an admin sees and does everything. On top of it:
   - **Scoped visibility.** A non-admin sees ONLY the monitors granted to them — directly, or by
     sitting inside a granted group (recursively, through nested subgroups). No grants ⇒ sees zero
-    monitors. Grants live in the `user_permissions` table.
+    monitors. Grants live in the `user_permissions` table. Exception: `can_view_all_monitors` is
+    the read-only variant of admin visibility (`AccessService` returns `all=true`); new monitors
+    are visible without a re-login. It never implies write.
   - **Monitors and groups are READ-ONLY for non-admins**, whatever is granted. Writes carry
     `middleware.RequireAdmin`.
   - **Independent capability flags** on `domain.User`: `can_manage_notifications`,
-    `can_manage_maintenance`, `can_view_extensions`, and the create flags, gated by
-    `middleware.RequireCapability`. `can_view_extensions` gates the extensions catalog
-    (`GET /api/extensions`) and sidebar entries; admins always hold it implicitly. It
-    controls Phoenix discovery/launching only — an extension's direct Ingress path must
-    enforce its own authorization.
+    `can_manage_maintenance`, `can_view_extensions`, `can_view_all_monitors`, and the create
+    flags. Write/create flags are gated by `middleware.RequireCapability`.
+    `can_view_extensions` gates the extensions catalog (`GET /api/extensions`) and sidebar
+    entries; admins always hold it implicitly. It controls Phoenix discovery/launching only —
+    an extension's direct Ingress path must enforce its own authorization.
+    `can_view_all_monitors` is not a route gate — it is OR'd into `AccessService` visibility
+    only. OIDC maps IdP groups onto it via `OIDC_CAP_VIEW_ALL_MONITORS_GROUPS`.
   - **`services.AccessService` is the SINGLE authorization choke point.** Do not scatter access
     checks into handlers or repos — extend that service. It is also what scopes the WebSocket hub,
     which previously broadcast every monitor's heartbeats to every client.

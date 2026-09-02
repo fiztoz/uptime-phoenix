@@ -12,6 +12,12 @@ const config = {
       precompress: false,
       strict: true,
     }),
+    // Nested SPA routes like /status/:slug must use root-absolute asset
+    // URLs. Relative paths resolve against /status/ and break the favicon
+    // and /_app bundle when the fallback index.html is served there.
+    paths: {
+      relative: false,
+    },
     csrf: {
       trustedOrigins: ["http://localhost:3000", "http://localhost:5173"],
     },

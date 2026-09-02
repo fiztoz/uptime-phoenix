@@ -23,15 +23,20 @@ import (
 //     VisibleGroupIDs return all=true for an admin; callers must then apply NO id
 //     filter, not an empty one.
 //
-//   - Non-admin — sees ONLY what has been granted, via domain.UserPermission:
-//     a direct monitor grant, or a group grant, which reaches either the whole
-//     subtree or just the group's own monitors depending on the grant's
-//     IncludeDescendants flag. See resolveScope.
+//   - CanViewAllMonitors — read-only variant of that visibility shortcut. The
+//     same all=true contract, including monitors created after the flag was set.
+//     It never implies write: CanEditMonitor / CanEditGroup still require admin
+//     or ownership.
+//
+//   - Non-admin without CanViewAllMonitors — sees ONLY what has been granted,
+//     via domain.UserPermission: a direct monitor grant, or a group grant, which
+//     reaches either the whole subtree or just the group's own monitors depending
+//     on the grant's IncludeDescendants flag. See resolveScope.
 //
 //   - Capabilities — independent flags on the user (CanManageNotifications,
-//     CanManageMaintenance, CanCreateMonitors, CanCreateTopLevelMonitors,
-//     CanCreateGroups, CanEditGroupMetadata) are the only write powers a
-//     non-admin can hold. Admins implicitly hold all of them.
+//     CanManageMaintenance, CanViewAllMonitors, CanCreateMonitors,
+//     CanCreateTopLevelMonitors, CanCreateGroups, CanEditGroupMetadata) are the
+//     only extra powers a non-admin can hold. Admins implicitly hold all of them.
 //     CanCreateTopLevelMonitors only widens monitor placement to group_id null.
 //     CanEditGroupMetadata allows non-structural edits on groups the user can
 //     view (not name/parent/delete).
@@ -158,6 +163,17 @@ func (s *AccessService) CanViewExtensions(ctx context.Context, userID int64) (bo
 		return false, err
 	}
 	return u.IsAdmin || u.CanViewExtensions, nil
+}
+
+// CanViewAllMonitors reports whether the user may see every monitor and group
+// in the install. Admins always may. A non-admin with the flag may too — it is
+// read-only visibility and never implies write.
+func (s *AccessService) CanViewAllMonitors(ctx context.Context, userID int64) (bool, error) {
+	u, err := s.user(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return u.IsAdmin || u.CanViewAllMonitors, nil
 }
 
 // CanCreateMonitors reports whether the user holds the install-level capability
@@ -470,19 +486,20 @@ func cloneUser(u *domain.User) *domain.User {
 
 // VisibleMonitorIDs resolves the set of monitors a user may see.
 //
-// all=true means "every monitor in the install" (admin) — the caller must apply
-// no id filter at all. all=false means ids is the complete allowlist, and an
-// EMPTY ids with all=false means the user may see nothing. That distinction is
-// the whole ballgame: see ports.MonitorFilter.RestrictToIDs.
+// all=true means "every monitor in the install" (admin, or a non-admin with
+// CanViewAllMonitors) — the caller must apply no id filter at all. all=false
+// means ids is the complete allowlist, and an EMPTY ids with all=false means
+// the user may see nothing. That distinction is the whole ballgame: see
+// ports.MonitorFilter.RestrictToIDs.
 //
 // The returned slice is always non-nil so a caller cannot accidentally treat
 // "no grants" as "not computed".
 func (s *AccessService) VisibleMonitorIDs(ctx context.Context, userID int64) (bool, []int64, error) {
-	admin, err := s.IsAdmin(ctx, userID)
+	all, err := s.CanViewAllMonitors(ctx, userID)
 	if err != nil {
 		return false, []int64{}, err
 	}
-	if admin {
+	if all {
 		return true, []int64{}, nil
 	}
 
@@ -524,11 +541,11 @@ func (s *AccessService) CanViewMonitor(ctx context.Context, userID, monitorID in
 // Being able to SEE a group is not permission to see everything in it: group
 // visibility never widens the monitor set, which is computed independently above.
 func (s *AccessService) VisibleGroupIDs(ctx context.Context, userID int64) (bool, []int64, error) {
-	admin, err := s.IsAdmin(ctx, userID)
+	all, err := s.CanViewAllMonitors(ctx, userID)
 	if err != nil {
 		return false, []int64{}, err
 	}
-	if admin {
+	if all {
 		return true, []int64{}, nil
 	}
 

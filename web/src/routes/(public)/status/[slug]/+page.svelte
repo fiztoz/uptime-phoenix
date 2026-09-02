@@ -17,7 +17,7 @@
 	import { publicTheme } from '$lib/stores/publicTheme.svelte.ts';
 	import { AlertTriangle, CalendarDays, LockKeyhole, Moon, Sun, Mail, Rss } from '@lucide/svelte';
 
-	let slug = $derived($page.params.domain);
+	let slug = $derived($page.params.slug);
 	let historyURL = $derived(`${$page.url.pathname.replace(/\/$/, '')}/history`);
 	let data = $state<PublicStatusResponse | null>(null);
 	let loading = $state(true);

@@ -42,7 +42,7 @@ test("create status page, attach monitor, and render it without authentication",
   try {
     const publicPage = await anonymous.newPage();
     await publicPage.setViewportSize({ width: 390, height: 844 });
-    await publicPage.goto(`${BASE_URL}/${slug}`);
+    await publicPage.goto(`${BASE_URL}/status/${slug}`);
     await expect(
       publicPage.getByRole("heading", { name: title }),
     ).toBeVisible();
@@ -75,4 +75,16 @@ test("create status page, attach monitor, and render it without authentication",
   } finally {
     await anonymous.close();
   }
+});
+
+test("unknown paths are a page not found, not a missing status page", async ({
+  page,
+}) => {
+  await page.goto(`${BASE_URL}/ab`);
+  await expect(
+    page.getByRole("heading", { name: "Page not found" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Status page not found or unpublished."),
+  ).toHaveCount(0);
 });

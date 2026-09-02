@@ -10,6 +10,7 @@ export interface User {
   can_manage_notifications?: boolean;
   can_manage_maintenance?: boolean;
   can_view_extensions?: boolean;
+  can_view_all_monitors?: boolean;
   can_create_monitors?: boolean;
   can_create_top_level_monitors?: boolean;
   can_create_groups?: boolean;
