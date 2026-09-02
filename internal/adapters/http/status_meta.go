@@ -59,7 +59,7 @@ func resolveStatusPageForMeta(
 		return nil
 	}
 
-	// /status/:slug or bare /:slug style public routes.
+	// /status/:slug public routes (not a bare /:slug catch-all).
 	if slug := extractStatusSlug(path); slug != "" {
 		sp, err := resolver.GetBySlug(ctx, slug)
 		if err != nil {
@@ -117,26 +117,16 @@ func isNonStatusShellPath(path string) bool {
 }
 
 // extractStatusSlug returns the public status-page slug from paths like
-// "/status/my-slug" or "/my-slug" (single segment). Multi-segment admin
-// paths are rejected by isNonStatusShellPath first.
+// "/status/my-slug" or "/status/my-slug/history". Bare "/:slug" paths are
+// not status pages — those are ordinary SPA 404s.
 func extractStatusSlug(path string) string {
 	path = strings.Trim(path, "/")
 	if path == "" {
 		return ""
 	}
 	parts := strings.Split(path, "/")
-	if len(parts) == 2 && parts[0] == "status" && parts[1] != "" {
+	if len(parts) >= 2 && parts[0] == "status" && parts[1] != "" {
 		return strings.ToLower(parts[1])
-	}
-	// Public SPA route is /(public)/[domain] → path "/:slug".
-	if len(parts) == 1 && parts[0] != "" {
-		slug := strings.ToLower(parts[0])
-		// Reserved single segments that are not status pages.
-		switch slug {
-		case "status", "api", "ws", "health", "metrics", "assets":
-			return ""
-		}
-		return slug
 	}
 	return ""
 }

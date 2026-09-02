@@ -20,7 +20,7 @@
     Sun,
   } from "@lucide/svelte";
 
-  let slug = $derived($page.params.domain);
+  let slug = $derived($page.params.slug);
   let statusURL = $derived(
     $page.url.pathname.replace(/\/history\/?$/, "") || "/",
   );

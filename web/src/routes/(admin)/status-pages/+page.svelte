@@ -64,7 +64,7 @@
 	}
 
 	function viewPublic(slug: string) {
-		window.open(`/${slug}`, '_blank');
+		window.open(`/status/${slug}`, '_blank');
 	}
 
 	$effect(() => {
