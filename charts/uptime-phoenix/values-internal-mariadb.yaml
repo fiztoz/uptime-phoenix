@@ -1,0 +1,103 @@
+# In-release MariaDB overlay: single Phoenix Pod + a persistent MariaDB owned by
+# this Helm release. No external database, no Redis, no separate web tier.
+#
+#   helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
+#     --namespace uptime-phoenix --create-namespace \
+#     -f charts/uptime-phoenix/values-internal-mariadb.yaml
+#
+# or: make helm-install-mariadb
+#
+# Rendered topology:
+#   <release>              Deployment  (Phoenix, embedded UI, in-process EventBus)
+#   <release>-mariadb      StatefulSet (1 replica) + Service + PVC (10Gi)
+#   <release>-backup       CronJob + PVC (logical dumps)
+#   <release>-rollup       CronJob (1m/1h/1d heartbeat rollups)
+# No -data PVC: that claim only holds the SQLite file, which is unused here.
+#
+# The MariaDB credential is generated on first install and retained in the
+# release Secret. If you want a credential your secret store owns instead, pass
+# the mariadb.rootPassword value from a protected source on EVERY render: Argo CD
+# and Flux run `helm template` without cluster `lookup`, so they cannot read the
+# generated value back — and MariaDB bootstraps its user table only on an EMPTY
+# data directory, so a re-randomised credential locks Phoenix out of an existing
+# database. See docs/guides/helm-and-argocd.md.
+
+mode: all
+scaling:
+  mode: single
+
+database:
+  engine: mariadb
+  pool:
+    # Per Phoenix process. Keep the total below mariadb.config.maxConnections.
+    maxOpenConns: 10
+    maxIdleConns: 2
+  # SQLite is not in use and no code path writes to /data (the DSN does), so the
+  # app claim is unnecessary here. Keep it enabled only if you plan to flip back
+  # to database.engine=sqlite, which stores /data/phoenix.db on it.
+  persistence:
+    enabled: false
+
+# In-release MariaDB. Do NOT set mariadbExternal.host -- the two are mutually
+# exclusive and the render fails if both are present.
+mariadb:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 10Gi
+    # "" uses the cluster default StorageClass. Longhorn example:
+    # storageClass: longhorn
+    storageClass: ""
+  # Heartbeat-heavy installs want more than MariaDB's 128M default. Keep this
+  # comfortably below resources.limits.memory.
+  config:
+    innodbBufferPoolSize: 256M
+    maxConnections: 200
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# No Redis needed: one process, in-process EventBus.
+redis:
+  enabled: false
+valkey:
+  enabled: false
+
+# Embedded frontend (zero-dependency default).
+web:
+  split: false
+
+# MariaDB-only maintenance jobs. Both connect as root through the release
+# Secret, so they need no extra credentials.
+cronJobs:
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"
+    retentionDays: 14
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: ""
+  # heartbeats is RANGE-partitioned by month on MariaDB; this creates the
+  # forward partitions and drops expired ones.
+  partition:
+    enabled: true
+    schedule: "0 3 1 * *"
+    retentionMonths: 12
+  rollup:
+    enabled: true
+    schedule: "* * * * *"
+
+networkPolicy:
+  enabled: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+tests:
+  enabled: true

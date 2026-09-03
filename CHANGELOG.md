@@ -11,6 +11,73 @@ at the bottom.
 
 ## [Unreleased]
 
+### Added
+
+- **In-release MariaDB (`mariadb.enabled=true`).** The flag now deploys an
+  actual database: a 1-replica `StatefulSet` + `ClusterIP` Service
+  (`<release>-mariadb:3306`) backed by its own PVC, with the official image's
+  first-boot bootstrap creating the `phoenix` database and user. Server flags
+  match what the schema needs (`utf8mb4` / `utf8mb4_unicode_ci` — the migrations
+  emit no per-table charset — `--default-time-zone=+00:00` per the UTC rule, and
+  `--skip-name-resolve`), readiness/liveness/startup probes use
+  `healthcheck.sh --connect --innodb_initialized`, and every Phoenix Pod (all,
+  api and worker) gates on an **authenticated** `SELECT 1` before starting.
+  Tunables live under `mariadb.{image,auth,service,config,persistence,
+  resources,waitFor,nodeSelector,tolerations,affinity,extraEnv,extraVolumes}`;
+  `networkpolicy-mariadb.yaml` restricts 3306 to the release namespace; a second
+  `helm test` pod probes the database. `values-internal-mariadb.yaml` +
+  `make helm-install-mariadb` give the whole topology in one command.
+- `make helm-validate` (also in `gate-full` and the CI `helm` job): renders the
+  MariaDB topology and **asserts the objects exist** — the DSN resolves to the
+  in-release Service, a StatefulSet/PVC/NetworkPolicy are present, the database
+  Pod does not collide with the all-in-one Service selector, and the three
+  ambiguous database configs still fail the render.
+- `dbClientResolve` helper: maintenance jobs resolve `mariadb`/`mariadb-dump`/
+  `mariadb-admin` vs the legacy `mysql*` names at runtime and shim the legacy
+  names, so they work on `mariadb:11` (which ships only the new names).
+
+### Fixed
+
+- **`mariadb.enabled=true` was a stub that looked healthy** (AGENTS.md rule 7).
+  It rendered a PVC and pointed `DB_DSN` at `<release>-mariadb:3306`, but no
+  MariaDB workload or Service existed anywhere in the chart, so Phoenix
+  crash-looped against a hostname that resolved to nothing while every endpoint
+  and status-code check still passed. The all-in-one Deployment also mounted the
+  database's RWO claim as an unused volume — which would have contended for it
+  during a rollout. Both are gone.
+- **A generated MariaDB credential could not authenticate to its own database.**
+  `randAlphaNum` returns a new value per call, and the credential is needed as a
+  literal in three templates (two Secret keys plus `DB_DSN` in the ConfigMap), so
+  a first install wrote a DSN whose password was not the one the database was
+  initialized with: the init gate passed and Phoenix died with `Access denied for
+  user 'phoenix'`. The pair is now derived once per render (Helm shares one
+  `.Values` map across templates in a pass) and each Secret key is retained
+  independently on upgrade via `lookup`. The old retention lookup also targeted a
+  `<release>-gen` Secret the chart never wrote, so it never retained anything.
+- **The backup CronJob wrote empty backups and reported success.** `mysqldump`
+  does not exist in `mariadb:11`, and `mysqldump … | gzip > file` reports *gzip*'s
+  status, so the Job exited 0 on a 20-byte file. It now dumps to a temp file,
+  refuses a dump with no `CREATE TABLE`, verifies gzip integrity, runs under
+  `pipefail`, and keeps the credential out of argv (`MYSQL_PWD`). Verified live:
+  a 61 KB real dump, and an unreachable host now ends `Error` instead of
+  `Complete`.
+- **The partition and rollup CronJobs could not run at all** on the same missing
+  `mysql` binary; `job-db-migrate` also loses its `/bin/sh` for `pipefail` now
+  that its `mysqldump | mysql` cut-over is checked. The partition job's `|| true`
+  on the DROP loop no longer hides failures.
+
+### Docs
+
+- `charts/uptime-phoenix/README.md`: in-release vs external MariaDB, credential
+  semantics, and why the standalone PVC is not a `volumeClaimTemplate` (removing
+  a claim from the render makes Helm delete it).
+- `docs/guides/helm-and-argocd.md`: render-only controllers have no `lookup`, so
+  `mariadb.rootPassword` must come from a protected values source — MariaDB
+  bootstraps users only on an empty data directory, so a re-rendered credential
+  locks Phoenix out of an existing database.
+- `docs/ARCHITECTURE.md`, `docs/DEPLOYMENT_MODES.md`, `docs/TESTING.md` updated;
+  the chart README no longer claims the chart cannot run MariaDB.
+
 ## [0.4.1] — 2026-09-03
 
 ### Added

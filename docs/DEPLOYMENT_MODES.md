@@ -119,13 +119,22 @@ helm install uptime-phoenix ./charts/uptime-phoenix
 # 1 Deployment, 1 PVC (/data), embedded SPA, in-process EventBus, no external deps
 ```
 
-MariaDB instead of SQLite (still one pod):
+MariaDB instead of SQLite, with MariaDB running **inside this Helm release** on
+its own PVC (no external database needed):
 
 ```bash
 helm install uptime-phoenix ./charts/uptime-phoenix \
   --set database.engine=mariadb \
-  --set mariadb.enabled=true
+  --set mariadb.enabled=true \
+  --set mariadb.persistence.storageClass=longhorn
+# 1 Phoenix Deployment + 1 MariaDB StatefulSet + 2 PVCs, embedded SPA,
+# in-process EventBus. The API/worker Pods gate on an authenticated connection
+# to the database before starting.
 ```
+
+`charts/uptime-phoenix/values-internal-mariadb.yaml` is a ready-made overlay for
+this topology (also enables the backup / partition / rollup CronJobs, which are
+MariaDB-only). `make helm-install-mariadb` applies it.
 
 ### Mode: `split` (truly split — API + worker in one release)
 

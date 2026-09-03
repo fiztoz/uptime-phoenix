@@ -113,7 +113,10 @@ helm uninstall uptime-phoenix -n uptime-phoenix
 # No ingress (port-forward / tunnel only)
 --set ingress.enabled=false
 
-# MariaDB instead of SQLite (still single app pod if mariadb.enabled=true)
+# MariaDB instead of SQLite. mariadb.enabled=true also deploys the database
+# itself (1 StatefulSet + Service + PVC) inside this release; for an
+# operator-managed server leave it false and set mariadbExternal.* instead. See
+# the GitOps caveat below before enabling it under Argo CD.
 --set database.engine=mariadb --set mariadb.enabled=true
 
 # Truly split API + worker with Valkey managed by this Helm release
@@ -188,6 +191,35 @@ secret:
 
 Keep that Secret stable across chart upgrades. Rotating it intentionally
 invalidates every active browser session.
+
+### In-release MariaDB under Argo CD
+
+`mariadb.enabled=true` deploys a PVC-backed MariaDB owned by the release, and the
+chart needs the credential in **three** places: the release Secret, the
+StatefulSet env, and a literal inside `DB_DSN` (the app takes one DSN string, so
+it cannot read the password from a SecretKeyRef). The chart memoises the
+generated value per render and retains it across upgrades via `lookup` — which
+Argo CD cannot do, because it renders without cluster access. A re-rendered
+credential is not merely a mismatch: MariaDB creates its user table only on an
+empty data directory, so a new password never reaches the running database and
+Phoenix is locked out of its own history.
+
+So when the in-release MariaDB is used from a render-only controller, supply the
+credential from a protected values source (or an ExternalSecret/SealedSecret
+that produces the same value every render):
+
+```yaml
+database:
+  engine: mariadb
+mariadb:
+  enabled: true
+  rootPassword: replace-with-a-stable-generated-value   # alphanumeric: the DSN
+  persistence:                                          # does not escape @ / ? =
+    storageClass: longhorn
+```
+
+Do not commit that value to Git if values are readable. The alternative is to
+run MariaDB outside the release and point `mariadbExternal.*` at it.
 
 ### Basic Application (inline values)
 

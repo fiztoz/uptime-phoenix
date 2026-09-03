@@ -109,10 +109,17 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           command:
-            - /bin/sh
+            # bash, not sh: the dump | restore pipeline below needs pipefail, which the
+            # mariadb image (/bin/sh = dash) does not implement.
+            - /bin/bash
             - -c
             - |
-              set -eu
+              set -euo pipefail
+              # mariadb:11 (this Job's default image) ships mariadb-dump / mariadb-admin / mariadb
+              # and not the legacy mysql* names. The helper resolves whichever pair the
+              # image provides and shims the legacy names, so a failed dump cannot be
+              # mistaken for a completed migration.
+              {{- include "phoenix.dbClientResolve" . | nindent 14 }}
 
               echo "==> Waiting for source ${SRC_HOST}:${SRC_PORT} to accept connections..."
               for i in $(seq 1 60); do

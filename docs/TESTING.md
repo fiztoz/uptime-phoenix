@@ -369,16 +369,71 @@ helm template uptime-phoenix charts/uptime-phoenix \
   --set redis.enabled=true \
   --set redis.existingSecret=phoenix-redis
 
-# Template (MariaDB mode)
+# Template (MariaDB mode, in-release server + persistence)
 helm template uptime-phoenix charts/uptime-phoenix \
   --set database.engine=mariadb \
   --set mariadb.enabled=true
+
+# Template (the checked-in in-release MariaDB overlay)
+helm template uptime-phoenix charts/uptime-phoenix \
+  -f charts/uptime-phoenix/values-internal-mariadb.yaml
+
+# Render matrix + assertions (what gate-full and CI run).
+# This is more than "does it render": it fails if mariadb.enabled=true does not
+# produce a StatefulSet/PVC/NetworkPolicy, if the DSN is not wired to the
+# in-release Service, if the MariaDB Pod carries the labels the all-in-one
+# Service selects on, or if the ambiguous database configs stop failing loudly.
+make helm-validate
+```
+
+### 7.1 Live MariaDB check (kind / minikube / any cluster with a StorageClass)
+
+`helm template` cannot see the two failure modes that mattered here: a generated
+credential that differs between the Secret and the ConfigMap, and a client binary
+that does not exist in the image the chart pins. Deploy it:
+
+```bash
+minikube start --driver=docker
+kubectl create namespace phoenix-mariadb
+helm upgrade --install e2e ./charts/uptime-phoenix -n phoenix-mariadb \
+  --set database.engine=mariadb --set mariadb.enabled=true --set ingress.enabled=false \
+  --set mariadb.persistence.size=1Gi --set mariadb.resources.requests.memory=256Mi
+
+# 1. Both Pods Ready (the app Pod only becomes Ready if /api/health/ready, which
+#    pings the database, passes).
+kubectl -n phoenix-mariadb get pods,pvc
+
+# 2. Migrations really ran on the PVC-backed server.
+kubectl -n phoenix-mariadb logs deploy/e2e-uptime-phoenix | grep -c 'Applying migration'   # 34
+
+# 3. The initContainer gated on an authenticated connection, not on TCP.
+kubectl -n phoenix-mariadb logs deploy/e2e-uptime-phoenix -c wait-for-mariadb
+
+# 4. Persistence: delete the database Pod and confirm the schema survives the
+#    rescheduled Pod's re-attach of the same claim.
+kubectl -n phoenix-mariadb delete pod e2e-uptime-phoenix-mariadb-0
+kubectl -n phoenix-mariadb wait --for=condition=Ready pod/e2e-uptime-phoenix-mariadb-0
+
+# 5. Chart smoke tests (API health + authenticated DB probe).
+helm test e2e -n phoenix-mariadb --logs
+
+# 6. Credential retention: an upgrade must not change the generated values.
+helm upgrade e2e ./charts/uptime-phoenix -n phoenix-mariadb --reuse-values
+kubectl -n phoenix-mariadb get secret e2e-uptime-phoenix -o go-template \
+  '{{ len .data.mariadb-root-password }}'   # still 44 (32 chars, base64)
 ```
 
 **Verify:**
 - No template rendering errors
 - All YAML is valid
 - ConfigMap has correct env vars
+- `mariadb.enabled=true` renders `statefulset-mariadb.yaml`,
+  `service-mariadb.yaml` and the MariaDB PVC, and `db-dsn` targets
+  `<release>-mariadb:3306` (until 2026-09 this flag rendered a PVC and a DSN for
+  a server that nothing deployed — `make helm-validate` now asserts it)
+- The MariaDB Pod does **not** carry `app.kubernetes.io/name: uptime-phoenix`
+  alone: the all-in-one Service selects on name+instance, so a colliding label
+  would send Phoenix HTTP traffic to the database
 - Deployment has correct image, ports, probes
 - API / worker / all-in-one pod templates have `checksum/config` and
   `checksum/secret` annotations; changing `config.logLevel` (or a secret

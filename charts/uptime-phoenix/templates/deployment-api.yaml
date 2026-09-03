@@ -27,10 +27,10 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: 30
-      {{- $waitForBus := include "phoenix.waitForEventBusInitContainers" . | trim }}
-      {{- if $waitForBus }}
+      {{- $waitForDeps := include "phoenix.waitForDependenciesInitContainers" . | trim }}
+      {{- if $waitForDeps }}
       initContainers:
-        {{- $waitForBus | nindent 8 }}
+        {{- $waitForDeps | nindent 8 }}
       {{- end }}
       containers:
         - name: uptime-phoenix-api

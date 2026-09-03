@@ -193,31 +193,9 @@ jobs:
       - name: helm lint
         run: helm lint charts/uptime-phoenix
 
-      - name: helm template
-        run: helm template uptime-phoenix charts/uptime-phoenix > /dev/null
+      - name: helm validate (render matrix + in-release MariaDB assertions)
+        run: make helm-validate
 
-      - name: helm template with in-release Valkey
-        run: >-
-          helm template uptime-phoenix charts/uptime-phoenix
-          --set mode=split
-          --set database.engine=mariadb
-          --set mariadb.enabled=true
-          --set valkey.enabled=true
-          > /dev/null
-
-      - name: helm template with external Redis Secret
-        run: >-
-          helm template uptime-phoenix charts/uptime-phoenix
-          --set redis.enabled=true
-          --set redis.existingSecret=phoenix-redis
-          > /dev/null
-
-      - name: helm template production split overlay
-        run: >-
-          helm template uptime-phoenix charts/uptime-phoenix
-          -f charts/uptime-phoenix/values-production-split.yaml
-          --set mariadbExternal.password=ci
-          > /dev/null
 
   docker:
     name: docker

@@ -19,4 +19,60 @@ spec:
         - 'http://{{ include "phoenix.fullname" . }}:{{ .Values.service.port }}/api/health/live'
         {{- end }}
   restartPolicy: Never
+{{- if .Values.mariadb.enabled }}
+---
+{{- /*
+In-release MariaDB smoke test.
+
+Asserts the effect, not the endpoint: an authenticated query against the
+`phoenix` database proves the Service resolves, the StatefulSet Pod is serving,
+the bootstrapped user exists, and the Secret key the DSN uses is the one the
+datadir was initialized with. `mariadb-admin ping` would NOT prove that last
+part — it exits 0 even on access-denied.
+*/}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "phoenix.mariadb.fullname" . }}-test-connection"
+  labels:
+    {{- include "phoenix.mariadb.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: mariadb
+      image: {{ include "phoenix.mariadb.image" . | quote }}
+      env:
+        - name: MYSQL_PWD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "phoenix.fullname" . }}
+              key: mariadb-password
+      command:
+        - /bin/bash
+        - -c
+        - |
+          set -eu
+          echo "== authenticated SELECT 1 =="
+          mariadb -h {{ include "phoenix.mariadbHost" . | quote }} \
+                  -P {{ include "phoenix.mariadb.port" . | quote }} \
+                  -u {{ .Values.mariadb.auth.username | quote }} \
+                  {{ .Values.mariadb.auth.database | quote }} \
+            -e 'SELECT 1 AS reachable'
+          echo "== Phoenix schema present =="
+          mariadb -h {{ include "phoenix.mariadbHost" . | quote }} \
+                  -P {{ include "phoenix.mariadb.port" . | quote }} \
+                  -u {{ .Values.mariadb.auth.username | quote }} \
+                  {{ .Values.mariadb.auth.database | quote }} -N -e '
+            SELECT COUNT(*) AS phoenix_tables
+            FROM information_schema.tables WHERE table_schema = DATABASE();'
+          echo "== server settings Phoenix depends on =="
+          mariadb -h {{ include "phoenix.mariadbHost" . | quote }} \
+                  -P {{ include "phoenix.mariadb.port" . | quote }} \
+                  -u {{ .Values.mariadb.auth.username | quote }} -N -e '
+            SELECT @@character_set_server, @@collation_server, @@time_zone;'
+      securityContext:
+        {{- toYaml .Values.mariadb.containerSecurityContext | nindent 8 }}
+  restartPolicy: Never
+{{- end }}
 {{- end }}

@@ -2001,12 +2001,27 @@ image:
 scaling:
   mode: single          # single | multi | sharded
 
-# MariaDB on PVC (default). Set enabled=false to use external.
+# In-release MariaDB (opt-in). enabled=true deploys a 1-replica, PVC-backed
+# MariaDB StatefulSet + Service named <release>-mariadb in this release and
+# points DB_DSN at it. Requires database.engine=mariadb, and is mutually
+# exclusive with mariadbExternal.host.
+# Set enabled=false (and fill mariadbExternal) to use an operator-managed server.
 mariadb:
-  enabled: true
+  enabled: false
+  auth:
+    database: phoenix
+    username: phoenix
+    password: ""          # empty → reuses rootPassword
+  config:
+    characterSet: utf8mb4
+    collation: utf8mb4_unicode_ci   # the migrations emit no per-table charset
+    maxConnections: 200
+    innodbBufferPoolSize: 256M
   persistence:
+    enabled: true
     size: 10Gi
-  rootPassword: ""       # auto-generated if empty
+    storageClass: ""
+  rootPassword: ""        # generated + retained via lookup; set it for GitOps
 
 # External MariaDB (when mariadb.enabled=false)
 mariadbExternal:

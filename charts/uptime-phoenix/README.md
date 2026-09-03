@@ -37,7 +37,16 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 | `database.pool.connMaxLifetimeSeconds` | int | `300` | Recycle MariaDB connections after this many seconds (`DB_CONN_MAX_LIFETIME_SECONDS`) |
 | `database.persistence.enabled` | bool | `true` | Enable PVC for `/data` (SQLite DB file) |
 | `database.persistence.size` | string | `1Gi` | PVC size for data |
-| `mariadb.enabled` | bool | `false` | Enable MariaDB mode (requires external or additional setup) |
+| `mariadb.enabled` | bool | `false` | Deploy an in-release, PVC-backed MariaDB (StatefulSet + Service). Requires `database.engine=mariadb` and is mutually exclusive with `mariadbExternal.host` |
+| `mariadb.rootPassword` | string | `""` | Root password. Empty generates one and retains it across upgrades via the release Secret; **must** be set for render-only GitOps |
+| `mariadb.auth.database` / `mariadb.auth.username` | string | `phoenix` / `phoenix` | Database and user the image bootstraps and that the Phoenix DSN connects as |
+| `mariadb.persistence.enabled` | bool | `true` | PVC-backed data directory. `false` requires `mariadb.allowEphemeralData=true` and loses all data on every Pod restart |
+| `mariadb.persistence.size` | string | `10Gi` | MariaDB PVC size |
+| `mariadb.persistence.storageClass` | string | `""` | StorageClass for the MariaDB PVC (e.g. `longhorn`) |
+| `mariadb.persistence.resourcePolicy` | string | `keep` | `keep` adds `helm.sh/resource-policy` so `helm uninstall` leaves the database claim behind; `delete` restores the destructive default |
+| `mariadb.config.collation` | string | `utf8mb4_unicode_ci` | Server collation — the migrations emit no per-table charset, so this is what every table gets |
+| `mariadb.config.maxConnections` | int | `200` | Server `max-connections`; keep above the sum of every Phoenix process pool |
+| `mariadb.service.port` | int | `3306` | In-release MariaDB port (also used by the DSN and NetworkPolicy) |
 | `scaling.mode` | string | `single` | `single` \| `multi` \| `sharded` |
 | `hpa.enabled` | bool | `false` | Create the API HPA (CPU via metrics-server). Ignored when `mode=worker`. |
 | `hpa.wsConnections.enabled` | bool | `false` | Add `phoenix_ws_connections_active` (needs `custom.metrics.k8s.io` / prometheus-adapter) |
@@ -101,18 +110,88 @@ helm install uptime-phoenix ./charts/uptime-phoenix
 
 ### MariaDB mode (opt-in)
 
+Two ways to run on MariaDB. Either way Phoenix needs a server that already has
+the database and user — the app runs migrations but never `CREATE DATABASE`.
+
+**In-release MariaDB** — the chart deploys a single-replica, PVC-backed
+MariaDB next to Phoenix and wires the DSN to it automatically:
+
 ```bash
 helm install uptime-phoenix ./charts/uptime-phoenix \
   --set database.engine=mariadb \
   --set mariadb.enabled=true \
-  --set mariadbExternal.host=mariadb.example.com
+  --set mariadb.persistence.storageClass=longhorn
+# Results in: + 1 StatefulSet, 1 Service, 1 PVC (10Gi), all owned by this release
 ```
+
+What you get:
+
+- `<release>-mariadb:3306` Service + a 1-replica StatefulSet (the data dir lives
+  on an RWO volume, so exactly one Pod may own it).
+- A dedicated PVC (`<release>-mariadb`) rather than a `volumeClaimTemplate`, so
+  `helm uninstall` cannot silently delete your monitoring history and a chart
+  upgrade never orphans the claim.
+- First-boot bootstrap of the `phoenix` database and user via the image's
+  `MARIADB_DATABASE` / `MARIADB_USER` / `MARIADB_PASSWORD` entrypoint vars.
+- Server flags that match what the migrations expect: `utf8mb4` /
+  `utf8mb4_unicode_ci`, `--default-time-zone=+00:00` (AGENTS.md rule 6 —
+  `heartbeats.time` is a second-precision TIMESTAMP and Phoenix stores UTC
+  wall-clock), `--skip-name-resolve`, and `--max-connections`.
+- `healthcheck.sh --connect --innodb_initialized` for readiness and a
+  `startupProbe` that covers cold start (datadir init + 34 migrations).
+- Every Phoenix Pod (all-in-one, api, worker) gates on an **authenticated**
+  `SELECT 1` against the database before starting — see the caveat below.
+
+Password handling: with `mariadb.rootPassword` empty, the chart generates one,
+stores it in the release Secret (`mariadb-root-password`, `mariadb-password`)
+and reuses it on every `helm upgrade` via `lookup`. That retention is critical:
+MariaDB creates its user table **only on an empty data directory**, so a
+re-generated password would never reach the running datadir and Phoenix would
+fail to authenticate. Render-only GitOps controllers (Argo CD `helm template`)
+have no `lookup`, so they **must** provide `mariadb.rootPassword` from a
+protected values source.
+
+Backups and maintenance become local: `cronJobs.backup.enabled=true`,
+`cronJobs.partition.enabled=true` and `cronJobs.rollup.enabled=true` all
+connect as root through the release Secret. (They resolve `mariadb-dump` vs
+`mysqldump` at runtime — `mariadb:11` ships only the new names, so the old
+hardcoded `mysqldump` produced an empty backup and a `Complete` Job.)
+
+`mariadb.persistence.resourcePolicy=keep` (default) puts
+`helm.sh/resource-policy: keep` on the claim, so `helm uninstall` removes the
+workloads but **not** the database. Reinstalling then needs the original
+credential, because the Secret was deleted while the datadir kept it: pass
+`mariadb.rootPassword` explicitly, or delete the claim first for a clean slate.
+
+**External MariaDB** — leave `mariadb.enabled=false` and point at a
+operator-managed server:
+
+```bash
+helm install uptime-phoenix ./charts/uptime-phoenix \
+  --set database.engine=mariadb \
+  --set mariadbExternal.host=mariadb.example.com \
+  --set mariadbExternal.username=phoenix \
+  --set mariadbExternal.database=phoenix \
+  --set mariadbExternal.password='<password>'
+```
+
+### Upgrading a release that already used `mariadb.enabled=true`
+
+Before this feature, `mariadb.enabled=true` rendered a PVC and a DSN pointing at
+`<release>-mariadb`, but **no MariaDB existed** — Phoenix crash-looped. The flag
+now deploys the server. Two consequences when you upgrade such a release:
+
+- The Phoenix Pod no longer mounts the MariaDB PVC (it was an unused volume
+  that would have contended for the RWO volume during a rollout).
+- If you had also set `mariadbExternal.host`, the render now fails: choose
+  either in-release or external, not both.
 
 ### Multi-pod scaling with in-release Valkey
 
 A checked-in production overlay enables split API + sharded workers + Valkey.
-It expects an **external** shared MariaDB (`mariadbExternal.*`); this chart
-does not run a MariaDB server.
+By default it expects an **external** shared MariaDB (`mariadbExternal.*`); set
+`mariadb.enabled=true` with `mariadbExternal.host` empty to let the chart run
+MariaDB inside the release instead.
 
 ```bash
 helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \

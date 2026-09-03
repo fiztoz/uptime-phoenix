@@ -15,20 +15,38 @@ spec:
   storageClassName: {{ .Values.database.persistence.storageClass | quote }}
   {{- end }}
 {{- end }}
-{{- if .Values.mariadb.enabled }}
+{{- if and .Values.mariadb.enabled .Values.mariadb.persistence.enabled }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "phoenix.fullname" . }}-mariadb
+  name: {{ include "phoenix.mariadb.fullname" . }}
   labels:
-    {{- include "phoenix.labels" . | nindent 4 }}
+    {{- include "phoenix.mariadb.labels" . | nindent 4 }}
+  {{- /*
+  Helm owns this claim, so a plain `helm uninstall` would delete the database.
+  resourcePolicy=keep (the default) adds helm.sh/resource-policy so Helm refuses
+  to remove it; the operator has to delete the claim explicitly. Set
+  mariadb.persistence.resourcePolicy=delete only when wiping data on uninstall
+  is the intended behaviour.
+  */}}
+  {{- $ann := dict }}
+  {{- if eq (default "keep" .Values.mariadb.persistence.resourcePolicy) "keep" }}
+  {{- $_ := set $ann "helm.sh/resource-policy" "keep" }}
+  {{- end }}
+  {{- range $k, $v := (.Values.mariadb.persistence.annotations | default dict) }}
+  {{- $_ := set $ann $k $v }}
+  {{- end }}
+  {{- if $ann }}
+  annotations:
+    {{- toYaml $ann | nindent 4 }}
+  {{- end }}
 spec:
   accessModes:
-    - ReadWriteOnce
+    {{- toYaml (.Values.mariadb.persistence.accessModes | default (list "ReadWriteOnce")) | nindent 4 }}
   resources:
     requests:
-      storage: {{ .Values.mariadb.persistence.size }}
+      storage: {{ .Values.mariadb.persistence.size | quote }}
   {{- if .Values.mariadb.persistence.storageClass }}
   storageClassName: {{ .Values.mariadb.persistence.storageClass | quote }}
   {{- end }}

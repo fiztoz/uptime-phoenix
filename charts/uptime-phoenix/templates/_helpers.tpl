@@ -71,23 +71,141 @@ Split-web image reference. Empty web.image.tag falls back to Chart.AppVersion.
 {{- end }}
 
 {{/*
-Database password — from values or auto-generated (for mariadb).
+Read one key out of a looked-up Secret's data map, or an empty string when the
+Secret/key is absent (helm template, first install, pre-created Secret without
+the key).
+*/}}
+{{- define "phoenix.secretValueOrEmpty" -}}
+{{- $data := .data | default dict }}
+{{- if hasKey $data .key }}
+{{- index $data .key | b64dec }}
+{{- end }}
+{{- end }}
+
+{{/*
+Database client binaries for the maintenance CronJobs and the dbMigration Job.
+
+The official mariadb:11 image — the chart's own default for cronJobs.*.image and
+dbMigration.image — ships mariadb / mariadb-dump / mariadb-admin and NO LONGER
+provides the legacy mysql / mysqldump / mysqladmin names, which are also absent
+from MariaDB 11 entirely. Resolving at runtime keeps the jobs working on both
+the new and the legacy names (older mariadb tags, MySQL-derived images) and
+fails loudly when neither exists, instead of running a Job that pretends to
+succeed.
+
+POSIX-sh safe (the CronJob shells run /bin/sh = dash on the mariadb image).
+
+Usage: {{ include "phoenix.dbClientResolve" . | nindent 18 }}
+
+Emits the resolved variables PLUS legacy-name shell functions, so a script can
+keep calling `mysql` / `mysqldump` / `mysqladmin` and still land on whichever
+name the image actually ships. Subshells (`$(mysql ...)`) inherit POSIX shell
+functions, so command substitutions are covered too.
+*/}}
+{{- define "phoenix.dbClientResolve" -}}
+_db_bin() {
+  for _cand in "$@"; do
+    if command -v "$_cand" >/dev/null 2>&1; then
+      printf '%s\n' "$_cand"
+      return 0
+    fi
+  done
+  echo "ERROR: none of [$*] exists in this image; pin a MariaDB/MySQL client image" >&2
+  return 1
+}
+DB_CLIENT=$(_db_bin mariadb mysql)
+DB_DUMP=$(_db_bin mariadb-dump mysqldump)
+DB_ADMIN=$(_db_bin mariadb-admin mysqladmin)
+mysql() { "$DB_CLIENT" "$@"; }
+mysqldump() { "$DB_DUMP" "$@"; }
+mysqladmin() { "$DB_ADMIN" "$@"; }
+{{- end }}
+
+{{/*
+In-release MariaDB credentials.
+
+Why the cache exists: three templates must agree on one generated password —
+secret.yaml writes it under two keys, the StatefulSet and the wait-for-mariadb
+gate read those keys, and configmap.yaml embeds it as a LITERAL inside DB_DSN.
+randAlphaNum returns a new value on every call, so on a first install (where
+`lookup` still sees no Secret) the naive version rendered a DSN whose password
+was not the one the MariaDB Pod booted with. The symptom is precisely the one
+this chart used to hide: every manifest looks healthy, the init gate passes, and
+Phoenix dies with "Access denied for user 'phoenix'". Caught by deploying the
+chart to a real cluster; `helm template` alone cannot see it.
+
+Helm renders all templates of one release in a single pass against a shared
+.Values map, so caching the pair under private keys makes them identical within
+one render. It does not leak into `helm get values` (the release record stores
+the user-supplied values, not this mutated copy).
+
+Retention across upgrades still comes from `lookup` against the release Secret:
+MariaDB builds its user table only on an EMPTY data directory, so a password
+that changes between installs would lock Phoenix out of an existing database.
+Render-only GitOps controllers have no `lookup` and MUST supply
+mariadb.rootPassword from a protected values source (same rule as secret.jwt).
+
+Password charset: the DSN is user:password@tcp(host:port)/db — a credential
+containing @, /, ? or = is not escaped and will break parsing, so prefer the
+generated alphanumeric value or a password without those characters.
+
+Each key is retained independently: MariaDB initialised its `phoenix` user from
+the `mariadb-password` key, so that key (not the root one) is the value the
+running datadir actually accepts. Falling back to root unconditionally would
+re-write the DSN to a credential the existing database never learned.
+*/}}
+{{- define "phoenix.mariadbEnsureCredentials" -}}
+{{- if not (hasKey .Values "__phoenixMdbRootPassword") }}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "phoenix.fullname" .) }}
+{{- $data := dict }}
+{{- if $existing }}
+{{- $data = $existing.data | default dict }}
+{{- end }}
+{{- $root := .Values.mariadb.rootPassword | default "" }}
+{{- if not $root }}
+{{- $root = include "phoenix.secretValueOrEmpty" (dict "data" $data "key" "mariadb-root-password") }}
+{{- end }}
+{{- if not $root }}
+{{- $root = randAlphaNum 32 }}
+{{- end }}
+{{- $user := .Values.mariadb.auth.password | default "" }}
+{{- if not $user }}
+{{- $user = include "phoenix.secretValueOrEmpty" (dict "data" $data "key" "mariadb-password") }}
+{{- end }}
+{{- if not $user }}
+{{- $user = $root }}
+{{- end }}
+{{- $_ := set .Values "__phoenixMdbRootPassword" $root }}
+{{- $_ := set .Values "__phoenixMdbUserPassword" $user }}
+{{- end }}
+{{- end }}
+
+{{/*
+Root password for the in-release MariaDB.
+*/}}
+{{- define "phoenix.mariadbRootPassword" -}}
+{{- include "phoenix.mariadbEnsureCredentials" . }}
+{{- index .Values "__phoenixMdbRootPassword" }}
+{{- end }}
+
+{{/*
+Password for the application database user (mariadb.auth.username). Falls back
+to the root password so a single credential is generated and retained.
+*/}}
+{{- define "phoenix.mariadbUserPassword" -}}
+{{- include "phoenix.mariadbEnsureCredentials" . }}
+{{- index .Values "__phoenixMdbUserPassword" }}
+{{- end }}
+
+{{/*
+Database password the Phoenix DSN authenticates with — the application user's
+password for the in-release MariaDB, mariadbExternal.password otherwise.
 */}}
 {{- define "phoenix.dbPassword" -}}
-{{- if and (not .Values.mariadb.enabled) .Values.mariadbExternal.password }}
-{{- .Values.mariadbExternal.password }}
-{{- else if .Values.mariadb.rootPassword }}
-{{- .Values.mariadb.rootPassword }}
-{{- else if not .Values.mariadb.enabled }}
-{{- .Values.mariadbExternal.password }}
+{{- if .Values.mariadb.enabled }}
+{{- include "phoenix.mariadbUserPassword" . }}
 {{- else }}
-{{- $secretName := printf "%s-gen" (include "phoenix.fullname" .) }}
-{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName }}
-{{- if $existing }}
-{{- index $existing.data "mariadb-root-password" | b64dec }}
-{{- else }}
-{{- randAlphaNum 32 }}
-{{- end }}
+{{- .Values.mariadbExternal.password }}
 {{- end }}
 {{- end }}
 
@@ -141,7 +259,7 @@ For mariadb: constructed from sub values
 {{- $engine := include "phoenix.dbEngine" . }}
 {{- if eq $engine "sqlite" }}{{- if .Values.database.dsn }}{{- .Values.database.dsn }}{{- else }}file:/data/phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000){{- end }}{{- else if eq $engine "mariadb" }}
 {{- if .Values.mariadb.enabled }}
-{{- printf "phoenix:%s@tcp(%s-mariadb:3306)/phoenix?parseTime=true&loc=UTC" (include "phoenix.dbPassword" .) (include "phoenix.fullname" .) }}
+{{- printf "%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC" .Values.mariadb.auth.username (include "phoenix.dbPassword" .) (include "phoenix.mariadbHost" .) (include "phoenix.mariadb.port" . | int) .Values.mariadb.auth.database }}
 {{- else if .Values.mariadbExternal.host }}
 {{- printf "%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC" .Values.mariadbExternal.username (include "phoenix.dbPassword" .) .Values.mariadbExternal.host (int .Values.mariadbExternal.port) .Values.mariadbExternal.database }}
 {{- else }}
@@ -157,9 +275,108 @@ MariaDB hostname for in-cluster or external connections.
 */}}
 {{- define "phoenix.mariadbHost" -}}
 {{- if .Values.mariadb.enabled }}
-{{- printf "%s-mariadb" (include "phoenix.fullname" .) }}
+{{- include "phoenix.mariadb.fullname" . }}
 {{- else }}
 {{- .Values.mariadbExternal.host }}
+{{- end }}
+{{- end }}
+
+{{/*
+In-release MariaDB resource names, labels and port.
+
+phoenix.mariadb.selectorLabels deliberately does NOT reuse
+phoenix.selectorLabels: the all-in-one Service selects on name+instance alone,
+so a MariaDB Pod carrying those labels would receive Phoenix HTTP traffic, and
+the PDB would start counting the database Pod.
+*/}}
+{{- define "phoenix.mariadb.name" -}}
+{{- printf "%s-mariadb" (include "phoenix.name" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "phoenix.mariadb.fullname" -}}
+{{- if .Values.mariadb.fullnameOverride }}
+{{- .Values.mariadb.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-mariadb" (include "phoenix.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+
+{{- define "phoenix.mariadb.port" -}}
+{{- int (default 3306 .Values.mariadb.service.port) }}
+{{- end }}
+
+{{- define "phoenix.mariadb.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "phoenix.mariadb.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: mariadb
+{{- end }}
+
+{{- define "phoenix.mariadb.labels" -}}
+helm.sh/chart: {{ include "phoenix.chart" . }}
+{{ include "phoenix.mariadb.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: phoenix
+{{- end }}
+
+{{/*
+MariaDB image reference. Empty tag falls back to the chart's default so the
+server version tracks what the migrations were verified against.
+*/}}
+{{- define "phoenix.mariadb.image" -}}
+{{- printf "%s:%s" .Values.mariadb.image.repository (default "11" .Values.mariadb.image.tag) }}
+{{- end }}
+
+{{/*
+Server flags for the in-release MariaDB. Passed as container args, which the
+official mariadb entrypoint forwards to BOTH mariadb-install-db (so the
+created schema gets this charset/collation) and mariadbd.
+
+character-set-server/collation-server matter because the MariaDB migrations do
+not emit per-table CHARSETS — the server default is what every table gets, and
+utf8mb4_unicode_ci is also what the dbMigration Job assumes.
+default-time-zone=+00:00 keeps the server wall-clock UTC, matching rule 6 of
+AGENTS.md (heartbeats.time is a second-precision TIMESTAMP and Phoenix stores
+UTC wall-clock).
+*/}}
+{{- define "phoenix.mariadb.serverArgs" -}}
+- --character-set-server={{ .Values.mariadb.config.characterSet }}
+- --collation-server={{ .Values.mariadb.config.collation }}
+- --default-time-zone=+00:00
+- --skip-name-resolve
+- --max-connections={{ int .Values.mariadb.config.maxConnections }}
+{{- if .Values.mariadb.config.innodbBufferPoolSize }}
+- --innodb-buffer-pool-size={{ .Values.mariadb.config.innodbBufferPoolSize }}
+{{- end }}
+{{- range .Values.mariadb.config.extraArgs }}
+- {{ . }}
+{{- end }}
+{{- end }}
+
+{{/*
+Refuse ambiguous database configurations instead of rendering a healthy-looking
+release that talks to the wrong server.
+*/}}
+{{- define "phoenix.validateMariaDB" -}}
+{{- if .Values.mariadb.enabled }}
+{{- if ne (include "phoenix.dbEngine" .) "mariadb" }}
+{{- fail "mariadb.enabled=true requires database.engine=mariadb (otherwise Phoenix would still boot on SQLite while an unused MariaDB is deployed)" }}
+{{- end }}
+{{- if .Values.mariadbExternal.host }}
+{{- fail "mariadb.enabled=true and mariadbExternal.host are mutually exclusive; set mariadb.enabled=false to use the external server" }}
+{{- end }}
+{{- if .Values.mariadb.persistence.enabled }}
+{{- if not .Values.mariadb.persistence.size }}
+{{- fail "mariadb.persistence.size is required when mariadb.persistence.enabled=true" }}
+{{- end }}
+{{- if not (hasKey (dict "keep" true "delete" true) (default "keep" .Values.mariadb.persistence.resourcePolicy)) }}
+{{- fail "mariadb.persistence.resourcePolicy must be exactly \"keep\" or \"delete\" (a typo would silently drop the protection that keeps helm uninstall from deleting the database)" }}
+{{- end }}
+{{- else if not .Values.mariadb.allowEphemeralData }}
+{{- fail "mariadb.persistence.enabled=false discards all monitoring history on every Pod restart; set mariadb.allowEphemeralData=true to opt in (dev/testing only)" }}
+{{- end }}
 {{- end }}
 {{- end }}
 
@@ -273,11 +490,62 @@ REDIS_URL wiring shared by all, API, and worker Deployments.
 {{- end }}
 
 {{/*
-Init containers that block Phoenix until in-release Valkey is accepting TCP.
-REDIS_URL is selected once at process start; a missed first ping permanently
-falls back to the in-memory bus, so split API/worker must not race Valkey.
+Init containers that block Phoenix until the in-release dependencies it cannot
+retry against are ready.
+
+Valkey is gated on TCP only: REDIS_URL is selected once at process start and a
+missed first ping permanently falls back to the in-memory bus, so split
+API/worker must not race Valkey.
+
+MariaDB is gated on an authenticated `SELECT 1` against the target database,
+not on TCP. `mariadb-admin ping` exits 0 even on access-denied, so it cannot
+catch the one failure mode that matters here: the Secret holds a password the
+existing data directory never learned (mariadb bootstraps users only on an
+empty datadir). A bounded loop with a loud failure is used instead of an
+unbounded `until`, so a wrong credential surfaces as a clear init-container
+error rather than an eternal CrashLoopBackOff.
 */}}
-{{- define "phoenix.waitForEventBusInitContainers" -}}
+{{- define "phoenix.waitForDependenciesInitContainers" -}}
+{{- if .Values.mariadb.enabled }}
+- name: wait-for-mariadb
+  image: {{ include "phoenix.mariadb.image" . | quote }}
+  command:
+    - /bin/bash
+    - -c
+    - |
+      set -eu
+      {{- include "phoenix.dbClientResolve" . | nindent 6 }}
+      attempts={{ int (default 60 .Values.mariadb.waitFor.attempts) }}
+      for i in $(seq 1 "$attempts"); do
+        if "$DB_CLIENT" -h "$PHOENIX_DB_HOST" -P "$PHOENIX_DB_PORT" -u "$PHOENIX_DB_USER" "$PHOENIX_DB_NAME" -e 'SELECT 1' >/dev/null 2>&1; then
+          echo "mariadb accepts authenticated connections to $PHOENIX_DB_NAME."
+          exit 0
+        fi
+        echo "($i/$attempts) waiting for mariadb at $PHOENIX_DB_HOST:$PHOENIX_DB_PORT..."
+        sleep 5
+      done
+      echo "ERROR: $PHOENIX_DB_HOST:$PHOENIX_DB_PORT never accepted an authenticated connection as $PHOENIX_DB_USER."
+      echo "       Check the mariadb Pod logs, and note that a password changed in the Secret is NOT"
+      echo "       applied to an existing data directory (mariadb bootstraps users only when it is empty)."
+      exit 1
+  env:
+    - name: PHOENIX_DB_HOST
+      value: {{ include "phoenix.mariadbHost" . | quote }}
+    - name: PHOENIX_DB_PORT
+      value: {{ include "phoenix.mariadb.port" . | quote }}
+    - name: PHOENIX_DB_USER
+      value: {{ .Values.mariadb.auth.username | quote }}
+    - name: PHOENIX_DB_NAME
+      value: {{ .Values.mariadb.auth.database | quote }}
+    # MYSQL_PWD keeps the credential out of the container argv (visible in ps).
+    - name: MYSQL_PWD
+      valueFrom:
+        secretKeyRef:
+          name: {{ include "phoenix.fullname" . }}
+          key: mariadb-password
+  securityContext:
+    {{- toYaml .Values.containerSecurityContext | nindent 4 }}
+{{- end }}
 {{- if .Values.valkey.enabled }}
 - name: wait-for-valkey
   image: busybox:1.36
@@ -448,6 +716,9 @@ extensions:{{ .Values.extensions | toYaml }}
 bootstrap:{{ .Values.bootstrap | toYaml }}
 mariadb.enabled={{ .Values.mariadb.enabled }}
 mariadb.rootPassword={{ .Values.mariadb.rootPassword }}
+mariadb.auth:{{ .Values.mariadb.auth | toYaml }}
+mariadb.service.port={{ .Values.mariadb.service.port }}
+mariadb.config:{{ .Values.mariadb.config | toYaml }}
 mariadbExternal:{{ .Values.mariadbExternal | toYaml }}
 prometheus.podMonitor.enabled={{ .Values.prometheus.podMonitor.enabled }}
 prometheus.apiKey={{ .Values.prometheus.apiKey }}

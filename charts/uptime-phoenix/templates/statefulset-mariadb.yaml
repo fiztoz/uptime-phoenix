@@ -1,0 +1,167 @@
+{{- if .Values.mariadb.enabled }}
+{{- include "phoenix.validateMariaDB" . }}
+{{- /*
+In-release MariaDB (single replica, PVC-backed).
+
+Why a StatefulSet and not a Deployment: the data directory lives on an RWO
+volume, so exactly one Pod may hold it at a time, and the Pod needs a stable
+identity for that claim.
+
+Why the standalone PVC (templates/pvc.yaml) instead of volumeClaimTemplates:
+Helm owns that claim's lifecycle. Moving to volumeClaimTemplates would strand
+the existing `<release>-mariadb` claim on upgrade, and removing a template from
+the render makes Helm DELETE the claim — a data-loss trap for a database.
+
+podManagementPolicy is OrderedReady (not OnDelete) so a `helm upgrade` that
+changes mariadb.config or the image actually rolls the Pod. With one replica the
+controller tears the old Pod down before creating the new one, so the RWO
+volume is never attached twice. If a node ever hard-crashes and the stuck
+Terminating Pod blocks the new one, delete the old Pod by hand.
+*/ -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "phoenix.mariadb.fullname" . }}
+  labels:
+    {{- include "phoenix.mariadb.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "phoenix.mariadb.fullname" . }}
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "phoenix.mariadb.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "phoenix.mariadb.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/secret: {{ include "phoenix.secretFingerprint" . | sha256sum }}
+        {{- with .Values.mariadb.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.mariadb.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ int .Values.mariadb.terminationGracePeriodSeconds }}
+      containers:
+        - name: mariadb
+          image: {{ include "phoenix.mariadb.image" . | quote }}
+          imagePullPolicy: {{ .Values.mariadb.image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            {{- toYaml .Values.mariadb.containerSecurityContext | nindent 12 }}
+          args:
+            {{- include "phoenix.mariadb.serverArgs" . | nindent 12 }}
+          ports:
+            - name: mysql
+              containerPort: {{ include "phoenix.mariadb.port" . }}
+              protocol: TCP
+          env:
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: mariadb-root-password
+            - name: MARIADB_DATABASE
+              value: {{ .Values.mariadb.auth.database | quote }}
+            - name: MARIADB_USER
+              value: {{ .Values.mariadb.auth.username | quote }}
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phoenix.fullname" . }}
+                  key: mariadb-password
+            {{- with .Values.mariadb.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- /*
+          healthcheck.sh ships with the official mariadb image and authenticates
+          with the MARIADB_* env above. --connect proves the server answers
+          queries; --innodb_initialized additionally proves the storage engine
+          has finished crash recovery, which is the real readiness condition for
+          a PVC that may have been detached uncleanly.
+          */}}
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - healthcheck.sh --connect --innodb_initialized
+            initialDelaySeconds: {{ int .Values.mariadb.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ int .Values.mariadb.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ int .Values.mariadb.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ int .Values.mariadb.readinessProbe.failureThreshold }}
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - healthcheck.sh --connect
+            initialDelaySeconds: {{ int .Values.mariadb.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ int .Values.mariadb.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ int .Values.mariadb.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ int .Values.mariadb.livenessProbe.failureThreshold }}
+            {{- if .Values.mariadb.livenessProbe.startupProbeEnabled }}
+          startupProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - healthcheck.sh --connect --innodb_initialized
+            periodSeconds: 10
+            failureThreshold: {{ int .Values.mariadb.startupFailureThreshold }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.mariadb.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+            # The server needs a writable socket dir and tmp dir; mounting these
+            # as emptyDirs is what lets mariadb.persistence.enabled=false give a
+            # genuinely throwaway instance and lets operators tighten
+            # containerSecurityContext.readOnlyRootFilesystem later.
+            - name: run
+              mountPath: /run/mysqld
+            - name: tmp
+              mountPath: /tmp
+            {{- with .Values.mariadb.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.mariadb.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "phoenix.mariadb.fullname" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- with .Values.mariadb.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.mariadb.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mariadb.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mariadb.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mariadb.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

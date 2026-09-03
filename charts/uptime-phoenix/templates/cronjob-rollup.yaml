@@ -41,6 +41,7 @@ spec:
                 - -c
                 - |
                   set -eu
+                  {{- include "phoenix.dbClientResolve" . | nindent 18 }}
                   DB_PASS=$(cat /etc/db-creds/{{ .Values.cronJobs.rollup.passwordSecretKey }})
 
                   run_sql() {

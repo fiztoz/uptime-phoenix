@@ -76,14 +76,148 @@ database:
     size: 1Gi
     storageClass: ""
 
-# ── MariaDB (opt-in when database.engine=mariadb) ─────────────────────────────
+# ── In-release MariaDB (opt-in; requires database.engine=mariadb) ─────────────
+# mariadb.enabled=true deploys a single-replica, PVC-backed MariaDB StatefulSet
+# named <release>-mariadb plus its ClusterIP Service, and points the Phoenix DSN
+# at it — so `database.engine=mariadb` needs no external server.
+#
+#   helm install uptime-phoenix ./charts/uptime-phoenix \
+#     --set database.engine=mariadb --set mariadb.enabled=true \
+#     --set mariadb.persistence.storageClass=longhorn
+#
+# Use mariadb.enabled=false + mariadbExternal.* for an operator-managed server.
+# The two are mutually exclusive and the render fails if both are set.
+#
+# Ownership: mariadb.enabled=true means THIS release owns the database. If you
+# run an api-only release and a worker-only release as two Helm releases, enable
+# the in-release MariaDB in exactly ONE of them and point the other at it with
+# mariadbExternal.host=<that-release>-mariadb — two releases each running their
+# own in-release MariaDB would give the API and the worker two separate
+# databases. mode=split keeps both tiers in one release and avoids the question.
 mariadb:
   enabled: false
-  # Auto-generated if rootPassword is empty
+  # Overrides the generated <release>-mariadb resource name. Changing it on an
+  # existing release orphans the old PVC and Service — set only on first install.
+  fullnameOverride: ""
+  image:
+    repository: mariadb
+    # Empty → "11", the major the embedded migrations are verified against.
+    tag: ""
+    pullPolicy: IfNotPresent
+  # Root (and, unless mariadb.auth.password is set, application) password.
+  # Empty generates one, stores it in the release Secret, and reuses it on
+  # every `helm upgrade` via `lookup`. This matters more here than for the JWT:
+  # mariadb creates its user table only on an EMPTY data directory, so a
+  # re-generated password would never reach the running datadir and Phoenix
+  # would fail to authenticate. Render-only GitOps controllers (Argo CD
+  # `helm template`) have no `lookup` and MUST supply this from a protected
+  # values source.
   rootPassword: ""
+  # Database + user the image bootstraps on first start, and the credentials
+  # the Phoenix DSN uses.
+  auth:
+    database: phoenix
+    username: phoenix
+    # Empty reuses rootPassword (one credential, one generated secret).
+    password: ""
+  service:
+    type: ClusterIP
+    port: 3306
+    annotations: {}
+  # Server flags, rendered as container args so the official entrypoint passes
+  # them to both mariadb-install-db and mariadbd. character-set-server and
+  # collation-server are load-bearing: the MariaDB migrations emit no per-table
+  # charset, so the server default is what every table (including the
+  # partitioned heartbeats table) actually gets. The server also runs with
+  # default-time-zone=+00:00 and skip-name-resolve.
+  config:
+    characterSet: utf8mb4
+    collation: utf8mb4_unicode_ci
+    maxConnections: 200
+    # "" leaves MariaDB's 128M default. A monitoring database is
+    # heartbeat-write-bound, so ~50-70% of the memory limit is the usual tune.
+    innodbBufferPoolSize: 256M
+    extraArgs: []
+  # The Phoenix Pods gate on an authenticated `SELECT 1` against this instance
+  # before starting (mariadb-admin ping exits 0 even on access-denied, so it
+  # cannot catch a password that drifted from the datadir). attempts * 5s is
+  # the budget: first boot provisions the datadir, runs mariadb-install-db and
+  # all 34 Phoenix migrations.
+  waitFor:
+    attempts: 60
   persistence:
+    enabled: true
     size: 10Gi
     storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    # Helm owns this claim, so `helm uninstall` would otherwise delete the
+    # database along with the release. "keep" adds helm.sh/resource-policy: keep,
+    # which makes Helm leave the claim (and its data) behind; delete it by hand
+    # once you really mean to drop the history. "delete" restores the destructive
+    # default. Any other value fails the render, because a typo here silently
+    # changes what an uninstall does to a database.
+    resourcePolicy: keep
+    annotations: {}
+  terminationGracePeriodSeconds: 60
+  # Covers ~5 minutes of cold start (datadir init + migrations).
+  startupFailureThreshold: 30
+  readinessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 6
+    # A startupProbe suppresses liveness failures during cold start; disable it
+    # only if you must support a cluster older than Kubernetes 1.18.
+    startupProbeEnabled: true
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  # The official mariadb image runs as uid/gid 999 (mysql). fsGroup makes the
+  # statically provisioned PVC group-writable; if your storage class ignores
+  # fsGroup, pre-chown the volume or set runAsUser/fsGroup to 0 (the image then
+  # starts as root and drops privileges itself, as it does in Docker).
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
+    fsGroupChangePolicy: OnRootMismatch
+  # readOnlyRootFilesystem stays false: the image writes to /var/log/mysql and
+  # /etc/mysql at startup. /run/mysqld and /tmp are already emptyDirs.
+  containerSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 999
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  networkPolicy:
+    # Only used when networkPolicy.enabled=true. Empty allows Pods in this
+    # release namespace (the backup/partition/rollup Jobs live there too).
+    ingressFrom: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  podAnnotations: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  # Required to allow persistence.enabled=false, which stores the datadir in an
+  # emptyDir: every monitor, heartbeat and user is lost on each Pod restart.
+  allowEphemeralData: false
 
 # ── External MariaDB (when mariadb.enabled=false) ─────────────────────────────
 mariadbExternal:

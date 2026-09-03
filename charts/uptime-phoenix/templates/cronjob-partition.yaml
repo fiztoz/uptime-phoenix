@@ -42,19 +42,20 @@ spec:
                 - -c
                 - |
                   set -eu
+                  {{- include "phoenix.dbClientResolve" . | nindent 18 }}
                   next_month=$(date -u -d "$(date -u +%Y-%m-01) +1 month" +%Y-%m-01)
                   part_name="p$(date -u -d "${next_month}" +%Y%m)"
                   export MYSQL_PWD="${DB_PASSWORD}"
-                  exists=$(mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -N -e "SELECT COUNT(*) FROM information_schema.PARTITIONS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='heartbeats' AND PARTITION_NAME='${part_name}'")
+                  exists=$("$DB_CLIENT" -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -N -e "SELECT COUNT(*) FROM information_schema.PARTITIONS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='heartbeats' AND PARTITION_NAME='${part_name}'")
                   if [ "$exists" = "0" ]; then
-                    mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -e "ALTER TABLE heartbeats ADD PARTITION (PARTITION ${part_name} VALUES LESS THAN (UNIX_TIMESTAMP('${next_month} 00:00:00')))"
+                    "$DB_CLIENT" -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -e "ALTER TABLE heartbeats ADD PARTITION (PARTITION ${part_name} VALUES LESS THAN (UNIX_TIMESTAMP('${next_month} 00:00:00')))"
                     echo "added partition ${part_name}"
                   else
                     echo "partition ${part_name} exists"
                   fi
                   cutoff=$(date -u -d "$(date -u +%Y-%m-01) -${RETENTION_MONTHS} months" +%Y%m)
-                  for old in $(mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -N -e "SELECT PARTITION_NAME FROM information_schema.PARTITIONS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='heartbeats' AND PARTITION_NAME LIKE 'p%' AND PARTITION_NAME < 'p${cutoff}'" || true); do
-                    mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -e "ALTER TABLE heartbeats DROP PARTITION ${old}" || true
+                  for old in $("$DB_CLIENT" -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -N -e "SELECT PARTITION_NAME FROM information_schema.PARTITIONS WHERE TABLE_SCHEMA='${DB_NAME}' AND TABLE_NAME='heartbeats' AND PARTITION_NAME LIKE 'p%' AND PARTITION_NAME < 'p${cutoff}'"); do
+                    "$DB_CLIENT" -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -e "ALTER TABLE heartbeats DROP PARTITION ${old}"
                     echo "dropped ${old}"
                   done
 {{- end }}

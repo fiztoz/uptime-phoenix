@@ -34,10 +34,10 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- $waitForBus := include "phoenix.waitForEventBusInitContainers" . | trim }}
-      {{- if $waitForBus }}
+      {{- $waitForDeps := include "phoenix.waitForDependenciesInitContainers" . | trim }}
+      {{- if $waitForDeps }}
       initContainers:
-        {{- $waitForBus | nindent 8 }}
+        {{- $waitForDeps | nindent 8 }}
       {{- end }}
       containers:
         - name: uptime-phoenix
@@ -115,7 +115,7 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
-            {{- if or .Values.database.persistence.enabled .Values.mariadb.enabled }}
+            {{- if .Values.database.persistence.enabled }}
             - name: data
               mountPath: /data
             {{- end }}
@@ -130,11 +130,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "phoenix.fullname" . }}-data
-        {{- end }}
-        {{- if .Values.mariadb.enabled }}
-        - name: mariadb-data
-          persistentVolumeClaim:
-            claimName: {{ include "phoenix.fullname" . }}-mariadb
         {{- end }}
         - name: tmp
           emptyDir: {}

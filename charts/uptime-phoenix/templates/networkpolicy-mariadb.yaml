@@ -1,0 +1,32 @@
+{{- if and .Values.networkPolicy.enabled .Values.mariadb.enabled }}
+{{- /*
+Ingress to the in-release MariaDB. Scoped to Pods in this release namespace
+(same convention as the Valkey subchart's default policy), because the clients
+are not only the Phoenix API/worker Pods: the backup, partition and rollup
+CronJobs and the dbMigration Job all connect on 3306 and carry their own
+`component` labels. Phoenix's own egress to 3306 is gated in
+templates/networkpolicy.yaml.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "phoenix.mariadb.fullname" . }}
+  labels:
+    {{- include "phoenix.mariadb.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "phoenix.mariadb.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- if .Values.mariadb.networkPolicy.ingressFrom }}
+        {{- toYaml .Values.mariadb.networkPolicy.ingressFrom | nindent 8 }}
+        {{- else }}
+        - podSelector: {}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ include "phoenix.mariadb.port" . }}
+{{- end }}

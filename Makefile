@@ -26,6 +26,10 @@ BOOTSTRAP_USERNAME ?= admin
 BOOTSTRAP_PASSWORD ?= ChangeMe123!
 LOG_LEVEL ?= debug
 
+# Extra flags appended to `make helm-install-mariadb`, e.g.
+#   make helm-install-mariadb HELM_FLAGS=--wait
+HELM_FLAGS ?=
+
 # Local API env when Docker runs MariaDB + Redis (split dev).
 DEV_SPLIT_DB_DSN := phoenix:$(MARIADB_PASSWORD)@tcp(127.0.0.1:3306)/phoenix?parseTime=true&loc=UTC&multiStatements=true
 
@@ -206,6 +210,7 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	helm template uptime-phoenix charts/uptime-phoenix --set mode=split --set database.engine=mariadb --set mariadb.enabled=true --set valkey.enabled=true > /dev/null
 	helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-production-split.yaml --set mariadbExternal.password=ci > /dev/null
 	helm template uptime-phoenix charts/uptime-phoenix --set redis.enabled=true --set redis.existingSecret=phoenix-redis > /dev/null
+	@$(MAKE) --no-print-directory helm-validate
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
 	$(GOVULNCHECK) ./...
 	git diff --check
@@ -267,6 +272,51 @@ docker-run: ## Run Docker container locally
 .PHONY: helm-lint
 helm-lint: ## Lint Helm chart
 	helm lint charts/uptime-phoenix
+
+# Render-matrix assertions for the in-release MariaDB topology. The plain
+# `helm template` calls in gate-full only prove the chart renders; this target
+# proves the chart renders WHAT IT CLAIMS. mariadb.enabled used to emit a PVC and
+# a DSN pointing at <release>-mariadb without ever creating that server, and
+# every smoke test passed while Phoenix crash-looped (AGENTS.md rule 7).
+.PHONY: helm-validate
+helm-validate: ## Assert the MariaDB topology renders its workload and the guards fail loudly
+	helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-internal-mariadb.yaml > /dev/null
+	helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true --set mode=worker > /dev/null
+	@echo "==> in-release MariaDB must render StatefulSet + PVC + NetworkPolicy"
+	@out="$$(helm template uptime-phoenix charts/uptime-phoenix \
+		--set database.engine=mariadb --set mariadb.enabled=true --set networkPolicy.enabled=true)"; \
+	for want in "kind: StatefulSet" "kind: PersistentVolumeClaim" "kind: NetworkPolicy"; do \
+		printf '%s\n' "$$out" | grep -q "^$$want$$" || { echo "MISSING: $$want"; exit 1; }; \
+	done; \
+	printf '%s\n' "$$out" | grep -q 'tcp(uptime-phoenix-mariadb:3306)/phoenix' \
+		|| { echo "DSN is not wired to the in-release MariaDB Service"; exit 1; }; \
+	printf '%s\n' "$$out" | grep -q '^  name: uptime-phoenix-mariadb$$' \
+		|| { echo "MariaDB workload/Service is not named <release>-mariadb"; exit 1; }
+	@echo "==> the MariaDB Pod must not carry the labels the all-in-one Service selects on"
+	@helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true \
+		| awk '/^kind: StatefulSet/{ss=1} ss&&/^  template:/{tpl=1} tpl&&/^      labels:/{lab=1;next} lab&&/^      [^ ]/{lab=0} lab&&/app.kubernetes.io\/name: uptime-phoenix$$/{bad=1} END{exit bad?1:0}' \
+		|| { echo "MariaDB Pod labels collide with the Phoenix Service selector"; exit 1; }
+	@echo "==> ambiguous database configs must fail the render"
+	@if helm template uptime-phoenix charts/uptime-phoenix --set mariadb.enabled=true >/dev/null 2>&1; then \
+		echo "EXPECTED FAILURE: mariadb.enabled=true without database.engine=mariadb"; exit 1; fi
+	@if helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true \
+		--set mariadbExternal.host=db.example.com >/dev/null 2>&1; then \
+		echo "EXPECTED FAILURE: mariadb.enabled=true together with mariadbExternal.host"; exit 1; fi
+	@if helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true \
+		--set mariadb.persistence.enabled=false >/dev/null 2>&1; then \
+		echo "EXPECTED FAILURE: mariadb.persistence.enabled=false without mariadb.allowEphemeralData"; exit 1; fi
+	@echo "==> helm-validate OK"
+
+.PHONY: helm-template-mariadb
+helm-template-mariadb: ## Render single-pod mode with the in-release, PVC-backed MariaDB
+	helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true
+
+.PHONY: helm-install-mariadb
+helm-install-mariadb: ## Install single-pod Phoenix on the in-release, persistent MariaDB
+	helm upgrade --install uptime-phoenix ./charts/uptime-phoenix \
+		--namespace uptime-phoenix --create-namespace \
+		-f charts/uptime-phoenix/values-internal-mariadb.yaml \
+		$(HELM_FLAGS)
 
 .PHONY: helm-template
 helm-template: ## Render Helm templates (dry-run)

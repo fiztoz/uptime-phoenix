@@ -40,15 +40,32 @@ spec:
                 - name: DB_NAME
                   value: {{ .Values.cronJobs.backup.database | quote }}
               command:
-                - /bin/sh
+                - /bin/bash
                 - -c
                 - |
-                  set -eu
+                  # pipefail matters here: without it `dump | gzip > file` reports
+                  # gzip's status, so a failed dump produced an empty backup and a
+                  # Complete Job. That is the worst possible outcome for a backup.
+                  set -euo pipefail
+                  {{- include "phoenix.dbClientResolve" . | nindent 18 }}
                   ts=$(date -u +%Y%m%dT%H%M%SZ)
                   out="/backup/phoenix-${ts}.sql.gz"
+                  part="/backup/.phoenix-${ts}.sql.part"
                   mkdir -p /backup
-                  mysqldump -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASSWORD" --single-transaction --routines --triggers "$DB_NAME" | gzip -c > "$out"
-                  echo "backup written to $out"
+                  # MYSQL_PWD keeps the credential out of the process argv.
+                  export MYSQL_PWD="$DB_PASSWORD"
+                  "$DB_DUMP" -h "$DB_HOST" -u "$DB_USER" --single-transaction --routines --triggers "$DB_NAME" > "$part"
+                  # A dump with no CREATE TABLE means an empty schema, i.e. no backup.
+                  grep -q 'CREATE TABLE' "$part" || {
+                    echo "ERROR: dump of $DB_NAME contains no tables; refusing to write $out"
+                    rm -f "$part"
+                    exit 1
+                  }
+                  gzip -c "$part" > "$out"
+                  size=$(wc -c < "$part")
+                  gzip -t "$out"
+                  rm -f "$part"
+                  echo "backup written to $out (${size} bytes of SQL, gzip integrity verified)"
                   find /backup -name 'phoenix-*.sql.gz' -mtime +{{ .Values.cronJobs.backup.retentionDays }} -delete || true
               volumeMounts:
                 - name: backup

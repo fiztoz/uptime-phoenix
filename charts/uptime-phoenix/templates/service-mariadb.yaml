@@ -1,0 +1,26 @@
+{{- if .Values.mariadb.enabled }}
+{{- /*
+ClusterIP Service for the in-release MariaDB. Its name is what
+phoenix.mariadbHost / the DB_DSN resolve to, so it is load-bearing: renaming it
+is a breaking change for an existing release.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "phoenix.mariadb.fullname" . }}
+  labels:
+    {{- include "phoenix.mariadb.labels" . | nindent 4 }}
+  {{- with .Values.mariadb.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.mariadb.service.type | default "ClusterIP" }}
+  ports:
+    - name: mysql
+      port: {{ include "phoenix.mariadb.port" . | int }}
+      targetPort: mysql
+      protocol: TCP
+  selector:
+    {{- include "phoenix.mariadb.selectorLabels" . | nindent 4 }}
+{{- end }}
