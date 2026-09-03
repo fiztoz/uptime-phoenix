@@ -6,7 +6,13 @@
   import EmailPreview from "$lib/components/EmailPreview.svelte";
   import Select from "$lib/components/Select.svelte";
   import { modalFocus } from "$lib/actions/modalFocus";
-  import { escapeEmailHTML } from "$lib/utils/email-preview";
+  import {
+    previewSampleValue,
+    renderNotificationPreview,
+    safePreviewURL,
+    type PreviewScope,
+    type PreviewStatus,
+  } from "$lib/notification-preview";
   import {
     notificationTemplatesApi,
     type DiscordButtonTemplate,
@@ -26,8 +32,6 @@
     onClose?: () => void;
   }
 
-  type PreviewScope = "monitor" | "group";
-  type PreviewStatus = "UP" | "DOWN" | "PENDING" | "MAINTENANCE";
   type EmailPreviewView = "desktop" | "mobile" | "plain";
   type SMTPEditorPane = "html" | "plain";
   type ActiveTarget =
@@ -316,118 +320,16 @@
   }
 
   function sampleValue(variable: string): unknown {
-    const isGroup = previewScope === "group";
-    const isUp = previewStatus === "UP";
-    const statusEmoji: Record<PreviewStatus, string> = {
-      UP: "✅",
-      DOWN: "❌",
-      PENDING: "⚠️",
-      MAINTENANCE: "🛠️",
-    };
-    const entityName = isGroup ? "Platform Services" : "Payments API";
-    const entityType = isGroup ? "group" : "http";
-    const entityTarget = isGroup ? "" : "https://api.example.com/health";
-    const values: Record<string, unknown> = {
-      "alert.scope": previewScope,
-      "alert.id": isGroup ? 7 : 42,
-      "alert.name": entityName,
-      "alert.type": entityType,
-      "alert.target": entityTarget,
-      "monitor.id": isGroup ? 0 : 42,
-      "monitor.name": entityName,
-      "monitor.type": entityType,
-      "monitor.target": entityTarget,
-      "monitor.description": isGroup
-        ? ""
-        : "Public checkout and payment authorization API",
-      "monitor.owner": isGroup ? "" : "Payments on-call",
-      "group.id": isGroup ? 7 : 0,
-      "group.name": isGroup ? "Platform Services" : "",
-      "group.description": isGroup
-        ? "Customer-facing platform dependencies"
-        : "",
-      "group.owner": isGroup ? "Platform SRE" : "",
-      "group.condition": isGroup ? "threshold" : "",
-      "group.threshold": isGroup ? 2 : 0,
-      "group.threshold_is_percent": false,
-      "group.threshold_display": isGroup ? "2" : "",
-      status: previewStatus,
-      "status.emoji": statusEmoji[previewStatus],
-      previous_status: isUp ? "DOWN" : "UP",
-      message: isGroup
-        ? `Group "${entityName}" is ${previewStatus}`
-        : `${entityName} is ${previewStatus}`,
-      check_output: isGroup
-        ? isUp
-          ? "All child monitors are UP"
-          : "2 child monitors are DOWN"
-        : isUp
-          ? "200 OK • 184 ms"
-          : "Request failed with status code 504",
-      duration: !isGroup && isUp ? "3m12s" : "",
-      started_at:
-        !isGroup && (previewStatus === "DOWN" || previewStatus === "UP")
-          ? "2026-08-08T02:01:00Z"
-          : "",
-      "started_at.unix":
-        !isGroup && (previewStatus === "DOWN" || previewStatus === "UP")
-          ? 1786154460
-          : undefined,
-      timestamp: "2026-08-08T02:04:12Z",
-      "timestamp.unix": 1786154652,
-      event_kind: "status_change",
-      ack_url:
-        !isGroup && previewStatus === "DOWN"
-          ? "https://status.example.com/ack/example"
-          : "",
-      tags: isGroup ? {} : { team: "payments", region: "ap-southeast-1" },
-      "certificate.threshold": 7,
-      "certificate.days_remaining": 6,
-      "certificate.issuer": "Example Trust Services",
-      "certificate.not_after": "2026-08-14T00:00:00Z",
-    };
-    return values[variable];
+    return previewSampleValue(previewScope, previewStatus, variable);
   }
 
   function renderPreview(source: string, escapeForHTML = false): string {
-    return source.replace(
-      /\{\{\s*([a-z][a-z0-9_.]*)\s*\}\}/g,
-      (_match, placeholder: string) => {
-        const asJSON = placeholder.startsWith("json.");
-        const variable = asJSON ? placeholder.slice(5) : placeholder;
-        const value = sampleValue(variable);
-        if (asJSON) {
-          const renderedJSON = JSON.stringify(value ?? null);
-          return escapeForHTML ? escapeEmailHTML(renderedJSON) : renderedJSON;
-        }
-        let rendered: string;
-        if (value === undefined || value === null) {
-          rendered = "";
-        } else if (
-          variable === "tags" &&
-          typeof value === "object" &&
-          value !== null
-        ) {
-          rendered = Object.entries(value as Record<string, unknown>)
-            .map(([key, item]) => `${key}=${String(item)}`)
-            .join(", ");
-        } else {
-          rendered = String(value);
-        }
-        return escapeForHTML ? escapeEmailHTML(rendered) : rendered;
-      },
+    return renderNotificationPreview(
+      source,
+      previewScope,
+      previewStatus,
+      escapeForHTML,
     );
-  }
-
-  function safePreviewURL(value: string): string {
-    try {
-      const url = new URL(value);
-      return url.protocol === "http:" || url.protocol === "https:"
-        ? url.toString()
-        : "";
-    } catch {
-      return "";
-    }
   }
 
   function isValidJSON(value: string): boolean {
@@ -881,8 +783,7 @@
                     maxlength={bodyLimit}
                     rows="18"
                     class="{inputClass} mt-1 resize-y font-mono text-xs leading-relaxed"
-                    spellcheck="false"
-                  ></textarea>
+                    spellcheck="false"></textarea>
                   <p class="mt-1.5 text-xs leading-5 text-muted-foreground">
                     {m.notification_template_email_html_help()}
                   </p>
@@ -906,8 +807,7 @@
                     maxlength={bodyLimit}
                     rows="14"
                     class="{inputClass} mt-1 resize-y font-mono text-xs leading-relaxed"
-                    spellcheck="false"
-                  ></textarea>
+                    spellcheck="false"></textarea>
                   {#if smtpConfig.format === "html"}<p
                       class="mt-1.5 text-xs leading-5 text-muted-foreground"
                     >
@@ -935,8 +835,7 @@
                 maxlength={bodyLimit}
                 rows={provider === "discord" ? 6 : 12}
                 class="{inputClass} mt-1 resize-y font-mono text-xs leading-relaxed"
-                spellcheck="false"
-              ></textarea>
+                spellcheck="false"></textarea>
               {#if provider === "webhook"}
                 <p
                   class="mt-1.5 text-xs {webhookJSONValid

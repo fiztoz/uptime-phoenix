@@ -567,6 +567,7 @@ func newNotifHTTPHarness(t *testing.T) *notifHTTPHarness {
 	notifSvc := services.NewNotificationService(repo, monLinks)
 	notifSvc.SetTemplateRepository(templateRepo)
 	notifSvc.SetGroupNotificationRepo(groupLinks)
+	notifSvc.SetAssignmentLookups(monitorRepo, groupRepo)
 	notifSvc.RegisterSender(sender)
 
 	accessSvc := services.NewAccessService(userRepo, permRepo, groupRepo, monitorRepo)
@@ -586,6 +587,7 @@ func newNotifHTTPHarness(t *testing.T) *notifHTTPHarness {
 	notifGroup.POST("", nh.Create, requireNotifications)
 	notifGroup.GET("", nh.List)
 	notifGroup.GET("/:id", nh.GetByID)
+	notifGroup.GET("/:id/assignments", nh.ListAssignments)
 	notifGroup.PUT("/:id", nh.Update, requireNotifications)
 	notifGroup.DELETE("/:id", nh.Delete, requireNotifications)
 	notifGroup.POST("/:id/test", nh.Test, requireNotifications)
@@ -961,6 +963,178 @@ func TestNotificationHandlers_AttachDetachGroup_Effect(t *testing.T) {
 	}
 	if len(svcList) != 0 {
 		t.Errorf("GetByGroupID after detach = %v; want empty", svcList)
+	}
+}
+
+func decodeAssignments(t *testing.T, rec *httptest.ResponseRecorder) (monitors, groups []map[string]any) {
+	t.Helper()
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode assignments: %v (%s)", err, rec.Body.String())
+	}
+	monRaw, _ := body["monitors"].([]any)
+	grpRaw, _ := body["groups"].([]any)
+	for _, item := range monRaw {
+		row, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("monitor assignment not an object: %v", item)
+		}
+		monitors = append(monitors, row)
+	}
+	for _, item := range grpRaw {
+		row, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("group assignment not an object: %v", item)
+		}
+		groups = append(groups, row)
+	}
+	if monitors == nil {
+		monitors = []map[string]any{}
+	}
+	if groups == nil {
+		groups = []map[string]any{}
+	}
+	return monitors, groups
+}
+
+func assignmentIDs(rows []map[string]any) []int64 {
+	out := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		id, _ := row["id"].(float64)
+		out = append(out, int64(id))
+	}
+	return out
+}
+
+func containsID(ids []int64, want int64) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestNotificationHandlers_ListAssignments_EffectAndRBAC asserts reverse
+// assignment listing reflects attach/detach (AGENTS rule 7) and never leaks
+// monitors or folders the caller cannot view.
+func TestNotificationHandlers_ListAssignments_EffectAndRBAC(t *testing.T) {
+	h := newNotifHTTPHarness(t)
+
+	id := h.createNotif(t, h.tokenA, "rev-assign")
+	path := "/api/notifications/" + floatToIntStr(float64(id)) + "/assignments"
+
+	empty := h.do(t, http.MethodGet, path, h.tokenA, nil)
+	if empty.Code != http.StatusOK {
+		t.Fatalf("ListAssignments empty = %d; want 200 (%s)", empty.Code, empty.Body.String())
+	}
+	mons, grps := decodeAssignments(t, empty)
+	if len(mons) != 0 || len(grps) != 0 {
+		t.Fatalf("empty assignments = monitors=%v groups=%v; want both empty", mons, grps)
+	}
+
+	monAPath := "/api/notifications/" + floatToIntStr(float64(id)) +
+		"/monitor/" + floatToIntStr(float64(h.monitorAID))
+	monBPath := "/api/notifications/" + floatToIntStr(float64(id)) +
+		"/monitor/" + floatToIntStr(float64(h.monitorBID))
+	grpAPath := "/api/notifications/" + floatToIntStr(float64(id)) +
+		"/group/" + floatToIntStr(float64(h.groupAID))
+	grpBPath := "/api/notifications/" + floatToIntStr(float64(id)) +
+		"/group/" + floatToIntStr(float64(h.groupBID))
+
+	if rec := h.do(t, http.MethodPost, monAPath, h.tokenA, map[string]any{"include_target": false}); rec.Code != http.StatusNoContent {
+		t.Fatalf("attach monitor A: %d (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := h.do(t, http.MethodPost, monBPath, h.tokenA, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("attach monitor B: %d (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := h.do(t, http.MethodPost, grpAPath, h.tokenA, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("attach group A: %d (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := h.do(t, http.MethodPost, grpBPath, h.tokenA, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("attach group B: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	admin := h.do(t, http.MethodGet, path, h.tokenA, nil)
+	if admin.Code != http.StatusOK {
+		t.Fatalf("admin ListAssignments = %d; want 200 (%s)", admin.Code, admin.Body.String())
+	}
+	mons, grps = decodeAssignments(t, admin)
+	if got := assignmentIDs(mons); len(got) != 2 || !containsID(got, h.monitorAID) || !containsID(got, h.monitorBID) {
+		t.Fatalf("admin monitors = %v; want [%d %d]", got, h.monitorAID, h.monitorBID)
+	}
+	if got := assignmentIDs(grps); len(got) != 2 || !containsID(got, h.groupAID) || !containsID(got, h.groupBID) {
+		t.Fatalf("admin groups = %v; want [%d %d]", got, h.groupAID, h.groupBID)
+	}
+
+	var includeA any
+	for _, row := range mons {
+		if int64(row["id"].(float64)) == h.monitorAID {
+			includeA = row["include_target"]
+			if row["name"] != "a-monitor" {
+				t.Errorf("monitor A name = %v; want a-monitor", row["name"])
+			}
+		}
+		if int64(row["id"].(float64)) == h.monitorBID {
+			if row["include_target"] != true {
+				t.Errorf("monitor B include_target = %v; want true (default)", row["include_target"])
+			}
+			if row["name"] != "b-monitor" {
+				t.Errorf("monitor B name = %v; want b-monitor", row["name"])
+			}
+		}
+	}
+	if includeA != false {
+		t.Errorf("monitor A include_target = %v; want false", includeA)
+	}
+
+	// Capability holder B may manage the notification but must not see A.
+	scoped := h.do(t, http.MethodGet, path, h.tokenB, nil)
+	if scoped.Code != http.StatusOK {
+		t.Fatalf("capability holder ListAssignments = %d; want 200 (%s)", scoped.Code, scoped.Body.String())
+	}
+	mons, grps = decodeAssignments(t, scoped)
+	if got := assignmentIDs(mons); len(got) != 1 || got[0] != h.monitorBID {
+		t.Fatalf("capability holder monitors = %v; want [%d] (B only, no leak of A)", got, h.monitorBID)
+	}
+	if got := assignmentIDs(grps); len(got) != 1 || got[0] != h.groupBID {
+		t.Fatalf("capability holder groups = %v; want [%d] (B only, no leak of A)", got, h.groupBID)
+	}
+
+	// Non-manager C can read assignments of a notification attached to a
+	// visible monitor, still filtered to what they can see.
+	reader := h.do(t, http.MethodGet, path, h.tokenC, nil)
+	if reader.Code != http.StatusOK {
+		t.Fatalf("non-manager ListAssignments = %d; want 200 (%s)", reader.Code, reader.Body.String())
+	}
+	mons, grps = decodeAssignments(t, reader)
+	if got := assignmentIDs(mons); len(got) != 1 || got[0] != h.monitorBID {
+		t.Fatalf("non-manager monitors = %v; want [%d]", got, h.monitorBID)
+	}
+	if got := assignmentIDs(grps); len(got) != 1 || got[0] != h.groupBID {
+		t.Fatalf("non-manager groups = %v; want [%d]", got, h.groupBID)
+	}
+
+	if rec := h.do(t, http.MethodDelete, monBPath, h.tokenA, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("detach monitor B: %d (%s)", rec.Code, rec.Body.String())
+	}
+	after := h.do(t, http.MethodGet, path, h.tokenA, nil)
+	if after.Code != http.StatusOK {
+		t.Fatalf("ListAssignments after detach = %d; want 200", after.Code)
+	}
+	mons, _ = decodeAssignments(t, after)
+	if got := assignmentIDs(mons); containsID(got, h.monitorBID) {
+		t.Fatalf("after detach, monitors still contain B: %v", got)
+	}
+
+	unknown := h.do(t, http.MethodGet, "/api/notifications/99999/assignments", h.tokenA, nil)
+	if unknown.Code != http.StatusNotFound {
+		t.Errorf("unknown notification ListAssignments = %d; want 404", unknown.Code)
+	}
+
+	unauth := h.do(t, http.MethodGet, path, "", nil)
+	if unauth.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated ListAssignments = %d; want 401", unauth.Code)
 	}
 }
 

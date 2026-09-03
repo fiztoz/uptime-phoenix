@@ -52,6 +52,28 @@ export interface CreateNotificationInput {
 
 export interface UpdateNotificationInput extends Partial<CreateNotificationInput> {}
 
+/** One monitor directly attached to a notification. */
+export interface NotificationMonitorAssignment {
+  id: number;
+  name: string;
+  include_target: boolean;
+}
+
+/** One folder directly attached to a notification. */
+export interface NotificationGroupAssignment {
+  id: number;
+  name: string;
+}
+
+/**
+ * Reverse assignment list from GET /api/notifications/:id/assignments.
+ * Direct attachments only — a folder link does not expand to the monitors inside it.
+ */
+export interface NotificationAssignments {
+  monitors: NotificationMonitorAssignment[];
+  groups: NotificationGroupAssignment[];
+}
+
 export const notificationsApi = {
   async list(): Promise<Notification[]> {
     return api.get<Notification[]>("/notifications");
@@ -78,6 +100,10 @@ export const notificationsApi = {
 
   async test(id: number): Promise<void> {
     return api.post(`/notifications/${id}/test`);
+  },
+
+  async listAssignments(id: number): Promise<NotificationAssignments> {
+    return api.get<NotificationAssignments>(`/notifications/${id}/assignments`);
   },
 
   // Assignment helpers (paths match backend routes under /api/notifications for consistency)

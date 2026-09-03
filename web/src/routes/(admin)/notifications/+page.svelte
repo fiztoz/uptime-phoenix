@@ -23,6 +23,7 @@
   } from "@lucide/svelte";
   import { confirmAction } from "$lib/stores/confirm.svelte";
   import { toast } from "svelte-sonner";
+  import { goto } from "$app/navigation";
   import * as m from "$lib/paraglide/messages.js";
 
   let notifications = $state<Notification[]>([]);
@@ -153,9 +154,14 @@
     }
   }
 
-  function handleSaved() {
+  function handleSaved(saved: Notification) {
+    const created = editingNotification === null;
     showForm = false;
     editingNotification = null;
+    if (created) {
+      void goto(`/notifications/${saved.id}`);
+      return;
+    }
     load();
   }
 
@@ -372,7 +378,15 @@
                   {/if}
                 </div>
                 <div class="min-w-0">
-                  <h3 class="truncate font-medium">{n.name}</h3>
+                  <h3 class="truncate font-medium">
+                    <a
+                      href="/notifications/{n.id}"
+                      class="underline-offset-2 hover:underline"
+                      title={m.notifications_page_open()}
+                    >
+                      {n.name}
+                    </a>
+                  </h3>
                   <p class="truncate text-sm text-muted-foreground">
                     {typeLabel(n.type)}
                   </p>

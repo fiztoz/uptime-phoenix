@@ -117,6 +117,53 @@ type MonitorNotificationView struct {
 	IncludeTarget bool `json:"include_target"`
 }
 
+// NotificationMonitorAssignmentView is one monitor attached to a notification.
+type NotificationMonitorAssignmentView struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	IncludeTarget bool   `json:"include_target"`
+}
+
+// NotificationGroupAssignmentView is one folder attached to a notification.
+type NotificationGroupAssignmentView struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+// NotificationAssignmentsView is the wire shape of
+// GET /api/notifications/:id/assignments — only direct attachments.
+type NotificationAssignmentsView struct {
+	Monitors []NotificationMonitorAssignmentView `json:"monitors"`
+	Groups   []NotificationGroupAssignmentView   `json:"groups"`
+}
+
+func toNotificationAssignmentsView(v *services.NotificationAssignmentView) NotificationAssignmentsView {
+	if v == nil {
+		return NotificationAssignmentsView{
+			Monitors: []NotificationMonitorAssignmentView{},
+			Groups:   []NotificationGroupAssignmentView{},
+		}
+	}
+	out := NotificationAssignmentsView{
+		Monitors: make([]NotificationMonitorAssignmentView, 0, len(v.Monitors)),
+		Groups:   make([]NotificationGroupAssignmentView, 0, len(v.Groups)),
+	}
+	for _, m := range v.Monitors {
+		out.Monitors = append(out.Monitors, NotificationMonitorAssignmentView{
+			ID:            m.ID,
+			Name:          m.Name,
+			IncludeTarget: m.IncludeTarget,
+		})
+	}
+	for _, g := range v.Groups {
+		out.Groups = append(out.Groups, NotificationGroupAssignmentView{
+			ID:   g.ID,
+			Name: g.Name,
+		})
+	}
+	return out
+}
+
 func toNotificationView(n *domain.Notification) *NotificationView {
 	if n == nil {
 		return nil
@@ -336,6 +383,79 @@ func (h *NotificationHandlers) GetByID(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, toNotificationView(n))
+}
+
+// ListAssignments handles GET /api/notifications/:id/assignments.
+//
+// Read gate matches GetByID: the caller must be allowed to see the
+// notification (404 otherwise). The returned monitors and folders are then
+// filtered through AccessService so a capability holder never learns the
+// names of monitors they cannot view — attaching already requires view
+// access, and listing must not leak around that gate.
+func (h *NotificationHandlers) ListAssignments(c echo.Context) error {
+	userID, ok := userIDFromContext(c)
+	if !ok {
+		return unauthenticated(c)
+	}
+
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return badRequest(c, "invalid notification id")
+	}
+
+	allowed, err := h.canViewNotification(c, userID, id)
+	if err != nil {
+		return mapNotifError(c, err)
+	}
+	if !allowed {
+		return c.JSON(http.StatusNotFound, errorBody(errNotificationNotFound))
+	}
+
+	view, err := h.svc.ListAssignments(c.Request().Context(), id)
+	if err != nil {
+		return mapNotifError(c, err)
+	}
+
+	out := toNotificationAssignmentsView(view)
+	if h.access != nil {
+		allMon, visMon, vErr := h.access.VisibleMonitorIDs(c.Request().Context(), userID)
+		if vErr != nil {
+			return mapNotifError(c, vErr)
+		}
+		if !allMon {
+			allowedIDs := make(map[int64]bool, len(visMon))
+			for _, mid := range visMon {
+				allowedIDs[mid] = true
+			}
+			filtered := make([]NotificationMonitorAssignmentView, 0, len(out.Monitors))
+			for _, m := range out.Monitors {
+				if allowedIDs[m.ID] {
+					filtered = append(filtered, m)
+				}
+			}
+			out.Monitors = filtered
+		}
+
+		allGrp, visGrp, vErr := h.access.VisibleGroupIDs(c.Request().Context(), userID)
+		if vErr != nil {
+			return mapNotifError(c, vErr)
+		}
+		if !allGrp {
+			allowedIDs := make(map[int64]bool, len(visGrp))
+			for _, gid := range visGrp {
+				allowedIDs[gid] = true
+			}
+			filtered := make([]NotificationGroupAssignmentView, 0, len(out.Groups))
+			for _, g := range out.Groups {
+				if allowedIDs[g.ID] {
+					filtered = append(filtered, g)
+				}
+			}
+			out.Groups = filtered
+		}
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // Update handles PUT /api/notifications/:id. Requires can_manage_notifications;

@@ -245,6 +245,7 @@ func NewRouter(
 		notifGroup.POST("", notificationHandlers.Create, requireNotifications)
 		notifGroup.GET("", notificationHandlers.List)
 		notifGroup.GET("/:id", notificationHandlers.GetByID)
+		notifGroup.GET("/:id/assignments", notificationHandlers.ListAssignments)
 		notifGroup.PUT("/:id", notificationHandlers.Update, requireNotifications)
 		notifGroup.DELETE("/:id", notificationHandlers.Delete, requireNotifications)
 		notifGroup.POST("/:id/test", notificationHandlers.Test, requireNotifications)

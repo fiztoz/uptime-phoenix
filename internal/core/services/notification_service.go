@@ -27,6 +27,8 @@ type NotificationService struct {
 	monitorNotifRepo ports.MonitorNotificationRepository
 	groupNotifRepo   ports.GroupNotificationRepository // optional: group (folder) alerting
 	tagReader        NotificationTagReader             // optional: monitor template metadata
+	monitors         ports.MonitorRepository           // optional: name lookup for reverse assignment
+	groups           ports.MonitorGroupRepository      // optional: name lookup for reverse assignment
 	senders          map[string]ports.NotificationSender
 }
 
@@ -62,6 +64,14 @@ func NewNotificationService(
 // return an error rather than pretending to work, and NotifyGroup sends nothing.
 func (s *NotificationService) SetGroupNotificationRepo(repo ports.GroupNotificationRepository) {
 	s.groupNotifRepo = repo
+}
+
+// SetAssignmentLookups wires monitor and group repositories so ListAssignments
+// can resolve names for the reverse-assignment UI. Optional: when unset,
+// assignments still return with IDs (and include_target) but empty names.
+func (s *NotificationService) SetAssignmentLookups(monitors ports.MonitorRepository, groups ports.MonitorGroupRepository) {
+	s.monitors = monitors
+	s.groups = groups
 }
 
 // RegisterSender adds a notification sender to the dispatch pool.
@@ -586,4 +596,101 @@ func (s *NotificationService) ListByMonitor(ctx context.Context, monitorID int64
 // given notification ID.
 func (s *NotificationService) ListByNotification(ctx context.Context, notificationID int64) ([]*domain.MonitorNotification, error) {
 	return s.monitorNotifRepo.ListByNotification(ctx, notificationID)
+}
+
+// NotificationMonitorAssignment is one monitor linked to a notification.
+type NotificationMonitorAssignment struct {
+	ID            int64
+	Name          string
+	IncludeTarget bool
+}
+
+// NotificationGroupAssignment is one folder linked to a notification. The
+// link fires on the folder's own derived status — it does not attach the
+// notification to every monitor inside the folder.
+type NotificationGroupAssignment struct {
+	ID   int64
+	Name string
+}
+
+// NotificationAssignmentView lists the monitors and folders directly attached
+// to a notification. Inheritance is never expanded.
+type NotificationAssignmentView struct {
+	Monitors []NotificationMonitorAssignment
+	Groups   []NotificationGroupAssignment
+}
+
+// ListAssignments returns every monitor and group directly attached to the
+// given notification. Returns ports.ErrNotFound when the notification does
+// not exist. Deleted monitors/groups whose link rows have not yet cascaded
+// are skipped rather than shown as ghosts.
+func (s *NotificationService) ListAssignments(ctx context.Context, notificationID int64) (*NotificationAssignmentView, error) {
+	if _, err := s.repo.GetByID(ctx, notificationID); err != nil {
+		return nil, err
+	}
+
+	view := &NotificationAssignmentView{
+		Monitors: []NotificationMonitorAssignment{},
+		Groups:   []NotificationGroupAssignment{},
+	}
+
+	if s.monitorNotifRepo != nil {
+		links, err := s.monitorNotifRepo.ListByNotification(ctx, notificationID)
+		if err != nil {
+			return nil, fmt.Errorf("notification service: list monitors by notification: %w", err)
+		}
+		for _, l := range links {
+			ref := NotificationMonitorAssignment{
+				ID:            l.MonitorID,
+				IncludeTarget: l.IncludeTarget,
+			}
+			if s.monitors != nil {
+				m, mErr := s.monitors.GetByID(ctx, l.MonitorID)
+				if mErr != nil {
+					if errors.Is(mErr, ports.ErrNotFound) {
+						continue
+					}
+					return nil, fmt.Errorf("notification service: resolve monitor %d: %w", l.MonitorID, mErr)
+				}
+				ref.Name = m.Name
+			}
+			view.Monitors = append(view.Monitors, ref)
+		}
+	}
+
+	if s.groupNotifRepo != nil {
+		links, err := s.groupNotifRepo.ListByNotification(ctx, notificationID)
+		if err != nil {
+			return nil, fmt.Errorf("notification service: list groups by notification: %w", err)
+		}
+		for _, l := range links {
+			ref := NotificationGroupAssignment{ID: l.GroupID}
+			if s.groups != nil {
+				g, gErr := s.groups.GetByID(ctx, l.GroupID)
+				if gErr != nil {
+					if errors.Is(gErr, ports.ErrNotFound) {
+						continue
+					}
+					return nil, fmt.Errorf("notification service: resolve group %d: %w", l.GroupID, gErr)
+				}
+				ref.Name = g.Name
+			}
+			view.Groups = append(view.Groups, ref)
+		}
+	}
+
+	sort.Slice(view.Monitors, func(i, j int) bool {
+		if view.Monitors[i].Name != view.Monitors[j].Name {
+			return view.Monitors[i].Name < view.Monitors[j].Name
+		}
+		return view.Monitors[i].ID < view.Monitors[j].ID
+	})
+	sort.Slice(view.Groups, func(i, j int) bool {
+		if view.Groups[i].Name != view.Groups[j].Name {
+			return view.Groups[i].Name < view.Groups[j].Name
+		}
+		return view.Groups[i].ID < view.Groups[j].ID
+	})
+
+	return view, nil
 }

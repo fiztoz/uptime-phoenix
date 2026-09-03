@@ -136,6 +136,9 @@ func Run(cfg Config) error {
 	// Folder alerting: without this the group attach/detach routes fail closed
 	// rather than 2xx-ing into the void, and no folder ever alerts.
 	notificationSvc.SetGroupNotificationRepo(repos.groupNotif)
+	// Reverse-assignment UI (GET /api/notifications/:id/assignments) resolves
+	// monitor and folder names from these lookups.
+	notificationSvc.SetAssignmentLookups(repos.monitor, repos.monitorGroup)
 	for _, t := range []string{
 		"telegram", "discord", "slack", "smtp", "webhook",
 		"teams", "mattermost", "gotify",

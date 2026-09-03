@@ -18,17 +18,16 @@ test("create notification and report a successful test send honestly", async ({
   await dialog.locator("#notif-url").fill("http://127.0.0.1:3101/notify");
   await dialog.getByRole("button", { name: "Create" }).click();
 
-  const card = page
-    .locator("div.rounded-xl")
-    .filter({ hasText: notificationName })
-    .first();
-  await expect(card).toBeVisible({ timeout: 15_000 });
+  await expect(page).toHaveURL(/\/notifications\/\d+/, { timeout: 15_000 });
+  await expect(
+    page.getByRole("heading", { name: notificationName }),
+  ).toBeVisible();
   const testResponse = page.waitForResponse(
     (response) =>
       /\/api\/notifications\/\d+\/test$/.test(response.url()) &&
       response.request().method() === "POST",
   );
-  await card.getByRole("button", { name: "Test" }).click();
+  await page.getByRole("button", { name: "Test" }).click();
   expect((await testResponse).ok()).toBeTruthy();
   await expect(
     page.getByText(`Test sent to ${notificationName}`),
