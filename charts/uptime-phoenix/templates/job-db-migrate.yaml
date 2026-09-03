@@ -1,0 +1,174 @@
+{{- if .Values.dbMigration.enabled }}
+{{- /*
+One-shot Job that pipes a full logical backup from a source MariaDB/MySQL
+instance into a destination instance. Designed for cut-over migrations:
+old DB → new DB (e.g. onto a Longhorn-backed in-release MariaDB).
+
+Source is always explicit (host + a pre-created Secret holding the password).
+Destination defaults to the in-release MariaDB (phoenix.mariadbHost + the
+release Secret's mariadb-root-password key) when mariadb.enabled=true, and
+can be overridden for an external target.
+
+The dump uses --add-drop-table so it is safe to run after Phoenix has already
+booted once against the destination and created the schema via RunMigrations:
+each table is dropped and recreated from the source, including the
+partitioned `heartbeats` table and the `_migrations` tracking table. After
+the Job completes, Phoenix's next boot sees all source migrations as applied
+(no re-run) and serves the migrated data.
+
+Pre-flight checklist (operator):
+  1. Scale the Phoenix Deployment to 0 (or ensure it has not yet booted
+     against the destination) so no writes race the dump/restore.
+  2. Confirm the destination MariaDB is Reachable and its `phoenix` database
+     exists (or will be created — this Job runs CREATE DATABASE IF NOT EXISTS).
+  3. For an in-release Longhorn-backed destination, set:
+       mariadb.enabled=true
+       mariadb.persistence.storageClass=longhorn
+     and ensure the MariaDB pod backing <release>-mariadb is Running.
+  4. Create a Secret holding the SOURCE password in the release namespace.
+  5. helm upgrade --install ... --set dbMigration.enabled=true ...
+  6. After the Job succeeds, scale Phoenix back up and set
+     dbMigration.enabled=false (or --set on next upgrade) so it does not
+     re-run on subsequent upgrades.
+*/ -}}
+{{- $src := .Values.dbMigration.source }}
+{{- $dst := .Values.dbMigration.destination }}
+{{- $dstHost := $dst.host | default (include "phoenix.mariadbHost" .) }}
+{{- $dstPort := $dst.port | default 3306 }}
+{{- $dstUser := $dst.username | default "root" }}
+{{- $dstDb := $dst.database | default "phoenix" }}
+{{- $dstSecretName := $dst.existingSecret | default (include "phoenix.fullname" .) }}
+{{- $dstSecretKey := $dst.passwordKey | default "mariadb-root-password" }}
+{{- if not $src.host }}
+{{- fail "dbMigration.source.host is required" }}
+{{- end }}
+{{- if not $src.existingSecret }}
+{{- fail "dbMigration.source.existingSecret is required (pre-create a Secret holding the source password)" }}
+{{- end }}
+{{- if not $dstHost }}
+{{- fail "dbMigration.destination.host or mariadb.enabled=true (in-release MariaDB) is required" }}
+{{- end }}
+{{- if and (not $dst.existingSecret) (not .Values.mariadb.enabled) }}
+{{- fail "dbMigration.destination.existingSecret is required when mariadb.enabled=false (the release Secret only carries mariadb-root-password for the in-release MariaDB)" }}
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "phoenix.fullname" . }}-db-migrate
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.dbMigration.backoffLimit | default 0 }}
+  template:
+    metadata:
+      labels:
+        {{- include "phoenix.selectorLabels" . | nindent 8 }}
+        component: db-migrate
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ .Values.dbMigration.image | default "mariadb:11" | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SRC_HOST
+              value: {{ $src.host | quote }}
+            - name: SRC_PORT
+              value: {{ $src.port | default 3306 | int | quote }}
+            - name: SRC_USER
+              value: {{ $src.username | default "root" | quote }}
+            - name: SRC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $src.existingSecret | quote }}
+                  key: {{ $src.passwordKey | default "password" | quote }}
+            - name: SRC_DB
+              value: {{ $src.database | default "phoenix" | quote }}
+            - name: DST_HOST
+              value: {{ $dstHost | quote }}
+            - name: DST_PORT
+              value: {{ $dstPort | int | quote }}
+            - name: DST_USER
+              value: {{ $dstUser | quote }}
+            - name: DST_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $dstSecretName | quote }}
+                  key: {{ $dstSecretKey | quote }}
+            - name: DST_DB
+              value: {{ $dstDb | quote }}
+            {{- with .Values.dbMigration.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              echo "==> Waiting for source ${SRC_HOST}:${SRC_PORT} to accept connections..."
+              for i in $(seq 1 60); do
+                if mysqladmin -h "$SRC_HOST" -P "$SRC_PORT" -u "$SRC_USER" -p"$SRC_PASSWORD" ping >/dev/null 2>&1; then
+                  echo "    source reachable."
+                  break
+                fi
+                echo "    ($i/60) not yet, retrying in 5s..."
+                sleep 5
+              done
+              mysqladmin -h "$SRC_HOST" -P "$SRC_PORT" -u "$SRC_USER" -p"$SRC_PASSWORD" ping >/dev/null 2>&1 || {
+                echo "ERROR: source ${SRC_HOST}:${SRC_PORT} is not reachable."; exit 1; }
+
+              echo "==> Waiting for destination ${DST_HOST}:${DST_PORT} to accept connections..."
+              for i in $(seq 1 60); do
+                if mysqladmin -h "$DST_HOST" -P "$DST_PORT" -u "$DST_USER" -p"$DST_PASSWORD" ping >/dev/null 2>&1; then
+                  echo "    destination reachable."
+                  break
+                fi
+                echo "    ($i/60) not yet, retrying in 5s..."
+                sleep 5
+              done
+              mysqladmin -h "$DST_HOST" -P "$DST_PORT" -u "$DST_USER" -p"$DST_PASSWORD" ping >/dev/null 2>&1 || {
+                echo "ERROR: destination ${DST_HOST}:${DST_PORT} is not reachable."; exit 1; }
+
+              echo "==> Ensuring destination database ${DST_DB} exists..."
+              mysql -h "$DST_HOST" -P "$DST_PORT" -u "$DST_USER" -p"$DST_PASSWORD" \
+                -e "CREATE DATABASE IF NOT EXISTS \`${DST_DB}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+              echo "==> Dumping ${SRC_DB} from ${SRC_HOST} and streaming into ${DST_DB} on ${DST_HOST}..."
+              echo "    (this may take a while for large heartbeats tables)"
+              # Bare db name (no --databases) → no CREATE DATABASE / USE in the
+              # dump, so the receiving `mysql ... $DST_DB` selects the destination
+              # db and DROP TABLE / CREATE TABLE / INSERT land there even when
+              # SRC_DB != DST_DB.
+              mysqldump \
+                -h "$SRC_HOST" -P "$SRC_PORT" -u "$SRC_USER" -p"$SRC_PASSWORD" \
+                --single-transaction \
+                --routines \
+                --triggers \
+                --add-drop-table \
+                --no-create-db \
+                "$SRC_DB" \
+                | mysql \
+                  -h "$DST_HOST" -P "$DST_PORT" -u "$DST_USER" -p"$DST_PASSWORD" "$DST_DB"
+
+              echo "==> Migration complete. Verifying row counts on key tables..."
+              for t in monitors users heartbeats; do
+                src_count=$(mysql -N -h "$SRC_HOST" -P "$SRC_PORT" -u "$SRC_USER" -p"$SRC_PASSWORD" "$SRC_DB" -e "SELECT COUNT(*) FROM \`$t\`" 2>/dev/null || echo "n/a")
+                dst_count=$(mysql -N -h "$DST_HOST" -P "$DST_PORT" -u "$DST_USER" -p"$DST_PASSWORD" "$DST_DB" -e "SELECT COUNT(*) FROM \`$t\`" 2>/dev/null || echo "n/a")
+                echo "    $t: src=${src_count} dst=${dst_count}"
+              done
+
+              echo "==> Done. Scale Phoenix up and set dbMigration.enabled=false."
+          {{- with .Values.dbMigration.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

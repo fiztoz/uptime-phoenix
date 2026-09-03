@@ -444,6 +444,58 @@ cronJobs:
     passwordSecretKey: mariadb-root-password
     database: phoenix
 
+# ── One-shot DB migration (MariaDB/MySQL → MariaDB) ───────────────────────────
+# Pipes a full logical backup from a source instance into a destination
+# instance via `mysqldump | mysql`. Use for cut-over migrations, e.g. moving
+# onto an in-release MariaDB backed by a Longhorn PVC.
+#
+# Destination defaults to the in-release MariaDB when mariadb.enabled=true
+# (host = <release>-mariadb, password from the release Secret
+# mariadb-root-password key). Set mariadb.persistence.storageClass=longhorn to
+# back the destination with Longhorn.
+#
+# Source password MUST come from a pre-created Secret — never hardcode it.
+# Create it once: kubectl create secret generic phoenix-src-db \
+#   --from-literal=password='...$ourcePwd...'
+#
+# Runbook:
+#   1. kubectl scale deploy/<release> --replicas=0   (stop Phoenix writes)
+#   2. helm upgrade <release> ./charts/uptime-phoenix \
+#        --set database.engine=mariadb \
+#        --set dbMigration.enabled=true \
+#        --set dbMigration.source.host=old-mariadb.default.svc \
+#        --set dbMigration.source.existingSecret=phoenix-src-db \
+#        --set mariadb.enabled=true \
+#        --set mariadb.persistence.storageClass=longhorn
+#   3. Watch: kubectl logs job/<release>-db-migrate -f
+#   4. kubectl scale deploy/<release> --replicas=1   (resume Phoenix)
+#   5. On next upgrade, set dbMigration.enabled=false so the Job does not rerun.
+dbMigration:
+  enabled: false
+  image: mariadb:11
+  backoffLimit: 0
+  resources: {}
+  # extraEnv: []   # optional extra env vars on the migrate container
+  # Source instance you are migrating FROM.
+  source:
+    host: ""                 # required
+    port: 3306
+    username: root
+    database: phoenix
+    existingSecret: ""       # required: Secret name holding the source password
+    passwordKey: password    # key inside that Secret
+  # Destination instance you are migrating TO.
+  # Defaults to the in-release MariaDB (phoenix.mariadbHost + release Secret
+  # mariadb-root-password) when host/existingSecret are empty and
+  # mariadb.enabled=true. Override for an external destination.
+  destination:
+    host: ""                 # empty → uses phoenix.mariadbHost (needs mariadb.enabled=true)
+    port: 3306
+    username: root
+    database: phoenix
+    existingSecret: ""       # empty → release Secret
+    passwordKey: mariadb-root-password
+
 # ── HTTP hardening / observability (ConfigMap → env) ──────────────────────────
 security:
   production: false
