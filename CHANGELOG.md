@@ -11,6 +11,33 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-09-03
+
+### Added
+
+- Notification channel detail page (`/notifications/:id`). Operators can see
+  every monitor and folder attached to one channel, assign or unassign them
+  there, and preview a sample message (template or provider default). Reverse
+  assignment is `GET /api/notifications/:id/assignments` and is visibility-
+  filtered. The leftover notifications list on Settings is removed.
+- Per-monitor `include_target` on the monitor↔notification link (default on).
+  Two monitors sharing one channel can include or omit the monitor target
+  independently. The monitor detail page exposes a per-row toggle.
+- Per-notification `include_ack_url` (default off). When a monitor goes down,
+  Discord shows an Acknowledge button; other providers append a text link.
+
+### Fixed
+
+- Text notification senders no longer emit a dangling `Target:` line when the
+  target is omitted (Slack, Teams, Feishu, SMTP, Mattermost).
+- Public status pages show the Phoenix mascot instead of a broken `/icon.svg`
+  (Uptime Kuma's stock logo path is not a Phoenix asset).
+
+### Changed
+
+- Container builds use `golang:1.27-alpine`. Go module minors were bumped
+  (webauthn, mssql, mongo-driver, otel, grpc).
+
 ## [0.4.0] — 2026-09-02
 
 ### Added
