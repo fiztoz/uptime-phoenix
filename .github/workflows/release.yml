@@ -5,6 +5,10 @@
 #     when publish=true AND the git tag v<version> already exists. This is the
 #     checkbox UI for fast patch releases (e.g. chart + split images only,
 #     skipping the all-in-one image and binaries you will never deploy).
+#     "Use workflow from" MUST be the tag (v<version>), not main: the `release`
+#     environment only allows tags matching v*. GitHub evaluates that policy
+#     against github.ref (the dispatched ref), not the tag the job later checks
+#     out. Dispatch-from-main fails the publish job in ~1s with empty steps.
 #   - push of tags matching v*: dry-run then publish ALL artifacts for that tag
 #     (the full-release path, unchanged).
 #

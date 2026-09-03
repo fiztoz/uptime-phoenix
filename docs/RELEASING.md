@@ -80,7 +80,7 @@ Workflow file: [`.github/workflows/release.yml`](../.github/workflows/release.ym
 | Trigger | Behaviour |
 |---|---|
 | `workflow_dispatch` (`publish=false`, default) | **Dry-run only.** Inputs: `version` (required), `skip_docker`. Never publishes. |
-| `workflow_dispatch` (`publish=true`) | **Selective publish** of the ticked artifacts (`build_chart`/`build_split` default on; `build_all_in_one`/`build_binaries` default off). Requires the `v<version>` tag to already exist + Environment approval. Bound to the tag commit. |
+| `workflow_dispatch` (`publish=true`) | **Selective publish** of the ticked artifacts (`build_chart`/`build_split` default on; `build_all_in_one`/`build_binaries` default off). Requires the `v<version>` tag to already exist + Environment approval. Bound to the tag commit. **Use workflow from** must be the tag itself (`vX.Y.Z`), not `main` — see below. |
 | `push` of tags matching `v*` | Dry-run bound to that tag commit, then **publish all artifacts** (after Environment approval). |
 
 ### Dry-run job
@@ -203,9 +203,27 @@ git push origin v0.1.0
 ```
 
 To re-publish the same version after a failed run, re-run the failed jobs from the
-Actions UI on the original run, or trigger a fresh `workflow_dispatch` with
-`publish=true` against the same existing tag (move the tag only with extreme care —
-prefer a new patch version).
+Actions UI on the original run **only if that run's ref is already the tag**
+(`head_branch: vX.Y.Z`). Otherwise trigger a fresh `workflow_dispatch` with
+`publish=true` **from the tag ref**, not from `main`:
+
+```bash
+# "Use workflow from" = the tag. The `release` environment only allows tags
+# matching v*; GitHub checks github.ref (the dispatched ref), not the tag the
+# job later checks out. Dispatch-from-main fails publish immediately (empty
+# steps, no logs).
+gh workflow run release.yml --ref v0.1.0 \
+  -f version=0.1.0 \
+  -f publish=true \
+  -f build_chart=true \
+  -f build_split=true \
+  -f build_all_in_one=false \
+  -f build_binaries=false
+```
+
+In the Actions UI: **Actions → Release → Run workflow → Use workflow from →
+Tags → `v0.1.0`**. Move the tag only with extreme care — prefer a new patch
+version.
 
 No secrets beyond `GITHUB_TOKEN` are required for public GHCR packages in the same
 repo. The workflow never force-pushes and never commits to `main`.
@@ -215,7 +233,11 @@ repo. The workflow never force-pushes and never commits to `main`.
 Create a GitHub Environment named **`release`** and enable:
 
 - Required reviewers (owner or trusted maintainers)
-- Optional: limit deployment branches/tags if your plan supports it
+- Optional: limit deployment branches/tags if your plan supports it. This repo
+  allows tags matching `v*` only. That is why dispatch-publish must be started
+  **from the tag** (`--ref vX.Y.Z` / Use workflow from = Tags). Adding `main`
+  to the policy would let you dispatch from `main`, but GitHub would then run
+  the workflow YAML currently on `main` rather than the tagged copy.
 
 Environment approval gates **every** publish, whether triggered by a tag push or a
 `workflow_dispatch` with `publish=true`. Protect the environment before the first
