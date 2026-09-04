@@ -4,20 +4,31 @@ kind: Pod
 metadata:
   name: "{{ include "phoenix.fullname" . }}-test-connection"
   labels:
-    {{- include "phoenix.labels" . | nindent 4 }}
+    {{- include "phoenix.jobSelectorLabels" (dict "root" . "component" "test") | nindent 4 }}
   annotations:
     "helm.sh/hook": test
 spec:
   containers:
     - name: curl
       image: curlimages/curl:8.7.1
-      command: ['curl', '-sf', '--max-time', '10']
-      args:
-        {{- if .Values.web.split }}
-        - 'http://{{ include "phoenix.fullname" . }}-web:{{ .Values.web.service.port }}/api/health/live'
-        {{- else }}
-        - 'http://{{ include "phoenix.fullname" . }}:{{ .Values.service.port }}/api/health/live'
-        {{- end }}
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -eu
+          url={{ if .Values.web.split }}'http://{{ include "phoenix.fullname" . }}-web:{{ .Values.web.service.port }}/api/health/live'{{ else }}'http://{{ include "phoenix.fullname" . }}:{{ .Values.service.port }}/api/health/live'{{ end }}
+          i=1
+          while [ "$i" -le 15 ]; do
+            if curl -sf --max-time 5 "$url"; then
+              echo
+              exit 0
+            fi
+            echo "($i/15) waiting for $url..."
+            sleep 2
+            i=$((i+1))
+          done
+          echo "ERROR: $url never became live"
+          exit 1
   restartPolicy: Never
 {{- if .Values.mariadb.enabled }}
 ---
@@ -35,7 +46,7 @@ kind: Pod
 metadata:
   name: "{{ include "phoenix.mariadb.fullname" . }}-test-connection"
   labels:
-    {{- include "phoenix.mariadb.labels" . | nindent 4 }}
+    {{- include "phoenix.jobSelectorLabels" (dict "root" . "component" "mariadb-test") | nindent 4 }}
   annotations:
     "helm.sh/hook": test
 spec:
@@ -53,23 +64,33 @@ spec:
         - -c
         - |
           set -eu
+          {{- include "phoenix.dbClientResolve" . | nindent 10 }}
+          host={{ include "phoenix.mariadbHost" . | quote }}
+          port={{ include "phoenix.mariadb.port" . | quote }}
+          user={{ .Values.mariadb.auth.username | quote }}
+          db={{ .Values.mariadb.auth.database | quote }}
+          # mariadb:11 clients on a brand-new Pod frequently return 2002/115 on
+          # the first TCP attempt even when the StatefulSet is Ready; a second
+          # try a couple of seconds later succeeds. helm test has no restart.
           echo "== authenticated SELECT 1 =="
-          mariadb -h {{ include "phoenix.mariadbHost" . | quote }} \
-                  -P {{ include "phoenix.mariadb.port" . | quote }} \
-                  -u {{ .Values.mariadb.auth.username | quote }} \
-                  {{ .Values.mariadb.auth.database | quote }} \
-            -e 'SELECT 1 AS reachable'
+          ok=0
+          i=1
+          while [ "$i" -le 15 ]; do
+            if "$DB_CLIENT" -h "$host" -P "$port" -u "$user" "$db" -e 'SELECT 1 AS reachable'; then
+              ok=1
+              break
+            fi
+            echo "($i/15) waiting for authenticated connect to $host:$port..."
+            sleep 2
+            i=$((i+1))
+          done
+          [ "$ok" = 1 ] || { echo "ERROR: $host:$port never accepted an authenticated connection as $user"; exit 1; }
           echo "== Phoenix schema present =="
-          mariadb -h {{ include "phoenix.mariadbHost" . | quote }} \
-                  -P {{ include "phoenix.mariadb.port" . | quote }} \
-                  -u {{ .Values.mariadb.auth.username | quote }} \
-                  {{ .Values.mariadb.auth.database | quote }} -N -e '
+          "$DB_CLIENT" -h "$host" -P "$port" -u "$user" "$db" -N -e '
             SELECT COUNT(*) AS phoenix_tables
             FROM information_schema.tables WHERE table_schema = DATABASE();'
           echo "== server settings Phoenix depends on =="
-          mariadb -h {{ include "phoenix.mariadbHost" . | quote }} \
-                  -P {{ include "phoenix.mariadb.port" . | quote }} \
-                  -u {{ .Values.mariadb.auth.username | quote }} -N -e '
+          "$DB_CLIENT" -h "$host" -P "$port" -u "$user" -N -e '
             SELECT @@character_set_server, @@collation_server, @@time_zone;'
       securityContext:
         {{- toYaml .Values.mariadb.containerSecurityContext | nindent 8 }}

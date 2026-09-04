@@ -66,7 +66,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "phoenix.selectorLabels" . | nindent 8 }}
+        {{- include "phoenix.jobSelectorLabels" (dict "root" . "component" "db-migrate") | nindent 8 }}
         component: db-migrate
     spec:
       restartPolicy: OnFailure

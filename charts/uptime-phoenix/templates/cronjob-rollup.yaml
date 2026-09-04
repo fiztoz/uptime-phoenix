@@ -15,7 +15,7 @@ spec:
       template:
         metadata:
           labels:
-            {{- include "phoenix.selectorLabels" . | nindent 12 }}
+            {{- include "phoenix.jobSelectorLabels" (dict "root" . "component" "rollup") | nindent 12 }}
             component: rollup
         spec:
           restartPolicy: OnFailure
@@ -43,10 +43,25 @@ spec:
                   set -eu
                   {{- include "phoenix.dbClientResolve" . | nindent 18 }}
                   DB_PASS=$(cat /etc/db-creds/{{ .Values.cronJobs.rollup.passwordSecretKey }})
+                  export MYSQL_PWD="$DB_PASS"
 
                   run_sql() {
-                    mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "$1"
+                    mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -e "$1"
                   }
+
+                  # First TCP attempt from a new Pod often returns 2002/115.
+                  i=1
+                  while [ "$i" -le 8 ]; do
+                    if mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -e 'SELECT 1' >/dev/null 2>&1; then
+                      break
+                    fi
+                    if [ "$i" -eq 8 ]; then
+                      echo "ERROR: $DB_HOST never accepted an authenticated connection as $DB_USER" >&2
+                      exit 1
+                    fi
+                    sleep 2
+                    i=$((i+1))
+                  done
 
                   echo "=== 1-minute rollup ==="
                   run_sql "

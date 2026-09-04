@@ -296,6 +296,15 @@ helm-validate: ## Assert the MariaDB topology renders its workload and the guard
 	@helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true \
 		| awk '/^kind: StatefulSet/{ss=1} ss&&/^  template:/{tpl=1} tpl&&/^      labels:/{lab=1;next} lab&&/^      [^ ]/{lab=0} lab&&/app.kubernetes.io\/name: uptime-phoenix$$/{bad=1} END{exit bad?1:0}' \
 		|| { echo "MariaDB Pod labels collide with the Phoenix Service selector"; exit 1; }
+	@echo "==> CronJob / db-migrate Pods must not carry those labels either"
+	@helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-internal-mariadb.yaml \
+		--set dbMigration.enabled=true --set dbMigration.source.host=src.example --set dbMigration.source.existingSecret=src \
+		| awk '/^kind: (CronJob|Job)$$/{k=1;tpl=0;lab=0} k&&/^kind: /&&!/^kind: (CronJob|Job)$$/{k=0} k&&/template:/{tpl=1} tpl&&/^[[:space:]]+labels:/{lab=1;next} lab&&/^[[:space:]]+[^ ]/{lab=0} lab&&/app.kubernetes.io\/name: uptime-phoenix$$/{bad=1} END{exit bad?1:0}' \
+		|| { echo "Job/CronJob Pod labels collide with the Phoenix Service selector"; exit 1; }
+	@echo "==> helm-test Pods must not join the Phoenix or MariaDB Services"
+	@helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-internal-mariadb.yaml \
+		| awk '/^kind: Pod$$/{p=1;hook=0;lab=0} p&&/^kind: /&&!/^kind: Pod$$/{p=0} p&&/helm.sh\/hook: test/{hook=1} p&&/^  labels:/{lab=1;next} lab&&/^  [^ ]/{lab=0} hook&&lab&&(/app.kubernetes.io\/name: uptime-phoenix$$/||/app.kubernetes.io\/name: uptime-phoenix-mariadb$$/){bad=1} END{exit bad?1:0}' \
+		|| { echo "helm-test Pod labels collide with a Service selector"; exit 1; }
 	@echo "==> ambiguous database configs must fail the render"
 	@if helm template uptime-phoenix charts/uptime-phoenix --set mariadb.enabled=true >/dev/null 2>&1; then \
 		echo "EXPECTED FAILURE: mariadb.enabled=true without database.engine=mariadb"; exit 1; fi

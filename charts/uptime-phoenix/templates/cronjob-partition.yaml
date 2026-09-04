@@ -15,7 +15,7 @@ spec:
       template:
         metadata:
           labels:
-            {{- include "phoenix.selectorLabels" . | nindent 12 }}
+            {{- include "phoenix.jobSelectorLabels" (dict "root" . "component" "partition") | nindent 12 }}
             component: partition
         spec:
           restartPolicy: OnFailure

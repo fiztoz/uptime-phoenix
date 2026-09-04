@@ -15,7 +15,7 @@ spec:
       template:
         metadata:
           labels:
-            {{- include "phoenix.selectorLabels" . | nindent 12 }}
+            {{- include "phoenix.jobSelectorLabels" (dict "root" . "component" "backup") | nindent 12 }}
             component: backup
         spec:
           restartPolicy: OnFailure

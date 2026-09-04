@@ -82,6 +82,11 @@ cronJobs:
       enabled: true
       size: 20Gi
       storageClass: ""
+      # On WaitForFirstConsumer StorageClasses (k3s local-path, some CSI
+      # drivers) this claim stays Pending until the 02:00 Job mounts it.
+      # `helm upgrade --wait` then hangs on the unbound PVC even though
+      # Phoenix and MariaDB are already Ready. Use --wait only with an
+      # Immediate-binding class (Longhorn, most in-tree) or skip --wait.
   # heartbeats is RANGE-partitioned by month on MariaDB; this creates the
   # forward partitions and drops expired ones.
   partition:

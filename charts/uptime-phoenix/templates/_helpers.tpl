@@ -311,6 +311,20 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: mariadb
 {{- end }}
 
+{{/*
+Selector labels for backup/partition/rollup CronJob Pods and the db-migrate
+Job. Must not reuse phoenix.selectorLabels: the all-in-one Service selects on
+name+instance alone, so a Job Pod carrying those labels joins the Phoenix
+HTTP endpoints (and the PDB counts it) for the few seconds it is Running.
+
+Call as: include "phoenix.jobSelectorLabels" (dict "root" . "component" "backup")
+*/}}
+{{- define "phoenix.jobSelectorLabels" -}}
+app.kubernetes.io/name: {{ printf "%s-%s" (include "phoenix.name" .root) .component | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/instance: {{ .root.Release.Name }}
+app.kubernetes.io/component: {{ .component }}
+{{- end }}
+
 {{- define "phoenix.mariadb.labels" -}}
 helm.sh/chart: {{ include "phoenix.chart" . }}
 {{ include "phoenix.mariadb.selectorLabels" . }}
