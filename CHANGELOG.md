@@ -11,6 +11,8 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-09-05
+
 ### Added
 
 - **In-release MariaDB (`mariadb.enabled=true`).** The flag now deploys an
@@ -35,6 +37,8 @@ at the bottom.
 - `dbClientResolve` helper: maintenance jobs resolve `mariadb`/`mariadb-dump`/
   `mariadb-admin` vs the legacy `mysql*` names at runtime and shim the legacy
   names, so they work on `mariadb:11` (which ships only the new names).
+- One-shot `dbMigration` Job: logical dump from an external MariaDB/MySQL
+  into the in-release (or another) destination for cut-over.
 
 ### Fixed
 
@@ -65,6 +69,12 @@ at the bottom.
   `mysql` binary; `job-db-migrate` also loses its `/bin/sh` for `pipefail` now
   that its `mysqldump | mysql` cut-over is checked. The partition job's `|| true`
   on the DROP loop no longer hides failures.
+- CronJob, db-migrate, and helm-test pods no longer reuse Phoenix or MariaDB
+  Service selector labels, so they cannot join those endpoints while Running.
+- Helm tests retry the first `mariadb:11` 2002/115 from a new Pod, and the
+  HTTP live probe, instead of failing on a single attempt.
+- Handler test fake now actually persists `IncludeTarget` on re-Attach
+  (`govet unusedwrite` / CI golangci-lint).
 
 ### Docs
 
@@ -77,6 +87,8 @@ at the bottom.
   locks Phoenix out of an existing database.
 - `docs/ARCHITECTURE.md`, `docs/DEPLOYMENT_MODES.md`, `docs/TESTING.md` updated;
   the chart README no longer claims the chart cannot run MariaDB.
+- `values-internal-mariadb.yaml`: `helm --wait` hangs on WaitForFirstConsumer
+  backup PVCs (k3s local-path); use an Immediate-binding class or skip `--wait`.
 
 ## [0.4.1] — 2026-09-03
 
