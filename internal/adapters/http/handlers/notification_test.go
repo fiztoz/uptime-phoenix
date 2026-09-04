@@ -116,9 +116,9 @@ func newNotifHMonLinkRepo() *notifHMonLinkRepo {
 func (r *notifHMonLinkRepo) Attach(_ context.Context, monitorID, notificationID int64, includeTarget bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, l := range r.links {
-		if l.MonitorID == monitorID && l.NotificationID == notificationID {
-			l.IncludeTarget = includeTarget
+	for i := range r.links {
+		if r.links[i].MonitorID == monitorID && r.links[i].NotificationID == notificationID {
+			r.links[i].IncludeTarget = includeTarget
 			return nil // idempotent
 		}
 	}
