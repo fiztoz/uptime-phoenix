@@ -38,7 +38,7 @@ spec:
       labels:
         {{- include "phoenix.mariadb.selectorLabels" . | nindent 8 }}
       annotations:
-        checksum/secret: {{ include "phoenix.secretFingerprint" . | sha256sum }}
+        checksum/secret: {{ include "phoenix.mariadbSecretFingerprint" . | sha256sum }}
         {{- with .Values.mariadb.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

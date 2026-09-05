@@ -729,7 +729,7 @@ cluster access (Argo CD `helm template`).
 {{- define "phoenix.secretFingerprint" -}}
 redis:{{ .Values.redis | toYaml }}
 oidc:{{ .Values.oidc | toYaml }}
-extensions:{{ .Values.extensions | toYaml }}
+extensions:{{ include "phoenix.extensionsCatalog" . }}
 bootstrap:{{ .Values.bootstrap | toYaml }}
 mariadb.enabled={{ .Values.mariadb.enabled }}
 mariadb.rootPassword={{ .Values.mariadb.rootPassword }}
@@ -749,6 +749,18 @@ valkey.auth.managedSecret={{ .Values.valkey.auth.managedSecret }}
 valkey.auth.usersExistingSecret={{ .Values.valkey.auth.usersExistingSecret }}
 valkey.service.port={{ .Values.valkey.service.port }}
 {{- end }}
+{{- end }}
+
+{{/*
+Stable fingerprint of only the chart-managed Secret values consumed by the
+MariaDB StatefulSet. App, OIDC, Redis, and extension changes must not restart
+the database.
+*/}}
+{{- define "phoenix.mariadbSecretFingerprint" -}}
+mariadb:
+{{ pick .Values.mariadb "rootPassword" | toYaml }}
+auth:
+{{ pick .Values.mariadb.auth "password" | toYaml }}
 {{- end }}
 
 {{/*

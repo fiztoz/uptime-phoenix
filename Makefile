@@ -282,6 +282,8 @@ helm-lint: ## Lint Helm chart
 helm-validate: ## Assert the MariaDB topology renders its workload and the guards fail loudly
 	helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-internal-mariadb.yaml > /dev/null
 	helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true --set mode=worker > /dev/null
+	@echo "==> extension-only image changes must not roll Phoenix or MariaDB"
+	@./scripts/helm-checksum-scope.sh
 	@echo "==> in-release MariaDB must render StatefulSet + PVC + NetworkPolicy"
 	@out="$$(helm template uptime-phoenix charts/uptime-phoenix \
 		--set database.engine=mariadb --set mariadb.enabled=true --set networkPolicy.enabled=true)"; \

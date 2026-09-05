@@ -493,6 +493,14 @@ Valkey password, …) changes those annotations, so the next Argo sync /
 The optional `web` Deployment hashes the nginx ConfigMap; `cloudflared`
 hashes the tunnel token.
 
+Checksum inputs are scoped to what each workload consumes. In particular,
+changing an extension's image, pull policy, replicas, resources, probes, or
+environment updates only that extension's Deployment; it does not roll the
+Phoenix API, worker, or in-release MariaDB. Extension catalogue changes
+(`id`, `title`, `path`, `icon`, or `uiToken`) still roll Phoenix so the API and
+worker reload `PHOENIX_EXTENSIONS`. MariaDB has a separate fingerprint limited
+to its chart-managed credential inputs.
+
 Secrets referenced only via `*.existingSecret` are outside the chart.
 Updating those objects in-cluster (SealedSecret, ExternalSecret, a
 manual `kubectl apply`) does **not** change the checksum. Either point
