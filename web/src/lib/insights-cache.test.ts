@@ -45,7 +45,14 @@ function row(id: number, name: string): InsightsRow {
 describe("insights cache", () => {
   test("round-trips rows for the same owner and window", () => {
     const storage = memoryStorage();
-    writeInsightsCache("owner-a", "7d", "", undefined, [row(1, "api")], storage);
+    writeInsightsCache(
+      "owner-a",
+      "7d",
+      "",
+      undefined,
+      [row(1, "api")],
+      storage,
+    );
     const got = readInsightsCache("owner-a", "7d", "", undefined, storage);
     expect(got).toEqual([row(1, "api")]);
   });
@@ -53,22 +60,30 @@ describe("insights cache", () => {
   test("windows do not collide", () => {
     const storage = memoryStorage();
     writeInsightsCache("owner-a", "7d", "", undefined, [row(1, "a")], storage);
-    expect(readInsightsCache("owner-a", "24h", "", undefined, storage)).toBeNull();
-    expect(readInsightsCache("owner-a", "7d", "http", undefined, storage)).toBeNull();
+    expect(
+      readInsightsCache("owner-a", "24h", "", undefined, storage),
+    ).toBeNull();
+    expect(
+      readInsightsCache("owner-a", "7d", "http", undefined, storage),
+    ).toBeNull();
     expect(readInsightsCache("owner-a", "7d", "", 3, storage)).toBeNull();
   });
 
   test("a different owner cannot read the cache", () => {
     const storage = memoryStorage();
     writeInsightsCache("owner-a", "7d", "", undefined, [row(1, "a")], storage);
-    expect(readInsightsCache("owner-b", "7d", "", undefined, storage)).toBeNull();
+    expect(
+      readInsightsCache("owner-b", "7d", "", undefined, storage),
+    ).toBeNull();
   });
 
   test("a different owner replaces the cache wholesale on write", () => {
     const storage = memoryStorage();
     writeInsightsCache("owner-a", "7d", "", undefined, [row(1, "a")], storage);
     writeInsightsCache("owner-b", "7d", "", undefined, [row(2, "b")], storage);
-    expect(readInsightsCache("owner-a", "7d", "", undefined, storage)).toBeNull();
+    expect(
+      readInsightsCache("owner-a", "7d", "", undefined, storage),
+    ).toBeNull();
     expect(readInsightsCache("owner-b", "7d", "", undefined, storage)).toEqual([
       row(2, "b"),
     ]);
@@ -90,7 +105,9 @@ describe("insights cache", () => {
     const storage = memoryStorage({
       [INSIGHTS_CACHE_KEY]: JSON.stringify(stale),
     });
-    expect(readInsightsCache("owner-a", "7d", "", undefined, storage)).toBeNull();
+    expect(
+      readInsightsCache("owner-a", "7d", "", undefined, storage),
+    ).toBeNull();
   });
 
   test("null owner disables the cache", () => {

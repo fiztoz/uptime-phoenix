@@ -80,7 +80,10 @@ export function readInsightsCache(
   if (!shape || shape.owner !== owner) return null;
   const entry = shape.entries[insightsWindowKey(period, type, groupId)];
   if (!entry || !Array.isArray(entry.rows)) return null;
-  if (typeof entry.at !== "number" || Date.now() - entry.at > INSIGHTS_CACHE_TTL_MS) {
+  if (
+    typeof entry.at !== "number" ||
+    Date.now() - entry.at > INSIGHTS_CACHE_TTL_MS
+  ) {
     return null;
   }
   return entry.rows;
@@ -117,8 +120,7 @@ export function clearInsightsCache(
   mirror = null;
   mirrorLoaded = false;
   const target =
-    storage ??
-    (typeof localStorage !== "undefined" ? localStorage : null);
+    storage ?? (typeof localStorage !== "undefined" ? localStorage : null);
   if (!target) return;
   try {
     target.removeItem(INSIGHTS_CACHE_KEY);
