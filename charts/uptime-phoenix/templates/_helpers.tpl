@@ -116,9 +116,12 @@ _db_bin() {
 DB_CLIENT=$(_db_bin mariadb mysql)
 DB_DUMP=$(_db_bin mariadb-dump mysqldump)
 DB_ADMIN=$(_db_bin mariadb-admin mysqladmin)
-mysql() { "$DB_CLIENT" "$@"; }
-mysqldump() { "$DB_DUMP" "$@"; }
-mysqladmin() { "$DB_ADMIN" "$@"; }
+# MariaDB 11.4+/12 clients default --ssl=on. Internal and many operator
+# MariaDB servers have no TLS, which fails with "SSL is required, but the
+# server does not support it". Skip SSL on these in-cluster jobs.
+mysql() { "$DB_CLIENT" --skip-ssl "$@"; }
+mysqldump() { "$DB_DUMP" --skip-ssl "$@"; }
+mysqladmin() { "$DB_ADMIN" --skip-ssl "$@"; }
 {{- end }}
 
 {{/*
