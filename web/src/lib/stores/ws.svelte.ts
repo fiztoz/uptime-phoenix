@@ -585,16 +585,16 @@ function createWsStore() {
     status = "connecting";
     lastError = null;
 
-    // REST list does not wait on latest heartbeats. Give it a head start so
-    // the dashboard can paint while the hub is still building monitor.list.
-    // Cap the wait so a hung GET cannot delay live events forever.
-    void (async () => {
-      await Promise.race([
-        hydrateMonitorsFromRest(),
-        new Promise<void>((resolve) => setTimeout(resolve, 2000)),
-      ]);
-      openSocket(wsUrl, generation);
-    })();
+    // WS and REST now race in parallel. The old flow serialized the socket
+    // behind a 2s REST race: when GET /api/monitors was slow, the hub's
+    // monitor.list did not even begin connecting for seconds, so first paint
+    // and live heartbeats were both delayed by the slowest of the two paths.
+    // applyMonitorSnapshot's precedence (cache < rest < ws) keeps whichever
+    // arrives first and lets the authoritative WS frame overwrite the REST
+    // rows when it lands; hydrateMonitorsFromRest also aborts itself once a
+    // WS snapshot has won.
+    void hydrateMonitorsFromRest();
+    openSocket(wsUrl, generation);
   }
 
   function disconnect(): void {

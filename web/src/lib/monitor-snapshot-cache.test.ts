@@ -60,6 +60,29 @@ describe("monitor snapshot cache", () => {
     expect(storage.data[MONITOR_SNAPSHOT_CACHE_KEY]).toBeUndefined();
   });
 
+  test("drops a snapshot older than the TTL", () => {
+    const stale = {
+      token: tokenFingerprint("jwt"),
+      savedAt: Date.now() - 25 * 60 * 60 * 1000,
+      monitors: [{ id: 1 }],
+    };
+    const storage = memoryStorage({
+      [MONITOR_SNAPSHOT_CACHE_KEY]: JSON.stringify(stale),
+    });
+    expect(readMonitorSnapshotCache("jwt", storage)).toBeNull();
+  });
+
+  test("drops a legacy payload without a savedAt stamp", () => {
+    const legacy = {
+      token: tokenFingerprint("jwt"),
+      monitors: [{ id: 1 }],
+    };
+    const storage = memoryStorage({
+      [MONITOR_SNAPSHOT_CACHE_KEY]: JSON.stringify(legacy),
+    });
+    expect(readMonitorSnapshotCache("jwt", storage)).toBeNull();
+  });
+
   test("fingerprint is the trailing slice", () => {
     expect(tokenFingerprint("abcdefghijklmnopqrstuvwxyz")).toBe(
       "klmnopqrstuvwxyz",

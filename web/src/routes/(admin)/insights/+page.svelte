@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import {
     BarChart3,
     Clock3,
@@ -13,6 +13,8 @@
   import Skeleton from "$lib/components/Skeleton.svelte";
   import SortIndicator from "$lib/components/SortIndicator.svelte";
   import { insightsApi, type InsightsMetric, type InsightsPeriod, type InsightsRow } from "$lib/api/insights";
+  import { readInsightsCache, writeInsightsCache } from "$lib/insights-cache";
+  import { tokenFingerprint } from "$lib/monitor-snapshot-cache";
   import { monitorGroupsApi, type MonitorGroupView } from "$lib/api/monitorGroups";
   import { MONITOR_TYPE_GROUPS, monitorTypeConfig } from "$lib/monitor-types";
   import * as m from "$lib/paraglide/messages.js";
@@ -53,6 +55,8 @@
   let sortKey = $state<SortKey>("availability_percent");
   let sortDirection = $state<SortDirection>("asc");
   let requestSerial = 0;
+  /** True while a background refresh runs against already-painted rows. */
+  let refreshing = $state(false);
 
   const groupNames = $derived(new Map(groups.map((group) => [group.id, group.name])));
   const visibleRows = $derived(
@@ -89,29 +93,63 @@
   });
 
   $effect(() => {
+    // Refetch only when the data WINDOW changes. `metric` merely controls the
+    // server-side ordering — every row always carries every metric and the
+    // client re-sorts locally (compareRows) — so switching metric tabs must
+    // not blank the table into skeletons with a pointless round trip.
+    const periodValue = period;
+    const typeValue = selectedType;
+    const groupValue = selectedGroup;
     const currentSerial = ++requestSerial;
-    const groupId = selectedGroup ? Number(selectedGroup) : undefined;
-    void loadInsights(currentSerial, groupId);
+    void loadInsights(currentSerial, periodValue, typeValue, groupValue ? Number(groupValue) : undefined);
   });
 
-  async function loadInsights(serial: number, groupId: number | undefined) {
-    loading = true;
+  async function loadInsights(
+    serial: number,
+    periodValue: InsightsPeriod,
+    typeValue: string,
+    groupId: number | undefined,
+  ) {
     loadError = null;
+    // Stale-while-revalidate: paint the last known rows instantly and refresh
+    // in the background. Skeletons only on a true cache miss.
+    const stored =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem("phoenix_jwt")
+        : null;
+    const owner = stored ? tokenFingerprint(stored) : null;
+    const cached = readInsightsCache(owner, periodValue, typeValue, groupId);
+    if (cached) {
+      rows = cached;
+      loading = false;
+      refreshing = true;
+    } else {
+      loading = true;
+      refreshing = false;
+    }
     try {
       const response = await insightsApi.list({
-        period,
-        metric,
-        type: selectedType || undefined,
+        period: periodValue,
+        metric: untrack(() => metric),
+        type: typeValue || undefined,
         group_id: groupId,
       });
       if (serial !== requestSerial) return;
       rows = response.rows;
+      writeInsightsCache(owner, periodValue, typeValue, groupId, response.rows);
     } catch (error: unknown) {
       if (serial !== requestSerial) return;
+      if (cached) {
+        // Stale rows beat an error screen; the refresh button retries.
+        return;
+      }
       loadError = error instanceof Error ? error.message : m.insights_load_failed();
       rows = [];
     } finally {
-      if (serial === requestSerial) loading = false;
+      if (serial === requestSerial) {
+        loading = false;
+        refreshing = false;
+      }
     }
   }
 
@@ -232,10 +270,10 @@
     </div>
     <button
       type="button"
-      onclick={() => loadInsights(++requestSerial, selectedGroup ? Number(selectedGroup) : undefined)}
+      onclick={() => loadInsights(++requestSerial, period, selectedType, selectedGroup ? Number(selectedGroup) : undefined)}
       class="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <RefreshCw class="h-4 w-4" />
+      <RefreshCw class="h-4 w-4 {refreshing ? 'animate-spin' : ''}" />
       {m.insights_refresh()}
     </button>
   </div>

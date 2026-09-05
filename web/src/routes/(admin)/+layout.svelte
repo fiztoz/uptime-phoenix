@@ -47,13 +47,21 @@
 	let failedExtensionIcons = $state<Record<string, true>>({});
 
 	onMount(async () => {
+		// Start the realtime pipeline in PARALLEL with /api/auth/me instead of
+		// after it: the JWT is already in localStorage and the monitor snapshot
+		// (what the dashboard/monitors skeletons wait on) should not sit behind
+		// an auth round trip. connect() is a no-op without a token, and a dead
+		// token closes the socket with 4001–4003 → the store clears auth and
+		// redirects to /login, the same outcome as the authChecked gate below.
+		if (localStorage.getItem('phoenix_jwt')) {
+			realtime.connect();
+		}
 		await auth.loadUser();
 		authChecked = true;
 		if (!auth.isAuthenticated) {
 			goto('/login', { replaceState: true });
 			return;
 		}
-		realtime.connect();
 		healthApi
 			.live()
 			.then((live) => {
