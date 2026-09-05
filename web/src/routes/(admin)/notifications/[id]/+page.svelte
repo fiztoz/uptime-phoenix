@@ -253,16 +253,18 @@
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onclick={handleTest}
-          disabled={testing || !notification.active || !canManage}
-          class={ghostBtn}
-          title={m.notifications_page_send_test()}
-        >
-          <Send class="h-4 w-4" />
-          {testing ? m.notifications_page_sending() : m.btn_test()}
-        </button>
+        {#if canManage}
+          <button
+            type="button"
+            onclick={handleTest}
+            disabled={testing || !notification.active}
+            class={ghostBtn}
+            title={m.notifications_page_send_test()}
+          >
+            <Send class="h-4 w-4" />
+            {testing ? m.notifications_page_sending() : m.btn_test()}
+          </button>
+        {/if}
         {#if canManage}
           <button
             type="button"

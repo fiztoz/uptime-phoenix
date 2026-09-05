@@ -39,6 +39,12 @@
 	} from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import { confirmAction } from '$lib/stores/confirm.svelte';
+	import { auth } from '$lib/stores/auth.svelte.js';
+	import {
+		canCreateGroups as userCanCreateGroups,
+		canCreateMonitors as userCanCreateMonitors,
+		canEditMonitor as userCanEditMonitor,
+	} from '$lib/permissions';
 	import MultiSelect from '$lib/components/MultiSelect.svelte';
 	import { monitorTypes as MONITOR_TYPES } from '$lib/monitor-types';
 	import * as m from '$lib/paraglide/messages.js';
@@ -455,6 +461,14 @@
 	}
 
 	let upCount = $derived(realtime.monitors.filter((mo) => mo.status === 'up').length);
+
+	// Create buttons mirror the router's RequireCapability gates: without the
+	// capability the server 403s the save, so the button is hidden, not disabled.
+	// Per-monitor edit/delete is ownership (`is_admin || user_id === me.id`) —
+	// see $lib/permissions — evaluated per row in the template, since the
+	// answer differs for every monitor on screen.
+	const canCreateMonitor = $derived(userCanCreateMonitors(auth.user));
+	const canCreateGroup = $derived(userCanCreateGroups(auth.user));
 </script>
 
 <svelte:head>
@@ -489,20 +503,24 @@
 			</p>
 		</div>
 		<div class="flex items-center gap-2">
-			<button
-				onclick={openCreateGroup}
-				class="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-			>
-				<FolderPlus class="h-4 w-4" />
-				{m.monitors_page_new_group()}
-			</button>
-			<button
-				onclick={openCreate}
-				class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-			>
-				<Plus class="h-4 w-4" />
-				{m.monitors_page_add_monitor()}
-			</button>
+			{#if canCreateGroup}
+				<button
+					onclick={openCreateGroup}
+					class="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+				>
+					<FolderPlus class="h-4 w-4" />
+					{m.monitors_page_new_group()}
+				</button>
+			{/if}
+			{#if canCreateMonitor}
+				<button
+					onclick={openCreate}
+					class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+				>
+					<Plus class="h-4 w-4" />
+					{m.monitors_page_add_monitor()}
+				</button>
+			{/if}
 		</div>
 	</div>
 
@@ -665,12 +683,14 @@
 							<a href={`/monitors/${row.monitor.id}`} class="rounded border px-2 py-1 text-xs hover:bg-accent flex items-center gap-1">
 								<Activity class="h-3.5 w-3.5" /> {m.monitors_page_view()}
 							</a>
-							<button onclick={() => openEdit(row.monitor)} class="rounded border px-2 py-1 text-xs hover:bg-accent flex items-center gap-1">
-								<Edit2 class="h-3.5 w-3.5" /> {m.btn_edit()}
-							</button>
-							<button onclick={() => handleDelete(row.monitor.id, row.monitor.name)} class="rounded border border-destructive/30 px-2 py-1 text-xs text-destructive hover:bg-destructive/10 flex items-center gap-1">
-								<Trash2 class="h-3.5 w-3.5" /> {m.btn_delete()}
-							</button>
+							{#if userCanEditMonitor(auth.user, row.monitor)}
+								<button onclick={() => openEdit(row.monitor)} class="rounded border px-2 py-1 text-xs hover:bg-accent flex items-center gap-1">
+									<Edit2 class="h-3.5 w-3.5" /> {m.btn_edit()}
+								</button>
+								<button onclick={() => handleDelete(row.monitor.id, row.monitor.name)} class="rounded border border-destructive/30 px-2 py-1 text-xs text-destructive hover:bg-destructive/10 flex items-center gap-1">
+									<Trash2 class="h-3.5 w-3.5" /> {m.btn_delete()}
+								</button>
+							{/if}
 						</div>
 					</div>
 				{/if}
@@ -776,12 +796,14 @@
 										<a href={`/monitors/${row.monitor.id}`} class="rounded p-1.5 hover:bg-accent" title={m.monitors_page_view_details()}>
 											<Activity class="h-4 w-4" />
 										</a>
-										<button onclick={() => openEdit(row.monitor)} class="rounded p-1.5 hover:bg-accent" title={m.btn_edit()}>
-											<Edit2 class="h-4 w-4" />
-										</button>
-										<button onclick={() => handleDelete(row.monitor.id, row.monitor.name)} class="rounded p-1.5 text-danger hover:bg-accent" title={m.btn_delete()}>
-											<Trash2 class="h-4 w-4" />
-										</button>
+										{#if userCanEditMonitor(auth.user, row.monitor)}
+											<button onclick={() => openEdit(row.monitor)} class="rounded p-1.5 hover:bg-accent" title={m.btn_edit()}>
+												<Edit2 class="h-4 w-4" />
+											</button>
+											<button onclick={() => handleDelete(row.monitor.id, row.monitor.name)} class="rounded p-1.5 text-danger hover:bg-accent" title={m.btn_delete()}>
+												<Trash2 class="h-4 w-4" />
+											</button>
+										{/if}
 									</div>
 								</td>
 							</tr>

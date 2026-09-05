@@ -33,9 +33,14 @@ type MonitorTagView struct {
 // Tags is ALWAYS a non-nil slice (marshals as [], never null) — matching the REST
 // shape, so the dashboard's tag filter never has to null-check.
 type MonitorView struct {
-	ID    int64  `json:"id"`
-	Name  string `json:"name"`
-	Owner string `json:"owner"`
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	// UserID is the monitor's creator (ownership). The frontend gates its
+	// per-monitor edit/delete buttons on `is_admin || user_id == me.id`,
+	// mirroring AccessService.CanEditMonitor. Already exposed on the REST
+	// MonitorView; carried here so WS-fed rows can gate without a REST fetch.
+	UserID int64  `json:"user_id"`
+	Owner  string `json:"owner"`
 	// InheritGroupOwner / EffectiveOwner mirror REST; EffectiveOwner is best-effort
 	// on the wire (equals Owner unless the hub resolved groups).
 	InheritGroupOwner bool           `json:"inherit_group_owner"`
@@ -293,6 +298,7 @@ func toMonitorView(m *domain.Monitor, status string) MonitorView {
 	return MonitorView{
 		ID:                m.ID,
 		Name:              m.Name,
+		UserID:            m.UserID,
 		Owner:             m.Owner,
 		InheritGroupOwner: m.InheritGroupOwner,
 		EffectiveOwner:    m.Owner, // hub may overwrite when groups are available
@@ -323,6 +329,10 @@ func monitorMapToView(m map[string]any, status string) MonitorView {
 	v.ID = extractInt64(m, "id")
 	if v.ID == 0 {
 		v.ID = extractInt64(m, "ID")
+	}
+	v.UserID = extractInt64(m, "user_id")
+	if v.UserID == 0 {
+		v.UserID = extractInt64(m, "UserID")
 	}
 	v.Name = mapStr(m, "name", "Name")
 	v.Owner = mapStr(m, "owner", "Owner")

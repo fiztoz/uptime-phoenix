@@ -35,6 +35,14 @@ export type WsStatus =
 export interface Monitor {
   id: number;
   name: string;
+  /**
+   * Creator's user id (ownership). Mirrors REST MonitorView.user_id and the
+   * WS wire user_id (internal/adapters/ws/wire.go). The frontend gates
+   * per-monitor edit/delete on `is_admin || user_id === me.id` — see
+   * $lib/permissions canEditMonitor, mirroring AccessService.CanEditMonitor.
+   * Absent on snapshots cached before this field existed: gate fails closed.
+   */
+  user_id?: number;
   /** Informational service/team contact; unrelated to the creating user. */
   owner?: string;
   inherit_group_owner?: boolean;

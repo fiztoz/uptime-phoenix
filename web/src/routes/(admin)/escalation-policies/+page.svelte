@@ -95,14 +95,15 @@
 			<h1 class="text-2xl font-semibold tracking-tight">{m.escalation_title()}</h1>
 			<p class="mt-1 text-sm text-muted-foreground">{m.escalation_subtitle()}</p>
 		</div>
-		<button
-			onclick={handleCreate}
-			disabled={!canManage}
-			class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-		>
-			<Plus class="h-4 w-4" />
-			{m.escalation_create()}
-		</button>
+		{#if canManage}
+			<button
+				onclick={handleCreate}
+				class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+			>
+				<Plus class="h-4 w-4" />
+				{m.escalation_create()}
+			</button>
+		{/if}
 	</div>
 
 	{#if loading}

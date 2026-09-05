@@ -199,14 +199,15 @@
           {m.notification_template_new()}
         </button>
       {/if}
-      <button
-        onclick={handleCreate}
-        disabled={!canManage}
-        class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-      >
-        <Plus class="h-4 w-4" />
-        {m.notifications_create()}
-      </button>
+      {#if canManage}
+        <button
+          onclick={handleCreate}
+          class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Plus class="h-4 w-4" />
+          {m.notifications_create()}
+        </button>
+      {/if}
     </div>
   </div>
 
@@ -420,17 +421,19 @@
             <div
               class="mt-4 flex items-center gap-2 border-t border-border pt-3"
             >
-              <button
-                onclick={() => handleTest(n)}
-                disabled={testingId === n.id || !n.active || !canManage}
-                class="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:hover:bg-transparent"
-                title={m.notifications_page_send_test()}
-              >
-                <Send class="h-3 w-3" />
-                {testingId === n.id
-                  ? m.notifications_page_sending()
-                  : m.btn_test()}
-              </button>
+              {#if canManage}
+                <button
+                  onclick={() => handleTest(n)}
+                  disabled={testingId === n.id || !n.active}
+                  class="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:hover:bg-transparent"
+                  title={m.notifications_page_send_test()}
+                >
+                  <Send class="h-3 w-3" />
+                  {testingId === n.id
+                    ? m.notifications_page_sending()
+                    : m.btn_test()}
+                </button>
+              {/if}
               {#if canManage}
                 <button
                   onclick={() => handleEdit(n)}

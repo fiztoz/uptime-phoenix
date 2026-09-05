@@ -52,6 +52,13 @@
   import { untrack } from "svelte";
   import * as m from "$lib/paraglide/messages.js";
   import Select from "$lib/components/Select.svelte";
+  import { auth } from "$lib/stores/auth.svelte.ts";
+  import {
+    canCreateMonitors as userCanCreateMonitors,
+    canEditMonitor as userCanEditMonitor,
+    canManageNotifications as userCanManageNotifications,
+    isAdmin as userIsAdmin,
+  } from "$lib/permissions";
 
   let monitorId = $derived(Number($page.params.id));
   let fetchedMonitor = $state<Monitor | null>(null);
@@ -498,6 +505,17 @@
     monitor?.status === "paused" || monitor?.active === false,
   );
 
+  // Mutation buttons mirror the server gates (see $lib/permissions). Without
+  // the permission the API answers 403, so the button is hidden, not disabled.
+  // Ownership comes from the REST fetch (fetchedMonitor.user_id); the WS row
+  // carries it too, used as fallback before the fetch lands.
+  const canEdit = $derived(
+    userCanEditMonitor(auth.user, fetchedMonitor ?? monitor),
+  );
+  const canClone = $derived(userCanCreateMonitors(auth.user));
+  const canManageNotif = $derived(userCanManageNotifications(auth.user));
+  const isAdminUser = $derived(userIsAdmin(auth.user));
+
   async function togglePause() {
     if (!monitor) return;
     actionLoading = true;
@@ -784,49 +802,55 @@
         <div data-testid="monitor-status-pill">
           <StatusPill status={monitor.status} />
         </div>
-        <button
-          type="button"
-          data-testid="monitor-toolbar-pause"
-          onclick={togglePause}
-          disabled={actionLoading}
-          class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm transition-colors hover:bg-accent disabled:opacity-50"
-          title={isPaused
-            ? m.monitor_detail_page_resume()
-            : m.monitor_detail_page_pause()}
-        >
-          {#if isPaused}<Play class="h-4 w-4" />{:else}<Pause
-              class="h-4 w-4"
-            />{/if}
-          {isPaused
-            ? m.monitor_detail_page_resume()
-            : m.monitor_detail_page_pause()}
-        </button>
-        <button
-          type="button"
-          onclick={() => (showEditForm = true)}
-          class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm transition-colors hover:bg-accent"
-        >
-          <Pencil class="h-4 w-4" />
-          {m.btn_edit()}
-        </button>
-        <button
-          type="button"
-          onclick={handleClone}
-          disabled={actionLoading}
-          class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm transition-colors hover:bg-accent disabled:opacity-50"
-        >
-          <Copy class="h-4 w-4" />
-          {m.monitor_detail_page_clone()}
-        </button>
-        <button
-          type="button"
-          onclick={handleDelete}
-          disabled={actionLoading}
-          class="inline-flex items-center gap-1.5 rounded-lg border border-danger/30 px-3 py-1.5 text-sm text-danger transition-colors hover:bg-danger/10 disabled:opacity-50"
-        >
-          <Trash2 class="h-4 w-4" />
-          {m.btn_delete()}
-        </button>
+        {#if canEdit}
+          <button
+            type="button"
+            data-testid="monitor-toolbar-pause"
+            onclick={togglePause}
+            disabled={actionLoading}
+            class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm transition-colors hover:bg-accent disabled:opacity-50"
+            title={isPaused
+              ? m.monitor_detail_page_resume()
+              : m.monitor_detail_page_pause()}
+          >
+            {#if isPaused}<Play class="h-4 w-4" />{:else}<Pause
+                class="h-4 w-4"
+              />{/if}
+            {isPaused
+              ? m.monitor_detail_page_resume()
+              : m.monitor_detail_page_pause()}
+          </button>
+          <button
+            type="button"
+            onclick={() => (showEditForm = true)}
+            class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm transition-colors hover:bg-accent"
+          >
+            <Pencil class="h-4 w-4" />
+            {m.btn_edit()}
+          </button>
+        {/if}
+        {#if canClone}
+          <button
+            type="button"
+            onclick={handleClone}
+            disabled={actionLoading}
+            class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm transition-colors hover:bg-accent disabled:opacity-50"
+          >
+            <Copy class="h-4 w-4" />
+            {m.monitor_detail_page_clone()}
+          </button>
+        {/if}
+        {#if canEdit}
+          <button
+            type="button"
+            onclick={handleDelete}
+            disabled={actionLoading}
+            class="inline-flex items-center gap-1.5 rounded-lg border border-danger/30 px-3 py-1.5 text-sm text-danger transition-colors hover:bg-danger/10 disabled:opacity-50"
+          >
+            <Trash2 class="h-4 w-4" />
+            {m.btn_delete()}
+          </button>
+        {/if}
       </div>
     </div>
 
@@ -878,10 +902,10 @@
       loading={chartLoading}
     />
 
-    <!-- Status history table -->
+    <!-- Status history table (clearing destroys data: admin-only, like the API) -->
     <StatusHistoryTable
       heartbeats={statusHistory}
-      onClear={handleClearHistory}
+      onClear={isAdminUser ? handleClearHistory : undefined}
       clearing={clearingHistory}
       monitorName={monitor?.name}
     />
@@ -929,35 +953,37 @@
             <TagIcon class="h-4 w-4 text-muted-foreground" />
             {m.monitor_detail_tags()}
           </h3>
-          <div class="flex flex-wrap gap-2">
-            <div class="flex-1 sm:w-auto">
-              <Select
-                options={[
-                  { value: "", label: m.monitor_detail_page_select_tag() },
-                  ...allTags
-                    .filter((t) => !assignedTags.some((a) => a.tag_id === t.id))
-                    .map((t) => ({ value: String(t.id), label: t.name })),
-                ]}
-                value={selectedTagToAdd}
-                ariaLabel={m.monitor_detail_page_select_tag()}
-                onValueChange={(v) => (selectedTagToAdd = v)}
-                class="w-full"
+          {#if isAdminUser}
+            <div class="flex flex-wrap gap-2">
+              <div class="flex-1 sm:w-auto">
+                <Select
+                  options={[
+                    { value: "", label: m.monitor_detail_page_select_tag() },
+                    ...allTags
+                      .filter((t) => !assignedTags.some((a) => a.tag_id === t.id))
+                      .map((t) => ({ value: String(t.id), label: t.name })),
+                  ]}
+                  value={selectedTagToAdd}
+                  ariaLabel={m.monitor_detail_page_select_tag()}
+                  onValueChange={(v) => (selectedTagToAdd = v)}
+                  class="w-full"
+                />
+              </div>
+              <input
+                type="text"
+                bind:value={tagValueInput}
+                placeholder={m.monitor_detail_page_optional_value()}
+                class="w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm placeholder:text-faint focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-ring sm:w-32"
               />
+              <button
+                type="button"
+                onclick={assignTag}
+                disabled={!selectedTagToAdd}
+                class="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                >{m.btn_assign()}</button
+              >
             </div>
-            <input
-              type="text"
-              bind:value={tagValueInput}
-              placeholder={m.monitor_detail_page_optional_value()}
-              class="w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm placeholder:text-faint focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-ring sm:w-32"
-            />
-            <button
-              type="button"
-              onclick={assignTag}
-              disabled={!selectedTagToAdd}
-              class="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-              >{m.btn_assign()}</button
-            >
-          </div>
+          {/if}
         </div>
         {#if assignedTags.length === 0}
           <p class="mt-4 text-sm text-muted-foreground">
@@ -977,13 +1003,15 @@
                 {#if mt.value}
                   <span class="opacity-80">= {mt.value}</span>
                 {/if}
-                <button
-                  type="button"
-                  class="opacity-70 transition-opacity hover:opacity-100"
-                  onclick={() => unassignTag(mt.tag_id)}
-                  aria-label={m.monitor_detail_page_remove_tag_confirm()}
-                  >×</button
-                >
+                {#if isAdminUser}
+                  <button
+                    type="button"
+                    class="opacity-70 transition-opacity hover:opacity-100"
+                    onclick={() => unassignTag(mt.tag_id)}
+                    aria-label={m.monitor_detail_page_remove_tag_confirm()}
+                    >×</button
+                  >
+                {/if}
               </span>
             {/each}
           </div>
@@ -1079,33 +1107,35 @@
           <Bell class="h-4 w-4 text-muted-foreground" />
           {m.monitor_detail_notifications()}
         </h3>
-        <div class="flex flex-wrap gap-2">
-          <div class="flex-1 sm:w-auto">
-            <Select
-              options={[
-                { value: "", label: m.monitor_detail_page_select_to_assign() },
-                ...allNotifications
-                  .filter(
-                    (n) => !assignedNotifications.some((a) => a.id === n.id),
-                  )
-                  .map((n) => ({
-                    value: String(n.id),
-                    label: `${n.name} (${n.type})`,
-                  })),
-              ]}
-              value={selectedNotifToAdd}
-              ariaLabel={m.monitor_detail_page_select_to_assign()}
-              onValueChange={(v) => (selectedNotifToAdd = v)}
-              class="w-full"
-            />
+        {#if canManageNotif}
+          <div class="flex flex-wrap gap-2">
+            <div class="flex-1 sm:w-auto">
+              <Select
+                options={[
+                  { value: "", label: m.monitor_detail_page_select_to_assign() },
+                  ...allNotifications
+                    .filter(
+                      (n) => !assignedNotifications.some((a) => a.id === n.id),
+                    )
+                    .map((n) => ({
+                      value: String(n.id),
+                      label: `${n.name} (${n.type})`,
+                    })),
+                ]}
+                value={selectedNotifToAdd}
+                ariaLabel={m.monitor_detail_page_select_to_assign()}
+                onValueChange={(v) => (selectedNotifToAdd = v)}
+                class="w-full"
+              />
+            </div>
+            <button
+              onclick={assignNotification}
+              disabled={!selectedNotifToAdd}
+              class="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              >{m.btn_assign()}</button
+            >
           </div>
-          <button
-            onclick={assignNotification}
-            disabled={!selectedNotifToAdd}
-            class="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-            >{m.btn_assign()}</button
-          >
-        </div>
+        {/if}
       </div>
 
       {#if assignedNotifications.length === 0}
@@ -1131,15 +1161,18 @@
                     type="checkbox"
                     checked={n.include_target}
                     onchange={() => toggleIncludeTarget(n)}
-                    class="h-4 w-4 rounded border-border accent-primary"
+                    disabled={!canManageNotif}
+                    class="h-4 w-4 rounded border-border accent-primary disabled:opacity-50"
                   />
                   {m.monitor_detail_include_target()}
                 </label>
-                <button
-                  onclick={() => unassignNotification(n.id)}
-                  class="text-xs text-danger transition-colors hover:text-danger/80"
-                  >{m.btn_remove()}</button
-                >
+                {#if canManageNotif}
+                  <button
+                    onclick={() => unassignNotification(n.id)}
+                    class="text-xs text-danger transition-colors hover:text-danger/80"
+                    >{m.btn_remove()}</button
+                  >
+                {/if}
               </div>
             </div>
           {/each}
