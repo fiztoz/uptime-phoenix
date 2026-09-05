@@ -584,7 +584,18 @@ func (h *Hub) sendMonitorList(ctx context.Context, client *Client) {
 	// Resolve every monitor's status in ONE batched lookup, the same way
 	// emitStatsUpdate does. A GetLatest per monitor per CONNECT would be
 	// O(monitors × clients) serialized queries.
-	statuses := h.latestStatuses(ctx, monitors)
+	//
+	// Only ACTIVE monitors are worth resolving: the wire view below short-
+	// circuits paused monitors to "paused" without consulting the map, so
+	// probing their (possibly years-old) latest heartbeat only adds UNION
+	// arms to the slowest query on this path.
+	activeMonitors := make([]*domain.Monitor, 0, len(monitors))
+	for _, m := range monitors {
+		if m.Active {
+			activeMonitors = append(activeMonitors, m)
+		}
+	}
+	statuses := h.latestStatuses(ctx, activeMonitors)
 
 	views := make([]MonitorView, len(monitors))
 	for i, m := range monitors {

@@ -310,6 +310,42 @@ func runRepositoryContract(t *testing.T, factory repositoryFactory) {
 		}
 	})
 
+	// The batch's first pass is bounded to a recent window so MariaDB can
+	// prune the time partitions. A monitor whose newest beat is OLDER than
+	// that window (paused long ago, deep maintenance window, scheduler stall)
+	// must still resolve through the unbounded second pass — the answer has
+	// to stay identical to GetLatest row-for-row.
+	t.Run("TestMariaDBRegression_HeartbeatBatchResolvesStaleMonitors", func(t *testing.T) {
+		repos := factory(t)
+		ctx := context.Background()
+		batch, ok := repos.heartbeats.(ports.HeartbeatBatchReader)
+		if !ok {
+			t.Fatalf("heartbeat repository %T does not implement ports.HeartbeatBatchReader", repos.heartbeats)
+		}
+		user := createUser(t, ctx, repos, "heartbeat-batch-stale-user")
+		stale := createMonitor(t, ctx, repos, user.ID, "Batch Stale")
+
+		staleTime := time.Now().UTC().Add(-72 * time.Hour).Truncate(time.Second)
+		if err := repos.heartbeats.Save(ctx, &domain.Heartbeat{MonitorID: stale.ID, Status: domain.StatusUp, Time: staleTime}); err != nil {
+			t.Fatalf("Save stale heartbeat: %v", err)
+		}
+
+		got, err := batch.GetLatestForMonitors(ctx, []int64{stale.ID})
+		if err != nil {
+			t.Fatalf("GetLatestForMonitors: %v", err)
+		}
+		want, err := repos.heartbeats.GetLatest(ctx, stale.ID)
+		if err != nil {
+			t.Fatalf("GetLatest: %v", err)
+		}
+		if got[stale.ID] == nil || got[stale.ID].ID != want.ID {
+			t.Fatalf("stale monitor latest = %v; want heartbeat %d resolved by the unbounded second pass", got[stale.ID], want.ID)
+		}
+		if got[stale.ID].Status != domain.StatusUp {
+			t.Fatalf("stale monitor status = %s; want UP", got[stale.ID].Status)
+		}
+	})
+
 	// Insights leading state: newest important heartbeat strictly before the
 	// window. LIMIT 1 per monitor must ignore later non-important beats, ignore
 	// important beats at/after the bound, and break a same-second tie by id

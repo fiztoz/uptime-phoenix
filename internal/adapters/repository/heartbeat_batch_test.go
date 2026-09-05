@@ -46,6 +46,36 @@ func TestLatestHeartbeatsUnionSQL(t *testing.T) {
 	}
 }
 
+func TestLatestRecentHeartbeatsUnionSQL(t *testing.T) {
+	t.Parallel()
+
+	if got := latestRecentHeartbeatsUnionSQL(0); got != "" {
+		t.Fatalf("n=0: got %q, want empty", got)
+	}
+
+	one := latestRecentHeartbeatsUnionSQL(1)
+	if !strings.Contains(one, "time >= ?") {
+		t.Fatalf("recent arm missing the partition-pruning time bound: %q", one)
+	}
+	if !strings.Contains(one, "ORDER BY time DESC, id DESC LIMIT 1") {
+		t.Fatalf("recent arm must keep GetLatest's tie-breaking order: %q", one)
+	}
+	if strings.Count(one, "?") != 2 {
+		t.Fatalf("n=1 placeholders = %d, want 2 (monitor_id, bound)", strings.Count(one, "?"))
+	}
+	if !strings.Contains(one, "AS latest_hb") {
+		t.Fatalf("n=1 missing derived-table alias (MariaDB requires it): %q", one)
+	}
+
+	two := latestRecentHeartbeatsUnionSQL(2)
+	if strings.Count(two, "UNION ALL") != 1 {
+		t.Fatalf("n=2 UNION ALL count = %d, want 1", strings.Count(two, "UNION ALL"))
+	}
+	if strings.Count(two, "?") != 4 {
+		t.Fatalf("n=2 placeholders = %d, want 4", strings.Count(two, "?"))
+	}
+}
+
 func TestLatestImportantBeforeUnionSQL(t *testing.T) {
 	t.Parallel()
 
