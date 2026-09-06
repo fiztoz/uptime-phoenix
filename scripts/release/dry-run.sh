@@ -11,6 +11,10 @@
 #   SKIP_DOCKER   Set to 1 to skip image builds (binaries + helm only)
 #   SKIP_SBOM     Set to 1 to skip Syft SBOM generation
 #   PLATFORMS     Override binary matrix (default: full matrix below)
+#   STAGES        Comma-separated subset of stages to run (default: all).
+#                 Valid: binaries, checksums, sbom, chart, images, inventory.
+#                 CI fans these out into parallel jobs; a bare local run leaves
+#                 STAGES unset and executes every stage in order (unchanged).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -21,6 +25,20 @@ if [[ -z "$VERSION" ]]; then
   echo "VERSION is required (e.g. VERSION=0.0.0-snapshot.1)" >&2
   exit 2
 fi
+
+# ── Stage selection ─────────────────────────────────────────────────────────
+# Default "all" preserves the single-shot local behavior. CI passes e.g.
+# STAGES=binaries,checksums,sbom for one job and STAGES=images for another,
+# then STAGES=inventory in an aggregation job after downloading the partials.
+STAGES="${STAGES:-all}"
+want_stage() {
+  local s="$1"
+  [[ "$STAGES" == "all" ]] && return 0
+  case ",${STAGES}," in
+    *",${s},"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 OUT_DIR="${OUT_DIR:-dist/release-${VERSION}}"
 BIN_DIR="${OUT_DIR}/binaries"
@@ -36,7 +54,8 @@ echo "==> Release dry-run VERSION=${VERSION}"
 echo "    output: ${OUT_DIR}"
 
 # ── Ensure web/dist exists for //go:embed and Docker USE_PREBUILT_WEB=1 ──────
-if [[ ! -f web/dist/index.html ]]; then
+# Only the stages that compile Go or build images need the embedded frontend.
+if { want_stage binaries || want_stage images; } && [[ ! -f web/dist/index.html ]]; then
   echo "==> web/dist missing — building frontend (or writing placeholder)"
   if command -v bun >/dev/null 2>&1 && [[ -f web/package.json ]]; then
     (cd web && bun install --frozen-lockfile && bun run build)
@@ -45,7 +64,7 @@ if [[ ! -f web/dist/index.html ]]; then
     printf '%s\n' '<!doctype html><title>phoenix</title>' > web/dist/index.html
     echo "    wrote placeholder web/dist/index.html (bun unavailable)"
   fi
-else
+elif want_stage binaries || want_stage images; then
   echo "==> web/dist present (host-built frontend for embed + Docker prebuilt)"
 fi
 
@@ -92,30 +111,44 @@ build_one() {
 }
 
 echo "==> Cross-compiling CGO-free binaries"
-for plat in "${MATRIX[@]}"; do
-  goos="${plat%/*}"
-  goarch="${plat#*/}"
-  build_one "$goos" "$goarch" ./cmd/app "uptime-phoenix"
-  build_one "$goos" "$goarch" ./cmd/kuma-import "uptime-phoenix-kuma-import"
-  build_one "$goos" "$goarch" ./cmd/phoenix-config "uptime-phoenix-config"
-  build_one "$goos" "$goarch" ./cmd/api "uptime-phoenix-api"
-  build_one "$goos" "$goarch" ./cmd/worker "uptime-phoenix-worker"
-done
+if want_stage binaries; then
+  for plat in "${MATRIX[@]}"; do
+    goos="${plat%/*}"
+    goarch="${plat#*/}"
+    build_one "$goos" "$goarch" ./cmd/app "uptime-phoenix"
+    build_one "$goos" "$goarch" ./cmd/kuma-import "uptime-phoenix-kuma-import"
+    build_one "$goos" "$goarch" ./cmd/phoenix-config "uptime-phoenix-config"
+    build_one "$goos" "$goarch" ./cmd/api "uptime-phoenix-api"
+    build_one "$goos" "$goarch" ./cmd/worker "uptime-phoenix-worker"
+  done
 
-echo "==> Checksums"
-(
-  cd "$BIN_DIR"
-  if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 ./* > SHA256SUMS 2>/dev/null || true
-  elif command -v sha256sum >/dev/null 2>&1; then
-    sha256sum ./* > SHA256SUMS 2>/dev/null || true
+  # Persist the failed-cross-compile list so a separate inventory stage/job
+  # (which does not share this shell's arrays) can still report it.
+  if [[ ${#failed_bins[@]} -eq 0 ]]; then
+    : > "${OUT_DIR}/failed-bins.txt"
   else
-    echo "no sha256 tool available" > SHA256SUMS
+    printf '%s\n' "${failed_bins[@]}" > "${OUT_DIR}/failed-bins.txt"
   fi
-)
+else
+  echo "    (skipped: 'binaries' not in STAGES=${STAGES})"
+fi
+
+if want_stage checksums; then
+  echo "==> Checksums"
+  (
+    cd "$BIN_DIR"
+    if command -v shasum >/dev/null 2>&1; then
+      shasum -a 256 ./* > SHA256SUMS 2>/dev/null || true
+    elif command -v sha256sum >/dev/null 2>&1; then
+      sha256sum ./* > SHA256SUMS 2>/dev/null || true
+    else
+      echo "no sha256 tool available" > SHA256SUMS
+    fi
+  )
+fi
 
 # ── SBOM for binaries ───────────────────────────────────────────────────────
-if [[ "${SKIP_SBOM:-0}" != "1" ]]; then
+if want_stage sbom && [[ "${SKIP_SBOM:-0}" != "1" ]]; then
   echo "==> SBOM (syft) for binaries"
   if command -v syft >/dev/null 2>&1; then
     for bin in "${built_bins[@]}"; do
@@ -129,6 +162,7 @@ if [[ "${SKIP_SBOM:-0}" != "1" ]]; then
 fi
 
 # ── Helm chart package ──────────────────────────────────────────────────────
+if want_stage chart; then
 echo "==> Helm chart package"
 # Stamp appVersion for this snapshot without permanently editing the chart in
 # git when run from a dirty tree: work on a copy.
@@ -155,9 +189,10 @@ if command -v helm >/dev/null 2>&1; then
 else
   echo "    helm not installed; skipped package/lint/template" >&2
 fi
+fi
 
 # ── Multi-arch images (load/export only — never push) ───────────────────────
-if [[ "${SKIP_DOCKER:-0}" != "1" ]]; then
+if want_stage images && [[ "${SKIP_DOCKER:-0}" != "1" ]]; then
   echo "==> Docker multi-arch builds (no push)"
   if ! command -v docker >/dev/null 2>&1; then
     echo "    docker not available; skip images" >&2
@@ -226,10 +261,11 @@ if [[ "${SKIP_DOCKER:-0}" != "1" ]]; then
     done
   fi
 else
-  echo "==> SKIP_DOCKER=1 — skipping image builds"
+  echo "==> SKIP_DOCKER=1 or images stage not selected — skipping image builds"
 fi
 
 # ── Inventory ───────────────────────────────────────────────────────────────
+if want_stage inventory; then
 {
   echo "# Phoenix release dry-run inventory"
   echo "version: ${VERSION}"
@@ -239,7 +275,13 @@ fi
   ls -la "$BIN_DIR" 2>/dev/null || true
   echo
   echo "## Failed cross-compiles"
-  if [[ ${#failed_bins[@]} -eq 0 ]]; then
+  if [[ -f "${OUT_DIR}/failed-bins.txt" ]]; then
+    if [[ -s "${OUT_DIR}/failed-bins.txt" ]]; then
+      cat "${OUT_DIR}/failed-bins.txt"
+    else
+      echo "(none)"
+    fi
+  elif [[ ${#failed_bins[@]} -eq 0 ]]; then
     echo "(none)"
   else
     printf '%s\n' "${failed_bins[@]}"
@@ -264,6 +306,7 @@ fi
     echo "BLOCKER: LICENSE file is missing — publishing remains forbidden."
   fi
 } | tee "${OUT_DIR}/INVENTORY.md"
+fi
 
 echo "==> Dry-run complete. Artifacts under ${OUT_DIR}"
 echo "    See docs/RELEASING.md for promotion blockers and no-publish rules."

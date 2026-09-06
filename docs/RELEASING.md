@@ -24,10 +24,11 @@ present at the repo root.
    Dispatch-publish lets you build only the artifacts you tick (default: chart +
    split images) so a patch release does not rebuild every image and binary.
 3. **Publish is bound to the tag commit.** On any publish path (tag-push or
-   dispatch `publish=true`), both the dry-run and publish jobs check out
-   `refs/tags/v<version>` and assert `HEAD == tag^{commit}` before any build or
-   push. Branch code cannot be published under a different tag, and a
-   dispatch-publish can never publish an arbitrary branch head.
+   dispatch `publish=true`), every dry-run leg and every publish job checks out
+   `refs/tags/v<version>` and asserts `HEAD == tag^{commit}` (via the
+   `./.github/actions/bind-release-ref` composite) before any build or push.
+   Branch code cannot be published under a different tag, and a dispatch-publish
+   can never publish an arbitrary branch head.
 4. **This workflow never creates git tags.** The owner creates and pushes tags by
    hand (`git tag` + `git push origin v…`).
 5. **Version strings are validated.** SemVer-compatible `X.Y.Z` or
@@ -75,31 +76,61 @@ second copy of the same script; local runs remain fully supported offline.
 
 Workflow file: [`.github/workflows/release.yml`](../.github/workflows/release.yml).
 
+### Job topology (both phases run in parallel)
+
+```
+prepare
+  ├── dry-run / binaries   (cross-compile + checksums + SBOM)   ┐
+  ├── dry-run / chart      (helm lint / package / template)     ├─ parallel
+  └── dry-run / images     (multi-arch buildx, no push)         ┘
+         ↓  (all legs must succeed)
+dry-run                    (aggregate INVENTORY, upload combined artifact)
+         ↓  (Environment "release" approval — one approval releases all)
+  ├── publish / all-in-one (multi-arch image + cosign)          ┐
+  ├── publish / split-*    (matrix api/worker/web + cosign)     ├─ parallel
+  └── publish / chart      (helm OCI push)                      ┘
+         ↓  (all selected publish jobs must succeed)
+create-release             (attach binaries/chart/INVENTORY to the tag)
+```
+
+`prepare` resolves the version + artifact-selection flags once; every downstream
+job reads its outputs. The dry-run legs slice `scripts/release/dry-run.sh` via the
+`STAGES` env (`binaries,checksums,sbom` / `chart` / `images` / `inventory`) — a
+bare local `./scripts/release/dry-run.sh` (no `STAGES`) still runs every stage in
+order. Each parallel job re-checks out and, on a publish run, rebinds to the tag
+commit via the `./.github/actions/bind-release-ref` composite action (the
+`HEAD == tag^{commit}` integrity gate, now enforced per job instead of once).
+
 ### Triggers
 
 | Trigger | Behaviour |
 |---|---|
 | `workflow_dispatch` (`publish=false`, default) | **Dry-run only.** Inputs: `version` (required), `skip_docker`. Never publishes. |
-| `workflow_dispatch` (`publish=true`) | **Selective publish** of the ticked artifacts (`build_chart`/`build_split` default on; `build_all_in_one`/`build_binaries` default off). Requires the `v<version>` tag to already exist + Environment approval. Bound to the tag commit. **Use workflow from** must be the tag itself (`vX.Y.Z`), not `main` — see below. |
+| `workflow_dispatch` (`publish=true`) | **Selective publish** of the ticked artifacts (all four — `build_chart`/`build_split`/`build_all_in_one`/`build_binaries` — default on; untick any you want to skip). Requires the `v<version>` tag to already exist + Environment approval. Bound to the tag commit. **Use workflow from** must be the tag itself (`vX.Y.Z`), not `main` — see below. |
 | `push` of tags matching `v*` | Dry-run bound to that tag commit, then **publish all artifacts** (after Environment approval). |
 
-### Dry-run job
+### Dry-run phase (parallel legs + aggregate)
 
-1. Checkout. On tag-push events, re-check out `refs/tags/v…` and assert
-   `HEAD == tag^{commit}`.
-2. Validate the version string (SemVer-compatible) via `env` (no raw injection).
-3. Setup Go / pinned Bun / Helm / Docker buildx + QEMU (unless `skip_docker`).
-4. Install Syft from a **versioned release with SHA-256 verification** (optional;
-   dry-run continues without SBOMs if install fails).
-5. Build `web/dist` for `//go:embed` and `USE_PREBUILT_WEB=1`.
-6. Run `VERSION=<version> ./scripts/release/dry-run.sh` (sets `SKIP_DOCKER=1` when
-   the dispatch input asks for it).
-7. Upload `dist/release-<version>/` as a workflow artifact (14-day retention).
-8. Fail if dry-run fails.
+Three parallel legs run after `prepare`, each read-only (`contents: read`):
 
-Dry-run permissions are read-only (`contents: read`, `packages: read`). Nothing is
-pushed. Privileged third-party Actions in this workflow are pinned to full commit
-SHAs (see comments next to each `uses:` line).
+- **binaries** — Setup Go + pinned Bun, install Syft (versioned + SHA-256; SBOM
+  optional), build `web/dist` for `//go:embed`, then `STAGES=binaries,checksums,sbom`.
+- **chart** — Setup Helm, then `STAGES=chart` (lint + package + template).
+- **images** — Setup Bun + QEMU + Buildx + Syft, then `STAGES=images` (multi-arch
+  buildx, **no push**, with per-arch binary-arch proofs). Skipped entirely when
+  `skip_docker=1` (chart/binaries-only dispatch runs).
+
+Each leg uploads its `dist/release-<version>/` slice as a partial artifact. The
+**aggregate `dry-run` job** then downloads all partials, runs `STAGES=inventory`
+to assemble `INVENTORY.md`, and uploads the combined `release-<version>` artifact
+(14-day retention) that the publish/create-release jobs consume. It runs only
+after every leg succeeds (a skipped `images` leg is tolerated).
+
+On tag-push (or any publish run) every leg rebinds to `refs/tags/v…` and asserts
+`HEAD == tag^{commit}` before building. The version string is validated
+(SemVer-compatible) via `env` in `prepare` (no raw injection). Privileged
+third-party Actions in this workflow are pinned to full commit SHAs (see comments
+next to each `uses:` line).
 
 ### How to trigger a dry-run only
 
@@ -110,7 +141,7 @@ SHAs (see comments next to each `uses:` line).
 
 ```bash
 gh workflow run release.yml -f version=0.0.0-snapshot.2
-# Faster (no Docker multi-arch):
+# Faster (no Docker multi-arch — skips the parallel images leg entirely):
 gh workflow run release.yml -f version=0.0.0-snapshot.2 -f skip_docker=true
 ```
 
@@ -122,57 +153,70 @@ Use this for patch releases where you do not want to rebuild every image and
 binary. The tag must already exist (create + push it by hand first).
 
 **GitHub UI:** Actions → **Release** → Run workflow → set `version`, tick
-`publish`, and tick only the artifacts you want (defaults: `build_chart` +
-`build_split` on; `build_all_in_one` + `build_binaries` off). Approve the
-`release` Environment when prompted.
+`publish`, and untick any artifacts you want to skip (defaults: all four —
+`build_chart` + `build_split` + `build_all_in_one` + `build_binaries` — on).
+Approve the `release` Environment when prompted.
 
 **CLI:**
 
 ```bash
 # Owner has already pushed the tag: git tag v0.3.7 && git push origin v0.3.7
-# Chart + split images only (the defaults):
+# Everything (the defaults — equivalent to a tag-push full release):
 gh workflow run release.yml -f version=0.3.7 -f publish=true
 
-# Everything (equivalent to a tag-push full release):
+# Chart + split images only (skip the all-in-one image and binaries):
 gh workflow run release.yml -f version=0.3.7 -f publish=true \
-  -f build_all_in_one=true -f build_binaries=true
+  -f build_all_in_one=false -f build_binaries=false
 
 # Chart only (e.g. a values/template-only fix):
-gh workflow run release.yml -f version=0.3.7 -f publish=true -f build_split=false
+gh workflow run release.yml -f version=0.3.7 -f publish=true \
+  -f build_split=false -f build_all_in_one=false -f build_binaries=false
 ```
 
-### Publish job (owner-gated)
+### Publish phase (owner-gated, parallel jobs)
 
-Runs only when:
+The publish phase fans out into independent jobs (`publish / all-in-one`,
+`publish / split-*` as an `api`/`worker`/`web` matrix, `publish / chart`), each
+gated by its artifact flag so an unticked artifact skips its whole job. They run
+only when:
 
 1. The resolved `publish` flag is `1` — a `v*` **tag push**, or a
    `workflow_dispatch` run with `publish=true`, **and**
-2. Dry-run succeeded, **and**
+2. The aggregate `dry-run` job succeeded, **and**
 3. The GitHub Environment **`release`** is approved (configure **required
-   reviewers** on that environment in Settings → Environments), **and**
-4. Checkout is forced to `refs/tags/v<version>` with
-   `HEAD == $(git rev-list -n1 v<version>)` (fails closed if the tag is missing
-   or does not match — this is what makes a dispatch-publish safe).
+   reviewers** on that environment in Settings → Environments). Every publish job
+   references the `release` environment, so a **single approval releases all of
+   them** at once, **and**
+4. Each publish job independently rebinds its checkout to `refs/tags/v<version>`
+   with `HEAD == $(git rev-list -n1 v<version>)` via the
+   `./.github/actions/bind-release-ref` composite (fails closed if the tag is
+   missing or does not match — this is what makes a dispatch-publish safe).
 
-Each publish step is gated by its artifact flag, so an unticked artifact skips its
-build, login, and sign steps entirely:
+What each parallel job does:
 
-1. Log in to GHCR with `GITHUB_TOKEN` (only when an image is selected).
-2. Multi-arch (`linux/amd64,linux/arm64`) buildx **push** from the **tag tree**:
-   - `ghcr.io/<owner>/uptime-phoenix:<version>` and `:latest` (all-in-one
-     `Dockerfile`) — only when `build_all_in_one` is ticked.
-   - `ghcr.io/<owner>/uptime-phoenix-{api,worker,web}:<version>` and `:latest`
-     (`Dockerfile.split`) — only when `build_split` is ticked.
-   - `<owner>` is `github.repository_owner` lowercased (chart defaults use
-     `ghcr.io/fiztoz/...`; forks publish under their own namespace).
-3. **Cosign keyless sign** each pushed image digest (Sigstore OIDC via
-   `id-token: write`). Normal `docker pull` is unchanged.
-4. `helm push` the chart package to `oci://ghcr.io/<owner>/charts` — only when
-   `build_chart` is ticked.
-5. Create/update a GitHub Release for tag `v<version>`, attaching the selected
-   artifacts (chart `.tgz` when `build_chart`; binaries + `SHA256SUMS` when
-   `build_binaries`) and always `INVENTORY.md`. Unselected artifact directories are
-   pruned before the release step, so their globs simply match nothing.
+1. `publish / all-in-one` — GHCR login, multi-arch (`linux/amd64,linux/arm64`)
+   buildx **push** of `ghcr.io/<owner>/uptime-phoenix:<version>` and `:latest`
+   (all-in-one `Dockerfile`), then cosign keyless sign. Runs only when
+   `build_all_in_one` is ticked.
+2. `publish / split-{api,worker,web}` — one matrix job per target, each a
+   multi-arch buildx **push** of `ghcr.io/<owner>/uptime-phoenix-<target>:<version>`
+   and `:latest` (`Dockerfile.split`), then cosign keyless sign. `fail-fast: false`
+   so one bad target does not cancel the siblings. Runs only when `build_split`
+   is ticked.
+3. `publish / chart` — `helm push` the chart package to
+   `oci://ghcr.io/<owner>/charts`, preferring the dry-run stamped `.tgz` from the
+   combined artifact (re-packages if absent). Runs only when `build_chart` is ticked.
+4. `create-release` (fan-in) — runs after every **selected** publish job
+   succeeds (skipped jobs are tolerated), rebinds to the tag, downloads the
+   combined `release-<version>` artifact, prunes unselected artifact directories,
+   and creates/updates the GitHub Release for tag `v<version>`, attaching the
+   chart `.tgz` (when `build_chart`), binaries + `SHA256SUMS` (when
+   `build_binaries`), and always `INVENTORY.md`.
+
+`<owner>` is `github.repository_owner` lowercased (chart defaults use
+`ghcr.io/fiztoz/...`; forks publish under their own namespace). Cosign keyless
+signing uses Sigstore OIDC via `id-token: write`; normal `docker pull` is
+unchanged.
 
 ### Optional: verify a published image (cosign)
 

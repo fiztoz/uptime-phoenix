@@ -1,0 +1,66 @@
+# Composite action: on a publish run, rebind the already-checked-out repo to the
+# release tag commit and assert HEAD == tag^{commit} before any build/push.
+#
+# Chicken-and-egg note: a local composite action is only available AFTER the
+# repository is checked out, so the calling job MUST run actions/checkout first
+# (with fetch-depth: 0). This action performs the tag rebinding only — never the
+# initial checkout.
+#
+# When publish != '1' (pure dry-run) it is a no-op and keeps the dispatched ref,
+# so binary/chart artifacts built in a dry-run reflect the branch head, while any
+# publish path (tag-push OR dispatch publish=true) is bound to the tagged commit.
+name: Bind checkout to release tag
+description: Rebind HEAD to the release tag commit on publish runs (integrity gate).
+
+inputs:
+  publish:
+    description: "1 to bind to the tag commit; anything else is a no-op."
+    required: true
+  tag_name:
+    description: "Release tag (e.g. v0.1.0). Required when publish == '1'."
+    required: false
+    default: ""
+  version_regex:
+    description: "SemVer-compatible validation regex for the version."
+    required: false
+    default: '^v?[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'
+
+runs:
+  using: composite
+  steps:
+    - name: Bind to release tag commit
+      shell: bash
+      env:
+        PUBLISH: ${{ inputs.publish }}
+        TAG_NAME: ${{ inputs.tag_name }}
+        VERSION_REGEX: ${{ inputs.version_regex }}
+      run: |
+        set -euo pipefail
+        if [ "${PUBLISH}" != "1" ]; then
+          echo "publish != 1 — keeping the dispatched ref (no tag rebind)."
+          exit 0
+        fi
+        if [ -z "${TAG_NAME}" ]; then
+          echo "ERROR: publish=1 but tag_name is empty." >&2
+          exit 2
+        fi
+        if ! printf '%s' "${TAG_NAME}" | grep -Eq "${VERSION_REGEX}"; then
+          echo "ERROR: tag '${TAG_NAME}' failed SemVer check." >&2
+          exit 2
+        fi
+        if ! git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
+          git fetch --force origin "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}"
+        fi
+        if ! git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
+          echo "ERROR: publish requires an existing git tag '${TAG_NAME}'." >&2
+          echo "Push the tag by hand first (this workflow never creates tags)." >&2
+          exit 1
+        fi
+        git checkout --force "refs/tags/${TAG_NAME}"
+        tag_commit="$(git rev-list -n1 "refs/tags/${TAG_NAME}")"
+        head_commit="$(git rev-parse HEAD)"
+        if [ "${tag_commit}" != "${head_commit}" ]; then
+          echo "ERROR: HEAD (${head_commit}) != tag ${TAG_NAME} (${tag_commit})" >&2
+          exit 1
+        fi
+        echo "Bound checkout to ${TAG_NAME} @ ${head_commit}"

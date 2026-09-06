@@ -1,30 +1,40 @@
 # Uptime Phoenix release — dry-run always, publish only from tag-push (bound to that tag).
 #
+# Topology (both phases fan out into parallel jobs):
+#
+#   prepare
+#     ├── dry_binaries   (cross-compile + checksums + SBOM)   ┐
+#     ├── dry_chart      (helm lint/package/template)         ├─ parallel
+#     └── dry_images     (multi-arch buildx, no push)         ┘
+#              ↓  (all three must succeed)
+#   dry_run  (aggregate: assemble INVENTORY, upload combined release-<version>)
+#              ↓  (Environment "release" approval on any publish job)
+#     ├── publish_aio    (multi-arch all-in-one image + cosign)   ┐
+#     ├── publish_split  (matrix api/worker/web + cosign)         ├─ parallel
+#     └── publish_chart  (helm OCI push)                          ┘
+#              ↓  (all selected publish jobs must succeed)
+#   create_release  (attach binaries/chart/INVENTORY to GitHub Release)
+#
 # Triggers:
 #   - workflow_dispatch: dry-run by default; may publish the SELECTED artifacts
 #     when publish=true AND the git tag v<version> already exists. This is the
-#     checkbox UI for fast patch releases (e.g. chart + split images only,
-#     skipping the all-in-one image and binaries you will never deploy).
+#     checkbox UI for fast patch releases (e.g. chart + split images only).
 #     "Use workflow from" MUST be the tag (v<version>), not main: the `release`
 #     environment only allows tags matching v*. GitHub evaluates that policy
 #     against github.ref (the dispatched ref), not the tag the job later checks
-#     out. Dispatch-from-main fails the publish job in ~1s with empty steps.
-#   - push of tags matching v*: dry-run then publish ALL artifacts for that tag
-#     (the full-release path, unchanged).
+#     out. Dispatch-from-main fails the publish jobs in ~1s with empty steps.
+#   - push of tags matching v*: dry-run then publish ALL artifacts for that tag.
 #
-# Integrity rules:
-#   - Publish (either trigger) checks out refs/tags/v<version> and asserts
-#     HEAD == tag^{commit} before any privileged build/push, so a
-#     dispatch-publish is bound to the tagged commit, never an arbitrary branch
-#     head. This workflow never creates tags — the maintainer pushes v<version>
-#     by hand first.
+# Integrity rules (unchanged — now enforced per parallel job via the
+# ./.github/actions/bind-release-ref composite):
+#   - Every publish job checks out refs/tags/v<version> and asserts
+#     HEAD == tag^{commit} before any privileged build/push.
 #   - Version strings are validated (SemVer-compatible) via env, never raw
 #     expression interpolation into shell.
 #   - External tools (syft) are installed from a versioned release with SHA-256
 #     verification — never curl|sh from main.
-#
-# Publish is further gated by the GitHub Environment named `release` — protect
-# it with required reviewers in the repo settings. Dry-run never pushes.
+#   - Publish is gated by the GitHub Environment named `release` — protect it
+#     with required reviewers. One approval releases every waiting publish job.
 #
 # Local equivalent (never publishes):
 #   VERSION=0.1.0 ./scripts/release/dry-run.sh
@@ -57,12 +67,12 @@ on:
         description: "All-in-one image: build/publish the single combined image"
         required: false
         type: boolean
-        default: false
+        default: true
       build_binaries:
         description: "Binaries: attach cross-compiled binaries to the GitHub Release"
         required: false
         type: boolean
-        default: false
+        default: true
       skip_docker:
         description: "Skip Docker image builds in dry-run (faster debug)"
         required: false
@@ -74,6 +84,11 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  # One release run per version/tag; a newer push for the same ref cancels the older.
+  group: release-${{ github.workflow }}-${{ github.event.inputs.version || github.ref }}
+  cancel-in-progress: false
 
 env:
   # Chart values default to ghcr.io/fiztoz/uptime-phoenix; publish uses the current
@@ -87,13 +102,13 @@ env:
   VERSION_REGEX: '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'
 
 jobs:
-  dry-run:
-    name: dry-run
+  # ── prepare ────────────────────────────────────────────────────────────────
+  # Cheap job: resolve version + artifact-selection flags once. No builds here,
+  # so the parallel dry-run jobs share one authoritative set of outputs.
+  prepare:
+    name: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: read
-      packages: read
+    timeout-minutes: 5
     outputs:
       version: ${{ steps.meta.outputs.version }}
       image_owner: ${{ steps.meta.outputs.image_owner }}
@@ -105,11 +120,6 @@ jobs:
       build_chart: ${{ steps.meta.outputs.build_chart }}
       build_binaries: ${{ steps.meta.outputs.build_binaries }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-
       - name: Resolve version / flags
         id: meta
         env:
@@ -156,7 +166,7 @@ jobs:
             build_binaries="$(to01 "${BUILD_BINARIES_INPUT}")"
             # Dry-run can skip local image builds when no image artifact is
             # selected (or when the debug toggle is set) — the real multi-arch
-            # push happens in the publish job.
+            # push happens in the publish jobs.
             if [ "${SKIP_DOCKER_INPUT}" = "true" ] || { [ "${build_aio}" = "0" ] && [ "${build_split}" = "0" ]; }; then
               skip_docker=1
             else
@@ -191,56 +201,35 @@ jobs:
             echo "build_binaries=${build_binaries}"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Bind checkout to release tag (publish only)
-        # Any publish path (tag-push OR dispatch publish=true) must build the
-        # exact tagged commit, so the artifacts attached to the release match
-        # the tag. Pure dry-run (publish=0) keeps the dispatched branch head.
-        if: steps.meta.outputs.publish == '1'
-        env:
-          TAG_NAME: ${{ steps.meta.outputs.tag_name }}
-        run: |
-          set -euo pipefail
-          if ! git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
-            git fetch --force origin "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}" || true
-          fi
-          if ! git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
-            echo "ERROR: publish requires an existing git tag '${TAG_NAME}'." >&2
-            echo "Push the tag by hand first (this workflow never creates tags)." >&2
-            exit 1
-          fi
-          git checkout --force "refs/tags/${TAG_NAME}"
-          tag_commit="$(git rev-list -n1 "refs/tags/${TAG_NAME}")"
-          head_commit="$(git rev-parse HEAD)"
-          if [ "${tag_commit}" != "${head_commit}" ]; then
-            echo "ERROR: HEAD (${head_commit}) does not match tag ${TAG_NAME} (${tag_commit})" >&2
-            exit 1
-          fi
-          echo "Bound dry-run to ${TAG_NAME} @ ${head_commit}"
-
+  # ── dry-run phase (parallel) ────────────────────────────────────────────────
+  dry_binaries:
+    name: dry-run / binaries
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Bind to release tag (publish only)
+        uses: ./.github/actions/bind-release-ref
+        with:
+          publish: ${{ needs.prepare.outputs.publish }}
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
         with:
           bun-version: ${{ env.BUN_VERSION }}
-
-      - name: Setup Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        with:
-          version: v3.16.4
-
-      - name: Set up QEMU
-        if: steps.meta.outputs.skip_docker != '1'
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
-
-      - name: Set up Docker Buildx
-        if: steps.meta.outputs.skip_docker != '1'
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
       - name: Install syft (versioned + checksum; optional SBOM)
         continue-on-error: true
         env:
@@ -253,146 +242,244 @@ jobs:
           echo "${SYFT_SHA256}  /tmp/syft.tgz" | sha256sum -c -
           tar -xzf /tmp/syft.tgz -C /usr/local/bin syft
           syft version
-
-      - name: Build frontend for embed + Docker prebuilt
+      - name: Build frontend for embed
         run: |
+          set -euo pipefail
           cd web
           bun install --frozen-lockfile
           bun run build
           test -f dist/index.html
-
-      - name: Release dry-run
+      - name: Cross-compile binaries + checksums + SBOM
         env:
-          VERSION: ${{ steps.meta.outputs.version }}
-          SKIP_DOCKER: ${{ steps.meta.outputs.skip_docker }}
+          VERSION: ${{ env.VERSION }}
+          STAGES: binaries,checksums,sbom
         run: |
           set -euo pipefail
-          echo "Running dry-run VERSION=${VERSION} SKIP_DOCKER=${SKIP_DOCKER}"
           ./scripts/release/dry-run.sh
-          test -f "dist/release-${VERSION}/INVENTORY.md"
-
-      - name: Upload dry-run artifacts
+          test -d "dist/release-${VERSION}/binaries"
+      - name: Upload binaries partial
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-${{ steps.meta.outputs.version }}
-          path: dist/release-${{ steps.meta.outputs.version }}/
+          name: dry-binaries-${{ env.VERSION }}
+          path: dist/release-${{ env.VERSION }}/
           retention-days: 14
           if-no-files-found: error
 
-  publish:
-    name: publish
-    # Publishes when publish==1: tag-push (full release) OR a dispatch run with
-    # publish=true and an existing v<version> tag (selective fast release).
-    # Environment "release" should require reviewers in repo settings.
-    needs: dry-run
-    if: needs.dry-run.outputs.publish == '1'
+  dry_chart:
+    name: dry-run / chart
+    needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    environment: release
+    timeout-minutes: 15
     permissions:
-      contents: write
-      packages: write
-      id-token: write
+      contents: read
     env:
-      VERSION: ${{ needs.dry-run.outputs.version }}
-      IMAGE_OWNER: ${{ needs.dry-run.outputs.image_owner }}
-      TAG_NAME: ${{ needs.dry-run.outputs.tag_name }}
-      BUILD_AIO: ${{ needs.dry-run.outputs.build_aio }}
-      BUILD_SPLIT: ${{ needs.dry-run.outputs.build_split }}
-      BUILD_CHART: ${{ needs.dry-run.outputs.build_chart }}
-      BUILD_BINARIES: ${{ needs.dry-run.outputs.build_binaries }}
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-
-      - name: Bind publish to existing git tag commit
-        env:
-          VERSION: ${{ env.VERSION }}
-          TAG_NAME: ${{ env.TAG_NAME }}
-          VERSION_REGEX: ${{ env.VERSION_REGEX }}
-        run: |
-          set -euo pipefail
-          if [ -z "${TAG_NAME}" ]; then
-            TAG_NAME="v${VERSION}"
-          fi
-          if ! printf '%s' "${VERSION}" | grep -Eq "${VERSION_REGEX}"; then
-            echo "ERROR: version '${VERSION}' failed SemVer check" >&2
-            exit 2
-          fi
-          # Ensure the tag object is present, then check out THAT commit only.
-          if ! git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
-            git fetch --force origin "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}"
-          fi
-          if ! git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
-            echo "ERROR: publish requires an existing git tag '${TAG_NAME}'." >&2
-            echo "Create and push the tag by hand (this workflow never creates tags)." >&2
-            exit 1
-          fi
-          git checkout --force "refs/tags/${TAG_NAME}"
-          tag_commit="$(git rev-list -n1 "refs/tags/${TAG_NAME}")"
-          head_commit="$(git rev-parse HEAD)"
-          if [ "${tag_commit}" != "${head_commit}" ]; then
-            echo "ERROR: HEAD (${head_commit}) does not match tag ${TAG_NAME} (${tag_commit})" >&2
-            exit 1
-          fi
-          echo "Publishing ${TAG_NAME} @ ${head_commit}"
-
-      - name: Download dry-run artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - name: Bind to release tag (publish only)
+        uses: ./.github/actions/bind-release-ref
         with:
-          name: release-${{ env.VERSION }}
-          path: dist/release-${{ env.VERSION }}
-
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-
+          publish: ${{ needs.prepare.outputs.publish }}
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
       - name: Setup Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.16.4
+      - name: Package Helm chart
+        env:
+          VERSION: ${{ env.VERSION }}
+          STAGES: chart
+        run: |
+          set -euo pipefail
+          ./scripts/release/dry-run.sh
+          ls -1 "dist/release-${VERSION}/charts"/uptime-phoenix-*.tgz >/dev/null
+      - name: Upload chart partial
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dry-chart-${{ env.VERSION }}
+          path: dist/release-${{ env.VERSION }}/
+          retention-days: 14
+          if-no-files-found: error
 
+  dry_images:
+    name: dry-run / images
+    needs: prepare
+    # Image builds are the slow leg; skip entirely when no image artifact is
+    # selected (dispatch chart/binaries-only run sets skip_docker=1).
+    if: needs.prepare.outputs.skip_docker != '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Bind to release tag (publish only)
+        uses: ./.github/actions/bind-release-ref
+        with:
+          publish: ${{ needs.prepare.outputs.publish }}
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
       - name: Set up QEMU
-        if: env.BUILD_AIO == '1' || env.BUILD_SPLIT == '1'
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
-
       - name: Set up Docker Buildx
-        if: env.BUILD_AIO == '1' || env.BUILD_SPLIT == '1'
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Install syft (versioned + checksum; optional SBOM)
+        continue-on-error: true
+        env:
+          SYFT_VERSION: ${{ env.SYFT_VERSION }}
+          SYFT_SHA256: ${{ env.SYFT_SHA256 }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          curl -sSfL -o /tmp/syft.tgz "${url}"
+          echo "${SYFT_SHA256}  /tmp/syft.tgz" | sha256sum -c -
+          tar -xzf /tmp/syft.tgz -C /usr/local/bin syft
+          syft version
+      - name: Build frontend for Docker prebuilt
+        run: |
+          set -euo pipefail
+          cd web
+          bun install --frozen-lockfile
+          bun run build
+          test -f dist/index.html
+      - name: Docker multi-arch dry-run (no push)
+        env:
+          VERSION: ${{ env.VERSION }}
+          STAGES: images
+        run: |
+          set -euo pipefail
+          ./scripts/release/dry-run.sh
+      - name: Upload image proofs partial
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dry-images-${{ env.VERSION }}
+          path: dist/release-${{ env.VERSION }}/
+          retention-days: 14
+          if-no-files-found: warn
 
-      - name: Log in to GHCR (docker)
-        if: env.BUILD_AIO == '1' || env.BUILD_SPLIT == '1'
+  # ── dry-run aggregate / gate ────────────────────────────────────────────────
+  # Runs only after every dry-run leg succeeds. Merges the partials, produces the
+  # authoritative INVENTORY.md, and re-uploads the combined release-<version>
+  # artifact that the publish/create-release jobs consume.
+  dry_run:
+    name: dry-run
+    needs: [prepare, dry_binaries, dry_chart, dry_images]
+    # dry_images is skipped on chart/binaries-only runs — tolerate that, fail on
+    # any real failure of the legs.
+    if: |
+      always() &&
+      needs.dry_binaries.result == 'success' &&
+      needs.dry_chart.result == 'success' &&
+      (needs.dry_images.result == 'success' || needs.dry_images.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ needs.prepare.outputs.version }}
+      image_owner: ${{ needs.prepare.outputs.image_owner }}
+      tag_name: ${{ needs.prepare.outputs.tag_name }}
+      publish: ${{ needs.prepare.outputs.publish }}
+      build_aio: ${{ needs.prepare.outputs.build_aio }}
+      build_split: ${{ needs.prepare.outputs.build_split }}
+      build_chart: ${{ needs.prepare.outputs.build_chart }}
+      build_binaries: ${{ needs.prepare.outputs.build_binaries }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout (for dry-run.sh inventory stage)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download binaries partial
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dry-binaries-${{ env.VERSION }}
+          path: dist/release-${{ env.VERSION }}
+      - name: Download chart partial
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dry-chart-${{ env.VERSION }}
+          path: dist/release-${{ env.VERSION }}
+      - name: Download image proofs partial
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: dry-images-${{ env.VERSION }}
+          path: dist/release-${{ env.VERSION }}
+      - name: Assemble INVENTORY.md
+        env:
+          VERSION: ${{ env.VERSION }}
+          STAGES: inventory
+        run: |
+          set -euo pipefail
+          ./scripts/release/dry-run.sh
+          test -f "dist/release-${VERSION}/INVENTORY.md"
+      - name: Upload combined dry-run artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ env.VERSION }}
+          path: dist/release-${{ env.VERSION }}/
+          retention-days: 14
+          if-no-files-found: error
+
+  # ── publish phase (parallel) ────────────────────────────────────────────────
+  # Each publish job independently rebinds to the tag commit and pushes one
+  # artifact group. The Environment "release" gate applies to every publish job;
+  # one approval releases all of them. create_release fans back in at the end.
+  publish_aio:
+    name: publish / all-in-one
+    needs: dry_run
+    if: needs.dry_run.outputs.publish == '1' && needs.dry_run.outputs.build_aio == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      VERSION: ${{ needs.dry_run.outputs.version }}
+      IMAGE_OWNER: ${{ needs.dry_run.outputs.image_owner }}
+      TAG_NAME: ${{ needs.dry_run.outputs.tag_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Bind to release tag commit
+        uses: ./.github/actions/bind-release-ref
+        with:
+          publish: "1"
+          tag_name: ${{ env.TAG_NAME }}
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Log in to GHCR (helm OCI)
-        if: env.BUILD_CHART == '1'
-        env:
-          HELM_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-          ACTOR: ${{ github.actor }}
-        run: |
-          set -euo pipefail
-          printf '%s' "${HELM_REGISTRY_PASSWORD}" | helm registry login ghcr.io \
-            -u "${ACTOR}" --password-stdin
-
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Build frontend for Docker prebuilt
-        if: env.BUILD_AIO == '1' || env.BUILD_SPLIT == '1'
         run: |
           set -euo pipefail
-          # Subshell keeps cwd at repo root so the web/dist check below is valid
-          # after `cd web` (a bare cd left the shell in web/ and failed the test).
           if [ ! -f web/dist/index.html ]; then
             (
               cd web
@@ -401,16 +488,7 @@ jobs:
             )
           fi
           test -f web/dist/index.html
-
-      # Keyless Sigstore signing (OIDC). Does not change docker pull for users who
-      # skip verification — only adds optional cosign verify for those who want it.
-      - name: Install cosign
-        if: env.BUILD_AIO == '1' || env.BUILD_SPLIT == '1'
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-
-      - name: Push multi-arch all-in-one image
-        id: push_aio
-        if: env.BUILD_AIO == '1'
+      - name: Push and sign multi-arch all-in-one image
         env:
           VERSION: ${{ env.VERSION }}
           IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
@@ -428,47 +506,132 @@ jobs:
             -f Dockerfile \
             .
           digest="$(jq -r '."containerimage.digest"' /tmp/aio-meta.json)"
-          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
-          echo "image=${IMAGE}" >> "${GITHUB_OUTPUT}"
           echo "Pushed ${IMAGE}@${digest}"
+          cosign sign --yes "${IMAGE}@${digest}"
 
-      - name: Sign all-in-one image (keyless)
-        if: env.BUILD_AIO == '1'
-        env:
-          IMAGE: ${{ steps.push_aio.outputs.image }}
-          DIGEST: ${{ steps.push_aio.outputs.digest }}
+  publish_split:
+    name: publish / split-${{ matrix.target }}
+    needs: dry_run
+    if: needs.dry_run.outputs.publish == '1' && needs.dry_run.outputs.build_split == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      # Do not cancel a good push because a sibling failed; each image is independent.
+      fail-fast: false
+      matrix:
+        target: [api, worker, web]
+    env:
+      VERSION: ${{ needs.dry_run.outputs.version }}
+      IMAGE_OWNER: ${{ needs.dry_run.outputs.image_owner }}
+      TAG_NAME: ${{ needs.dry_run.outputs.tag_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Bind to release tag commit
+        uses: ./.github/actions/bind-release-ref
+        with:
+          publish: "1"
+          tag_name: ${{ env.TAG_NAME }}
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Build frontend for Docker prebuilt
         run: |
           set -euo pipefail
-          cosign sign --yes "${IMAGE}@${DIGEST}"
-
-      - name: Push and sign multi-arch split images (api, worker, web)
-        if: env.BUILD_SPLIT == '1'
+          if [ ! -f web/dist/index.html ]; then
+            (
+              cd web
+              bun install --frozen-lockfile
+              bun run build
+            )
+          fi
+          test -f web/dist/index.html
+      - name: Push and sign multi-arch split image
         env:
           VERSION: ${{ env.VERSION }}
           IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          for target in api worker web; do
-            IMAGE="ghcr.io/${IMAGE_OWNER}/uptime-phoenix-${target}"
-            echo "==> push ${IMAGE}:${VERSION}"
-            docker buildx build \
-              --platform linux/amd64,linux/arm64 \
-              --target "${target}" \
-              --build-arg "VERSION=${VERSION}" \
-              --build-arg "USE_PREBUILT_WEB=1" \
-              -t "${IMAGE}:${VERSION}" \
-              -t "${IMAGE}:latest" \
-              --push \
-              --metadata-file "/tmp/split-${target}-meta.json" \
-              -f Dockerfile.split \
-              .
-            digest="$(jq -r '."containerimage.digest"' "/tmp/split-${target}-meta.json")"
-            echo "==> cosign sign ${IMAGE}@${digest}"
-            cosign sign --yes "${IMAGE}@${digest}"
-          done
+          IMAGE="ghcr.io/${IMAGE_OWNER}/uptime-phoenix-${TARGET}"
+          echo "==> push ${IMAGE}:${VERSION}"
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --target "${TARGET}" \
+            --build-arg "VERSION=${VERSION}" \
+            --build-arg "USE_PREBUILT_WEB=1" \
+            -t "${IMAGE}:${VERSION}" \
+            -t "${IMAGE}:latest" \
+            --push \
+            --metadata-file "/tmp/split-${TARGET}-meta.json" \
+            -f Dockerfile.split \
+            .
+          digest="$(jq -r '."containerimage.digest"' "/tmp/split-${TARGET}-meta.json")"
+          echo "==> cosign sign ${IMAGE}@${digest}"
+          cosign sign --yes "${IMAGE}@${digest}"
 
+  publish_chart:
+    name: publish / chart
+    needs: dry_run
+    if: needs.dry_run.outputs.publish == '1' && needs.dry_run.outputs.build_chart == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.dry_run.outputs.version }}
+      IMAGE_OWNER: ${{ needs.dry_run.outputs.image_owner }}
+      TAG_NAME: ${{ needs.dry_run.outputs.tag_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Bind to release tag commit
+        uses: ./.github/actions/bind-release-ref
+        with:
+          publish: "1"
+          tag_name: ${{ env.TAG_NAME }}
+      - name: Download combined dry-run artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ env.VERSION }}
+          path: dist/release-${{ env.VERSION }}
+      - name: Setup Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v3.16.4
+      - name: Log in to GHCR (helm OCI)
+        env:
+          HELM_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          printf '%s' "${HELM_REGISTRY_PASSWORD}" | helm registry login ghcr.io \
+            -u "${ACTOR}" --password-stdin
       - name: Package and push Helm chart to OCI
-        if: env.BUILD_CHART == '1'
         env:
           VERSION: ${{ env.VERSION }}
           IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
@@ -520,6 +683,44 @@ jobs:
             echo "Inspect chart tgz attached to the GitHub Release." >&2
           fi
 
+  # ── create GitHub Release (fan-in) ──────────────────────────────────────────
+  # Attaches binaries/chart/INVENTORY to the tag's Release. Runs only when every
+  # SELECTED publish job succeeded (skipped publish jobs are tolerated).
+  create_release:
+    name: create-release
+    needs: [dry_run, publish_aio, publish_split, publish_chart]
+    if: |
+      always() &&
+      needs.dry_run.result == 'success' &&
+      needs.dry_run.outputs.publish == '1' &&
+      needs.publish_aio.result != 'failure' && needs.publish_aio.result != 'cancelled' &&
+      needs.publish_split.result != 'failure' && needs.publish_split.result != 'cancelled' &&
+      needs.publish_chart.result != 'failure' && needs.publish_chart.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.dry_run.outputs.version }}
+      TAG_NAME: ${{ needs.dry_run.outputs.tag_name }}
+      BUILD_CHART: ${{ needs.dry_run.outputs.build_chart }}
+      BUILD_BINARIES: ${{ needs.dry_run.outputs.build_binaries }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Bind to release tag commit
+        uses: ./.github/actions/bind-release-ref
+        with:
+          publish: "1"
+          tag_name: ${{ env.TAG_NAME }}
+      - name: Download combined dry-run artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ env.VERSION }}
+          path: dist/release-${{ env.VERSION }}
       - name: Select release assets
         # Only attach the artifact groups that were selected. INVENTORY.md is
         # always attached; unselected globs match nothing (tolerated below by
@@ -540,7 +741,6 @@ jobs:
             rm -rf "${rel}/charts"
             echo "chart not selected — omitting from GitHub Release"
           fi
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
