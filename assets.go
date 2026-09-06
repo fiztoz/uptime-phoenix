@@ -4,6 +4,14 @@
 //
 // This file lives at the module root so the embed pattern "web/dist" does
 // not require ".." (forbidden by Go embed rules).
+//
+// Build tag `noweb` (see assets_noweb.go) compiles an empty WebAssets instead.
+// The worker binary is built with `-tags noweb` so it does not carry the SPA
+// (~3 MB of dead weight it never serves — worker mode disables HTTP). The
+// router probes for web/dist/index.html at setup and skips SPA registration
+// when absent, so no other code changes are needed.
+//go:build !noweb
+
 package assets
 
 import "embed"

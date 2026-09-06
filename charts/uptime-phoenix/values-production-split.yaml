@@ -21,6 +21,9 @@
 image:
   repository: ghcr.io/fiztoz/uptime-phoenix
   # Empty uses Chart.AppVersion so a chart bump rolls the matching image.
+  # Unused in mode=split (the api/worker images below are deployed instead)
+  # but kept for the mode=all fallback and any split override that clears
+  # api.image.repository / worker.image.repository.
   tag: ""
   pullPolicy: IfNotPresent
 
@@ -31,6 +34,10 @@ scaling:
 
 api:
   replicas: 3
+  image:
+    repository: ghcr.io/fiztoz/uptime-phoenix-api
+    tag: ""
+    pullPolicy: ""
   resources:
     requests:
       cpu: 200m
@@ -40,6 +47,10 @@ api:
       memory: 1Gi
 
 worker:
+  image:
+    repository: ghcr.io/fiztoz/uptime-phoenix-worker
+    tag: ""
+    pullPolicy: ""
   replicas: 3
   shards:
     enabled: true

@@ -34,8 +34,8 @@ spec:
       {{- end }}
       containers:
         - name: uptime-phoenix-api
-          image: {{ include "phoenix.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "phoenix.apiImage" . | quote }}
+          imagePullPolicy: {{ include "phoenix.apiPullPolicy" . }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           ports:

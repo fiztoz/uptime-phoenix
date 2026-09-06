@@ -48,8 +48,8 @@ spec:
       {{- end }}
       containers:
         - name: uptime-phoenix-worker
-          image: {{ include "phoenix.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "phoenix.workerImage" . | quote }}
+          imagePullPolicy: {{ include "phoenix.workerPullPolicy" . }}
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:

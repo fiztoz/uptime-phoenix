@@ -27,10 +27,17 @@ mode: all
 scaling:
   mode: single
 
-# Per-mode defaults (used when mode=api or mode=worker)
+# Per-mode defaults (used when mode=api, mode=worker, or mode=split)
 api:
   enabled: true
   replicas: 2
+  image:
+    # Truly-split API image. Empty repository falls back to image.repository
+    # (all-in-one); empty tag falls back to image.tag then Chart.AppVersion;
+    # empty pullPolicy falls back to image.pullPolicy.
+    repository: ghcr.io/fiztoz/uptime-phoenix-api
+    tag: ""
+    pullPolicy: ""
   resources:
     requests:
       cpu: 100m
@@ -41,6 +48,11 @@ api:
 
 worker:
   enabled: true
+  image:
+    # Truly-split worker image. Same fallback rules as api.image.
+    repository: ghcr.io/fiztoz/uptime-phoenix-worker
+    tag: ""
+    pullPolicy: ""
   replicas: 1
   resources:
     requests:

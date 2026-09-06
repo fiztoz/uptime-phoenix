@@ -51,6 +51,8 @@ WORKDIR /app
 # tier serves the SPA in split mode. Copying the real build keeps the API binary
 # identical to the all-in-one image (it can still serve the UI as a fallback).
 # Listed before go mod download to avoid parallel peak RAM with web-builder.
+# The worker builds with `-tags noweb` (empty WebAssets, see assets_noweb.go)
+# so the SPA is compiled into the API binary only — never into the worker.
 COPY --from=web-builder /app/web/dist ./web/dist
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
@@ -59,7 +61,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOMAXPROCS=2 \
     go build -trimpath \
       -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
       -o /uptime-phoenix-api    ./cmd/api && \
-    go build -trimpath \
+    go build -trimpath -tags noweb \
       -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
       -o /uptime-phoenix-worker ./cmd/worker
 

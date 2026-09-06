@@ -28,7 +28,13 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `image.tag` | string | `""` (`.Chart.AppVersion`) | App image tag. Empty uses the chart's `appVersion` |
+| `image.tag` | string | `""` (`.Chart.AppVersion`) | App image tag (mode=all). Empty uses the chart's `appVersion` |
+| `api.image.repository` | string | `ghcr.io/fiztoz/uptime-phoenix-api` | Truly-split API image (mode=api/split). Empty falls back to `image.repository` |
+| `api.image.tag` | string | `""` (`image.tag` → `.Chart.AppVersion`) | API image tag. Empty falls back to `image.tag`, then the chart's `appVersion` |
+| `api.image.pullPolicy` | string | `""` (`image.pullPolicy`) | API pull policy. Empty falls back to `image.pullPolicy` |
+| `worker.image.repository` | string | `ghcr.io/fiztoz/uptime-phoenix-worker` | Truly-split worker image (mode=worker/split). Empty falls back to `image.repository` |
+| `worker.image.tag` | string | `""` (`image.tag` → `.Chart.AppVersion`) | Worker image tag. Empty falls back to `image.tag`, then the chart's `appVersion` |
+| `worker.image.pullPolicy` | string | `""` (`image.pullPolicy`) | Worker pull policy. Empty falls back to `image.pullPolicy` |
 | `web.image.tag` | string | `""` (`.Chart.AppVersion`) | Split-web image tag. Empty uses the chart's `appVersion` |
 | `database.engine` | string | `sqlite` | `sqlite` (default, zero-dep) or `mariadb` |
 | `database.pool.maxOpenConns` | int | `10` | MariaDB max open connections **per process** (`DB_MAX_OPEN_CONNS`; ignored for SQLite) |

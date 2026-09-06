@@ -71,6 +71,42 @@ Split-web image reference. Empty web.image.tag falls back to Chart.AppVersion.
 {{- end }}
 
 {{/*
+API-tier image reference (truly-split builds). Empty api.image.repository falls
+back to the all-in-one image.repository (escape hatch to run one artifact);
+empty api.image.tag falls back to image.tag then Chart.AppVersion.
+*/}}
+{{- define "phoenix.apiImage" -}}
+{{- $repo := .Values.api.image.repository | default .Values.image.repository -}}
+{{- $tag := .Values.api.image.tag | default .Values.image.tag | default .Chart.AppVersion -}}
+{{- printf "%s:%s" $repo $tag }}
+{{- end }}
+
+{{/*
+API-tier imagePullPolicy. Falls back to the global image.pullPolicy.
+*/}}
+{{- define "phoenix.apiPullPolicy" -}}
+{{- .Values.api.image.pullPolicy | default .Values.image.pullPolicy }}
+{{- end }}
+
+{{/*
+Worker-tier image reference (truly-split builds). Empty worker.image.repository
+falls back to the all-in-one image.repository; empty worker.image.tag falls back
+to image.tag then Chart.AppVersion.
+*/}}
+{{- define "phoenix.workerImage" -}}
+{{- $repo := .Values.worker.image.repository | default .Values.image.repository -}}
+{{- $tag := .Values.worker.image.tag | default .Values.image.tag | default .Chart.AppVersion -}}
+{{- printf "%s:%s" $repo $tag }}
+{{- end }}
+
+{{/*
+Worker-tier imagePullPolicy. Falls back to the global image.pullPolicy.
+*/}}
+{{- define "phoenix.workerPullPolicy" -}}
+{{- .Values.worker.image.pullPolicy | default .Values.image.pullPolicy }}
+{{- end }}
+
+{{/*
 Read one key out of a looked-up Secret's data map, or an empty string when the
 Secret/key is absent (helm template, first install, pre-created Secret without
 the key).
