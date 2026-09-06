@@ -11,6 +11,48 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.4.3] — 2026-09-06
+
+### Added
+
+- **Non-admin UI now hides mutating controls it cannot use.** Create / edit /
+  delete buttons on monitors and groups are gated on `is_admin || can_x`, so a
+  read-only or capability-scoped user no longer sees actions that would 404/403
+  at the API (matches the RBAC model established in the 2026-07 auth work).
+
+### Changed
+
+- **Release workflow parallelized across both phases.** `.github/workflows/release.yml`
+  now fans out into a `prepare` → parallel dry-run legs (`binaries`, `chart`,
+  `images`) → aggregate `dry-run` gate → parallel publish jobs (`all-in-one`,
+  `split-{api,worker,web}` matrix, `chart`) → `create-release` topology instead of
+  two monolithic jobs. All integrity guarantees are preserved per job via the new
+  `./.github/actions/bind-release-ref` composite (SemVer check + `HEAD ==
+  tag^{commit}` rebind on any publish path), and the `release` Environment still
+  gates every publish job (one approval releases all). `scripts/release/dry-run.sh`
+  gained a `STAGES` selector so CI can slice it; a bare local run is unchanged.
+- **Dispatch defaults now build every artifact.** `build_all_in_one` and
+  `build_binaries` default to `true` (alongside `build_chart` / `build_split`),
+  so a `workflow_dispatch` publish matches a tag-push full release unless an
+  artifact is explicitly unticked.
+
+### Performance
+
+- **Instant first paint on dashboard / insights / monitors.** These views render
+  from cached data immediately and refresh lazily in the background instead of
+  blocking on a cold fetch.
+- **Cheaper latest-heartbeat probe.** The batched latest-heartbeat query prunes
+  partitions, cutting scan cost on the `heartbeats` table.
+
+### Fixed
+
+- **Rollout checksums scoped per workload.** Helm rollout checksum annotations no
+  longer share one value across workloads, so an unrelated config change stops
+  forcing every Deployment/StatefulSet to restart.
+- **MariaDB clients in in-cluster jobs no longer force SSL**, fixing connection
+  failures for maintenance/migration Jobs talking to the in-release database.
+- `insights-cache` formatting brought back under Prettier (frontend lint gate).
+
 ## [0.4.2] — 2026-09-05
 
 ### Added
