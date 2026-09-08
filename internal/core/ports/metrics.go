@@ -1,6 +1,16 @@
 package ports
 
-import "context"
+import (
+	"context"
+	"time"
+)
+
+// InsightsObserver records bounded stage timings and cache outcomes. Methods
+// must be safe for concurrent calls; labels never include users or monitor IDs.
+type InsightsObserver interface {
+	ObserveInsightsStage(stage string, elapsed time.Duration)
+	IncInsightsCache(outcome string)
+}
 
 // MetricsExporter defines the interface for exporting application metrics.
 type MetricsExporter interface {

@@ -22,6 +22,10 @@ type MonitorFilter struct {
 	GroupID *int64
 	// GroupIDIsNull restricts the listing to monitors in no group at all.
 	GroupIDIsNull bool
+	// RestrictToGroupIDs intersects the listing with GroupIDs (resolved by the
+	// service, including descendants). An empty restricted set returns no rows.
+	RestrictToGroupIDs bool
+	GroupIDs           []int64
 
 	// RestrictToIDs turns MonitorIDs into a hard allowlist. This is the RBAC
 	// gate for a non-admin listing, so its semantics are deliberately explicit

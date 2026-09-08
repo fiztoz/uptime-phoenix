@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -129,6 +130,8 @@ type InsightsService struct {
 	groups      ports.MonitorGroupRepository
 	access      *AccessService
 	now         func() time.Time
+	observer    ports.InsightsObserver
+	cache       insightsCache
 }
 
 // NewInsightsService wires the reliability read model.
@@ -156,6 +159,7 @@ func NewInsightsService(
 // a non-admin with zero grants receives an empty result, never an install-wide
 // ranking. Inaccessible monitors are simply never loaded.
 func (s *InsightsService) GetInsights(ctx context.Context, q InsightsQuery) (*InsightsResult, error) {
+	defer s.observeStage("total", time.Now())
 	period := ParsePeriod(string(q.Period))
 	metric := ParseMetric(string(q.Metric))
 	to := s.now().UTC()
@@ -176,7 +180,9 @@ func (s *InsightsService) GetInsights(ctx context.Context, q InsightsQuery) (*In
 		return nil, fmt.Errorf("insights: read model is not fully wired")
 	}
 
+	started := time.Now()
 	all, visibleIDs, err := s.access.VisibleMonitorIDs(ctx, q.UserID)
+	s.observeStage("visibility", started)
 	if err != nil {
 		return nil, fmt.Errorf("insights: resolve visibility: %w", err)
 	}
@@ -189,63 +195,142 @@ func (s *InsightsService) GetInsights(ctx context.Context, q InsightsQuery) (*In
 		filter.RestrictToIDs = true
 		filter.MonitorIDs = visibleIDs
 	}
+	if q.GroupID != nil {
+		started = time.Now()
+		filter.RestrictToGroupIDs = true
+		filter.GroupIDs, err = s.resolveGroupFilter(ctx, q.UserID, *q.GroupID)
+		s.observeStage("groups", started)
+		if err != nil {
+			return nil, err
+		}
+		if len(filter.GroupIDs) == 0 {
+			return result, nil
+		}
+	}
+	started = time.Now()
 	monitors, err := s.monitors.List(ctx, filter)
+	s.observeStage("monitors", started)
 	if err != nil {
 		return nil, fmt.Errorf("insights: list monitors: %w", err)
 	}
-
-	// Optional group filter, including descendant groups (same recursive
-	// semantics as the rest of Phoenix). First verify the selected group itself
-	// is visible; otherwise a direct group_id probe could confirm a hidden group
-	// through the rows it returns.
-	if q.GroupID != nil {
-		if s.groups == nil {
-			return nil, fmt.Errorf("insights: group read model is not wired")
-		}
-		allGroups, visibleGroupIDs, err := s.access.VisibleGroupIDs(ctx, q.UserID)
-		if err != nil {
-			return nil, fmt.Errorf("insights: resolve group visibility: %w", err)
-		}
-		if !allGroups && !containsInt64(visibleGroupIDs, *q.GroupID) {
-			monitors = nil
-		} else {
-			allowed, err := s.groupAndDescendants(ctx, *q.GroupID)
-			if err != nil {
-				return nil, fmt.Errorf("insights: resolve group tree: %w", err)
-			}
-			filtered := monitors[:0]
-			for _, m := range monitors {
-				if m.GroupID != nil && allowed[*m.GroupID] {
-					filtered = append(filtered, m)
-				}
-			}
-			monitors = filtered
-		}
+	if len(monitors) == 0 {
+		return result, nil
 	}
+
+	// Resolve access and the actual monitor set on EVERY request, including
+	// hits. Revocation, deletion, group moves and new monitors change the key.
+	key := newInsightsCacheKey(q.UserID, period, filter.Type, q.GroupID, monitors)
+	cached, err := s.cachedInsights(ctx, key, func(ctx context.Context) (*InsightsResult, error) {
+		return s.calculateInsights(ctx, result, monitors)
+	})
+	if err != nil {
+		return nil, err
+	}
+	// The cache is metric-independent. Give each caller its own row order and
+	// pointers so sorting or modifying a response cannot mutate shared state.
+	out := cloneInsightsResult(cached)
+	out.Metric = metric
+	started = time.Now()
+	sortRows(out.Rows, metric)
+	s.observeStage("sort", started)
+	return out, nil
+}
+
+// SetObserver wires optional metrics before the service starts handling requests.
+func (s *InsightsService) SetObserver(observer ports.InsightsObserver) {
+	s.observer = observer
+}
+
+func (s *InsightsService) observeStage(stage string, started time.Time) {
+	if s.observer != nil {
+		s.observer.ObserveInsightsStage(stage, time.Since(started))
+	}
+}
+
+func (s *InsightsService) resolveGroupFilter(ctx context.Context, userID, groupID int64) ([]int64, error) {
+	if s.groups == nil {
+		return nil, fmt.Errorf("insights: group read model is not wired")
+	}
+	all, visible, err := s.access.VisibleGroupIDs(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("insights: resolve group visibility: %w", err)
+	}
+	if !all && !containsInt64(visible, groupID) {
+		return nil, nil
+	}
+	allowed, err := s.groupAndDescendants(ctx, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("insights: resolve group tree: %w", err)
+	}
+	ids := make([]int64, 0, len(allowed))
+	for id := range allowed {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids, nil
+}
+
+func (s *InsightsService) calculateInsights(ctx context.Context, result *InsightsResult, monitors []*domain.Monitor) (*InsightsResult, error) {
+	from, to, period := result.From, result.To, result.Period
 
 	monitorIDs := make([]int64, 0, len(monitors))
 	for _, m := range monitors {
 		monitorIDs = append(monitorIDs, m.ID)
 	}
-	transitionsByMonitor, err := s.reliability.ListImportantForMonitors(ctx, monitorIDs, from.UTC(), to.UTC())
-	if err != nil {
-		return nil, fmt.Errorf("insights: list transitions: %w", err)
-	}
-	leadingByMonitor, err := s.reliability.LatestImportantBeforeForMonitors(ctx, monitorIDs, from.UTC())
-	if err != nil {
-		return nil, fmt.Errorf("insights: list leading states: %w", err)
-	}
-
+	var transitionsByMonitor map[int64][]*domain.Heartbeat
+	var leadingByMonitor map[int64]*domain.Heartbeat
 	var latencyByMonitor map[int64][]*ports.Aggregate1h
 	var dailyLatencyByMonitor map[int64][]*ports.Aggregate1d
-	if period == Period24h {
-		latencyByMonitor, err = s.aggregates.GetAggregate1hForMonitors(ctx, monitorIDs, from.UTC())
-	} else {
-		dailyLatencyByMonitor, err = s.aggregates.GetAggregate1dForMonitors(ctx, monitorIDs, from.UTC())
+
+	// All reads use the same UTC window and monitor allowlist. Each goroutine
+	// owns its result; Wait joins them before calculation. The first error
+	// cancels siblings and remains the returned cause (including parent cancel).
+	readCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	var reads sync.WaitGroup
+	run := func(stage string, read func(context.Context) error) {
+		reads.Add(1)
+		go func() {
+			defer reads.Done()
+			defer s.observeStage(stage, time.Now())
+			if err := read(readCtx); err != nil {
+				cancel(err)
+			}
+		}()
 	}
-	if err != nil {
-		return nil, fmt.Errorf("insights: list latency rollups: %w", err)
+	run("transitions", func(ctx context.Context) error {
+		var err error
+		transitionsByMonitor, err = s.reliability.ListImportantForMonitors(ctx, monitorIDs, from, to)
+		if err != nil {
+			return fmt.Errorf("insights: list transitions: %w", err)
+		}
+		return nil
+	})
+	run("leading", func(ctx context.Context) error {
+		var err error
+		leadingByMonitor, err = s.reliability.LatestImportantBeforeForMonitors(ctx, monitorIDs, from)
+		if err != nil {
+			return fmt.Errorf("insights: list leading states: %w", err)
+		}
+		return nil
+	})
+	run("aggregates", func(ctx context.Context) error {
+		var err error
+		if period == Period24h {
+			latencyByMonitor, err = s.aggregates.GetAggregate1hForMonitors(ctx, monitorIDs, from)
+		} else {
+			dailyLatencyByMonitor, err = s.aggregates.GetAggregate1dForMonitors(ctx, monitorIDs, from)
+		}
+		if err != nil {
+			return fmt.Errorf("insights: list latency rollups: %w", err)
+		}
+		return nil
+	})
+	reads.Wait()
+	if err := context.Cause(readCtx); err != nil {
+		return nil, err
 	}
+	defer s.observeStage("calculate", time.Now())
 
 	rows := make([]InsightsRow, 0, len(monitors))
 	for _, m := range monitors {
@@ -260,7 +345,6 @@ func (s *InsightsService) GetInsights(ctx context.Context, q InsightsQuery) (*In
 		))
 	}
 
-	sortRows(rows, metric)
 	result.Rows = rows
 	return result, nil
 }

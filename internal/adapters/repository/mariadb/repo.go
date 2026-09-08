@@ -179,6 +179,13 @@ func (r *MonitorRepo) List(ctx context.Context, filter ports.MonitorFilter) ([]*
 	} else if filter.GroupID != nil {
 		q = q.Where("group_id = ?", *filter.GroupID)
 	}
+	if filter.RestrictToGroupIDs {
+		if len(filter.GroupIDs) == 0 {
+			q = q.Where("1 = 0")
+		} else {
+			q = q.Where("group_id IN (?)", bun.List(filter.GroupIDs))
+		}
+	}
 	// RBAC allowlist. Branch on the flag, NEVER on len(filter.MonitorIDs): an
 	// empty allowlist means "this user may see nothing", and treating it as
 	// "no filter" would hand them the whole install. Bun's WhereGroup/In with an
