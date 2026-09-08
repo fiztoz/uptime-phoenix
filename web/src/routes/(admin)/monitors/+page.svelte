@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { realtime } from '$lib/stores/ws.svelte.js';
 	import StatusPill from '$lib/components/StatusPill.svelte';
 	import MonitorForm from '$lib/components/MonitorForm.svelte';
@@ -8,6 +9,7 @@
 	import { monitorsApi, type MonitorWithGroup } from '$lib/api/monitors';
 	import {
 		monitorGroupsApi,
+		monitorGroupsCatalog,
 		indexGroupChildren,
 		resolveGroupStatuses,
 		monitorToRollupStatus,
@@ -16,7 +18,7 @@
 		type MonitorGroupView,
 		type RollupStatus,
 	} from '$lib/api/monitorGroups';
-	import { tagsApi, type Tag } from '$lib/api/tags';
+	import { tagsApi, tagsCatalog, type Tag } from '$lib/api/tags';
 	import {
 		STATUS_FILTERS,
 		monitorTags,
@@ -60,9 +62,9 @@
 	let filterStatuses = $state<MonitorStatus[]>([]);
 	/** Multi-select tag filter by name (OR) — same model as the dashboard. */
 	let filterTags = $state<string[]>([]);
-	let allTags = $state<Tag[]>([]);
-	let groups = $state<MonitorGroupView[]>([]);
-	let groupsLoading = $state(true);
+	let allTags = $state<Tag[]>(tagsCatalog.peek() ?? []);
+	let groups = $state<MonitorGroupView[]>(monitorGroupsCatalog.peek() ?? []);
+	let groupsLoading = $state(monitorGroupsCatalog.peek() === undefined);
 	let groupsError = $state<string | null>(null);
 	/** Session-local overrides of a group's collapsed state, keyed by group id. */
 	let collapseOverrides = $state<Map<number, boolean>>(new Map());
@@ -71,17 +73,16 @@
 		try {
 			allTags = await tagsApi.list();
 		} catch {
-			allTags = [];
+			// Retain the last catalog when a background refresh fails.
 		}
 	}
 
 	async function loadGroups() {
-		groupsLoading = true;
+		groupsLoading = monitorGroupsCatalog.peek() === undefined && groups.length === 0;
 		groupsError = null;
 		try {
 			groups = await monitorGroupsApi.list();
 		} catch (error: unknown) {
-			groups = [];
 			groupsError = error && typeof error === 'object' && 'message' in error
 				? String((error as { message: string }).message)
 				: m.error_generic();
@@ -91,8 +92,10 @@
 	}
 
 	$effect(() => {
-		loadTags();
-		loadGroups();
+		untrack(() => {
+			void loadTags();
+			void loadGroups();
+		});
 	});
 
 	// Progressive loading: the page only waits for the monitor snapshot —
@@ -611,7 +614,7 @@
 
 	<!-- Mobile cards (hidden on md+) -->
 	<div class="space-y-3 md:hidden">
-		{#if displayRows.length === 0}
+		{#if displayRows.length === 0 && !groupsLoading && !groupsError}
 			<div class="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
 				{m.monitors_page_none_found()}
 			</div>
@@ -712,7 +715,7 @@
 				</tr>
 			</thead>
 			<tbody>
-				{#if displayRows.length === 0}
+				{#if displayRows.length === 0 && !groupsLoading && !groupsError}
 					<tr>
 						<td colspan="6" class="px-4 py-12 text-center text-muted-foreground">
 							{m.monitors_page_none_found()}

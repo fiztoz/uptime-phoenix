@@ -8,6 +8,7 @@
 	import type { MonitorWithGroup } from '$lib/api/monitors';
 	import {
 		monitorGroupsApi,
+		monitorGroupsCatalog,
 		indexGroupChildren,
 		resolveGroupStatuses,
 		monitorToRollupStatus,
@@ -15,8 +16,8 @@
 		sortMonitors,
 		type MonitorGroupView,
 	} from '$lib/api/monitorGroups';
-	import { tagsApi, type Tag } from '$lib/api/tags';
-	import { insightsApi, type InsightsRow } from '$lib/api/insights';
+	import { tagsApi, tagsCatalog, type Tag } from '$lib/api/tags';
+	import { dashboardInsights, type InsightsRow } from '$lib/api/insights';
 	import {
 		conditionsApi,
 		conditionDrivesDashboardAttention,
@@ -67,16 +68,16 @@
 	import * as m from '$lib/paraglide/messages.js';
 
 	// --- Monitor groups (folders) -----------------------------------------
-	let groups = $state<MonitorGroupView[]>([]);
-	let groupsLoading = $state(true);
+	let groups = $state<MonitorGroupView[]>(monitorGroupsCatalog.peek() ?? []);
+	let groupsLoading = $state(monitorGroupsCatalog.peek() === undefined);
 	let groupsError = $state<string | null>(null);
 
 	// Tag catalog (Settings-created tags). The filter must list every tag that
 	// exists, not only tags already assigned to a monitor — otherwise a newly
 	// created tag looks "missing" until something is tagged with it.
-	let catalogTags = $state<Tag[]>([]);
-	let reliabilityPreview = $state<InsightsRow[]>([]);
-	let reliabilityPreviewLoading = $state(true);
+	let catalogTags = $state<Tag[]>(tagsCatalog.peek() ?? []);
+	let reliabilityPreview = $state<InsightsRow[]>(dashboardInsights.peek() ?? []);
+	let reliabilityPreviewLoading = $state(dashboardInsights.peek() === undefined);
 	let conditionClock = $state(Date.now());
 	let cardBody = $state<DashboardCardBody>(readDashboardCardBody());
 
@@ -91,12 +92,11 @@
 	});
 
 	async function loadGroups() {
-		groupsLoading = true;
+		groupsLoading = monitorGroupsCatalog.peek() === undefined && groups.length === 0;
 		groupsError = null;
 		try {
 			groups = await monitorGroupsApi.list();
 		} catch (error: unknown) {
-			groups = [];
 			groupsError = error && typeof error === 'object' && 'message' in error
 				? String((error as { message: string }).message)
 				: m.error_generic();
@@ -109,26 +109,24 @@
 		try {
 			catalogTags = await tagsApi.list();
 		} catch {
-			// Keep whatever we had; the filter still works with an empty catalog
-			// (emptyMessage) rather than failing the whole dashboard.
-			catalogTags = [];
+			// Retain the last catalog when a background refresh fails.
+			// On a cold load the filter still works with an empty catalog.
 		}
 	}
 
 	$effect(() => {
-		loadGroups();
-		loadTags();
+		untrack(() => {
+			void loadGroups();
+			void loadTags();
+		});
 	});
 
 	async function loadReliabilityPreview() {
-		reliabilityPreviewLoading = true;
+		reliabilityPreviewLoading = dashboardInsights.peek() === undefined && reliabilityPreview.length === 0;
 		try {
-			const result = await insightsApi.list({ period: '24h', metric: 'availability' });
-			reliabilityPreview = result.rows
-				.filter((row) => row.outage_count > 0 || (row.availability_percent ?? 100) < 100)
-				.slice(0, 5);
+			reliabilityPreview = await dashboardInsights.refresh();
 		} catch {
-			reliabilityPreview = [];
+			// Keep the last preview if background revalidation fails.
 		} finally {
 			reliabilityPreviewLoading = false;
 		}
@@ -142,7 +140,9 @@
 		if (realtime.status === 'connecting') return;
 		if (reliabilityStarted) return;
 		reliabilityStarted = true;
-		void loadReliabilityPreview();
+		untrack(() => {
+			void loadReliabilityPreview();
+		});
 	});
 
 	async function loadConditions() {

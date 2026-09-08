@@ -2,6 +2,7 @@
  * Tags CRUD and monitor tag assignment API wrappers.
  */
 import { api } from "./client";
+import { createSessionResource } from "../session-resource";
 
 export interface Tag {
   id: number;
@@ -24,9 +25,14 @@ export interface CreateTagInput {
 
 export interface UpdateTagInput extends Partial<CreateTagInput> {}
 
+export const tagsCatalog = createSessionResource(
+  () => api.get<Tag[]>("/tags"),
+  () => (typeof localStorage === "undefined" ? null : api.getAuthHeader()),
+);
+
 export const tagsApi = {
   async list(): Promise<Tag[]> {
-    return api.get<Tag[]>("/tags");
+    return tagsCatalog.refresh();
   },
 
   async get(id: number): Promise<Tag> {
@@ -34,15 +40,20 @@ export const tagsApi = {
   },
 
   async create(input: CreateTagInput): Promise<Tag> {
-    return api.post<Tag>("/tags", input);
+    const result = await api.post<Tag>("/tags", input);
+    tagsCatalog.clear();
+    return result;
   },
 
   async update(id: number, input: UpdateTagInput): Promise<Tag> {
-    return api.put<Tag>(`/tags/${id}`, input);
+    const result = await api.put<Tag>(`/tags/${id}`, input);
+    tagsCatalog.clear();
+    return result;
   },
 
   async remove(id: number): Promise<void> {
-    return api.del(`/tags/${id}`);
+    await api.del(`/tags/${id}`);
+    tagsCatalog.clear();
   },
 
   async listForMonitor(monitorId: number): Promise<MonitorTag[]> {

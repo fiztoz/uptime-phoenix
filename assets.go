@@ -1,3 +1,5 @@
+//go:build !noweb
+
 // Package assets provides embedded frontend static assets for the Phoenix
 // binary. The web/dist directory is populated by `bun run build` in the
 // web/ subdirectory and embedded at compile time via go:embed.
@@ -10,8 +12,6 @@
 // (~3 MB of dead weight it never serves — worker mode disables HTTP). The
 // router probes for web/dist/index.html at setup and skips SPA registration
 // when absent, so no other code changes are needed.
-//go:build !noweb
-
 package assets
 
 import "embed"
