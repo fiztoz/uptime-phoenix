@@ -248,11 +248,29 @@ func (s *MonitorGroupService) ResolveStatuses(ctx context.Context, userID int64)
 		return nil, fmt.Errorf("monitor group service: resolve statuses: list monitors: %w", err)
 	}
 	monitorsByGroup := make(map[int64][]*domain.Monitor, len(groups))
+	monitorIDs := make([]int64, 0, len(monitors))
+	groupIDs := make(map[int64]bool, len(groups))
+	for _, g := range groups {
+		groupIDs[g.ID] = true
+	}
 	for _, m := range monitors {
-		if m.GroupID == nil {
+		if m.GroupID == nil || !groupIDs[*m.GroupID] {
 			continue
 		}
 		monitorsByGroup[*m.GroupID] = append(monitorsByGroup[*m.GroupID], m)
+		monitorIDs = append(monitorIDs, m.ID)
+	}
+
+	// Both SQL adapters implement this port. Avoid one database round trip
+	// per monitor on every folder listing; retain compatibility with other
+	// repositories that only implement HeartbeatRepository.
+	var latest map[int64]*domain.Heartbeat
+	batch, batched := s.hbRepo.(ports.HeartbeatBatchReader)
+	if batched && len(monitorIDs) > 0 {
+		latest, err = batch.GetLatestForMonitors(ctx, monitorIDs)
+		if err != nil {
+			return nil, fmt.Errorf("monitor group service: resolve statuses: latest heartbeats: %w", err)
+		}
 	}
 
 	visited := make(map[int64]bool, len(groups))
@@ -276,8 +294,14 @@ func (s *MonitorGroupService) ResolveStatuses(ctx context.Context, userID int64)
 		var children []domain.Status
 
 		for _, m := range monitorsByGroup[g.ID] {
-			hb, err := s.hbRepo.GetLatest(ctx, m.ID)
-			if err != nil {
+			hb := latest[m.ID]
+			if !batched {
+				hb, err = s.hbRepo.GetLatest(ctx, m.ID)
+				if err != nil {
+					continue
+				}
+			}
+			if hb == nil {
 				// No heartbeat yet (never checked) — contributes no status.
 				continue
 			}

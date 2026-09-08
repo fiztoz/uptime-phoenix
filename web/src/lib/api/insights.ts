@@ -1,4 +1,5 @@
 import { api } from "./client";
+import { createSessionResource } from "../session-resource";
 
 export type InsightsPeriod = "24h" | "7d" | "30d" | "90d";
 export type InsightsMetric =
@@ -51,3 +52,20 @@ export const insightsApi = {
     return api.get<InsightsResponse>("/insights", params);
   },
 };
+
+/** Dashboard preview survives route navigation while its data revalidates. */
+export const dashboardInsights = createSessionResource(
+  async () => {
+    const result = await insightsApi.list({
+      period: "24h",
+      metric: "availability",
+    });
+    return result.rows
+      .filter(
+        (row) =>
+          row.outage_count > 0 || (row.availability_percent ?? 100) < 100,
+      )
+      .slice(0, 5);
+  },
+  () => (typeof localStorage === "undefined" ? null : api.getAuthHeader()),
+);

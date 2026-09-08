@@ -7,6 +7,7 @@
  * CONTRACT.md) and internal/adapters/http/handlers/monitor_group.go.
  */
 import { api } from "./client";
+import { createSessionResource } from "../session-resource";
 import type { Notification } from "./notifications";
 
 /** Matches internal/core/domain/monitor_group.go GroupCondition. */
@@ -95,9 +96,14 @@ export interface CreateMonitorGroupInput {
 /** Omitted keys are left unchanged; send `parent_id: null` to un-nest. */
 export interface UpdateMonitorGroupInput extends Partial<CreateMonitorGroupInput> {}
 
+export const monitorGroupsCatalog = createSessionResource(
+  () => api.get<MonitorGroupView[]>("/monitor-groups"),
+  () => (typeof localStorage === "undefined" ? null : api.getAuthHeader()),
+);
+
 export const monitorGroupsApi = {
   async list(): Promise<MonitorGroupView[]> {
-    return api.get<MonitorGroupView[]>("/monitor-groups");
+    return monitorGroupsCatalog.refresh();
   },
 
   async get(id: number): Promise<MonitorGroupView> {
@@ -105,18 +111,26 @@ export const monitorGroupsApi = {
   },
 
   async create(input: CreateMonitorGroupInput): Promise<MonitorGroupView> {
-    return api.post<MonitorGroupView>("/monitor-groups", input);
+    const result = await api.post<MonitorGroupView>("/monitor-groups", input);
+    monitorGroupsCatalog.clear();
+    return result;
   },
 
   async update(
     id: number,
     input: UpdateMonitorGroupInput,
   ): Promise<MonitorGroupView> {
-    return api.put<MonitorGroupView>(`/monitor-groups/${id}`, input);
+    const result = await api.put<MonitorGroupView>(
+      `/monitor-groups/${id}`,
+      input,
+    );
+    monitorGroupsCatalog.clear();
+    return result;
   },
 
   async remove(id: number): Promise<void> {
-    return api.del(`/monitor-groups/${id}`);
+    await api.del(`/monitor-groups/${id}`);
+    monitorGroupsCatalog.clear();
   },
 
   /**
