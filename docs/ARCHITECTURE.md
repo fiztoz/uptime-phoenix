@@ -1932,6 +1932,39 @@ ON DUPLICATE KEY UPDATE
 
 ---
 
+### Insights read path
+
+`InsightsService` resolves visibility through `AccessService` on every request,
+then intersects the monitor allowlist, type and resolved descendant group IDs
+in the monitor repository. An empty restricted monitor or group set returns no
+rows. The transition, leading-state and hourly/daily aggregate reads run
+concurrently with a shared UTC window; a failed read cancels its siblings.
+SQLite retains its single-connection pool, so this read concurrency primarily
+benefits MariaDB.
+
+Each API process caches computed Insights rows for 20 seconds from their window
+end, with at most 64 entries and 50,000 retained rows. The key includes user,
+period, type, selected group and a fingerprint of the freshly selected monitors
+(IDs, names, types, groups and intervals). Permission changes, new/deleted
+monitors and relevant monitor edits therefore affect the next request without
+waiting for cache expiry. Authorization and monitor queries are never cached.
+The response preserves the cached `from`/`to` timestamps.
+
+Concurrent identical calculations share a result. Cancellation of one waiting
+request does not cancel the leader; if the leader is canceled, surviving waiters
+elect a new leader. Errors are never cached. Ranking is applied to an independent
+copy per response, so metric changes reuse the same computed data. All state is
+local and bounded; Redis is not required. There are no schema changes.
+
+`ports.InsightsObserver` connects this service to the existing Prometheus adapter.
+`phoenix_insights_stage_duration_seconds{stage}` records `visibility`, `groups`,
+`monitors`, `transitions`, `leading`, `aggregates`, `calculate`, `sort` and `total`.
+Read timings include connection-pool wait; `total` covers the service call, not
+HTTP serialization. `phoenix_insights_cache_total{outcome}` counts `hit`, `miss`
+and `shared`. Labels never contain user IDs, monitor IDs or request filters.
+See [INSIGHTS-PERFORMANCE.md](INSIGHTS-PERFORMANCE.md) for validation and remaining
+database profiling work.
+
 ## 14. Observability
 
 ### Metrics (`/metrics` endpoint)

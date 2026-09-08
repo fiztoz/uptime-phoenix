@@ -205,6 +205,12 @@ func (r *grpFakeMonitorRepo) List(_ context.Context, filter ports.MonitorFilter)
 		if filter.RestrictToIDs && !allowed[m.ID] {
 			continue
 		}
+		if filter.Type != "" && m.Type != filter.Type {
+			continue
+		}
+		if filter.RestrictToGroupIDs && (m.GroupID == nil || !containsInt64(filter.GroupIDs, *m.GroupID)) {
+			continue
+		}
 		if filter.UserID > 0 && m.UserID != filter.UserID {
 			continue
 		}

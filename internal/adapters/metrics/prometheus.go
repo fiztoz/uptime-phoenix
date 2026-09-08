@@ -4,6 +4,7 @@ package metrics
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -22,11 +23,22 @@ type PrometheusExporter struct {
 	monitorsActive    prometheus.Gauge
 	busEventsDropped  *prometheus.CounterVec
 	wsFramesDropped   prometheus.Counter
+	insightsDuration  *prometheus.HistogramVec
+	insightsCache     *prometheus.CounterVec
 }
 
 // NewPrometheusExporter creates a new Prometheus metrics exporter using promauto.
 func NewPrometheusExporter() *PrometheusExporter {
 	return &PrometheusExporter{
+		insightsDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "phoenix_insights_stage_duration_seconds",
+			Help:    "Insights stage latency, including database connection-pool wait",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"stage"}),
+		insightsCache: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "phoenix_insights_cache_total",
+			Help: "Insights process-local cache hits, misses and coalesced requests",
+		}, []string{"outcome"}),
 		monitorStatus: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "phoenix_monitor_status",
 			Help: "Current status of monitor (0=DOWN,1=UP,2=PENDING,3=MAINTENANCE)",
@@ -109,6 +121,16 @@ func (p *PrometheusExporter) IncWSFrameDropped() {
 	p.wsFramesDropped.Inc()
 }
 
+// ObserveInsightsStage records one completed read-model stage.
+func (p *PrometheusExporter) ObserveInsightsStage(stage string, elapsed time.Duration) {
+	p.insightsDuration.WithLabelValues(stage).Observe(elapsed.Seconds())
+}
+
+// IncInsightsCache records a hit, miss or shared in-flight calculation.
+func (p *PrometheusExporter) IncInsightsCache(outcome string) {
+	p.insightsCache.WithLabelValues(outcome).Inc()
+}
+
 // Handler returns the Prometheus HTTP handler.
 func (p *PrometheusExporter) Handler() (any, error) {
 	return promhttp.Handler(), nil
@@ -121,3 +143,4 @@ func (p *PrometheusExporter) Shutdown(ctx context.Context) error {
 
 // Ensure PrometheusExporter implements MetricsExporter.
 var _ ports.MetricsExporter = (*PrometheusExporter)(nil)
+var _ ports.InsightsObserver = (*PrometheusExporter)(nil)

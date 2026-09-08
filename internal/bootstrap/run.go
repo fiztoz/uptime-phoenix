@@ -298,6 +298,7 @@ func Run(cfg Config) error {
 	log.Info("aggregate and insights services initialized")
 
 	metricsExporter := metrics.NewPrometheusExporter()
+	insightsSvc.SetObserver(metricsExporter)
 
 	isAPI := cfg.Mode == "all" || cfg.Mode == "api"
 	isWorker := cfg.Mode == "all" || cfg.Mode == "worker"
