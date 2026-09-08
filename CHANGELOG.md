@@ -11,6 +11,25 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.4.4] — 2026-09-08
+
+### Performance
+
+- **Faster Insights queries.** Independent database reads run concurrently, and
+  group filters are pushed into SQL for both MariaDB and SQLite. A bounded,
+  per-process 20-second cache coalesces repeated requests while checking current
+  permissions and monitor metadata before serving results. Stage timings and
+  cache counters are exposed through Prometheus. (#41, resolves #37)
+
+### Changed
+
+- Updated Go dependencies for OIDC, MySQL/MariaDB, Docker, cryptography, and
+  SQLite. (#38)
+- Updated `isomorphic-dompurify` to 4.1.0 and synchronized the Bun lockfile so
+  frozen installs, frontend builds, and Docker builds succeed. (#40)
+- Updated the pinned QEMU setup and GitHub Release actions. The existing tag
+  binding and protected release approval flow are preserved. (#39)
+
 ## [0.4.3] — 2026-09-06
 
 ### Added
