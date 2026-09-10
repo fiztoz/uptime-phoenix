@@ -11,6 +11,22 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.4.5] — 2026-09-10
+
+### Performance
+
+- **Faster admin navigation.** Dashboard and monitors keep their last-good
+  payload across route changes, and folder status uses a single batched
+  Insights request instead of one fetch per group. (#43)
+
+### Changed
+
+- **Truly-split Helm images.** `mode=api` / `mode=worker` / `mode=split`
+  Deployments now pull `ghcr.io/fiztoz/uptime-phoenix-api` and
+  `uptime-phoenix-worker` (empty repository/tag/pullPolicy still fall back to
+  the all-in-one `image.*`). The worker image is built with `-tags noweb` so the
+  embedded SPA ships in the API binary only.
+
 ## [0.4.4] — 2026-09-08
 
 ### Performance
