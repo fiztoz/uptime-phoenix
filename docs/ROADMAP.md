@@ -386,3 +386,7 @@ twice idempotently without leaking secrets; and Uptime Phoenix requires no appli
 | Phase 2 | 6 weeks | 1–2 devs |
 | Phase 3 | 4 weeks | 1–2 devs |
 | **Total to production-ready** | **18 weeks** | **~1 full-stack dev or 2 specialized devs** |
+
+## Proposed multi-region probe work
+
+The [multi-region implementation handoff](multi-region/README.md) defines planned milestones M0–M6 for autonomous probes, with optional M7–M9 for consolidated paging, SSH provisioning, and a public push gateway. All milestones are unimplemented at the documentation handoff. This is a proposed extension with acceptance gates, not a change to the completed phase history or a dated delivery commitment.

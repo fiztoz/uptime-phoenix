@@ -2273,3 +2273,5 @@ require (
 ```
 
 All libraries are **CGO-free** (except MongoDB's optional CSE, which we don't use). The final binary is a single static executable that cross-compiles for `linux/amd64`, `linux/arm64`, and `linux/arm/v7`.
+
+> **Proposed extension:** [Multi-region probe architecture and implementation handoff](multi-region/README.md) defines future distributed execution, regional alerting, and replay. It is not shipped by the documentation branch.
