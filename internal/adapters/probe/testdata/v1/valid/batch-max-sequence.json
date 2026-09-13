@@ -1,0 +1,52 @@
+{
+  "protocol_version": 1,
+  "type": "telemetry.batch",
+  "message_id": "637c39e5-0d90-41db-82c8-4a8bc65f16e5",
+  "sent_at": "2026-09-13T09:00:05Z",
+  "connection_generation": "7",
+  "payload": {
+    "stream_id": "1395c134-da65-4d86-9b11-c9ce20c61748",
+    "first_seq": "9223372036854775806",
+    "last_seq": "9223372036854775807",
+    "events": [
+      {
+        "seq": "9223372036854775806",
+        "kind": "observation",
+        "observed_at": "2026-09-13T08:59:58Z",
+        "data": {
+          "monitor_id": 42,
+          "assignment_generation": "3",
+          "config_revision": "12",
+          "status": "PENDING",
+          "raw_status": "DOWN",
+          "down_count": 1,
+          "ping": 28,
+          "duration_ms": 31,
+          "message": "HTTP 200",
+          "important": true,
+          "conditions": [],
+          "tls": null
+        }
+      },
+      {
+        "seq": "9223372036854775807",
+        "kind": "observation",
+        "observed_at": "2026-09-13T08:59:58Z",
+        "data": {
+          "monitor_id": 42,
+          "assignment_generation": "3",
+          "config_revision": "12",
+          "status": "DOWN",
+          "raw_status": "DOWN",
+          "down_count": 2,
+          "ping": 28,
+          "duration_ms": 31,
+          "message": "HTTP 200",
+          "important": true,
+          "conditions": [],
+          "tls": null
+        }
+      }
+    ]
+  }
+}

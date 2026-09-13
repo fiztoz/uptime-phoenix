@@ -1,0 +1,19 @@
+{
+  "protocol_version": 1,
+  "type": "telemetry.ack",
+  "message_id": "637c39e5-0d90-41db-82c8-4a8bc65f16e5",
+  "sent_at": "2026-09-13T09:00:05Z",
+  "connection_generation": "7",
+  "payload": {
+    "stream_id": "1395c134-da65-4d86-9b11-c9ce20c61748",
+    "committed_seq": "105",
+    "accepted_count": 2,
+    "duplicate_count": 2,
+    "rejected": [
+      {
+        "seq": "104",
+        "code": "assignment_deleted"
+      }
+    ]
+  }
+}

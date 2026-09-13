@@ -120,10 +120,10 @@ The local-only path must preserve its public behavior and regression tests. Refa
 
 The authoritative key is `(monitor_id, probe_id, assignment_generation)`. Track the last sequence, observed time, accepted config revision, effective status, consecutive failures, active alert identity, last successful check, and freshness separately.
 
-- Preserve existing `DOWN=0`, `UP=1`, `PENDING=2`, `MAINTENANCE=3`. Add `UNKNOWN=4` explicitly and update every exhaustive consumer; never renumber stored values.
+- Preserve existing `DOWN=0`, `UP=1`, `PENDING=2`, `MAINTENANCE=3`. Add `UNKNOWN=4` explicitly; update every exhaustive consumer before emitting it on existing routes or browser events. The foundation may reserve the value without changing legacy wire mappings. Never renumber stored values.
 - Preserve current retry semantics: DOWN becomes confirmed only when consecutive failures exceed `max_retries`; retries remain PENDING. `upside_down` and accepted HTTP codes retain their present behavior.
 - Default result freshness is `max(90, 2 * max(interval, retry_interval) + ceil(timeout))` seconds. Freshness concerns observed check age, not receipt of an arbitrary WebSocket message.
-- A disconnected probe may still have fresh last-known evidence until that deadline; display its disconnected connection state separately. After expiry, the hub projects UNKNOWN.
+- A disconnected probe may still have fresh last-known evidence until that deadline; display its disconnected connection state separately. At the freshness deadline, the hub projects UNKNOWN. The initial pure evaluator treats future-dated observations as UNKNOWN until their timestamp is reached, and permits an explicit diagnostic to invalidate otherwise recent evidence.
 - Maintenance is evaluated from accepted configuration. It suppresses notifications and appears explicitly; it never resets another region's incident history.
 - Administrative pause is a separate execution state. Paused assignments do not participate in quorum and do not masquerade as failing probes.
 - Significant clock error, missing assignment acknowledgement, a retention gap covering the current evidence, or execution failure can make a regional view UNKNOWN with a reason.
@@ -154,7 +154,7 @@ Keep the last confirmed incident through UNKNOWN or PENDING. Neither state sends
 
 Regional charts read a selected probe. Overall charts use derived availability intervals, not a union of raw heartbeats from several probes. Do not average all probe samples into a single uptime percentage: faster intervals and more probes would change the denominator.
 
-Report `uptime_percent` over known UP/DOWN duration, plus `coverage_percent` and explicit unknown/maintenance duration. Return null uptime when there is no known duration. Keep per-region latency series; V1 does not invent an aggregate ping from incomparable vantage points.
+Report `uptime_percent` over known UP/DOWN duration, plus `coverage_percent` and explicit unknown/maintenance duration. Define known duration as UP + DOWN and unknown duration as UNKNOWN + PENDING + administratively paused duration. Coverage is `100 * known / (known + unknown)`; maintenance is excluded from both percentages. Return null uptime when there is no known duration, and null coverage when its denominator is zero (including an all-maintenance or zero-length window). Count each assigned probe in exactly one state bucket, including an explicit paused bucket. Keep per-region latency series; V1 does not invent an aggregate ping from incomparable vantage points.
 
 Historical overall status is reconstructed from regional transitions, assignment/policy effective-time history, and freshness expirations. Late data can improve the historical answer but cannot rewrite the fact that operators had missing evidence at the time; retain receipt time for diagnostics. Do not let added probes retroactively participate in periods before their assignment.
 
@@ -186,7 +186,7 @@ Regional acknowledgement requested through the hub is a durable, idempotent comm
 
 Probe acknowledgement state and escalation progress survive restart. The edge runs applicable accepted escalation policy and monitor-channel configuration; group-wide escalation remains hub-owned. Commands carry source incident identity and assignment generation, so a delayed acknowledgement cannot acknowledge a new outage. An incident already resolved returns an idempotent `already_resolved` result.
 
-Existing signed acknowledgement links must resolve the correct scope at the hub and enqueue the same command. Their availability depends on a reachable public hub URL; omit links when unavailable rather than inventing a public endpoint on the probe.
+Existing local acknowledgement links use opaque database tokens, not signatures, and retain their behavior. Remote regional acknowledgement URLs are deferred from V1: omit them from remote notifications, even when the channel requests a link. Use the authenticated hub command after the source incident has been mirrored. A future link mechanism must define scoped authority, expiry, and offline-created incident lookup before activation; never distribute a hub-wide signing secret to probes. Surface this limitation in remote channel configuration.
 
 ## 6. Watchdogs and offline operation
 

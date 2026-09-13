@@ -1,6 +1,6 @@
 # Multi-region probes — implementation plan
 
-Status: all milestones below are planned. This change supplies design documents only. Application baseline, decisions, and reading order are in [README.md](README.md). Implement [ARCHITECTURE.md](ARCHITECTURE.md) and [PROTOCOL.md](PROTOCOL.md) as one contract.
+Status: M0 and M1 are in progress; later milestones are planned. See [implementation status](IMPLEMENTATION_STATUS.md) for the tested subset and remaining work. Checkboxes describe whole work items, not partial progress. Application baseline, decisions, and reading order are in [README.md](README.md). Implement [ARCHITECTURE.md](ARCHITECTURE.md) and [PROTOCOL.md](PROTOCOL.md) as one contract.
 
 ## 1. Outcome and scope
 
@@ -32,13 +32,13 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 
 **Goal:** make the proposal unambiguous at the actual code boundaries before distributed behavior is added.
 
-- [ ] Re-read `AGENTS.md`, current `docs/ARCHITECTURE.md`, `docs/TESTING.md`, and these documents at the implementation branch HEAD.
-- [ ] Inventory current migrations in both adapters and reserve consecutive unused numbers. `035` in the research is an example, not a reservation that survives new commits.
+- [x] Re-read `AGENTS.md`, current `docs/ARCHITECTURE.md`, `docs/TESTING.md`, and these documents at the implementation branch HEAD.
+- [x] Inventory current migrations in both adapters and reserve consecutive unused numbers. Migration `035_probe_registry` is reserved by the initial foundation after verifying both adapters ended at `034`. Recheck HEAD before reserving subsequent numbers.
 - [ ] Capture real monitor/heartbeat/template/maintenance/alert response fields in contract fixtures. Preserve `accepted_statuscodes`, `message`, `access_code`, and `monitor_ids` where applicable.
 - [ ] Define pure regional/probe types, stable identity formats, `UNKNOWN=4`, enums, and the atomic repository operations described in architecture section 3.
 - [ ] Define transport DTOs independently from domain types. Create valid/invalid fixtures under `internal/adapters/probe/testdata/v1/` and browser response fixtures in the existing frontend test layout.
-- [ ] Record a contract decision for any implementation discovery that changes this proposal, before dependent agents begin.
-- [ ] Capture baseline tests for retry confirmation, local recovery, maintenance, certificate alerts, capacity conditions, folder alerting, acknowledgement/escalation, and existing query counts.
+- [x] Record a contract decision for any implementation discovery that changes this proposal, before dependent agents begin.
+- [x] Capture baseline tests for retry confirmation, local recovery, maintenance, certificate alerts, capacity conditions, folder alerting, acknowledgement/escalation, and existing query counts.
 
 **Acceptance:** fixtures encode all V1 message kinds and API responses; local-only source paths still compile and tests pass; no remote routes report success; no data migration or runtime flag has silently enabled remote work.
 
@@ -266,4 +266,4 @@ Stop rollout on lost acknowledged data, cross-probe state interference, incorrec
 
 ## 17. Start instruction for the next agent
 
-Begin with M0 on the shared branch. Read the three design documents and project instructions, confirm the current source signatures and migration sequence, create the contract fixtures, and run local baseline tests. Then implement M1 without enabling remote execution. Keep each milestone reviewable and commit its contract, code, and tests together. Do not start SSH provisioning or the public push gateway until the V1 monitoring/replay path has passed M6.
+Continue from [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) on the shared branch. Read the design documents and project instructions, confirm HEAD and the next migration number, finish the remaining M0 contracts/fixtures, and extend the existing M1 foundation without enabling remote execution. The first foundation already captures the local baseline; do not recreate or overwrite those types, fixtures, or migration 035. Keep each milestone reviewable and commit its contract, code, and tests together. Do not start SSH provisioning or the public push gateway until the V1 monitoring/replay path has passed M6.

@@ -1,6 +1,6 @@
 # Multi-region probes — implementation handoff
 
-Status: proposed implementation specification; no distributed-probe runtime is shipped by this documentation change.
+Status: implementation started with M0 contracts and a bounded M1 persistence/health foundation. No distributed-probe runtime is enabled. See [implementation status](IMPLEMENTATION_STATUS.md) for completed work and the next steps.
 
 Prepared: 2026-09-13. Application baseline: `main` at `5183093c5c218675bab89fe9d6c7056de2d711eb`. Research baseline: Gemini's `research_multi_region_deployment` at `f4ef4a4677120264cb513158df813479ee5dd644`.
 
@@ -44,11 +44,15 @@ The default single-pod installation must continue to work without probes, Redis,
 | D09 | Manual enrollment precedes optional SSH installation | Allows the reliability path to be validated without coupling it to host provisioning |
 | D10 | The reserved local probe ID is `local` | It works for Kubernetes, a standalone server, and local development |
 | D11 | New branch starts from current local `main`, retaining the research text with trailing whitespace normalized | Carries current application improvements and makes research available to the next agent |
+| D12 | Raw checker conditions and evaluated current conditions use different DTOs | A first warning is not yet a confirmed warning; replay must not repeat promotion |
+| D13 | Remote acknowledgement URLs deferred from V1; local opaque-token URLs unchanged | Offline source incidents have no defined hub token authority; authenticated commands provide scoped acknowledgement |
+| D14 | Coverage excludes maintenance and counts PENDING/paused as unknown | Prevents missing evidence or administrative pause from inflating uptime |
+| D15 | Dependency versions use the complete snapshot revision | Existing timestamps are not reliable configuration version counters |
 
 ## Handoff state
 
-- This is a documentation-only handoff; all implementation milestones begin unchecked.
+- Implementation is in progress. M0 and M1 remain incomplete until all acceptance criteria pass; the status document identifies the executable subset.
 - The branch is intended to be checked out in the ordinary repository directory, not a new linked worktree.
-- Start with milestone M0 in the implementation plan. Do not copy the research's Go snippets or SQL directly into production files.
+- Continue with remaining milestone M0 contracts and M1 work in the status document. Do not copy the research's Go snippets or SQL directly into production files.
 - Commit each coherent implementation milestone with its tests. Keep defaults compatible until the explicit activation gate passes.
 - Multiple agents may implement disjoint milestones after shared contracts land; the ownership table assigns every shared integration surface to one integrator.

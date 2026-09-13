@@ -85,32 +85,17 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 		Duration:  duration,
 	}
 
-	// Compute DownCount based on status transition.
-	var prevDownCount int
+	var previous *domain.RetryState
 	var oldStatus *domain.Status
 	if prevErr == nil && prevHB != nil {
-		prevDownCount = prevHB.DownCount
+		previous = &domain.RetryState{Status: prevHB.Status, DownCount: prevHB.DownCount}
 		oldStatus = &prevHB.Status
 	}
-
-	if result.Status == domain.StatusDown {
-		hb.DownCount = prevDownCount + 1
-		// Retry-confirm: while still inside the retry window, report the check as
-		// PENDING rather than DOWN so a transient failure doesn't immediately fire
-		// alerts. The monitor only transitions to confirmed DOWN once it has failed
-		// more than MaxRetries consecutive times. MaxRetries == 0 means no retries
-		// (fail immediately), preserving the original behavior.
-		if monitor.MaxRetries > 0 && hb.DownCount <= monitor.MaxRetries {
-			hb.Status = domain.StatusPending
-		}
-	} else {
-		hb.DownCount = 0
-	}
-
-	// A transition is any change in effective status (including the first check).
-	// Mark such heartbeats "important" so the UI and history can highlight them.
-	transitioned := oldStatus == nil || *oldStatus != hb.Status
-	hb.Important = transitioned
+	evaluation := EvaluateRetry(previous, result.Status, monitor.MaxRetries)
+	hb.Status = evaluation.State.Status
+	hb.DownCount = evaluation.State.DownCount
+	hb.Important = evaluation.Important
+	transitioned := evaluation.Important
 
 	// Save heartbeat. Return error if save fails (don't suppress).
 	if err := s.heartbeats.Save(ctx, hb); err != nil {
