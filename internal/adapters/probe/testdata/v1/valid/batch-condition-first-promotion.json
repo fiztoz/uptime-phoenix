@@ -2,7 +2,7 @@
   "protocol_version": 1,
   "type": "telemetry.batch",
   "message_id": "637c39e5-0d90-41db-82c8-4a8bc65f16e5",
-  "sent_at": "2026-09-13T09:00:05Z",
+  "sent_at": "2026-09-14T09:05:00Z",
   "connection_generation": "7",
   "payload": {
     "stream_id": "1395c134-da65-4d86-9b11-c9ce20c61748",
@@ -11,21 +11,17 @@
     "events": [
       {
         "seq": "101",
-        "kind": "unsupported.event",
-        "observed_at": "2026-09-13T08:59:58Z",
+        "kind": "condition.transition",
+        "observed_at": "2026-09-14T09:00:00Z",
         "data": {
           "monitor_id": 42,
           "assignment_generation": "3",
           "config_revision": "12",
-          "status": "UP",
-          "raw_status": "UP",
-          "down_count": 0,
-          "ping": 28,
-          "duration_ms": 31,
-          "message": "HTTP 200",
-          "important": false,
-          "conditions": [],
-          "tls": null
+          "kind": "storage",
+          "previous_state": null,
+          "state": "warning",
+          "message": "Storage warning confirmed",
+          "source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94541"
         }
       }
     ]

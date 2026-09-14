@@ -1,0 +1,262 @@
+{
+  "protocol_version": 1,
+  "type": "telemetry.batch",
+  "message_id": "637c39e5-0d90-41db-82c8-4a8bc65f16e5",
+  "sent_at": "2026-09-14T09:05:00Z",
+  "connection_generation": "7",
+  "payload": {
+    "stream_id": "1395c134-da65-4d86-9b11-c9ce20c61748",
+    "first_seq": "101",
+    "last_seq": "110",
+    "events": [
+      {
+        "seq": "101",
+        "kind": "observation",
+        "observed_at": "2026-09-14T09:00:00Z",
+        "data": {
+          "monitor_id": 43,
+          "assignment_generation": "3",
+          "config_revision": "12",
+          "status": "UP",
+          "raw_status": "UP",
+          "down_count": 0,
+          "ping": 28,
+          "duration_ms": 31,
+          "message": "HTTP 200",
+          "important": false,
+          "conditions": [],
+          "tls": null
+        }
+      },
+      {
+        "seq": "102",
+        "kind": "alert.transition",
+        "observed_at": "2026-09-14T09:00:00Z",
+        "data": {
+          "source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94540",
+          "scope": "regional",
+          "monitor_id": 42,
+          "assignment_generation": "3",
+          "status": "firing",
+          "transition_version": "1",
+          "started_at": "2026-09-14T09:00:00Z",
+          "resolved_at": null,
+          "reason": "Confirmed DOWN",
+          "config_revision": "12",
+          "subject": {
+            "kind": "availability",
+            "condition_kind": null,
+            "certificate_threshold": null,
+            "certificate_not_after": null
+          },
+          "acked_at": null,
+          "acknowledgement": null,
+          "escalation": {
+            "policy_id": 8,
+            "policy_version": "12",
+            "status": "pending",
+            "next_step": 1,
+            "next_run_at": "2026-09-14T09:05:00Z"
+          }
+        }
+      },
+      {
+        "seq": "103",
+        "kind": "delivery.result",
+        "observed_at": "2026-09-14T09:00:00Z",
+        "data": {
+          "delivery_id": "9c73a9c5-77ad-4dc0-926d-123bbab94540",
+          "source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94540",
+          "source_transition_version": "1",
+          "notification_id": 9,
+          "notification_version": "12",
+          "event_kind": "status_change",
+          "attempt": 1,
+          "status": "retrying",
+          "error_code": "provider_timeout"
+        }
+      },
+      {
+        "seq": "104",
+        "kind": "alert.transition",
+        "observed_at": "2026-09-14T09:00:00Z",
+        "data": {
+          "source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94540",
+          "scope": "regional",
+          "monitor_id": 42,
+          "assignment_generation": "3",
+          "status": "acked",
+          "transition_version": "2",
+          "started_at": "2026-09-14T09:00:00Z",
+          "resolved_at": null,
+          "reason": "Confirmed DOWN",
+          "config_revision": "12",
+          "subject": {
+            "kind": "availability",
+            "condition_kind": null,
+            "certificate_threshold": null,
+            "certificate_not_after": null
+          },
+          "acked_at": "2026-09-14T09:05:00Z",
+          "acknowledgement": {
+            "command_id": "8c73a9c5-77ad-4dc0-926d-123bbab94540",
+            "actor_display_name": "Operator",
+            "note": "Investigating"
+          },
+          "escalation": {
+            "policy_id": 8,
+            "policy_version": "12",
+            "status": "canceled",
+            "next_step": null,
+            "next_run_at": null
+          }
+        }
+      },
+      {
+        "seq": "105",
+        "kind": "delivery.result",
+        "observed_at": "2026-09-14T09:00:00Z",
+        "data": {
+          "delivery_id": "9c73a9c5-77ad-4dc0-926d-123bbab94540",
+          "source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94540",
+          "source_transition_version": "1",
+          "notification_id": 9,
+          "notification_version": "12",
+          "event_kind": "status_change",
+          "attempt": 2,
+          "status": "sent",
+          "error_code": null
+        }
+      },
+      {
+        "seq": "106",
+        "kind": "alert.transition",
+        "observed_at": "2026-09-14T09:00:00Z",
+        "data": {
+          "source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94540",
+          "scope": "regional",
+          "monitor_id": 42,
+          "assignment_generation": "3",
+          "status": "resolved",
+          "transition_version": "3",
+          "started_at": "2026-09-14T09:00:00Z",
+          "resolved_at": "2026-09-14T09:05:00Z",
+          "reason": "Recovered",
+          "config_revision": "12",
+          "subject": {
+            "kind": "availability",
+            "condition_kind": null,
+            "certificate_threshold": null,
+            "certificate_not_after": null
+          },
+          "acked_at": "2026-09-14T09:05:00Z",
+          "acknowledgement": {
+            "command_id": "8c73a9c5-77ad-4dc0-926d-123bbab94540",
+            "actor_display_name": "Operator",
+            "note": "Investigating"
+          },
+          "escalation": {
+            "policy_id": 8,
+            "policy_version": "12",
+            "status": "canceled",
+            "next_step": null,
+            "next_run_at": null
+          }
+        }
+      },
+      {
+        "seq": "107",
+        "kind": "alert.transition",
+        "observed_at": "2026-09-14T09:00:00Z",
+        "data": {
+          "source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94541",
+          "scope": "regional",
+          "monitor_id": 42,
+          "assignment_generation": "3",
+          "status": "firing",
+          "transition_version": "1",
+          "started_at": "2026-09-14T09:00:00Z",
+          "resolved_at": null,
+          "reason": "Storage warning",
+          "config_revision": "12",
+          "subject": {
+            "kind": "capacity",
+            "condition_kind": "storage",
+            "certificate_threshold": null,
+            "certificate_not_after": null
+          },
+          "acked_at": null,
+          "acknowledgement": null,
+          "escalation": null
+        }
+      },
+      {
+        "seq": "108",
+        "kind": "condition.transition",
+        "observed_at": "2026-09-14T09:00:00Z",
+        "data": {
+          "monitor_id": 42,
+          "assignment_generation": "3",
+          "config_revision": "12",
+          "kind": "storage",
+          "previous_state": null,
+          "state": "warning",
+          "message": "Storage warning confirmed",
+          "source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94541"
+        }
+      },
+      {
+        "seq": "109",
+        "kind": "alert.transition",
+        "observed_at": "2026-09-14T09:00:00Z",
+        "data": {
+          "source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94542",
+          "scope": "regional",
+          "monitor_id": 42,
+          "assignment_generation": "3",
+          "status": "firing",
+          "transition_version": "1",
+          "started_at": "2026-09-14T09:00:00Z",
+          "resolved_at": null,
+          "reason": "Certificate expires in six days",
+          "config_revision": "12",
+          "subject": {
+            "kind": "certificate",
+            "condition_kind": null,
+            "certificate_threshold": 7,
+            "certificate_not_after": "2026-09-20T09:00:00Z"
+          },
+          "acked_at": null,
+          "acknowledgement": null,
+          "escalation": null
+        }
+      },
+      {
+        "seq": "110",
+        "kind": "watchdog.transition",
+        "observed_at": "2026-09-14T09:00:00Z",
+        "data": {
+          "source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94543",
+          "scope": "probe_connection",
+          "monitor_id": null,
+          "assignment_generation": null,
+          "status": "firing",
+          "transition_version": "1",
+          "started_at": "2026-09-14T09:00:00Z",
+          "resolved_at": null,
+          "reason": "Hub ingest unavailable",
+          "config_revision": "12",
+          "subject": {
+            "kind": "watchdog",
+            "condition_kind": null,
+            "certificate_threshold": null,
+            "certificate_not_after": null
+          },
+          "acked_at": null,
+          "acknowledgement": null,
+          "escalation": null
+        }
+      }
+    ]
+  }
+}

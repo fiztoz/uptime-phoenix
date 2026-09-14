@@ -1,8 +1,8 @@
 # Implemented M0 transport fixtures
 
-This directory covers the currently implemented **framing, observation telemetry, and current-state snapshot contracts**. It does not claim complete V1 protocol support.
+This directory covers the currently implemented **framing, mixed telemetry, and current-state snapshot contracts**. It does not claim complete V1 protocol support.
 
-`envelope-hello.json` validates common framing only. The envelope decoder recognizes all message names documented in PROTOCOL.md, but does not validate their payloads. Typed decoders currently cover `telemetry.batch` containing only `observation` events, plus `telemetry.ack`, `telemetry.retry`, and `telemetry.gap`. Other event payloads return an explicit unsupported error. No fixture enables remote execution or creates a transport endpoint.
+`envelope-hello.json` validates common framing only. The envelope decoder recognizes all message names documented in PROTOCOL.md, but does not validate their payloads. Typed decoders cover `telemetry.batch` containing `observation`, `alert.transition`, `watchdog.transition`, `delivery.result`, and `condition.transition`, plus `telemetry.ack`, `telemetry.retry`, and `telemetry.gap`. Unknown event kinds return an explicit unsupported error. No fixture enables remote execution or creates a transport endpoint.
 
 Golden files exercise valid messages and representative invalid contracts. Tests additionally construct maximum frame/event/batch sizes, missing/null fields, duplicate object keys at every depth, counter overflow, unknown optional fields, invalid status combinations, sequence discontinuities and collection limits. The maximum-sequence fixture demonstrates exact signed-64-bit preservation and contiguous observations sharing a timestamp.
 
@@ -14,6 +14,8 @@ Condition examples distinguish first-ever OK/warning/error, a warning after OK, 
 
 Assembler tests additionally exercise out-of-order and identical duplicate chunks, conflicting retries, fixed-deadline expiry, cancellation, connection/stream/config fencing within a transfer, incomplete commits, exact byte totals, corrupt hashes, begin/content metadata conflicts, duplicate JSON keys after reconstruction, and terminal staging cleanup. Successful assembly returns typed evidence only.
 
+The 46 incident/delivery/condition fixtures bring the total to 112. The mixed-lifecycle batch demonstrates independent monitor evidence, incident versions, acknowledgement and escalation cancellation, delivery retry/success against the original incident version, capacity promotion, certificate identity, and watchdog attribution. All `batch-*` files use the same complete batch decoder. Subject/lifecycle/nullability conflicts, unsupported scope claims, certificate thresholds, delivery outcome rules, and missing/overflow versions are rejected. Typed round trips do not forward unknown fields into persistence DTOs. Service authorization and immutable identity/version checks against durable records remain pending.
+
 Decoding proves syntax and bounded structure only. Services must still authorize probe/stream/assignment identity, validate current configuration and time bounds, enforce connection generations, compare cursor continuity, and commit durable receipts before acknowledging evidence. ACK decoding does not prove a commit occurred.
 
-Deferred M0 fixtures include handshake payloads, complete configuration transfers, alerts/delivery/watchdog events, commands and enrollment, HTTP views, and browser contracts. Durable projection application/receipts and authenticated assignment checks are also pending. These must be implemented before advertising a complete protocol capability.
+Deferred M0 fixtures include handshake payloads, complete configuration transfers, commands and enrollment, HTTP views, and browser contracts. Durable projection application/receipts and authenticated assignment/incident/channel checks are also pending. These must be implemented before advertising a complete protocol capability.

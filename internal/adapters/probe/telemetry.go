@@ -29,22 +29,30 @@ const (
 // typed decoder in this staged slice. Callers must not acknowledge it as accepted.
 var ErrUnsupportedPayload = errors.New("payload decoder is not implemented")
 
-// TelemetryBatch contains only observations in the initial executable slice.
-// Other V1 event kinds are explicitly rejected until their typed decoders exist.
+// TelemetryBatch contains ordered source evidence and lifecycle/delivery mirrors.
+// Decoding never grants assignment authority or requests provider delivery.
 type TelemetryBatch struct {
-	StreamID string             `json:"stream_id"`
-	FirstSeq Decimal            `json:"first_seq"`
-	LastSeq  Decimal            `json:"last_seq"`
-	Events   []ObservationEvent `json:"events"`
+	StreamID string           `json:"stream_id"`
+	FirstSeq Decimal          `json:"first_seq"`
+	LastSeq  Decimal          `json:"last_seq"`
+	Events   []TelemetryEvent `json:"events"`
 }
 
-// ObservationEvent is immutable source evidence identified by stream and sequence.
-type ObservationEvent struct {
-	Seq        Decimal     `json:"seq"`
-	Kind       string      `json:"kind"`
-	ObservedAt Timestamp   `json:"observed_at"`
-	Data       Observation `json:"data"`
+// TelemetryEvent is immutable source evidence identified by stream and sequence.
+// Data is one of Observation, IncidentTransition, DeliveryResult, ConditionTransition.
+type TelemetryEvent struct {
+	Seq        Decimal       `json:"seq"`
+	Kind       string        `json:"kind"`
+	ObservedAt Timestamp     `json:"observed_at"`
+	Data       TelemetryData `json:"data"`
 }
+
+// TelemetryData restricts event payloads to explicit, typed transport DTOs.
+type TelemetryData interface {
+	isTelemetryData()
+}
+
+func (Observation) isTelemetryData() {}
 
 // Observation preserves source retry evaluation without generating hub evidence.
 type Observation struct {
@@ -126,9 +134,9 @@ type TelemetryGap struct {
 	AffectedMonitorIDs []int64   `json:"affected_monitor_ids"`
 }
 
-// DecodeTelemetryBatch validates complete framing and observation payloads.
-// Assignment authorization, configured retries, clock bounds, and durable cursor
-// continuity require service state and must be checked before committing evidence.
+// DecodeTelemetryBatch validates complete framing and all V1 telemetry payloads.
+// Assignment/incident authorization, configured retries, clock bounds, and durable
+// cursor continuity require service state and must be checked before commit.
 func DecodeTelemetryBatch(data []byte) (Envelope, TelemetryBatch, error) {
 	var batch TelemetryBatch
 	if len(data) > MaxBatchBytes {
@@ -157,9 +165,9 @@ func DecodeTelemetryBatch(data []byte) (Envelope, TelemetryBatch, error) {
 	if batch.FirstSeq <= 0 || batch.LastSeq < batch.FirstSeq || int64(batch.LastSeq-batch.FirstSeq) != int64(len(events)-1) {
 		return envelope, batch, errors.New("batch sequence bounds must exactly cover its events")
 	}
-	batch.Events = make([]ObservationEvent, 0, len(events))
+	batch.Events = make([]TelemetryEvent, 0, len(events))
 	for index, raw := range events {
-		event, err := decodeObservationEvent(raw)
+		event, err := decodeTelemetryEvent(raw)
 		if err != nil {
 			return envelope, TelemetryBatch{}, fmt.Errorf("events[%d]: %w", index, err)
 		}
@@ -171,8 +179,8 @@ func DecodeTelemetryBatch(data []byte) (Envelope, TelemetryBatch, error) {
 	return envelope, batch, nil
 }
 
-func decodeObservationEvent(data []byte) (ObservationEvent, error) {
-	var event ObservationEvent
+func decodeTelemetryEvent(data []byte) (TelemetryEvent, error) {
+	var event TelemetryEvent
 	if len(data) > MaxEventBytes {
 		return event, errors.New("event exceeds maximum bytes")
 	}
@@ -189,9 +197,6 @@ func decodeObservationEvent(data []byte) (ObservationEvent, error) {
 	if err := required(fields, "kind", &event.Kind); err != nil {
 		return event, err
 	}
-	if event.Kind != "observation" {
-		return event, fmt.Errorf("unsupported telemetry event kind: %w", ErrUnsupportedPayload)
-	}
 	if err := required(fields, "observed_at", &event.ObservedAt); err != nil {
 		return event, err
 	}
@@ -199,7 +204,18 @@ func decodeObservationEvent(data []byte) (ObservationEvent, error) {
 	if err := required(fields, "data", &raw); err != nil {
 		return event, err
 	}
-	event.Data, err = decodeObservation(raw)
+	switch event.Kind {
+	case "observation":
+		event.Data, err = decodeObservation(raw)
+	case "alert.transition", "watchdog.transition":
+		event.Data, err = decodeIncidentTransition(raw, event.Kind)
+	case "delivery.result":
+		event.Data, err = decodeDeliveryResult(raw)
+	case "condition.transition":
+		event.Data, err = decodeConditionTransition(raw)
+	default:
+		return event, fmt.Errorf("unsupported telemetry event kind: %w", ErrUnsupportedPayload)
+	}
 	return event, err
 }
 

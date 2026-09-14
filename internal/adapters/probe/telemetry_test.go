@@ -67,14 +67,14 @@ func TestObservationPreservesWireEvidence(t *testing.T) {
 	if batch.Events[0].ObservedAt != batch.Events[1].ObservedAt {
 		t.Fatal("fixture does not demonstrate tied observation timestamps")
 	}
-	if batch.Events[0].Data.Status != "PENDING" || batch.Events[1].Data.Status != "DOWN" || batch.Events[1].Data.DownCount != 2 {
+	if batch.Events[0].Data.(Observation).Status != "PENDING" || batch.Events[1].Data.(Observation).Status != "DOWN" || batch.Events[1].Data.(Observation).DownCount != 2 {
 		t.Fatalf("source retry evidence changed: %+v", batch.Events)
 	}
 	_, batch, err = DecodeTelemetryBatch(readFixture(t, "valid", "batch-conditions-tls.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	observation := batch.Events[0].Data
+	observation := batch.Events[0].Data.(Observation)
 	if observation.Status != "UP" || observation.Conditions[0].State != "warning" || observation.Conditions[1].Used != nil || observation.Conditions[1].Threshold == nil || *observation.Conditions[1].Threshold != 90 {
 		t.Fatalf("condition evidence/nullability changed: %+v", observation)
 	}
@@ -113,7 +113,7 @@ func TestObservationAllRequiredFieldsDistinguishZeroAndFalse(t *testing.T) {
 		})
 	}
 	_, batch, err := DecodeTelemetryBatch(fixture)
-	if err != nil || batch.Events[0].Data.Important || batch.Events[0].Data.DownCount != 0 {
+	if err != nil || batch.Events[0].Data.(Observation).Important || batch.Events[0].Data.(Observation).DownCount != 0 {
 		t.Fatalf("valid false/zero rejected or changed: %v", err)
 	}
 }
