@@ -32,6 +32,12 @@ func TestGoldenTelemetryFixtures(t *testing.T) {
 					_, _, decodeError = DecodeTelemetryGap(data)
 				case strings.HasPrefix(name, "envelope-"):
 					_, decodeError = DecodeEnvelope(data)
+				case strings.HasPrefix(name, "hello-"):
+					_, _, decodeError = DecodeHello(data)
+				case strings.HasPrefix(name, "welcome-"):
+					_, _, decodeError = DecodeWelcome(data)
+				case strings.HasPrefix(name, "health-"):
+					_, _, decodeError = DecodeHealth(data)
 				case strings.HasPrefix(name, "state-snapshot-"):
 					_, decodeError = DecodeStateSnapshot(data)
 				case strings.HasPrefix(name, "state-begin-"):

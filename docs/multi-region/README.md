@@ -50,6 +50,7 @@ The default single-pod installation must continue to work without probes, Redis,
 | D15 | Dependency versions use the complete snapshot revision | Existing timestamps are not reliable configuration version counters |
 | D16 | State snapshots carry explicit observed, candidate, and effective conditions; transfer completion is separate from durable application | Preserve first-sample and hysteresis behavior during backlog replay without inferring alerts or advancing the history cursor |
 | D17 | Incident subject identities are immutable; deliveries reference the source incident transition and keep provider event names | Regional replay can mirror lifecycle and outcomes without becoming a send request or claiming hub-owned aggregate/group incidents |
+| D18 | Handshake identity/generation/capabilities are checked against trusted expectations; empty retained history uses sequence zero and health is role-specific diagnostic evidence | Prevents silent reset, cursor jumps, fabricated queue health, and capability/version substitution before runtime integration |
 
 ## Handoff state
 
