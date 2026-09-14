@@ -1,0 +1,288 @@
+{
+  "schema_version": 1,
+  "hub_id": "b1123604-32c5-40aa-89f9-b62f93dceac2",
+  "probe_id": "e645246b-b176-4422-8ae5-b79629ee6a29",
+  "revision": "12",
+  "created_at": "2026-09-14T10:00:00Z",
+  "effective_at": "2026-09-14T10:01:00Z",
+  "assignments": [
+    {
+      "monitor_id": 42,
+      "generation": "3",
+      "active": true,
+      "monitor": {
+        "name": "API",
+        "description": "Public availability",
+        "owner": "Platform",
+        "effective_owner": "Operations",
+        "type": "http",
+        "interval": 60,
+        "retry_interval": 0,
+        "max_retries": 2,
+        "timeout": 2.5,
+        "config": {
+          "url": "https://example.test/health",
+          "method": "GET"
+        },
+        "accepted_statuscodes": [
+          "200-299"
+        ],
+        "upside_down": false,
+        "tls_ignore": false,
+        "cert_expiry_notify": true,
+        "resend_interval": 5,
+        "tags": [
+          {
+            "name": "environment",
+            "value": "production"
+          }
+        ]
+      },
+      "notification_ids": [
+        10
+      ],
+      "notification_links": [
+        {
+          "notification_id": 10,
+          "include_target": false
+        }
+      ],
+      "maintenance_ids": [
+        20,
+        21
+      ],
+      "proxy_binding_key": "egress",
+      "resource_bindings": [],
+      "escalation_policy_id": 30,
+      "required_capabilities": [
+        "checker.http.v1"
+      ]
+    },
+    {
+      "monitor_id": 43,
+      "generation": "3",
+      "active": true,
+      "monitor": {
+        "name": "Container",
+        "description": "Public availability",
+        "owner": "Platform",
+        "effective_owner": "Operations",
+        "type": "docker",
+        "interval": 60,
+        "retry_interval": 0,
+        "max_retries": 2,
+        "timeout": 2.5,
+        "config": {
+          "container_name": "example"
+        },
+        "accepted_statuscodes": [
+          "200-299"
+        ],
+        "upside_down": false,
+        "tls_ignore": false,
+        "cert_expiry_notify": false,
+        "resend_interval": 5,
+        "tags": [
+          {
+            "name": "environment",
+            "value": "production"
+          }
+        ]
+      },
+      "notification_ids": [
+        10,
+        12
+      ],
+      "notification_links": [
+        {
+          "notification_id": 10,
+          "include_target": true
+        },
+        {
+          "notification_id": 12,
+          "include_target": false
+        }
+      ],
+      "maintenance_ids": [
+        20
+      ],
+      "proxy_binding_key": null,
+      "resource_bindings": [
+        {
+          "binding_key": "docker-local",
+          "kind": "docker_socket"
+        }
+      ],
+      "escalation_policy_id": 30,
+      "required_capabilities": [
+        "checker.docker.v1"
+      ]
+    }
+  ],
+  "notification_channels": [
+    {
+      "id": 10,
+      "version": "12",
+      "type": "webhook",
+      "name": "Operations",
+      "active": true,
+      "config": {
+        "url": "https://example.test/hook"
+      },
+      "template_id": 11,
+      "include_ack_url": false
+    },
+    {
+      "id": 12,
+      "version": "12",
+      "type": "smtp",
+      "name": "Mail",
+      "active": false,
+      "config": {
+        "host": "smtp.example.test",
+        "port": 587,
+        "from": "phoenix@example.test",
+        "to": "ops@example.test"
+      },
+      "template_id": 13,
+      "include_ack_url": false
+    },
+    {
+      "id": 14,
+      "version": "12",
+      "type": "discord",
+      "name": "Chat",
+      "active": true,
+      "config": {
+        "webhook_url": "https://example.test/discord"
+      },
+      "template_id": 15,
+      "include_ack_url": false
+    }
+  ],
+  "notification_templates": [
+    {
+      "id": 11,
+      "provider": "webhook",
+      "name": "JSON",
+      "version": "12",
+      "title_template": "",
+      "body_template": "{\"text\":{{json.message}}}",
+      "config": {}
+    },
+    {
+      "id": 13,
+      "provider": "smtp",
+      "name": "Mail layout",
+      "version": "12",
+      "title_template": "{{monitor.name}}",
+      "body_template": "{{message}}",
+      "config": {
+        "format": "html",
+        "html_body_template": "<p>{{message}}</p>"
+      }
+    },
+    {
+      "id": 15,
+      "provider": "discord",
+      "name": "Chat layout",
+      "version": "12",
+      "title_template": "{{monitor.name}}",
+      "body_template": "{{message}}",
+      "config": {
+        "title_url_template": "",
+        "footer_template": "Phoenix",
+        "show_timestamp": true,
+        "colors": {
+          "up": "#00ff00",
+          "down": "#ff0000",
+          "pending": "#ffff00",
+          "maintenance": "#0000ff",
+          "certificate": "#ff8800"
+        },
+        "fields": [
+          {
+            "name_template": "Owner",
+            "value_template": "{{monitor.owner}}",
+            "inline": true
+          }
+        ],
+        "buttons": []
+      }
+    }
+  ],
+  "maintenance_windows": [
+    {
+      "id": 20,
+      "active": true,
+      "strategy": "cron",
+      "start_date": null,
+      "end_date": null,
+      "cron_expr": "0 2 * * *",
+      "duration": 15,
+      "timezone": "Asia/Bangkok",
+      "monitor_ids": [
+        42,
+        43
+      ]
+    },
+    {
+      "id": 21,
+      "active": true,
+      "strategy": "single",
+      "start_date": "2026-09-15T10:00:00Z",
+      "end_date": "2026-09-15T11:00:00Z",
+      "cron_expr": "",
+      "duration": 0,
+      "timezone": "UTC",
+      "monitor_ids": [
+        42
+      ]
+    }
+  ],
+  "proxy_bindings": [
+    {
+      "binding_key": "egress",
+      "version": "12",
+      "protocol": "socks5",
+      "host": "proxy.example.test",
+      "port": 1080,
+      "auth": true,
+      "username": "fixture-user",
+      "password": "fixture-secret",
+      "active": true
+    }
+  ],
+  "escalation_policies": [
+    {
+      "id": 30,
+      "version": "12",
+      "enabled": false,
+      "steps": [
+        {
+          "step": 1,
+          "delay_seconds": 0,
+          "notification_ids": [
+            14
+          ]
+        },
+        {
+          "step": 2,
+          "delay_seconds": 604800,
+          "notification_ids": [
+            12
+          ]
+        }
+      ]
+    }
+  ],
+  "watchdog": {
+    "enabled": true,
+    "lost_after_seconds": 90,
+    "recover_after_seconds": 30,
+    "notification_ids": [
+      10
+    ],
+    "resend_interval": 5
+  }
+}

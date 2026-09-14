@@ -1,0 +1,13 @@
+{
+  "protocol_version": 1,
+  "type": "config.chunk",
+  "message_id": "1c73a9c5-77ad-4dc0-926d-123bbab94540",
+  "sent_at": "2026-09-14T10:00:00Z",
+  "connection_generation": "7",
+  "payload": {
+    "snapshot_id": "9ac3ab1e-655a-4f36-b542-08e492af1111",
+    "revision": "12",
+    "index": 0,
+    "data_base64": "YQ"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "protocol_version": 1,
+  "type": "config.chunk",
+  "message_id": "1c73a9c5-77ad-4dc0-926d-123bbab94540",
+  "sent_at": "2026-09-14T10:00:00Z",
+  "connection_generation": "7",
+  "payload": {
+    "snapshot_id": "9ac3ab1e-655a-4f36-b542-08e492af1111",
+    "revision": "12",
+    "index": -1,
+    "data_base64": "ewogICJzY2hlbWFfdmVyc2lvbiI6IDEsCiAgImh1Yl9pZCI6ICJiMTEyMzYwNC0zMmM1LTQwYWEtODlmOS1iNjJmOTNkY2VhYzIiLAogICJwcm9iZV9pZCI6ICJlNjQ1MjQ2Yi1iMTc2LTQ0MjItOGFlNS1iNzk2MjllZTZhMjkiLAogICJyZXZpc2lvbiI6ICIxMiIsCiAgImNyZWF0ZWRfYXQiOiAiMjAyNi0wOS0xNFQxMDowMDowMFoiLAogICJlZmZlY3RpdmVfYXQiOiAiMjAyNi0wOS0xNFQxMDowMTowMFoiLAogICJhc3NpZ25tZW50cyI6IFtdLAogICJub3RpZmljYXRpb25fY2hhbm5lbHMiOiBbXSwKICAibm90aWZpY2F0aW9uX3RlbXBsYXRlcyI6IFtdLAogICJtYWludGVuYW5jZV93aW5kb3dzIjogW10sCiAgInByb3h5X2JpbmRpbmdzIjogW10sCiAgImVzY2FsYXRpb25fcG9saWNpZXMiOiBbXSwKICAid2F0Y2hkb2ciOiB7CiAgICAiZW5hYmxlZCI6IGZhbHNlLAogICAgImxvc3RfYWZ0ZXJfc2Vjb25kcyI6IDkwLAogICAgInJlY292ZXJfYWZ0ZXJfc2Vjb25kcyI6IDMwLAogICAgIm5vdGlmaWNhdGlvbl9pZHMiOiBbXSwKICAgICJyZXNlbmRfaW50ZXJ2YWwiOiA1CiAgfSwKICAiZnV0dXJlX29wdGlvbmFsIjogewogICAgIm5vdGUiOiAiSGFzaCB0aGUgb3JpZ2luYWwgYnl0ZXMsIGluY2x1ZGluZyB0aGlzIG9wdGlvbmFsIGZpZWxkLiIKICB9Cn0K"
+  }
+}

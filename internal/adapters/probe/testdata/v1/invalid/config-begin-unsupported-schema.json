@@ -1,0 +1,19 @@
+{
+  "protocol_version": 1,
+  "type": "config.begin",
+  "message_id": "1c73a9c5-77ad-4dc0-926d-123bbab94540",
+  "sent_at": "2026-09-14T10:00:00Z",
+  "connection_generation": "7",
+  "payload": {
+    "snapshot_id": "9ac3ab1e-655a-4f36-b542-08e492af1111",
+    "revision": "12",
+    "config_schema_version": 2,
+    "total_bytes": 657,
+    "chunk_count": 1,
+    "sha256": "9d4e79a57fe93ce7d74c2725d50cf987d74027cd2f9dff775587c67f5bb087c4",
+    "required_capabilities": [
+      "snapshot.v1"
+    ],
+    "effective_at": "2026-09-14T10:01:00Z"
+  }
+}

@@ -1,6 +1,6 @@
 # Implemented M0 transport fixtures
 
-This directory covers the currently implemented **framing, handshake/health, mixed telemetry, and current-state snapshot contracts**. It does not claim complete V1 protocol support.
+This directory covers the currently implemented **framing, handshake/health, mixed telemetry, and current-state/config snapshot contracts**. It does not claim complete V1 protocol support.
 
 `envelope-hello.json` validates common framing only. The envelope decoder recognizes all message names documented in PROTOCOL.md, but does not validate their payloads. Typed decoders cover `telemetry.batch` containing `observation`, `alert.transition`, `watchdog.transition`, `delivery.result`, and `condition.transition`, plus `telemetry.ack`, `telemetry.retry`, and `telemetry.gap`. Unknown event kinds return an explicit unsupported error. No fixture enables remote execution or creates a transport endpoint.
 
@@ -22,4 +22,8 @@ Tests additionally compare complete handshake transcripts with trusted caller ex
 
 Decoding proves syntax and bounded structure only. Services must still authenticate/authorize probe/stream/assignment identity, validate current configuration and time bounds, enforce live connection generations, compare cursor continuity, and commit durable receipts before acknowledging evidence. ACK decoding does not prove a commit occurred.
 
-Deferred M0 fixtures include complete configuration transfers and reference validation, commands and enrollment, HTTP views, and browser contracts. Authenticated session/lease integration, durable projection application/receipts, and assignment/incident/channel checks are also pending. These must be implemented before advertising a complete protocol capability.
+The 60 `config-*` fixtures bring the total to 225. `config-snapshot-*` files are full documents; the other config files are frames. The valid empty begin/chunk/commit fixtures transfer the exact bytes of `config-snapshot-empty.json`, including its optional metadata. `config.applied` and `config.rejected` are receipt/diagnostic shapes only. Complete snapshot fixtures preserve HTTP/Docker assignments, per-link target visibility, SMTP/Discord/Webhook template settings, explicit maintenance edges, proxy secrets (dummy fixture values), disabled escalation policies, and exact maximum versions.
+
+Invalid config fixtures exercise dangling references, duplicate identities, inconsistent maintenance/link edges, capability omissions, wrong dependency versions, remote push/acknowledgement settings, timing bounds, and transfer limits. Tests cover all required nested DTO members, typed whitelists, 10,000 assignments, bounded collection decoding, original-byte hashes, target/generation/capability/local-binding mismatches, immutable staging under retries, fixed deadlines, cancellation, and revision/hash conflict comparison. Every failed snapshot/commit returns no usable partial configuration.
+
+Checker/provider/template `config` objects are deliberate bounded extension fields; these fixtures do not replace their runtime validators or authorize activation. A successful config transfer is a candidate for the later fenced activation transaction. Deferred M0 fixtures include commands/enrollment, HTTP/browser views, baseline compatibility, and the complete runtime-extension matrix. Authenticated sessions/leases, config construction and extension validation, durable activation/projection receipts, and assignment/incident/channel checks remain pending. These must be implemented before advertising a complete protocol capability.

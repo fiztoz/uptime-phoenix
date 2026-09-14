@@ -38,6 +38,18 @@ func TestGoldenTelemetryFixtures(t *testing.T) {
 					_, _, decodeError = DecodeWelcome(data)
 				case strings.HasPrefix(name, "health-"):
 					_, _, decodeError = DecodeHealth(data)
+				case strings.HasPrefix(name, "config-snapshot-"):
+					_, decodeError = DecodeConfigSnapshot(data)
+				case strings.HasPrefix(name, "config-begin-"):
+					_, _, decodeError = DecodeConfigBegin(data)
+				case strings.HasPrefix(name, "config-chunk-"):
+					_, _, decodeError = DecodeConfigChunk(data)
+				case strings.HasPrefix(name, "config-commit-"):
+					_, _, decodeError = DecodeConfigCommit(data)
+				case strings.HasPrefix(name, "config-applied-"):
+					_, _, decodeError = DecodeConfigApplied(data)
+				case strings.HasPrefix(name, "config-rejected-"):
+					_, _, decodeError = DecodeConfigRejected(data)
 				case strings.HasPrefix(name, "state-snapshot-"):
 					_, decodeError = DecodeStateSnapshot(data)
 				case strings.HasPrefix(name, "state-begin-"):
