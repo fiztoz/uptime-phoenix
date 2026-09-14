@@ -32,6 +32,16 @@ func TestGoldenTelemetryFixtures(t *testing.T) {
 					_, _, decodeError = DecodeTelemetryGap(data)
 				case strings.HasPrefix(name, "envelope-"):
 					_, decodeError = DecodeEnvelope(data)
+				case strings.HasPrefix(name, "state-snapshot-"):
+					_, decodeError = DecodeStateSnapshot(data)
+				case strings.HasPrefix(name, "state-begin-"):
+					_, _, decodeError = DecodeStateBegin(data)
+				case strings.HasPrefix(name, "state-chunk-"):
+					_, _, decodeError = DecodeStateChunk(data)
+				case strings.HasPrefix(name, "state-commit-"):
+					_, _, decodeError = DecodeStateCommit(data)
+				case strings.HasPrefix(name, "state-applied-"):
+					_, _, decodeError = DecodeStateApplied(data)
 				default:
 					t.Fatalf("fixture has no decoder: %s", name)
 				}

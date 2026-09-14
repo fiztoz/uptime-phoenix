@@ -48,6 +48,7 @@ The default single-pod installation must continue to work without probes, Redis,
 | D13 | Remote acknowledgement URLs deferred from V1; local opaque-token URLs unchanged | Offline source incidents have no defined hub token authority; authenticated commands provide scoped acknowledgement |
 | D14 | Coverage excludes maintenance and counts PENDING/paused as unknown | Prevents missing evidence or administrative pause from inflating uptime |
 | D15 | Dependency versions use the complete snapshot revision | Existing timestamps are not reliable configuration version counters |
+| D16 | State snapshots carry explicit observed, candidate, and effective conditions; transfer completion is separate from durable application | Preserve first-sample and hysteresis behavior during backlog replay without inferring alerts or advancing the history cursor |
 
 ## Handoff state
 

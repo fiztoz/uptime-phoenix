@@ -63,11 +63,16 @@ type Observation struct {
 }
 
 // ConditionObservation carries raw checker values, not promoted condition state.
-// Evaluated state snapshots need a separate schema and are not implemented here.
 // The wire builder must derive StaleAfter; checker results may leave it unset.
 type ConditionObservation struct {
+	ConditionMeasurements
+	State string `json:"state"`
+}
+
+// ConditionMeasurements is the explicit measurement whitelist shared by raw
+// observations and evaluated snapshots. It contains no promotion/delivery state.
+type ConditionMeasurements struct {
 	Kind       string    `json:"kind"`
-	State      string    `json:"state"`
 	Message    string    `json:"message"`
 	Used       *float64  `json:"used"`
 	Limit      *float64  `json:"limit"`
@@ -279,20 +284,32 @@ func decodeCondition(data []byte) (ConditionObservation, error) {
 	if err != nil {
 		return condition, err
 	}
+	if err := required(fields, "state", &condition.State); err != nil {
+		return condition, err
+	}
+	if !validConditionState(condition.State) {
+		return condition, errors.New("invalid raw condition state")
+	}
+	err = decodeConditionMeasurements(fields, &condition.ConditionMeasurements)
+	return condition, err
+}
+
+func validConditionState(state string) bool {
+	return state == "ok" || state == "warning" || state == "error"
+}
+
+func decodeConditionMeasurements(fields map[string]json.RawMessage, condition *ConditionMeasurements) error {
 	if err := decodeRequiredFields(fields,
-		field{"kind", &condition.Kind}, field{"state", &condition.State},
+		field{"kind", &condition.Kind},
 		field{"message", &condition.Message}, field{"unit", &condition.Unit},
 		field{"resource", &condition.Resource}, field{"scope", &condition.Scope},
 		field{"source", &condition.Source}, field{"observed_at", &condition.ObservedAt},
 		field{"stale_after", &condition.StaleAfter},
 	); err != nil {
-		return condition, err
+		return err
 	}
 	if condition.Kind != "session_pool" && condition.Kind != "storage" {
-		return condition, errors.New("invalid condition kind")
-	}
-	if condition.State != "ok" && condition.State != "warning" && condition.State != "error" {
-		return condition, errors.New("invalid raw condition state")
+		return errors.New("invalid condition kind")
 	}
 	for _, metric := range []struct {
 		name   string
@@ -302,24 +319,24 @@ func decodeCondition(data []byte) (ConditionObservation, error) {
 		{"percent", &condition.Percent}, {"threshold", &condition.Threshold},
 	} {
 		if err := nullable(fields, metric.name, metric.target); err != nil {
-			return condition, err
+			return err
 		}
 		if value := *metric.target; value != nil && (*value < 0 || math.IsNaN(*value) || math.IsInf(*value, 0)) {
-			return condition, fmt.Errorf("%s must be finite and nonnegative when present", metric.name)
+			return fmt.Errorf("%s must be finite and nonnegative when present", metric.name)
 		}
 	}
 	if len(condition.Message) > MaxMessageBytes {
-		return condition, errors.New("condition message exceeds maximum bytes")
+		return errors.New("condition message exceeds maximum bytes")
 	}
 	for _, metadata := range []string{condition.Unit, condition.Resource, condition.Scope, condition.Source} {
 		if len(metadata) > MaxMetadataBytes {
-			return condition, errors.New("condition metadata exceeds maximum bytes")
+			return errors.New("condition metadata exceeds maximum bytes")
 		}
 	}
 	if time.Time(condition.StaleAfter).Before(time.Time(condition.ObservedAt)) {
-		return condition, errors.New("condition stale_after precedes observed_at")
+		return errors.New("condition stale_after precedes observed_at")
 	}
-	return condition, nil
+	return nil
 }
 
 func decodeTLS(data []byte) (TLSObservation, error) {

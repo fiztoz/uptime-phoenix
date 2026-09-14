@@ -1,0 +1,41 @@
+{
+  "stream_id": "1395c134-da65-4d86-9b11-c9ce20c61748",
+  "config_revision": "12",
+  "created_at": "2026-09-14T09:00:00Z",
+  "last_created_seq": "101",
+  "states": [
+    {
+      "monitor_id": 42,
+      "assignment_generation": "3",
+      "last_observation_seq": "0",
+      "observed_at": "2026-09-14T09:00:00Z",
+      "status": "UP",
+      "down_count": 0,
+      "ping": 28,
+      "message": "Primary check succeeded",
+      "conditions": [
+        {
+          "kind": "storage",
+          "observed_state": "warning",
+          "effective_state": null,
+          "consecutive_state": "warning",
+          "consecutive_count": 1,
+          "last_success_at": "2026-09-14T09:00:00Z",
+          "message": "Database storage at 91%",
+          "used": 91,
+          "limit": 100,
+          "percent": 91,
+          "threshold": 90,
+          "unit": "bytes",
+          "resource": "database storage",
+          "scope": "database",
+          "source": "postgres",
+          "observed_at": "2026-09-14T09:00:00Z",
+          "stale_after": "2026-09-14T09:03:00Z"
+        }
+      ],
+      "tls": null,
+      "active_source_alert_id": null
+    }
+  ]
+}

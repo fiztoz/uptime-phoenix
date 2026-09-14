@@ -37,6 +37,7 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 - [ ] Capture real monitor/heartbeat/template/maintenance/alert response fields in contract fixtures. Preserve `accepted_statuscodes`, `message`, `access_code`, and `monitor_ids` where applicable.
 - [ ] Define pure regional/probe types, stable identity formats, `UNKNOWN=4`, enums, and the atomic repository operations described in architecture section 3.
 - [ ] Define transport DTOs independently from domain types. Create valid/invalid fixtures under `internal/adapters/probe/testdata/v1/` and browser response fixtures in the existing frontend test layout.
+  - Current-state DTOs, all four state transfer frames, bounded assembly, and 41 valid/invalid state fixtures are implemented. Complete configuration, other telemetry kinds, handshake/commands/enrollment, and API/browser fixtures remain open.
 - [x] Record a contract decision for any implementation discovery that changes this proposal, before dependent agents begin.
 - [x] Capture baseline tests for retry confirmation, local recovery, maintenance, certificate alerts, capacity conditions, folder alerting, acknowledgement/escalation, and existing query counts.
 
