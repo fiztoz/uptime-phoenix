@@ -44,7 +44,7 @@
     "d3-scale": "^4.0.0",
     "d3-time-format": "^4.1.0",
     "isomorphic-dompurify": "^4.1.0",
-    "layercake": "^10.0.3",
+    "layercake": "^11.0.0",
     "marked": "^18.0.7",
     "svelte-sonner": "^1.0.0"
   }
