@@ -56,7 +56,7 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 - [x] Implement atomic regional commit and ingest transaction ports with real-engine tests; use a persisted sequence and state transaction on SQLite.
   - `RegionalCommitStore` commits observation+state together and ingest is idempotent with gap rejection. Not wired into `HeartbeatService` or the scheduler.
 - [ ] Refactor shared retry/maintenance/condition evaluation into a reusable service operation. Keep the local scheduler routed through a `local` assignment.
-  - Retry evaluation is already a pure `EvaluateRetry`. Local scheduler now runs only monitors with an active `local` assignment (or no assignment set, for legacy rows).
+  - Retry evaluation is already a pure `EvaluateRetry`. `HeartbeatService.Record` commits local observation+state through `RegionalCommit` when a local assignment exists. Condition/maintenance extraction and incident dispatch remain.
 - [x] Make local/sharded scheduling assignment-aware. Existing DB leases distribute execution only within a logical vantage point; a local worker cannot claim a remote-only assignment.
 - [x] Add regional readers and overall health policy evaluation. Preserve deterministic history ordering and UTC normalization at service/repository boundaries.
   - `ListStates` / windowed `ListObservations` and `MonitorHealthService.Current` evaluate ANY/ALL from complete assignment evidence. Historical overall interval reconstruction remains.

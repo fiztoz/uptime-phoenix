@@ -5,6 +5,9 @@ import "time"
 // LocalProbeID is the immutable registration ID and key of the existing scheduler.
 const LocalProbeID = "local"
 
+// LocalStreamID is the hub-owned telemetry stream for local scheduler results.
+const LocalStreamID = "00000000-0000-4000-8000-000000000001"
+
 // NormalizeProbeID returns the reserved local identity when the caller omitted one.
 func NormalizeProbeID(id string) string {
 	if id == "" {

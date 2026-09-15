@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -24,12 +25,14 @@ type monitorConditionEvaluator interface {
 
 // HeartbeatService handles heartbeat recording and status transition evaluation.
 type HeartbeatService struct {
-	heartbeats ports.HeartbeatRepository
-	bus        ports.EventBus
-	dispatcher ports.NotificationDispatcher
-	tlsInfo    ports.TLSInfoRepository
-	certAlert  certAlertEvaluator
-	conditions monitorConditionEvaluator
+	heartbeats  ports.HeartbeatRepository
+	bus         ports.EventBus
+	dispatcher  ports.NotificationDispatcher
+	tlsInfo     ports.TLSInfoRepository
+	certAlert   certAlertEvaluator
+	conditions  monitorConditionEvaluator
+	assignments ports.MonitorProbeAssignmentRepository
+	regional    ports.RegionalCommitRepository
 }
 
 // NewHeartbeatService creates a new HeartbeatService.
@@ -64,6 +67,14 @@ func (s *HeartbeatService) SetConditionEvaluator(e monitorConditionEvaluator) {
 	s.conditions = e
 }
 
+// SetRegionalRecorder attaches local assignment/state persistence. Optional:
+// when nil, Record keeps today's heartbeat-only path so tests and API-only
+// mode stay unchanged. It does not dispatch regional incidents.
+func (s *HeartbeatService) SetRegionalRecorder(assignments ports.MonitorProbeAssignmentRepository, regional ports.RegionalCommitRepository) {
+	s.assignments = assignments
+	s.regional = regional
+}
+
 // Record saves a heartbeat from a check result and evaluates status transitions.
 // It fetches the previous heartbeat before saving to detect status changes.
 // DownCount is incremented on DOWN status and reset to 0 on UP status.
@@ -78,15 +89,14 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 	}
 	now := time.Now().UTC()
 	hb := &domain.Heartbeat{
-		MonitorID:            monitor.ID,
-		ProbeID:              domain.LocalProbeID,
-		AssignmentGeneration: 1,
-		Status:               result.Status,
-		Time:                 now,
-		ReceivedAt:           now,
-		Msg:                  result.Message,
-		Ping:                 latency,
-		Duration:             duration,
+		MonitorID:  monitor.ID,
+		ProbeID:    domain.LocalProbeID,
+		Status:     result.Status,
+		Time:       now,
+		ReceivedAt: now,
+		Msg:        result.Message,
+		Ping:       latency,
+		Duration:   duration,
 	}
 
 	var previous *domain.RetryState
@@ -95,15 +105,38 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 		previous = &domain.RetryState{Status: prevHB.Status, DownCount: prevHB.DownCount}
 		oldStatus = &prevHB.Status
 	}
+	generation := int64(0)
+	seq := int64(1)
+	if state, gen, err := s.localRegionalState(ctx, monitor.ID); err != nil {
+		return err
+	} else if state != nil {
+		previous = &domain.RetryState{Status: state.Status, DownCount: state.DownCount}
+		oldStatus = &state.Status
+		generation = state.AssignmentGeneration
+		if state.Seq >= math.MaxInt64 {
+			return fmt.Errorf("local stream sequence exhausted: %w", ports.ErrConflict)
+		}
+		seq = state.Seq + 1
+	} else {
+		generation = gen
+	}
 	evaluation := EvaluateRetry(previous, result.Status, monitor.MaxRetries)
 	hb.Status = evaluation.State.Status
 	hb.DownCount = evaluation.State.DownCount
 	hb.Important = evaluation.Important
+	if generation > 0 {
+		hb.AssignmentGeneration = generation
+		hb.StreamID = domain.LocalStreamID
+		hb.SourceSeq = seq
+	}
 	transitioned := evaluation.Important
 
 	// Save heartbeat. Return error if save fails (don't suppress).
 	if err := s.heartbeats.Save(ctx, hb); err != nil {
 		return fmt.Errorf("heartbeat service: save: %w", err)
+	}
+	if err := s.commitLocalRegional(ctx, monitor.ID, result.Status, hb); err != nil {
+		return fmt.Errorf("heartbeat service: regional commit: %w", err)
 	}
 
 	// Persist TLS certificate info when present (best-effort).
@@ -214,6 +247,81 @@ func (s *HeartbeatService) DeleteOlderThan(ctx context.Context, before time.Time
 		return fmt.Errorf("heartbeat service: delete older than: %w", err)
 	}
 	return nil
+}
+
+func (s *HeartbeatService) localRegionalState(ctx context.Context, monitorID int64) (*domain.RegionalState, int64, error) {
+	if s.regional == nil {
+		return nil, 0, nil
+	}
+	generation := int64(1)
+	if s.assignments != nil {
+		set, err := s.assignments.GetByMonitorID(ctx, monitorID)
+		if errors.Is(err, ports.ErrNotFound) {
+			return nil, 0, nil
+		}
+		if err != nil {
+			return nil, 0, fmt.Errorf("load local assignment: %w", err)
+		}
+		found := false
+		for _, assignment := range set.Assignments {
+			if assignment.ProbeID == domain.LocalProbeID {
+				generation = assignment.Generation
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, 0, nil
+		}
+	}
+	state, err := s.regional.GetState(ctx, monitorID, domain.LocalProbeID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil, generation, nil
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("load local regional state: %w", err)
+	}
+	return state, generation, nil
+}
+
+func (s *HeartbeatService) commitLocalRegional(ctx context.Context, monitorID int64, raw domain.Status, hb *domain.Heartbeat) error {
+	if s.regional == nil || hb.AssignmentGeneration < 1 || hb.StreamID == "" || hb.SourceSeq < 1 {
+		return nil
+	}
+	obs := domain.RegionalObservation{
+		MonitorID:            monitorID,
+		ProbeID:              domain.LocalProbeID,
+		AssignmentGeneration: hb.AssignmentGeneration,
+		StreamID:             hb.StreamID,
+		Seq:                  hb.SourceSeq,
+		ConfigRevision:       1,
+		Status:               hb.Status,
+		RawStatus:            raw,
+		DownCount:            hb.DownCount,
+		Ping:                 hb.Ping,
+		DurationMS:           hb.Duration,
+		Message:              hb.Msg,
+		Important:            hb.Important,
+		ObservedAt:           hb.Time.UTC(),
+		ReceivedAt:           hb.ReceivedAt.UTC(),
+	}
+	state := domain.RegionalState{
+		MonitorID:            obs.MonitorID,
+		ProbeID:              obs.ProbeID,
+		AssignmentGeneration: obs.AssignmentGeneration,
+		StreamID:             obs.StreamID,
+		Seq:                  obs.Seq,
+		ConfigRevision:       obs.ConfigRevision,
+		Status:               obs.Status,
+		DownCount:            obs.DownCount,
+		ObservedAt:           obs.ObservedAt,
+		ReceivedAt:           obs.ReceivedAt,
+	}
+	if obs.Status == domain.StatusUp {
+		t := obs.ObservedAt
+		state.LastSuccessAt = &t
+	}
+	return s.regional.Commit(ctx, domain.RegionalCommit{Observation: obs, State: state})
 }
 
 func (s *HeartbeatService) persistTLSInfo(ctx context.Context, monitorID int64, metadata map[string]string) {

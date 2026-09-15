@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -152,6 +153,49 @@ func (b *fakeBus) publishedEvents() []ports.Event {
 	out := make([]ports.Event, len(b.events))
 	copy(out, b.events)
 	return out
+}
+
+type fakeRegionalRepo struct {
+	mu     sync.Mutex
+	states map[string]domain.RegionalState
+	obs    []domain.RegionalObservation
+}
+
+var _ ports.RegionalCommitRepository = (*fakeRegionalRepo)(nil)
+
+func newFakeRegionalRepo() *fakeRegionalRepo {
+	return &fakeRegionalRepo{states: make(map[string]domain.RegionalState)}
+}
+
+func regionalStateKey(monitorID int64, probeID string) string {
+	return strconv.FormatInt(monitorID, 10) + ":" + probeID
+}
+
+func (r *fakeRegionalRepo) Commit(_ context.Context, commit domain.RegionalCommit) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.obs = append(r.obs, commit.Observation)
+	r.states[regionalStateKey(commit.State.MonitorID, commit.State.ProbeID)] = commit.State
+	return nil
+}
+
+func (r *fakeRegionalRepo) GetState(_ context.Context, monitorID int64, probeID string) (*domain.RegionalState, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state, ok := r.states[regionalStateKey(monitorID, probeID)]
+	if !ok {
+		return nil, ports.ErrNotFound
+	}
+	out := state
+	return &out, nil
+}
+
+func (r *fakeRegionalRepo) ListStates(context.Context, int64) ([]domain.RegionalState, error) {
+	return nil, nil
+}
+
+func (r *fakeRegionalRepo) ListObservations(context.Context, int64, string, time.Time, time.Time) ([]domain.RegionalObservation, error) {
+	return nil, nil
 }
 
 // --- Tests ---------------------------------------------------------------
@@ -603,5 +647,34 @@ func TestHeartbeatService_Record_PersistsTLSInfo(t *testing.T) {
 	}
 	if !info.NotAfter.Equal(exactExpiry) {
 		t.Errorf("NotAfter = %v, want exact %v (must not reconstruct from days)", info.NotAfter, exactExpiry)
+	}
+}
+
+func TestHeartbeatService_Record_WritesLocalRegionalState(t *testing.T) {
+	repo := newFakeHeartbeatRepo()
+	regional := newFakeRegionalRepo()
+	svc := NewHeartbeatService(repo, newFakeBus())
+	svc.SetRegionalRecorder(nil, regional)
+	monitor := &domain.Monitor{ID: 9, Name: "local", Type: "http", MaxRetries: 1}
+
+	if err := svc.Record(context.Background(), monitor, ports.CheckResult{Status: domain.StatusDown, Message: "timeout"}); err != nil {
+		t.Fatalf("first Record: %v", err)
+	}
+	if len(regional.obs) != 1 || regional.obs[0].Seq != 1 || regional.obs[0].Status != domain.StatusPending {
+		t.Fatalf("first observation: %+v", regional.obs)
+	}
+	if regional.obs[0].RawStatus != domain.StatusDown || regional.obs[0].ProbeID != domain.LocalProbeID {
+		t.Fatalf("raw local sample: %+v", regional.obs[0])
+	}
+
+	if err := svc.Record(context.Background(), monitor, ports.CheckResult{Status: domain.StatusDown}); err != nil {
+		t.Fatalf("second Record: %v", err)
+	}
+	if len(regional.obs) != 2 || regional.obs[1].Seq != 2 || regional.obs[1].Status != domain.StatusDown || regional.obs[1].DownCount != 2 {
+		t.Fatalf("confirmed down: %+v", regional.obs[1])
+	}
+	state, err := regional.GetState(context.Background(), 9, domain.LocalProbeID)
+	if err != nil || state.Status != domain.StatusDown || state.Seq != 2 {
+		t.Fatalf("state: %+v %v", state, err)
 	}
 }

@@ -129,6 +129,7 @@ func Run(cfg Config) error {
 	monitorGroupSvc.SetEventBus(bus)
 	heartbeatSvc := services.NewHeartbeatService(repos.heartbeat, bus)
 	heartbeatSvc.SetTLSInfoRepo(repos.tlsInfo)
+	heartbeatSvc.SetRegionalRecorder(repos.probeAssignments, repos.regionalCommit)
 
 	notificationSvc := services.NewNotificationService(repos.notification, repos.monitorNotif)
 	notificationSvc.SetTemplateRepository(repos.notificationTemplate)
@@ -621,6 +622,7 @@ type repoBundle struct {
 	escalationAssign     ports.EscalationAssignmentRepository
 	alertEscalation      ports.AlertEscalationRepository
 	probeAssignments     ports.MonitorProbeAssignmentRepository
+	regionalCommit       ports.RegionalCommitRepository
 }
 
 func wireRepositories(engine string, db *bun.DB) repoBundle {
@@ -659,6 +661,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
 		b.probeAssignments = mariadbrepo.NewProbeAssignmentRepo(db)
+		b.regionalCommit = mariadbrepo.NewRegionalCommitRepo(db)
 	case "sqlite":
 		r := sqliterepo.NewRepository(db)
 		b.user = r.UserRepo
@@ -692,6 +695,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
 		b.probeAssignments = sqliterepo.NewProbeAssignmentRepo(db)
+		b.regionalCommit = sqliterepo.NewRegionalCommitRepo(db)
 	}
 	return b
 }
