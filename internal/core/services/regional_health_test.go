@@ -138,6 +138,18 @@ func TestRegionalFreshnessWindow(t *testing.T) {
 	}
 }
 
+func TestEvaluateObservationAppliesMaintenance(t *testing.T) {
+	down := EvaluateRetry(&domain.RetryState{Status: domain.StatusDown, DownCount: 3}, domain.StatusDown, 1)
+	got := EvaluateObservation(&down.State, domain.StatusDown, true, 1)
+	if got.State.Status != domain.StatusMaintenance || got.State.DownCount != 0 || !got.Important {
+		t.Fatalf("maintenance: %+v", got)
+	}
+	next := EvaluateObservation(&got.State, domain.StatusDown, false, 1)
+	if next.State.Status != domain.StatusPending || next.State.DownCount != 1 {
+		t.Fatalf("new retry after maintenance: %+v", next)
+	}
+}
+
 func TestEvaluateRetryIndependentRegions(t *testing.T) {
 	// UP samples from the local assignment must never reset the remote failure count.
 	var local, remote *domain.RetryState

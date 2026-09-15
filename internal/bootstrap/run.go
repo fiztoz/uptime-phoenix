@@ -189,6 +189,7 @@ func Run(cfg Config) error {
 	maintenanceSvc.SetAnnouncementNotifier(subscriptionSvc)
 	conditionSvc := services.NewMonitorConditionService(repos.monitorCondition, notificationSvc, maintenanceSvc, bus)
 	heartbeatSvc.SetConditionEvaluator(conditionSvc)
+	heartbeatSvc.SetMaintenance(maintenanceSvc)
 
 	// The single authorization choke point. Every handler, every middleware and the
 	// WebSocket hub resolve "may this user see / do this?" through this one service

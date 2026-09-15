@@ -33,6 +33,7 @@ type HeartbeatService struct {
 	conditions  monitorConditionEvaluator
 	assignments ports.MonitorProbeAssignmentRepository
 	regional    ports.RegionalCommitRepository
+	maintenance maintenanceChecker
 }
 
 // NewHeartbeatService creates a new HeartbeatService.
@@ -73,6 +74,13 @@ func (s *HeartbeatService) SetConditionEvaluator(e monitorConditionEvaluator) {
 func (s *HeartbeatService) SetRegionalRecorder(assignments ports.MonitorProbeAssignmentRepository, regional ports.RegionalCommitRepository) {
 	s.assignments = assignments
 	s.regional = regional
+}
+
+// SetMaintenance attaches schedule evaluation for Record. Optional: when nil,
+// Record keeps the caller's status. The scheduler still skips the checker
+// during a window; this makes push/API recording follow the same rule.
+func (s *HeartbeatService) SetMaintenance(m maintenanceChecker) {
+	s.maintenance = m
 }
 
 // Record saves a heartbeat from a check result and evaluates status transitions.
@@ -120,7 +128,13 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 	} else {
 		generation = gen
 	}
-	evaluation := EvaluateRetry(previous, result.Status, monitor.MaxRetries)
+	inMaintenance := false
+	if s.maintenance != nil {
+		if active, err := s.maintenance.IsActive(ctx, monitor.ID); err == nil {
+			inMaintenance = active
+		}
+	}
+	evaluation := EvaluateObservation(previous, result.Status, inMaintenance, monitor.MaxRetries)
 	hb.Status = evaluation.State.Status
 	hb.DownCount = evaluation.State.DownCount
 	hb.Important = evaluation.Important

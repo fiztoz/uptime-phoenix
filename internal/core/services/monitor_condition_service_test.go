@@ -448,6 +448,19 @@ func TestMonitorConditionService_MaintenanceAndDeliveryDoNotMarkUnsent(t *testin
 	}
 }
 
+func TestPromoteCondition_FirstWarningUnconfirmed(t *testing.T) {
+	now := time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)
+	obs := domain.ConditionObservation{Kind: domain.MonitorConditionStorage, State: domain.ConditionStateWarning, Message: "high"}
+	first := PromoteCondition(nil, obs, 1, 60, now)
+	if first.State != "" || first.ConsecutiveCount != 1 || first.ConsecutiveState != domain.ConditionStateWarning {
+		t.Fatalf("first: %+v", first)
+	}
+	second := PromoteCondition(&first, obs, 1, 60, now.Add(time.Minute))
+	if second.State != domain.ConditionStateWarning || second.ConsecutiveCount != 2 {
+		t.Fatalf("second: %+v", second)
+	}
+}
+
 func TestConditionStaleAfterUsesMonitorInterval(t *testing.T) {
 	observed := time.Date(2032, 1, 2, 3, 4, 5, 0, time.UTC)
 	if got := conditionStaleAfter(observed, 20); !got.Equal(observed.Add(3 * time.Minute)) {

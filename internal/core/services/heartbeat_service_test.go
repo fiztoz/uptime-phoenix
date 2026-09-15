@@ -678,3 +678,23 @@ func TestHeartbeatService_Record_WritesLocalRegionalState(t *testing.T) {
 		t.Fatalf("state: %+v %v", state, err)
 	}
 }
+
+func TestHeartbeatService_Record_MaintenanceOverridesCheckerStatus(t *testing.T) {
+	repo := newFakeHeartbeatRepo()
+	regional := newFakeRegionalRepo()
+	svc := NewHeartbeatService(repo, newFakeBus())
+	svc.SetRegionalRecorder(nil, regional)
+	svc.SetMaintenance(&fakeMaintenance{active: true})
+	monitor := &domain.Monitor{ID: 4, Name: "maint", Type: "http", MaxRetries: 1}
+
+	if err := svc.Record(context.Background(), monitor, ports.CheckResult{Status: domain.StatusDown, Message: "timeout"}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	latest, err := repo.GetLatest(context.Background(), 4)
+	if err != nil || latest.Status != domain.StatusMaintenance || latest.DownCount != 0 {
+		t.Fatalf("heartbeat: %+v %v", latest, err)
+	}
+	if len(regional.obs) != 1 || regional.obs[0].Status != domain.StatusMaintenance || regional.obs[0].RawStatus != domain.StatusDown || regional.obs[0].DownCount != 0 {
+		t.Fatalf("regional: %+v", regional.obs)
+	}
+}

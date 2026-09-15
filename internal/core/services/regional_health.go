@@ -32,6 +32,16 @@ func EvaluateRetry(previous *domain.RetryState, rawStatus domain.Status, maxRetr
 	return domain.RetryEvaluation{State: state, Important: previous == nil || previous.Status != state.Status}
 }
 
+// EvaluateObservation applies accepted maintenance then retry confirmation.
+// Maintenance never reads another region's history; it only replaces this
+// assignment's effective status and resets its consecutive-failure count.
+func EvaluateObservation(previous *domain.RetryState, rawStatus domain.Status, inMaintenance bool, maxRetries int) domain.RetryEvaluation {
+	if inMaintenance {
+		rawStatus = domain.StatusMaintenance
+	}
+	return EvaluateRetry(previous, rawStatus, maxRetries)
+}
+
 // RegionalFreshnessWindow computes max(90, 2*max(interval,retry)+ceil(timeout)) seconds.
 // Reject unrepresentable configuration rather than overflowing time.Duration.
 func RegionalFreshnessWindow(intervalSeconds, retrySeconds int, timeoutSeconds float64) (time.Duration, error) {

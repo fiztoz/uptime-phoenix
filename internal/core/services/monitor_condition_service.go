@@ -87,13 +87,6 @@ func (s *MonitorConditionService) record(ctx context.Context, monitor *domain.Mo
 	}
 
 	now := s.now().UTC()
-	if observation.ObservedAt.IsZero() {
-		observation.ObservedAt = now
-	} else {
-		observation.ObservedAt = observation.ObservedAt.UTC()
-	}
-	observation.StaleAfter = conditionStaleAfter(observation.ObservedAt, monitor.Interval)
-
 	unlock := s.lockKind(monitor.ID, observation.Kind)
 	defer unlock()
 
@@ -104,42 +97,8 @@ func (s *MonitorConditionService) record(ctx context.Context, monitor *domain.Mo
 	if err != nil {
 		previous = nil
 	}
-
-	stable := conditionStableState(previous)
-	applyConditionHysteresis(stable, &observation)
-	candidate := observation.State
-
-	condition := &domain.MonitorCondition{
-		MonitorID:            monitor.ID,
-		ConditionObservation: observation,
-		ConsecutiveState:     candidate,
-		ConsecutiveCount:     1,
-	}
-	if candidate != domain.ConditionStateError {
-		lastSuccess := observation.ObservedAt
-		condition.LastSuccessAt = &lastSuccess
-	}
-	if previous != nil {
-		condition.LastNotifiedState = previous.LastNotifiedState
-		condition.LastNotifiedAt = previous.LastNotifiedAt
-		if condition.LastSuccessAt == nil {
-			condition.LastSuccessAt = previous.LastSuccessAt
-		}
-		if previous.ConsecutiveState == candidate {
-			condition.ConsecutiveCount = previous.ConsecutiveCount + 1
-		}
-	}
-
-	// First-ever OK is immediately stable. First-ever warning/error stays
-	// unconfirmed (empty State) until two consecutive samples.
-	if previous == nil && candidate == domain.ConditionStateOK {
-		condition.ConsecutiveCount = conditionTransitionSamples
-	}
-	if condition.ConsecutiveCount >= conditionTransitionSamples {
-		condition.State = candidate
-	} else {
-		condition.State = stable
-	}
+	promoted := PromoteCondition(previous, observation, monitor.ID, monitor.Interval, now)
+	condition := &promoted
 
 	if err := s.repo.Upsert(ctx, condition); err != nil {
 		return fmt.Errorf("persist observation: %w", err)
@@ -183,6 +142,50 @@ func (s *MonitorConditionService) record(ctx context.Context, monitor *domain.Mo
 	}
 	s.publish(ctx, condition)
 	return nil
+}
+
+// PromoteCondition applies consecutive-sample promotion and warning hysteresis.
+// It does not persist, notify, or consult maintenance.
+func PromoteCondition(previous *domain.MonitorCondition, observation domain.ConditionObservation, monitorID int64, intervalSeconds int, now time.Time) domain.MonitorCondition {
+	now = now.UTC()
+	if observation.ObservedAt.IsZero() {
+		observation.ObservedAt = now
+	} else {
+		observation.ObservedAt = observation.ObservedAt.UTC()
+	}
+	observation.StaleAfter = conditionStaleAfter(observation.ObservedAt, intervalSeconds)
+	stable := conditionStableState(previous)
+	applyConditionHysteresis(stable, &observation)
+	candidate := observation.State
+	condition := domain.MonitorCondition{
+		MonitorID:            monitorID,
+		ConditionObservation: observation,
+		ConsecutiveState:     candidate,
+		ConsecutiveCount:     1,
+	}
+	if candidate != domain.ConditionStateError {
+		lastSuccess := observation.ObservedAt
+		condition.LastSuccessAt = &lastSuccess
+	}
+	if previous != nil {
+		condition.LastNotifiedState = previous.LastNotifiedState
+		condition.LastNotifiedAt = previous.LastNotifiedAt
+		if condition.LastSuccessAt == nil {
+			condition.LastSuccessAt = previous.LastSuccessAt
+		}
+		if previous.ConsecutiveState == candidate {
+			condition.ConsecutiveCount = previous.ConsecutiveCount + 1
+		}
+	}
+	if previous == nil && candidate == domain.ConditionStateOK {
+		condition.ConsecutiveCount = conditionTransitionSamples
+	}
+	if condition.ConsecutiveCount >= conditionTransitionSamples {
+		condition.State = candidate
+	} else {
+		condition.State = stable
+	}
+	return condition
 }
 
 func conditionStableState(previous *domain.MonitorCondition) domain.ConditionState {
