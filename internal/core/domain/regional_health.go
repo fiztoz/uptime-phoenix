@@ -40,6 +40,16 @@ type MonitorHealth struct {
 	Counts ProbeHealthCounts
 }
 
+// CurrentMonitorHealth is overall health at one instant from complete assignment evidence.
+// It is not an HTTP or browser view and does not include historical coverage.
+type CurrentMonitorHealth struct {
+	MonitorID int64
+	Policy    HealthPolicy
+	AsOf      time.Time
+	Health    MonitorHealth
+	Regions   []RegionalHealthEvidence
+}
+
 // HealthDurations contains disjoint policy-derived durations for one history window.
 // These durations must never be built by pooling samples from multiple probes.
 type HealthDurations struct {

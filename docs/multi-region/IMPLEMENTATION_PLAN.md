@@ -58,7 +58,8 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 - [ ] Refactor shared retry/maintenance/condition evaluation into a reusable service operation. Keep the local scheduler routed through a `local` assignment.
   - Retry evaluation is already a pure `EvaluateRetry`. Local scheduler now runs only monitors with an active `local` assignment (or no assignment set, for legacy rows).
 - [x] Make local/sharded scheduling assignment-aware. Existing DB leases distribute execution only within a logical vantage point; a local worker cannot claim a remote-only assignment.
-- [ ] Add regional readers and overall health policy evaluation. Preserve deterministic history ordering and UTC normalization at service/repository boundaries.
+- [x] Add regional readers and overall health policy evaluation. Preserve deterministic history ordering and UTC normalization at service/repository boundaries.
+  - `ListStates` / windowed `ListObservations` and `MonitorHealthService.Current` evaluate ANY/ALL from complete assignment evidence. Historical overall interval reconstruction remains.
 - [ ] Scope alert throttling, certificate thresholds, capacity promotion, and escalation state. Preserve current single-local-monitor alert behavior.
 - [ ] Implement materialized current projections and historical dirty-bucket work so a regional read and an overall read have explicit semantics.
 

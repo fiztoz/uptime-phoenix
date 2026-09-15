@@ -52,11 +52,12 @@ func TestRegionalCommitKeepsIndependentRetryCounters(t *testing.T) {
 			if err != nil || asia.Status != domain.StatusDown || asia.DownCount != 2 {
 				t.Fatalf("remote state: %+v, %v", asia, err)
 			}
-			localRows, err := f.commits.ListObservations(ctx, monitorID, "local")
+			windowFrom, windowTo := now.Add(-time.Minute), now.Add(time.Minute)
+			localRows, err := f.commits.ListObservations(ctx, monitorID, "local", windowFrom, windowTo)
 			if err != nil || len(localRows) != 1 || localRows[0].Status != domain.StatusUp {
 				t.Fatalf("local history: %+v, %v", localRows, err)
 			}
-			remoteRows, err := f.commits.ListObservations(ctx, monitorID, remote.ID)
+			remoteRows, err := f.commits.ListObservations(ctx, monitorID, remote.ID, windowFrom, windowTo)
 			if err != nil || len(remoteRows) != 2 {
 				t.Fatalf("remote history: %+v, %v", remoteRows, err)
 			}

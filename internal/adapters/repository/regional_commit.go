@@ -121,11 +121,29 @@ func (r *RegionalCommitStore) GetState(ctx context.Context, monitorID int64, pro
 	return &state, nil
 }
 
-// ListObservations returns ordered regional history for one probe assignment.
-func (r *RegionalCommitStore) ListObservations(ctx context.Context, monitorID int64, probeID string) ([]domain.RegionalObservation, error) {
+// ListStates returns current evidence for one monitor, ordered by probe_id.
+func (r *RegionalCommitStore) ListStates(ctx context.Context, monitorID int64) ([]domain.RegionalState, error) {
+	var rows []monitorProbeStateModel
+	if err := r.db.NewSelect().Model(&rows).
+		Where("monitor_id = ?", monitorID).
+		OrderExpr("probe_id ASC").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("list regional states: %w", err)
+	}
+	out := make([]domain.RegionalState, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.state())
+	}
+	return out, nil
+}
+
+// ListObservations returns ordered regional history in [from, to].
+func (r *RegionalCommitStore) ListObservations(ctx context.Context, monitorID int64, probeID string, from, to time.Time) ([]domain.RegionalObservation, error) {
 	var rows []probeObservationModel
 	if err := r.db.NewSelect().Model(&rows).
 		Where("monitor_id = ? AND probe_id = ?", monitorID, probeID).
+		Where("observed_at >= ?", from.UTC()).
+		Where("observed_at <= ?", to.UTC()).
 		Order("observed_at ASC", "id ASC").
 		Scan(ctx); err != nil {
 		return nil, fmt.Errorf("list regional observations: %w", err)

@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
@@ -13,7 +14,12 @@ import (
 type RegionalCommitRepository interface {
 	Commit(ctx context.Context, commit domain.RegionalCommit) error
 	GetState(ctx context.Context, monitorID int64, probeID string) (*domain.RegionalState, error)
-	ListObservations(ctx context.Context, monitorID int64, probeID string) ([]domain.RegionalObservation, error)
+	// ListStates returns current evidence for one monitor, ordered by probe_id.
+	// Missing monitors yield an empty slice, not rows from other monitors.
+	ListStates(ctx context.Context, monitorID int64) ([]domain.RegionalState, error)
+	// ListObservations returns ordered regional history in [from, to].
+	// Implementations must force from/to to UTC at the database boundary.
+	ListObservations(ctx context.Context, monitorID int64, probeID string, from, to time.Time) ([]domain.RegionalObservation, error)
 }
 
 // ProbeIngestRepository atomically accepts a contiguous remote telemetry prefix.
