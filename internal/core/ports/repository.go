@@ -50,11 +50,13 @@ type MonitorFilter struct {
 // Aggregate1m is a 1-minute aggregation bucket.
 type Aggregate1m struct {
 	MonitorID    int64
+	ProbeID      string
 	Bucket       time.Time
 	UpCount      int
 	DownCount    int
 	PendingCount int
 	MaintCount   int
+	UnknownCount int
 	AvgPing      float64
 	MinPing      int
 	MaxPing      int
@@ -68,11 +70,13 @@ type Aggregate1m struct {
 // Aggregate1h is a 1-hour aggregation bucket.
 type Aggregate1h struct {
 	MonitorID    int64
+	ProbeID      string
 	Bucket       time.Time
 	UpCount      int
 	DownCount    int
 	PendingCount int
 	MaintCount   int
+	UnknownCount int
 	AvgPing      float64
 	MinPing      int
 	MaxPing      int
@@ -83,11 +87,13 @@ type Aggregate1h struct {
 // Aggregate1d is a 1-day aggregation bucket.
 type Aggregate1d struct {
 	MonitorID    int64
+	ProbeID      string
 	Bucket       time.Time
 	UpCount      int
 	DownCount    int
 	PendingCount int
 	MaintCount   int
+	UnknownCount int
 	AvgPing      float64
 	MinPing      int
 	MaxPing      int

@@ -2,6 +2,15 @@ package domain
 
 import "testing"
 
+func TestNormalizeProbeID(t *testing.T) {
+	if got := NormalizeProbeID(""); got != LocalProbeID {
+		t.Fatalf("empty: %q", got)
+	}
+	if got := NormalizeProbeID("asia"); got != "asia" {
+		t.Fatalf("remote: %q", got)
+	}
+}
+
 func TestLocalWorkerMayRun(t *testing.T) {
 	if !LocalWorkerMayRun(nil) {
 		t.Fatal("legacy monitors without an assignment set must remain locally runnable")

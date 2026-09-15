@@ -650,6 +650,7 @@ func (r *HeartbeatRepo) SaveAggregate1m(ctx context.Context, agg *ports.Aggregat
 		Set("down_count = VALUES(down_count)").
 		Set("pending_count = VALUES(pending_count)").
 		Set("maint_count = VALUES(maint_count)").
+		Set("unknown_count = VALUES(unknown_count)").
 		Set("avg_ping = VALUES(avg_ping)").
 		Set("min_ping = VALUES(min_ping)").
 		Set("max_ping = VALUES(max_ping)").
@@ -668,6 +669,7 @@ func (r *HeartbeatRepo) SaveAggregate1h(ctx context.Context, agg *ports.Aggregat
 		Set("down_count = VALUES(down_count)").
 		Set("pending_count = VALUES(pending_count)").
 		Set("maint_count = VALUES(maint_count)").
+		Set("unknown_count = VALUES(unknown_count)").
 		Set("avg_ping = VALUES(avg_ping)").
 		Set("min_ping = VALUES(min_ping)").
 		Set("max_ping = VALUES(max_ping)").
@@ -686,6 +688,7 @@ func (r *HeartbeatRepo) SaveAggregate1d(ctx context.Context, agg *ports.Aggregat
 		Set("down_count = VALUES(down_count)").
 		Set("pending_count = VALUES(pending_count)").
 		Set("maint_count = VALUES(maint_count)").
+		Set("unknown_count = VALUES(unknown_count)").
 		Set("avg_ping = VALUES(avg_ping)").
 		Set("min_ping = VALUES(min_ping)").
 		Set("max_ping = VALUES(max_ping)").
@@ -701,7 +704,7 @@ func (r *HeartbeatRepo) GetAggregate1m(ctx context.Context, monitorID int64, fro
 		ModelTableExpr("heartbeat_1m AS aggregate_model").
 		Where("monitor_id = ?", monitorID).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("bucket ASC").
+		OrderExpr("bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -719,7 +722,7 @@ func (r *HeartbeatRepo) GetAggregate1h(ctx context.Context, monitorID int64, fro
 		ModelTableExpr("heartbeat_1h AS aggregate_model").
 		Where("monitor_id = ?", monitorID).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("bucket ASC").
+		OrderExpr("bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -737,7 +740,7 @@ func (r *HeartbeatRepo) GetAggregate1d(ctx context.Context, monitorID int64, fro
 		ModelTableExpr("heartbeat_1d AS aggregate_model").
 		Where("monitor_id = ?", monitorID).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("bucket ASC").
+		OrderExpr("bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -761,7 +764,7 @@ func (r *HeartbeatRepo) GetAggregate1hForMonitors(ctx context.Context, monitorID
 		ModelTableExpr("heartbeat_1h AS aggregate_model").
 		Where("monitor_id IN (?)", bun.List(monitorIDs)).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("monitor_id ASC, bucket ASC").
+		OrderExpr("monitor_id ASC, bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -784,7 +787,7 @@ func (r *HeartbeatRepo) GetAggregate1dForMonitors(ctx context.Context, monitorID
 		ModelTableExpr("heartbeat_1d AS aggregate_model").
 		Where("monitor_id IN (?)", bun.List(monitorIDs)).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("monitor_id ASC, bucket ASC").
+		OrderExpr("monitor_id ASC, bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)

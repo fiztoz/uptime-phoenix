@@ -35,7 +35,7 @@ func NewAggregateService(
 
 // Rollup1m computes 1-minute aggregates from raw heartbeats.
 // It queries all heartbeats in the [from, to) window, groups them by
-// monitor+minute, computes up/down/pending/maint counts and ping stats,
+// monitor+probe+minute, computes up/down/pending/maint/unknown counts and ping stats,
 // and saves the results to heartbeat_1m.
 func (s *AggregateService) Rollup1m(ctx context.Context, from, to time.Time) error {
 	monitors, err := s.monitors.ListActive(ctx)
@@ -62,35 +62,17 @@ func (s *AggregateService) rollup1mForMonitor(ctx context.Context, monitorID int
 		return fmt.Errorf("listing heartbeats for monitor %d: %w", monitorID, err)
 	}
 
-	// Group heartbeats into 1-minute buckets.
+	// Group heartbeats into 1-minute buckets per probe.
 	buckets := groupByBucket(heartbeats, 1*time.Minute)
 
-	for _, bucketTime := range sortedBucketTimes(buckets) {
-		agg := computeAggregate(monitorID, bucketTime, buckets[bucketTime])
+	for _, key := range sortedProbeBuckets(buckets) {
+		agg := computeAggregate(monitorID, key.ProbeID, key.Bucket, buckets[key])
 		if err := s.heartbeats.SaveAggregate1m(ctx, agg); err != nil {
-			return fmt.Errorf("saving 1m aggregate for monitor %d at %s: %w",
-				monitorID, bucketTime.Format(time.RFC3339), err)
+			return fmt.Errorf("saving 1m aggregate for monitor %d probe %s at %s: %w",
+				monitorID, key.ProbeID, key.Bucket.Format(time.RFC3339), err)
 		}
 	}
 	return nil
-}
-
-// sortedBucketTimes returns a bucket map's keys in chronological order.
-//
-// Ranging a map directly gives Go's randomized iteration order, so the rollups
-// used to write their buckets in a different order on every run. Nothing about
-// the stored aggregates depended on it — each row is keyed by (monitor, bucket) —
-// but any observer that reads them back in write order (a test, or a future
-// batch writer) sees a different sequence each time, which is how
-// TestRollup1m_GroupsByMinute became a coin-flip. Writing oldest-first is both
-// deterministic and the order a time series should be written in.
-func sortedBucketTimes[T any](buckets map[time.Time]T) []time.Time {
-	times := make([]time.Time, 0, len(buckets))
-	for t := range buckets {
-		times = append(times, t)
-	}
-	sort.Slice(times, func(i, j int) bool { return times[i].Before(times[j]) })
-	return times
 }
 
 // Rollup1h computes 1-hour aggregates from 1-minute aggregates.
@@ -120,14 +102,14 @@ func (s *AggregateService) rollup1hForMonitor(ctx context.Context, monitorID int
 		return fmt.Errorf("getting 1m aggregates for monitor %d: %w", monitorID, err)
 	}
 
-	// Group 1m aggregates into 1-hour buckets.
+	// Group 1m aggregates into 1-hour buckets per probe.
 	buckets := groupAggsByBucket(aggs, 1*time.Hour)
 
-	for _, bucketTime := range sortedBucketTimes(buckets) {
-		agg := mergeAggregates1m(monitorID, bucketTime, buckets[bucketTime])
+	for _, key := range sortedProbeBuckets(buckets) {
+		agg := mergeAggregates1m(monitorID, key.ProbeID, key.Bucket, buckets[key])
 		if err := s.heartbeats.SaveAggregate1h(ctx, agg); err != nil {
-			return fmt.Errorf("saving 1h aggregate for monitor %d at %s: %w",
-				monitorID, bucketTime.Format(time.RFC3339), err)
+			return fmt.Errorf("saving 1h aggregate for monitor %d probe %s at %s: %w",
+				monitorID, key.ProbeID, key.Bucket.Format(time.RFC3339), err)
 		}
 	}
 	return nil
@@ -160,14 +142,14 @@ func (s *AggregateService) rollup1dForMonitor(ctx context.Context, monitorID int
 		return fmt.Errorf("getting 1h aggregates for monitor %d: %w", monitorID, err)
 	}
 
-	// Group 1h aggregates into 1-day buckets.
+	// Group 1h aggregates into 1-day buckets per probe.
 	buckets := groupAggsByBucket1h(aggs, 24*time.Hour)
 
-	for _, bucketTime := range sortedBucketTimes(buckets) {
-		agg := mergeAggregates1h(monitorID, bucketTime, buckets[bucketTime])
+	for _, key := range sortedProbeBuckets(buckets) {
+		agg := mergeAggregates1h(monitorID, key.ProbeID, key.Bucket, buckets[key])
 		if err := s.heartbeats.SaveAggregate1d(ctx, agg); err != nil {
-			return fmt.Errorf("saving 1d aggregate for monitor %d at %s: %w",
-				monitorID, bucketTime.Format(time.RFC3339), err)
+			return fmt.Errorf("saving 1d aggregate for monitor %d probe %s at %s: %w",
+				monitorID, key.ProbeID, key.Bucket.Format(time.RFC3339), err)
 		}
 	}
 	return nil
@@ -233,41 +215,64 @@ func (s *AggregateService) GetUptimePercent(ctx context.Context, monitorID int64
 // Helper functions
 // ---------------------------------------------------------------------------
 
+// probeBucket is one rollup uniqueness key: vantage point plus truncated time.
+type probeBucket struct {
+	ProbeID string
+	Bucket  time.Time
+}
+
 // groupByBucket groups raw heartbeats into time buckets of the given duration.
-// The bucket key is the start of the interval (truncated to the duration).
-func groupByBucket(heartbeats []*domain.Heartbeat, bucketSize time.Duration) map[time.Time][]*domain.Heartbeat {
-	buckets := make(map[time.Time][]*domain.Heartbeat)
+// The bucket key is the start of the interval (truncated to the duration) plus probe.
+func groupByBucket(heartbeats []*domain.Heartbeat, bucketSize time.Duration) map[probeBucket][]*domain.Heartbeat {
+	buckets := make(map[probeBucket][]*domain.Heartbeat)
 	for _, h := range heartbeats {
-		bucket := h.Time.Truncate(bucketSize)
-		buckets[bucket] = append(buckets[bucket], h)
+		key := probeBucket{ProbeID: domain.NormalizeProbeID(h.ProbeID), Bucket: h.Time.Truncate(bucketSize)}
+		buckets[key] = append(buckets[key], h)
 	}
 	return buckets
 }
 
-// groupAggsByBucket groups Aggregate1m records into 1-hour buckets.
-func groupAggsByBucket(aggs []*ports.Aggregate1m, bucketSize time.Duration) map[time.Time][]*ports.Aggregate1m {
-	buckets := make(map[time.Time][]*ports.Aggregate1m)
+// groupAggsByBucket groups Aggregate1m records into 1-hour buckets per probe.
+func groupAggsByBucket(aggs []*ports.Aggregate1m, bucketSize time.Duration) map[probeBucket][]*ports.Aggregate1m {
+	buckets := make(map[probeBucket][]*ports.Aggregate1m)
 	for _, a := range aggs {
-		bucket := a.Bucket.Truncate(bucketSize)
-		buckets[bucket] = append(buckets[bucket], a)
+		key := probeBucket{ProbeID: domain.NormalizeProbeID(a.ProbeID), Bucket: a.Bucket.Truncate(bucketSize)}
+		buckets[key] = append(buckets[key], a)
 	}
 	return buckets
 }
 
-// groupAggsByBucket1h groups Aggregate1h records into 1-day buckets.
-func groupAggsByBucket1h(aggs []*ports.Aggregate1h, bucketSize time.Duration) map[time.Time][]*ports.Aggregate1h {
-	buckets := make(map[time.Time][]*ports.Aggregate1h)
+// groupAggsByBucket1h groups Aggregate1h records into 1-day buckets per probe.
+func groupAggsByBucket1h(aggs []*ports.Aggregate1h, bucketSize time.Duration) map[probeBucket][]*ports.Aggregate1h {
+	buckets := make(map[probeBucket][]*ports.Aggregate1h)
 	for _, a := range aggs {
-		bucket := a.Bucket.Truncate(bucketSize)
-		buckets[bucket] = append(buckets[bucket], a)
+		key := probeBucket{ProbeID: domain.NormalizeProbeID(a.ProbeID), Bucket: a.Bucket.Truncate(bucketSize)}
+		buckets[key] = append(buckets[key], a)
 	}
 	return buckets
+}
+
+// sortedProbeBuckets returns map keys in probe then chronological order.
+// Map iteration is randomized; TestRollup1m_GroupsByMinute requires a stable write order.
+func sortedProbeBuckets[T any](buckets map[probeBucket]T) []probeBucket {
+	keys := make([]probeBucket, 0, len(buckets))
+	for key := range buckets {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].ProbeID != keys[j].ProbeID {
+			return keys[i].ProbeID < keys[j].ProbeID
+		}
+		return keys[i].Bucket.Before(keys[j].Bucket)
+	})
+	return keys
 }
 
 // computeAggregate computes an Aggregate1m from a slice of raw heartbeats.
-func computeAggregate(monitorID int64, bucket time.Time, hbs []*domain.Heartbeat) *ports.Aggregate1m {
+func computeAggregate(monitorID int64, probeID string, bucket time.Time, hbs []*domain.Heartbeat) *ports.Aggregate1m {
 	agg := &ports.Aggregate1m{
 		MonitorID: monitorID,
+		ProbeID:   domain.NormalizeProbeID(probeID),
 		Bucket:    bucket,
 	}
 
@@ -291,6 +296,8 @@ func computeAggregate(monitorID int64, bucket time.Time, hbs []*domain.Heartbeat
 			agg.PendingCount++
 		case domain.StatusMaintenance:
 			agg.MaintCount++
+		case domain.StatusUnknown:
+			agg.UnknownCount++
 		}
 
 		if h.Ping > 0 {
@@ -317,9 +324,10 @@ func computeAggregate(monitorID int64, bucket time.Time, hbs []*domain.Heartbeat
 }
 
 // mergeAggregates1m merges multiple Aggregate1m records into a single Aggregate1h.
-func mergeAggregates1m(monitorID int64, bucket time.Time, items []*ports.Aggregate1m) *ports.Aggregate1h {
+func mergeAggregates1m(monitorID int64, probeID string, bucket time.Time, items []*ports.Aggregate1m) *ports.Aggregate1h {
 	agg := &ports.Aggregate1h{
 		MonitorID: monitorID,
+		ProbeID:   domain.NormalizeProbeID(probeID),
 		Bucket:    bucket,
 	}
 
@@ -336,6 +344,7 @@ func mergeAggregates1m(monitorID int64, bucket time.Time, items []*ports.Aggrega
 		agg.DownCount += item.DownCount
 		agg.PendingCount += item.PendingCount
 		agg.MaintCount += item.MaintCount
+		agg.UnknownCount += item.UnknownCount
 		agg.TotalChecks += item.TotalChecks
 		sampleCount := item.PingCount
 		// Rows created before migration 026 have no ping_count. Preserve their
@@ -368,9 +377,10 @@ func mergeAggregates1m(monitorID int64, bucket time.Time, items []*ports.Aggrega
 }
 
 // mergeAggregates1h merges multiple Aggregate1h records into a single Aggregate1d.
-func mergeAggregates1h(monitorID int64, bucket time.Time, items []*ports.Aggregate1h) *ports.Aggregate1d {
+func mergeAggregates1h(monitorID int64, probeID string, bucket time.Time, items []*ports.Aggregate1h) *ports.Aggregate1d {
 	agg := &ports.Aggregate1d{
 		MonitorID: monitorID,
+		ProbeID:   domain.NormalizeProbeID(probeID),
 		Bucket:    bucket,
 	}
 
@@ -387,6 +397,7 @@ func mergeAggregates1h(monitorID int64, bucket time.Time, items []*ports.Aggrega
 		agg.DownCount += item.DownCount
 		agg.PendingCount += item.PendingCount
 		agg.MaintCount += item.MaintCount
+		agg.UnknownCount += item.UnknownCount
 		agg.TotalChecks += item.TotalChecks
 		sampleCount := item.PingCount
 		if sampleCount == 0 && item.AvgPing > 0 {

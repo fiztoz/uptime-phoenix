@@ -200,6 +200,36 @@ func TestRollup1m_GroupsByMinute(t *testing.T) {
 	}
 }
 
+func TestRollup1m_KeepsProbesSeparate(t *testing.T) {
+	hbRepo := newAggFakeHeartbeatRepo()
+	monRepo := &fakeMonitorRepo{monitors: []*domain.Monitor{{ID: 1, Active: true}}}
+	svc := NewAggregateService(hbRepo, monRepo, testLogger())
+	base := time.Now().UTC().Truncate(time.Minute)
+	hbRepo.heartbeats = []*domain.Heartbeat{
+		{ID: 1, MonitorID: 1, ProbeID: domain.LocalProbeID, Status: domain.StatusUp, Time: base.Add(10 * time.Second), Ping: 10},
+		{ID: 2, MonitorID: 1, ProbeID: "asia", Status: domain.StatusDown, Time: base.Add(10 * time.Second), Ping: 0},
+		{ID: 3, MonitorID: 1, ProbeID: "asia", Status: domain.StatusUnknown, Time: base.Add(20 * time.Second)},
+	}
+	if err := svc.Rollup1m(context.Background(), base, base.Add(time.Minute)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hbRepo.aggs1m[1]) != 2 {
+		t.Fatalf("expected 2 probe buckets, got %d", len(hbRepo.aggs1m[1]))
+	}
+	byProbe := map[string]*ports.Aggregate1m{}
+	for _, agg := range hbRepo.aggs1m[1] {
+		byProbe[agg.ProbeID] = agg
+	}
+	local := byProbe[domain.LocalProbeID]
+	if local == nil || local.UpCount != 1 || local.UnknownCount != 0 {
+		t.Fatalf("local: %+v", local)
+	}
+	remote := byProbe["asia"]
+	if remote == nil || remote.DownCount != 1 || remote.UnknownCount != 1 || remote.TotalChecks != 2 {
+		t.Fatalf("remote: %+v", remote)
+	}
+}
+
 func TestRollup1m_MultipleMonitors(t *testing.T) {
 	hbRepo := newAggFakeHeartbeatRepo()
 	monRepo := &fakeMonitorRepo{
@@ -430,7 +460,7 @@ func TestComputeAggregate_PendingAndMaintenance(t *testing.T) {
 		{Status: domain.StatusUp, Ping: 100},
 	}
 
-	agg := computeAggregate(1, time.Now(), hbs)
+	agg := computeAggregate(1, domain.LocalProbeID, time.Now(), hbs)
 
 	if agg.PendingCount != 1 {
 		t.Errorf("expected 1 pending, got %d", agg.PendingCount)
@@ -451,7 +481,7 @@ func TestComputeAggregate_ZeroPing(t *testing.T) {
 		{Status: domain.StatusDown, Ping: 0},
 	}
 
-	agg := computeAggregate(1, time.Now(), hbs)
+	agg := computeAggregate(1, domain.LocalProbeID, time.Now(), hbs)
 
 	if agg.MinPing != 0 {
 		t.Errorf("expected min ping 0 for down heartbeat, got %d", agg.MinPing)

@@ -653,11 +653,12 @@ func (r *HeartbeatRepo) SaveAggregate1m(ctx context.Context, agg *ports.Aggregat
 	m := repository.Aggregate1mFromDomain(agg)
 	_, err := r.db.NewInsert().Model(m).
 		ModelTableExpr("heartbeat_1m").
-		On("CONFLICT(monitor_id, bucket) DO UPDATE").
+		On(repository.AggregateConflictTarget).
 		Set("up_count = EXCLUDED.up_count").
 		Set("down_count = EXCLUDED.down_count").
 		Set("pending_count = EXCLUDED.pending_count").
 		Set("maint_count = EXCLUDED.maint_count").
+		Set("unknown_count = EXCLUDED.unknown_count").
 		Set("avg_ping = EXCLUDED.avg_ping").
 		Set("min_ping = EXCLUDED.min_ping").
 		Set("max_ping = EXCLUDED.max_ping").
@@ -671,11 +672,12 @@ func (r *HeartbeatRepo) SaveAggregate1h(ctx context.Context, agg *ports.Aggregat
 	m := repository.Aggregate1hFromDomain(agg)
 	_, err := r.db.NewInsert().Model(m).
 		ModelTableExpr("heartbeat_1h").
-		On("CONFLICT(monitor_id, bucket) DO UPDATE").
+		On(repository.AggregateConflictTarget).
 		Set("up_count = EXCLUDED.up_count").
 		Set("down_count = EXCLUDED.down_count").
 		Set("pending_count = EXCLUDED.pending_count").
 		Set("maint_count = EXCLUDED.maint_count").
+		Set("unknown_count = EXCLUDED.unknown_count").
 		Set("avg_ping = EXCLUDED.avg_ping").
 		Set("min_ping = EXCLUDED.min_ping").
 		Set("max_ping = EXCLUDED.max_ping").
@@ -689,11 +691,12 @@ func (r *HeartbeatRepo) SaveAggregate1d(ctx context.Context, agg *ports.Aggregat
 	m := repository.Aggregate1dFromDomain(agg)
 	_, err := r.db.NewInsert().Model(m).
 		ModelTableExpr("heartbeat_1d").
-		On("CONFLICT(monitor_id, bucket) DO UPDATE").
+		On(repository.AggregateConflictTarget).
 		Set("up_count = EXCLUDED.up_count").
 		Set("down_count = EXCLUDED.down_count").
 		Set("pending_count = EXCLUDED.pending_count").
 		Set("maint_count = EXCLUDED.maint_count").
+		Set("unknown_count = EXCLUDED.unknown_count").
 		Set("avg_ping = EXCLUDED.avg_ping").
 		Set("min_ping = EXCLUDED.min_ping").
 		Set("max_ping = EXCLUDED.max_ping").
@@ -709,7 +712,7 @@ func (r *HeartbeatRepo) GetAggregate1m(ctx context.Context, monitorID int64, fro
 		ModelTableExpr("heartbeat_1m AS aggregate_model").
 		Where("monitor_id = ?", monitorID).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("bucket ASC").
+		OrderExpr("bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -727,7 +730,7 @@ func (r *HeartbeatRepo) GetAggregate1h(ctx context.Context, monitorID int64, fro
 		ModelTableExpr("heartbeat_1h AS aggregate_model").
 		Where("monitor_id = ?", monitorID).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("bucket ASC").
+		OrderExpr("bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -745,7 +748,7 @@ func (r *HeartbeatRepo) GetAggregate1d(ctx context.Context, monitorID int64, fro
 		ModelTableExpr("heartbeat_1d AS aggregate_model").
 		Where("monitor_id = ?", monitorID).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("bucket ASC").
+		OrderExpr("bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -769,7 +772,7 @@ func (r *HeartbeatRepo) GetAggregate1hForMonitors(ctx context.Context, monitorID
 		ModelTableExpr("heartbeat_1h AS aggregate_model").
 		Where("monitor_id IN (?)", bun.List(monitorIDs)).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("monitor_id ASC, bucket ASC").
+		OrderExpr("monitor_id ASC, bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -792,7 +795,7 @@ func (r *HeartbeatRepo) GetAggregate1dForMonitors(ctx context.Context, monitorID
 		ModelTableExpr("heartbeat_1d AS aggregate_model").
 		Where("monitor_id IN (?)", bun.List(monitorIDs)).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("monitor_id ASC, bucket ASC").
+		OrderExpr("monitor_id ASC, bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)

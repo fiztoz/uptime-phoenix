@@ -76,13 +76,17 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 	if duration == 0 {
 		duration = latency
 	}
+	now := time.Now().UTC()
 	hb := &domain.Heartbeat{
-		MonitorID: monitor.ID,
-		Status:    result.Status,
-		Time:      time.Now().UTC(),
-		Msg:       result.Message,
-		Ping:      latency,
-		Duration:  duration,
+		MonitorID:            monitor.ID,
+		ProbeID:              domain.LocalProbeID,
+		AssignmentGeneration: 1,
+		Status:               result.Status,
+		Time:                 now,
+		ReceivedAt:           now,
+		Msg:                  result.Message,
+		Ping:                 latency,
+		Duration:             duration,
 	}
 
 	var previous *domain.RetryState

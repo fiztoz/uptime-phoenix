@@ -39,18 +39,20 @@ const latestProbeWindow = 48 * time.Hour
 // rejects the un-aliased form (Error 1064 near UNION ALL). Outer parentheses
 // around each UNION arm are a SQLite syntax error (`near "("`), so the arm
 // stays an unparenthesized SELECT-from-subquery.
-const latestHeartbeatSelect = `SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM (SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM heartbeats WHERE monitor_id = ? ORDER BY time DESC, id DESC LIMIT 1) AS latest_hb`
+const heartbeatSelectCols = "id, monitor_id, status, time, msg, ping, duration, important, down_count, probe_id, stream_id, source_seq, assignment_generation, received_at, config_revision"
+
+const latestHeartbeatSelect = `SELECT ` + heartbeatSelectCols + ` FROM (SELECT ` + heartbeatSelectCols + ` FROM heartbeats WHERE monitor_id = ? ORDER BY time DESC, id DESC LIMIT 1) AS latest_hb`
 
 // latestRecentHeartbeatSelect is the partition-prunable variant: same shape as
 // latestHeartbeatSelect plus a lower time bound, so MariaDB only probes the
 // partitions that can hold rows >= the bound. Placeholders: monitor_id, then
 // the inclusive lower bound.
-const latestRecentHeartbeatSelect = `SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM (SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM heartbeats WHERE monitor_id = ? AND time >= ? ORDER BY time DESC, id DESC LIMIT 1) AS latest_hb`
+const latestRecentHeartbeatSelect = `SELECT ` + heartbeatSelectCols + ` FROM (SELECT ` + heartbeatSelectCols + ` FROM heartbeats WHERE monitor_id = ? AND time >= ? ORDER BY time DESC, id DESC LIMIT 1) AS latest_hb`
 
 // latestImportantBeforeSelect is one leading Insights transition: the newest
 // important heartbeat strictly before the window, LIMIT 1 per monitor, so the
 // query never loads more than one historical row per monitor.
-const latestImportantBeforeSelect = `SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM (SELECT id, monitor_id, status, time, msg, ping, duration, important, down_count FROM heartbeats WHERE monitor_id = ? AND important = TRUE AND time < ? ORDER BY time DESC, id DESC LIMIT 1) AS latest_imp`
+const latestImportantBeforeSelect = `SELECT ` + heartbeatSelectCols + ` FROM (SELECT ` + heartbeatSelectCols + ` FROM heartbeats WHERE monitor_id = ? AND important = TRUE AND time < ? ORDER BY time DESC, id DESC LIMIT 1) AS latest_imp`
 
 // latestHeartbeatsUnionSQL builds n GetLatest SELECTs glued with UNION ALL.
 func latestHeartbeatsUnionSQL(n int) string {

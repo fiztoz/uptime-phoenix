@@ -5,6 +5,14 @@ import "time"
 // LocalProbeID is the immutable registration ID and key of the existing scheduler.
 const LocalProbeID = "local"
 
+// NormalizeProbeID returns the reserved local identity when the caller omitted one.
+func NormalizeProbeID(id string) string {
+	if id == "" {
+		return LocalProbeID
+	}
+	return id
+}
+
 // ProbeKind identifies the location of a logical execution vantage point.
 type ProbeKind string
 
