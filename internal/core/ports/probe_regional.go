@@ -20,6 +20,21 @@ type RegionalCommitRepository interface {
 	// ListObservations returns ordered regional history in [from, to].
 	// Implementations must force from/to to UTC at the database boundary.
 	ListObservations(ctx context.Context, monitorID int64, probeID string, from, to time.Time) ([]domain.RegionalObservation, error)
+	// ListObservationsInRange returns every probe's ordered history in [from, to].
+	ListObservationsInRange(ctx context.Context, monitorID int64, from, to time.Time) ([]domain.RegionalObservation, error)
+}
+
+// MonitorHealthProjectionRepository stores overall snapshots, history, and dirty work.
+// Regional reads stay on RegionalCommitRepository; overall reads use these rows or
+// ReconstructOverallHistory. Implementations force UTC at the database boundary.
+type MonitorHealthProjectionRepository interface {
+	PutHealthState(ctx context.Context, state *domain.MonitorHealthState) error
+	GetHealthState(ctx context.Context, monitorID int64) (*domain.MonitorHealthState, error)
+	ReplaceHealthHistory(ctx context.Context, monitorID int64, from, to time.Time, intervals []domain.MonitorHealthInterval) error
+	ListHealthHistory(ctx context.Context, monitorID int64, from, to time.Time) ([]domain.MonitorHealthInterval, error)
+	MarkDirty(ctx context.Context, buckets []domain.DirtyBucket) error
+	ListDirty(ctx context.Context, resolution string, limit int) ([]domain.DirtyBucket, error)
+	ClearDirty(ctx context.Context, buckets []domain.DirtyBucket) error
 }
 
 // ProbeIngestRepository atomically accepts a contiguous remote telemetry prefix.

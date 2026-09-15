@@ -33,7 +33,12 @@ type HeartbeatService struct {
 	conditions  monitorConditionEvaluator
 	assignments ports.MonitorProbeAssignmentRepository
 	regional    ports.RegionalCommitRepository
+	projector   overallHealthProjector
 	maintenance maintenanceChecker
+}
+
+type overallHealthProjector interface {
+	ProjectCurrent(ctx context.Context, monitorID int64, now time.Time) error
 }
 
 // NewHeartbeatService creates a new HeartbeatService.
@@ -81,6 +86,12 @@ func (s *HeartbeatService) SetRegionalRecorder(assignments ports.MonitorProbeAss
 // during a window; this makes push/API recording follow the same rule.
 func (s *HeartbeatService) SetMaintenance(m maintenanceChecker) {
 	s.maintenance = m
+}
+
+// SetOverallProjector attaches overall snapshot materialization. Optional: when
+// nil, Record keeps heartbeat and regional writes without a current projection.
+func (s *HeartbeatService) SetOverallProjector(p overallHealthProjector) {
+	s.projector = p
 }
 
 // Record saves a heartbeat from a check result and evaluates status transitions.
@@ -151,6 +162,11 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 	}
 	if err := s.commitLocalRegional(ctx, monitor.ID, result.Status, hb); err != nil {
 		return fmt.Errorf("heartbeat service: regional commit: %w", err)
+	}
+	if s.projector != nil {
+		if err := s.projector.ProjectCurrent(ctx, monitor.ID, hb.Time); err != nil {
+			return fmt.Errorf("heartbeat service: project overall health: %w", err)
+		}
 	}
 
 	// Persist TLS certificate info when present (best-effort).

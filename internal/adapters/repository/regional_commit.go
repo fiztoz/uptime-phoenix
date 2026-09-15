@@ -107,6 +107,9 @@ func (r *RegionalCommitStore) Commit(ctx context.Context, commit domain.Regional
 		if _, err := tx.NewInsert().Model(&obs).Exec(ctx); err != nil {
 			return fmt.Errorf("insert observation: %w", probeRegistryError(err))
 		}
+		if err := markDirtyTx(ctx, tx, domain.DirtyBucketsForObservation(commit.Observation)); err != nil {
+			return err
+		}
 		if err := upsertRegionalState(ctx, tx, commit.State); err != nil {
 			return err
 		}
@@ -164,6 +167,24 @@ func (r *RegionalCommitStore) ListObservations(ctx context.Context, monitorID in
 	return out, nil
 }
 
+// ListObservationsInRange returns every probe's ordered history in [from, to].
+func (r *RegionalCommitStore) ListObservationsInRange(ctx context.Context, monitorID int64, from, to time.Time) ([]domain.RegionalObservation, error) {
+	var rows []probeObservationModel
+	if err := r.db.NewSelect().Model(&rows).
+		Where("monitor_id = ?", monitorID).
+		Where("observed_at >= ?", from.UTC()).
+		Where("observed_at <= ?", to.UTC()).
+		Order("observed_at ASC", "id ASC").
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("list regional observations: %w", err)
+	}
+	out := make([]domain.RegionalObservation, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.observation())
+	}
+	return out, nil
+}
+
 // Ingest commits a contiguous remote prefix and updates per-probe state.
 func (r *RegionalCommitStore) Ingest(ctx context.Context, batch domain.ProbeIngestBatch) (int64, error) {
 	if batch.ProbeID == "" || batch.StreamID == "" || batch.FromSeq <= 0 || batch.ThroughSeq < batch.FromSeq || len(batch.Events) == 0 {
@@ -203,6 +224,9 @@ func (r *RegionalCommitStore) Ingest(ctx context.Context, batch domain.ProbeInge
 			obs := observationModel(event)
 			if _, err := tx.NewInsert().Model(&obs).Exec(ctx); err != nil {
 				return probeRegistryError(err)
+			}
+			if err := markDirtyTx(ctx, tx, domain.DirtyBucketsForObservation(event)); err != nil {
+				return err
 			}
 			state := domain.RegionalState{
 				MonitorID: event.MonitorID, ProbeID: event.ProbeID, AssignmentGeneration: event.AssignmentGeneration,

@@ -50,6 +50,100 @@ type CurrentMonitorHealth struct {
 	Regions   []RegionalHealthEvidence
 }
 
+// Health history causes record why an overall interval started.
+const (
+	HealthHistoryCauseRegional       = "regional"
+	HealthHistoryCauseFreshness      = "freshness"
+	HealthHistoryCauseAssignment     = "assignment"
+	HealthHistoryCausePolicy         = "policy"
+	HealthHistoryCauseAdministrative = "administrative"
+)
+
+// Dirty-bucket resolutions for late-data recomputation.
+const (
+	DirtyResolution1m      = "1m"
+	DirtyResolution1h      = "1h"
+	DirtyResolution1d      = "1d"
+	DirtyResolutionOverall = "overall"
+)
+
+// MonitorHealthState is the materialized current overall projection for one monitor.
+type MonitorHealthState struct {
+	MonitorID         int64
+	Policy            HealthPolicy
+	ProjectionVersion int64
+	Status            Status
+	Reason            string
+	Counts            ProbeHealthCounts
+	LastTransitionAt  time.Time
+	AsOf              time.Time
+}
+
+// AssignmentInterval is one probe's membership during overall reconstruction.
+// To is exclusive; the zero value means the assignment remains open.
+type AssignmentInterval struct {
+	ProbeID    string
+	Generation int64
+	Policy     HealthPolicy
+	Revision   int64
+	From       time.Time
+	To         time.Time
+	Paused     bool
+}
+
+// MonitorHealthInterval is one overall availability interval on [From, To).
+type MonitorHealthInterval struct {
+	From           time.Time
+	To             time.Time
+	Status         Status
+	Reason         string
+	Cause          string
+	Policy         HealthPolicy
+	PolicyRevision int64
+	Counts         ProbeHealthCounts
+}
+
+// MonitorHealthHistory is reconstructed overall availability for one window.
+// Intervals are policy-derived; they are never a union of raw regional samples.
+type MonitorHealthHistory struct {
+	MonitorID int64
+	From      time.Time
+	To        time.Time
+	Intervals []MonitorHealthInterval
+	Durations HealthDurations
+}
+
+// OverallHistoryInput is the complete evidence needed to reconstruct overall history.
+type OverallHistoryInput struct {
+	MonitorID    int64
+	From         time.Time
+	To           time.Time
+	FreshFor     time.Duration
+	Paused       bool
+	Assignments  []AssignmentInterval
+	Observations []RegionalObservation
+}
+
+// DirtyBucket is durable late-data recomputation work.
+type DirtyBucket struct {
+	MonitorID  int64
+	ProbeID    string
+	Resolution string
+	Bucket     time.Time
+}
+
+// DirtyBucketsForObservation marks 1m/1h/1d regional rollups and the overall minute.
+func DirtyBucketsForObservation(obs RegionalObservation) []DirtyBucket {
+	at := obs.ObservedAt.UTC()
+	day := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
+	return []DirtyBucket{
+		{MonitorID: obs.MonitorID, ProbeID: obs.ProbeID, Resolution: DirtyResolution1m, Bucket: at.Truncate(time.Minute)},
+		{MonitorID: obs.MonitorID, ProbeID: obs.ProbeID, Resolution: DirtyResolution1h, Bucket: at.Truncate(time.Hour)},
+		{MonitorID: obs.MonitorID, ProbeID: obs.ProbeID, Resolution: DirtyResolution1d, Bucket: day},
+		{MonitorID: obs.MonitorID, ProbeID: obs.ProbeID, Resolution: DirtyResolutionOverall, Bucket: at.Truncate(time.Minute)},
+	}
+}
+
 // HealthDurations contains disjoint policy-derived durations for one history window.
 // These durations must never be built by pooling samples from multiple probes.
 type HealthDurations struct {

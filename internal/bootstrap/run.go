@@ -130,6 +130,9 @@ func Run(cfg Config) error {
 	heartbeatSvc := services.NewHeartbeatService(repos.heartbeat, bus)
 	heartbeatSvc.SetTLSInfoRepo(repos.tlsInfo)
 	heartbeatSvc.SetRegionalRecorder(repos.probeAssignments, repos.regionalCommit)
+	healthSvc := services.NewMonitorHealthService(repos.monitor, repos.probeAssignments, repos.regionalCommit, nil)
+	healthSvc.SetProjections(repos.projections)
+	heartbeatSvc.SetOverallProjector(healthSvc)
 
 	notificationSvc := services.NewNotificationService(repos.notification, repos.monitorNotif)
 	notificationSvc.SetTemplateRepository(repos.notificationTemplate)
@@ -624,6 +627,7 @@ type repoBundle struct {
 	alertEscalation      ports.AlertEscalationRepository
 	probeAssignments     ports.MonitorProbeAssignmentRepository
 	regionalCommit       ports.RegionalCommitRepository
+	projections          ports.MonitorHealthProjectionRepository
 }
 
 func wireRepositories(engine string, db *bun.DB) repoBundle {
@@ -662,7 +666,9 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
 		b.probeAssignments = mariadbrepo.NewProbeAssignmentRepo(db)
-		b.regionalCommit = mariadbrepo.NewRegionalCommitRepo(db)
+		commits := mariadbrepo.NewRegionalCommitRepo(db)
+		b.regionalCommit = commits
+		b.projections = commits
 	case "sqlite":
 		r := sqliterepo.NewRepository(db)
 		b.user = r.UserRepo
@@ -696,7 +702,9 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
 		b.probeAssignments = sqliterepo.NewProbeAssignmentRepo(db)
-		b.regionalCommit = sqliterepo.NewRegionalCommitRepo(db)
+		commits := sqliterepo.NewRegionalCommitRepo(db)
+		b.regionalCommit = commits
+		b.projections = commits
 	}
 	return b
 }

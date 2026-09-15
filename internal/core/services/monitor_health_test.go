@@ -71,9 +71,11 @@ func (r healthAssignmentRepo) ExecutableByLocal(context.Context, []int64) (map[i
 }
 
 type healthRegionalRepo struct {
-	states        map[int64][]domain.RegionalState
-	listCalls     int
-	lastMonitorID int64
+	states         map[int64][]domain.RegionalState
+	observations   map[int64][]domain.RegionalObservation
+	listCalls      int
+	listRangeCalls int
+	lastMonitorID  int64
 }
 
 func (r *healthRegionalRepo) Commit(context.Context, domain.RegionalCommit) error { return nil }
@@ -88,6 +90,95 @@ func (r *healthRegionalRepo) ListStates(_ context.Context, monitorID int64) ([]d
 func (r *healthRegionalRepo) ListObservations(context.Context, int64, string, time.Time, time.Time) ([]domain.RegionalObservation, error) {
 	return nil, nil
 }
+
+func (r *healthRegionalRepo) ListObservationsInRange(_ context.Context, monitorID int64, _, _ time.Time) ([]domain.RegionalObservation, error) {
+	r.listRangeCalls++
+	r.lastMonitorID = monitorID
+	return r.observations[monitorID], nil
+}
+
+type healthProjectionRepo struct {
+	states    map[int64]domain.MonitorHealthState
+	history   map[int64][]domain.MonitorHealthInterval
+	dirty     []domain.DirtyBucket
+	putCalls  int
+	lastState *domain.MonitorHealthState
+}
+
+func (r *healthProjectionRepo) PutHealthState(_ context.Context, state *domain.MonitorHealthState) error {
+	r.putCalls++
+	if r.states == nil {
+		r.states = map[int64]domain.MonitorHealthState{}
+	}
+	r.states[state.MonitorID] = *state
+	copied := *state
+	r.lastState = &copied
+	return nil
+}
+
+func (r *healthProjectionRepo) GetHealthState(_ context.Context, monitorID int64) (*domain.MonitorHealthState, error) {
+	state, ok := r.states[monitorID]
+	if !ok {
+		return nil, ports.ErrNotFound
+	}
+	out := state
+	return &out, nil
+}
+
+func (r *healthProjectionRepo) ReplaceHealthHistory(_ context.Context, monitorID int64, from, to time.Time, intervals []domain.MonitorHealthInterval) error {
+	if r.history == nil {
+		r.history = map[int64][]domain.MonitorHealthInterval{}
+	}
+	kept := make([]domain.MonitorHealthInterval, 0, len(r.history[monitorID]))
+	for _, interval := range r.history[monitorID] {
+		if interval.To.After(from) && interval.From.Before(to) {
+			continue
+		}
+		kept = append(kept, interval)
+	}
+	r.history[monitorID] = append(kept, intervals...)
+	return nil
+}
+
+func (r *healthProjectionRepo) ListHealthHistory(_ context.Context, monitorID int64, _, _ time.Time) ([]domain.MonitorHealthInterval, error) {
+	return r.history[monitorID], nil
+}
+
+func (r *healthProjectionRepo) MarkDirty(_ context.Context, buckets []domain.DirtyBucket) error {
+	r.dirty = append(r.dirty, buckets...)
+	return nil
+}
+
+func (r *healthProjectionRepo) ListDirty(_ context.Context, resolution string, _ int) ([]domain.DirtyBucket, error) {
+	out := make([]domain.DirtyBucket, 0, len(r.dirty))
+	for _, bucket := range r.dirty {
+		if bucket.Resolution == resolution {
+			out = append(out, bucket)
+		}
+	}
+	return out, nil
+}
+
+func (r *healthProjectionRepo) ClearDirty(_ context.Context, buckets []domain.DirtyBucket) error {
+	remain := r.dirty[:0]
+	for _, existing := range r.dirty {
+		keep := true
+		for _, bucket := range buckets {
+			if existing.MonitorID == bucket.MonitorID && existing.ProbeID == bucket.ProbeID &&
+				existing.Resolution == bucket.Resolution && existing.Bucket.Equal(bucket.Bucket) {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			remain = append(remain, existing)
+		}
+	}
+	r.dirty = remain
+	return nil
+}
+
+var _ ports.MonitorHealthProjectionRepository = (*healthProjectionRepo)(nil)
 
 var (
 	_ ports.MonitorRepository                = healthMonitorRepo{}
@@ -159,5 +250,93 @@ func TestMonitorHealthCurrentPolicyAndAccess(t *testing.T) {
 	got, err = missing.Current(context.Background(), 1, 7, now)
 	if err != nil || got.Health.Status != domain.StatusUnknown || got.Health.Reason != "incomplete_evidence" {
 		t.Fatalf("missing remote evidence: %+v %v", got, err)
+	}
+}
+
+func TestMonitorHealthHistoryAndProjection(t *testing.T) {
+	now := time.Date(2026, 9, 16, 12, 2, 0, 0, time.UTC)
+	start := now.Add(-2 * time.Minute)
+	monitor := &domain.Monitor{ID: 7, Active: true, Interval: 60, RetryInterval: 0, Timeout: 5}
+	set := &domain.MonitorProbeAssignments{
+		MonitorID: 7, Revision: 1, HealthPolicy: domain.HealthPolicyAnyDown,
+		Assignments: []domain.ProbeAssignment{
+			{MonitorID: 7, ProbeID: domain.LocalProbeID, Generation: 1, CreatedAt: start},
+			{MonitorID: 7, ProbeID: "asia", Generation: 1, CreatedAt: start},
+		},
+	}
+	observations := []domain.RegionalObservation{
+		{ID: 1, MonitorID: 7, ProbeID: domain.LocalProbeID, AssignmentGeneration: 1, Status: domain.StatusUp, ObservedAt: start},
+		{ID: 2, MonitorID: 7, ProbeID: "asia", AssignmentGeneration: 1, Status: domain.StatusDown, ObservedAt: start},
+	}
+	regional := &healthRegionalRepo{
+		states: map[int64][]domain.RegionalState{
+			7: {
+				{MonitorID: 7, ProbeID: domain.LocalProbeID, AssignmentGeneration: 1, Status: domain.StatusUp, ObservedAt: start},
+				{MonitorID: 7, ProbeID: "asia", AssignmentGeneration: 1, Status: domain.StatusDown, ObservedAt: start},
+			},
+		},
+		observations: map[int64][]domain.RegionalObservation{7: observations, 8: {{MonitorID: 8, ProbeID: "other"}}},
+	}
+	store := &healthProjectionRepo{}
+	svc := NewMonitorHealthService(
+		healthMonitorRepo{monitors: map[int64]*domain.Monitor{7: monitor}},
+		healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{7: set}},
+		regional,
+		healthAccess{allow: map[int64]bool{7: true}},
+	)
+	svc.SetProjections(store)
+
+	history, err := svc.History(context.Background(), 1, 7, start, now)
+	if err != nil || len(history.Intervals) == 0 || history.Intervals[0].Status != domain.StatusDown {
+		t.Fatalf("history: %+v %v", history, err)
+	}
+	if regional.lastMonitorID != 7 {
+		t.Fatal("history leaked another monitor")
+	}
+
+	denied := NewMonitorHealthService(
+		healthMonitorRepo{monitors: map[int64]*domain.Monitor{7: monitor}},
+		healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{7: set}},
+		regional,
+		healthAccess{allow: map[int64]bool{}},
+	)
+	calls := regional.listRangeCalls
+	if _, err := denied.History(context.Background(), 2, 7, start, now); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("no-grant history: %v", err)
+	}
+	if regional.listRangeCalls != calls {
+		t.Fatal("no-grant history queried observations")
+	}
+
+	if err := svc.ProjectCurrent(context.Background(), 7, now); err != nil {
+		t.Fatal(err)
+	}
+	if store.lastState == nil || store.lastState.Status != domain.StatusDown || store.lastState.ProjectionVersion != 1 {
+		t.Fatalf("first projection: %+v", store.lastState)
+	}
+	if err := svc.ProjectCurrent(context.Background(), 7, now); err != nil {
+		t.Fatal(err)
+	}
+	if store.lastState.ProjectionVersion != 1 || store.putCalls != 2 {
+		t.Fatalf("unchanged snapshot bumped version: %+v puts=%d", store.lastState, store.putCalls)
+	}
+	set.HealthPolicy = domain.HealthPolicyAllDown
+	if err := svc.ProjectCurrent(context.Background(), 7, now); err != nil {
+		t.Fatal(err)
+	}
+	if store.lastState.Status != domain.StatusUp || store.lastState.ProjectionVersion != 2 {
+		t.Fatalf("policy change: %+v", store.lastState)
+	}
+	set.HealthPolicy = domain.HealthPolicyAnyDown
+
+	bucket := start.Truncate(time.Minute)
+	store.dirty = []domain.DirtyBucket{{MonitorID: 7, ProbeID: "asia", Resolution: domain.DirtyResolutionOverall, Bucket: bucket}}
+	processed, err := svc.ProcessDirty(context.Background(), now, 10)
+	if err != nil || processed != 1 || len(store.dirty) != 0 {
+		t.Fatalf("process dirty: processed=%d dirty=%d err=%v", processed, len(store.dirty), err)
+	}
+	rows := store.history[7]
+	if len(rows) == 0 || rows[0].Status != domain.StatusDown {
+		t.Fatalf("persisted history: %+v", rows)
 	}
 }

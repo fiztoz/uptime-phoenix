@@ -198,6 +198,10 @@ func (r *fakeRegionalRepo) ListObservations(context.Context, int64, string, time
 	return nil, nil
 }
 
+func (r *fakeRegionalRepo) ListObservationsInRange(context.Context, int64, time.Time, time.Time) ([]domain.RegionalObservation, error) {
+	return nil, nil
+}
+
 // --- Tests ---------------------------------------------------------------
 
 func TestClampLatencyMs(t *testing.T) {
@@ -696,5 +700,32 @@ func TestHeartbeatService_Record_MaintenanceOverridesCheckerStatus(t *testing.T)
 	}
 	if len(regional.obs) != 1 || regional.obs[0].Status != domain.StatusMaintenance || regional.obs[0].RawStatus != domain.StatusDown || regional.obs[0].DownCount != 0 {
 		t.Fatalf("regional: %+v", regional.obs)
+	}
+}
+
+type fakeOverallProjector struct {
+	calls int
+	id    int64
+}
+
+func (p *fakeOverallProjector) ProjectCurrent(_ context.Context, monitorID int64, _ time.Time) error {
+	p.calls++
+	p.id = monitorID
+	return nil
+}
+
+func TestHeartbeatService_Record_ProjectsOverallHealth(t *testing.T) {
+	repo := newFakeHeartbeatRepo()
+	regional := newFakeRegionalRepo()
+	projector := &fakeOverallProjector{}
+	svc := NewHeartbeatService(repo, newFakeBus())
+	svc.SetRegionalRecorder(nil, regional)
+	svc.SetOverallProjector(projector)
+	monitor := &domain.Monitor{ID: 11, Name: "local", Type: "http"}
+	if err := svc.Record(context.Background(), monitor, ports.CheckResult{Status: domain.StatusUp}); err != nil {
+		t.Fatal(err)
+	}
+	if projector.calls != 1 || projector.id != 11 {
+		t.Fatalf("projector: %+v", projector)
 	}
 }

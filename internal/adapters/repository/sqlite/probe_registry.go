@@ -36,10 +36,11 @@ func NewRegionalCommitRepo(db *bun.DB) *RegionalCommitRepo {
 }
 
 var (
-	_ ports.ProbeRegistryRepository          = (*ProbeRegistryRepo)(nil)
-	_ ports.MonitorProbeAssignmentRepository = (*ProbeAssignmentRepo)(nil)
-	_ ports.RegionalCommitRepository         = (*RegionalCommitRepo)(nil)
-	_ ports.ProbeIngestRepository            = (*RegionalCommitRepo)(nil)
-	_ ports.ProbeIncidentRepository          = (*RegionalCommitRepo)(nil)
-	_ ports.ProbeDeliveryRepository          = (*RegionalCommitRepo)(nil)
+	_ ports.ProbeRegistryRepository           = (*ProbeRegistryRepo)(nil)
+	_ ports.MonitorProbeAssignmentRepository  = (*ProbeAssignmentRepo)(nil)
+	_ ports.RegionalCommitRepository          = (*RegionalCommitRepo)(nil)
+	_ ports.ProbeIngestRepository             = (*RegionalCommitRepo)(nil)
+	_ ports.ProbeIncidentRepository           = (*RegionalCommitRepo)(nil)
+	_ ports.ProbeDeliveryRepository           = (*RegionalCommitRepo)(nil)
+	_ ports.MonitorHealthProjectionRepository = (*RegionalCommitRepo)(nil)
 )
