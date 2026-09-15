@@ -50,9 +50,9 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 **Goal:** prove the core can handle multiple independent streams before opening a public listener.
 
 - [x] Add `local` registration, monitor assignments/generations, regional state, stream cursor/receipt tables, scoped incident/delivery storage, config/command metadata, projection/history, and dirty-bucket schema.
-  - Registration/assignments (`035`) plus regional observations/state/streams/commands/dirty buckets (`036`) are in both engines. Heartbeat partition keys and rollup unique `(monitor_id,bucket)` are unchanged so local history queries stay compatible. Edge SQLite schema remains M2.
+  - Registration/assignments (`035`), regional observations/state/streams/commands/dirty buckets (`036`), and incident/delivery mirrors (`038`) are in both engines. Existing `alerts` rows stay monitor-scoped. Edge SQLite schema remains M2.
 - [ ] Add paired MariaDB/SQLite migrations and edge-schema migrations. Preserve existing heartbeat partition expression and IDs. Keep rollup auto-increment IDs; replace the old unique `(monitor_id,bucket)` key correctly.
-  - Hub `036` regional tables and `037` heartbeat `probe_id` / rollup unique `(monitor_id,probe_id,bucket)` are paired. Edge schema remains M2.
+  - Hub `036` regional tables, `037` heartbeat `probe_id` / rollup unique `(monitor_id,probe_id,bucket)`, and `038` incident/delivery tables are paired. Edge schema remains M2.
 - [x] Implement atomic regional commit and ingest transaction ports with real-engine tests; use a persisted sequence and state transaction on SQLite.
   - `RegionalCommitStore` commits observation+state together and ingest is idempotent with gap rejection. Not wired into `HeartbeatService` or the scheduler.
 - [ ] Refactor shared retry/maintenance/condition evaluation into a reusable service operation. Keep the local scheduler routed through a `local` assignment.

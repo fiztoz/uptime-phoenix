@@ -34,6 +34,8 @@ type probeRegistryFixture struct {
 	assignments ports.MonitorProbeAssignmentRepository
 	commits     ports.RegionalCommitRepository
 	ingest      ports.ProbeIngestRepository
+	incidents   ports.ProbeIncidentRepository
+	deliveries  ports.ProbeDeliveryRepository
 	engine      string
 	dsn         string
 }
@@ -73,12 +75,12 @@ func newProbeRegistryFixture(t *testing.T, engine string) probeRegistryFixture {
 		f.registry = sqlite.NewProbeRegistryRepo(db)
 		f.assignments = sqlite.NewProbeAssignmentRepo(db)
 		commits := sqlite.NewRegionalCommitRepo(db)
-		f.commits, f.ingest = commits, commits
+		f.commits, f.ingest, f.incidents, f.deliveries = commits, commits, commits, commits
 	} else {
 		f.registry = mariadb.NewProbeRegistryRepo(db)
 		f.assignments = mariadb.NewProbeAssignmentRepo(db)
 		commits := mariadb.NewRegionalCommitRepo(db)
-		f.commits, f.ingest = commits, commits
+		f.commits, f.ingest, f.incidents, f.deliveries = commits, commits, commits, commits
 	}
 	return f
 }

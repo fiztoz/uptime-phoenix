@@ -107,7 +107,16 @@ func (r *RegionalCommitStore) Commit(ctx context.Context, commit domain.Regional
 		if _, err := tx.NewInsert().Model(&obs).Exec(ctx); err != nil {
 			return fmt.Errorf("insert observation: %w", probeRegistryError(err))
 		}
-		return upsertRegionalState(ctx, tx, commit.State)
+		if err := upsertRegionalState(ctx, tx, commit.State); err != nil {
+			return err
+		}
+		if commit.Incident == nil {
+			return nil
+		}
+		if err := bindCommitIncident(commit.Observation, commit.Incident); err != nil {
+			return err
+		}
+		return putIncidentTx(ctx, tx, commit.Incident)
 	})
 }
 
@@ -293,6 +302,44 @@ func validateRegionalCommit(commit domain.RegionalCommit) error {
 	}
 	if obs.ObservedAt.IsZero() || obs.ReceivedAt.IsZero() {
 		return fmt.Errorf("regional observation time: %w", domain.ErrValidation)
+	}
+	if commit.Incident != nil {
+		return bindCommitIncident(obs, commit.Incident)
+	}
+	return nil
+}
+
+func bindCommitIncident(obs domain.RegionalObservation, incident *domain.RegionalIncident) error {
+	if incident.ProbeID == "" {
+		incident.ProbeID = obs.ProbeID
+	}
+	if incident.MonitorID == 0 {
+		incident.MonitorID = obs.MonitorID
+	}
+	if incident.AssignmentGeneration == 0 {
+		incident.AssignmentGeneration = obs.AssignmentGeneration
+	}
+	if incident.Scope == "" {
+		incident.Scope = domain.IncidentScopeRegional
+	}
+	if incident.SubjectKind == "" {
+		incident.SubjectKind = domain.IncidentSubjectAvailability
+	}
+	if incident.ConfigRevision == 0 {
+		incident.ConfigRevision = obs.ConfigRevision
+	}
+	if incident.StartedAt.IsZero() {
+		incident.StartedAt = obs.ObservedAt
+	}
+	if incident.Status == "" {
+		incident.Status = domain.AlertStatusFiring
+	}
+	if incident.TransitionVersion == 0 {
+		incident.TransitionVersion = 1
+	}
+	if incident.ProbeID != obs.ProbeID || incident.MonitorID != obs.MonitorID ||
+		incident.AssignmentGeneration != obs.AssignmentGeneration || incident.Scope != domain.IncidentScopeRegional {
+		return fmt.Errorf("incident/observation identity mismatch: %w", domain.ErrValidation)
 	}
 	return nil
 }

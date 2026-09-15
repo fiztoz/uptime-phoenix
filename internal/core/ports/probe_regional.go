@@ -35,3 +35,22 @@ type ProbeCommandRepository interface {
 	Put(ctx context.Context, command *domain.ProbeCommand) error
 	Get(ctx context.Context, commandID string) (*domain.ProbeCommand, error)
 }
+
+// ProbeIncidentRepository stores source-owned regional incidents. Hub mirror IDs
+// are assigned on insert and are distinct from source_alert_id. Put is idempotent
+// at the same transition version and rejects lower versions or identity changes.
+// Aggregate/group incidents are not accepted. The method performs no provider I/O.
+type ProbeIncidentRepository interface {
+	PutIncident(ctx context.Context, incident *domain.RegionalIncident) error
+	GetIncident(ctx context.Context, sourceAlertID string) (*domain.RegionalIncident, error)
+	ListIncidentsByMonitor(ctx context.Context, monitorID int64) ([]domain.RegionalIncident, error)
+}
+
+// ProbeDeliveryRepository stores source delivery outcomes. PutDelivery correlates
+// an already persisted incident transition and may advance attempt without changing
+// delivery identity. It never sends a notification.
+type ProbeDeliveryRepository interface {
+	PutDelivery(ctx context.Context, delivery *domain.RegionalDelivery) error
+	GetDelivery(ctx context.Context, deliveryID string) (*domain.RegionalDelivery, error)
+	ListDeliveriesByIncident(ctx context.Context, sourceAlertID string) ([]domain.RegionalDelivery, error)
+}

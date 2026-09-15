@@ -66,18 +66,70 @@ type RegionalState struct {
 	LastSuccessAt        *time.Time
 }
 
-// RegionalIncident is a source-owned incident identity. Hub mirror IDs are distinct.
+const (
+	IncidentSubjectAvailability = "availability"
+	IncidentSubjectCapacity     = "capacity"
+	IncidentSubjectCertificate  = "certificate"
+	IncidentSubjectWatchdog     = "watchdog"
+)
+
+const (
+	DeliveryStatusSent       = "sent"
+	DeliveryStatusRetrying   = "retrying"
+	DeliveryStatusFailed     = "failed"
+	DeliveryStatusSuperseded = "superseded"
+)
+
+const (
+	DeliveryEventStatusChange      = "status_change"
+	DeliveryEventCertificateExpiry = "certificate_expiry"
+	DeliveryEventCapacityCondition = "capacity_condition"
+	DeliveryEventProbeConnection   = "probe_connection"
+	DeliveryEventIncidentSummary   = "incident_summary"
+)
+
+// RegionalIncident is a source-owned incident identity. HubIncidentID is the hub mirror.
+// Subject, scope, monitor, generation, and start time are immutable.
 type RegionalIncident struct {
-	SourceAlertID        string
-	Scope                IncidentScope
-	MonitorID            int64
-	ProbeID              string
-	AssignmentGeneration int64
-	Status               string
-	TransitionVersion    int64
-	StartedAt            time.Time
-	ResolvedAt           *time.Time
-	AckedAt              *time.Time
+	HubIncidentID           int64
+	SourceAlertID           string
+	Scope                   IncidentScope
+	MonitorID               int64
+	ProbeID                 string
+	AssignmentGeneration    int64
+	Status                  string
+	TransitionVersion       int64
+	StartedAt               time.Time
+	ResolvedAt              *time.Time
+	AckedAt                 *time.Time
+	Reason                  string
+	ConfigRevision          int64
+	SubjectKind             string
+	ConditionKind           string
+	CertificateThreshold    int64
+	AckCommandID            string
+	AckActorDisplayName     string
+	AckNote                 *string
+	EscalationPolicyID      int64
+	EscalationPolicyVersion int64
+	EscalationStatus        string
+	EscalationNextStep      *int64
+	EscalationNextRunAt     *time.Time
+}
+
+// RegionalDelivery is a source outbox outcome. It is not a provider send request.
+type RegionalDelivery struct {
+	DeliveryID              string
+	SourceAlertID           string
+	SourceTransitionVersion int64
+	ProbeID                 string
+	NotificationID          int64
+	NotificationVersion     int64
+	EventKind               string
+	Attempt                 int64
+	Status                  string
+	ErrorCode               string
+	ObservedAt              time.Time
 }
 
 // ProbeCommand is durable command identity. Payload secrets stay in the adapter.
