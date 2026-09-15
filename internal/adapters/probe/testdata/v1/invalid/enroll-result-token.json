@@ -1,0 +1,20 @@
+{
+  "protocol_version": 1,
+  "type": "enroll.result",
+  "message_id": "1c73a9c5-77ad-4dc0-926d-123bbab94540",
+  "sent_at": "2026-09-15T10:00:00Z",
+  "connection_generation": "0",
+  "payload": {
+    "hub_id": "b1123604-32c5-40aa-89f9-b62f93dceac2",
+    "probe_id": "e645246b-b176-4422-8ae5-b79629ee6a29",
+    "enrollment_id": "a1123604-32c5-40aa-89f9-b62f93dceac2",
+    "status": "applied",
+    "credential_version": "1",
+    "applied_at": "2026-09-15T10:10:00Z",
+    "tls_fingerprint": "9d4e79a57fe93ce7d74c2725d50cf987d74027cd2f9dff775587c67f5bb087c4",
+    "certificate_not_after": "2026-12-14T10:00:00Z",
+    "code": null,
+    "message": "",
+    "token": "phx_probe_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+  }
+}

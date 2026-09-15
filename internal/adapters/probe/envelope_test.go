@@ -66,12 +66,12 @@ func TestEnvelopeRecognizesOnlyDocumentedMessageTypes(t *testing.T) {
 	fixture := readFixture(t, "valid", "envelope-hello.json")
 	for _, kind := range []string{
 		"hello", "welcome", "health", "config.begin", "config.chunk", "config.commit", "config.applied", "config.rejected",
-		"state.begin", "state.chunk", "state.commit", "state.applied", "telemetry.batch", "telemetry.ack", "telemetry.retry", "telemetry.gap", "command.request", "command.result",
+		"state.begin", "state.chunk", "state.commit", "state.applied", "telemetry.batch", "telemetry.ack", "telemetry.retry", "telemetry.gap", "command.request", "command.result", "enroll.request", "enroll.result",
 	} {
 		t.Run(kind, func(t *testing.T) {
 			frame := mutateJSON(t, fixture, func(frame map[string]any) {
 				frame["type"] = kind
-				if kind != "hello" {
+				if kind != "hello" && kind != "enroll.request" && kind != "enroll.result" {
 					frame["connection_generation"] = "1"
 				}
 			})

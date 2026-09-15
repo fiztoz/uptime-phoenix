@@ -32,6 +32,8 @@ type probeRegistryFixture struct {
 	db          *bun.DB
 	registry    ports.ProbeRegistryRepository
 	assignments ports.MonitorProbeAssignmentRepository
+	commits     ports.RegionalCommitRepository
+	ingest      ports.ProbeIngestRepository
 	engine      string
 	dsn         string
 }
@@ -70,9 +72,13 @@ func newProbeRegistryFixture(t *testing.T, engine string) probeRegistryFixture {
 	if engine == "sqlite" {
 		f.registry = sqlite.NewProbeRegistryRepo(db)
 		f.assignments = sqlite.NewProbeAssignmentRepo(db)
+		commits := sqlite.NewRegionalCommitRepo(db)
+		f.commits, f.ingest = commits, commits
 	} else {
 		f.registry = mariadb.NewProbeRegistryRepo(db)
 		f.assignments = mariadb.NewProbeAssignmentRepo(db)
+		commits := mariadb.NewRegionalCommitRepo(db)
+		f.commits, f.ingest = commits, commits
 	}
 	return f
 }
@@ -100,6 +106,21 @@ func runProbeRegistryMigration(t *testing.T, db *bun.DB, engine, direction strin
 		}
 	}
 	return nil
+}
+
+func (f probeRegistryFixture) user(t *testing.T) int64 {
+	t.Helper()
+	result, err := f.db.ExecContext(context.Background(),
+		"INSERT INTO users (username, password_hash) VALUES (?, ?)",
+		fmt.Sprintf("owner-%d", time.Now().UnixNano()), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func (f probeRegistryFixture) monitor(t *testing.T) int64 {

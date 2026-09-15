@@ -339,6 +339,7 @@ func Run(cfg Config) error {
 				},
 			)
 			sharded.SetProxyRepo(repos.proxy)
+			sharded.SetAssignmentRepo(repos.probeAssignments)
 			sched = sharded
 			log.Info("sharded scheduler configured",
 				"worker_id", cfg.WorkerID,
@@ -357,6 +358,7 @@ func Run(cfg Config) error {
 				slog.Default(),
 			)
 			local.SetProxyRepo(repos.proxy)
+			local.SetAssignmentRepo(repos.probeAssignments)
 			sched = local
 		}
 		var schedCtx context.Context
@@ -618,6 +620,7 @@ type repoBundle struct {
 	escalationPolicy     ports.EscalationPolicyRepository
 	escalationAssign     ports.EscalationAssignmentRepository
 	alertEscalation      ports.AlertEscalationRepository
+	probeAssignments     ports.MonitorProbeAssignmentRepository
 }
 
 func wireRepositories(engine string, db *bun.DB) repoBundle {
@@ -655,6 +658,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationPolicy = r.EscalationPolicyRepo
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
+		b.probeAssignments = mariadbrepo.NewProbeAssignmentRepo(db)
 	case "sqlite":
 		r := sqliterepo.NewRepository(db)
 		b.user = r.UserRepo
@@ -687,6 +691,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationPolicy = r.EscalationPolicyRepo
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
+		b.probeAssignments = sqliterepo.NewProbeAssignmentRepo(db)
 	}
 	return b
 }

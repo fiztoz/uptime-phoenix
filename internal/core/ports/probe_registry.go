@@ -21,15 +21,20 @@ type ProbeRegistryRepository interface {
 // MonitorProbeAssignmentRepository stores complete desired sets transactionally.
 // InitializeLocal creates revision/generation one for an existing uninitialized
 // monitor; repeated initialization returns the current set without changing it.
-// New monitor creation has not yet been wired to this foundation.
+// SQLite/MariaDB monitor Create inserts the local assignment in the same
+// transaction, so ordinary create/clone/import/restore paths initialize it.
 // Replace requires a positive expected revision, at least one distinct enabled
 // registered probe, and a valid policy. It validates all members before changing
 // any. Retained generations are stable, removed members retain tombstones, and
 // re-adding a member increments its generation. No-op replacement preserves the
 // revision. ErrConflict reports stale/exhausted revisions or generations.
 // GetByMonitorID never silently creates assignments or reroutes execution.
+// ExecutableByLocal reports which of the given monitors the hub worker may run:
+// missing assignment sets are legacy-local; sets without an active local probe
+// are remote-only and must not be claimed or checked by the hub scheduler.
 type MonitorProbeAssignmentRepository interface {
 	InitializeLocal(ctx context.Context, monitorID int64) (*domain.MonitorProbeAssignments, error)
 	GetByMonitorID(ctx context.Context, monitorID int64) (*domain.MonitorProbeAssignments, error)
 	Replace(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy) (*domain.MonitorProbeAssignments, error)
+	ExecutableByLocal(ctx context.Context, monitorIDs []int64) (map[int64]struct{}, error)
 }

@@ -1,0 +1,47 @@
+{
+  "monitor_id": 42,
+  "status": "down",
+  "health_policy": "any_down",
+  "projection_version": "7",
+  "as_of": "2026-09-15T10:10:00Z",
+  "uptime_percent": 99.5,
+  "coverage_percent": 100.0,
+  "known_seconds": 3600,
+  "unknown_seconds": 0,
+  "maintenance_seconds": 0,
+  "probe_counts": {
+    "assigned": 0,
+    "up": 1,
+    "down": 1,
+    "pending": 0,
+    "unknown": 0,
+    "maintenance": 0,
+    "paused": 0
+  },
+  "regions": [
+    {
+      "probe_id": "local",
+      "name": "Local",
+      "location": "",
+      "status": "up",
+      "connection_status": "online",
+      "observed_at": "2026-09-15T10:00:00Z",
+      "received_at": "2026-09-15T10:00:00Z",
+      "fresh_until": "2026-09-15T10:10:00Z",
+      "config_sync_status": "applied",
+      "reason": null
+    },
+    {
+      "probe_id": "e645246b-b176-4422-8ae5-b79629ee6a29",
+      "name": "Singapore",
+      "location": "ap-southeast-1",
+      "status": "down",
+      "connection_status": "online",
+      "observed_at": "2026-09-15T10:00:00Z",
+      "received_at": "2026-09-15T10:10:00Z",
+      "fresh_until": "2026-09-15T10:10:00Z",
+      "config_sync_status": "applied",
+      "reason": null
+    }
+  ]
+}

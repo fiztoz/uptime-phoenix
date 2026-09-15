@@ -1,0 +1,13 @@
+{
+  "id": 9,
+  "monitor_id": 42,
+  "status": "up",
+  "ping": 12,
+  "message": "OK",
+  "time": "2026-09-15T10:00:00Z",
+  "important": true,
+  "probe_id": "e645246b-b176-4422-8ae5-b79629ee6a29",
+  "received_at": "2026-09-15T10:10:00Z",
+  "assignment_generation": "3",
+  "config_revision": "12"
+}

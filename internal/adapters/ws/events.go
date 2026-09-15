@@ -13,4 +13,12 @@ const (
 	EventIncidentCreate  = "incident.create"
 	EventIncidentResolve = "incident.resolve"
 	EventStatsUpdate     = "stats.update"
+	// Regional browser events are named here so the contract is frozen.
+	// No hub currently emits them.
+	EventProbeStatus           = "probe.status"
+	EventMonitorProbeHeartbeat = "monitor.probe.heartbeat"
+	EventMonitorProbeStatus    = "monitor.probe.status"
+	EventMonitorHealth         = "monitor.health"
+	EventProbeConfigStatus     = "probe.config.status"
+	EventProbeCommandStatus    = "probe.command.status"
 )

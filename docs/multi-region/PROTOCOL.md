@@ -267,23 +267,31 @@ Assembly and typed decoding establish only structural validity. They neither app
 
 ### 6.1 Command contract
 
-`command.request.payload` has `command_id`, `kind`, `created_at`, `expires_at`, `target`, and `data`. The target identifies probe, assignment generation when applicable, and source incident ID when applicable. Allowed V1 kinds are `alert.ack`, `probe.stop`, `history.clear`, `credential.prepare`, `credential.activate`, `certificate.prepare`, and `certificate.activate`. Configuration changes use snapshots, not an unbounded generic command API.
+`command.request.payload` has `command_id`, `kind`, `created_at`, `expires_at`, `target`, and `data`. Allowed V1 kinds are `alert.ack`, `probe.stop`, `history.clear`, `credential.prepare`, `credential.activate`, `certificate.prepare`, and `certificate.activate`. Configuration changes use snapshots, not an unbounded generic command API. Command `data` is a closed object: only the members listed for that kind are accepted.
 
-`command.result.payload` has `command_id`, `status` (`applied`, `already_applied`, `already_resolved`, `rejected`, `expired`), `applied_at` (nullable), `code` (nullable), and redacted `message`. The probe persists result identity before acknowledging. Retain command IDs through at least the command expiry plus the maximum supported reconnect/retention window. A repeated command returns its recorded result.
+`command_id` is a canonical non-nil lowercase UUID. `created_at` and `expires_at` are UTC timestamps. `target` is required and has exactly these members:
 
-`alert.ack.data` is `source_alert_id`, `actor_display_name`, and `note` (bounded, optional). It affects only that incident. `probe.stop` durably disables scheduling after accepted shutdown instructions. `history.clear` contains an explicit observation-time/sequence watermark and scope. Only defined fields are accepted; there is no shell execution command.
+| Target field | Rule |
+|---|---|
+| `probe_id` | Canonical non-nil lowercase UUID. `local` is invalid on the probe protocol. |
+| `assignment_generation` | Positive decimal string for `alert.ack` and `history.clear`; must equal `data.assignment_generation` for `history.clear`. Null for `probe.stop` and credential/certificate commands. |
+| `source_alert_id` | Canonical non-nil lowercase UUID for `alert.ack`; must equal `data.source_alert_id`. Null for every other kind. |
+
+`command.result.payload` has `command_id`, `status` (`applied`, `already_applied`, `already_resolved`, `rejected`, `expired`), `applied_at` (nullable), `code` (nullable), redacted `message`, and `details` (nullable object). `applied` / `already_applied` / `already_resolved` require `applied_at` and null `code`. `rejected` requires a machine `code` and null `applied_at`. `expired` has null `applied_at` and a nullable `code`. `details` is non-null only for `applied` / `already_applied` credential or certificate preparation: credential preparation contains only `credential_version`; certificate preparation contains exactly `certificate_version`, `tls_fingerprint`, and `not_after`. The probe persists result identity before acknowledging. Retain command IDs through at least the command expiry plus the maximum supported reconnect/retention window. A repeated command returns its recorded result.
+
+`alert.ack.data` is `source_alert_id`, `actor_display_name`, and `note` (`note` is required; use null when unused). It affects only that incident. `probe.stop` durably disables scheduling after accepted shutdown instructions. `history.clear` contains an explicit observation-time/sequence watermark and scope. Only defined fields are accepted; there is no shell execution command.
 
 | Command kind | Exact data members |
 |---|---|
-| `alert.ack` | `source_alert_id`, `actor_display_name`, optional `note` |
+| `alert.ack` | `source_alert_id`, `actor_display_name`, `note` (string or null) |
 | `probe.stop` | `reason`, `effective_at`; only the bound hub/admin authority may issue it |
 | `history.clear` | `monitor_id`, `assignment_generation`, `through_observed_at`, `through_seq`, `clear_id`; both bounds constrain discarded evidence |
-| `credential.prepare` | `rotation_id`, `credential_version`, `token`, `overlap_expires_at`; token is confidential and write-only |
+| `credential.prepare` | `rotation_id`, `credential_version`, `token`, `overlap_expires_at`; token is a write-only `phx_probe_` runtime credential |
 | `credential.activate` | `rotation_id`, `credential_version` |
-| `certificate.prepare` | `rotation_id`, `certificate_version`, `valid_for_days`; probe generates/persists the pending key/certificate locally |
-| `certificate.activate` | `rotation_id`, `certificate_version`, `expected_fingerprint` |
+| `certificate.prepare` | `rotation_id`, `certificate_version`, `valid_for_days` (positive JSON integer 1–3650); probe generates/persists the pending key/certificate locally |
+| `certificate.activate` | `rotation_id`, `certificate_version`, `expected_fingerprint` (64 lowercase hex SHA-256) |
 
-`command.result` may additionally include a `details` object for certificate preparation containing `certificate_version`, `tls_fingerprint`, and `not_after`, or credential preparation containing only `credential_version`. No result includes a token or private key. A config snapshot with active assignments is the explicit way to resume scheduling after an administrative stop; a lost connection cannot undo a persisted pause.
+`rotation_id` and `clear_id` are canonical non-nil lowercase UUIDs. `credential_version` / `certificate_version` / `through_seq` / `assignment_generation` are positive decimal strings. No `command.result` or other read body includes `token`, `enrollment_token`, or a private key. A config snapshot with active assignments is the explicit way to resume scheduling after an administrative stop; a lost connection cannot undo a persisted pause.
 
 ### 6.2 Manual enrollment
 
@@ -293,6 +301,40 @@ Assembly and typed decoding establish only structural validity. They neither app
 4. Before sending a new runtime credential, the hub durably stores it encrypted with a stable `enrollment_id`. Probe durably records the runtime token hash and binding before consuming the enrollment token and responding.
 5. Hub reconnects to the runtime endpoint with the persisted runtime token. If the enrollment response was lost, this reconnect recovers the completed exchange. If preparation failed before probe commit, the same unexpired enrollment ID/token may be retried. Expired uncommitted enrollment requires a fresh local token.
 6. Hub marks enrollment active only after a runtime handshake succeeds. Monitor execution begins after the first valid config activation. No success is inferred from an SSH process exit code alone.
+
+Enrollment application frames use the common envelope on `/ws/probe/enroll/v1` with `connection_generation: "0"`. The enrollment token authenticates that WebSocket (`Authorization: Bearer <enrollment_token>`) and is never a JSON member of these frames. Hub and probe identities are canonical non-nil lowercase UUIDs; `local` is invalid. Decoding these frames does not open a runtime session or mark enrollment active.
+
+`enroll.request` is sent only after the hub has durably stored the new runtime credential under `enrollment_id`. `enroll.result` is sent only after the probe has durably recorded the runtime token hash and hub/probe binding. A lost result is recovered by reconnecting to `/ws/probe/v1` with that credential, not by treating the enrollment socket close as success.
+
+| Type | Required payload fields |
+|---|---|
+| `enroll.request` | `hub_id`, `probe_id`, `enrollment_id`, `protocol_min`, `protocol_max`, `capabilities`, `credential_version`, `token` |
+| `enroll.result` | `hub_id`, `probe_id`, `enrollment_id`, `status`, `credential_version`, `applied_at`, `tls_fingerprint`, `certificate_not_after`, `code`, `message` |
+
+`enroll.request` members:
+
+| Field | Type and meaning |
+|---|---|
+| `hub_id`, `probe_id`, `enrollment_id` | Canonical non-nil lowercase UUIDs. `enrollment_id` is stable across retries of the same unexpired token. |
+| `protocol_min`, `protocol_max` | Positive signed-32-bit integers with min <= max. V1 requires the range to include 1. |
+| `capabilities` | Same inventory rules as `hello`; V1 enrollment requires `snapshot.v1` exactly. |
+| `credential_version` | Positive decimal string. |
+| `token` | Write-only runtime credential. Prefix `phx_probe_` with at least 32 unpadded-base64url bytes; `phx_probe_enroll_` is invalid here. |
+
+`enroll.result` members:
+
+| Field | Type and meaning |
+|---|---|
+| `hub_id`, `probe_id`, `enrollment_id` | Same identities as the request. |
+| `status` | `applied`, `already_applied`, `rejected`, or `expired`. |
+| `credential_version` | Positive decimal on `applied` / `already_applied`; `"0"` when rejected or expired before a version was bound. |
+| `applied_at` | Timestamp on `applied` / `already_applied`; null otherwise. |
+| `tls_fingerprint` | 64 lowercase hex SHA-256 on `applied` / `already_applied`; null otherwise. |
+| `certificate_not_after` | Timestamp on `applied` / `already_applied`; null otherwise. Refuse expired certificates at the later session; decoding only checks shape. |
+| `code` | Machine error code on `rejected`; nullable on `expired`; null on success statuses. |
+| `message` | Redacted string, never a token, PEM, or private key. |
+
+No enrollment result includes `token`, `enrollment_token`, or a private key.
 
 ### 6.3 Credential/certificate rotation
 
@@ -312,10 +354,10 @@ Fleet routes require an authenticated admin; follow the established session-or-w
 | `POST /api/probes` | Create registration using `key`, `name`, `location`, `endpoint`, `tls_fingerprint`; returns 201 ProbeView, initially `unconfigured` |
 | `GET /api/probes/:probe_id` | Admin ProbeView |
 | `PATCH /api/probes/:probe_id` | Update `name`, `location`, `enabled` with expected `revision`; endpoint/pin changes require explicit identity workflow |
-| `POST /api/probes/:probe_id/enroll` | Write-only `enrollment_token`; returns 202 operation receipt |
-| `POST /api/probes/:probe_id/rotate-credential` | Expected credential version; returns 202 operation receipt; no plaintext token in response |
-| `POST /api/probes/:probe_id/revoke` | `reason`; returns revocation receipt with `remote_confirmed` boolean |
-| `POST /api/probes/:probe_id/reset-stream` | New locally verified stream identity plus reenrollment operation reference; returns 202 receipt |
+| `POST /api/probes/:probe_id/enroll` | Write-only body `{ "enrollment_token": "<phx_probe_enroll_…>" }`; returns 202 operation receipt |
+| `POST /api/probes/:probe_id/rotate-credential` | Body `{ "credential_version": "<positive decimal>" }`; returns 202 operation receipt; no plaintext token in the request or response |
+| `POST /api/probes/:probe_id/revoke` | Body `{ "reason": "<redacted string>" }`; returns 202 revoke receipt |
+| `POST /api/probes/:probe_id/reset-stream` | Body `{ "stream_id": "<uuid>", "enrollment_operation_id": "<uuid>" }`; returns 202 operation receipt |
 | `DELETE /api/probes/:probe_id` | 409 while actively assigned; otherwise soft-delete, revoke and retain historical attribution; `local` cannot be deleted |
 | `GET /api/probe-operations/:operation_id` | Admin operation state, phase and redacted errors |
 | `GET /api/monitors/:id/probes` | Authorized regional assignment summaries; no endpoint/secrets/fleet totals |
@@ -329,7 +371,20 @@ Fleet routes require an authenticated admin; follow the established session-or-w
 
 Connection states are `never_connected`, `online`, `suspect`, `disconnected`, `revoked`; enrollment states are `unconfigured`, `pending`, `active`, `failed`; execution states are `unconfigured`, `ready`, `degraded`, `paused`, `revoked`. Keep these independent of target availability status.
 
-An operation receipt has `operation_id`, `probe_id`, `status` (`pending`, `running`, `succeeded`, `failed`), `phase`, `created_at`, `updated_at`, and `error` (nullable object containing `code`, `message`). A command receipt has `command_id`, `status` (`pending`, `applied`, `failed`, `expired`), and `remote_confirmed`.
+Enrollment tokens use prefix `phx_probe_enroll_`; runtime credentials use `phx_probe_` and must not use the enrollment prefix. Both suffixes are unpadded base64url of at least 32 cryptographically random bytes.
+
+An operation receipt has exactly:
+
+| Field | Type and meaning |
+|---|---|
+| `operation_id` | Canonical non-nil lowercase UUID |
+| `probe_id` | Canonical non-nil lowercase UUID; `local` is invalid |
+| `status` | `pending`, `running`, `succeeded`, or `failed` |
+| `phase` | 1–128 lowercase ASCII letters, digits, or underscores |
+| `created_at`, `updated_at` | UTC timestamps |
+| `error` | Null unless `status` is `failed`; otherwise `{ "code": "<machine code>", "message": "<redacted>" }` |
+
+A command receipt has exactly `command_id` (canonical UUID), `status` (`pending`, `applied`, `failed`, `expired`), and `remote_confirmed` (boolean). A revoke receipt is an operation receipt plus `remote_confirmed` (boolean): `true` only after the probe confirmed revocation; `false` means the hub recorded it and the remote side is unconfirmed. None of these receipts includes a token or private key. Feature-disabled handlers for these paths must not return 2xx for unperformed work.
 
 ### 7.1 Assignment replacement
 
@@ -397,4 +452,8 @@ Hello/welcome/health DTOs and trusted transcript comparison are also implemented
 
 Configuration DTOs, dependency/reference validation, all five transfer frames, pure revision comparison, and bounded assembly now add 60 fixtures (225 total). Decoding rejects unresolved dependencies, asymmetric maintenance applicability, missing target-visibility links, wrong dependency versions, unsupported remote types, and remote acknowledgement URLs. Assembly verifies the exact bytes, capability union, target/session identity, and local resource bindings. It returns a candidate only; it does not build desired config, invoke extension validators, schedule work, persist an activation, or issue an application receipt.
 
-M0 still needs enrollment frames, command target fields, credential/reset HTTP requests, regional assignment read responses, exact browser event views, and pure regional/stream/incident/command types and atomic ports. It also needs the baseline HTTP/browser/template/maintenance/alert fixtures and the complete runtime-extension/all-message valid/invalid fixture matrix. Authenticated session/deadline/lease integration remains M2 work. Config construction, checker/provider/template/cron/timezone validation, atomic activation, incident/delivery identity correlation and lifecycle monotonicity, state snapshot authorization, missing-assignment reconciliation, durable application receipts, and projection transactions remain M1/M3 integration work. Implement those before claiming complete protocol compatibility or enabling any remote capability.
+Command, enrollment, and rotation/reset HTTP request/receipt DTOs add 60 fixtures (285 total). Typed decoders cover all seven `command.request` kinds, `command.result` statuses and secret-free prepare details, `enroll.request`/`enroll.result` with generation zero, write-only `phx_probe_enroll_` / `phx_probe_` tokens, and operation/command/revoke receipts. Decoding these shapes does not apply a command, bind a hub, rotate a credential, or return HTTP 2xx for unperformed work.
+
+Admin/browser views add 21 fixtures (306 total) plus baseline compatibility documents under `testdata/v1/baseline/`. Typed decoders cover ProbeView (including reserved `local`), fleet lists, create/patch, assignment replacement, HealthView, regional heartbeats that keep `message`, and the section-8 browser events. Existing HTTP heartbeat/monitor/alert/maintenance/template/`access_code` names and browser `msg` are captured separately so they cannot be renamed by accident. The config snapshot inventory test is the runtime-extension matrix for all pull checkers and notification providers.
+
+Pure regional observation/state/stream/incident/command types and atomic `RegionalCommit` / `ProbeIngest` ports are defined. Authenticated session/deadline/lease integration remains M2 work. Config construction, checker/provider/template/cron/timezone validation, atomic activation, incident/delivery identity correlation and lifecycle monotonicity, state snapshot authorization, missing-assignment reconciliation, durable application receipts, and projection transactions remain M1/M3 integration work. Implement those before claiming complete protocol compatibility or enabling any remote capability.

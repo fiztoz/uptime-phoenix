@@ -1,0 +1,15 @@
+{
+  "protocol_version": 1,
+  "type": "command.result",
+  "message_id": "1c73a9c5-77ad-4dc0-926d-123bbab94540",
+  "sent_at": "2026-09-15T10:00:00Z",
+  "connection_generation": "7",
+  "payload": {
+    "command_id": "8c73a9c5-77ad-4dc0-926d-123bbab94540",
+    "status": "rejected",
+    "applied_at": null,
+    "code": "invalid_command",
+    "message": "Unsupported target",
+    "details": null
+  }
+}

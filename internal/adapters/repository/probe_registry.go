@@ -179,8 +179,7 @@ func NewProbeAssignmentStore(db *bun.DB) *ProbeAssignmentStore { return &ProbeAs
 var _ ports.MonitorProbeAssignmentRepository = (*ProbeAssignmentStore)(nil)
 
 // InitializeLocal idempotently initializes an existing monitor to local. It does
-// not repair/rewrite existing desired state or cause remote execution. Callers
-// must later wire monitor creation atomically before activating this subsystem.
+// not repair/rewrite existing desired state or cause remote execution.
 func (r *ProbeAssignmentStore) InitializeLocal(ctx context.Context, monitorID int64) (*domain.MonitorProbeAssignments, error) {
 	if monitorID < 1 {
 		return nil, fmt.Errorf("invalid monitor ID: %w", domain.ErrValidation)
@@ -199,27 +198,7 @@ func (r *ProbeAssignmentStore) InitializeLocal(ctx context.Context, monitorID in
 		if !exists {
 			return ports.ErrNotFound
 		}
-		set := new(probeAssignmentSetModel)
-		err = tx.NewSelect().Model(set).Where("monitor_id = ?", monitorID).Scan(ctx)
-		if err == nil {
-			out, err = readProbeAssignments(ctx, tx, monitorID)
-			return err
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		if err := requireEnabledProbe(ctx, tx, domain.LocalProbeID); err != nil {
-			return err
-		}
-		now := time.Now().UTC()
-		set = &probeAssignmentSetModel{MonitorID: monitorID, Revision: 1,
-			HealthPolicy: domain.HealthPolicyAnyDown, CreatedAt: now, UpdatedAt: now}
-		if _, err := tx.NewInsert().Model(set).Exec(ctx); err != nil {
-			return err
-		}
-		assignment := &probeAssignmentModel{MonitorID: monitorID, ProbeID: domain.LocalProbeID,
-			Generation: 1, Active: true, CreatedAt: now, UpdatedAt: now}
-		if _, err := tx.NewInsert().Model(assignment).Exec(ctx); err != nil {
+		if err := InitializeLocalAssignment(ctx, tx, monitorID); err != nil {
 			return err
 		}
 		out, err = readProbeAssignments(ctx, tx, monitorID)
@@ -229,6 +208,87 @@ func (r *ProbeAssignmentStore) InitializeLocal(ctx context.Context, monitorID in
 		return nil, fmt.Errorf("initialize local probe assignment: %w", probeRegistryError(err))
 	}
 	return out, nil
+}
+
+// InitializeLocalAssignment writes revision/generation-one local membership
+// inside an open transaction. A monitor insert must use the same tx.
+func InitializeLocalAssignment(ctx context.Context, tx bun.Tx, monitorID int64) error {
+	set := new(probeAssignmentSetModel)
+	err := tx.NewSelect().Model(set).Where("monitor_id = ?", monitorID).Scan(ctx)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err := requireEnabledProbe(ctx, tx, domain.LocalProbeID); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	set = &probeAssignmentSetModel{MonitorID: monitorID, Revision: 1,
+		HealthPolicy: domain.HealthPolicyAnyDown, CreatedAt: now, UpdatedAt: now}
+	if _, err := tx.NewInsert().Model(set).Exec(ctx); err != nil {
+		return err
+	}
+	assignment := &probeAssignmentModel{MonitorID: monitorID, ProbeID: domain.LocalProbeID,
+		Generation: 1, Active: true, CreatedAt: now, UpdatedAt: now}
+	_, err = tx.NewInsert().Model(assignment).Exec(ctx)
+	return err
+}
+
+// CreateMonitorWithLocalAssignment inserts a monitor and its local assignment
+// in one transaction so create/clone/import/restore cannot leave an unassigned row.
+func CreateMonitorWithLocalAssignment(ctx context.Context, db *bun.DB, model *MonitorModel) error {
+	return db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewInsert().Model(model).Exec(ctx); err != nil {
+			return err
+		}
+		return InitializeLocalAssignment(ctx, tx, model.ID)
+	})
+}
+
+// ExecutableByLocal reports which monitors the hub worker may run.
+func (r *ProbeAssignmentStore) ExecutableByLocal(ctx context.Context, monitorIDs []int64) (map[int64]struct{}, error) {
+	allowed := make(map[int64]struct{}, len(monitorIDs))
+	if len(monitorIDs) == 0 {
+		return allowed, nil
+	}
+	var withSet []int64
+	if err := r.db.NewSelect().Table("monitor_probe_assignment_sets").Column("monitor_id").
+		Where("monitor_id IN (?)", bun.List(monitorIDs)).Scan(ctx, &withSet); err != nil {
+		return nil, fmt.Errorf("list assignment sets: %w", err)
+	}
+	var withLocal []int64
+	if err := r.db.NewSelect().Table("monitor_probe_assignments").Column("monitor_id").
+		Where("monitor_id IN (?) AND probe_id = ? AND active = ?", bun.List(monitorIDs), domain.LocalProbeID, true).
+		Scan(ctx, &withLocal); err != nil {
+		return nil, fmt.Errorf("list local assignments: %w", err)
+	}
+	sets := make(map[int64]struct{}, len(withSet))
+	for _, id := range withSet {
+		sets[id] = struct{}{}
+	}
+	local := make(map[int64]struct{}, len(withLocal))
+	for _, id := range withLocal {
+		local[id] = struct{}{}
+	}
+	for _, id := range monitorIDs {
+		if _, ok := sets[id]; !ok {
+			allowed[id] = struct{}{}
+			continue
+		}
+		if _, ok := local[id]; ok {
+			allowed[id] = struct{}{}
+		}
+	}
+	return allowed, nil
+}
+
+// LocalHubExecutionSQL is the claim/list predicate for hub-side execution.
+func LocalHubExecutionSQL(monitorIDExpr string) string {
+	return "(NOT EXISTS (SELECT 1 FROM monitor_probe_assignment_sets s WHERE s.monitor_id = " + monitorIDExpr +
+		") OR EXISTS (SELECT 1 FROM monitor_probe_assignments a WHERE a.monitor_id = " + monitorIDExpr +
+		" AND a.probe_id = '" + domain.LocalProbeID + "' AND a.active))"
 }
 
 // GetByMonitorID reads a consistent active set in one statement, never creating

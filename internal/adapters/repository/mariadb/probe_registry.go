@@ -25,7 +25,19 @@ func NewProbeAssignmentRepo(db *bun.DB) *ProbeAssignmentRepo {
 	return &ProbeAssignmentRepo{repository.NewProbeAssignmentStore(db)}
 }
 
+// RegionalCommitRepo is the MariaDB regional observation/state store.
+type RegionalCommitRepo struct {
+	*repository.RegionalCommitStore
+}
+
+// NewRegionalCommitRepo creates a MariaDB regional commit repository.
+func NewRegionalCommitRepo(db *bun.DB) *RegionalCommitRepo {
+	return &RegionalCommitRepo{repository.NewRegionalCommitStore(db)}
+}
+
 var (
 	_ ports.ProbeRegistryRepository          = (*ProbeRegistryRepo)(nil)
 	_ ports.MonitorProbeAssignmentRepository = (*ProbeAssignmentRepo)(nil)
+	_ ports.RegionalCommitRepository         = (*RegionalCommitRepo)(nil)
+	_ ports.ProbeIngestRepository            = (*RegionalCommitRepo)(nil)
 )

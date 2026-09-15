@@ -1,0 +1,12 @@
+{
+  "operation_id": "d1123604-32c5-40aa-89f9-b62f93dceac2",
+  "probe_id": "e645246b-b176-4422-8ae5-b79629ee6a29",
+  "status": "failed",
+  "phase": "exchanging",
+  "created_at": "2026-09-15T10:00:00Z",
+  "updated_at": "2026-09-15T10:10:00Z",
+  "error": {
+    "code": "enrollment_expired",
+    "message": "token expired"
+  }
+}

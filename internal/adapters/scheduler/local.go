@@ -18,6 +18,7 @@ import (
 type LocalScheduler struct {
 	monitorRepo    ports.MonitorRepository
 	heartbeatRepo  ports.HeartbeatRepository
+	assignments    ports.MonitorProbeAssignmentRepository
 	checkerFn      func(string) (ports.Checker, bool)
 	heartbeatSvc   *services.HeartbeatService
 	maintenanceSvc *services.MaintenanceService
@@ -59,6 +60,12 @@ func (s *LocalScheduler) SetProxyRepo(repo ports.ProxyRepository) {
 	s.proxyResolver.setRepo(repo)
 }
 
+// SetAssignmentRepo scopes hub execution to monitors the local probe may run.
+// Optional: when unset, every active monitor is eligible (tests and pre-035 data).
+func (s *LocalScheduler) SetAssignmentRepo(repo ports.MonitorProbeAssignmentRepository) {
+	s.assignments = repo
+}
+
 // Run starts the scheduler loop. Blocks until ctx is canceled.
 func (s *LocalScheduler) Run(ctx context.Context) error {
 	s.logger.Info("scheduler starting")
@@ -84,6 +91,11 @@ func (s *LocalScheduler) tick(ctx context.Context) {
 	monitors, err := s.monitorRepo.ListActive(ctx)
 	if err != nil {
 		s.logger.Error("scheduler: failed to list active monitors", "error", err)
+		return
+	}
+	monitors, err = filterLocalRunnable(ctx, s.assignments, monitors)
+	if err != nil {
+		s.logger.Error("scheduler: failed to filter local assignments", "error", err)
 		return
 	}
 

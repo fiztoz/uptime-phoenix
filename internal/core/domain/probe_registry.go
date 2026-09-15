@@ -51,3 +51,17 @@ type MonitorProbeAssignments struct {
 	HealthPolicy HealthPolicy
 	Assignments  []ProbeAssignment
 }
+
+// LocalWorkerMayRun reports whether the hub scheduler may execute this set.
+// A nil set is legacy (no assignment row yet) and remains locally runnable.
+func LocalWorkerMayRun(set *MonitorProbeAssignments) bool {
+	if set == nil {
+		return true
+	}
+	for _, assignment := range set.Assignments {
+		if assignment.ProbeID == LocalProbeID {
+			return true
+		}
+	}
+	return false
+}

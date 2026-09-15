@@ -111,6 +111,29 @@ func (r *mockMonitorRepo) ClaimBatch(_ context.Context, _ string, _ int, _ time.
 func (r *mockMonitorRepo) RefreshLease(_ context.Context, _ string) (int64, error)  { return 0, nil }
 func (r *mockMonitorRepo) ReleaseLeases(_ context.Context, _ string) (int64, error) { return 0, nil }
 
+type mockAssignments struct {
+	remoteOnly map[int64]struct{}
+}
+
+func (m *mockAssignments) InitializeLocal(context.Context, int64) (*domain.MonitorProbeAssignments, error) {
+	return nil, nil
+}
+func (m *mockAssignments) GetByMonitorID(context.Context, int64) (*domain.MonitorProbeAssignments, error) {
+	return nil, ports.ErrNotFound
+}
+func (m *mockAssignments) Replace(context.Context, int64, int64, []string, domain.HealthPolicy) (*domain.MonitorProbeAssignments, error) {
+	return nil, nil
+}
+func (m *mockAssignments) ExecutableByLocal(_ context.Context, ids []int64) (map[int64]struct{}, error) {
+	out := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if _, skip := m.remoteOnly[id]; !skip {
+			out[id] = struct{}{}
+		}
+	}
+	return out, nil
+}
+
 // mockHeartbeatRepo records saved heartbeats for verification.
 type mockHeartbeatRepo struct {
 	mu          sync.Mutex
@@ -123,6 +146,17 @@ func newMockHeartbeatRepo() *mockHeartbeatRepo {
 		heartbeats:  make([]*domain.Heartbeat, 0),
 		latestByMID: make(map[int64]*domain.Heartbeat),
 	}
+}
+
+func (r *mockHeartbeatRepo) hasMonitor(id int64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, hb := range r.heartbeats {
+		if hb.MonitorID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *mockHeartbeatRepo) Save(_ context.Context, h *domain.Heartbeat) error {
@@ -294,6 +328,30 @@ func TestScheduler_Run_ExecutesChecks(t *testing.T) {
 	count := heartbeatRepo.count()
 	if count == 0 {
 		t.Error("expected at least 1 heartbeat to be recorded, got 0")
+	}
+}
+
+func TestScheduler_Run_SkipsRemoteOnlyAssignments(t *testing.T) {
+	monitorRepo := newMockMonitorRepo(
+		&domain.Monitor{ID: 1, Name: "local", Type: "http", Active: true, Interval: 1, Timeout: 5, Config: map[string]any{"url": "https://example.com"}},
+		&domain.Monitor{ID: 2, Name: "remote", Type: "http", Active: true, Interval: 1, Timeout: 5, Config: map[string]any{"url": "https://example.com"}},
+	)
+	heartbeatRepo := newMockHeartbeatRepo()
+	heartbeatSvc := services.NewHeartbeatService(heartbeatRepo, newMockBus())
+	sched := NewLocalScheduler(monitorRepo, heartbeatRepo, func(string) (ports.Checker, bool) {
+		return &mockChecker{result: ports.CheckResult{Status: domain.StatusUp}}, true
+	}, heartbeatSvc, nil, slog.New(slog.DiscardHandler))
+	sched.SetAssignmentRepo(&mockAssignments{remoteOnly: map[int64]struct{}{2: {}}})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	_ = sched.Run(ctx)
+
+	if heartbeatRepo.hasMonitor(2) {
+		t.Fatal("hub scheduler executed a remote-only monitor")
+	}
+	if heartbeatRepo.count() == 0 {
+		t.Fatal("local monitor was not executed")
 	}
 }
 

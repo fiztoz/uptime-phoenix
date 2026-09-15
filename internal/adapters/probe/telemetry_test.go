@@ -60,6 +60,46 @@ func TestGoldenTelemetryFixtures(t *testing.T) {
 					_, _, decodeError = DecodeStateCommit(data)
 				case strings.HasPrefix(name, "state-applied-"):
 					_, _, decodeError = DecodeStateApplied(data)
+				case strings.HasPrefix(name, "command-result-"):
+					_, _, decodeError = DecodeCommandResult(data)
+				case strings.HasPrefix(name, "command-"):
+					_, _, decodeError = DecodeCommandRequest(data)
+				case strings.HasPrefix(name, "enroll-result-"):
+					_, _, decodeError = DecodeEnrollResult(data)
+				case strings.HasPrefix(name, "enroll-"):
+					_, _, decodeError = DecodeEnrollRequest(data)
+				case strings.HasPrefix(name, "http-enroll-"):
+					_, decodeError = DecodeEnrollmentTokenRequest(data)
+				case strings.HasPrefix(name, "http-rotate-"):
+					_, decodeError = DecodeRotateCredentialRequest(data)
+				case strings.HasPrefix(name, "http-revoke-receipt"):
+					_, decodeError = DecodeRevokeReceipt(data)
+				case strings.HasPrefix(name, "http-revoke-"):
+					_, decodeError = DecodeRevokeRequest(data)
+				case strings.HasPrefix(name, "http-reset-"):
+					_, decodeError = DecodeResetStreamRequest(data)
+				case strings.HasPrefix(name, "http-operation-"):
+					_, decodeError = DecodeOperationReceipt(data)
+				case strings.HasPrefix(name, "http-command-"):
+					_, decodeError = DecodeCommandReceipt(data)
+				case strings.HasPrefix(name, "http-probe-view"):
+					_, decodeError = DecodeProbeView(data)
+				case strings.HasPrefix(name, "http-probe-list"):
+					_, decodeError = DecodeProbeList(data)
+				case strings.HasPrefix(name, "http-probe-create"):
+					_, decodeError = DecodeProbeCreateRequest(data)
+				case strings.HasPrefix(name, "http-probe-patch"):
+					_, decodeError = DecodeProbePatchRequest(data)
+				case strings.HasPrefix(name, "http-assignment-result"):
+					_, decodeError = DecodeAssignmentReplacementResult(data)
+				case strings.HasPrefix(name, "http-assignment-"):
+					_, decodeError = DecodeAssignmentReplacementRequest(data)
+				case strings.HasPrefix(name, "http-regional-heartbeat"):
+					_, decodeError = DecodeRegionalHeartbeat(data)
+				case strings.HasPrefix(name, "http-health-view"):
+					_, decodeError = DecodeHealthView(data)
+				case strings.HasPrefix(name, "http-browser-"):
+					_, decodeError = DecodeBrowserEvent(data)
 				default:
 					t.Fatalf("fixture has no decoder: %s", name)
 				}

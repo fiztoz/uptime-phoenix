@@ -20,6 +20,7 @@ import (
 // On shutdown it releases its leases so other workers can pick them up.
 type ShardedScheduler struct {
 	monitorRepo    ports.MonitorRepository
+	assignments    ports.MonitorProbeAssignmentRepository
 	checkerFn      func(string) (ports.Checker, bool)
 	heartbeatSvc   *services.HeartbeatService
 	maintenanceSvc *services.MaintenanceService
@@ -86,6 +87,11 @@ func NewShardedScheduler(
 // Mirrors LocalScheduler.SetProxyRepo.
 func (s *ShardedScheduler) SetProxyRepo(repo ports.ProxyRepository) {
 	s.proxyResolver.setRepo(repo)
+}
+
+// SetAssignmentRepo scopes hub execution to monitors the local probe may run.
+func (s *ShardedScheduler) SetAssignmentRepo(repo ports.MonitorProbeAssignmentRepository) {
+	s.assignments = repo
 }
 
 // Run starts the sharded scheduler loop. Blocks until ctx is canceled.
@@ -164,6 +170,11 @@ func (s *ShardedScheduler) tick(ctx context.Context) {
 	monitors, err := s.monitorRepo.ListActive(ctx)
 	if err != nil {
 		s.logger.Error("sharded scheduler: failed to list active monitors", "error", err)
+		return
+	}
+	monitors, err = filterLocalRunnable(ctx, s.assignments, monitors)
+	if err != nil {
+		s.logger.Error("sharded scheduler: failed to filter local assignments", "error", err)
 		return
 	}
 

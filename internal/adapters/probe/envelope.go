@@ -161,8 +161,8 @@ func DecodeEnvelope(data []byte) (Envelope, error) {
 	if err := required(fields, "connection_generation", &envelope.ConnectionGeneration); err != nil {
 		return envelope, err
 	}
-	if (envelope.Type == "hello") != (envelope.ConnectionGeneration == 0) {
-		return envelope, errors.New("hello requires generation zero; other messages require a positive generation")
+	if zeroGenerationType(envelope.Type) != (envelope.ConnectionGeneration == 0) {
+		return envelope, errors.New("hello and enroll frames require generation zero; other messages require a positive generation")
 	}
 	if err := required(fields, "payload", &envelope.Payload); err != nil {
 		return envelope, err
@@ -179,11 +179,15 @@ func knownMessageType(kind string) bool {
 		"config.begin", "config.chunk", "config.commit", "config.applied", "config.rejected",
 		"state.begin", "state.chunk", "state.commit", "state.applied",
 		"telemetry.batch", "telemetry.ack", "telemetry.retry", "telemetry.gap",
-		"command.request", "command.result":
+		"command.request", "command.result", "enroll.request", "enroll.result":
 		return true
 	default:
 		return false
 	}
+}
+
+func zeroGenerationType(kind string) bool {
+	return kind == "hello" || kind == "enroll.request" || kind == "enroll.result"
 }
 
 func validateJSON(data []byte) error {
@@ -260,6 +264,29 @@ func objectFields(data []byte) (map[string]json.RawMessage, error) {
 	return fields, nil
 }
 
+func decodeJSONObject(data []byte) (map[string]json.RawMessage, error) {
+	if len(data) > MaxFrameBytes {
+		return nil, errors.New("frame exceeds maximum bytes")
+	}
+	if err := validateJSON(data); err != nil {
+		return nil, err
+	}
+	return objectFields(data)
+}
+
+func rejectUnknownKeys(fields map[string]json.RawMessage, allowed ...string) error {
+	permitted := make(map[string]struct{}, len(allowed))
+	for _, key := range allowed {
+		permitted[key] = struct{}{}
+	}
+	for key := range fields {
+		if _, ok := permitted[key]; !ok {
+			return fmt.Errorf("unexpected field %s", key)
+		}
+	}
+	return nil
+}
+
 func required[T any](fields map[string]json.RawMessage, name string, target *T) error {
 	value, ok := fields[name]
 	if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
@@ -286,10 +313,14 @@ func requiredUUID(fields map[string]json.RawMessage, name string, target *string
 	if err := required(fields, name, target); err != nil {
 		return err
 	}
-	if len(*target) != 36 || *target == "00000000-0000-0000-0000-000000000000" {
+	return canonicalUUID(name, *target)
+}
+
+func canonicalUUID(name, value string) error {
+	if len(value) != 36 || value == "00000000-0000-0000-0000-000000000000" {
 		return fmt.Errorf("%s must be a canonical lowercase UUID", name)
 	}
-	for index, character := range *target {
+	for index, character := range value {
 		if index == 8 || index == 13 || index == 18 || index == 23 {
 			if character == '-' {
 				continue

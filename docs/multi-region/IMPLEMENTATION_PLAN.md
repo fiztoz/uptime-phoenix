@@ -34,10 +34,10 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 
 - [x] Re-read `AGENTS.md`, current `docs/ARCHITECTURE.md`, `docs/TESTING.md`, and these documents at the implementation branch HEAD.
 - [x] Inventory current migrations in both adapters and reserve consecutive unused numbers. Migration `035_probe_registry` is reserved by the initial foundation after verifying both adapters ended at `034`. Recheck HEAD before reserving subsequent numbers.
-- [ ] Capture real monitor/heartbeat/template/maintenance/alert response fields in contract fixtures. Preserve `accepted_statuscodes`, `message`, `access_code`, and `monitor_ids` where applicable.
-- [ ] Define pure regional/probe types, stable identity formats, `UNKNOWN=4`, enums, and the atomic repository operations described in architecture section 3.
-- [ ] Define transport DTOs independently from domain types. Create valid/invalid fixtures under `internal/adapters/probe/testdata/v1/` and browser response fixtures in the existing frontend test layout.
-  - Current-state/config DTOs and all transfer frames, bounded assembly, config reference/target/capability checks, all five telemetry event kinds, and hello/welcome/health with trusted handshake comparison are implemented, with 225 valid/invalid fixtures in total. Commands/enrollment, API/browser, and complete baseline/runtime-extension fixtures remain open. Authenticated sessions/leases, config construction/extension validation, and atomic activation are not supplied by wire helpers.
+- [x] Capture real monitor/heartbeat/template/maintenance/alert response fields in contract fixtures. Preserve `accepted_statuscodes`, `message`, `access_code`, and `monitor_ids` where applicable.
+- [x] Define pure regional/probe types, stable identity formats, `UNKNOWN=4`, enums, and the atomic repository operations described in architecture section 3.
+- [x] Define transport DTOs independently from domain types. Create valid/invalid fixtures under `internal/adapters/probe/testdata/v1/` and browser response fixtures in the existing frontend test layout.
+  - Current-state/config DTOs and all transfer frames, bounded assembly, config reference/target/capability checks, all five telemetry event kinds, hello/welcome/health with trusted handshake comparison, command/enrollment/rotation-reset request and receipt DTOs, and admin/browser HealthView/assignment/ProbeView events are implemented, with 306 valid/invalid fixtures plus baseline HTTP/browser documents. Authenticated sessions/leases, config construction/extension validation, and atomic activation are not supplied by wire helpers.
 - [x] Record a contract decision for any implementation discovery that changes this proposal, before dependent agents begin.
 - [x] Capture baseline tests for retry confirmation, local recovery, maintenance, certificate alerts, capacity conditions, folder alerting, acknowledgement/escalation, and existing query counts.
 
@@ -49,11 +49,15 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 
 **Goal:** prove the core can handle multiple independent streams before opening a public listener.
 
-- [ ] Add `local` registration, monitor assignments/generations, regional state, stream cursor/receipt tables, scoped incident/delivery storage, config/command metadata, projection/history, and dirty-bucket schema.
+- [x] Add `local` registration, monitor assignments/generations, regional state, stream cursor/receipt tables, scoped incident/delivery storage, config/command metadata, projection/history, and dirty-bucket schema.
+  - Registration/assignments (`035`) plus regional observations/state/streams/commands/dirty buckets (`036`) are in both engines. Heartbeat partition keys and rollup unique `(monitor_id,bucket)` are unchanged so local history queries stay compatible. Edge SQLite schema remains M2.
 - [ ] Add paired MariaDB/SQLite migrations and edge-schema migrations. Preserve existing heartbeat partition expression and IDs. Keep rollup auto-increment IDs; replace the old unique `(monitor_id,bucket)` key correctly.
-- [ ] Implement atomic regional commit and ingest transaction ports with real-engine tests; use a persisted sequence and state transaction on SQLite.
+  - Hub `036` is paired. Rollup unique-key replacement and edge migrations remain.
+- [x] Implement atomic regional commit and ingest transaction ports with real-engine tests; use a persisted sequence and state transaction on SQLite.
+  - `RegionalCommitStore` commits observation+state together and ingest is idempotent with gap rejection. Not wired into `HeartbeatService` or the scheduler.
 - [ ] Refactor shared retry/maintenance/condition evaluation into a reusable service operation. Keep the local scheduler routed through a `local` assignment.
-- [ ] Make local/sharded scheduling assignment-aware. Existing DB leases distribute execution only within a logical vantage point; a local worker cannot claim a remote-only assignment.
+  - Retry evaluation is already a pure `EvaluateRetry`. Local scheduler now runs only monitors with an active `local` assignment (or no assignment set, for legacy rows).
+- [x] Make local/sharded scheduling assignment-aware. Existing DB leases distribute execution only within a logical vantage point; a local worker cannot claim a remote-only assignment.
 - [ ] Add regional readers and overall health policy evaluation. Preserve deterministic history ordering and UTC normalization at service/repository boundaries.
 - [ ] Scope alert throttling, certificate thresholds, capacity promotion, and escalation state. Preserve current single-local-monitor alert behavior.
 - [ ] Implement materialized current projections and historical dirty-bucket work so a regional read and an overall read have explicit semantics.

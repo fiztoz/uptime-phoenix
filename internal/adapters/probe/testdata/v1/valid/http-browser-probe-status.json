@@ -1,0 +1,16 @@
+{
+  "type": "probe.status",
+  "payload": {
+    "id": "local",
+    "key": "local",
+    "name": "Local",
+    "location": "",
+    "kind": "local",
+    "enabled": true,
+    "enrollment_state": "active",
+    "connection_status": "online",
+    "execution_status": "ready",
+    "last_seen_at": "2026-09-15T10:00:00Z",
+    "revision": "1"
+  }
+}

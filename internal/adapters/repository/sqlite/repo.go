@@ -142,8 +142,7 @@ func (r *MonitorRepo) Create(ctx context.Context, m *domain.Monitor) error {
 	if len(model.AcceptedStatusCodes) == 0 {
 		model.AcceptedStatusCodes = repository.StringListField{"200-299"}
 	}
-	_, err := r.db.NewInsert().Model(model).Exec(ctx)
-	if err != nil {
+	if err := repository.CreateMonitorWithLocalAssignment(ctx, r.db, model); err != nil {
 		return translateError(err)
 	}
 	m.ID = model.ID
@@ -266,7 +265,7 @@ func (r *MonitorRepo) ClaimBatch(ctx context.Context, workerID string, batchSize
 	// Step 1: Claim monitors by updating their lease columns.
 	// SQLite supports UPDATE ... FROM (since 3.33.0) but we use a simpler subquery approach.
 	_, err := r.db.Exec(
-		"UPDATE monitors SET worker_id = ?, leased_at = ? WHERE id IN (SELECT id FROM monitors WHERE active = TRUE AND (worker_id IS NULL OR leased_at < ? OR worker_id = ?) ORDER BY id LIMIT ?)",
+		"UPDATE monitors SET worker_id = ?, leased_at = ? WHERE id IN (SELECT id FROM monitors WHERE active = TRUE AND (worker_id IS NULL OR leased_at < ? OR worker_id = ?) AND "+repository.LocalHubExecutionSQL("monitors.id")+" ORDER BY id LIMIT ?)",
 		workerID, now, leaseExpiry, workerID, batchSize,
 	)
 	if err != nil {
