@@ -250,6 +250,7 @@ func Run(cfg Config) error {
 	// F2.2: alert lifecycle entity + ack suppression of resends.
 	alertSvc := services.NewAlertService(repos.alert)
 	notifDispatcher := services.NewNotificationDispatcher(notificationSvc, maintenanceSvc)
+	notifDispatcher.SetThrottleRepository(repos.notificationThrottle)
 	notifDispatcher.SetAutoResolver(statusPageSvc)
 	notifDispatcher.SetAlertLifecycle(alertSvc)
 	notifDispatcher.SetPublicURL(cfg.PublicURL)
@@ -622,6 +623,7 @@ type repoBundle struct {
 	oidcIdentity         ports.OIDCIdentityRepository
 	configKey            ports.ConfigKeyRepository
 	alert                ports.AlertRepository
+	notificationThrottle ports.NotificationThrottleRepository
 	escalationPolicy     ports.EscalationPolicyRepository
 	escalationAssign     ports.EscalationAssignmentRepository
 	alertEscalation      ports.AlertEscalationRepository
@@ -633,6 +635,7 @@ type repoBundle struct {
 
 func wireRepositories(engine string, db *bun.DB) repoBundle {
 	var b repoBundle
+	b.notificationThrottle = repo.NewNotificationThrottleStore(db)
 	switch engine {
 	case "mariadb":
 		r := mariadbrepo.NewRepository(db)

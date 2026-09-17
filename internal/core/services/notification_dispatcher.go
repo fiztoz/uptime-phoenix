@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
+	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
 // alertNotifier dispatches an alert to a monitor's assigned providers.
@@ -94,9 +95,10 @@ type escalationStarter interface {
 //   - acknowledgement suppression (F2.2: no resend while the open alert is acked),
 //   - optional auto-resolve of status-page incidents on recovery.
 //
-// last-notified timestamps are held in memory: on a worker restart or lease
-// hand-off the throttle resets, costing at most one extra resend. A persisted
-// column is a future refinement. The alert entity itself IS persisted.
+// Production stores attempt timestamps per assignment in the database. A
+// process-local fallback supports isolated callers without a persistence port.
+// Provider failures still consume the resend interval; durable delivery retries
+// belong to the later incident/outbox path. This dispatcher handles local only.
 type NotificationDispatcher struct {
 	notifier    alertNotifier
 	maintenance maintenanceChecker
@@ -105,9 +107,10 @@ type NotificationDispatcher struct {
 	lifecycle   alertLifecycle       // optional — F2.2 alert entity
 	escalation  escalationStarter    // optional — F2.3 escalation ladder
 	publicURL   string               // optional — for deep-link AckURL
+	throttles   ports.NotificationThrottleRepository
 
 	mu           sync.Mutex
-	lastNotified map[int64]time.Time
+	lastNotified map[domain.NotificationThrottleKey]time.Time
 	now          func() time.Time // injectable clock for tests
 }
 
@@ -117,9 +120,15 @@ func NewNotificationDispatcher(notifier alertNotifier, maintenance maintenanceCh
 	return &NotificationDispatcher{
 		notifier:     notifier,
 		maintenance:  maintenance,
-		lastNotified: make(map[int64]time.Time),
+		lastNotified: make(map[domain.NotificationThrottleKey]time.Time),
 		now:          time.Now,
 	}
+}
+
+// SetThrottleRepository attaches durable, assignment-scoped resend throttles.
+// Configure at startup before the dispatcher receives heartbeats.
+func (d *NotificationDispatcher) SetThrottleRepository(repo ports.NotificationThrottleRepository) {
+	d.throttles = repo
 }
 
 // SetAutoResolver wires incident auto-resolve on monitor recovery. Optional.
@@ -153,6 +162,16 @@ func (d *NotificationDispatcher) SetPublicURL(url string) {
 // OnHeartbeat evaluates a recorded heartbeat and dispatches an alert when the
 // effective status transition warrants one.
 func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domain.Monitor, hb *domain.Heartbeat, prevStatus *domain.Status) {
+	// Remote replay must never enter legacy lifecycle, group, or provider work.
+	// Omitted identity/generation belongs to the legacy local generation one.
+	if monitor == nil || hb == nil || hb.MonitorID != monitor.ID || monitor.ID <= 0 ||
+		domain.NormalizeProbeID(hb.ProbeID) != domain.LocalProbeID || hb.AssignmentGeneration < 0 {
+		return
+	}
+	key := domain.NotificationThrottleKey{MonitorID: monitor.ID, ProbeID: domain.LocalProbeID, AssignmentGeneration: hb.AssignmentGeneration}
+	if key.AssignmentGeneration == 0 {
+		key.AssignmentGeneration = 1
+	}
 	// Folder alerting runs on EVERY heartbeat, and deliberately BEFORE this
 	// monitor's maintenance suppression below. A monitor inside a maintenance
 	// window still records a MAINTENANCE heartbeat, and that changes the rollup of
@@ -172,37 +191,36 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 		return
 	}
 
-	if hb == nil {
-		return
-	}
-
 	cur := hb.Status
 	prev := domain.StatusUp // first-ever heartbeat is treated as a transition from UP
 	if prevStatus != nil {
 		prev = *prevStatus
 	}
-	now := d.now()
+	now := d.now().UTC()
 
 	checkOutput := hb.Msg
 
 	switch {
 	case cur == domain.StatusDown && prev != domain.StatusDown:
 		// Confirmed failure (the retry window, if any, is already exhausted).
+		if !d.reserveAttempt(ctx, key, now, 0) {
+			return
+		}
 		alert, ackURL := d.openAlert(ctx, monitor, now)
 		// STEP ZERO. This send belongs to the dispatcher and to nothing else.
 		// The escalation policy owns steps 1..N and starts only after this
 		// line, so the initial notification can be neither lost nor duplicated
 		// by a policy (docs/F2.3-ESCALATION-CONTRACTS.md, contract 2).
 		startedAt, duration := alertLifecycleTiming(alert, now)
-		d.dispatch(ctx, monitor, cur, prev, now, ackURL, checkOutput, startedAt, duration)
+		d.dispatch(ctx, monitor, cur, prev, ackURL, checkOutput, startedAt, duration)
 		d.startEscalation(ctx, monitor, alert)
 	case cur == domain.StatusUp && prev == domain.StatusDown:
 		// Recovery — resolve the open alert entity, notify, clear resend throttle,
 		// auto-resolve status-page incidents.
 		alert := d.resolveAlert(ctx, monitor.ID, now)
 		startedAt, duration := alertLifecycleTiming(alert, now)
-		d.dispatch(ctx, monitor, cur, prev, now, "", checkOutput, startedAt, duration)
-		d.forget(monitor.ID)
+		d.dispatch(ctx, monitor, cur, prev, "", checkOutput, startedAt, duration)
+		d.forget(ctx, key)
 		if d.autoResolve != nil {
 			if err := d.autoResolve.AutoResolveOnRecovery(ctx, monitor.ID); err != nil {
 				slog.Error("notification dispatcher: auto-resolve failed",
@@ -221,10 +239,10 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 				return
 			}
 		}
-		if monitor.ResendInterval > 0 && d.dueForResend(monitor.ID, monitor.ResendInterval, now) {
+		if monitor.ResendInterval > 0 && d.reserveAttempt(ctx, key, now, time.Duration(monitor.ResendInterval)*time.Minute) {
 			alert, ackURL := d.openAlertForResend(ctx, monitor, now)
 			startedAt, duration := alertLifecycleTiming(alert, now)
-			d.dispatch(ctx, monitor, cur, prev, now, ackURL, checkOutput, startedAt, duration)
+			d.dispatch(ctx, monitor, cur, prev, ackURL, checkOutput, startedAt, duration)
 		}
 	}
 	// PENDING transitions (UP→PENDING, PENDING→UP) intentionally do not alert:
@@ -304,15 +322,10 @@ func (d *NotificationDispatcher) dispatch(
 	ctx context.Context,
 	monitor *domain.Monitor,
 	status, prev domain.Status,
-	now time.Time,
 	ackURL, checkOutput string,
 	startedAt time.Time,
 	duration time.Duration,
 ) {
-	d.mu.Lock()
-	d.lastNotified[monitor.ID] = now
-	d.mu.Unlock()
-
 	// Prefer the richest supported contract so lifecycle timing, checkOutput,
 	// and the optional ackURL all reach AlertContext on the same delivery.
 	var err error
@@ -343,20 +356,35 @@ func alertLifecycleTiming(alert *domain.Alert, now time.Time) (time.Time, time.D
 	return startedAt, duration
 }
 
-func (d *NotificationDispatcher) dueForResend(monitorID int64, resendMinutes int, now time.Time) bool {
+func (d *NotificationDispatcher) reserveAttempt(ctx context.Context, key domain.NotificationThrottleKey, now time.Time, interval time.Duration) bool {
+	if d.throttles != nil {
+		reserved, err := d.throttles.Reserve(ctx, key, now.UTC(), interval)
+		if err != nil {
+			slog.Error("notification dispatcher: reserve attempt failed", "monitor_id", key.MonitorID, "error", err)
+			return false
+		}
+		return reserved
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	last, ok := d.lastNotified[monitorID]
-	if !ok {
-		// Down but never notified (e.g. the original transition was suppressed by
-		// a maintenance window that has since ended) — alert now.
-		return true
+	last, ok := d.lastNotified[key]
+	if ok && interval > 0 && now.Sub(last) < interval {
+		return false
 	}
-	return now.Sub(last) >= time.Duration(resendMinutes)*time.Minute
+	if !ok || now.After(last) {
+		d.lastNotified[key] = now
+	}
+	return true
 }
 
-func (d *NotificationDispatcher) forget(monitorID int64) {
+func (d *NotificationDispatcher) forget(ctx context.Context, key domain.NotificationThrottleKey) {
+	if d.throttles != nil {
+		if err := d.throttles.Clear(ctx, key); err != nil {
+			slog.Error("notification dispatcher: clear throttle failed", "monitor_id", key.MonitorID, "error", err)
+		}
+		return
+	}
 	d.mu.Lock()
-	delete(d.lastNotified, monitorID)
+	delete(d.lastNotified, key)
 	d.mu.Unlock()
 }

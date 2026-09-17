@@ -55,6 +55,7 @@ The default single-pod installation must continue to work without probes, Redis,
 | D20 | Persist complete membership/policy revisions with half-open UTC ranges; backfill only the latest known revision and count missing historical membership as UNKNOWN | Removal, re-addition, and policy edits must not rewrite past uptime or silently exclude gaps from coverage |
 | D21 | Capacity and certificate state use probe plus assignment generation; legacy evidence backfills to local generation one and compatibility reads select only the current local assignment | Re-added probes cannot inherit old promotion/notification cursors, and remote evidence cannot replace a legacy local dashboard value |
 | D22 | Allocate one durable local-stream sequence with atomic heartbeat/observation/state recording; retry stale state evaluations without changing assignment identity | Independent monitors cannot reuse sequences, and failed writes cannot leave a heartbeat or consume a sequence |
+| D23 | Persist availability attempt throttles by monitor/probe/generation; reserve resends atomically before provider I/O and keep the legacy dispatcher local-only | Restart and worker handoff retain backoff; one region or generation cannot consume or clear another's cursor. Incident/outbox integration remains required for durable delivery |
 
 ## Handoff state
 
