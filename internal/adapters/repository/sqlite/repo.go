@@ -2158,15 +2158,23 @@ func (r *MaintenanceWindowMonitorRepo) ListByMonitor(ctx context.Context, monito
 // ---------------------------------------------------------------------------
 
 // TLSInfoRepo implements ports.TLSInfoRepository.
-type TLSInfoRepo struct{ db *bun.DB }
+type TLSInfoRepo struct {
+	db    *bun.DB
+	scope repository.AuxiliaryScope
+}
 
 // NewTLSInfoRepo creates a SQLite-backed TLS info repository.
 func NewTLSInfoRepo(db *bun.DB) *TLSInfoRepo { return &TLSInfoRepo{db: db} }
 
 func (r *TLSInfoRepo) Upsert(ctx context.Context, info *ports.TLSInfo) error {
+	scope, err := r.scope.Resolve(ctx, r.db, info.MonitorID)
+	if err != nil {
+		return err
+	}
 	m := repository.TLSInfoModelFromPort(info)
-	_, err := r.db.NewInsert().Model(m).
-		On("CONFLICT(monitor_id) DO UPDATE").
+	m.ProbeID, m.AssignmentGeneration = scope.ProbeID, scope.Generation
+	_, err = r.db.NewInsert().Model(m).
+		On("CONFLICT(monitor_id, probe_id, assignment_generation) DO UPDATE").
 		Set("info_json = EXCLUDED.info_json").
 		Set("checked_at = EXCLUDED.checked_at").
 		Exec(ctx)
@@ -2175,11 +2183,22 @@ func (r *TLSInfoRepo) Upsert(ctx context.Context, info *ports.TLSInfo) error {
 
 func (r *TLSInfoRepo) GetByMonitorID(ctx context.Context, monitorID int64) (*ports.TLSInfo, error) {
 	m := new(repository.TLSInfoModel)
-	if err := r.db.NewSelect().Model(m).Where("monitor_id = ?", monitorID).Scan(ctx); err != nil {
+	if err := r.scope.Filter(r.db.NewSelect().Model(m), "tls_info_model").Where("monitor_id = ?", monitorID).Scan(ctx); err != nil {
 		return nil, translateError(err)
 	}
 	return m.ToPort()
 }
+
+// ForAssignment returns an isolated certificate state view for a trusted worker.
+func (r *TLSInfoRepo) ForAssignment(probeID string, generation int64) (ports.TLSInfoRepository, error) {
+	scope, err := repository.NewAuxiliaryScope(probeID, generation)
+	if err != nil {
+		return nil, err
+	}
+	return &TLSInfoRepo{db: r.db, scope: scope}, nil
+}
+
+var _ ports.RegionalTLSInfoRepository = (*TLSInfoRepo)(nil)
 
 // ---------------------------------------------------------------------------
 // Repository — unified facade embedding all individual repos.

@@ -55,7 +55,9 @@ type ConditionObservation struct {
 // MonitorCondition is the persisted latest state and notification cursor for
 // one auxiliary signal on one monitor.
 type MonitorCondition struct {
-	MonitorID int64
+	MonitorID            int64
+	ProbeID              string
+	AssignmentGeneration int64
 	ConditionObservation
 	LastSuccessAt     *time.Time
 	ConsecutiveState  ConditionState

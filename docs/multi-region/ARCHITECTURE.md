@@ -229,6 +229,8 @@ This is the target schema contract, not ready-to-run migration SQL. Implementati
 | `probe_delivery_events` | Unique source delivery-event identity, source incident/probe, status, redacted error, observed time |
 | `monitor_health_state` | Monitor PK, policy, version, overall status, freshness/coverage counts, last transition, projection cursor |
 | `monitor_health_history` | Monitor/time/id ordered overall availability transitions, cause, policy revision; retain UNKNOWN and administrative changes |
+| `monitor_conditions` | PK `(monitor_id,probe_id,assignment_generation,kind)`; latest measurement, candidate/promotion count, freshness, last-success and notification cursor |
+| `tls_info` | Preserved auto-increment ID; unique `(monitor_id,probe_id,assignment_generation)`; certificate metadata and sent-threshold cursor |
 | `probe_dirty_buckets` | Unique monitor/probe/resolution/bucket or overall-monitor bucket; durable late-data recomputation work |
 
 Extend raw heartbeats with `probe_id` (backfill/default `local`), nullable `stream_id`/`source_seq` for legacy rows, `assignment_generation`, `received_at`, and config revision. Keep current IDs and second-precision `time` partitioning. Index `(monitor_id,probe_id,time,id)`. A global source-event unique key that omits the partition time cannot simply be added to MariaDB's partitioned heartbeats table; deduplication belongs in transactional stream cursors/receipts outside that table.
@@ -238,6 +240,10 @@ V1 accepts a single ordered telemetry sequence per stream. The ingest transactio
 Extend rollups with `probe_id` and coverage fields. Preserve `id` as the auto-increment primary key. Replace the existing `uq_monitor_bucket` with `(monitor_id,probe_id,bucket)` and update upsert/query predicates. The original research's primary-key replacement leaves the old unique constraint intact and mishandles the auto-increment key.
 
 Scope regional alerts, certificate state, capacity conditions, escalation assignments/progress, and delivery suppression by probe as well as monitor. Existing rows backfill to `local`. Do not silently reinterpret existing monitor-wide incident IDs; maintain compatible IDs and explicit scope mapping during migration.
+
+The M1 auxiliary slice (`041`) implements capacity and certificate identity without enabling remote delivery. Repository views bind both probe ID and assignment generation and reuse the existing local algorithms. Compatibility reads select only the current active local assignment, or generation one for a legacy monitor without an assignment set. Bound condition deletion is assignment-specific; unbound monitor configuration cleanup removes all generations. Historical generations remain separate and never seed a new assignment's thresholds or promotion counters. Legacy rows backfill to generation one even if the desired assignment has since changed. Downgrade refuses remote or later-generation auxiliary rows; perform schema changes with all application writers stopped.
+
+Local `Record` binds metadata persistence and auxiliary evaluation to the assignment that produced the heartbeat. Alert context carries regional ownership separately from its legacy monitor/group scope. Remote updates are excluded from the legacy monitor-only condition event. This slice retains best-effort auxiliary writes after the regional observation commit; atomic check/condition/incident/outbox recording, template region labels, regional event consumers, and accepted edge configuration remain required before enabling remote execution.
 
 ### 7.2 Edge SQLite schema
 

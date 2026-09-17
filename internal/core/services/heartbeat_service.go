@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"strconv"
@@ -21,6 +22,14 @@ type certAlertEvaluator interface {
 
 type monitorConditionEvaluator interface {
 	OnCheck(ctx context.Context, monitor *domain.Monitor, observations []domain.ConditionObservation)
+}
+
+type assignmentCertAlertEvaluator interface {
+	OnAssignmentCheck(context.Context, *domain.Monitor, string, int64, map[string]string) error
+}
+
+type assignmentConditionEvaluator interface {
+	OnAssignmentCheck(context.Context, *domain.Monitor, string, int64, []domain.ConditionObservation) error
 }
 
 // HeartbeatService handles heartbeat recording and status transition evaluation.
@@ -129,15 +138,21 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 	if state, gen, err := s.localRegionalState(ctx, monitor.ID); err != nil {
 		return err
 	} else if state != nil {
-		previous = &domain.RetryState{Status: state.Status, DownCount: state.DownCount}
-		oldStatus = &state.Status
-		generation = state.AssignmentGeneration
+		generation = gen
+		previous, oldStatus = nil, nil
+		if state.AssignmentGeneration == gen {
+			previous = &domain.RetryState{Status: state.Status, DownCount: state.DownCount}
+			oldStatus = &state.Status
+		}
 		if state.Seq == math.MaxInt64 {
 			return fmt.Errorf("local stream sequence exhausted: %w", ports.ErrConflict)
 		}
 		seq = state.Seq + 1
 	} else {
 		generation = gen
+		if gen > 1 {
+			previous, oldStatus = nil, nil
+		}
 	}
 	inMaintenance := false
 	if s.maintenance != nil {
@@ -171,19 +186,39 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 
 	// Persist TLS certificate info when present (best-effort).
 	if s.tlsInfo != nil {
-		s.persistTLSInfo(ctx, monitor.ID, result.Metadata)
+		repo := s.tlsInfo
+		if factory, ok := repo.(ports.RegionalTLSInfoRepository); ok && generation > 0 {
+			scoped, err := factory.ForAssignment(domain.LocalProbeID, generation)
+			if err != nil {
+				return fmt.Errorf("bind local TLS state: %w", err)
+			}
+			repo = scoped
+		}
+		s.persistTLSInfo(ctx, repo, monitor.ID, result.Metadata)
 	}
 
 	// Certificate-expiry alerts (opt-in). Best-effort; never fail the heartbeat.
 	// Runs in the owning worker so Redis EventBus fan-out cannot duplicate them.
 	if s.certAlert != nil {
-		s.certAlert.OnCheck(ctx, monitor, result.Metadata)
+		if scoped, ok := s.certAlert.(assignmentCertAlertEvaluator); ok && generation > 0 {
+			if err := scoped.OnAssignmentCheck(ctx, monitor, domain.LocalProbeID, generation, result.Metadata); err != nil {
+				slog.Error("heartbeat service: certificate evaluation failed", "monitor_id", monitor.ID, "error", err)
+			}
+		} else {
+			s.certAlert.OnCheck(ctx, monitor, result.Metadata)
+		}
 	}
 
 	// Auxiliary conditions are persisted and notified independently from the
 	// heartbeat status so capacity pressure never becomes fake downtime.
 	if s.conditions != nil {
-		s.conditions.OnCheck(ctx, monitor, result.Conditions)
+		if scoped, ok := s.conditions.(assignmentConditionEvaluator); ok && generation > 0 {
+			if err := scoped.OnAssignmentCheck(ctx, monitor, domain.LocalProbeID, generation, result.Conditions); err != nil {
+				slog.Error("heartbeat service: condition evaluation failed", "monitor_id", monitor.ID, "error", err)
+			}
+		} else {
+			s.conditions.OnCheck(ctx, monitor, result.Conditions)
+		}
 	}
 
 	// Publish heartbeat event (best-effort — never fail on bus.Publish).
@@ -354,7 +389,7 @@ func (s *HeartbeatService) commitLocalRegional(ctx context.Context, monitorID in
 	return s.regional.Commit(ctx, domain.RegionalCommit{Observation: obs, State: state})
 }
 
-func (s *HeartbeatService) persistTLSInfo(ctx context.Context, monitorID int64, metadata map[string]string) {
+func (s *HeartbeatService) persistTLSInfo(ctx context.Context, repo ports.TLSInfoRepository, monitorID int64, metadata map[string]string) {
 	if metadata == nil {
 		return
 	}
@@ -395,7 +430,7 @@ func (s *HeartbeatService) persistTLSInfo(ctx context.Context, monitorID int64, 
 	// Preserve certificate-alert threshold state across ordinary heartbeat
 	// upserts. Without this, every check would wipe last_cert_alert_* and
 	// CertificateAlertService would re-fire the same threshold forever.
-	if prev, gerr := s.tlsInfo.GetByMonitorID(ctx, monitorID); gerr == nil && prev != nil {
+	if prev, gerr := repo.GetByMonitorID(ctx, monitorID); gerr == nil && prev != nil {
 		if !prev.LastCertAlertNotAfter.IsZero() && prev.LastCertAlertNotAfter.UTC().Equal(notAfter) {
 			info.LastCertAlertThreshold = prev.LastCertAlertThreshold
 			info.LastCertAlertNotAfter = prev.LastCertAlertNotAfter
@@ -404,7 +439,7 @@ func (s *HeartbeatService) persistTLSInfo(ctx context.Context, monitorID int64, 
 		// CertificateAlertService evaluation starts fresh.
 	}
 
-	_ = s.tlsInfo.Upsert(ctx, info)
+	_ = repo.Upsert(ctx, info)
 }
 
 // clampLatencyMs converts a check latency (int64 ms) into the domain Heartbeat

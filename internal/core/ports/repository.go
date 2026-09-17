@@ -595,11 +595,13 @@ type AlertRepository interface {
 // certificate (LastCertAlertNotAfter). A renewed certificate (different
 // NotAfter) resets both fields on the next successful evaluate+persist cycle.
 type TLSInfo struct {
-	MonitorID     int64
-	DaysRemaining int
-	NotAfter      time.Time
-	Issuer        string
-	CheckedAt     time.Time
+	ProbeID              string
+	AssignmentGeneration int64
+	MonitorID            int64
+	DaysRemaining        int
+	NotAfter             time.Time
+	Issuer               string
+	CheckedAt            time.Time
 
 	// LastCertAlertThreshold is the most urgent threshold already dispatched for
 	// LastCertAlertNotAfter (30, 14, or 7). Zero means none.

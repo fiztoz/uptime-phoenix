@@ -464,10 +464,12 @@ type DockerHostModel struct {
 type TLSInfoModel struct {
 	bun.BaseModel `bun:"table:tls_info"`
 
-	ID        int64     `bun:"id,pk,autoincrement"`
-	MonitorID int64     `bun:"monitor_id,notnull"`
-	InfoJSON  JSONField `bun:"info_json,notnull"`
-	CheckedAt time.Time `bun:"checked_at,notnull"`
+	ID                   int64     `bun:"id,pk,autoincrement"`
+	ProbeID              string    `bun:"probe_id,notnull"`
+	AssignmentGeneration int64     `bun:"assignment_generation,notnull"`
+	MonitorID            int64     `bun:"monitor_id,notnull"`
+	InfoJSON             JSONField `bun:"info_json,notnull"`
+	CheckedAt            time.Time `bun:"checked_at,notnull"`
 }
 
 // StatusPageCnameModel maps the status_page_cnames table.

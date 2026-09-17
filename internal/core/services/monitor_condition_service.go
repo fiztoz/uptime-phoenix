@@ -58,7 +58,7 @@ func (s *MonitorConditionService) OnCheck(ctx context.Context, monitor *domain.M
 		return
 	}
 	for i := range observations {
-		if err := s.record(ctx, monitor, observations[i]); err != nil {
+		if err := s.record(ctx, s.repo, monitor, observations[i], domain.LocalProbeID, 0); err != nil {
 			slog.Error("monitor condition: record failed",
 				"monitor_id", monitor.ID,
 				"kind", observations[i].Kind,
@@ -66,6 +66,28 @@ func (s *MonitorConditionService) OnCheck(ctx context.Context, monitor *domain.M
 			)
 		}
 	}
+}
+
+// OnAssignmentCheck evaluates capacity state for a trusted owning assignment.
+// It must never be used for hub replay of remote observations.
+func (s *MonitorConditionService) OnAssignmentCheck(ctx context.Context, monitor *domain.Monitor, probeID string, generation int64, observations []domain.ConditionObservation) error {
+	if s == nil || monitor == nil || monitor.ID <= 0 {
+		return fmt.Errorf("missing condition evaluator or monitor: %w", domain.ErrValidation)
+	}
+	factory, ok := s.repo.(ports.RegionalConditionRepository)
+	if !ok {
+		return fmt.Errorf("condition repository does not support assignments: %w", domain.ErrValidation)
+	}
+	repo, err := factory.ForAssignment(probeID, generation)
+	if err != nil {
+		return err
+	}
+	for _, observation := range observations {
+		if err := s.record(ctx, repo, monitor, observation, probeID, generation); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ListAll returns all latest conditions. Authorization belongs to the caller.
@@ -78,7 +100,7 @@ func (s *MonitorConditionService) ListByMonitorIDs(ctx context.Context, monitorI
 	return s.repo.ListByMonitorIDs(ctx, monitorIDs)
 }
 
-func (s *MonitorConditionService) record(ctx context.Context, monitor *domain.Monitor, observation domain.ConditionObservation) error {
+func (s *MonitorConditionService) record(ctx context.Context, repo ports.MonitorConditionRepository, monitor *domain.Monitor, observation domain.ConditionObservation, probeID string, generation int64) error {
 	if observation.Kind == "" {
 		return fmt.Errorf("condition kind is required")
 	}
@@ -87,10 +109,10 @@ func (s *MonitorConditionService) record(ctx context.Context, monitor *domain.Mo
 	}
 
 	now := s.now().UTC()
-	unlock := s.lockKind(monitor.ID, observation.Kind)
+	unlock := s.lockKind(monitor.ID, fmt.Sprintf("%s/%d/%s", probeID, generation, observation.Kind))
 	defer unlock()
 
-	previous, err := s.repo.Get(ctx, monitor.ID, observation.Kind)
+	previous, err := repo.Get(ctx, monitor.ID, observation.Kind)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) && !errors.Is(err, domain.ErrNotFound) {
 		return fmt.Errorf("load previous: %w", err)
 	}
@@ -99,8 +121,12 @@ func (s *MonitorConditionService) record(ctx context.Context, monitor *domain.Mo
 	}
 	promoted := PromoteCondition(previous, observation, monitor.ID, monitor.Interval, now)
 	condition := &promoted
+	condition.ProbeID, condition.AssignmentGeneration = probeID, generation
+	if generation == 0 && previous != nil {
+		condition.ProbeID, condition.AssignmentGeneration = previous.ProbeID, previous.AssignmentGeneration
+	}
 
-	if err := s.repo.Upsert(ctx, condition); err != nil {
+	if err := repo.Upsert(ctx, condition); err != nil {
 		return fmt.Errorf("persist observation: %w", err)
 	}
 	if condition.State != "" {
@@ -137,7 +163,7 @@ func (s *MonitorConditionService) record(ctx context.Context, monitor *domain.Mo
 	}
 	condition.LastNotifiedState = condition.State
 	condition.LastNotifiedAt = &now
-	if err := s.repo.Upsert(ctx, condition); err != nil {
+	if err := repo.Upsert(ctx, condition); err != nil {
 		return fmt.Errorf("persist notification cursor: %w", err)
 	}
 	s.publish(ctx, condition)
@@ -255,6 +281,9 @@ func conditionAlert(monitor *domain.Monitor, previous, current *domain.MonitorCo
 	}
 	return domain.AlertContext{
 		AlertScope:             domain.AlertScopeMonitor,
+		DeliveryScope:          domain.IncidentScopeRegional,
+		ProbeID:                current.ProbeID,
+		AssignmentGeneration:   current.AssignmentGeneration,
 		MonitorID:              monitor.ID,
 		MonitorName:            monitor.Name,
 		MonitorType:            monitor.Type,
@@ -300,7 +329,7 @@ func conditionLabel(resource, kind string) string {
 }
 
 func (s *MonitorConditionService) publish(ctx context.Context, condition *domain.MonitorCondition) {
-	if s.bus != nil {
+	if s.bus != nil && domain.NormalizeProbeID(condition.ProbeID) == domain.LocalProbeID {
 		_ = s.bus.Publish(ctx, ports.Event{Type: "condition.update", Payload: condition})
 	}
 }

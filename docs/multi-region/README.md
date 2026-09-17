@@ -53,6 +53,7 @@ The default single-pod installation must continue to work without probes, Redis,
 | D18 | Handshake identity/generation/capabilities are checked against trusted expectations; empty retained history uses sequence zero and health is role-specific diagnostic evidence | Prevents silent reset, cursor jumps, fabricated queue health, and capability/version substitution before runtime integration |
 | D19 | Config snapshots use explicit bounded dependency graphs, exact capability unions, and symmetric expanded maintenance links; assembly grants no activation receipt | Preserves existing target visibility, templates, minute-based resend/escalation, and disabled-policy semantics while rejecting incomplete or misdirected configuration |
 | D20 | Persist complete membership/policy revisions with half-open UTC ranges; backfill only the latest known revision and count missing historical membership as UNKNOWN | Removal, re-addition, and policy edits must not rewrite past uptime or silently exclude gaps from coverage |
+| D21 | Capacity and certificate state use probe plus assignment generation; legacy evidence backfills to local generation one and compatibility reads select only the current local assignment | Re-added probes cannot inherit old promotion/notification cursors, and remote evidence cannot replace a legacy local dashboard value |
 
 ## Handoff state
 

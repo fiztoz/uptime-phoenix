@@ -70,6 +70,10 @@ const (
 
 // AlertContext contains the data needed to render an alert notification.
 type AlertContext struct {
+	// Regional ownership is separate from the existing monitor/group AlertScope.
+	DeliveryScope           IncidentScope
+	ProbeID                 string
+	AssignmentGeneration    int64
 	AlertScope              string
 	MonitorID               int64
 	MonitorName             string

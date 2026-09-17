@@ -59,26 +59,52 @@ func NewCertificateAlertService(
 //   - maintenance suppresses send AND does not mark threshold sent
 //   - only notifications attached to the monitor are used
 func (s *CertificateAlertService) OnCheck(ctx context.Context, monitor *domain.Monitor, metadata map[string]string) {
-	if s == nil || monitor == nil || !monitor.CertExpiryNotify {
+	if s == nil {
 		return
 	}
-	if s.tlsInfo == nil || s.notifier == nil {
-		return
+	if err := s.onCheck(ctx, s.tlsInfo, monitor, metadata, domain.LocalProbeID, 0); err != nil {
+		slog.Error("certificate alert: evaluation failed", "error", err)
+	}
+}
+
+// OnAssignmentCheck evaluates certificate thresholds for a trusted owning
+// assignment. Hub replay must only persist evidence, never call this method.
+func (s *CertificateAlertService) OnAssignmentCheck(ctx context.Context, monitor *domain.Monitor, probeID string, generation int64, metadata map[string]string) error {
+	if s == nil || monitor == nil || monitor.ID <= 0 {
+		return fmt.Errorf("missing certificate evaluator or monitor: %w", domain.ErrValidation)
+	}
+	factory, ok := s.tlsInfo.(ports.RegionalTLSInfoRepository)
+	if !ok {
+		return fmt.Errorf("TLS repository does not support assignments: %w", domain.ErrValidation)
+	}
+	repo, err := factory.ForAssignment(probeID, generation)
+	if err != nil {
+		return err
+	}
+	return s.onCheck(ctx, repo, monitor, metadata, probeID, generation)
+}
+
+func (s *CertificateAlertService) onCheck(ctx context.Context, repo ports.TLSInfoRepository, monitor *domain.Monitor, metadata map[string]string, probeID string, generation int64) error {
+	if s == nil || monitor == nil || !monitor.CertExpiryNotify {
+		return nil
+	}
+	if repo == nil || s.notifier == nil {
+		return nil
 	}
 	if metadata == nil {
-		return
+		return nil
 	}
 
 	notAfter, days, issuer, ok := parseCertMetadata(metadata, s.now())
 	if !ok {
-		return
+		return nil
 	}
 
 	threshold, has := mostUrgentThreshold(days)
 	if !has {
 		// Still refresh the cached TLS row's non-alert fields via HeartbeatService;
 		// no alert work needed above 30 days.
-		return
+		return nil
 	}
 
 	// Maintenance: do not send and do not mark the threshold as sent.
@@ -87,11 +113,11 @@ func (s *CertificateAlertService) OnCheck(ctx context.Context, monitor *domain.M
 			slog.Warn("certificate alert: maintenance check failed, continuing",
 				"monitor_id", monitor.ID, "error", err)
 		} else if active {
-			return
+			return nil
 		}
 	}
 
-	existing, err := s.tlsInfo.GetByMonitorID(ctx, monitor.ID)
+	existing, err := repo.GetByMonitorID(ctx, monitor.ID)
 	if err != nil && err != ports.ErrNotFound && err != domain.ErrNotFound {
 		slog.Warn("certificate alert: load TLS info failed",
 			"monitor_id", monitor.ID, "error", err)
@@ -115,31 +141,34 @@ func (s *CertificateAlertService) OnCheck(ctx context.Context, monitor *domain.M
 	// Already sent this threshold (or a more urgent one) for this certificate.
 	// More urgent = smaller threshold number. Sending 7 covers 14/30 for this cert.
 	if lastThreshold > 0 && threshold >= lastThreshold {
-		return
+		return nil
 	}
 
 	alert := domain.AlertContext{
-		AlertScope:         domain.AlertScopeMonitor,
-		MonitorID:          monitor.ID,
-		MonitorName:        monitor.Name,
-		MonitorType:        monitor.Type,
-		MonitorTarget:      monitor.Target(),
-		MonitorDescription: monitor.Description,
-		MonitorOwner:       monitor.Owner,
-		EventKind:          domain.AlertEventCertificateExpiry,
-		Message:            formatCertExpiryMessage(monitor.Name, threshold, days, issuer, notAfter),
-		CertThreshold:      threshold,
-		CertDaysRemaining:  days,
-		CertIssuer:         issuer,
-		CertNotAfter:       &notAfter,
-		StartedAt:          s.now().UTC(),
+		AlertScope:           domain.AlertScopeMonitor,
+		DeliveryScope:        domain.IncidentScopeRegional,
+		ProbeID:              probeID,
+		AssignmentGeneration: generation,
+		MonitorID:            monitor.ID,
+		MonitorName:          monitor.Name,
+		MonitorType:          monitor.Type,
+		MonitorTarget:        monitor.Target(),
+		MonitorDescription:   monitor.Description,
+		MonitorOwner:         monitor.Owner,
+		EventKind:            domain.AlertEventCertificateExpiry,
+		Message:              formatCertExpiryMessage(monitor.Name, threshold, days, issuer, notAfter),
+		CertThreshold:        threshold,
+		CertDaysRemaining:    days,
+		CertIssuer:           issuer,
+		CertNotAfter:         &notAfter,
+		StartedAt:            s.now().UTC(),
 	}
 
 	if err := s.notifier.Dispatch(ctx, monitor, alert); err != nil {
 		slog.Error("certificate alert: dispatch failed",
 			"monitor_id", monitor.ID, "threshold", threshold, "error", err)
 		// Do not mark sent — a later check can retry the same threshold.
-		return
+		return fmt.Errorf("dispatch certificate alert: %w", err)
 	}
 
 	// Persist threshold state on top of the current cert metadata.
@@ -156,12 +185,14 @@ func (s *CertificateAlertService) OnCheck(ctx context.Context, monitor *domain.M
 	if existing != nil && info.Issuer == "" {
 		info.Issuer = existing.Issuer
 	}
-	if err := s.tlsInfo.Upsert(ctx, info); err != nil {
+	if err := repo.Upsert(ctx, info); err != nil {
 		// Alert already went out; log so operators can inspect. A restart may
 		// re-send once — acceptable vs losing the alert on a write failure.
 		slog.Error("certificate alert: persist threshold state failed",
 			"monitor_id", monitor.ID, "threshold", threshold, "error", err)
+		return fmt.Errorf("persist certificate threshold: %w", err)
 	}
+	return nil
 }
 
 // mostUrgentThreshold returns the tightest threshold that daysRemaining has

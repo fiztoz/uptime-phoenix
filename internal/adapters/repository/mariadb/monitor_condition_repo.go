@@ -11,7 +11,10 @@ import (
 )
 
 // MonitorConditionRepo persists latest auxiliary conditions in MariaDB.
-type MonitorConditionRepo struct{ db *bun.DB }
+type MonitorConditionRepo struct {
+	db    *bun.DB
+	scope repository.AuxiliaryScope
+}
 
 // NewMonitorConditionRepo creates a MariaDB-backed condition repository.
 func NewMonitorConditionRepo(db *bun.DB) *MonitorConditionRepo {
@@ -20,8 +23,13 @@ func NewMonitorConditionRepo(db *bun.DB) *MonitorConditionRepo {
 
 // Upsert inserts or replaces the latest state and notification cursor.
 func (r *MonitorConditionRepo) Upsert(ctx context.Context, condition *domain.MonitorCondition) error {
+	scope, err := r.scope.Resolve(ctx, r.db, condition.MonitorID)
+	if err != nil {
+		return err
+	}
 	model := repository.MonitorConditionModelFromDomain(condition)
-	_, err := r.db.NewInsert().Model(model).
+	model.ProbeID, model.AssignmentGeneration = scope.ProbeID, scope.Generation
+	_, err = r.db.NewInsert().Model(model).
 		On("DUPLICATE KEY UPDATE").
 		Set("state = VALUES(state)").
 		Set("used_value = VALUES(used_value)").
@@ -47,7 +55,7 @@ func (r *MonitorConditionRepo) Upsert(ctx context.Context, condition *domain.Mon
 // Get returns one condition by monitor and kind.
 func (r *MonitorConditionRepo) Get(ctx context.Context, monitorID int64, kind string) (*domain.MonitorCondition, error) {
 	model := new(repository.MonitorConditionModel)
-	if err := r.db.NewSelect().Model(model).
+	if err := r.scope.Filter(r.db.NewSelect().Model(model), "monitor_condition_model").
 		Where("monitor_id = ? AND kind = ?", monitorID, kind).
 		Scan(ctx); err != nil {
 		return nil, translateError(err)
@@ -70,7 +78,7 @@ func (r *MonitorConditionRepo) ListByMonitorIDs(ctx context.Context, monitorIDs 
 
 func (r *MonitorConditionRepo) list(ctx context.Context, monitorIDs []int64) ([]*domain.MonitorCondition, error) {
 	var models []*repository.MonitorConditionModel
-	query := r.db.NewSelect().Model(&models).Order("monitor_id ASC", "kind ASC")
+	query := r.scope.Filter(r.db.NewSelect().Model(&models), "monitor_condition_model").Order("monitor_id ASC", "kind ASC")
 	if monitorIDs != nil {
 		query = query.Where("monitor_id IN (?)", bun.List(monitorIDs))
 	}
@@ -86,18 +94,34 @@ func (r *MonitorConditionRepo) list(ctx context.Context, monitorIDs []int64) ([]
 
 // DeleteKind deletes one condition kind for a monitor.
 func (r *MonitorConditionRepo) DeleteKind(ctx context.Context, monitorID int64, kind string) error {
-	_, err := r.db.NewDelete().Model((*repository.MonitorConditionModel)(nil)).
-		Where("monitor_id = ? AND kind = ?", monitorID, kind).
-		Exec(ctx)
+	query := r.db.NewDelete().Model((*repository.MonitorConditionModel)(nil)).Where("monitor_id = ? AND kind = ?", monitorID, kind)
+	if r.scope.ProbeID != "" {
+		query = query.Where("probe_id = ? AND assignment_generation = ?", r.scope.ProbeID, r.scope.Generation)
+	}
+	_, err := query.Exec(ctx)
 	return translateError(err)
 }
 
 // DeleteByMonitor deletes all conditions for a monitor.
 func (r *MonitorConditionRepo) DeleteByMonitor(ctx context.Context, monitorID int64) error {
-	_, err := r.db.NewDelete().Model((*repository.MonitorConditionModel)(nil)).
-		Where("monitor_id = ?", monitorID).
-		Exec(ctx)
+	query := r.db.NewDelete().Model((*repository.MonitorConditionModel)(nil)).Where("monitor_id = ?", monitorID)
+	if r.scope.ProbeID != "" {
+		query = query.Where("probe_id = ? AND assignment_generation = ?", r.scope.ProbeID, r.scope.Generation)
+	}
+	_, err := query.Exec(ctx)
 	return translateError(err)
 }
 
 var _ ports.MonitorConditionRepository = (*MonitorConditionRepo)(nil)
+
+// ForAssignment returns an isolated view for a trusted owning worker. The
+// unbound repository retains monitor-wide administrative cleanup semantics.
+func (r *MonitorConditionRepo) ForAssignment(probeID string, generation int64) (ports.MonitorConditionRepository, error) {
+	scope, err := repository.NewAuxiliaryScope(probeID, generation)
+	if err != nil {
+		return nil, err
+	}
+	return &MonitorConditionRepo{db: r.db, scope: scope}, nil
+}
+
+var _ ports.RegionalConditionRepository = (*MonitorConditionRepo)(nil)
