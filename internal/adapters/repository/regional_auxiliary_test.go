@@ -414,7 +414,7 @@ func testAuxiliaryHeartbeat(t *testing.T, f probeRegistryFixture) {
 	conditions, certs := auxiliaryRepos(f)
 	notifier := &auxiliaryNotifier{}
 	svc := services.NewHeartbeatService(newEngineHeartbeatRepo(f), silentBus{})
-	svc.SetRegionalRecorder(f.assignments, f.commits)
+	svc.SetRegionalRecorder(f.assignments, f.localHeartbeat)
 	svc.SetTLSInfoRepo(certs)
 	svc.SetCertAlert(services.NewCertificateAlertService(certs, notifier, nil))
 	svc.SetConditionEvaluator(services.NewMonitorConditionService(conditions, notifier, nil, silentBus{}))

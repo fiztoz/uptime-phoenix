@@ -41,7 +41,7 @@ type HeartbeatService struct {
 	certAlert   certAlertEvaluator
 	conditions  monitorConditionEvaluator
 	assignments ports.MonitorProbeAssignmentRepository
-	regional    ports.RegionalCommitRepository
+	regional    ports.LocalHeartbeatRecorder
 	projector   overallHealthProjector
 	maintenance maintenanceChecker
 }
@@ -82,10 +82,10 @@ func (s *HeartbeatService) SetConditionEvaluator(e monitorConditionEvaluator) {
 	s.conditions = e
 }
 
-// SetRegionalRecorder attaches local assignment/state persistence. Optional:
-// when nil, Record keeps today's heartbeat-only path so tests and API-only
-// mode stay unchanged. It does not dispatch regional incidents.
-func (s *HeartbeatService) SetRegionalRecorder(assignments ports.MonitorProbeAssignmentRepository, regional ports.RegionalCommitRepository) {
+// SetRegionalRecorder attaches atomic local heartbeat/regional persistence and
+// stream-wide sequence allocation. When nil, Record keeps the legacy heartbeat
+// path. The recorder performs no notification I/O.
+func (s *HeartbeatService) SetRegionalRecorder(assignments ports.MonitorProbeAssignmentRepository, regional ports.LocalHeartbeatRecorder) {
 	s.assignments = assignments
 	s.regional = regional
 }
@@ -107,9 +107,6 @@ func (s *HeartbeatService) SetOverallProjector(p overallHealthProjector) {
 // It fetches the previous heartbeat before saving to detect status changes.
 // DownCount is incremented on DOWN status and reset to 0 on UP status.
 func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, result ports.CheckResult) error {
-	// Fetch the previous heartbeat BEFORE saving so we can compare status.
-	prevHB, prevErr := s.heartbeats.GetLatest(ctx, monitor.ID)
-
 	latency := clampLatencyMs(result.LatencyMs)
 	duration := clampLatencyMs(result.DurationMs)
 	if duration == 0 {
@@ -127,57 +124,18 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 		Duration:   duration,
 	}
 
-	var previous *domain.RetryState
-	var oldStatus *domain.Status
-	if prevErr == nil && prevHB != nil {
-		previous = &domain.RetryState{Status: prevHB.Status, DownCount: prevHB.DownCount}
-		oldStatus = &prevHB.Status
-	}
-	generation := int64(0)
-	seq := int64(1)
-	if state, gen, err := s.localRegionalState(ctx, monitor.ID); err != nil {
-		return err
-	} else if state != nil {
-		generation = gen
-		previous, oldStatus = nil, nil
-		if state.AssignmentGeneration == gen {
-			previous = &domain.RetryState{Status: state.Status, DownCount: state.DownCount}
-			oldStatus = &state.Status
-		}
-		if state.Seq == math.MaxInt64 {
-			return fmt.Errorf("local stream sequence exhausted: %w", ports.ErrConflict)
-		}
-		seq = state.Seq + 1
-	} else {
-		generation = gen
-		if gen > 1 {
-			previous, oldStatus = nil, nil
-		}
-	}
 	inMaintenance := false
 	if s.maintenance != nil {
 		if active, err := s.maintenance.IsActive(ctx, monitor.ID); err == nil {
 			inMaintenance = active
 		}
 	}
-	evaluation := EvaluateObservation(previous, result.Status, inMaintenance, monitor.MaxRetries)
-	hb.Status = evaluation.State.Status
-	hb.DownCount = evaluation.State.DownCount
-	hb.Important = evaluation.Important
-	if generation > 0 {
-		hb.AssignmentGeneration = generation
-		hb.StreamID = domain.LocalStreamID
-		hb.SourceSeq = seq
+	hb, oldStatus, err := s.persistCheck(ctx, monitor, hb, result.Status, inMaintenance)
+	if err != nil {
+		return err
 	}
-	transitioned := evaluation.Important
+	generation, transitioned := hb.AssignmentGeneration, hb.Important
 
-	// Save heartbeat. Return error if save fails (don't suppress).
-	if err := s.heartbeats.Save(ctx, hb); err != nil {
-		return fmt.Errorf("heartbeat service: save: %w", err)
-	}
-	if err := s.commitLocalRegional(ctx, monitor.ID, result.Status, hb); err != nil {
-		return fmt.Errorf("heartbeat service: regional commit: %w", err)
-	}
 	if s.projector != nil {
 		if err := s.projector.ProjectCurrent(ctx, monitor.ID, hb.Time); err != nil {
 			return fmt.Errorf("heartbeat service: project overall health: %w", err)
@@ -336,7 +294,7 @@ func (s *HeartbeatService) localRegionalState(ctx context.Context, monitorID int
 			}
 		}
 		if !found {
-			return nil, 0, nil
+			return nil, 0, fmt.Errorf("monitor has no active local assignment: %w", ports.ErrNotFound)
 		}
 	}
 	state, err := s.regional.GetState(ctx, monitorID, domain.LocalProbeID)
@@ -349,44 +307,60 @@ func (s *HeartbeatService) localRegionalState(ctx context.Context, monitorID int
 	return state, generation, nil
 }
 
-func (s *HeartbeatService) commitLocalRegional(ctx context.Context, monitorID int64, raw domain.Status, hb *domain.Heartbeat) error {
-	if s.regional == nil || hb.AssignmentGeneration < 1 || hb.StreamID == "" || hb.SourceSeq < 1 {
-		return nil
+// persistCheck retries only when a concurrent check changed retry state. The
+// observed result/time and assignment generation stay fixed across retries.
+func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Monitor, input *domain.Heartbeat, raw domain.Status, maintenance bool) (*domain.Heartbeat, *domain.Status, error) {
+	targetGeneration := int64(-1)
+	for attempt := 0; attempt < 16; attempt++ {
+		state, generation, err := s.localRegionalState(ctx, monitor.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if targetGeneration < 0 {
+			targetGeneration = generation
+		}
+		if generation != targetGeneration {
+			return nil, nil, fmt.Errorf("local assignment changed while recording: %w", ports.ErrConflict)
+		}
+		var previous *domain.RetryState
+		var oldStatus *domain.Status
+		expectedSeq := int64(0)
+		if state != nil {
+			expectedSeq = state.Seq
+			if state.AssignmentGeneration == generation {
+				previous = &domain.RetryState{Status: state.Status, DownCount: state.DownCount}
+				status := state.Status
+				oldStatus = &status
+			}
+		} else if generation <= 1 {
+			// Legacy local evidence can seed the first regional state after upgrade.
+			prevHB, prevErr := s.heartbeats.GetLatest(ctx, monitor.ID)
+			if prevErr == nil && prevHB != nil && domain.NormalizeProbeID(prevHB.ProbeID) == domain.LocalProbeID && prevHB.AssignmentGeneration <= 1 {
+				previous = &domain.RetryState{Status: prevHB.Status, DownCount: prevHB.DownCount}
+				status := prevHB.Status
+				oldStatus = &status
+			}
+		}
+		hb := *input
+		evaluation := EvaluateObservation(previous, raw, maintenance, monitor.MaxRetries)
+		hb.Status, hb.DownCount, hb.Important = evaluation.State.Status, evaluation.State.DownCount, evaluation.Important
+		if generation == 0 {
+			if err := s.heartbeats.Save(ctx, &hb); err != nil {
+				return nil, nil, fmt.Errorf("heartbeat service: save: %w", err)
+			}
+			return &hb, oldStatus, nil
+		}
+		hb.AssignmentGeneration, hb.StreamID, hb.ConfigRevision = generation, domain.LocalStreamID, 1
+		saved, err := s.regional.CommitLocalHeartbeat(ctx, domain.LocalHeartbeatCommit{Heartbeat: hb, RawStatus: raw, ExpectedStateSeq: expectedSeq})
+		if errors.Is(err, ports.ErrStaleLocalState) {
+			continue
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("heartbeat service: local commit: %w", err)
+		}
+		return saved, oldStatus, nil
 	}
-	obs := domain.RegionalObservation{
-		MonitorID:            monitorID,
-		ProbeID:              domain.LocalProbeID,
-		AssignmentGeneration: hb.AssignmentGeneration,
-		StreamID:             hb.StreamID,
-		Seq:                  hb.SourceSeq,
-		ConfigRevision:       1,
-		Status:               hb.Status,
-		RawStatus:            raw,
-		DownCount:            hb.DownCount,
-		Ping:                 hb.Ping,
-		DurationMS:           hb.Duration,
-		Message:              hb.Msg,
-		Important:            hb.Important,
-		ObservedAt:           hb.Time.UTC(),
-		ReceivedAt:           hb.ReceivedAt.UTC(),
-	}
-	state := domain.RegionalState{
-		MonitorID:            obs.MonitorID,
-		ProbeID:              obs.ProbeID,
-		AssignmentGeneration: obs.AssignmentGeneration,
-		StreamID:             obs.StreamID,
-		Seq:                  obs.Seq,
-		ConfigRevision:       obs.ConfigRevision,
-		Status:               obs.Status,
-		DownCount:            obs.DownCount,
-		ObservedAt:           obs.ObservedAt,
-		ReceivedAt:           obs.ReceivedAt,
-	}
-	if obs.Status == domain.StatusUp {
-		t := obs.ObservedAt
-		state.LastSuccessAt = &t
-	}
-	return s.regional.Commit(ctx, domain.RegionalCommit{Observation: obs, State: state})
+	return nil, nil, fmt.Errorf("local recording contention: %w", ports.ErrStaleLocalState)
 }
 
 func (s *HeartbeatService) persistTLSInfo(ctx context.Context, repo ports.TLSInfoRepository, monitorID int64, metadata map[string]string) {

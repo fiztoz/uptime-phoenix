@@ -129,7 +129,7 @@ func Run(cfg Config) error {
 	monitorGroupSvc.SetEventBus(bus)
 	heartbeatSvc := services.NewHeartbeatService(repos.heartbeat, bus)
 	heartbeatSvc.SetTLSInfoRepo(repos.tlsInfo)
-	heartbeatSvc.SetRegionalRecorder(repos.probeAssignments, repos.regionalCommit)
+	heartbeatSvc.SetRegionalRecorder(repos.probeAssignments, repos.localHeartbeat)
 	healthSvc := services.NewMonitorHealthService(repos.monitor, repos.probeAssignments, repos.regionalCommit, nil)
 	healthSvc.SetProjections(repos.projections)
 	heartbeatSvc.SetOverallProjector(healthSvc)
@@ -627,6 +627,7 @@ type repoBundle struct {
 	alertEscalation      ports.AlertEscalationRepository
 	probeAssignments     ports.MonitorProbeAssignmentRepository
 	regionalCommit       ports.RegionalCommitRepository
+	localHeartbeat       ports.LocalHeartbeatRecorder
 	projections          ports.MonitorHealthProjectionRepository
 }
 
@@ -668,6 +669,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.probeAssignments = mariadbrepo.NewProbeAssignmentRepo(db)
 		commits := mariadbrepo.NewRegionalCommitRepo(db)
 		b.regionalCommit = commits
+		b.localHeartbeat = commits
 		b.projections = commits
 	case "sqlite":
 		r := sqliterepo.NewRepository(db)
@@ -704,6 +706,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.probeAssignments = sqliterepo.NewProbeAssignmentRepo(db)
 		commits := sqliterepo.NewRegionalCommitRepo(db)
 		b.regionalCommit = commits
+		b.localHeartbeat = commits
 		b.projections = commits
 	}
 	return b

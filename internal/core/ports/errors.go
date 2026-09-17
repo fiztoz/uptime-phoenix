@@ -18,6 +18,9 @@ var (
 	// ErrConflict is returned by repository writes that violate a
 	// uniqueness constraint (e.g. duplicate username, slug, or domain).
 	ErrConflict = errors.New("conflict")
+	// ErrStaleLocalState means another check committed after retry evaluation.
+	// No part of the rejected check has been persisted.
+	ErrStaleLocalState = errors.New("local regional state changed")
 	// ErrMonitorAlreadyLinked is a specific conflict returned when a
 	// monitor is already assigned to a status page. This is more precise
 	// than ErrConflict and produces a clearer user-facing message than

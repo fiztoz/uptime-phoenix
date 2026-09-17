@@ -80,27 +80,31 @@ func TestProbeIngestIsIdempotentAndRejectsGaps(t *testing.T) {
 			if _, err := f.assignments.InitializeLocal(ctx, monitorID); err != nil {
 				t.Fatal(err)
 			}
+			remote := f.remote(t, probeRegistryID1, "ingest-region")
+			if _, err := f.assignments.Replace(ctx, monitorID, 1, []string{"local", remote.ID}, domain.HealthPolicyAnyDown); err != nil {
+				t.Fatal(err)
+			}
 			now := time.Now().UTC()
-			first := regionalSample(monitorID, "local", localStreamID, 1, 1, domain.StatusUp, 0, now)
+			first := regionalSample(monitorID, remote.ID, remoteStreamID, 1, 1, domain.StatusUp, 0, now)
 			committed, err := f.ingest.Ingest(ctx, domain.ProbeIngestBatch{
-				ProbeID: "local", StreamID: localStreamID, FromSeq: 1, ThroughSeq: 1, Events: []domain.RegionalObservation{first},
+				ProbeID: remote.ID, StreamID: remoteStreamID, FromSeq: 1, ThroughSeq: 1, Events: []domain.RegionalObservation{first},
 			})
 			if err != nil || committed != 1 {
 				t.Fatalf("ingest: %d, %v", committed, err)
 			}
 			again, err := f.ingest.Ingest(ctx, domain.ProbeIngestBatch{
-				ProbeID: "local", StreamID: localStreamID, FromSeq: 1, ThroughSeq: 1, Events: []domain.RegionalObservation{first},
+				ProbeID: remote.ID, StreamID: remoteStreamID, FromSeq: 1, ThroughSeq: 1, Events: []domain.RegionalObservation{first},
 			})
 			if err != nil || again != 1 {
 				t.Fatalf("duplicate ingest: %d, %v", again, err)
 			}
-			gap := regionalSample(monitorID, "local", localStreamID, 1, 3, domain.StatusUp, 0, now)
+			gap := regionalSample(monitorID, remote.ID, remoteStreamID, 1, 3, domain.StatusUp, 0, now)
 			if _, err := f.ingest.Ingest(ctx, domain.ProbeIngestBatch{
-				ProbeID: "local", StreamID: localStreamID, FromSeq: 3, ThroughSeq: 3, Events: []domain.RegionalObservation{gap},
+				ProbeID: remote.ID, StreamID: remoteStreamID, FromSeq: 3, ThroughSeq: 3, Events: []domain.RegionalObservation{gap},
 			}); !errors.Is(err, ports.ErrConflict) {
 				t.Fatalf("undeclared gap: %v", err)
 			}
-			cursor, err := f.ingest.GetCursor(ctx, "local", localStreamID)
+			cursor, err := f.ingest.GetCursor(ctx, remote.ID, remoteStreamID)
 			if err != nil || cursor != 1 {
 				t.Fatalf("cursor: %d, %v", cursor, err)
 			}

@@ -29,16 +29,17 @@ const (
 )
 
 type probeRegistryFixture struct {
-	db          *bun.DB
-	registry    ports.ProbeRegistryRepository
-	assignments ports.MonitorProbeAssignmentRepository
-	commits     ports.RegionalCommitRepository
-	ingest      ports.ProbeIngestRepository
-	incidents   ports.ProbeIncidentRepository
-	deliveries  ports.ProbeDeliveryRepository
-	projections ports.MonitorHealthProjectionRepository
-	engine      string
-	dsn         string
+	db             *bun.DB
+	registry       ports.ProbeRegistryRepository
+	assignments    ports.MonitorProbeAssignmentRepository
+	commits        ports.RegionalCommitRepository
+	localHeartbeat ports.LocalHeartbeatRecorder
+	ingest         ports.ProbeIngestRepository
+	incidents      ports.ProbeIncidentRepository
+	deliveries     ports.ProbeDeliveryRepository
+	projections    ports.MonitorHealthProjectionRepository
+	engine         string
+	dsn            string
 }
 
 func newProbeRegistryFixture(t *testing.T, engine string) probeRegistryFixture {
@@ -72,15 +73,22 @@ func newProbeRegistryFixture(t *testing.T, engine string) probeRegistryFixture {
 		}
 	}
 	f := probeRegistryFixture{db: db, engine: engine, dsn: dsn}
+	if engine == "mariadb" {
+		if err := runLocalSequenceMigration(t, f, "up"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if engine == "sqlite" {
 		f.registry = sqlite.NewProbeRegistryRepo(db)
 		f.assignments = sqlite.NewProbeAssignmentRepo(db)
 		commits := sqlite.NewRegionalCommitRepo(db)
+		f.localHeartbeat = commits
 		f.commits, f.ingest, f.incidents, f.deliveries, f.projections = commits, commits, commits, commits, commits
 	} else {
 		f.registry = mariadb.NewProbeRegistryRepo(db)
 		f.assignments = mariadb.NewProbeAssignmentRepo(db)
 		commits := mariadb.NewRegionalCommitRepo(db)
+		f.localHeartbeat = commits
 		f.commits, f.ingest, f.incidents, f.deliveries, f.projections = commits, commits, commits, commits, commits
 	}
 	return f

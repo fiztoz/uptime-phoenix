@@ -658,7 +658,7 @@ func TestHeartbeatService_Record_WritesLocalRegionalState(t *testing.T) {
 	repo := newFakeHeartbeatRepo()
 	regional := newFakeRegionalRepo()
 	svc := NewHeartbeatService(repo, newFakeBus())
-	svc.SetRegionalRecorder(nil, regional)
+	svc.SetRegionalRecorder(nil, &fakeLocalHeartbeatRecorder{fakeRegionalRepo: regional, heartbeats: repo})
 	monitor := &domain.Monitor{ID: 9, Name: "local", Type: "http", MaxRetries: 1}
 
 	if err := svc.Record(context.Background(), monitor, ports.CheckResult{Status: domain.StatusDown, Message: "timeout"}); err != nil {
@@ -687,7 +687,7 @@ func TestHeartbeatService_Record_MaintenanceOverridesCheckerStatus(t *testing.T)
 	repo := newFakeHeartbeatRepo()
 	regional := newFakeRegionalRepo()
 	svc := NewHeartbeatService(repo, newFakeBus())
-	svc.SetRegionalRecorder(nil, regional)
+	svc.SetRegionalRecorder(nil, &fakeLocalHeartbeatRecorder{fakeRegionalRepo: regional, heartbeats: repo})
 	svc.SetMaintenance(&fakeMaintenance{active: true})
 	monitor := &domain.Monitor{ID: 4, Name: "maint", Type: "http", MaxRetries: 1}
 
@@ -719,7 +719,7 @@ func TestHeartbeatService_Record_ProjectsOverallHealth(t *testing.T) {
 	regional := newFakeRegionalRepo()
 	projector := &fakeOverallProjector{}
 	svc := NewHeartbeatService(repo, newFakeBus())
-	svc.SetRegionalRecorder(nil, regional)
+	svc.SetRegionalRecorder(nil, &fakeLocalHeartbeatRecorder{fakeRegionalRepo: regional, heartbeats: repo})
 	svc.SetOverallProjector(projector)
 	monitor := &domain.Monitor{ID: 11, Name: "local", Type: "http"}
 	if err := svc.Record(context.Background(), monitor, ports.CheckResult{Status: domain.StatusUp}); err != nil {

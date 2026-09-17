@@ -83,7 +83,7 @@ func (m monitorProbeStateModel) state() domain.RegionalState {
 }
 
 // RegionalCommitStore persists per-probe observations and current state.
-// It is not wired into HeartbeatService or the scheduler.
+// Local recording uses CommitLocalHeartbeat; remote ingest never re-evaluates checks.
 type RegionalCommitStore struct{ db *bun.DB }
 
 // NewRegionalCommitStore creates a dialect-neutral regional commit store.
@@ -100,6 +100,9 @@ func (r *RegionalCommitStore) Commit(ctx context.Context, commit domain.Regional
 		return err
 	}
 	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := advanceExplicitLocalSequence(ctx, tx, commit.Observation); err != nil {
+			return err
+		}
 		if err := requireActiveAssignment(ctx, tx, commit.Observation.MonitorID, commit.Observation.ProbeID, commit.Observation.AssignmentGeneration); err != nil {
 			return err
 		}
@@ -187,7 +190,7 @@ func (r *RegionalCommitStore) ListObservationsInRange(ctx context.Context, monit
 
 // Ingest commits a contiguous remote prefix and updates per-probe state.
 func (r *RegionalCommitStore) Ingest(ctx context.Context, batch domain.ProbeIngestBatch) (int64, error) {
-	if batch.ProbeID == "" || batch.StreamID == "" || batch.FromSeq <= 0 || batch.ThroughSeq < batch.FromSeq || len(batch.Events) == 0 {
+	if batch.ProbeID == "" || batch.ProbeID == domain.LocalProbeID || batch.StreamID == domain.LocalStreamID || batch.StreamID == "" || batch.FromSeq <= 0 || batch.ThroughSeq < batch.FromSeq || len(batch.Events) == 0 {
 		return 0, fmt.Errorf("ingest batch: %w", domain.ErrValidation)
 	}
 	if int64(len(batch.Events)) != batch.ThroughSeq-batch.FromSeq+1 {
