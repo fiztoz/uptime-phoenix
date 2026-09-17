@@ -66,18 +66,8 @@ func newProbeRegistryFixture(t *testing.T, engine string) probeRegistryFixture {
 	}
 	if engine == "mariadb" {
 		resetMariaDB(t, db.DB)
-		// The existing matrix reset truncates all data, including seeded local.
-		// Exercise the idempotent migration rather than manufacturing a seed.
-		if err := runProbeRegistryMigration(t, db, engine, "up"); err != nil {
-			t.Fatal(err)
-		}
 	}
 	f := probeRegistryFixture{db: db, engine: engine, dsn: dsn}
-	if engine == "mariadb" {
-		if err := runLocalSequenceMigration(t, f, "up"); err != nil {
-			t.Fatal(err)
-		}
-	}
 	if engine == "sqlite" {
 		f.registry = sqlite.NewProbeRegistryRepo(db)
 		f.assignments = sqlite.NewProbeAssignmentRepo(db)
@@ -384,6 +374,22 @@ func testProbeRegistryRollback(t *testing.T, f probeRegistryFixture) {
 func testProbeRegistryMigration(t *testing.T, f probeRegistryFixture) {
 	t.Helper()
 	ctx := context.Background()
+	// Test 035 at its own schema boundary, not underneath later FK dependents.
+	// Restore the latest schema for the shared MariaDB test database afterward.
+	later := []string{"036_probe_regional", "037_probe_heartbeat", "038_probe_incidents", "039_probe_health_projection", "040_probe_assignment_history", "041_probe_auxiliary_state", "042_local_stream_sequence", "043_notification_throttles"}
+	for i := len(later) - 1; i >= 0; i-- {
+		if err := runEngineMigration(t, f.db, f.engine, later[i], "down"); err != nil {
+			t.Fatalf("downgrade dependency %s: %v", later[i], err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, name := range later {
+			if err := runEngineMigration(t, f.db, f.engine, name, "up"); err != nil {
+				t.Errorf("restore dependency %s: %v", name, err)
+				return
+			}
+		}
+	})
 	if err := runProbeRegistryMigration(t, f.db, f.engine, "down"); err != nil {
 		t.Fatalf("safe empty downgrade: %v", err)
 	}

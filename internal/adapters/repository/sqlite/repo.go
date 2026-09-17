@@ -237,6 +237,21 @@ func (r *MonitorRepo) ListActive(ctx context.Context) ([]*domain.Monitor, error)
 	return out, nil
 }
 
+// ListByWorker returns active monitors with a current lease owned by workerID.
+func (r *MonitorRepo) ListByWorker(ctx context.Context, workerID string, leaseExpiry time.Time) ([]*domain.Monitor, error) {
+	var models []*repository.MonitorModel
+	if err := r.db.NewSelect().Model(&models).
+		Where("active = TRUE AND worker_id = ? AND leased_at >= ?", workerID, leaseExpiry.UTC()).
+		Order("id ASC").Scan(ctx); err != nil {
+		return nil, translateError(err)
+	}
+	out := make([]*domain.Monitor, len(models))
+	for i, m := range models {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
 func (r *MonitorRepo) Update(ctx context.Context, m *domain.Monitor) error {
 	model := repository.MonitorModelFromDomain(m)
 	model.UpdatedAt = time.Now().UTC()

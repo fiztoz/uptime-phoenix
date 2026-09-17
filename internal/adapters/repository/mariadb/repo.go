@@ -227,6 +227,21 @@ func (r *MonitorRepo) ListActive(ctx context.Context) ([]*domain.Monitor, error)
 	return out, nil
 }
 
+// ListByWorker returns active monitors with a current lease owned by workerID.
+func (r *MonitorRepo) ListByWorker(ctx context.Context, workerID string, leaseExpiry time.Time) ([]*domain.Monitor, error) {
+	var models []*repository.MonitorModel
+	if err := r.db.NewSelect().Model(&models).
+		Where("active = TRUE AND worker_id = ? AND leased_at >= ?", workerID, leaseExpiry.UTC()).
+		Order("id ASC").Scan(ctx); err != nil {
+		return nil, translateError(err)
+	}
+	out := make([]*domain.Monitor, len(models))
+	for i, m := range models {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
 func (r *MonitorRepo) Update(ctx context.Context, m *domain.Monitor) error {
 	model := repository.MonitorModelFromDomain(m)
 	model.UpdatedAt = time.Now().UTC()
@@ -247,28 +262,37 @@ func (r *MonitorRepo) Delete(ctx context.Context, id int64) error {
 }
 
 // ClaimBatch atomically claims up to batchSize active monitors for a worker.
-// Uses UPDATE ... WHERE to set worker_id and leased_at for unclaimed or expired leases.
+// Locks the selected rows until their lease updates commit.
 func (r *MonitorRepo) ClaimBatch(ctx context.Context, workerID string, batchSize int, leaseTTL time.Duration) ([]*domain.Monitor, error) {
 	now := time.Now().UTC()
 	leaseExpiry := now.Add(-leaseTTL)
 
-	// Step 1: Claim monitors by updating their lease columns.
-	// This is atomic — only one worker can claim each monitor.
-	_, err := r.db.NewRaw(
-		"UPDATE monitors SET worker_id = ?, leased_at = ? WHERE active = TRUE AND (worker_id IS NULL OR leased_at < ? OR worker_id = ?) AND "+repository.LocalHubExecutionSQL("monitors.id")+" ORDER BY id LIMIT ?",
-		workerID, now, leaseExpiry, workerID, batchSize,
-	).Exec(ctx)
+	// leased_at is a second-precision TIMESTAMP. It cannot identify a batch:
+	// fractional equality loses rows, while truncating it can return an earlier
+	// batch from the same worker. Lock the selected rows and return those exact
+	// IDs only after their leases commit. Concurrent owners serialize here.
+	var models []*repository.MonitorModel
+	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(
+			"SELECT * FROM monitors WHERE active = TRUE AND (worker_id IS NULL OR leased_at < ? OR worker_id = ?) AND "+repository.LocalHubExecutionSQL("monitors.id")+" ORDER BY id LIMIT ? FOR UPDATE",
+			leaseExpiry, workerID, batchSize,
+		).Scan(ctx, &models); err != nil {
+			return fmt.Errorf("select claim candidates: %w", err)
+		}
+		if len(models) == 0 {
+			return nil
+		}
+		ids := make([]int64, len(models))
+		for i, model := range models {
+			ids[i] = model.ID
+		}
+		_, err := tx.NewUpdate().Table("monitors").
+			Set("worker_id = ?", workerID).Set("leased_at = ?", now).
+			Where("id IN (?)", bun.List(ids)).Exec(ctx)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("claim monitors: %w", err)
-	}
-
-	// Step 2: Select the monitors we just claimed.
-	var models []*repository.MonitorModel
-	if err := r.db.NewSelect().Model(&models).
-		Where("worker_id = ? AND leased_at = ?", workerID, now).
-		Order("id ASC").
-		Scan(ctx); err != nil {
-		return nil, fmt.Errorf("select claimed monitors: %w", err)
 	}
 
 	out := make([]*domain.Monitor, len(models))

@@ -347,8 +347,8 @@ func testLocalSequenceMigration(t *testing.T, f probeRegistryFixture) {
 		t.Fatal(err)
 	}
 	if _, err := f.db.ExecContext(ctx, `INSERT INTO probe_observations
- (monitor_id, probe_id, assignment_generation, stream_id, seq, config_revision, status, raw_status, down_count, observed_at, received_at)
- VALUES (?, 'local', 1, ?, 3, 1, 1, 1, 0, ?, ?)`, id, domain.LocalStreamID, hb.Time.UTC(), hb.Time.UTC()); err != nil {
+ (monitor_id, probe_id, assignment_generation, stream_id, seq, config_revision, status, raw_status, down_count, message, observed_at, received_at)
+ VALUES (?, 'local', 1, ?, 3, 1, 1, 1, 0, 'legacy observation', ?, ?)`, id, domain.LocalStreamID, hb.Time.UTC(), hb.Time.UTC()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.db.ExecContext(ctx, `INSERT INTO monitor_probe_state

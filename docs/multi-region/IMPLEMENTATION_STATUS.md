@@ -191,6 +191,10 @@ Frontend/Helm changes are absent. Live MariaDB/MongoDB tests were skipped becaus
 
 ## Next implementation steps
 
+The Colima validation continuation (2026-09-17) closes the skipped real-MariaDB
+repository gate and fixes two existing sharded-worker defects described below.
+It adds no migration after `043`; scoped alert lifecycle/escalation remains next.
+
 The local stream sequencing blocker is fixed by `042`; `043` adds durable assignment-scoped availability attempt throttles. Continue with scoped alert lifecycle and escalation ownership, then atomic incident/delivery integration. The existing dispatcher now explicitly rejects remote heartbeats before any side effects.
 
 1. M0 wire/API/browser fixtures, atomic commit/ingest ports, monitor-create local assignment, hub scheduler ownership, heartbeat `probe_id`/rollup unique `(monitor_id,probe_id,bucket)`, overall health readers, incident/delivery persistence, local `RegionalCommit`, shared retry/maintenance/condition evaluation, materialized overall projections/dirty-bucket history, and persisted assignment/policy effective-time history are in place. Do not advertise full `phoenix.probe.v1` capability. Capacity and certificate state are now scoped. Availability attempt throttles are now persisted and scoped. Remaining M1 work is scoped alert lifecycle/escalation and atomic incident/delivery integration; dedicated edge-schema migrations belong to M2.
@@ -200,3 +204,57 @@ The local stream sequencing blocker is fixed by `042`; `043` adds durable assign
 5. Only then start the M2 edge runtime and authenticated transport. Leave SSH provisioning and public push gateway for their follow-on milestones.
 
 Use disjoint file ownership, update shared contracts before delegation, and commit each tested slice. The initial helper/persistence work is not evidence that offline replay, notification ownership, or failure recovery already works.
+
+## Colima MariaDB and running-app validation — 2026-09-17
+
+Ran the repository contracts on disposable Colima MariaDB **11.8.9** (`mariadb:11`,
+image digest `sha256:8b5f33ebd85d1775657e974ed10434128bb493c80e826ceaa54074fd1a92a112`).
+The first run exposed failures that SQLite had hidden:
+
+- `ClaimBatch` wrote fractional UTC time into second-precision `leased_at`, then
+  selected its receipt by equality against the fractional input. One persisted
+  lease produced zero returned monitors. MariaDB now locks candidate rows and
+  updates/returns their exact IDs in one transaction. A timestamp precision
+  control and bounded same-owner reclaim test cover the failure mechanism.
+- The legacy matrix reset truncated the reserved local registration and sequence
+  seed. Reset now restores migration-owned singleton data for every fixture.
+  Other fixtures now accept MariaDB's case-normalized partition expression,
+  provide the required observation message, and downgrade later dependencies
+  before exercising isolated migration `035` rollback guards.
+- `ShardedScheduler.tick` selected every active monitor despite claiming a lease
+  batch. It now uses `WorkerMonitorReader` for the worker's active, unexpired
+  leases, normalizes the cutoff to UTC, and keeps the local-assignment filter.
+  Missing scope or failed reads cannot fall back to global execution. Both
+  repository engines cover other owners, expired/missing leases, inactive
+  monitors, the exact expiry boundary, and non-UTC callers.
+
+The repeatable [real-app smoke script](../../scripts/multi_region_smoke.py) starts
+two native app processes against Colima MariaDB with one monitor leased to each.
+It uses actual HTTP checks and local webhook recipients. Verified effects:
+independent scheduled checks; UP → PENDING → DOWN; one initial webhook per
+monitor; a delivered escalation; acknowledgement canceling the remaining ladder;
+new DOWN checks after restarting both processes without duplicate notifications;
+then recovery webhooks and two resolved alerts. The unacknowledged second monitor
+proves restart suppression comes from the durable throttle, not acknowledgement.
+
+Readback found 23 heartbeats and 23 distinct contiguous local-stream sequences
+(`1`–`23`) across both monitors and process restarts; the allocator was `23`.
+Every heartbeat matched a persisted regional observation. Recovery cleared both
+notification throttle rows. No Redis or external notification service was used.
+Reproduction commands are in [TESTING.md](../TESTING.md#26-colima-multi-region-runtime-smoke).
+
+Verification passed with Go 1.26.6: full `go build ./...`; complete
+`go test -race -count=1 ./...` with `TEST_MARIADB_DSN` set (both repository engines
+executed); a final concurrent-claim race test; golangci-lint with zero issues;
+formatting, production core dependency boundaries, whitespace, script syntax,
+and documentation links/fences. `govulncheck ./...` reported zero reachable
+vulnerabilities and zero in imported packages (three module-level advisories
+outside imported/called code). Frontend source, Helm, dependencies and schemas
+were unchanged. This continuation did not run browser or frontend gates.
+
+This validates current local execution and synthetic migration fixtures. It does
+not establish remote probe operation, Redis/split-mode fan-out, or rollout safety
+on an operator's populated installation. Worker selection at a tick does not fence
+a check already in flight when ownership changes. Remote generation fencing,
+scoped alert lifecycle/escalation, and atomic incident/delivery integration remain
+open work; M0/M1 are still in progress.

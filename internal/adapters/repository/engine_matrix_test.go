@@ -139,6 +139,29 @@ func resetMariaDB(t *testing.T, db *sql.DB) {
 			t.Fatalf("truncate MariaDB table %s: %v", table, err)
 		}
 	}
+	// Migrations own these singleton seeds. An empty application database still
+	// contains the local registration and sequence allocator; truncation must
+	// restore them before any legacy matrix creates a monitor.
+	for _, name := range []string{"035_probe_registry", "042_local_stream_sequence"} {
+		data, err := os.ReadFile(filepath.Join("mariadb", "migrations", name+".up.sql"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(string(data), "\n")
+		for i, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), "--") {
+				lines[i] = ""
+			}
+		}
+		for _, statement := range strings.Split(strings.Join(lines, "\n"), ";") {
+			if strings.TrimSpace(statement) == "" {
+				continue
+			}
+			if _, err := conn.ExecContext(ctx, statement); err != nil {
+				t.Fatalf("restore MariaDB seed %s: %v", name, err)
+			}
+		}
+	}
 }
 
 func TestRepositoryContract_SQLite(t *testing.T) {

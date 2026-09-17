@@ -20,6 +20,7 @@ import (
 // On shutdown it releases its leases so other workers can pick them up.
 type ShardedScheduler struct {
 	monitorRepo    ports.MonitorRepository
+	leaseReader    ports.WorkerMonitorReader
 	assignments    ports.MonitorProbeAssignmentRepository
 	checkerFn      func(string) (ports.Checker, bool)
 	heartbeatSvc   *services.HeartbeatService
@@ -65,8 +66,10 @@ func NewShardedScheduler(
 		cfg.PollEvery = 30 * time.Second
 	}
 
+	leaseReader, _ := monitorRepo.(ports.WorkerMonitorReader)
 	return &ShardedScheduler{
 		monitorRepo:    monitorRepo,
+		leaseReader:    leaseReader,
 		checkerFn:      checkerFn,
 		heartbeatSvc:   heartbeatSvc,
 		maintenanceSvc: maintenanceSvc,
@@ -96,6 +99,9 @@ func (s *ShardedScheduler) SetAssignmentRepo(repo ports.MonitorProbeAssignmentRe
 
 // Run starts the sharded scheduler loop. Blocks until ctx is canceled.
 func (s *ShardedScheduler) Run(ctx context.Context) error {
+	if s.leaseReader == nil || s.workerID == "" {
+		return fmt.Errorf("sharded scheduler requires a worker ID and lease reader")
+	}
 	s.logger.Info("sharded scheduler starting", "worker_id", s.workerID)
 	defer s.logger.Info("sharded scheduler stopped", "worker_id", s.workerID)
 
@@ -158,18 +164,15 @@ func (s *ShardedScheduler) refreshAndClaim(ctx context.Context) {
 
 // tick is called every second and runs checks for claimed monitors that are due.
 func (s *ShardedScheduler) tick(ctx context.Context) {
-	// Get all active monitors and filter to our claimed ones.
-	// Since ClaimBatch already set worker_id, ListActive returns all active monitors.
-	// We filter by checking worker_id in the domain object — but domain.Monitor
-	// doesn't have WorkerID. Instead, we use the same approach as LocalScheduler
-	// but rely on the DB lease: we only claim monitors we should run.
-	//
-	// For efficiency, we use ListActive and filter by what we've stored in lastCheck.
-	// The claim ensures only this worker sees these monitors in its batch.
-
-	monitors, err := s.monitorRepo.ListActive(ctx)
+	if s.leaseReader == nil || s.workerID == "" {
+		return
+	}
+	// Re-read ownership on every tick: a previous claim is not evidence that
+	// this worker still owns an unexpired lease after an outage or handoff.
+	now := time.Now().UTC()
+	monitors, err := s.leaseReader.ListByWorker(ctx, s.workerID, now.Add(-s.leaseTTL))
 	if err != nil {
-		s.logger.Error("sharded scheduler: failed to list active monitors", "error", err)
+		s.logger.Error("sharded scheduler: failed to list leased monitors", "error", err)
 		return
 	}
 	monitors, err = filterLocalRunnable(ctx, s.assignments, monitors)
@@ -177,8 +180,6 @@ func (s *ShardedScheduler) tick(ctx context.Context) {
 		s.logger.Error("sharded scheduler: failed to filter local assignments", "error", err)
 		return
 	}
-
-	now := time.Now().UTC()
 
 	for _, m := range monitors {
 		if !s.shouldRun(m, now) {

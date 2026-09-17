@@ -122,6 +122,12 @@ type MonitorRepository interface {
 	ReleaseLeases(ctx context.Context, workerID string) (int64, error)
 }
 
+// WorkerMonitorReader lists active monitors whose current worker lease is valid.
+// leaseExpiry is inclusive; an older or missing lease must never be returned.
+type WorkerMonitorReader interface {
+	ListByWorker(ctx context.Context, workerID string, leaseExpiry time.Time) ([]*domain.Monitor, error)
+}
+
 // MonitorGroupRepository defines persistence operations for monitor groups.
 type MonitorGroupRepository interface {
 	Create(ctx context.Context, g *domain.MonitorGroup) error

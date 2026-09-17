@@ -154,8 +154,8 @@ func assertHeartbeatPartitionUnchanged(t *testing.T, db *bun.DB) {
 	if err := db.QueryRowContext(context.Background(), "SHOW CREATE TABLE heartbeats").Scan(&tableName, &ddl); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(ddl, "PARTITION BY RANGE (UNIX_TIMESTAMP(`time`))") &&
-		!strings.Contains(ddl, "PARTITION BY RANGE (UNIX_TIMESTAMP(time))") {
+	canonical := strings.ToUpper(strings.ReplaceAll(ddl, "`", ""))
+	if !strings.Contains(canonical, "PARTITION BY RANGE (UNIX_TIMESTAMP(TIME))") {
 		t.Fatalf("heartbeat partition expression changed: %s", ddl)
 	}
 	if !strings.Contains(ddl, "PRIMARY KEY (`id`,`time`)") &&

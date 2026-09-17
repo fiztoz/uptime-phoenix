@@ -178,6 +178,47 @@ Follow existing patterns in the same package. Key rules:
 
 ---
 
+### 2.6 Colima multi-region runtime smoke
+
+Use a disposable MariaDB container and two separate databases: repository tests
+truncate their database; the real-app smoke creates persistent test records in a
+fresh database ending in `_smoke`. These example passwords are for this local
+throwaway container only. Do not point either command at an existing deployment.
+
+```bash
+colima start
+docker --context colima run -d --name phoenix-mr-validation \
+  -p 127.0.0.1:43306:3306 --tmpfs /var/lib/mysql \
+  -e MARIADB_ROOT_PASSWORD=phoenix-local-test-root \
+  -e MARIADB_DATABASE=phoenix_ci -e MARIADB_USER=phoenix \
+  -e MARIADB_PASSWORD=phoenix mariadb:11
+
+# Wait until this succeeds before continuing.
+docker --context colima exec phoenix-mr-validation \
+  healthcheck.sh --connect --innodb_initialized
+docker --context colima exec phoenix-mr-validation \
+  mariadb -uroot -pphoenix-local-test-root -e \
+  "CREATE DATABASE phoenix_mr_smoke; GRANT ALL ON phoenix_mr_smoke.* TO 'phoenix'@'%';"
+
+GOTOOLCHAIN=go1.26.6 TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43306)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
+  go test -race -count=1 ./internal/adapters/repository/...
+GOTOOLCHAIN=go1.26.6 go build -o /tmp/phoenix-mr-app ./cmd/app
+DB_DSN='phoenix:phoenix@tcp(127.0.0.1:43306)/phoenix_mr_smoke?parseTime=true&loc=UTC&multiStatements=true' \
+  python3 scripts/multi_region_smoke.py --app-binary /tmp/phoenix-mr-app
+
+# Remove only the disposable container created above; keep the Colima VM.
+docker --context colima rm -f phoenix-mr-validation
+```
+
+The script starts two sharded app processes, two HTTP monitor targets and local
+webhook receivers. It verifies ownership, retry promotion, initial delivery,
+escalation, acknowledgement cancellation, throttle persistence across process
+restart, and recovery resolution. It stops its processes on exit and prints the
+directory containing logs and `report.json`. Ports default to 38766–38768; use
+`--port` to choose a different consecutive block. Use a fresh database for each
+run. This is local runtime coverage, not a remote probe or browser UI acceptance
+test; populated deployment migration rehearsal remains a release gate.
+
 ## 3. Frontend Checks (Svelte)
 
 ### 3.1 Build
