@@ -110,8 +110,26 @@ func TestReconstructOverallHistoryRejectsInvalidInput(t *testing.T) {
 		}
 	}
 	empty, err := ReconstructOverallHistory(domain.OverallHistoryInput{From: start, To: start.Add(time.Minute), FreshFor: time.Minute})
-	if err != nil || len(empty.Intervals) != 0 || empty.Durations != (domain.HealthDurations{}) {
+	if err != nil || len(empty.Intervals) != 1 || empty.Intervals[0].Reason != "missing_assignment_history" || empty.Durations.Unknown != time.Minute {
 		t.Fatalf("no assignments: %+v %v", empty, err)
+	}
+}
+
+func TestReconstructOverallHistoryAccountsForMissingMembershipIntervals(t *testing.T) {
+	start := time.Date(2026, 9, 16, 8, 0, 0, 0, time.UTC)
+	got, err := ReconstructOverallHistory(domain.OverallHistoryInput{
+		From: start, To: start.Add(4 * time.Minute), FreshFor: 10 * time.Minute,
+		Assignments: []domain.AssignmentInterval{
+			{ProbeID: "local", Generation: 1, Revision: 1, Policy: domain.HealthPolicyAnyDown, From: start.Add(time.Minute), To: start.Add(2 * time.Minute)},
+			{ProbeID: "local", Generation: 2, Revision: 3, Policy: domain.HealthPolicyAnyDown, From: start.Add(3 * time.Minute)},
+		},
+		Observations: []domain.RegionalObservation{
+			{ID: 1, ProbeID: "local", AssignmentGeneration: 1, Status: domain.StatusUp, ObservedAt: start.Add(time.Minute)},
+			{ID: 2, ProbeID: "local", AssignmentGeneration: 2, Status: domain.StatusDown, ObservedAt: start.Add(3 * time.Minute)},
+		},
+	})
+	if err != nil || len(got.Intervals) != 4 || got.Durations.Up != time.Minute || got.Durations.Down != time.Minute || got.Durations.Unknown != 2*time.Minute {
+		t.Fatalf("history dropped a gap or neighboring interval: %+v %v", got, err)
 	}
 }
 

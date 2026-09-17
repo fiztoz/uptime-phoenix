@@ -50,7 +50,8 @@ func (r healthMonitorRepo) RefreshLease(context.Context, string) (int64, error) 
 func (r healthMonitorRepo) ReleaseLeases(context.Context, string) (int64, error) { return 0, nil }
 
 type healthAssignmentRepo struct {
-	sets map[int64]*domain.MonitorProbeAssignments
+	sets    map[int64]*domain.MonitorProbeAssignments
+	history map[int64][]domain.AssignmentInterval
 }
 
 func (r healthAssignmentRepo) InitializeLocal(context.Context, int64) (*domain.MonitorProbeAssignments, error) {
@@ -68,6 +69,13 @@ func (r healthAssignmentRepo) Replace(context.Context, int64, int64, []string, d
 }
 func (r healthAssignmentRepo) ExecutableByLocal(context.Context, []int64) (map[int64]struct{}, error) {
 	return map[int64]struct{}{}, nil
+}
+
+func (r healthAssignmentRepo) ListHistory(_ context.Context, monitorID int64, from, to time.Time) ([]domain.AssignmentInterval, error) {
+	if from.Location() != time.UTC || to.Location() != time.UTC {
+		return nil, errors.New("history bounds must be UTC")
+	}
+	return r.history[monitorID], nil
 }
 
 type healthRegionalRepo struct {
@@ -280,7 +288,13 @@ func TestMonitorHealthHistoryAndProjection(t *testing.T) {
 	store := &healthProjectionRepo{}
 	svc := NewMonitorHealthService(
 		healthMonitorRepo{monitors: map[int64]*domain.Monitor{7: monitor}},
-		healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{7: set}},
+		healthAssignmentRepo{
+			sets: map[int64]*domain.MonitorProbeAssignments{7: set},
+			history: map[int64][]domain.AssignmentInterval{7: {
+				{ProbeID: domain.LocalProbeID, Generation: 1, Revision: 1, Policy: domain.HealthPolicyAnyDown, From: start},
+				{ProbeID: "asia", Generation: 1, Revision: 1, Policy: domain.HealthPolicyAnyDown, From: start},
+			}},
+		},
 		regional,
 		healthAccess{allow: map[int64]bool{7: true}},
 	)

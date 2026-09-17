@@ -323,6 +323,11 @@ func testProbeRegistryConcurrency(t *testing.T, f probeRegistryFixture) {
 	if err != nil || current.Revision != 2 || len(current.Assignments) != 2 {
 		t.Fatalf("concurrent result: %+v, %v", current, err)
 	}
+	history := assignmentHistory(t, f, monitorID)
+	if len(history) != 3 || history[0].To.IsZero() || history[1].Revision != 2 || history[2].Revision != 2 ||
+		!history[0].To.Equal(history[1].From) || !history[1].From.Equal(history[2].From) {
+		t.Fatalf("concurrent writers split/duplicated history: %+v", history)
+	}
 }
 
 func testProbeRegistryRollback(t *testing.T, f probeRegistryFixture) {

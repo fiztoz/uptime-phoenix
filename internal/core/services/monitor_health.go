@@ -48,8 +48,7 @@ func (s *MonitorHealthService) Current(ctx context.Context, userID, monitorID in
 	if err := s.denyIfHidden(ctx, userID, monitorID); err != nil {
 		return nil, err
 	}
-	got, _, err := s.evaluate(ctx, monitorID, now)
-	return got, err
+	return s.evaluate(ctx, monitorID, now)
 }
 
 // History reconstructs overall availability intervals for an authorized monitor.
@@ -68,7 +67,7 @@ func (s *MonitorHealthService) ProjectCurrent(ctx context.Context, monitorID int
 	if s.projections == nil {
 		return nil
 	}
-	current, _, err := s.evaluate(ctx, monitorID, now)
+	current, err := s.evaluate(ctx, monitorID, now)
 	if err != nil {
 		return err
 	}
@@ -174,10 +173,10 @@ func (s *MonitorHealthService) denyIfHidden(ctx context.Context, userID, monitor
 	return nil
 }
 
-func (s *MonitorHealthService) evaluate(ctx context.Context, monitorID int64, now time.Time) (*domain.CurrentMonitorHealth, *domain.Monitor, error) {
+func (s *MonitorHealthService) evaluate(ctx context.Context, monitorID int64, now time.Time) (*domain.CurrentMonitorHealth, error) {
 	monitor, set, freshFor, err := s.loadMonitorEvidence(ctx, monitorID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	now = now.UTC()
 	if now.IsZero() {
@@ -185,7 +184,7 @@ func (s *MonitorHealthService) evaluate(ctx context.Context, monitorID int64, no
 	}
 	states, err := s.regional.ListStates(ctx, monitorID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load regional state: %w", err)
+		return nil, fmt.Errorf("load regional state: %w", err)
 	}
 	byProbe := make(map[string]domain.RegionalState, len(states))
 	for _, state := range states {
@@ -208,11 +207,11 @@ func (s *MonitorHealthService) evaluate(ctx context.Context, monitorID int64, no
 	}
 	health, err := EvaluateMonitorHealth(now, set.HealthPolicy, evidence)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	return &domain.CurrentMonitorHealth{
 		MonitorID: monitorID, Policy: set.HealthPolicy, AsOf: now, Health: health, Regions: evidence,
-	}, monitor, nil
+	}, nil
 }
 
 func (s *MonitorHealthService) reconstruct(ctx context.Context, monitorID int64, from, to, now time.Time) (*domain.MonitorHealthHistory, error) {
@@ -230,6 +229,17 @@ func (s *MonitorHealthService) reconstruct(ctx context.Context, monitorID int64,
 	if !from.Before(to) {
 		return &domain.MonitorHealthHistory{MonitorID: monitorID, From: from, To: to}, nil
 	}
+	var assignments []domain.AssignmentInterval
+	if set.Revision == 0 {
+		// Only a missing legacy set can use the local fallback. Persisted sets
+		// must never apply today's membership or policy to an earlier window.
+		assignments = assignmentIntervals(set, from)
+	} else {
+		assignments, err = s.assignments.ListHistory(ctx, monitorID, from, to)
+		if err != nil {
+			return nil, fmt.Errorf("load assignment history: %w", err)
+		}
+	}
 	lookback := from.Add(-freshFor)
 	observations, err := s.regional.ListObservationsInRange(ctx, monitorID, lookback, to)
 	if err != nil {
@@ -237,7 +247,7 @@ func (s *MonitorHealthService) reconstruct(ctx context.Context, monitorID int64,
 	}
 	history, err := ReconstructOverallHistory(domain.OverallHistoryInput{
 		MonitorID: monitorID, From: from, To: to, FreshFor: freshFor, Paused: !monitor.Active,
-		Assignments: assignmentIntervals(set, from), Observations: observations,
+		Assignments: assignments, Observations: observations,
 	})
 	if err != nil {
 		return nil, err

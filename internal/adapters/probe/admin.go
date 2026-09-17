@@ -142,7 +142,7 @@ func DecodeCommandReceipt(data []byte) (CommandReceipt, error) {
 	if err != nil {
 		return CommandReceipt{}, err
 	}
-	if err := rejectSecretPayload(data, nil); err != nil {
+	if err := rejectSecretPayload(data); err != nil {
 		return CommandReceipt{}, err
 	}
 	if err := rejectUnknownKeys(fields, "command_id", "status", "remote_confirmed"); err != nil {
@@ -164,7 +164,7 @@ func DecodeCommandReceipt(data []byte) (CommandReceipt, error) {
 
 func decodeOperationReceipt(data []byte, revoke bool) (OperationReceipt, error) {
 	var receipt OperationReceipt
-	if err := rejectSecretPayload(data, nil); err != nil {
+	if err := rejectSecretPayload(data); err != nil {
 		return OperationReceipt{}, err
 	}
 	fields, err := decodeJSONObject(data)

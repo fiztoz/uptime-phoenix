@@ -86,7 +86,7 @@ func DecodeEnrollResult(data []byte) (Envelope, EnrollResult, error) {
 	if err != nil {
 		return envelope, EnrollResult{}, err
 	}
-	if err := rejectSecretPayload(envelope.Payload, nil); err != nil {
+	if err := rejectSecretPayload(envelope.Payload); err != nil {
 		return envelope, EnrollResult{}, err
 	}
 	if err := decodeEnrollmentIdentity(fields, &result.HubID, &result.ProbeID, &result.EnrollmentID); err != nil {

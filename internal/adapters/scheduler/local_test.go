@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"testing"
@@ -123,6 +124,9 @@ func (m *mockAssignments) GetByMonitorID(context.Context, int64) (*domain.Monito
 }
 func (m *mockAssignments) Replace(context.Context, int64, int64, []string, domain.HealthPolicy) (*domain.MonitorProbeAssignments, error) {
 	return nil, nil
+}
+func (m *mockAssignments) ListHistory(context.Context, int64, time.Time, time.Time) ([]domain.AssignmentInterval, error) {
+	return nil, errors.New("unexpected assignment history read from scheduler")
 }
 func (m *mockAssignments) ExecutableByLocal(_ context.Context, ids []int64) (map[int64]struct{}, error) {
 	out := make(map[int64]struct{}, len(ids))

@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
@@ -32,9 +33,14 @@ type ProbeRegistryRepository interface {
 // ExecutableByLocal reports which of the given monitors the hub worker may run:
 // missing assignment sets are legacy-local; sets without an active local probe
 // are remote-only and must not be claimed or checked by the hub scheduler.
+// ListHistory returns persisted membership/policy intervals overlapping [from,to),
+// ordered by effective start then row ID. Boundaries are UTC and are not clipped.
+// An empty history means unknown membership, never today's set applied backwards.
+// Successful initialization/replacement commits history with the desired set.
 type MonitorProbeAssignmentRepository interface {
 	InitializeLocal(ctx context.Context, monitorID int64) (*domain.MonitorProbeAssignments, error)
 	GetByMonitorID(ctx context.Context, monitorID int64) (*domain.MonitorProbeAssignments, error)
 	Replace(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy) (*domain.MonitorProbeAssignments, error)
 	ExecutableByLocal(ctx context.Context, monitorIDs []int64) (map[int64]struct{}, error)
+	ListHistory(ctx context.Context, monitorID int64, from, to time.Time) ([]domain.AssignmentInterval, error)
 }

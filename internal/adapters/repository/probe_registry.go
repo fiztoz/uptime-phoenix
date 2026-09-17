@@ -224,7 +224,7 @@ func InitializeLocalAssignment(ctx context.Context, tx bun.Tx, monitorID int64) 
 	if err := requireEnabledProbe(ctx, tx, domain.LocalProbeID); err != nil {
 		return err
 	}
-	now := time.Now().UTC()
+	now := assignmentChangeTime(time.Time{})
 	set = &probeAssignmentSetModel{MonitorID: monitorID, Revision: 1,
 		HealthPolicy: domain.HealthPolicyAnyDown, CreatedAt: now, UpdatedAt: now}
 	if _, err := tx.NewInsert().Model(set).Exec(ctx); err != nil {
@@ -232,8 +232,10 @@ func InitializeLocalAssignment(ctx context.Context, tx bun.Tx, monitorID int64) 
 	}
 	assignment := &probeAssignmentModel{MonitorID: monitorID, ProbeID: domain.LocalProbeID,
 		Generation: 1, Active: true, CreatedAt: now, UpdatedAt: now}
-	_, err = tx.NewInsert().Model(assignment).Exec(ctx)
-	return err
+	if _, err := tx.NewInsert().Model(assignment).Exec(ctx); err != nil {
+		return err
+	}
+	return writeAssignmentHistory(ctx, tx, monitorID, 1, set.HealthPolicy, now)
 }
 
 // CreateMonitorWithLocalAssignment inserts a monitor and its local assignment
@@ -341,11 +343,15 @@ func (r *ProbeAssignmentStore) Replace(ctx context.Context, monitorID, expectedR
 		if set.Revision == math.MaxInt64 {
 			return fmt.Errorf("assignment revision exhausted: %w", ports.ErrConflict)
 		}
-		if err := replaceProbeAssignmentRows(ctx, tx, monitorID, previous, ids); err != nil {
+		now := assignmentChangeTime(set.UpdatedAt)
+		if err := replaceProbeAssignmentRows(ctx, tx, monitorID, previous, ids, now); err != nil {
 			return err
 		}
 		if _, err := tx.NewUpdate().Model(set).Set("revision = revision + 1").Set("health_policy = ?", policy).
-			Set("updated_at = ?", time.Now().UTC()).WherePK().Exec(ctx); err != nil {
+			Set("updated_at = ?", now).WherePK().Exec(ctx); err != nil {
+			return err
+		}
+		if err := writeAssignmentHistory(ctx, tx, monitorID, expectedRevision+1, policy, now); err != nil {
 			return err
 		}
 		out, err = readProbeAssignments(ctx, tx, monitorID)
@@ -400,12 +406,11 @@ func sameProbeAssignmentSet(previous []probeAssignmentModel, ids []string) bool 
 	return index == len(ids)
 }
 
-func replaceProbeAssignmentRows(ctx context.Context, tx bun.Tx, monitorID int64, previous []probeAssignmentModel, ids []string) error {
+func replaceProbeAssignmentRows(ctx context.Context, tx bun.Tx, monitorID int64, previous []probeAssignmentModel, ids []string, now time.Time) error {
 	rows := make(map[string]probeAssignmentModel, len(previous))
 	for _, row := range previous {
 		rows[row.ProbeID] = row
 	}
-	now := time.Now().UTC()
 	for _, id := range ids {
 		row, existed := rows[id]
 		if existed && row.Active {

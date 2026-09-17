@@ -69,7 +69,18 @@ func ReconstructOverallHistory(in domain.OverallHistoryInput) (domain.MonitorHea
 			return domain.MonitorHealthHistory{}, err
 		}
 		if len(active) == 0 {
-			havePrev = false
+			if havePrev {
+				out.Intervals = append(out.Intervals, prev)
+				addIntervalDuration(&out.Durations, prev)
+			}
+			// Missing effective-time records cannot establish a healthy quorum.
+			// Include that duration in coverage instead of dropping it silently.
+			prev = domain.MonitorHealthInterval{
+				From: start, To: end, Status: domain.StatusUnknown,
+				Reason: "missing_assignment_history", Cause: domain.HealthHistoryCauseAdministrative,
+				Policy: domain.HealthPolicyAnyDown,
+			}
+			havePrev, prevIDs, prevRev = true, nil, 0
 			continue
 		}
 		policy, revision, err := activePolicy(active)
@@ -106,7 +117,7 @@ func ReconstructOverallHistory(in domain.OverallHistoryInput) (domain.MonitorHea
 			Policy: policy, PolicyRevision: revision, Counts: health.Counts,
 		}
 		if havePrev && prev.Status == interval.Status && prev.Reason == interval.Reason &&
-			prev.Policy == interval.Policy && prev.PolicyRevision == interval.PolicyRevision {
+			prev.Policy == interval.Policy && prev.PolicyRevision == interval.PolicyRevision && prev.Counts == interval.Counts {
 			prev.To = end
 			prevIDs, prevRev = ids, revision
 			continue
@@ -200,11 +211,11 @@ func historyCause(
 	havePrev bool,
 ) string {
 	ids := assignmentIDs(active)
-	if havePrev && prevRev != revision {
-		return domain.HealthHistoryCausePolicy
-	}
 	if havePrev && !sameStrings(prevIDs, ids) {
 		return domain.HealthHistoryCauseAssignment
+	}
+	if havePrev && prevRev != revision {
+		return domain.HealthHistoryCausePolicy
 	}
 	for _, obs := range observations {
 		if freshFor > 0 && obs.ObservedAt.UTC().Add(freshFor).Equal(at) {

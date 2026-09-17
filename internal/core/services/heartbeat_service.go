@@ -132,7 +132,7 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 		previous = &domain.RetryState{Status: state.Status, DownCount: state.DownCount}
 		oldStatus = &state.Status
 		generation = state.AssignmentGeneration
-		if state.Seq >= math.MaxInt64 {
+		if state.Seq == math.MaxInt64 {
 			return fmt.Errorf("local stream sequence exhausted: %w", ports.ErrConflict)
 		}
 		seq = state.Seq + 1

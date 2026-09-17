@@ -158,6 +158,8 @@ Report `uptime_percent` over known UP/DOWN duration, plus `coverage_percent` and
 
 Historical overall status is reconstructed from regional transitions, assignment/policy effective-time history, and freshness expirations. Late data can improve the historical answer but cannot rewrite the fact that operators had missing evidence at the time; retain receipt time for diagnostics. Do not let added probes retroactively participate in periods before their assignment.
 
+Assignment history stores a complete membership snapshot per set revision on `[started_at, ended_at)`. Replacement closes all previous members and opens the new set at one UTC microsecond boundary in the same transaction, preserving generations of retained members. Policy-only changes also create a revision. No-op and failed replacements create none. Boundaries increase even if the hub clock moves backward. Migration `040` can recover only the current set starting at its last edit; it cannot infer earlier removed members or policies. Missing historical membership contributes UNKNOWN duration with `missing_assignment_history`, zero counts and revision zero (the `any_down` policy field is a placeholder, not evidence of an old policy). The fallback to legacy local membership applies only when no assignment set exists.
+
 Latest current state is selected by authenticated stream/assignment identity and monotonic sequence, not the hub insertion ID. Ordered historical rows still use deterministic `time, id` tie-breaks within a region. Stream sequencing determines same-probe state even if the wall clock moves backward. Reject unreasonable future times from live projection, preserve diagnostic evidence, and avoid negative duration intervals.
 
 ## 5. Alert ownership and incident lifecycle
@@ -218,7 +220,7 @@ This is the target schema contract, not ready-to-run migration SQL. Implementati
 | `probe_installation` | Singleton `hub_id`, protocol floor, configuration authority epoch |
 | `probes` | `id` PK, unique human `key`, name, location, kind (`local`/`remote`), endpoint, enabled/revoked timestamps, certificate pin, encrypted credential/version, runtime status, last seen, applied/desired revisions |
 | `monitor_probes` | PK `(monitor_id,probe_id)`, active, generation, assigned time, desired/applied config revision |
-| `probe_assignment_history` | Monitor/probe/generation, effective-from/to UTC, policy revision; supports historical aggregation and stale-result authorization |
+| `monitor_probe_assignment_history` | Monitor/probe/generation, effective-from/to UTC, policy revision; supports historical aggregation; historical ingest authorization remains to be wired |
 | `probe_sessions` | Probe ID, connector owner, lease expiry, connection generation; transactional fencing |
 | `probe_streams` | PK `(probe_id,stream_id)`, current/retired epoch, contiguous committed cursor, retirement time, declared gap records |
 | `monitor_probe_state` | PK `(monitor_id,probe_id)`, generation, stream/seq, observed/received time, effective status, counts, freshness reason, config revision |

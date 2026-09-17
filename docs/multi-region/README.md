@@ -52,6 +52,7 @@ The default single-pod installation must continue to work without probes, Redis,
 | D17 | Incident subject identities are immutable; deliveries reference the source incident transition and keep provider event names | Regional replay can mirror lifecycle and outcomes without becoming a send request or claiming hub-owned aggregate/group incidents |
 | D18 | Handshake identity/generation/capabilities are checked against trusted expectations; empty retained history uses sequence zero and health is role-specific diagnostic evidence | Prevents silent reset, cursor jumps, fabricated queue health, and capability/version substitution before runtime integration |
 | D19 | Config snapshots use explicit bounded dependency graphs, exact capability unions, and symmetric expanded maintenance links; assembly grants no activation receipt | Preserves existing target visibility, templates, minute-based resend/escalation, and disabled-policy semantics while rejecting incomplete or misdirected configuration |
+| D20 | Persist complete membership/policy revisions with half-open UTC ranges; backfill only the latest known revision and count missing historical membership as UNKNOWN | Removal, re-addition, and policy edits must not rewrite past uptime or silently exclude gaps from coverage |
 
 ## Handoff state
 

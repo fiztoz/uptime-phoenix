@@ -50,11 +50,11 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 **Goal:** prove the core can handle multiple independent streams before opening a public listener.
 
 - [x] Add `local` registration, monitor assignments/generations, regional state, stream cursor/receipt tables, scoped incident/delivery storage, config/command metadata, projection/history, and dirty-bucket schema.
-  - Registration/assignments (`035`), regional observations/state/streams/commands/dirty buckets (`036`), incident/delivery mirrors (`038`), and overall health projections (`039`) are in both engines. Existing `alerts` rows stay monitor-scoped. Edge SQLite schema remains M2.
+  - Registration/assignments (`035`), regional observations/state/streams/commands/dirty buckets (`036`), incident/delivery mirrors (`038`), overall health projections (`039`), and assignment/policy history (`040`) are in both engines. Existing `alerts` rows stay monitor-scoped. Edge SQLite schema remains M2.
 - [ ] Add paired MariaDB/SQLite migrations and edge-schema migrations. Preserve existing heartbeat partition expression and IDs. Keep rollup auto-increment IDs; replace the old unique `(monitor_id,bucket)` key correctly.
-  - Hub `036` regional tables, `037` heartbeat `probe_id` / rollup unique `(monitor_id,probe_id,bucket)`, `038` incident/delivery tables, and `039` overall health projections are paired. Edge schema remains M2.
+  - Hub `036` regional tables, `037` heartbeat `probe_id` / rollup unique `(monitor_id,probe_id,bucket)`, `038` incident/delivery tables, `039` overall health projections, and `040` assignment history are paired. Edge schema remains M2.
 - [x] Implement atomic regional commit and ingest transaction ports with real-engine tests; use a persisted sequence and state transaction on SQLite.
-  - `RegionalCommitStore` commits observation+state together and ingest is idempotent with gap rejection. Not wired into `HeartbeatService` or the scheduler.
+  - `RegionalCommitStore` commits observation+state together and ingest is idempotent with gap rejection. Local `HeartbeatService.Record` is wired; authenticated remote ingest remains later work.
 - [x] Refactor shared retry/maintenance/condition evaluation into a reusable service operation. Keep the local scheduler routed through a `local` assignment.
   - `EvaluateObservation` applies maintenance then retry. `PromoteCondition` is the pure consecutive/hysteresis rule. `HeartbeatService.Record` uses both and commits local regional state. Incident dispatch remains on the existing dispatcher.
 - [x] Make local/sharded scheduling assignment-aware. Existing DB leases distribute execution only within a logical vantage point; a local worker cannot claim a remote-only assignment.
@@ -62,7 +62,7 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
   - `ListStates` / windowed `ListObservations` and `MonitorHealthService.Current` evaluate ANY/ALL from complete assignment evidence. `History` reconstructs overall duration intervals from regional transitions, assignment effective times, and freshness.
 - [ ] Scope alert throttling, certificate thresholds, capacity promotion, and escalation state. Preserve current single-local-monitor alert behavior.
 - [x] Implement materialized current projections and historical dirty-bucket work so a regional read and an overall read have explicit semantics.
-  - Migration `039` adds `monitor_health_state` / `monitor_health_history`. Regional commit/ingest mark 1m/1h/1d/overall dirty buckets. `ProjectCurrent` persists the current overall snapshot; `ProcessDirty` recomputes closed overall minutes. Existing HTTP/browser mappings still do not emit UNKNOWN. Persisted assignment effective-time history remains a follow-on.
+  - Migration `039` adds `monitor_health_state` / `monitor_health_history`. Regional commit/ingest mark 1m/1h/1d/overall dirty buckets. `ProjectCurrent` persists the current overall snapshot; `ProcessDirty` recomputes closed overall minutes. `040` persists assignment effective-time history for remove/re-add and policy reconstruction; assignment writes also mark the affected overall minute. Existing HTTP/browser mappings still do not emit UNKNOWN.
 
 **Acceptance:** write interleaved local-UP/remote-DOWN observations and prove the remote retry counter reaches DOWN while local remains UP. Both same-second rows and per-region aggregates survive on MariaDB and SQLite. Empty/no-grant readers leak no data. With the feature disabled, the existing end-to-end local journey has unchanged behavior.
 

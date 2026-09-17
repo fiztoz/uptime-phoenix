@@ -197,7 +197,7 @@ type ProbeConfigStatusEvent struct {
 // DecodeProbeView validates an admin ProbeView. local is a valid hub identity.
 func DecodeProbeView(data []byte) (ProbeView, error) {
 	var view ProbeView
-	if err := rejectSecretPayload(data, nil); err != nil {
+	if err := rejectSecretPayload(data); err != nil {
 		return ProbeView{}, err
 	}
 	fields, err := decodeJSONObject(data)
@@ -275,7 +275,7 @@ func DecodeProbeView(data []byte) (ProbeView, error) {
 // DecodeProbeList validates a paginated fleet list.
 func DecodeProbeList(data []byte) (ProbeList, error) {
 	var list ProbeList
-	if err := rejectSecretPayload(data, nil); err != nil {
+	if err := rejectSecretPayload(data); err != nil {
 		return ProbeList{}, err
 	}
 	fields, err := decodeJSONObject(data)
@@ -402,7 +402,7 @@ func DecodeAssignmentReplacementRequest(data []byte) (AssignmentReplacementReque
 // DecodeAssignmentReplacementResult validates a desired-state save receipt.
 func DecodeAssignmentReplacementResult(data []byte) (AssignmentReplacementResult, error) {
 	var result AssignmentReplacementResult
-	if err := rejectSecretPayload(data, nil); err != nil {
+	if err := rejectSecretPayload(data); err != nil {
 		return AssignmentReplacementResult{}, err
 	}
 	fields, err := decodeJSONObject(data)
@@ -439,7 +439,7 @@ func DecodeAssignmentReplacementResult(data []byte) (AssignmentReplacementResult
 // DecodeRegionalHeartbeat validates a regional history row.
 func DecodeRegionalHeartbeat(data []byte) (RegionalHeartbeat, error) {
 	var row RegionalHeartbeat
-	if err := rejectSecretPayload(data, nil); err != nil {
+	if err := rejectSecretPayload(data); err != nil {
 		return RegionalHeartbeat{}, err
 	}
 	fields, err := decodeJSONObject(data)
@@ -469,7 +469,7 @@ func DecodeRegionalHeartbeat(data []byte) (RegionalHeartbeat, error) {
 // DecodeHealthView validates overall health without fleet secrets.
 func DecodeHealthView(data []byte) (HealthView, error) {
 	var view HealthView
-	if err := rejectSecretPayload(data, nil); err != nil {
+	if err := rejectSecretPayload(data); err != nil {
 		return HealthView{}, err
 	}
 	fields, err := decodeJSONObject(data)
@@ -527,7 +527,7 @@ func DecodeHealthView(data []byte) (HealthView, error) {
 // DecodeBrowserEvent validates a hub browser WebSocket event envelope.
 func DecodeBrowserEvent(data []byte) (BrowserEvent, error) {
 	var event BrowserEvent
-	if err := rejectSecretPayload(data, nil); err != nil {
+	if err := rejectSecretPayload(data); err != nil {
 		return BrowserEvent{}, err
 	}
 	fields, err := decodeJSONObject(data)

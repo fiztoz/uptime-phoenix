@@ -175,7 +175,7 @@ func DecodeCommandResult(data []byte) (Envelope, CommandResult, error) {
 	if err != nil {
 		return envelope, CommandResult{}, err
 	}
-	if err := rejectSecretPayload(envelope.Payload, nil); err != nil {
+	if err := rejectSecretPayload(envelope.Payload); err != nil {
 		return envelope, CommandResult{}, err
 	}
 	if err := requiredUUID(fields, "command_id", &result.CommandID); err != nil {
@@ -433,7 +433,7 @@ func requireProbeWideTarget(target CommandTarget) error {
 }
 
 func decodeCommandResultDetails(data []byte) (CommandResultDetails, error) {
-	if err := rejectSecretPayload(data, nil); err != nil {
+	if err := rejectSecretPayload(data); err != nil {
 		return nil, err
 	}
 	fields, err := objectFields(data)
@@ -494,7 +494,7 @@ func looksLikeSecret(value string) bool {
 	return strings.Contains(value, "phx_probe_") || strings.Contains(value, "BEGIN ") || strings.Contains(lower, "private_key")
 }
 
-func rejectSecretPayload(data []byte, allowedKeys map[string]struct{}) error {
+func rejectSecretPayload(data []byte) error {
 	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
 		return nil
 	}
@@ -502,23 +502,23 @@ func rejectSecretPayload(data []byte, allowedKeys map[string]struct{}) error {
 	if err := json.Unmarshal(data, &value); err != nil {
 		return fmt.Errorf("decoding secret scan: %w", err)
 	}
-	return walkSecrets(value, allowedKeys)
+	return walkSecrets(value)
 }
 
-func walkSecrets(value any, allowedKeys map[string]struct{}) error {
+func walkSecrets(value any) error {
 	switch typed := value.(type) {
 	case map[string]any:
 		for key, nested := range typed {
-			if _, allowed := allowedKeys[key]; !allowed && (key == "token" || key == "private_key" || key == "enrollment_token") {
+			if key == "token" || key == "private_key" || key == "enrollment_token" {
 				return errors.New("result must not contain a token or private key")
 			}
-			if err := walkSecrets(nested, allowedKeys); err != nil {
+			if err := walkSecrets(nested); err != nil {
 				return err
 			}
 		}
 	case []any:
 		for _, nested := range typed {
-			if err := walkSecrets(nested, allowedKeys); err != nil {
+			if err := walkSecrets(nested); err != nil {
 				return err
 			}
 		}
