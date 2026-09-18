@@ -7,7 +7,8 @@ import (
 )
 
 // LocalHeartbeatRecorder allocates a stream-wide sequence and atomically writes
-// the local heartbeat, regional observation/state, and dirty buckets. A failed
+// the local heartbeat, regional observation/state, dirty buckets, and optional
+// source incident/availability delivery intents. A failed
 // commit consumes no sequence and returns no heartbeat. ErrStaleLocalState means
 // the caller must re-evaluate against newer state before retrying. Notification
 // I/O and auxiliary state are outside this transaction.

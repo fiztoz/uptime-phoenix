@@ -7,4 +7,6 @@ type LocalHeartbeatCommit struct {
 	Heartbeat        Heartbeat
 	RawStatus        Status
 	ExpectedStateSeq int64
+	Incident         *RegionalIncident
+	DeliveryIntents  []DeliveryIntent
 }

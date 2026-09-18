@@ -58,6 +58,7 @@ The default single-pod installation must continue to work without probes, Redis,
 | D23 | Persist availability attempt throttles by monitor/probe/generation; reserve resends atomically before provider I/O and keep the legacy dispatcher local-only | Restart and worker handoff retain backoff; one region or generation cannot consume or clear another's cursor. Incident/outbox integration remains required for durable delivery |
 
 | D24 | Availability incidents use monitor/probe/assignment generation; escalation inherits that immutable identity through its alert ID | Acknowledgement, recovery, and a re-added assignment cannot reuse another incident. Legacy HTTP views remain local-only; the hub runner never claims remote ladders and cancels obsolete local generations before delivery |
+| D25 | Source delivery intents are separate from mirrored outcomes, committed with the observation and incident, and completed through expiring attempt leases | A queued identity survives restart; a stale worker cannot overwrite a newer attempt. The storage API captures availability context without provider secrets and grants no sending authority. Live dispatcher activation waits for versioned channel configuration, lifecycle planning, and obsolete-intent reconciliation |
 
 ## Handoff state
 

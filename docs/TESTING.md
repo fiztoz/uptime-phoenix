@@ -180,6 +180,23 @@ Follow existing patterns in the same package. Key rules:
 
 ### 2.6 Colima multi-region runtime smoke
 
+The atomic delivery-outbox storage contracts run with:
+
+~~~bash
+go test -race -count=1 ./internal/adapters/repository/... -run 'DeliveryOutbox|RegionalIncidents|LocalHeartbeat|ProbeRegistryContract'
+~~~
+
+Set `TEST_MARIADB_DSN` as below to run both engines. Migration 045 adds source
+work without changing legacy alerts or heartbeat partitions. Tests inject failures
+at incident, queue, outcome and completion writes; verify complete rollback,
+expired-lease restart, stale-worker rejection, idempotent completion, due-time
+boundaries, immutable context after history pruning, cross-probe/generation
+isolation, concurrent claims from independent connections, and guarded downgrade.
+The migration refuses downgrade with any queued work or source receipt, including
+terminal rows. Stop all application writers for schema changes. The tests call
+the storage ports directly; they do not establish a running provider consumer or
+close the existing dispatcher's crash gap.
+
 Assignment-scoped alert contracts run with:
 
 ~~~bash

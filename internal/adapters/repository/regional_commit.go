@@ -96,10 +96,12 @@ var (
 
 // Commit writes one already-evaluated regional sample and replaces current state.
 func (r *RegionalCommitStore) Commit(ctx context.Context, commit domain.RegionalCommit) error {
+	callerIncident := commit.Incident
+	commit.Incident = copyCommitIncident(commit.Incident)
 	if err := validateRegionalCommit(commit); err != nil {
 		return err
 	}
-	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		if err := advanceExplicitLocalSequence(ctx, tx, commit.Observation); err != nil {
 			return err
 		}
@@ -116,14 +118,12 @@ func (r *RegionalCommitStore) Commit(ctx context.Context, commit domain.Regional
 		if err := upsertRegionalState(ctx, tx, commit.State); err != nil {
 			return err
 		}
-		if commit.Incident == nil {
-			return nil
-		}
-		if err := bindCommitIncident(commit.Observation, commit.Incident); err != nil {
-			return err
-		}
-		return putIncidentTx(ctx, tx, commit.Incident)
+		return commitIncidentAndDeliveriesTx(ctx, tx, commit.Observation, commit.Incident, commit.DeliveryIntents)
 	})
+	if err == nil && callerIncident != nil {
+		callerIncident.HubIncidentID = commit.Incident.HubIncidentID
+	}
+	return err
 }
 
 // GetState returns current evidence for one assignment, or ErrNotFound.

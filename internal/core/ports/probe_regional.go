@@ -9,7 +9,8 @@ import (
 
 // RegionalCommitRepository atomically records one local/edge evaluation.
 // Implementations must persist observation and regional state together.
-// Incident is optional. The method performs no provider I/O and does not
+// Incident is optional; delivery intents require its matching transition and
+// are committed in the same transaction. The method performs no provider I/O and does not
 // advance a remote ingest cursor.
 type RegionalCommitRepository interface {
 	Commit(ctx context.Context, commit domain.RegionalCommit) error

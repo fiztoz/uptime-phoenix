@@ -20,6 +20,8 @@ var _ ports.LocalHeartbeatRecorder = (*RegionalCommitStore)(nil)
 // The first statement takes the allocator's write lock, including on SQLite,
 // before any reads. The lock lasts through all writes and their commit.
 func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit domain.LocalHeartbeatCommit) (*domain.Heartbeat, error) {
+	callerIncident := commit.Incident
+	commit.Incident = copyCommitIncident(commit.Incident)
 	hb := commit.Heartbeat
 	if hb.ID != 0 || hb.SourceSeq != 0 || hb.MonitorID <= 0 || hb.ProbeID != domain.LocalProbeID ||
 		hb.StreamID != domain.LocalStreamID || hb.AssignmentGeneration < 1 || commit.ExpectedStateSeq < 0 ||
@@ -116,10 +118,16 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		if err := upsertRegionalState(ctx, tx, state); err != nil {
 			return err
 		}
-		return markDirtyTx(ctx, tx, domain.DirtyBucketsForObservation(observation))
+		if err := markDirtyTx(ctx, tx, domain.DirtyBucketsForObservation(observation)); err != nil {
+			return err
+		}
+		return commitIncidentAndDeliveriesTx(ctx, tx, observation, commit.Incident, commit.DeliveryIntents)
 	})
 	if err != nil {
 		return nil, err
+	}
+	if callerIncident != nil {
+		callerIncident.HubIncidentID = commit.Incident.HubIncidentID
 	}
 	return &hb, nil
 }

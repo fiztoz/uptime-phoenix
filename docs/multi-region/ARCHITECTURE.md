@@ -184,6 +184,37 @@ V1 availability beats and notification intents are separate queues. Provider una
 
 When an old DOWN notification remains queued after its incident has resolved, replace unsent obsolete availability/resend intents with one delayed incident summary containing outage and recovery times. Never send an old DOWN followed by a misleading current recovery storm. Certificate and capacity notifications similarly re-evaluate whether the condition still warrants delivery.
 
+The M1 storage subset (`045`) implements `probe_delivery_intents` separately from
+`probe_delivery_events`. Both regional recording ports can commit an optional
+availability incident transition and up to 100 channel intents with the check.
+The local port also includes heartbeat and sequence allocation. Intent identity,
+assignment, source stream/sequence, check output/time/status, and outage timing
+are captured together. Channel versions equal the accepted config revision;
+storage checks that equality but does not construct or authorize configuration.
+Mirroring outcomes cannot enqueue work or complete source-owned work.
+
+Claims are scoped to one probe and the current assignment generation, ordered by
+due time, creation time, then delivery ID. They reserve at most 100 rows for up
+to 15 minutes, with a fresh opaque token and monotonically increasing attempt.
+SQLite locks the writer before reading; MariaDB uses ordered row locks with
+`SKIP LOCKED` and a scalar assignment lookup to avoid locking a shared assignment
+through a semijoin. Completion checks the token, attempt and lease interval and
+atomically writes the outcome and queue state. Identical completion receipts are
+idempotent; a stale or conflicting receipt fails. Queue times use UTC microseconds
+on both engines. Retrying results require a later due time and a bounded diagnostic
+code; no raw provider errors or provider credentials are persisted in this queue.
+
+This is a storage contract, not an enabled delivery worker. The live local
+dispatcher still uses its existing alert and throttle paths. Before switching it,
+implement versioned channel/config ownership, local alert-to-source identity
+mapping, transactional lifecycle/resend/escalation planning, obsolete-intent
+supersession and delayed summaries, and a consumer that revalidates lifecycle,
+assignment and channel version before I/O. A claim does not fence I/O already in
+flight or decide whether a pending DOWN remains worth sending. Retry backoff,
+provider error classification, auxiliary intents and remote activation remain
+later integration. No exactly-once external delivery guarantee follows from a
+lease receipt.
+
 ### 5.3 Acknowledgement and escalation
 
 Regional acknowledgement requested through the hub is a durable, idempotent command to the owning probe. The hub returns a command receipt and displays `pending` until the probe confirms applying it. During a partition, an operator cannot assume a queued acknowledgement has already stopped remote resends/escalations. Include a warning next to that pending state in the UI.
@@ -230,6 +261,7 @@ This is the target schema contract, not ready-to-run migration SQL. Implementati
 | `probe_config_snapshots` | PK `(probe_id,revision)`, canonical bytes hash, schema version, protected snapshot, desired/acknowledged state, activation time |
 | `probe_commands` | Command UUID PK, probe/incident identity, kind, protected payload, expiry, applied result, attempts |
 | `probe_delivery_events` | Unique source delivery-event identity, source incident/probe, status, redacted error, observed time |
+| `probe_delivery_intents` | Source-owned availability identity and immutable check/incident context, channel/config version, due time, attempt/token/lease, latest result; never populated by replay |
 | `monitor_health_state` | Monitor PK, policy, version, overall status, freshness/coverage counts, last transition, projection cursor |
 | `monitor_health_history` | Monitor/time/id ordered overall availability transitions, cause, policy revision; retain UNKNOWN and administrative changes |
 | `monitor_conditions` | PK `(monitor_id,probe_id,assignment_generation,kind)`; latest measurement, candidate/promotion count, freshness, last-success and notification cursor |
@@ -239,7 +271,7 @@ This is the target schema contract, not ready-to-run migration SQL. Implementati
 
 Extend raw heartbeats with `probe_id` (backfill/default `local`), nullable `stream_id`/`source_seq` for legacy rows, `assignment_generation`, `received_at`, and config revision. Keep current IDs and second-precision `time` partitioning. Index `(monitor_id,probe_id,time,id)`. A global source-event unique key that omits the partition time cannot simply be added to MariaDB's partitioned heartbeats table; deduplication belongs in transactional stream cursors/receipts outside that table.
 
-The M1 local recorder implements one durable sequence for the shared `LocalStreamID`, not one counter per monitor. Migration `042` seeds its high-water mark from retained observations, state, and heartbeat source sequences. Allocation first takes a database write lock, then checks the assignment and expected state sequence and atomically writes heartbeat, observation, state, and dirty buckets. Failed writes roll back allocation. Stale state causes service re-evaluation with a fixed check result/time and assignment generation; missing/obsolete assignments fail. MariaDB assignment and state reads use current row locks; SQLite obtains the writer lock before reading. Local hints and provider work begin only after commit. The counter is independent of monitor deletion and retention; downgrade refuses to discard a nonzero value. Explicit local-stream commits also advance it; remote ingest cannot claim the reserved local identity. Auxiliary state, overall projection, incidents, and notification intents remain outside this implemented boundary.
+The M1 local recorder implements one durable sequence for the shared `LocalStreamID`, not one counter per monitor. Migration `042` seeds its high-water mark from retained observations, state, and heartbeat source sequences. Allocation first takes a database write lock, then checks the assignment and expected state sequence and atomically writes heartbeat, observation, state, and dirty buckets. Failed writes roll back allocation. Stale state causes service re-evaluation with a fixed check result/time and assignment generation; missing/obsolete assignments fail. MariaDB assignment and state reads use current row locks; SQLite obtains the writer lock before reading. Local hints and provider work begin only after commit. The counter is independent of monitor deletion and retention; downgrade refuses to discard a nonzero value. Explicit local-stream commits also advance it; remote ingest cannot claim the reserved local identity. Migration `045` extends both source recording ports with optional availability incident transitions and delivery intents in that transaction. The live `HeartbeatService.Record` does not yet supply them; its alert lifecycle and delivery remain on the legacy dispatcher. Auxiliary state and overall projection remain outside this boundary.
 
 V1 accepts a single ordered telemetry sequence per stream. The ingest transaction locks its stream cursor, verifies the next contiguous sequence or a declared gap, inserts new events, updates mirrors/dirty buckets, and advances the cursor. Duplicate prefixes at or below the cursor are no-ops. Reject gaps not explicitly declared. This avoids an unbounded per-heartbeat dedup ledger while preserving acknowledgement semantics. If a later version permits unordered parallel batches, it must first add a durable receipt design.
 

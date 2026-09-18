@@ -4,7 +4,7 @@ Started: 2026-09-13. Source baseline: `b706fb09` on `codex/multi-region-probe-pl
 
 ## Current delivery
 
-M0 and M1 are **in progress**, not complete. The foundation implements executable contracts, shared health rules, additive registration/assignment storage, and current-state snapshot decoding/assembly. It does not supply a running remote probe. No probe listener, enrollment endpoint, remote scheduler, connector, provider outbox, ingest cursor, or regional user interface is enabled.
+M0 and M1 are **in progress**, not complete. The foundation implements executable contracts, shared health rules, additive registration/assignment storage, and current-state snapshot decoding/assembly. It does not supply a running remote probe. No probe listener, enrollment endpoint, remote scheduler, connector, provider outbox consumer, remote ingest endpoint, or regional user interface is enabled.
 
 | Surface | Implemented behavior | Remaining integration |
 |---|---|---|
@@ -12,7 +12,7 @@ M0 and M1 are **in progress**, not complete. The foundation implements executabl
 | Retry | Pure `EvaluateRetry`/`EvaluateObservation` reused by `HeartbeatService.Record`; maintenance then retry; independent state inputs; local Record atomically commits heartbeat+observation+state for the `local` assignment with a stream-wide sequence; `PromoteCondition` is the shared consecutive/hysteresis rule | Do not dispatch regional incidents from the existing dispatcher; capacity and certificate state now use assignment-specific repository views; durable regional delivery remains open |
 | Health | Pure complete-assignment ANY/ALL truth table, deadline freshness, explicit missing/future/invalidated evidence, paused counts, duration-based uptime/coverage; `MonitorHealthService.Current`/`History`/`ProjectCurrent`/`ProcessDirty` | Incident recovery, browser/HTTP consumers of UNKNOWN, and historical pause/freshness configuration |
 | Protocol | Bounded envelope validation, all five telemetry kinds, ACK/retry/gap, complete state/config DTOs and transfer frames, bounded hash-checked staging, config reference/target/capability checks, revision comparison, hello/welcome/health and trusted handshake comparison, command/enrollment/rotation-reset request and receipt DTOs, admin/browser ProbeView/HealthView/assignment/regional heartbeat events, 306 valid/invalid fixtures plus baseline HTTP/browser documents | Config building, extension/runtime validators and atomic activation; authenticated sessions/leases; durable application receipts |
-| Database | Migrations `035`–`044` on MariaDB/SQLite; local backfill; credential-free registration stores; atomic revision-checked assignment replacement; tombstones prevent generation reuse; `RegionalCommit`/`Ingest` persist per-probe observations, cursors, optional incidents, and dirty buckets; delivery outcomes correlate to stored transitions; monitor Create writes a local assignment in the same transaction; hub ClaimBatch/schedulers skip remote-only sets; heartbeats carry `probe_id` (default `local`) and rollups unique `(monitor_id,probe_id,bucket)`; overall snapshots and history intervals; atomic membership/policy history on initialization and replacement; capacity and TLS state keyed by probe/generation; durable local sequence allocator with atomic heartbeat/regional recording; availability attempt throttles and availability incidents keyed by probe/generation; escalation inherits alert identity and only executes current-local work | Edge DB, config snapshot storage, historical-generation ingest authorization |
+| Database | Migrations `035`–`045` on MariaDB/SQLite; local backfill; credential-free registration stores; atomic revision-checked assignment replacement; tombstones prevent generation reuse; `RegionalCommit`/`Ingest` persist per-probe observations, cursors, optional incidents, and dirty buckets; delivery outcomes correlate to stored transitions; monitor Create writes a local assignment in the same transaction; hub ClaimBatch/schedulers skip remote-only sets; heartbeats carry `probe_id` (default `local`) and rollups unique `(monitor_id,probe_id,bucket)`; overall snapshots and history intervals; atomic membership/policy history on initialization and replacement; capacity and TLS state keyed by probe/generation; durable local sequence allocator with atomic heartbeat/regional recording; availability attempt throttles and availability incidents keyed by probe/generation; escalation inherits alert identity and only executes current-local work; both source recording ports accept atomic availability incidents/intents; probe-scoped queue leases and atomic outcome receipts | Live lifecycle/outbox integration, versioned channel configuration, edge DB, config snapshot storage, historical-generation ingest authorization |
 
 Registration metadata still conveys no authentication authority. SQLite/MariaDB `MonitorRepo.Create` now inserts the reserved local assignment in the same transaction, so create/clone/import/restore through that path cannot leave an unassigned monitor. Hub `ClaimBatch` and both schedulers skip monitors whose assignment set has no active `local` member; monitors with no assignment set keep today's local execution. Remote assignment replacement is still not exposed on HTTP routes.
 
@@ -195,10 +195,10 @@ The Colima validation continuation (2026-09-17) closes the skipped real-MariaDB
 repository gate and fixes two existing sharded-worker defects described below.
 It added no migration after `043`. The scoped alert lifecycle/escalation continuation below adds `044`.
 
-The local stream sequencing blocker is fixed by `042`; `043` adds durable assignment-scoped availability attempt throttles. Scoped alert lifecycle and local escalation ownership are now implemented by `044`; continue with atomic incident/delivery integration. The existing dispatcher now explicitly rejects remote heartbeats before any side effects.
+The local stream sequencing blocker is fixed by `042`; `043` adds durable assignment-scoped availability attempt throttles. Scoped alert lifecycle and local escalation ownership are implemented by `044`. Migration `045` adds atomic source incident/intent storage and fenced outcome completion; continue with versioned channel configuration and transactional local lifecycle planning before activating an outbox consumer. The existing dispatcher now explicitly rejects remote heartbeats before any side effects.
 
-1. M0 wire/API/browser fixtures, atomic commit/ingest ports, monitor-create local assignment, hub scheduler ownership, heartbeat `probe_id`/rollup unique `(monitor_id,probe_id,bucket)`, overall health readers, incident/delivery persistence, local `RegionalCommit`, shared retry/maintenance/condition evaluation, materialized overall projections/dirty-bucket history, and persisted assignment/policy effective-time history are in place. Do not advertise full `phoenix.probe.v1` capability. Capacity and certificate state are now scoped. Availability attempt throttles are now persisted and scoped. Alert lifecycle and escalation ownership are now scoped. Remaining M1 work is atomic incident/delivery integration; dedicated edge-schema migrations belong to M2.
-2. Recheck HEAD before reserving numbers after `044_probe_alert_scope`. Heartbeat partition expression and rollup auto-increment IDs are preserved; regional readers still mix monitor-wide heartbeat history until they are scoped.
+1. M0 wire/API/browser fixtures, atomic commit/ingest ports, monitor-create local assignment, hub scheduler ownership, heartbeat `probe_id`/rollup unique `(monitor_id,probe_id,bucket)`, overall health readers, incident/delivery persistence, local `RegionalCommit`, shared retry/maintenance/condition evaluation, materialized overall projections/dirty-bucket history, and persisted assignment/policy effective-time history are in place. Do not advertise full `phoenix.probe.v1` capability. Capacity and certificate state are now scoped. Availability attempt throttles are now persisted and scoped. Alert lifecycle and escalation ownership are now scoped. Atomic incident/intent storage is available through both recording ports. Remaining M1 work is wiring local lifecycle planning and provider delivery to that storage, including versioned channels and obsolete-intent reconciliation; dedicated edge-schema migrations belong to M2.
+2. Recheck HEAD before reserving numbers after `045_probe_delivery_outbox`. Heartbeat partition expression and rollup auto-increment IDs are preserved; regional readers still mix monitor-wide heartbeat history until they are scoped.
 3. Local monitor creation and scheduler ownership already enforce assignments. Preserve those atomic paths and gate remote assignment activation until every worker runs compatible code; never let old workers run remote-only monitors.
 4. Prove T01/T02/T24/T31/T33 against real persistence. T03 is covered by `037_probe_heartbeat`. Current overall ANY/ALL readers and historical overall reconstruction exist; update all UNKNOWN consumers before emitting the new status on existing routes. Incident/delivery rows are stored but not wired into the existing dispatcher. Assignment effective-time history now supports remove/re-add reconstruction; historical ingest authorization and pause/freshness configuration history remain open.
 5. Only then start the M2 edge runtime and authenticated transport. Leave SSH provisioning and public push gateway for their follow-on milestones.
@@ -275,3 +275,61 @@ Contracts cover independent simultaneous incidents, scoped reads/writes and empt
 These checks do not fence provider I/O already in flight when assignment ownership changes. Incident transitions, heartbeat recording and delivery intents remain separate transactions; the durable outbox and edge runtime remain the next integration work. Existing folder/status-page recovery remains on the legacy local path until overall-health consumers are integrated. Do not activate remote assignments or advertise complete multi-region support yet.
 
 Verification passed on Go 1.26.6: full build; complete backend race suite with TEST_MARIADB_DSN set (SQLite and MariaDB both executed); all 251 frontend unit tests; final focused database race contracts after strengthening migration metadata/lease assertions; full golangci-lint with zero issues; formatting, core dependency boundaries, whitespace, documentation links/fences and paired migrations. govulncheck found zero reachable vulnerabilities and none in imported packages (three module-level advisories outside imported/called code). The existing two-process real-app smoke passed against a fresh MariaDB database: separate leases, one initial webhook per monitor, escalation, acknowledgement cancellation, restart suppression, and recovery webhooks/resolved incidents. Frontend source, Helm and dependencies were unchanged; browser/type/build/Helm gates were not rerun for this backend slice. A populated operator-installation rollout rehearsal is still required before deployment.
+
+## Atomic source availability delivery storage — 2026-09-18
+
+Migration `045_probe_delivery_outbox` adds source-owned work independently from
+mirrored `probe_delivery_events`. Both recording ports accept optional availability
+incident transitions and bounded channel intents. `CommitLocalHeartbeat` commits
+the incident and intents with its sequence, heartbeat, observation, state and
+dirty work. `RegionalCommit` includes them with its explicitly sequenced record.
+A failure anywhere rolls back the complete write set; a rolled-back incident ID
+is not returned to the caller. Existing calls without intents keep their behavior.
+
+Each intent preserves its source incident/transition, probe/generation, channel
+and configuration version, stream/sequence, check output/time/status and outage
+timing. The context survives later incident updates and observation retention.
+Channel versions must match the configuration revision, following D15; this is
+consistency validation, not proof that the configuration was authorized/applied.
+No provider configuration is copied into this table. Legacy alert IDs, tokens,
+heartbeat partitions and rollup IDs are unchanged.
+
+`DeliveryOutboxRepository` provides probe-scoped reads, bounded claims and fenced
+completion. Due work uses deterministic time/ID order; a current assignment
+generation is required for claiming. A restart can reclaim an expired lease with
+a new token and attempt. Completion atomically writes the queue result and its
+delivery outcome, rejects stale/expired attempts, and permits an identical receipt
+retry. Retry scheduling is explicit; diagnostic codes cannot contain raw provider
+output. Mirrored outcomes cannot enqueue or bypass source completion leases.
+Downgrade refuses every retained queue row, including completed receipts; monitor
+deletion cascades its source work and outcomes. Stop writers for migration.
+
+The first MariaDB concurrency test exposed a query-plan difference hidden by
+SQLite: `EXISTS` became a semijoin, locking the common assignment and sorting the
+candidate range before applying the batch limit. Changing only the index did not
+fix it. A scalar generation lookup plus an index matching due/creation/ID order
+passed repeated races with eight consumers and two database connections. Other
+contracts cover failed-write rollback, restart, exact lease/retry boundaries,
+UTC microseconds, stale completion, immutable context, replay isolation,
+remove/re-add, invalid configuration identity, migration cycles and FK cascades.
+
+This slice completes the atomic storage boundary, not live provider delivery.
+The existing `HeartbeatService.Record` still supplies no incident/intents and the
+dispatcher still opens legacy alerts and sends directly. Its crash gap therefore
+remains. Next: versioned channel/config ownership and local alert-to-source ID
+mapping, followed by transactional lifecycle/throttle/escalation planning and a
+consumer with backoff, obsolete-DOWN supersession and delayed summaries. Claiming
+does not decide whether an incident still warrants sending, grant execution
+authority, or fence provider I/O already in flight. Auxiliary conditions, remote
+runtime and overall-health recovery integration remain separate work.
+
+Verification passed on Go 1.26.6: build; complete `make test` backend race suite
+with `TEST_MARIADB_DSN` set (SQLite and disposable Colima MariaDB both executed),
+plus 251 frontend unit tests; golangci-lint with zero issues; formatting, core
+dependency boundaries, whitespace, documentation links/fences and paired
+migrations. `govulncheck` found zero reachable vulnerabilities and none in
+imported packages (three module advisories outside imported/called code).
+Frontend source, dependencies, Helm, HTTP routes and bootstrap wiring did not
+change; browser/type/build/Helm and real-app provider smoke were not rerun for
+this storage slice. A populated operator-installation migration rehearsal remains
+a deployment gate.

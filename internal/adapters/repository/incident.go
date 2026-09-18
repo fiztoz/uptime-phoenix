@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -115,7 +116,7 @@ func (r *RegionalCommitStore) PutDelivery(ctx context.Context, delivery *domain.
 		return fmt.Errorf("delivery: %w", domain.ErrValidation)
 	}
 	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		return putDeliveryTx(ctx, tx, delivery)
+		return putDeliveryTx(ctx, tx, delivery, false)
 	})
 }
 
@@ -157,12 +158,19 @@ func putIncidentTx(ctx context.Context, tx bun.Tx, incident *domain.RegionalInci
 	if err := validateIncident(incident); err != nil {
 		return err
 	}
+	if err := lockSQLiteIncidents(ctx, tx); err != nil {
+		return err
+	}
 	now := time.Now().UTC()
 	row := incidentModel(*incident)
 	row.CreatedAt = now
 	row.UpdatedAt = now
 	existing := new(probeIncidentModel)
-	err := tx.NewSelect().Model(existing).Where("source_alert_id = ?", row.SourceAlertID).Scan(ctx)
+	q := tx.NewSelect().Model(existing).Where("source_alert_id = ?", row.SourceAlertID)
+	if tx.Dialect().Name() == dialect.MySQL {
+		q = q.For("UPDATE")
+	}
+	err := q.Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
 			return fmt.Errorf("insert incident: %w", probeRegistryError(err))
@@ -204,13 +212,22 @@ func putIncidentTx(ctx context.Context, tx bun.Tx, incident *domain.RegionalInci
 	return nil
 }
 
-func putDeliveryTx(ctx context.Context, tx bun.Tx, delivery *domain.RegionalDelivery) error {
+func putDeliveryTx(ctx context.Context, tx bun.Tx, delivery *domain.RegionalDelivery, sourceOwned bool) error {
 	if err := validateDelivery(delivery); err != nil {
 		return err
 	}
-	incident := new(probeIncidentModel)
-	if err := tx.NewSelect().Model(incident).Where("source_alert_id = ?", delivery.SourceAlertID).Scan(ctx); err != nil {
+	incident, err := lockDeliveryIncident(ctx, tx, delivery.SourceAlertID)
+	if err != nil {
 		return fmt.Errorf("delivery incident: %w", probeRegistryError(err))
+	}
+	if !sourceOwned {
+		exists, err := deliveryIDExistsTx(ctx, tx, "probe_delivery_intents", delivery.DeliveryID)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return fmt.Errorf("source delivery requires a lease receipt: %w", ports.ErrConflict)
+		}
 	}
 	if delivery.SourceTransitionVersion > incident.TransitionVersion || delivery.ProbeID != incident.ProbeID {
 		return ports.ErrConflict
@@ -220,7 +237,7 @@ func putDeliveryTx(ctx context.Context, tx bun.Tx, delivery *domain.RegionalDeli
 	row.CreatedAt = now
 	row.UpdatedAt = now
 	existing := new(probeDeliveryModel)
-	err := tx.NewSelect().Model(existing).Where("delivery_id = ?", row.DeliveryID).Scan(ctx)
+	err = tx.NewSelect().Model(existing).Where("delivery_id = ?", row.DeliveryID).Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
 			return fmt.Errorf("insert delivery: %w", probeRegistryError(err))

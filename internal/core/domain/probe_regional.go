@@ -148,9 +148,10 @@ type ProbeCommand struct {
 
 // RegionalCommit is one atomic local/edge recording. Notification I/O is outside.
 type RegionalCommit struct {
-	Observation RegionalObservation
-	State       RegionalState
-	Incident    *RegionalIncident
+	Observation     RegionalObservation
+	State           RegionalState
+	Incident        *RegionalIncident
+	DeliveryIntents []DeliveryIntent
 }
 
 // ProbeIngestBatch is one contiguous stream prefix for hub ingest.

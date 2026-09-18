@@ -143,11 +143,17 @@ func TestRegionalIncidentsAreIndependentPerProbe(t *testing.T) {
 			if _, err := f.db.ExecContext(ctx, "DELETE FROM probe_incidents"); err != nil {
 				t.Fatal(err)
 			}
+			if err := runEngineMigration(t, f.db, f.engine, "045_probe_delivery_outbox", "down"); err != nil {
+				t.Fatal(err)
+			}
 			if err := runEngineMigration(t, f.db, f.engine, "038_probe_incidents", "down"); err != nil {
 				t.Fatalf("empty down: %v", err)
 			}
 			if err := runEngineMigration(t, f.db, f.engine, "038_probe_incidents", "up"); err != nil {
 				t.Fatalf("restore 038: %v", err)
+			}
+			if err := runEngineMigration(t, f.db, f.engine, "045_probe_delivery_outbox", "up"); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}

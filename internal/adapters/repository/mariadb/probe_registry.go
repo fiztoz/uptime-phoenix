@@ -42,5 +42,6 @@ var (
 	_ ports.ProbeIngestRepository             = (*RegionalCommitRepo)(nil)
 	_ ports.ProbeIncidentRepository           = (*RegionalCommitRepo)(nil)
 	_ ports.ProbeDeliveryRepository           = (*RegionalCommitRepo)(nil)
+	_ ports.DeliveryOutboxRepository          = (*RegionalCommitRepo)(nil)
 	_ ports.MonitorHealthProjectionRepository = (*RegionalCommitRepo)(nil)
 )
