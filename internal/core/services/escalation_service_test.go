@@ -673,7 +673,7 @@ func TestEscalationStart_NextRunAtCrossesBoundaryInUTC(t *testing.T) {
 
 	// A caller that hands the service a local-zoned FiredAt must not be able to
 	// push a local wall-clock into the repository.
-	a := &domain.Alert{ID: 99, MonitorID: m.ID, FiredAt: time.Date(2026, 7, 26, 17, 0, 0, 0, bangkok)}
+	a := &domain.Alert{ID: 99, MonitorID: m.ID, Status: domain.AlertStatusFiring, FiredAt: time.Date(2026, 7, 26, 17, 0, 0, 0, bangkok)}
 	if err := h.svc.StartForAlert(context.Background(), a, m); err != nil {
 		t.Fatalf("StartForAlert: %v", err)
 	}

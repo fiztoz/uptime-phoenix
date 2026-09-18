@@ -75,7 +75,7 @@ For local HA, multiple workers can share the `local` vantage using DB-leased mon
 | Current source | Consequence for this feature |
 |---|---|
 | `internal/core/services/heartbeat_service.go`, `Record(ctx, monitor, result)` | Constructs `Time` from now, derives retries from `GetLatest(monitor.ID)`, dispatches immediately; not an API for ingesting pre-evaluated remote history |
-| `internal/core/services/notification_dispatcher.go` | Availability attempt throttles now use monitor/probe/generation; the dispatcher rejects remote heartbeats. Legacy lifecycle/escalation IDs remain monitor-scoped |
+| `internal/core/services/notification_dispatcher.go` | Availability attempt throttles now use monitor/probe/generation; the dispatcher rejects remote heartbeats. Lifecycle binds the heartbeat assignment; escalation inherits incident identity and checks current local ownership before delivery |
 | `internal/adapters/repository/{mariadb,sqlite}/repo.go` | Latest/history readers and rollup persistence currently have one monitor dimension |
 | `internal/adapters/repository/mariadb/migrations/001_init.up.sql` | Heartbeats use second-precision partitioned time; rollups have an auto-increment ID and a separate unique `(monitor_id,bucket)` key |
 | `internal/adapters/scheduler/{local,sharded}.go` | Monitor scheduling and leases require assignment-aware filtering |
@@ -173,6 +173,8 @@ Default monitor delivery mode is `regional`. Aggregate monitor paging is a follo
 Use `(scope, monitor_id, probe_id, source_alert_id)` as the logical incident identity; hub mirror IDs are distinct from source IDs. Scope values are `regional`, `aggregate`, and `probe_connection`. The existing group-alert mechanism keeps its group identity. Certificate and condition incidents also include their condition/threshold identity.
 
 This delivery scope is a new field, separate from the current `AlertContext.AlertScope` / `alert.scope` template variable, whose `monitor` and `group` meanings must remain compatible. Add `alert.delivery_scope`, `alert.source_id`, `probe.id`, `probe.name`, and `probe.location` variables. A connection-watchdog alert uses an explicit probe entity context, never a fabricated monitor row or an invented checker type.
+
+Migration 044 adds probe/generation identity to availability alerts and composite open-incident uniqueness. Existing rows backfill to local generation one, preserving IDs, tokens, times and child escalation progress. Unbound compatibility reads list local history and resolve open incidents only for the active local generation. Bound repositories address an exact assignment. A retained local token affects only its original incident; remote token lookup is disabled. Hub escalation claims exclude remote incidents and the runner cancels obsolete local generations before sending. Removed assignment incidents remain retained history, without inventing a recovery. Storage binding does not authenticate or authorize an executor.
 
 ### 5.2 Durable delivery
 

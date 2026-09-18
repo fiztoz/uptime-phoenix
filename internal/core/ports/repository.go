@@ -587,7 +587,8 @@ type AlertRepository interface {
 	GetByID(ctx context.Context, id int64) (*domain.Alert, error)
 	// GetByAckToken looks up an alert by its deep-link acknowledgement token.
 	GetByAckToken(ctx context.Context, token string) (*domain.Alert, error)
-	// GetOpenByMonitorID returns the firing or acked alert for a monitor, or
+	// GetOpenByMonitorID returns the firing or acked alert for the bound
+	// assignment (current local generation on an unbound repository), or
 	// ErrNotFound when none is open.
 	GetOpenByMonitorID(ctx context.Context, monitorID int64) (*domain.Alert, error)
 	List(ctx context.Context, filter AlertFilter) ([]*domain.Alert, error)

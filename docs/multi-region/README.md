@@ -57,6 +57,8 @@ The default single-pod installation must continue to work without probes, Redis,
 | D22 | Allocate one durable local-stream sequence with atomic heartbeat/observation/state recording; retry stale state evaluations without changing assignment identity | Independent monitors cannot reuse sequences, and failed writes cannot leave a heartbeat or consume a sequence |
 | D23 | Persist availability attempt throttles by monitor/probe/generation; reserve resends atomically before provider I/O and keep the legacy dispatcher local-only | Restart and worker handoff retain backoff; one region or generation cannot consume or clear another's cursor. Incident/outbox integration remains required for durable delivery |
 
+| D24 | Availability incidents use monitor/probe/assignment generation; escalation inherits that immutable identity through its alert ID | Acknowledgement, recovery, and a re-added assignment cannot reuse another incident. Legacy HTTP views remain local-only; the hub runner never claims remote ladders and cancels obsolete local generations before delivery |
+
 ## Handoff state
 
 - Implementation is in progress. M0 and M1 remain incomplete until all acceptance criteria pass; the status document identifies the executable subset.

@@ -46,13 +46,14 @@ const escalationLeaseTTL = 2 * time.Minute
 //     NotificationDispatcher, never to a policy. Policies own steps 1..N only,
 //     so the first alert is neither lost nor duplicated.
 type EscalationService struct {
-	policies    ports.EscalationPolicyRepository
-	assignments ports.EscalationAssignmentRepository
-	state       ports.AlertEscalationRepository
-	alerts      ports.AlertRepository
-	monitors    ports.MonitorRepository
-	groups      ports.MonitorGroupRepository
-	notifier    escalationNotifier
+	policies         ports.EscalationPolicyRepository
+	assignments      ports.EscalationAssignmentRepository
+	state            ports.AlertEscalationRepository
+	alerts           ports.AlertRepository
+	monitors         ports.MonitorRepository
+	groups           ports.MonitorGroupRepository
+	notifier         escalationNotifier
+	probeAssignments ports.MonitorProbeAssignmentRepository
 
 	// workerID names this process in lease_owner. Empty in single-worker
 	// installs, which is fine — the per-claim nonce still makes the token unique.
@@ -83,6 +84,11 @@ func NewEscalationService(
 		notifier:    notifier,
 		now:         time.Now,
 	}
+}
+
+// SetAssignmentRepository checks execution identity before starting or sending a ladder.
+func (s *EscalationService) SetAssignmentRepository(repo ports.MonitorProbeAssignmentRepository) {
+	s.probeAssignments = repo
 }
 
 // SetWorkerID names this process in the escalation lease. Optional.
@@ -433,6 +439,16 @@ func (s *EscalationService) StartForAlert(ctx context.Context, alert *domain.Ale
 	if s == nil || s.state == nil || alert == nil || monitor == nil {
 		return nil
 	}
+	if alert.MonitorID != monitor.ID || alert.Status != domain.AlertStatusFiring {
+		return domain.ErrValidation
+	}
+	active, err := localAlertAssignmentActive(ctx, s.probeAssignments, monitor.ID, alert.ProbeID, alert.AssignmentGeneration)
+	if err != nil {
+		return fmt.Errorf("escalation service: assignment: %w", err)
+	}
+	if !active {
+		return ports.ErrConflict
+	}
 	policy, err := s.ResolvePolicy(ctx, monitor)
 	if err != nil {
 		return err
@@ -547,8 +563,12 @@ func (s *EscalationService) runOne(ctx context.Context, e *domain.AlertEscalatio
 		}
 		return false, fmt.Errorf("read alert: %w", err)
 	}
-	if alert.Status != domain.AlertStatusFiring {
-		// acked or resolved — stop escalating, keep the row as the audit trail.
+	active, err := localAlertAssignmentActive(ctx, s.probeAssignments, e.MonitorID, alert.ProbeID, alert.AssignmentGeneration)
+	if err != nil {
+		return false, fmt.Errorf("read assignment: %w", err)
+	}
+	if alert.MonitorID != e.MonitorID || !active || alert.Status != domain.AlertStatusFiring {
+		// Acknowledged, resolved, mismatched or obsolete assignment: retain the audit row.
 		_, _ = s.state.Finish(ctx, e.ID, token, domain.EscalationStateCanceled)
 		return false, nil
 	}
@@ -620,15 +640,18 @@ func splitEscalationStep(steps []domain.EscalationStep, order int) (current, nex
 
 func escalationAlertContext(monitor *domain.Monitor, alert *domain.Alert, policy *domain.EscalationPolicy, step *domain.EscalationStep) domain.AlertContext {
 	return domain.AlertContext{
-		AlertScope:         domain.AlertScopeMonitor,
-		MonitorID:          monitor.ID,
-		MonitorName:        monitor.Name,
-		MonitorType:        monitor.Type,
-		MonitorTarget:      monitor.Target(),
-		MonitorDescription: monitor.Description,
-		MonitorOwner:       monitor.Owner,
-		Status:             domain.StatusDown,
-		PreviousStatus:     domain.StatusDown,
+		AlertScope:           domain.AlertScopeMonitor,
+		ProbeID:              domain.NormalizeProbeID(alert.ProbeID),
+		AssignmentGeneration: max(alert.AssignmentGeneration, 1),
+		DeliveryScope:        domain.IncidentScopeRegional,
+		MonitorID:            monitor.ID,
+		MonitorName:          monitor.Name,
+		MonitorType:          monitor.Type,
+		MonitorTarget:        monitor.Target(),
+		MonitorDescription:   monitor.Description,
+		MonitorOwner:         monitor.Owner,
+		Status:               domain.StatusDown,
+		PreviousStatus:       domain.StatusDown,
 		Message: fmt.Sprintf("ESCALATION step %d (%s): %s is still DOWN and unacknowledged",
 			step.StepOrder, policy.Name, monitor.Name),
 		StartedAt:   alert.FiredAt,

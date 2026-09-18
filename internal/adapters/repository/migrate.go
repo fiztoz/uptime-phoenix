@@ -110,29 +110,50 @@ func RunMigrations(db *sql.DB, engine string) error {
 			return fmt.Errorf("read migration %s: %w", filename, err)
 		}
 
-		// Execute migration (one statement at a time for clearer errors; DDL may auto-commit).
+		// SQLite table rebuilds and their tracking record must commit together.
+		// In particular, rebuilding a parent must not strand its copied children.
 		fmt.Printf("Applying migration: %s\n", filename)
-		for i, stmt := range splitMigrationStatements(string(sqlBytes)) {
-			if _, err := db.ExecContext(ctx, stmt); err != nil {
-				// Ignore "duplicate column" errors — this makes ALTER TABLE
-				// migrations idempotent when the column already exists (e.g.
-				// added in an earlier migration that was edited after the DB
-				// was first created).
-				if isDuplicateColumnError(err) {
-					fmt.Printf("  statement %d: column already exists, skipping\n", i+1)
-					continue
-				}
-				return fmt.Errorf("execute migration %s (statement %d): %w", filename, i+1, err)
-			}
-		}
-
-		// Record migration.
-		if _, err := db.ExecContext(ctx, "INSERT INTO _migrations (filename, applied_at) VALUES (?, ?)",
-			filename, time.Now().UTC()); err != nil {
-			return fmt.Errorf("record migration %s: %w", filename, err)
+		if err := applyMigration(ctx, db, engine, filename, string(sqlBytes)); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+type migrationExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func applyMigration(ctx context.Context, db *sql.DB, engine, filename, source string) error {
+	var exec migrationExecutor = db
+	var tx *sql.Tx
+	if engine == "sqlite" {
+		var err error
+		tx, err = db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin migration %s: %w", filename, err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		exec = tx
+	}
+	for i, stmt := range splitMigrationStatements(source) {
+		if _, err := exec.ExecContext(ctx, stmt); err != nil {
+			if isDuplicateColumnError(err) {
+				continue
+			}
+			return fmt.Errorf("execute migration %s (statement %d): %w", filename, i+1, err)
+		}
+	}
+	if _, err := exec.ExecContext(ctx, "INSERT INTO _migrations (filename, applied_at) VALUES (?, ?)",
+		filename, time.Now().UTC()); err != nil {
+		return fmt.Errorf("record migration %s: %w", filename, err)
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration %s: %w", filename, err)
+		}
+	}
 	return nil
 }
 

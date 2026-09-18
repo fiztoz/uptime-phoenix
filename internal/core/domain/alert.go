@@ -11,26 +11,28 @@ const (
 	AlertStatusResolved = "resolved"
 )
 
-// Alert is a monitor-level outage record with an acknowledgement lifecycle.
+// Alert is an assignment-level outage record with an acknowledgement lifecycle.
 //
-// One open alert (firing or acked) exists per monitor at a time. That uniqueness
+// One open alert (firing or acked) exists per monitor/probe/assignment generation at a time. That uniqueness
 // is enforced by OpenMonitorID (set to MonitorID while open, NULL when resolved)
-// with a UNIQUE constraint — MariaDB/SQLite both allow multiple NULL values in a
-// unique column, so resolved rows never block the next outage.
+// with a composite UNIQUE constraint — MariaDB/SQLite both allow multiple NULL values in a
+// unique key, so resolved rows never block the next outage.
 //
 // AckToken is a high-entropy secret used by the unauthenticated deep-link ack
 // path. It is never returned on list endpoints; only the authenticated Get and
 // the deep-link flow consume it.
 type Alert struct {
-	ID            int64
-	MonitorID     int64
-	Status        string // firing | acked | resolved
-	Message       string
-	FiredAt       time.Time
-	AckedAt       *time.Time
-	AckedByUserID *int64
-	ResolvedAt    *time.Time
-	AckToken      string
+	ProbeID              string
+	AssignmentGeneration int64
+	ID                   int64
+	MonitorID            int64
+	Status               string // firing | acked | resolved
+	Message              string
+	FiredAt              time.Time
+	AckedAt              *time.Time
+	AckedByUserID        *int64
+	ResolvedAt           *time.Time
+	AckToken             string
 	// OpenMonitorID is MonitorID while the alert is open (firing/acked) and nil
 	// once resolved. See the uniqueness note above.
 	OpenMonitorID *int64

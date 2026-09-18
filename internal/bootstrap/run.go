@@ -251,6 +251,7 @@ func Run(cfg Config) error {
 	alertSvc := services.NewAlertService(repos.alert)
 	notifDispatcher := services.NewNotificationDispatcher(notificationSvc, maintenanceSvc)
 	notifDispatcher.SetThrottleRepository(repos.notificationThrottle)
+	notifDispatcher.SetAssignmentRepository(repos.probeAssignments)
 	notifDispatcher.SetAutoResolver(statusPageSvc)
 	notifDispatcher.SetAlertLifecycle(alertSvc)
 	notifDispatcher.SetPublicURL(cfg.PublicURL)
@@ -281,6 +282,7 @@ func Run(cfg Config) error {
 		notificationSvc,
 	)
 	escalationSvc.SetWorkerID(cfg.WorkerID)
+	escalationSvc.SetAssignmentRepository(repos.probeAssignments)
 	notifDispatcher.SetEscalationStarter(escalationSvc)
 	alertSvc.SetEscalationCanceller(escalationSvc)
 	heartbeatSvc.SetDispatcher(notifDispatcher)

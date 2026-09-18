@@ -48,7 +48,7 @@ func TestDispatcherDurableThrottleGuards(t *testing.T) {
 			alerts := NewAlertService(newFakeAlertRepo())
 			d.SetAlertLifecycle(alerts)
 			monitor := &domain.Monitor{ID: 1, ResendInterval: 5}
-			hb := &domain.Heartbeat{MonitorID: 1, Status: domain.StatusDown, ProbeID: domain.LocalProbeID, AssignmentGeneration: 3}
+			hb := &domain.Heartbeat{MonitorID: 1, Status: domain.StatusDown, ProbeID: domain.LocalProbeID, AssignmentGeneration: 1}
 			d.OnHeartbeat(ctx, monitor, hb, nil)
 			rows, err := alerts.List(ctx, ports.AlertFilter{})
 			if err != nil || len(rows) != 0 || notif.count() != 0 || len(store.calls) != 1 {

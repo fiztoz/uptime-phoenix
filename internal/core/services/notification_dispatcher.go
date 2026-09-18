@@ -108,6 +108,7 @@ type NotificationDispatcher struct {
 	escalation  escalationStarter    // optional — F2.3 escalation ladder
 	publicURL   string               // optional — for deep-link AckURL
 	throttles   ports.NotificationThrottleRepository
+	assignments ports.MonitorProbeAssignmentRepository
 
 	mu           sync.Mutex
 	lastNotified map[domain.NotificationThrottleKey]time.Time
@@ -129,6 +130,11 @@ func NewNotificationDispatcher(notifier alertNotifier, maintenance maintenanceCh
 // Configure at startup before the dispatcher receives heartbeats.
 func (d *NotificationDispatcher) SetThrottleRepository(repo ports.NotificationThrottleRepository) {
 	d.throttles = repo
+}
+
+// SetAssignmentRepository fences obsolete local generations before any side effect.
+func (d *NotificationDispatcher) SetAssignmentRepository(repo ports.MonitorProbeAssignmentRepository) {
+	d.assignments = repo
 }
 
 // SetAutoResolver wires incident auto-resolve on monitor recovery. Optional.
@@ -172,6 +178,27 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 	if key.AssignmentGeneration == 0 {
 		key.AssignmentGeneration = 1
 	}
+	active, err := localAlertAssignmentActive(ctx, d.assignments, key.MonitorID, key.ProbeID, key.AssignmentGeneration)
+	if err != nil {
+		slog.Error("notification dispatcher: assignment lookup failed", "monitor_id", monitor.ID, "error", err)
+		return
+	}
+	if !active {
+		return
+	}
+	lifecycle := d.lifecycle
+	if scoped, ok := lifecycle.(interface {
+		ForAssignment(string, int64) (*AlertService, error)
+	}); ok {
+		lifecycle, err = scoped.ForAssignment(key.ProbeID, key.AssignmentGeneration)
+		if err != nil {
+			slog.Error("notification dispatcher: bind lifecycle failed", "monitor_id", monitor.ID, "error", err)
+			return
+		}
+	} else if lifecycle != nil && key.AssignmentGeneration != 1 {
+		// Legacy test/custom lifecycles cannot safely address a newer generation.
+		return
+	}
 	// Folder alerting runs on EVERY heartbeat, and deliberately BEFORE this
 	// monitor's maintenance suppression below. A monitor inside a maintenance
 	// window still records a MAINTENANCE heartbeat, and that changes the rollup of
@@ -206,7 +233,7 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 		if !d.reserveAttempt(ctx, key, now, 0) {
 			return
 		}
-		alert, ackURL := d.openAlert(ctx, monitor, now)
+		alert, ackURL := d.openAlert(ctx, lifecycle, monitor, now)
 		// STEP ZERO. This send belongs to the dispatcher and to nothing else.
 		// The escalation policy owns steps 1..N and starts only after this
 		// line, so the initial notification can be neither lost nor duplicated
@@ -217,7 +244,7 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 	case cur == domain.StatusUp && prev == domain.StatusDown:
 		// Recovery — resolve the open alert entity, notify, clear resend throttle,
 		// auto-resolve status-page incidents.
-		alert := d.resolveAlert(ctx, monitor.ID, now)
+		alert := d.resolveAlert(ctx, lifecycle, monitor.ID, now)
 		startedAt, duration := alertLifecycleTiming(alert, now)
 		d.dispatch(ctx, monitor, cur, prev, "", checkOutput, startedAt, duration)
 		d.forget(ctx, key)
@@ -230,8 +257,8 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 	case cur == domain.StatusDown && prev == domain.StatusDown:
 		// Still down — re-alert only once per ResendInterval (minutes), and never
 		// while the open alert is acknowledged (F2.2).
-		if d.lifecycle != nil {
-			acked, err := d.lifecycle.IsOpenAcked(ctx, monitor.ID)
+		if lifecycle != nil {
+			acked, err := lifecycle.IsOpenAcked(ctx, monitor.ID)
 			if err != nil {
 				slog.Warn("notification dispatcher: ack check failed, continuing resend logic",
 					"monitor_id", monitor.ID, "error", err)
@@ -240,7 +267,7 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 			}
 		}
 		if monitor.ResendInterval > 0 && d.reserveAttempt(ctx, key, now, time.Duration(monitor.ResendInterval)*time.Minute) {
-			alert, ackURL := d.openAlertForResend(ctx, monitor, now)
+			alert, ackURL := d.openAlertForResend(ctx, lifecycle, monitor, now)
 			startedAt, duration := alertLifecycleTiming(alert, now)
 			d.dispatch(ctx, monitor, cur, prev, ackURL, checkOutput, startedAt, duration)
 		}
@@ -252,11 +279,11 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 // openAlert opens (or re-reads) the monitor's alert entity and returns it along
 // with its deep-link ack URL. Both may be zero when F2.2 is not wired or the
 // open failed — the notification still goes out either way.
-func (d *NotificationDispatcher) openAlert(ctx context.Context, monitor *domain.Monitor, now time.Time) (*domain.Alert, string) {
-	if d.lifecycle == nil {
+func (d *NotificationDispatcher) openAlert(ctx context.Context, lifecycle alertLifecycle, monitor *domain.Monitor, now time.Time) (*domain.Alert, string) {
+	if lifecycle == nil {
 		return nil, ""
 	}
-	a, err := d.lifecycle.OpenOnDown(ctx, monitor, now)
+	a, err := lifecycle.OpenOnDown(ctx, monitor, now)
 	if err != nil {
 		slog.Error("notification dispatcher: open alert failed",
 			"monitor_id", monitor.ID, "error", err)
@@ -279,11 +306,11 @@ func (d *NotificationDispatcher) startEscalation(ctx context.Context, monitor *d
 	}
 }
 
-func (d *NotificationDispatcher) resolveAlert(ctx context.Context, monitorID int64, now time.Time) *domain.Alert {
-	if d.lifecycle == nil {
+func (d *NotificationDispatcher) resolveAlert(ctx context.Context, lifecycle alertLifecycle, monitorID int64, now time.Time) *domain.Alert {
+	if lifecycle == nil {
 		return nil
 	}
-	if resolver, ok := d.lifecycle.(alertLifecycleResolver); ok {
+	if resolver, ok := lifecycle.(alertLifecycleResolver); ok {
 		alert, err := resolver.ResolveOpenWithAlert(ctx, monitorID, now)
 		if err != nil {
 			slog.Error("notification dispatcher: resolve alert failed",
@@ -292,19 +319,19 @@ func (d *NotificationDispatcher) resolveAlert(ctx context.Context, monitorID int
 		}
 		return alert
 	}
-	if err := d.lifecycle.ResolveOpen(ctx, monitorID, now); err != nil {
+	if err := lifecycle.ResolveOpen(ctx, monitorID, now); err != nil {
 		slog.Error("notification dispatcher: resolve alert failed",
 			"monitor_id", monitorID, "error", err)
 	}
 	return nil
 }
 
-func (d *NotificationDispatcher) openAlertForResend(ctx context.Context, monitor *domain.Monitor, now time.Time) (*domain.Alert, string) {
-	if d.lifecycle == nil {
+func (d *NotificationDispatcher) openAlertForResend(ctx context.Context, lifecycle alertLifecycle, monitor *domain.Monitor, now time.Time) (*domain.Alert, string) {
+	if lifecycle == nil {
 		return nil, ""
 	}
 	// OpenOnDown is idempotent for an already-open alert and returns its token.
-	a, err := d.lifecycle.OpenOnDown(ctx, monitor, now)
+	a, err := lifecycle.OpenOnDown(ctx, monitor, now)
 	if err != nil {
 		return nil, ""
 	}

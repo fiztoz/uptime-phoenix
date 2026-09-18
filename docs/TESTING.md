@@ -180,6 +180,21 @@ Follow existing patterns in the same package. Key rules:
 
 ### 2.6 Colima multi-region runtime smoke
 
+Assignment-scoped alert contracts run with:
+
+~~~bash
+go test -race -count=1 ./internal/adapters/repository/... -run 'RegionalAlert|SQLiteMigrationRebuild'
+go test -race -count=1 ./internal/core/services -run 'Assignment|Alert|Escalation|Throttle'
+~~~
+
+Set TEST_MARIADB_DSN as below to execute both engines. Migration 044 tests
+preserve populated alerts, acknowledgement metadata, escalation leases, foreign
+keys and deleted-ID high-water marks across upgrade/downgrade. Remote or later
+assignment-generation history blocks downgrade. SQLite rebuilds must execute
+inside one transaction; startup does this automatically. Stop application writers
+before schema changes on either engine.
+
+
 Use a disposable MariaDB container and two separate databases: repository tests
 truncate their database; the real-app smoke creates persistent test records in a
 fresh database ending in `_smoke`. These example passwords are for this local
