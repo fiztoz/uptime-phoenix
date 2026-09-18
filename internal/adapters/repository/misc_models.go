@@ -554,6 +554,8 @@ func IncidentModelFromDomain(inc *domain.Incident) *IncidentModel {
 type AlertModel struct {
 	bun.BaseModel `bun:"table:alerts"`
 
+	SourceAlertID        string     `bun:"source_alert_id,notnull"`
+	TransitionVersion    int64      `bun:"transition_version,notnull"`
 	ProbeID              string     `bun:"probe_id,notnull"`
 	AssignmentGeneration int64      `bun:"assignment_generation,notnull"`
 	ID                   int64      `bun:"id,pk,autoincrement"`
@@ -576,6 +578,8 @@ func (m *AlertModel) ToDomain() *domain.Alert {
 		return nil
 	}
 	return &domain.Alert{
+		SourceAlertID:        m.SourceAlertID,
+		TransitionVersion:    m.TransitionVersion,
 		ProbeID:              m.ProbeID,
 		AssignmentGeneration: m.AssignmentGeneration,
 		ID:                   m.ID,
@@ -596,6 +600,8 @@ func (m *AlertModel) ToDomain() *domain.Alert {
 // AlertModelFromDomain converts a domain.Alert to an AlertModel.
 func AlertModelFromDomain(a *domain.Alert) *AlertModel {
 	return &AlertModel{
+		SourceAlertID:        a.SourceAlertID,
+		TransitionVersion:    a.TransitionVersion,
 		ProbeID:              a.ProbeID,
 		AssignmentGeneration: a.AssignmentGeneration,
 		ID:                   a.ID,

@@ -312,6 +312,10 @@ func assertAlertWireHasNoSecrets(t *testing.T, body []byte) map[string]any {
 		"AckToken",
 		"OpenMonitorID",
 		"MonitorID",
+		"source_alert_id",
+		"SourceAlertID",
+		"transition_version",
+		"TransitionVersion",
 	} {
 		if _, exists := view[forbidden]; exists {
 			t.Fatalf("alert response leaked forbidden field %q: %s", forbidden, body)

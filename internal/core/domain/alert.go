@@ -22,6 +22,11 @@ const (
 // path. It is never returned on list endpoints; only the authenticated Get and
 // the deep-link flow consume it.
 type Alert struct {
+	// SourceAlertID is the immutable UUID used by regional incident/delivery records.
+	// ID and AckToken retain their existing local API and acknowledgement meanings.
+	SourceAlertID string
+	// TransitionVersion advances only when a lifecycle transition is persisted.
+	TransitionVersion    int64
 	ProbeID              string
 	AssignmentGeneration int64
 	ID                   int64

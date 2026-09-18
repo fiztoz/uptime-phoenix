@@ -3,8 +3,10 @@ package repository
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -25,6 +27,7 @@ func NewAlertStore(db *bun.DB, translate func(error) error) *AlertStore {
 
 var _ ports.AlertRepository = (*AlertStore)(nil)
 var _ ports.RegionalAlertRepository = (*AlertStore)(nil)
+var _ ports.AlertSourceRepository = (*AlertStore)(nil)
 
 // ForAssignment confines reads and writes to this assignment, including historical IDs.
 func (r *AlertStore) ForAssignment(probeID string, generation int64) (ports.AlertRepository, error) {
@@ -59,6 +62,22 @@ func (r *AlertStore) Create(ctx context.Context, a *domain.Alert) error {
 		return domain.ErrValidation
 	}
 	m := AlertModelFromDomain(a)
+	if a.TransitionVersion != 0 && a.TransitionVersion != 1 {
+		return domain.ErrValidation
+	}
+	if m.SourceAlertID == "" {
+		id, err := uuid.NewRandom()
+		if err != nil {
+			return fmt.Errorf("alert source identity: %w", err)
+		}
+		m.SourceAlertID = id.String()
+	} else {
+		m.SourceAlertID, err = canonicalIdentity("source_alert_id", m.SourceAlertID)
+		if err != nil {
+			return err
+		}
+	}
+	m.TransitionVersion = 1
 	m.ProbeID, m.AssignmentGeneration = scope.ProbeID, scope.Generation
 	now := time.Now().UTC()
 	if m.CreatedAt.IsZero() {
@@ -101,23 +120,25 @@ func (r *AlertStore) Update(ctx context.Context, a *domain.Alert) error {
 	m.UpdatedAt = time.Now().UTC()
 	normalizeAlertTimes(m)
 	q := r.db.NewUpdate().Model(m).WherePK().
-		Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ?", m.MonitorID, m.ProbeID, m.AssignmentGeneration)
+		Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ?", m.MonitorID, m.ProbeID, m.AssignmentGeneration).
+		Where("transition_version < ?", int64(math.MaxInt64))
 	switch m.Status {
 	case domain.AlertStatusAcked:
 		if m.AckedAt == nil || m.OpenMonitorID == nil || *m.OpenMonitorID != m.MonitorID {
 			return domain.ErrValidation
 		}
-		q = q.Column("status", "acked_at", "acked_by_user_id", "updated_at").Where("status = ?", domain.AlertStatusFiring)
+		q = q.Set("status = ?", m.Status).Set("acked_at = ?", m.AckedAt).
+			Set("acked_by_user_id = ?", m.AckedByUserID).Where("status = ?", domain.AlertStatusFiring)
 	case domain.AlertStatusResolved:
 		if m.ResolvedAt == nil || m.OpenMonitorID != nil {
 			return domain.ErrValidation
 		}
-		q = q.Column("status", "resolved_at", "open_monitor_id", "updated_at").
+		q = q.Set("status = ?", m.Status).Set("resolved_at = ?", m.ResolvedAt).Set("open_monitor_id = NULL").
 			Where("status IN (?, ?)", domain.AlertStatusFiring, domain.AlertStatusAcked)
 	default:
 		return domain.ErrValidation
 	}
-	res, err := q.Exec(ctx)
+	res, err := q.Set("transition_version = transition_version + 1").Set("updated_at = ?", m.UpdatedAt).Exec(ctx)
 	if err != nil {
 		return r.translate(err)
 	}
@@ -137,6 +158,21 @@ func (r *AlertStore) Update(ctx context.Context, a *domain.Alert) error {
 	}
 	*a = *stored
 	return nil
+}
+
+// GetBySourceAlertID resolves the stable source identity within this view's scope.
+// Knowing an identity grants no authorization and cannot use the token ack path.
+func (r *AlertStore) GetBySourceAlertID(ctx context.Context, sourceAlertID string) (*domain.Alert, error) {
+	id, err := canonicalIdentity("source_alert_id", sourceAlertID)
+	if err != nil {
+		return nil, err
+	}
+	m := new(AlertModel)
+	if err := r.filter(r.db.NewSelect().Model(m)).Where("source_alert_id = ?", id).Scan(ctx); err != nil {
+		return nil, r.translate(err)
+	}
+	normalizeAlertTimes(m)
+	return m.ToDomain(), nil
 }
 
 // GetByID reads one incident within this repository's scope.

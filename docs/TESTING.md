@@ -180,6 +180,19 @@ Follow existing patterns in the same package. Key rules:
 
 ### 2.6 Colima multi-region runtime smoke
 
+The source alert identity and populated migration contracts run with:
+
+~~~bash
+go test -race -count=1 ./internal/adapters/repository/... -run 'AlertSource|RegionalAlert|SQLiteMigrationRebuild'
+~~~
+
+Migration 046 preserves legacy alert IDs/tokens and escalation progress while
+adding stable source UUIDs and lifecycle versions. Contracts exercise failed
+writes, concurrent/idempotent transitions, restart, version exhaustion, scoped
+source lookup, deleted-ID preservation and a failed SQLite rebuild. Downgrade
+refuses IDs referenced by regional incidents. Unreferenced mappings may reset on
+an explicit downgrade/re-upgrade; stop all writers for either direction.
+
 The atomic delivery-outbox storage contracts run with:
 
 ~~~bash

@@ -176,6 +176,16 @@ This delivery scope is a new field, separate from the current `AlertContext.Aler
 
 Migration 044 adds probe/generation identity to availability alerts and composite open-incident uniqueness. Existing rows backfill to local generation one, preserving IDs, tokens, times and child escalation progress. Unbound compatibility reads list local history and resolve open incidents only for the active local generation. Bound repositories address an exact assignment. A retained local token affects only its original incident; remote token lookup is disabled. Hub escalation claims exclude remote incidents and the runner cancels obsolete local generations before sending. Removed assignment incidents remain retained history, without inventing a recovery. Storage binding does not authenticate or authorize an executor.
 
+Migration 046 assigns every legacy alert an immutable `source_alert_id` UUID and
+`transition_version` baseline of one, preserving its API ID, ack token, regional
+identity and escalation child. Lifecycle changes increment the version atomically;
+repeated writes keep it stable and exhaustion fails closed. Source lookup retains
+the repository's local or exact assignment scope. This mapping does not itself
+publish a regional incident. Future lifecycle/escalation publication must share
+one transactional version owner. A stopped downgrade refuses IDs referenced by
+`probe_incidents`; unreferenced IDs/versions may reset after downgrade/re-upgrade.
+Do not publish source identities without their durable incident record.
+
 ### 5.2 Durable delivery
 
 Persist incident changes and delivery intents with check state before attempting I/O. Delivery intents have stable IDs, channel identity/version, incident identity, event kind, attempt count, next attempt time, and outcome. Retry transient errors with bounded exponential backoff; permanent provider validation failures become visible failed delivery records. Secret rotation is versioned so queued intents do not leak or resurrect removed credentials.
@@ -206,8 +216,8 @@ code; no raw provider errors or provider credentials are persisted in this queue
 
 This is a storage contract, not an enabled delivery worker. The live local
 dispatcher still uses its existing alert and throttle paths. Before switching it,
-implement versioned channel/config ownership, local alert-to-source identity
-mapping, transactional lifecycle/resend/escalation planning, obsolete-intent
+implement versioned channel/config ownership and connect the `046` source identity
+mapping to transactional lifecycle/resend/escalation planning, obsolete-intent
 supersession and delayed summaries, and a consumer that revalidates lifecycle,
 assignment and channel version before I/O. A claim does not fence I/O already in
 flight or decide whether a pending DOWN remains worth sending. Retry backoff,
@@ -262,6 +272,7 @@ This is the target schema contract, not ready-to-run migration SQL. Implementati
 | `probe_commands` | Command UUID PK, probe/incident identity, kind, protected payload, expiry, applied result, attempts |
 | `probe_delivery_events` | Unique source delivery-event identity, source incident/probe, status, redacted error, observed time |
 | `probe_delivery_intents` | Source-owned availability identity and immutable check/incident context, channel/config version, due time, attempt/token/lease, latest result; never populated by replay |
+| `alerts` | Existing local API ID/token and assignment identity plus unique source UUID and atomic lifecycle version; publication remains to be integrated |
 | `monitor_health_state` | Monitor PK, policy, version, overall status, freshness/coverage counts, last transition, projection cursor |
 | `monitor_health_history` | Monitor/time/id ordered overall availability transitions, cause, policy revision; retain UNKNOWN and administrative changes |
 | `monitor_conditions` | PK `(monitor_id,probe_id,assignment_generation,kind)`; latest measurement, candidate/promotion count, freshness, last-success and notification cursor |

@@ -582,6 +582,8 @@ type AlertFilter struct {
 
 // AlertRepository defines persistence for monitor alert lifecycle records (F2.2).
 type AlertRepository interface {
+	// Create persists a new source UUID (when absent) and lifecycle version one
+	// together with the legacy alert ID and acknowledgement token.
 	Create(ctx context.Context, a *domain.Alert) error
 	Update(ctx context.Context, a *domain.Alert) error
 	GetByID(ctx context.Context, id int64) (*domain.Alert, error)

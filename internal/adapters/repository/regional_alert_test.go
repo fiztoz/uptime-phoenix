@@ -390,7 +390,17 @@ func testAlertScopeRuntime(t *testing.T, f probeRegistryFixture) {
 // Run SQLite rebuilds in one transaction with foreign keys enabled, just like startup.
 func runAlertScopeMigration(t *testing.T, f probeRegistryFixture, direction string) error {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(f.engine, "migrations", "044_probe_alert_scope."+direction+".sql"))
+	return runAlertMigration(t, f, "044_probe_alert_scope", direction)
+}
+
+func runAlertSourceMigration(t *testing.T, f probeRegistryFixture, direction string) error {
+	t.Helper()
+	return runAlertMigration(t, f, "046_alert_source_identity", direction)
+}
+
+func runAlertMigration(t *testing.T, f probeRegistryFixture, name, direction string) error {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(f.engine, "migrations", name+"."+direction+".sql"))
 	if err != nil {
 		return err
 	}
@@ -446,10 +456,16 @@ func testAlertScopeMigration(t *testing.T, f probeRegistryFixture) {
 		t.Fatal(err)
 	}
 	for range 2 {
+		if err := runAlertSourceMigration(t, f, "down"); err != nil {
+			t.Fatal(err)
+		}
 		if err := runAlertScopeMigration(t, f, "down"); err != nil {
 			t.Fatal(err)
 		}
 		if err := runAlertScopeMigration(t, f, "up"); err != nil {
+			t.Fatal(err)
+		}
+		if err := runAlertSourceMigration(t, f, "up"); err != nil {
 			t.Fatal(err)
 		}
 		got, err := r.alerts.GetByID(ctx, a.ID)

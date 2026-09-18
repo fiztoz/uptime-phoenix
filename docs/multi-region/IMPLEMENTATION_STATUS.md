@@ -12,7 +12,7 @@ M0 and M1 are **in progress**, not complete. The foundation implements executabl
 | Retry | Pure `EvaluateRetry`/`EvaluateObservation` reused by `HeartbeatService.Record`; maintenance then retry; independent state inputs; local Record atomically commits heartbeat+observation+state for the `local` assignment with a stream-wide sequence; `PromoteCondition` is the shared consecutive/hysteresis rule | Do not dispatch regional incidents from the existing dispatcher; capacity and certificate state now use assignment-specific repository views; durable regional delivery remains open |
 | Health | Pure complete-assignment ANY/ALL truth table, deadline freshness, explicit missing/future/invalidated evidence, paused counts, duration-based uptime/coverage; `MonitorHealthService.Current`/`History`/`ProjectCurrent`/`ProcessDirty` | Incident recovery, browser/HTTP consumers of UNKNOWN, and historical pause/freshness configuration |
 | Protocol | Bounded envelope validation, all five telemetry kinds, ACK/retry/gap, complete state/config DTOs and transfer frames, bounded hash-checked staging, config reference/target/capability checks, revision comparison, hello/welcome/health and trusted handshake comparison, command/enrollment/rotation-reset request and receipt DTOs, admin/browser ProbeView/HealthView/assignment/regional heartbeat events, 306 valid/invalid fixtures plus baseline HTTP/browser documents | Config building, extension/runtime validators and atomic activation; authenticated sessions/leases; durable application receipts |
-| Database | Migrations `035`–`045` on MariaDB/SQLite; local backfill; credential-free registration stores; atomic revision-checked assignment replacement; tombstones prevent generation reuse; `RegionalCommit`/`Ingest` persist per-probe observations, cursors, optional incidents, and dirty buckets; delivery outcomes correlate to stored transitions; monitor Create writes a local assignment in the same transaction; hub ClaimBatch/schedulers skip remote-only sets; heartbeats carry `probe_id` (default `local`) and rollups unique `(monitor_id,probe_id,bucket)`; overall snapshots and history intervals; atomic membership/policy history on initialization and replacement; capacity and TLS state keyed by probe/generation; durable local sequence allocator with atomic heartbeat/regional recording; availability attempt throttles and availability incidents keyed by probe/generation; escalation inherits alert identity and only executes current-local work; both source recording ports accept atomic availability incidents/intents; probe-scoped queue leases and atomic outcome receipts | Live lifecycle/outbox integration, versioned channel configuration, edge DB, config snapshot storage, historical-generation ingest authorization |
+| Database | Migrations `035`–`046` on MariaDB/SQLite; local backfill; credential-free registration stores; atomic revision-checked assignment replacement; tombstones prevent generation reuse; `RegionalCommit`/`Ingest` persist per-probe observations, cursors, optional incidents, and dirty buckets; delivery outcomes correlate to stored transitions; monitor Create writes a local assignment in the same transaction; hub ClaimBatch/schedulers skip remote-only sets; heartbeats carry `probe_id` (default `local`) and rollups unique `(monitor_id,probe_id,bucket)`; overall snapshots and history intervals; atomic membership/policy history on initialization and replacement; capacity and TLS state keyed by probe/generation; durable local sequence allocator with atomic heartbeat/regional recording; availability attempt throttles and availability incidents keyed by probe/generation; escalation inherits alert identity and only executes current-local work; both source recording ports accept atomic availability incidents/intents; probe-scoped queue leases and atomic outcome receipts; stable source UUIDs and lifecycle versions on legacy alerts | Live lifecycle/outbox integration, versioned channel configuration, edge DB, config snapshot storage, historical-generation ingest authorization |
 
 Registration metadata still conveys no authentication authority. SQLite/MariaDB `MonitorRepo.Create` now inserts the reserved local assignment in the same transaction, so create/clone/import/restore through that path cannot leave an unassigned monitor. Hub `ClaimBatch` and both schedulers skip monitors whose assignment set has no active `local` member; monitors with no assignment set keep today's local execution. Remote assignment replacement is still not exposed on HTTP routes.
 
@@ -195,10 +195,10 @@ The Colima validation continuation (2026-09-17) closes the skipped real-MariaDB
 repository gate and fixes two existing sharded-worker defects described below.
 It added no migration after `043`. The scoped alert lifecycle/escalation continuation below adds `044`.
 
-The local stream sequencing blocker is fixed by `042`; `043` adds durable assignment-scoped availability attempt throttles. Scoped alert lifecycle and local escalation ownership are implemented by `044`. Migration `045` adds atomic source incident/intent storage and fenced outcome completion; continue with versioned channel configuration and transactional local lifecycle planning before activating an outbox consumer. The existing dispatcher now explicitly rejects remote heartbeats before any side effects.
+The local stream sequencing blocker is fixed by `042`; `043` adds durable assignment-scoped availability attempt throttles. Scoped alert lifecycle and local escalation ownership are implemented by `044`. Migration `045` adds atomic source incident/intent storage and fenced outcome completion; `046` adds stable source UUIDs and lifecycle versions to legacy alerts. Continue with complete accepted configuration snapshots (including channel versions) and transactional local lifecycle planning before activating an outbox consumer. The existing dispatcher now explicitly rejects remote heartbeats before any side effects.
 
-1. M0 wire/API/browser fixtures, atomic commit/ingest ports, monitor-create local assignment, hub scheduler ownership, heartbeat `probe_id`/rollup unique `(monitor_id,probe_id,bucket)`, overall health readers, incident/delivery persistence, local `RegionalCommit`, shared retry/maintenance/condition evaluation, materialized overall projections/dirty-bucket history, and persisted assignment/policy effective-time history are in place. Do not advertise full `phoenix.probe.v1` capability. Capacity and certificate state are now scoped. Availability attempt throttles are now persisted and scoped. Alert lifecycle and escalation ownership are now scoped. Atomic incident/intent storage is available through both recording ports. Remaining M1 work is wiring local lifecycle planning and provider delivery to that storage, including versioned channels and obsolete-intent reconciliation; dedicated edge-schema migrations belong to M2.
-2. Recheck HEAD before reserving numbers after `045_probe_delivery_outbox`. Heartbeat partition expression and rollup auto-increment IDs are preserved; regional readers still mix monitor-wide heartbeat history until they are scoped.
+1. M0 wire/API/browser fixtures, atomic commit/ingest ports, monitor-create local assignment, hub scheduler ownership, heartbeat `probe_id`/rollup unique `(monitor_id,probe_id,bucket)`, overall health readers, incident/delivery persistence, local `RegionalCommit`, shared retry/maintenance/condition evaluation, materialized overall projections/dirty-bucket history, and persisted assignment/policy effective-time history are in place. Do not advertise full `phoenix.probe.v1` capability. Capacity and certificate state are now scoped. Availability attempt throttles are now persisted and scoped. Alert lifecycle and escalation ownership are now scoped. Atomic incident/intent storage is available through both recording ports, and legacy alerts now retain stable source identities. Remaining M1 work is wiring local lifecycle planning and provider delivery to that storage, including versioned channels and obsolete-intent reconciliation; dedicated edge-schema migrations belong to M2.
+2. Recheck HEAD before reserving numbers after `046_alert_source_identity`. Heartbeat partition expression and rollup auto-increment IDs are preserved; regional readers still mix monitor-wide heartbeat history until they are scoped.
 3. Local monitor creation and scheduler ownership already enforce assignments. Preserve those atomic paths and gate remote assignment activation until every worker runs compatible code; never let old workers run remote-only monitors.
 4. Prove T01/T02/T24/T31/T33 against real persistence. T03 is covered by `037_probe_heartbeat`. Current overall ANY/ALL readers and historical overall reconstruction exist; update all UNKNOWN consumers before emitting the new status on existing routes. Incident/delivery rows are stored but not wired into the existing dispatcher. Assignment effective-time history now supports remove/re-add reconstruction; historical ingest authorization and pause/freshness configuration history remain open.
 5. Only then start the M2 edge runtime and authenticated transport. Leave SSH provisioning and public push gateway for their follow-on milestones.
@@ -333,3 +333,72 @@ Frontend source, dependencies, Helm, HTTP routes and bootstrap wiring did not
 change; browser/type/build/Helm and real-app provider smoke were not rerun for
 this storage slice. A populated operator-installation migration rehearsal remains
 a deployment gate.
+
+
+## Legacy alert source identity — 2026-09-18
+
+Migration `046_alert_source_identity` gives every retained alert an immutable,
+unique source UUID and establishes its current lifecycle as version one. Existing
+alert IDs, acknowledgement tokens, status/times, probe/generation and escalation
+progress/leases are preserved. SQLite rebuilds the parent and escalation child in
+one transaction, retaining both AUTOINCREMENT high-water marks. MariaDB alters in
+place. Stop all writers before either migration direction; MariaDB DDL is not
+transactional.
+
+`AlertStore.Create` persists the source UUID with the legacy alert. Failed inserts
+return no newly allocated identity. Acknowledgement and resolution increment the
+stored version in the same conditional update as the lifecycle change. Repeated
+transitions do not increment it; delayed acknowledgements cannot reopen recovery;
+version exhaustion fails without changing state. Caller-supplied identity/version
+changes cannot overwrite persisted values. `AlertSourceRepository` resolves the
+UUID within the existing local or bound probe/generation scope. It grants no
+authorization, and the source UUID cannot substitute for the secret ack token.
+Existing HTTP views remain unchanged.
+
+The down migration refuses to discard any source UUID referenced by
+`probe_incidents`. Unreferenced mappings may be removed for an explicit stopped
+rollback: re-upgrade creates fresh UUIDs and resets their source versions to one,
+while retaining all legacy alert and escalation data. Source identities must not
+be published independently of durable incident records. Normal startup does not
+regenerate identities. Existing regional incidents are not guessed or retroactively
+matched to legacy alerts.
+
+Tests cover independent outages/probes/generations, source/ID lookup equivalence,
+restart readback, token compatibility, insert/update failure injection, concurrent
+acknowledgement, idempotent and stale transitions, version exhaustion, populated
+migration cycles, rollback after SQLite parent/child rebuild, downgrade refusal,
+constraints, FK deletion and deleted-ID high-water preservation. One new MariaDB
+test initially compared in-memory nanosecond timestamps with second-precision
+stored values; repeated source-versus-ID read controls isolated the test baseline,
+which now compares persisted rows without changing production timestamps. The full
+suite also caught MariaDB's `ON UPDATE` behavior touching `updated_at` during UUID
+backfill. A repeated fixed-historical-time control isolated that effect; the
+migration now explicitly preserves `updated_at`, and the regression test keeps
+the historical timestamp.
+
+This continuation completes source identity mapping, a prerequisite alongside
+versioned configuration. It does not turn an alert transition into a regional
+incident or queue entry. Source lifecycle and future escalation publication must
+share transaction/version ownership with recording. The live dispatcher still
+sends directly; its crash gap remains. Next: build and persist the complete
+accepted configuration (D15 channel versions equal snapshot revision), then wire
+transactional lifecycle/throttle/escalation planning and the outbox consumer with
+obsolete-intent reconciliation. `HeartbeatService.Record` currently assigns local
+`ConfigRevision=1`; it must take the accepted complete snapshot revision before
+queuing versioned channels. Remote execution remains gated; M0/M1 remain in
+progress.
+
+Verification passed on Go 1.26.6: final build; complete `make test` backend race
+suite with `TEST_MARIADB_DSN` set (SQLite and disposable Colima MariaDB executed),
+plus 251 frontend unit tests; golangci-lint with zero issues; formatting, core
+import boundaries, whitespace, documentation links/fences and paired migrations.
+`govulncheck` reported zero reachable vulnerabilities and none in imported
+packages (three module advisories outside imported/called code). The two-worker
+real-app smoke passed local ownership, initial delivery, escalation, acknowledgement
+cancellation, restart suppression and recovery. SQL readback showed distinct
+source UUIDs and resolved versions two (unacknowledged) and three (acknowledged).
+Its runtime Go code matches the final source; the subsequent SQL-only backfill
+fix passed repeated populated migration tests and the final full suite.
+Frontend source, dependencies, Helm and HTTP/bootstrap behavior are unchanged;
+browser/type/build/Helm gates were not rerun for this backend continuation.
+A populated operator-installation rollout rehearsal remains a deployment gate.
