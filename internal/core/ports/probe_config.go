@@ -28,3 +28,17 @@ type ProbeConfigProtector interface {
 	Seal(ctx context.Context, metadata domain.ProbeConfigMetadata, plaintext []byte) ([]byte, error)
 	Open(ctx context.Context, metadata domain.ProbeConfigMetadata, ciphertext []byte) ([]byte, error)
 }
+
+// LocalProbeConfigSourceRepository reads saved local assignments and their
+// dependencies in one repeatable database snapshot, without provider I/O.
+// Missing assignment state must fail rather than inventing a generation.
+type LocalProbeConfigSourceRepository interface {
+	ReadLocal(ctx context.Context) (*domain.LocalProbeConfigSource, error)
+}
+
+// LocalProbeConfigEncoder maps a resolved definition to bounded, deterministic
+// confidential bytes. It validates the complete local wire graph, not runtime
+// readiness, and must not include secret values in errors.
+type LocalProbeConfigEncoder interface {
+	EncodeLocal(definition domain.LocalProbeConfigDefinition) ([]byte, error)
+}

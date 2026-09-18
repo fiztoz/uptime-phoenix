@@ -180,6 +180,23 @@ Follow existing patterns in the same package. Key rules:
 
 ### 2.6 Colima multi-region runtime smoke
 
+The local configuration construction contracts run with:
+
+~~~bash
+go test -race -count=1 ./internal/adapters/repository ./internal/adapters/probe ./internal/core/services -run 'LocalConfig'
+~~~
+
+Set `TEST_MARIADB_DSN` as below to execute both source-read engines. The tests
+build protected snapshots from persisted assignments and dependencies, including
+paused work, removed/re-added generations, inherited contact, disabled/empty
+escalation policies, target visibility, templates, proxy credentials and exact
+maintenance links. Unlinked and remote-only windows cover no local monitor.
+A coordinated writer edits monitor and channel configuration between source reads;
+the read transaction must return one complete version on both databases, including
+MariaDB with a READ COMMITTED session default. Exact retries preserve ciphertext,
+source changes at the same revision conflict, and a higher revision retains old
+bytes. These tests do not activate configuration or authorize provider I/O.
+
 The protected prepared-configuration contracts run with:
 
 ~~~bash

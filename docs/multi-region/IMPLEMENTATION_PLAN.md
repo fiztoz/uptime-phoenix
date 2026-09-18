@@ -90,7 +90,7 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 **Goal:** make partitions and lost acknowledgements ordinary recoverable states.
 
 - [ ] Build complete per-probe snapshots from authorized assignments and dependencies. Changes persist desired revision and durable sync work.
-  - `047` implements bounded complete-document inspection and protected immutable preparation on both hub databases, including an internal local decoder. It does not build configuration, provision the encryption key, establish assignment/session authority, perform runtime validation, or activate a revision. Desired sync work, atomic activation and applied receipts remain open.
+  - `047` implements bounded complete-document inspection and protected immutable preparation on both hub databases, including an internal local decoder. The local builder now captures one consistent database view, resolves the selected dependency graph, encodes deterministic complete documents, and prepares protected revisions. Maintenance follows persisted links; empty links mean no suppression. Remote construction, encryption-key provisioning, assignment/session authority, runtime validation, desired sync work, atomic activation and applied receipts remain open.
 - [ ] Implement chunked staging/hash validation, all-or-nothing activation, capabilities, generation handling, rejection reporting, and config acknowledgement after commit.
 - [ ] Implement ordered telemetry batches, transactional cursor advancement, permanent rejection receipts, retryable failures, declared retention gaps, and bounded queues.
 - [ ] Implement high-priority current-state snapshots without altering the historical cursor or emitting regional notifications.

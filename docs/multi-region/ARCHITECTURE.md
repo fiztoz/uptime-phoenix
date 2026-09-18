@@ -360,9 +360,35 @@ do not authorize sending with a removed channel. There is no active pointer,
 `config.applied` receipt, pruning API, key-rotation workflow or runtime consumer.
 Stop writers for migration; downgrade refuses every retained snapshot.
 
-Next, build a consistent complete snapshot from authoritative configuration, run
-checker/notifier/template/schedule/proxy/binding validators, provision its durable
-key, and activate atomically with current registration/session/assignment fences.
+`LocalProbeConfigBuilder` now reads saved local assignments and dependencies through
+`LocalProbeConfigSourceRepository` and serializes an explicit local document through
+`LocalProbeConfigEncoder`, then calls protected preparation. MariaDB uses an explicit
+read-only REPEATABLE READ transaction, independent of the server/session default;
+SQLite holds one read transaction. The source includes paused local assignments but
+excludes assignment tombstones and remote-only monitors. Legacy monitors without an
+assignment set require explicit initialization; the read never invents a generation.
+The graph preserves direct links and target visibility, inherited contact, nearest
+escalation precedence (including disabled/empty policies), templates, tags and proxies.
+Only selected dependencies enter the document; group notification links do not
+inherit. Maintenance uses persisted monitor links, clipped to local assignments.
+Unlinked windows suppress nothing, matching `MaintenanceService.IsActive`; no global
+scope is inferred. Empty legacy timezones become UTC. The local watchdog is disabled.
+
+Preparation uses expected revision plus one, fixed caller-supplied UTC microsecond
+timestamps, deterministic collection ordering and the existing bounded local decoder.
+All dependency versions equal the document revision. Source edits between retries
+produce a conflict at the same revision; original encrypted bytes remain immutable.
+Intermediate reads bound assignments/ancestor groups to 10,000, each dependency
+collection to 1,000, policy steps to 20,000 and relation rows to 262,144. Final documents
+still obey all protocol limits. Source/encoding failures return fixed diagnostics and
+sentinels without credentials. No schema change or default startup wiring is added.
+
+This is a consistent committed source view, not a guarantee that it is still current
+when saved or later used. It does not turn multi-statement configuration edits into a
+single transaction. Next, run checker/notifier/template/schedule/proxy validators,
+provision the durable key, and activate atomically with current configuration,
+registration and assignment fences. Remote construction additionally needs durable
+resource mappings, watchdog settings and session authority; it remains unimplemented.
 Recording must then use the applied revision instead of local revision one.
 Delivery must reconcile an intent against applied configuration and current
 lifecycle/assignment immediately before I/O; merely reading a prepared document
@@ -413,7 +439,7 @@ Runtime credential rotation keeps pending and active versions during a bounded 1
 | Checker inventory | No new types. V1 pull-checker coverage excludes push; advertise actual build/runtime capabilities and reject unsupported assignments before activation |
 | Docker/proxy-dependent checks | Resolve probe-local resources explicitly; never send a hub filesystem/socket reference and pretend it exists on the VM |
 | Database capacity and TLS certificates | Separate state per probe. Capacity warning/error never becomes availability DOWN; preserve two-sample promotion semantics |
-| Maintenance | Resolve monitor/global scope into each probe's complete snapshot, including IANA timezone and cron duration; bundle Go timezone data for minimal images |
+| Maintenance | Resolve persisted monitor links into each probe's complete snapshot; unlinked windows cover nothing. Preserve IANA timezone and cron duration; bundle Go timezone data for minimal images |
 | Notifications/templates | Reuse the 11 senders, materialize direct monitor channel/template context, retain current per-link target-redaction behavior; group channel attachments remain group-only; add region/scope template variables |
 | Groups/status-page incidents | Consume overall projection; regional recovery alone cannot close a global incident; unknown state remains visible |
 | Insights, badges, dashboards | Use explicit overall projection or selected probe; invalidate existing navigation/insights caches with projection versions; preserve batched queries |
