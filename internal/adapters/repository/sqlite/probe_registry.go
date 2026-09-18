@@ -45,3 +45,13 @@ var (
 	_ ports.DeliveryOutboxRepository          = (*RegionalCommitRepo)(nil)
 	_ ports.MonitorHealthProjectionRepository = (*RegionalCommitRepo)(nil)
 )
+
+// ProbeConfigRepo retains protected prepared configuration on sqlite.
+type ProbeConfigRepo struct{ *repository.ProbeConfigStore }
+
+// NewProbeConfigRepo creates a prepared snapshot repository, without activation.
+func NewProbeConfigRepo(db *bun.DB) *ProbeConfigRepo {
+	return &ProbeConfigRepo{repository.NewProbeConfigStore(db)}
+}
+
+var _ ports.ProbeConfigRepository = (*ProbeConfigRepo)(nil)

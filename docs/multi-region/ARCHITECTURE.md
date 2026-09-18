@@ -268,7 +268,7 @@ This is the target schema contract, not ready-to-run migration SQL. Implementati
 | `probe_local_sequence` | Singleton local-stream high-water mark; allocated with the heartbeat/observation/state transaction and retained after monitor/history deletion |
 | `probe_streams` | PK `(probe_id,stream_id)`, current/retired epoch, contiguous committed cursor, retirement time, declared gap records |
 | `monitor_probe_state` | PK `(monitor_id,probe_id)`, generation, stream/seq, observed/received time, effective status, counts, freshness reason, config revision |
-| `probe_config_snapshots` | PK `(probe_id,revision)`, canonical bytes hash, schema version, protected snapshot, desired/acknowledged state, activation time |
+| `probe_config_snapshots` | PK `(probe_id,revision)`, hub authority, original bytes hash, schema version, encrypted snapshot, source/effective/stored times; `047` stores prepared documents only, with activation/acknowledgement state still to implement |
 | `probe_commands` | Command UUID PK, probe/incident identity, kind, protected payload, expiry, applied result, attempts |
 | `probe_delivery_events` | Unique source delivery-event identity, source incident/probe, status, redacted error, observed time |
 | `probe_delivery_intents` | Source-owned availability identity and immutable check/incident context, channel/config version, due time, attempt/token/lease, latest result; never populated by replay |
@@ -331,6 +331,42 @@ Provide up/down migrations. Down migration must refuse while non-local assignmen
 ## 8. Synchronization and bounded queues
 
 The hub is the single writer of desired configuration. A snapshot contains the complete authorized configuration for one probe, with explicit revisions and assignment generations. Use full snapshots in V1 for correctness; optimize to deltas only after measurement. Config changes enqueue durable sync work; an in-memory event is a wake-up hint, not the only copy of the change.
+
+The implemented `047` foundation retains **prepared**, not active, snapshots in
+both hub databases. `ProbeConfigService.Prepare` bounds and inspects the complete
+document and protects the exact original bytes before persistence. The trusted
+target selects either the remote V1 decoder or an internal `local` decoder. Only
+the local variant permits push, direct Docker configuration without a remote
+resource binding, and existing acknowledgement-link preferences. Remote wire
+restrictions are unchanged. Schema/reference/capability-name checks do not prove
+checker/provider validity, assignment ownership, or execution authority.
+
+The AES-256-GCM adapter requires an explicitly supplied 32-byte key. Its payload
+is format byte one, a fresh 12-byte nonce, ciphertext and a 16-byte tag. Authenticated
+metadata binds the format domain, hub/probe, revision, schema, SHA-256 and source/
+effective timestamps normalized to UTC microseconds. Only ciphertext and nonsecret
+metadata reach this table. The constructor neither generates nor persists a key;
+durable key provisioning, permissions, backup and rotation must be wired before
+live use. No new dependency or default boot requirement is introduced.
+
+Preparation serializes on the probe registration and compares the latest retained
+revision before insertion. A higher revision requires the caller's expected
+revision to match; the same latest metadata/hash is an idempotent retry returning
+the original stored ciphertext and receipt. Older revisions, changed content at
+the same revision, and changed hub authority conflict. Registration grants storage
+identity only. Reads authenticate/decrypt and re-inspect exact bytes; corrupt latest
+content never falls back to older credentials. Historical reads are explicit and
+do not authorize sending with a removed channel. There is no active pointer,
+`config.applied` receipt, pruning API, key-rotation workflow or runtime consumer.
+Stop writers for migration; downgrade refuses every retained snapshot.
+
+Next, build a consistent complete snapshot from authoritative configuration, run
+checker/notifier/template/schedule/proxy/binding validators, provision its durable
+key, and activate atomically with current registration/session/assignment fences.
+Recording must then use the applied revision instead of local revision one.
+Delivery must reconcile an intent against applied configuration and current
+lifecycle/assignment immediately before I/O; merely reading a prepared document
+cannot enable delivery.
 
 The probe validates and stages the whole snapshot, including checker/provider capability requirements, then atomically replaces active config. Stop removed assignments; cancel or mark old in-flight checks by generation. Acknowledge only after durable activation. Invalid snapshots leave the last accepted version running and return structured validation errors.
 

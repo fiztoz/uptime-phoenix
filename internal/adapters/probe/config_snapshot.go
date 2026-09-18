@@ -9,11 +9,13 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
 const (
 	// MaxConfigSnapshotBytes bounds reconstructed confidential configuration.
-	MaxConfigSnapshotBytes = 16 << 20
+	MaxConfigSnapshotBytes = domain.MaxProbeConfigBytes
 	// MaxConfigEntryBytes bounds each assignment/dependency before typed decoding.
 	MaxConfigEntryBytes = 256 << 10
 	// MaxConfigAssignments bounds a probe's complete assignment set.
@@ -171,7 +173,18 @@ type ConfigWatchdog struct {
 // Extension objects still require checker/provider/template validation, and
 // activation must authorize the target and atomically recheck durable revisions.
 func DecodeConfigSnapshot(data []byte) (ConfigSnapshot, error) {
-	snapshot, err := decodeConfigSnapshot(data)
+	return decodeCompleteConfigSnapshot(data, false)
+}
+
+// DecodeLocalConfigSnapshot validates the internal local snapshot dialect. Local
+// push checks, direct Docker resources and opaque-token ack preferences are kept.
+// It is not accepted by the remote protocol decoder or transfer assembler.
+func DecodeLocalConfigSnapshot(data []byte) (ConfigSnapshot, error) {
+	return decodeCompleteConfigSnapshot(data, true)
+}
+
+func decodeCompleteConfigSnapshot(data []byte, local bool) (ConfigSnapshot, error) {
+	snapshot, err := decodeConfigSnapshotForTarget(data, local)
 	if err != nil {
 		return ConfigSnapshot{}, err
 	}
@@ -181,7 +194,7 @@ func DecodeConfigSnapshot(data []byte) (ConfigSnapshot, error) {
 	return snapshot, nil
 }
 
-func decodeConfigSnapshot(data []byte) (ConfigSnapshot, error) {
+func decodeConfigSnapshotForTarget(data []byte, local bool) (ConfigSnapshot, error) {
 	var snapshot ConfigSnapshot
 	if len(data) > MaxConfigSnapshotBytes {
 		return snapshot, errors.New("configuration exceeds snapshot byte limit")
@@ -196,16 +209,20 @@ func decodeConfigSnapshot(data []byte) (ConfigSnapshot, error) {
 	if err := requiredUUID(fields, "hub_id", &snapshot.HubID); err != nil {
 		return snapshot, err
 	}
-	if err := requiredUUID(fields, "probe_id", &snapshot.ProbeID); err != nil {
+	if local {
+		if snapshot.ProbeID != domain.LocalProbeID {
+			return snapshot, errors.New("local snapshot requires local target")
+		}
+	} else if err := requiredUUID(fields, "probe_id", &snapshot.ProbeID); err != nil {
 		return snapshot, err
 	}
 	if snapshot.SchemaVersion != 1 || snapshot.Revision <= 0 {
 		return snapshot, errors.New("unsupported config schema or nonpositive revision")
 	}
-	if snapshot.Assignments, err = decodeConfigList(fields["assignments"], MaxConfigAssignments, decodeConfigAssignment); err != nil {
+	if snapshot.Assignments, err = decodeConfigList(fields["assignments"], MaxConfigAssignments, func(data []byte) (ConfigAssignment, error) { return decodeConfigAssignmentForTarget(data, local) }); err != nil {
 		return snapshot, fmt.Errorf("assignments: %w", err)
 	}
-	if snapshot.NotificationChannels, err = decodeConfigList(fields["notification_channels"], MaxConfigDependencies, decodeConfigChannel); err != nil {
+	if snapshot.NotificationChannels, err = decodeConfigList(fields["notification_channels"], MaxConfigDependencies, func(data []byte) (ConfigChannel, error) { return decodeConfigChannelForTarget(data, local) }); err != nil {
 		return snapshot, fmt.Errorf("notification_channels: %w", err)
 	}
 	if snapshot.NotificationTemplates, err = decodeConfigList(fields["notification_templates"], MaxConfigDependencies, decodeConfigTemplate); err != nil {
@@ -224,7 +241,7 @@ func decodeConfigSnapshot(data []byte) (ConfigSnapshot, error) {
 	return snapshot, err
 }
 
-func decodeConfigAssignment(data []byte) (ConfigAssignment, error) {
+func decodeConfigAssignmentForTarget(data []byte, local bool) (ConfigAssignment, error) {
 	var assignment ConfigAssignment
 	fields, err := decodeConfigFields(data, &assignment, "monitor_id generation active monitor notification_ids notification_links maintenance_ids resource_bindings required_capabilities", "proxy_binding_key escalation_policy_id")
 	if err != nil {
@@ -236,7 +253,7 @@ func decodeConfigAssignment(data []byte) (ConfigAssignment, error) {
 	if assignment.ProxyBindingKey != nil && !validBindingKey(*assignment.ProxyBindingKey) || assignment.EscalationPolicyID != nil && *assignment.EscalationPolicyID <= 0 {
 		return assignment, errors.New("invalid assignment proxy/policy reference")
 	}
-	if assignment.Monitor, err = decodeConfigMonitor(fields["monitor"]); err != nil {
+	if assignment.Monitor, err = decodeConfigMonitorForTarget(fields["monitor"], local); err != nil {
 		return assignment, err
 	}
 	if assignment.NotificationLinks, err = decodeConfigList(fields["notification_links"], MaxConfigDependencies, decodeConfigNotificationLink); err != nil {
@@ -245,7 +262,7 @@ func decodeConfigAssignment(data []byte) (ConfigAssignment, error) {
 	if assignment.ResourceBindings, err = decodeConfigList(fields["resource_bindings"], 1, decodeResourceBinding); err != nil {
 		return assignment, err
 	}
-	if (assignment.Monitor.Type == "docker") != (len(assignment.ResourceBindings) == 1) {
+	if local && len(assignment.ResourceBindings) != 0 || !local && (assignment.Monitor.Type == "docker") != (len(assignment.ResourceBindings) == 1) {
 		return assignment, errors.New("only Docker assignments require one local resource binding")
 	}
 	if err := validateCapabilities(assignment.RequiredCapabilities); err != nil {
@@ -257,13 +274,13 @@ func decodeConfigAssignment(data []byte) (ConfigAssignment, error) {
 	return assignment, nil
 }
 
-func decodeConfigMonitor(data []byte) (ConfigMonitor, error) {
+func decodeConfigMonitorForTarget(data []byte, local bool) (ConfigMonitor, error) {
 	var monitor ConfigMonitor
 	fields, err := decodeConfigFields(data, &monitor, "name description owner effective_owner type interval retry_interval max_retries timeout config accepted_statuscodes upside_down tls_ignore cert_expiry_notify resend_interval tags", "")
 	if err != nil {
 		return monitor, err
 	}
-	if !validConfigName(monitor.Name) || len(monitor.Description) > 16<<10 || len(monitor.Owner) > 16<<10 || len(monitor.EffectiveOwner) > 16<<10 || !pullMonitorType(monitor.Type) {
+	if !validConfigName(monitor.Name) || len(monitor.Description) > 16<<10 || len(monitor.Owner) > 16<<10 || len(monitor.EffectiveOwner) > 16<<10 || (!pullMonitorType(monitor.Type) && !(local && monitor.Type == "push")) {
 		return monitor, errors.New("invalid monitor metadata or unsupported remote type")
 	}
 	if monitor.Interval <= 0 || monitor.RetryInterval < 0 || monitor.MaxRetries < 0 || monitor.Timeout <= 0 || monitor.Timeout > math.MaxInt32 || !validConfigMinutes(monitor.ResendInterval) {

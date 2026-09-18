@@ -180,6 +180,23 @@ Follow existing patterns in the same package. Key rules:
 
 ### 2.6 Colima multi-region runtime smoke
 
+The protected prepared-configuration contracts run with:
+
+~~~bash
+go test -race -count=1 ./internal/adapters/repository/... ./internal/adapters/auth ./internal/adapters/probe ./internal/core/services -run 'PreparedProbeConfig|ProbeConfig|ConfigInspector|ConfigSnapshot|ConfigTransfer|ProbeRegistryContract'
+~~~
+
+Set `TEST_MARIADB_DSN` as below to execute both engines. Migration 047 retains
+complete original documents as AES-256-GCM ciphertext with authenticated identity
+metadata. Tests cover exact-byte restart readback, local/remote decoder isolation,
+randomized encryption, wrong-key/tamper rejection, immutable/idempotent revisions,
+concurrent writers over two connections, stale revisions, changed authority,
+failed-insert rollback, SQL constraints, migration cycles and guarded downgrade.
+No snapshot is activated and no delivery work is created. Latest corruption must
+fail without falling back to old credentials. The down migration refuses every
+retained row; stop all writers for either direction. These tests inject a key;
+durable key provisioning and runtime activation remain separate work.
+
 The source alert identity and populated migration contracts run with:
 
 ~~~bash

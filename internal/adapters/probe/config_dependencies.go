@@ -6,12 +6,12 @@ import (
 	"time"
 )
 
-func decodeConfigChannel(data []byte) (ConfigChannel, error) {
+func decodeConfigChannelForTarget(data []byte, local bool) (ConfigChannel, error) {
 	var channel ConfigChannel
 	if _, err := decodeConfigFields(data, &channel, "id version type name active config include_ack_url", "template_id"); err != nil {
 		return channel, err
 	}
-	if channel.ID <= 0 || channel.Version <= 0 || !notificationProvider(channel.Type) || !validConfigName(channel.Name) || channel.IncludeAckURL || channel.TemplateID != nil && *channel.TemplateID <= 0 || !validConfigExtension(channel.Config, MaxConfigObjectBytes) {
+	if channel.ID <= 0 || channel.Version <= 0 || !notificationProvider(channel.Type) || !validConfigName(channel.Name) || !local && channel.IncludeAckURL || channel.TemplateID != nil && *channel.TemplateID <= 0 || !validConfigExtension(channel.Config, MaxConfigObjectBytes) {
 		return channel, errors.New("invalid channel identity, provider, metadata, config, or remote acknowledgement setting")
 	}
 	return channel, nil
