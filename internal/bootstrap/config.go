@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/caarlos0/env/v11"
+
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
 // Config holds all configuration loaded from environment variables.
@@ -127,6 +129,14 @@ type Config struct {
 	// title, path, and icon are consumed; image, secretName, and credentials
 	// are ignored even if present. This is a sidebar iframe hook, not a monitor type.
 	ExtensionsJSON string `env:"PHOENIX_EXTENSIONS" envDefault:""`
+
+	// ProbeSecretKeyFile is the path to the 32-byte protected configuration key (optional).
+	// When empty, protected configuration verification is inactive.
+	ProbeSecretKeyFile string `env:"PROBE_SECRET_KEY_FILE" envDefault:""`
+
+	// ProbeHubID is an explicit installation UUID (optional). If unset, a fresh UUIDv4
+	// is generated on first initialization.
+	ProbeHubID string `env:"PROBE_HUB_ID" envDefault:""`
 }
 
 // LoadConfig parses environment into Config.
@@ -137,6 +147,9 @@ func LoadConfig() (Config, error) {
 	}
 	if err := validatePublicURL(cfg.PublicURL); err != nil {
 		return Config{}, err
+	}
+	if cfg.ProbeHubID != "" && !domain.ValidHubID(cfg.ProbeHubID) {
+		return Config{}, fmt.Errorf("PROBE_HUB_ID must be a valid canonical UUID, got %q", cfg.ProbeHubID)
 	}
 	return cfg, nil
 }

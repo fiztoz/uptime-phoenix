@@ -71,6 +71,21 @@ func Run(cfg Config) error {
 
 	repos := wireRepositories(cfg.DBEngine, db)
 
+	if cfg.ProbeSecretKeyFile != "" {
+		protector, err := auth.NewProbeConfigProtectorFromFile(ctx, cfg.ProbeSecretKeyFile)
+		if err != nil {
+			log.Error("failed to load probe secret key", "error", err)
+			return fmt.Errorf("probe secret key: %w", err)
+		}
+		installationSvc := services.NewProbeInstallationService(repos.probeInstallation)
+		inst, err := installationSvc.InitializeOrVerify(ctx, protector, cfg.ProbeHubID)
+		if err != nil {
+			log.Error("failed to initialize or verify probe installation", "error", err)
+			return fmt.Errorf("probe installation: %w", err)
+		}
+		log.Info("probe installation verified", "hub_id", inst.HubID)
+	}
+
 	jwtAuth := auth.NewJWTAuthenticator(cfg.JWTSecret, cfg.JWTExpireH, repos.user)
 	totpProvider := auth.NewTOTPProvider(cfg.TOTPIssuer)
 
@@ -633,6 +648,7 @@ type repoBundle struct {
 	regionalCommit       ports.RegionalCommitRepository
 	localHeartbeat       ports.LocalHeartbeatRecorder
 	projections          ports.MonitorHealthProjectionRepository
+	probeInstallation    ports.ProbeInstallationRepository
 }
 
 func wireRepositories(engine string, db *bun.DB) repoBundle {
@@ -672,6 +688,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
 		b.probeAssignments = mariadbrepo.NewProbeAssignmentRepo(db)
+		b.probeInstallation = mariadbrepo.NewProbeInstallationRepo(db)
 		commits := mariadbrepo.NewRegionalCommitRepo(db)
 		b.regionalCommit = commits
 		b.localHeartbeat = commits
@@ -709,6 +726,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
 		b.probeAssignments = sqliterepo.NewProbeAssignmentRepo(db)
+		b.probeInstallation = sqliterepo.NewProbeInstallationRepo(db)
 		commits := sqliterepo.NewRegionalCommitRepo(db)
 		b.regionalCommit = commits
 		b.localHeartbeat = commits

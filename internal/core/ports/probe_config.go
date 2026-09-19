@@ -27,6 +27,7 @@ type ProbeConfigInspector interface {
 type ProbeConfigProtector interface {
 	Seal(ctx context.Context, metadata domain.ProbeConfigMetadata, plaintext []byte) ([]byte, error)
 	Open(ctx context.Context, metadata domain.ProbeConfigMetadata, ciphertext []byte) ([]byte, error)
+	KeyHash(hubID string) string
 }
 
 // LocalProbeConfigSourceRepository reads saved local assignments and their

@@ -67,6 +67,9 @@ func (p *configServiceProtector) Open(context.Context, domain.ProbeConfigMetadat
 	}
 	return bytes.Clone(p.plain), nil
 }
+func (p *configServiceProtector) KeyHash(hubID string) string {
+	return strings.Repeat("a", 64)
+}
 
 func TestProbeConfigServiceConfidentialBoundary(t *testing.T) {
 	ctx := context.Background()

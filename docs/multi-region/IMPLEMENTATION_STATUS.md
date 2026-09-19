@@ -637,3 +637,38 @@ race tests and a fresh build also passed after threading context through the
 private directory-opening helper. Formatting, production core import boundaries,
 whitespace and documentation links/fences passed. No operator-installation rollout
 or remote runtime is claimed by these checks.
+
+
+## Key and installation ownership (Step A) — 2026-09-19
+
+Migration `048_probe_installation` creates the singleton `probe_installation`
+table (`id=1`, `hub_id`, `key_hash`, `protocol_floor`, `authority_epoch`,
+`created_at`, `updated_at`) on MariaDB and SQLite. It persists the trusted
+installation authority and key confirmation record (`HMAC-SHA256(key,
+"phoenix-probe-key-v1:" + hub_id)`), proving key knowledge bound to `hub_id`
+without storing the raw key.
+
+`ProbeInstallationService.InitializeOrVerify` connects `auth.ProbeConfigProtector`
+and `ports.ProbeInstallationRepository`. On an uninitialized installation without
+existing snapshots, it generates a fresh canonical UUIDv4 (or accepts an explicit
+`PROBE_HUB_ID`) and inserts the singleton record atomically. If prepared snapshots
+exist without an initialized installation, it requires an explicit `PROBE_HUB_ID`
+matching the snapshots, refusing to adopt an arbitrary snapshot's authority silently.
+On subsequent boots, it validates that the configured key matches `key_hash` and
+verifies that all retained snapshots in `probe_config_snapshots` match `hub_id`
+and authenticate under the key via bounded batch pagination (20 snapshots per batch).
+Multi-connection concurrency tests verify that competing initializers resolve
+idempotently on both MariaDB (`FOR UPDATE` row lock) and SQLite (writer lock).
+Downgrade migration guards refuse while an initialized installation record exists.
+
+Bootstrap parses `PROBE_SECRET_KEY_FILE` and `PROBE_HUB_ID` through `caarlos0/env`.
+When `PROBE_SECRET_KEY_FILE` is unset, protected configuration verification is
+inactive and ordinary single-pod startup (`all`, `api`, `worker`) remains
+completely unaffected. When set, `auth.NewProbeConfigProtectorFromFile` loads the
+key, and `ProbeInstallationService` verifies installation authority before any
+worker or protected writer starts. Snapshot activation, scheduler execution and
+remote provider delivery remain disabled.
+
+Next: Step B (configuration freshness enforcement) and Step C (atomic local
+activation), followed by Step D (execution revision recording and durable outbox
+delivery). Remote runtime remains disabled; M0/M1 are still in progress.

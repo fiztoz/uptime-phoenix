@@ -55,3 +55,15 @@ func NewProbeConfigRepo(db *bun.DB) *ProbeConfigRepo {
 }
 
 var _ ports.ProbeConfigRepository = (*ProbeConfigRepo)(nil)
+
+// ProbeInstallationRepo manages singleton installation identity and key confirmation on sqlite.
+type ProbeInstallationRepo struct {
+	*repository.ProbeInstallationStore
+}
+
+// NewProbeInstallationRepo creates an installation repository.
+func NewProbeInstallationRepo(db *bun.DB) *ProbeInstallationRepo {
+	return &ProbeInstallationRepo{repository.NewProbeInstallationStore(db)}
+}
+
+var _ ports.ProbeInstallationRepository = (*ProbeInstallationRepo)(nil)

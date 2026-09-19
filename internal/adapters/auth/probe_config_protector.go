@@ -1,9 +1,13 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 
@@ -14,7 +18,10 @@ import (
 // ProbeConfigProtector protects snapshot bytes with AES-256-GCM random nonces.
 // The caller owns durable key provisioning and backup; keys are never persisted
 // with snapshots. Construction does not generate or silently replace a key.
-type ProbeConfigProtector struct{ aead cipher.AEAD }
+type ProbeConfigProtector struct {
+	aead    cipher.AEAD
+	keyHash func(hubID string) string
+}
 
 var _ ports.ProbeConfigProtector = (*ProbeConfigProtector)(nil)
 
@@ -31,7 +38,21 @@ func NewProbeConfigProtector(key []byte) (*ProbeConfigProtector, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ProbeConfigProtector{aead: aead}, nil
+	keyCopy := bytes.Clone(key)
+	keyHashFn := func(hubID string) string {
+		mac := hmac.New(sha256.New, keyCopy)
+		mac.Write([]byte("phoenix-probe-key-v1:" + hubID))
+		return hex.EncodeToString(mac.Sum(nil))
+	}
+	return &ProbeConfigProtector{aead: aead, keyHash: keyHashFn}, nil
+}
+
+// KeyHash returns the hex-encoded HMAC-SHA256 of the key bound to the trusted hubID.
+func (p *ProbeConfigProtector) KeyHash(hubID string) string {
+	if p == nil || p.keyHash == nil || !domain.ValidHubID(hubID) {
+		return ""
+	}
+	return p.keyHash(hubID)
 }
 
 // Seal returns a format byte followed by a fresh nonce and authenticated content.
