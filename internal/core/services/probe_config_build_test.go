@@ -41,7 +41,7 @@ func localConfigSourceFixture() *domain.LocalProbeConfigSource {
 
 func TestLocalConfigResolutionPreservesOwnershipAndClosure(t *testing.T) {
 	source := localConfigSourceFixture()
-	out, err := resolveLocalProbeConfig(source)
+	out, err := ResolveLocalProbeConfig(source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestLocalConfigResolutionPreservesOwnershipAndClosure(t *testing.T) {
 	}
 	// An empty direct policy remains an explicit inheritance stop.
 	source.Policies[20].Steps = nil
-	out, err = resolveLocalProbeConfig(source)
+	out, err = ResolveLocalProbeConfig(source)
 	if err != nil || *out.Assignments[0].EscalationPolicyID != 20 || len(out.Notifications) != 2 {
 		t.Fatal("empty policy inherited an ancestor")
 	}
@@ -89,7 +89,7 @@ func TestLocalConfigResolutionFailsMissingReferences(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s := localConfigSourceFixture()
 			mutate(s)
-			if _, err := resolveLocalProbeConfig(s); !errors.Is(err, domain.ErrValidation) {
+			if _, err := ResolveLocalProbeConfig(s); !errors.Is(err, domain.ErrValidation) {
 				t.Fatalf("invalid graph accepted: %v", err)
 			}
 		})

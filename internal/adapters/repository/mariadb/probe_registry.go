@@ -67,3 +67,15 @@ func NewProbeInstallationRepo(db *bun.DB) *ProbeInstallationRepo {
 }
 
 var _ ports.ProbeInstallationRepository = (*ProbeInstallationRepo)(nil)
+
+// ProbeActivationRepo manages active configuration and applied receipts on mariadb.
+type ProbeActivationRepo struct {
+	*repository.ProbeActivationStore
+}
+
+// NewProbeActivationRepo creates an activation repository.
+func NewProbeActivationRepo(db *bun.DB, encoder ports.LocalProbeConfigEncoder) *ProbeActivationRepo {
+	return &ProbeActivationRepo{repository.NewProbeActivationStore(db, encoder)}
+}
+
+var _ ports.ProbeConfigActivationRepository = (*ProbeActivationRepo)(nil)

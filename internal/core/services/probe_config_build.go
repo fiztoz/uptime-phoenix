@@ -45,7 +45,7 @@ func (b *LocalProbeConfigBuilder) Prepare(ctx context.Context, hubID string, exp
 	if err != nil {
 		return domain.ProbeConfigMetadata{}, configBuildError(ctx, "read configuration source", err)
 	}
-	definition, err := resolveLocalProbeConfig(source)
+	definition, err := ResolveLocalProbeConfig(source)
 	if err != nil {
 		return domain.ProbeConfigMetadata{}, err
 	}
@@ -73,7 +73,9 @@ func configBuildError(ctx context.Context, operation string, cause error) error 
 	return fmt.Errorf("%s: %w", operation, domain.ErrInternal)
 }
 
-func resolveLocalProbeConfig(source *domain.LocalProbeConfigSource) (domain.LocalProbeConfigDefinition, error) {
+// ResolveLocalProbeConfig resolves source dependencies and policies into a complete
+// local probe configuration definition.
+func ResolveLocalProbeConfig(source *domain.LocalProbeConfigSource) (domain.LocalProbeConfigDefinition, error) {
 	var out domain.LocalProbeConfigDefinition
 	if source == nil || source.Probe.ID != domain.LocalProbeID || source.Probe.Kind != domain.ProbeKindLocal || !source.Probe.Enabled {
 		return out, domain.ErrValidation

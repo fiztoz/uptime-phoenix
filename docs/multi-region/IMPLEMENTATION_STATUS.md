@@ -672,3 +672,50 @@ remote provider delivery remain disabled.
 Next: Step B (configuration freshness enforcement) and Step C (atomic local
 activation), followed by Step D (execution revision recording and durable outbox
 delivery). Remote runtime remains disabled; M0/M1 are still in progress.
+
+
+## Configuration freshness enforcement and atomic local activation (Step B & C) — 2026-09-19
+
+Migration `049_probe_activation` creates `probe_active_configs` (PK `probe_id`,
+`revision`, `sha256`, `hub_id`, `applied_at`, `assignment_count`) and
+`probe_config_applied_receipts` (PK `(probe_id, revision)`, `sha256`, `hub_id`,
+`applied_at`, `assignment_count`, `created_at`) on MariaDB and SQLite with foreign
+key constraints to `probe_config_snapshots(probe_id, revision)`. Downgrade guards
+refuse while any active configuration or receipt row exists.
+
+`ProbeActivationStore` implements `ports.ProbeConfigActivationRepository` for
+MariaDB and SQLite, wired via `NewProbeActivationRepo`:
+1. **Source Freshness Enforcement (Step B)**: Inside the atomic activation
+   transaction under database lock (`SELECT ... FOR UPDATE` on `probes` for MariaDB,
+   writer lock for SQLite), it re-reads the source graph (`readLocalConfigSource`),
+   resolves the definition (`services.ResolveLocalProbeConfig`), binds the candidate's
+   target, revision, and timestamps, and re-encodes the document. If any monitor,
+   group, tag, proxy, notification channel, notification template, maintenance window,
+   policy, step, or assignment was added, modified, deleted, or unlinked, the computed
+   SHA256 differs (or resolution fails), and activation is rejected with `ErrConflict`.
+2. **Atomic Local Activation (Step C)**: Binds trusted installation authority
+   (`probe_installation.hub_id`), positive prepared revision, exact SHA256, and
+   expected active revision under the transaction. Same-revision/same-hash retries
+   return the durable prior receipt idempotently without side effects. Stale revisions,
+   hash mismatches, and expected active revision mismatches conflict. The active
+   pointer and applied receipt are persisted together, and the transaction commits
+   before returning the receipt. Checkers and notification providers never run inside
+   this database transaction.
+
+`LocalProbeConfigActivationService` in `internal/core/services` coordinates
+semantic validation (`ValidatePrepared`) with the atomic activation transaction,
+ensuring invalid snapshots fail before database activation.
+
+Contract tests on SQLite and MariaDB verify:
+- First valid activation commits active pointer and receipt.
+- Idempotent same-revision/same-hash retry returns identical receipt without side effects.
+- Older revision and same-revision with different hash conflict; active selection remains unchanged.
+- Expected active revision mismatch conflicts (optimistic concurrency / fencing).
+- Wrong hub ID or disabled local probe fails validation/conflict.
+- **Two real connections with test barrier**: monitor interval edit or tag link insertion on connection 2 causes connection 1 activation to detect stale candidate and reject with `ErrConflict`. Rollback on connection 2 leaves candidate fresh and activation succeeds.
+- Concurrent activation races resolve with at most one state transition.
+- Empty configuration (0 assignments) activates cleanly with `assignment_count = 0`.
+- Downgrade guards refuse while populated and succeed when empty.
+
+Next: Step D (connect execution recording, scheduler revision stamping, and durable outbox delivery). Remote runtime remains disabled; M0/M1 are still in progress.
+
