@@ -19,13 +19,25 @@ import (
 // PushHandler handles inbound push heartbeats for "push" type monitors.
 // Clients POST (or GET) to /api/push/<push_token> to report status.
 type PushHandler struct {
-	monitors *services.MonitorService
-	hb       *services.HeartbeatService
+	monitors    *services.MonitorService
+	hb          *services.HeartbeatService
+	assignments ports.MonitorProbeAssignmentRepository
+	activation  ports.ProbeConfigActivationRepository
 }
 
 // NewPushHandler creates the push ingest handler.
 func NewPushHandler(monitors *services.MonitorService, hb *services.HeartbeatService) *PushHandler {
 	return &PushHandler{monitors: monitors, hb: hb}
+}
+
+// SetAssignmentRepo attaches monitor assignment repository to resolve local assignment generation.
+func (h *PushHandler) SetAssignmentRepo(repo ports.MonitorProbeAssignmentRepository) {
+	h.assignments = repo
+}
+
+// SetActivationRepo attaches active configuration repository to resolve local active revision.
+func (h *PushHandler) SetActivationRepo(repo ports.ProbeConfigActivationRepository) {
+	h.activation = repo
 }
 
 // Receive is the public push ingest endpoint.
@@ -107,10 +119,25 @@ func (h *PushHandler) Receive(c echo.Context) error {
 		}
 	}
 
+	var configRevision int64
+	if h.activation != nil {
+		if active, err := h.activation.GetActive(ctx, domain.LocalProbeID); err == nil && active != nil {
+			configRevision = active.Revision
+		}
+	}
+	var assignmentGeneration int64
+	if h.assignments != nil {
+		if allowed, err := h.assignments.ExecutableByLocal(ctx, []int64{mon.ID}); err == nil {
+			assignmentGeneration = allowed[mon.ID]
+		}
+	}
+
 	result := ports.CheckResult{
-		Status:    status,
-		Message:   msg,
-		LatencyMs: latency,
+		Status:               status,
+		Message:              msg,
+		LatencyMs:            latency,
+		ConfigRevision:       configRevision,
+		AssignmentGeneration: assignmentGeneration,
 	}
 
 	if err := h.hb.Record(ctx, mon, result); err != nil {

@@ -30,9 +30,10 @@ type ProbeRegistryRepository interface {
 // re-adding a member increments its generation. No-op replacement preserves the
 // revision. ErrConflict reports stale/exhausted revisions or generations.
 // GetByMonitorID never silently creates assignments or reroutes execution.
-// ExecutableByLocal reports which of the given monitors the hub worker may run:
-// missing assignment sets are legacy-local; sets without an active local probe
-// are remote-only and must not be claimed or checked by the hub scheduler.
+// ExecutableByLocal reports which of the given monitors the hub worker may run
+// and their active local assignment generations: missing assignment sets are
+// legacy-local (generation 1); sets without an active local probe are remote-only
+// and must not be claimed or checked by the hub scheduler.
 // ListHistory returns persisted membership/policy intervals overlapping [from,to),
 // ordered by effective start then row ID. Boundaries are UTC and are not clipped.
 // An empty history means unknown membership, never today's set applied backwards.
@@ -41,6 +42,6 @@ type MonitorProbeAssignmentRepository interface {
 	InitializeLocal(ctx context.Context, monitorID int64) (*domain.MonitorProbeAssignments, error)
 	GetByMonitorID(ctx context.Context, monitorID int64) (*domain.MonitorProbeAssignments, error)
 	Replace(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy) (*domain.MonitorProbeAssignments, error)
-	ExecutableByLocal(ctx context.Context, monitorIDs []int64) (map[int64]struct{}, error)
+	ExecutableByLocal(ctx context.Context, monitorIDs []int64) (map[int64]int64, error)
 	ListHistory(ctx context.Context, monitorID int64, from, to time.Time) ([]domain.AssignmentInterval, error)
 }

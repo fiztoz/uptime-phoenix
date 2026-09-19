@@ -7,9 +7,22 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
-func filterLocalRunnable(ctx context.Context, assignments ports.MonitorProbeAssignmentRepository, monitors []*domain.Monitor) ([]*domain.Monitor, error) {
-	if assignments == nil || len(monitors) == 0 {
-		return monitors, nil
+// runnableMonitor couples an eligible monitor with its active local assignment generation.
+type runnableMonitor struct {
+	Monitor    *domain.Monitor
+	Generation int64
+}
+
+func filterLocalRunnable(ctx context.Context, assignments ports.MonitorProbeAssignmentRepository, monitors []*domain.Monitor) ([]runnableMonitor, error) {
+	if len(monitors) == 0 {
+		return nil, nil
+	}
+	if assignments == nil {
+		out := make([]runnableMonitor, len(monitors))
+		for i, monitor := range monitors {
+			out[i] = runnableMonitor{Monitor: monitor, Generation: 1}
+		}
+		return out, nil
 	}
 	ids := make([]int64, len(monitors))
 	for i, monitor := range monitors {
@@ -19,10 +32,10 @@ func filterLocalRunnable(ctx context.Context, assignments ports.MonitorProbeAssi
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*domain.Monitor, 0, len(allowed))
+	out := make([]runnableMonitor, 0, len(allowed))
 	for _, monitor := range monitors {
-		if _, ok := allowed[monitor.ID]; ok {
-			out = append(out, monitor)
+		if gen, ok := allowed[monitor.ID]; ok {
+			out = append(out, runnableMonitor{Monitor: monitor, Generation: gen})
 		}
 	}
 	return out, nil

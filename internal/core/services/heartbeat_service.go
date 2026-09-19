@@ -42,6 +42,7 @@ type HeartbeatService struct {
 	conditions  monitorConditionEvaluator
 	assignments ports.MonitorProbeAssignmentRepository
 	regional    ports.LocalHeartbeatRecorder
+	activations ports.ProbeConfigActivationRepository
 	projector   overallHealthProjector
 	maintenance maintenanceChecker
 }
@@ -90,6 +91,12 @@ func (s *HeartbeatService) SetRegionalRecorder(assignments ports.MonitorProbeAss
 	s.regional = regional
 }
 
+// SetActivationRepo attaches active configuration retrieval so recorded heartbeats
+// can verify and match the probe's active configuration revision.
+func (s *HeartbeatService) SetActivationRepo(repo ports.ProbeConfigActivationRepository) {
+	s.activations = repo
+}
+
 // SetMaintenance attaches schedule evaluation for Record. Optional: when nil,
 // Record keeps the caller's status. The scheduler still skips the checker
 // during a window; this makes push/API recording follow the same rule.
@@ -114,14 +121,16 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 	}
 	now := time.Now().UTC()
 	hb := &domain.Heartbeat{
-		MonitorID:  monitor.ID,
-		ProbeID:    domain.LocalProbeID,
-		Status:     result.Status,
-		Time:       now,
-		ReceivedAt: now,
-		Msg:        result.Message,
-		Ping:       latency,
-		Duration:   duration,
+		MonitorID:            monitor.ID,
+		ProbeID:              domain.LocalProbeID,
+		Status:               result.Status,
+		Time:                 now,
+		ReceivedAt:           now,
+		Msg:                  result.Message,
+		Ping:                 latency,
+		Duration:             duration,
+		ConfigRevision:       result.ConfigRevision,
+		AssignmentGeneration: result.AssignmentGeneration,
 	}
 
 	inMaintenance := false
@@ -311,16 +320,28 @@ func (s *HeartbeatService) localRegionalState(ctx context.Context, monitorID int
 // observed result/time and assignment generation stay fixed across retries.
 func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Monitor, input *domain.Heartbeat, raw domain.Status, maintenance bool) (*domain.Heartbeat, *domain.Status, error) {
 	targetGeneration := int64(-1)
+	if s.regional != nil && input.AssignmentGeneration > 0 {
+		targetGeneration = input.AssignmentGeneration
+	}
+	expectedRevision := input.ConfigRevision
+	if s.regional != nil && expectedRevision > 0 && s.activations != nil {
+		active, err := s.activations.GetActive(ctx, domain.LocalProbeID)
+		if err == nil && active != nil && active.Revision != expectedRevision {
+			return nil, nil, fmt.Errorf("configuration revision %d is no longer active (active is %d): %w", expectedRevision, active.Revision, ports.ErrConflict)
+		}
+	}
 	for attempt := 0; attempt < 16; attempt++ {
 		state, generation, err := s.localRegionalState(ctx, monitor.ID)
 		if err != nil {
 			return nil, nil, err
 		}
-		if targetGeneration < 0 {
-			targetGeneration = generation
-		}
-		if generation != targetGeneration {
-			return nil, nil, fmt.Errorf("local assignment changed while recording: %w", ports.ErrConflict)
+		if s.regional != nil {
+			if targetGeneration < 0 {
+				targetGeneration = generation
+			}
+			if generation != targetGeneration {
+				return nil, nil, fmt.Errorf("local assignment changed while recording: %w", ports.ErrConflict)
+			}
 		}
 		var previous *domain.RetryState
 		var oldStatus *domain.Status
@@ -350,7 +371,11 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 			}
 			return &hb, oldStatus, nil
 		}
-		hb.AssignmentGeneration, hb.StreamID, hb.ConfigRevision = generation, domain.LocalStreamID, 1
+		configRevision := expectedRevision
+		if configRevision <= 0 {
+			configRevision = 1
+		}
+		hb.AssignmentGeneration, hb.StreamID, hb.ConfigRevision = generation, domain.LocalStreamID, configRevision
 		saved, err := s.regional.CommitLocalHeartbeat(ctx, domain.LocalHeartbeatCommit{Heartbeat: hb, RawStatus: raw, ExpectedStateSeq: expectedSeq})
 		if errors.Is(err, ports.ErrStaleLocalState) {
 			continue

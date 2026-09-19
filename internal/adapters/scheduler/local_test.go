@@ -128,11 +128,11 @@ func (m *mockAssignments) Replace(context.Context, int64, int64, []string, domai
 func (m *mockAssignments) ListHistory(context.Context, int64, time.Time, time.Time) ([]domain.AssignmentInterval, error) {
 	return nil, errors.New("unexpected assignment history read from scheduler")
 }
-func (m *mockAssignments) ExecutableByLocal(_ context.Context, ids []int64) (map[int64]struct{}, error) {
-	out := make(map[int64]struct{}, len(ids))
+func (m *mockAssignments) ExecutableByLocal(_ context.Context, ids []int64) (map[int64]int64, error) {
+	out := make(map[int64]int64, len(ids))
 	for _, id := range ids {
 		if _, skip := m.remoteOnly[id]; !skip {
-			out[id] = struct{}{}
+			out[id] = 1
 		}
 	}
 	return out, nil
@@ -723,4 +723,72 @@ func (c *panicChecker) Type() string                         { return "panic" }
 func (c *panicChecker) Validate(config map[string]any) error { return nil }
 func (c *panicChecker) Check(ctx context.Context, config map[string]any) (ports.CheckResult, error) {
 	panic("intentional panic in checker")
+}
+
+type mockActivationRepo struct {
+	revision int64
+}
+
+func (m *mockActivationRepo) GetActive(_ context.Context, probeID string) (*domain.ProbeActiveConfig, error) {
+	if m.revision <= 0 {
+		return nil, ports.ErrNotFound
+	}
+	return &domain.ProbeActiveConfig{
+		ProbeConfigTarget: domain.ProbeConfigTarget{ProbeID: probeID},
+		Revision:          m.revision,
+	}, nil
+}
+func (m *mockActivationRepo) GetReceipt(_ context.Context, _ string, _ int64) (*domain.ProbeActiveConfig, error) {
+	return nil, ports.ErrNotFound
+}
+func (m *mockActivationRepo) ActivateLocal(_ context.Context, _ ports.LocalActivationParams) (*domain.ProbeActiveConfig, error) {
+	return nil, errors.New("not implemented")
+}
+
+type recordingChecker struct {
+	mu            sync.Mutex
+	configsCalled []map[string]any
+}
+
+func (c *recordingChecker) Type() string                         { return "http" }
+func (c *recordingChecker) Validate(config map[string]any) error { return nil }
+func (c *recordingChecker) Check(_ context.Context, config map[string]any) (ports.CheckResult, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.configsCalled = append(c.configsCalled, config)
+	return ports.CheckResult{Status: domain.StatusUp}, nil
+}
+
+func TestLocalScheduler_CapturesAppliedRevisionAndGeneration(t *testing.T) {
+	monitorRepo := newMockMonitorRepo(
+		&domain.Monitor{ID: 1, Name: "local", Type: "http", Active: true, Interval: 1, Timeout: 5, Config: map[string]any{"url": "https://example.com"}},
+	)
+	heartbeatRepo := newMockHeartbeatRepo()
+	heartbeatSvc := services.NewHeartbeatService(heartbeatRepo, newMockBus())
+	checker := &recordingChecker{}
+	sched := NewLocalScheduler(monitorRepo, heartbeatRepo, func(string) (ports.Checker, bool) {
+		return checker, true
+	}, heartbeatSvc, nil, slog.New(slog.DiscardHandler))
+
+	assignments := &mockAssignments{remoteOnly: map[int64]struct{}{}}
+	sched.SetAssignmentRepo(assignments)
+	sched.SetActivationRepo(&mockActivationRepo{revision: 7})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	_ = sched.Run(ctx)
+
+	if heartbeatRepo.count() == 0 {
+		t.Fatal("expected at least 1 heartbeat")
+	}
+	latest, err := heartbeatRepo.GetLatest(context.Background(), 1)
+	if err != nil || latest == nil {
+		t.Fatalf("missing heartbeat for monitor 1: %v", err)
+	}
+	if latest.ConfigRevision != 7 {
+		t.Fatalf("expected ConfigRevision 7, got %d", latest.ConfigRevision)
+	}
+	if latest.AssignmentGeneration != 1 {
+		t.Fatalf("expected AssignmentGeneration 1, got %d", latest.AssignmentGeneration)
+	}
 }

@@ -717,5 +717,26 @@ Contract tests on SQLite and MariaDB verify:
 - Empty configuration (0 assignments) activates cleanly with `assignment_count = 0`.
 - Downgrade guards refuse while populated and succeed when empty.
 
-Next: Step D (connect execution recording, scheduler revision stamping, and durable outbox delivery). Remote runtime remains disabled; M0/M1 are still in progress.
+
+## Execution revision and assignment generation recording (Step D1) — 2026-09-19
+
+`ports.CheckResult` now carries `ConfigRevision int64` and `AssignmentGeneration int64`.
+
+Schedulers and ingest handlers capture the applied configuration revision, active assignment generation, and execution settings (including resolved proxy) at scheduling/ingest time:
+1. **`LocalScheduler` and `ShardedScheduler`**: On each tick, monitors are filtered by active local assignments via `ExecutableByLocal`, which returns `map[int64]int64` (monitor ID to active assignment generation). The scheduler captures `appliedRevision` from `ProbeConfigActivationRepository.GetActive(ctx, domain.LocalProbeID)`, `generation` from the assignment map, and passes them with resolved proxy settings to `ports.CheckResult`.
+2. **`PushHandler`**: Ingests inbound push heartbeats, queries `ProbeConfigActivationRepository` and `MonitorProbeAssignmentRepository.ExecutableByLocal`, and stamps `ConfigRevision` and `AssignmentGeneration` on `ports.CheckResult`.
+3. **`HeartbeatService.persistCheck` and `LocalHeartbeatStore.CommitLocalHeartbeat`**:
+   - Enforce that `hb.AssignmentGeneration` matches the active local assignment generation; if the assignment was removed (`ErrNotFound`) or bumped (`ErrConflict`), the check is rejected.
+   - Enforce that `hb.ConfigRevision` matches the active configuration revision in `probe_active_configs`; if the active revision changed, the check is rejected with `ErrConflict`.
+   - In-flight checks invalidated by assignment removal or configuration change are rejected without mutating current state, advancing sequence, or emitting events.
+   - Preserves 100% backward compatibility: when regional recording or active configuration is not configured (`s.regional == nil`), legacy recording remains unaffected.
+
+Contract tests and unit tests verify:
+- Unit tests in `local_heartbeat_test.go`: `TestRecordCapturesExecutedRevisionAndGeneration`, `TestRecordRejectsInFlightCheckOnGenerationMismatch`, `TestRecordRejectsInFlightCheckOnAssignmentRemoval`, `TestRecordRejectsInFlightCheckOnActiveRevisionMismatch`, `TestRecordAllowsMatchingActiveRevision`.
+- Scheduler unit tests: `TestLocalScheduler_CapturesAppliedRevisionAndGeneration` and `TestShardedScheduler_CapturesAppliedRevisionAndGeneration`.
+- Push handler unit tests: `TestPushHandler_CapturesAppliedRevisionAndGeneration`.
+- Repository contract tests: `testLocalHeartbeatGuards` on SQLite and MariaDB verify that stale config revisions conflict and matching revisions commit.
+
+Next: Step D2 (commit lifecycle and notification intent with the observation). Remote runtime remains disabled; M0/M1 are still in progress.
+
 

@@ -1,6 +1,7 @@
 package repository_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
+	"github.com/uptrace/bun"
 )
 
 func localCommit(monitorID, expected int64) domain.LocalHeartbeatCommit {
@@ -287,6 +289,68 @@ func testLocalHeartbeatGuards(t *testing.T, f probeRegistryFixture) {
 	}
 	if localSequence(t, f) != 2 {
 		t.Fatal("invalid/removed generation consumed sequence")
+	}
+
+	// Active configuration revision guard:
+	type probeConfigSnapshotRow struct {
+		bun.BaseModel    `bun:"table:probe_config_snapshots"`
+		ProbeID          string    `bun:"probe_id,pk"`
+		Revision         int64     `bun:"revision,pk"`
+		HubID            string    `bun:"hub_id,notnull"`
+		SchemaVersion    int       `bun:"schema_version,notnull"`
+		SHA256           string    `bun:"sha256,notnull"`
+		CreatedAt        time.Time `bun:"source_created_at,notnull"`
+		EffectiveAt      time.Time `bun:"effective_at,notnull"`
+		ProtectedPayload []byte    `bun:"protected_payload,notnull"`
+		StoredAt         time.Time `bun:"stored_at,notnull"`
+	}
+	payload := append([]byte{0x01}, bytes.Repeat([]byte{0x00}, 30)...)
+	if _, err := f.db.NewInsert().Model(&probeConfigSnapshotRow{
+		ProbeID:          domain.LocalProbeID,
+		Revision:         5,
+		HubID:            "00000000-0000-0000-0000-000000000001",
+		SchemaVersion:    1,
+		SHA256:           strings.Repeat("a", 64),
+		CreatedAt:        time.Now().UTC(),
+		EffectiveAt:      time.Now().UTC(),
+		ProtectedPayload: payload,
+		StoredAt:         time.Now().UTC(),
+	}).Exec(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	type probeActiveConfigRow struct {
+		bun.BaseModel   `bun:"table:probe_active_configs"`
+		ProbeID         string    `bun:"probe_id,pk"`
+		Revision        int64     `bun:"revision,notnull"`
+		SHA256          string    `bun:"sha256,notnull"`
+		HubID           string    `bun:"hub_id,notnull"`
+		AppliedAt       time.Time `bun:"applied_at,notnull"`
+		AssignmentCount int       `bun:"assignment_count,notnull"`
+	}
+	if _, err := f.db.NewInsert().Model(&probeActiveConfigRow{
+		ProbeID:         domain.LocalProbeID,
+		Revision:        5,
+		SHA256:          strings.Repeat("a", 64),
+		HubID:           "00000000-0000-0000-0000-000000000001",
+		AppliedAt:       time.Now().UTC(),
+		AssignmentCount: 1,
+	}).Exec(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	staleRevCommit := localCommit(id, second.SourceSeq)
+	staleRevCommit.Heartbeat.AssignmentGeneration = 2
+	staleRevCommit.Heartbeat.ConfigRevision = 4
+	if hb, err := f.localHeartbeat.CommitLocalHeartbeat(ctx, staleRevCommit); !errors.Is(err, ports.ErrConflict) || hb != nil {
+		t.Fatalf("stale config revision committed: %+v %v", hb, err)
+	}
+
+	matchingRevCommit := localCommit(id, second.SourceSeq)
+	matchingRevCommit.Heartbeat.AssignmentGeneration = 2
+	matchingRevCommit.Heartbeat.ConfigRevision = 5
+	if hb, err := f.localHeartbeat.CommitLocalHeartbeat(ctx, matchingRevCommit); err != nil || hb == nil {
+		t.Fatalf("matching config revision failed: %+v %v", hb, err)
 	}
 	for _, batch := range []domain.ProbeIngestBatch{{ProbeID: "local", StreamID: remoteStreamID}, {ProbeID: probeRegistryID1, StreamID: domain.LocalStreamID}} {
 		batch.FromSeq, batch.ThroughSeq = 1, 1

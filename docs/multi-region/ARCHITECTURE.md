@@ -74,11 +74,11 @@ For local HA, multiple workers can share the `local` vantage using DB-leased mon
 
 | Current source | Consequence for this feature |
 |---|---|
-| `internal/core/services/heartbeat_service.go`, `Record(ctx, monitor, result)` | Constructs `Time` from now, derives retries from `GetLatest(monitor.ID)`, dispatches immediately; not an API for ingesting pre-evaluated remote history |
+| `internal/core/services/heartbeat_service.go`, `Record(ctx, monitor, result)` | Constructs `Time` from now, derives retries from `GetLatest(monitor.ID)` or regional state, enforces executed configuration revision and assignment generation, dispatches immediately; not an API for ingesting pre-evaluated remote history |
 | `internal/core/services/notification_dispatcher.go` | Availability attempt throttles now use monitor/probe/generation; the dispatcher rejects remote heartbeats. Lifecycle binds the heartbeat assignment; escalation inherits incident identity and checks current local ownership before delivery |
 | `internal/adapters/repository/{mariadb,sqlite}/repo.go` | Latest/history readers and rollup persistence currently have one monitor dimension |
 | `internal/adapters/repository/mariadb/migrations/001_init.up.sql` | Heartbeats use second-precision partitioned time; rollups have an auto-increment ID and a separate unique `(monitor_id,bucket)` key |
-| `internal/adapters/scheduler/{local,sharded}.go` | Monitor scheduling and leases require assignment-aware filtering |
+| `internal/adapters/scheduler/{local,sharded}.go` | Monitor scheduling and leases require assignment-aware filtering and capture applied configuration revision, assignment generation, and resolved proxy at schedule time |
 | `internal/core/services/{certificate_alert_service,monitor_condition_service}.go` | Auxiliary state and notification suppression also need regional identity |
 | `internal/core/services/{monitor_stats_service,monitor_group_service,insights_service}.go` | Consumers need explicit regional or aggregate semantics, preserving current batched-query performance |
 | `internal/adapters/ws/{events,wire}.go` | Browser protocol and wire mapping are separate from internal bus payloads; extend both |

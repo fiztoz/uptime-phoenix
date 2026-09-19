@@ -114,3 +114,181 @@ func TestLocalHeartbeatCommitFailurePublishesNothing(t *testing.T) {
 		t.Fatal("failed commit produced effects")
 	}
 }
+
+type fakeActivationRepo struct {
+	active *domain.ProbeActiveConfig
+}
+
+func (f *fakeActivationRepo) GetActive(_ context.Context, probeID string) (*domain.ProbeActiveConfig, error) {
+	if f.active == nil || f.active.ProbeID != probeID {
+		return nil, ports.ErrNotFound
+	}
+	return f.active, nil
+}
+
+func (f *fakeActivationRepo) GetReceipt(_ context.Context, probeID string, revision int64) (*domain.ProbeActiveConfig, error) {
+	if f.active != nil && f.active.ProbeID == probeID && f.active.Revision == revision {
+		return f.active, nil
+	}
+	return nil, ports.ErrNotFound
+}
+
+func (f *fakeActivationRepo) ActivateLocal(_ context.Context, _ ports.LocalActivationParams) (*domain.ProbeActiveConfig, error) {
+	return nil, errors.New("not implemented in fake")
+}
+
+func TestRecordCapturesExecutedRevisionAndGeneration(t *testing.T) {
+	ctx := context.Background()
+	heartbeats, regional, bus := newFakeHeartbeatRepo(), newFakeRegionalRepo(), newFakeBus()
+	assignments := healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{
+		1: {MonitorID: 1, Assignments: []domain.ProbeAssignment{{MonitorID: 1, ProbeID: domain.LocalProbeID, Generation: 3}}},
+	}}
+	recorder := &fakeLocalHeartbeatRecorder{fakeRegionalRepo: regional, heartbeats: heartbeats}
+	svc := NewHeartbeatService(heartbeats, bus)
+	svc.SetRegionalRecorder(assignments, recorder)
+
+	monitor := &domain.Monitor{ID: 1}
+	checkResult := ports.CheckResult{
+		Status:               domain.StatusUp,
+		ConfigRevision:       5,
+		AssignmentGeneration: 3,
+	}
+
+	if err := svc.Record(ctx, monitor, checkResult); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(recorder.attempts) != 1 {
+		t.Fatalf("expected 1 attempt, got %d", len(recorder.attempts))
+	}
+	hb := recorder.attempts[0].Heartbeat
+	if hb.ConfigRevision != 5 {
+		t.Fatalf("expected ConfigRevision 5, got %d", hb.ConfigRevision)
+	}
+	if hb.AssignmentGeneration != 3 {
+		t.Fatalf("expected AssignmentGeneration 3, got %d", hb.AssignmentGeneration)
+	}
+}
+
+func TestRecordRejectsInFlightCheckOnGenerationMismatch(t *testing.T) {
+	ctx := context.Background()
+	heartbeats, regional, bus := newFakeHeartbeatRepo(), newFakeRegionalRepo(), newFakeBus()
+	// Current DB state has generation 2 (bumped after assignment recreation).
+	assignments := healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{
+		1: {MonitorID: 1, Assignments: []domain.ProbeAssignment{{MonitorID: 1, ProbeID: domain.LocalProbeID, Generation: 2}}},
+	}}
+	recorder := &fakeLocalHeartbeatRecorder{fakeRegionalRepo: regional, heartbeats: heartbeats}
+	svc := NewHeartbeatService(heartbeats, bus)
+	svc.SetRegionalRecorder(assignments, recorder)
+
+	// Check was scheduled and executed under generation 1.
+	monitor := &domain.Monitor{ID: 1}
+	checkResult := ports.CheckResult{
+		Status:               domain.StatusUp,
+		ConfigRevision:       1,
+		AssignmentGeneration: 1,
+	}
+
+	err := svc.Record(ctx, monitor, checkResult)
+	if !errors.Is(err, ports.ErrConflict) {
+		t.Fatalf("expected ErrConflict on generation mismatch, got %v", err)
+	}
+	if len(recorder.attempts) != 0 || len(heartbeats.heartbeats) != 0 || len(bus.events) != 0 {
+		t.Fatal("mismatched generation produced effects or events")
+	}
+}
+
+func TestRecordRejectsInFlightCheckOnAssignmentRemoval(t *testing.T) {
+	ctx := context.Background()
+	heartbeats, regional, bus := newFakeHeartbeatRepo(), newFakeRegionalRepo(), newFakeBus()
+	// Assignment set exists but local probe was removed.
+	assignments := healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{
+		1: {MonitorID: 1, Assignments: []domain.ProbeAssignment{{MonitorID: 1, ProbeID: "remote-probe", Generation: 1}}},
+	}}
+	recorder := &fakeLocalHeartbeatRecorder{fakeRegionalRepo: regional, heartbeats: heartbeats}
+	svc := NewHeartbeatService(heartbeats, bus)
+	svc.SetRegionalRecorder(assignments, recorder)
+
+	monitor := &domain.Monitor{ID: 1}
+	checkResult := ports.CheckResult{
+		Status:               domain.StatusUp,
+		ConfigRevision:       1,
+		AssignmentGeneration: 1,
+	}
+
+	err := svc.Record(ctx, monitor, checkResult)
+	if !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound on removed local assignment, got %v", err)
+	}
+	if len(recorder.attempts) != 0 || len(heartbeats.heartbeats) != 0 || len(bus.events) != 0 {
+		t.Fatal("removed assignment produced effects or events")
+	}
+}
+
+func TestRecordRejectsInFlightCheckOnActiveRevisionMismatch(t *testing.T) {
+	ctx := context.Background()
+	heartbeats, regional, bus := newFakeHeartbeatRepo(), newFakeRegionalRepo(), newFakeBus()
+	assignments := healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{
+		1: {MonitorID: 1, Assignments: []domain.ProbeAssignment{{MonitorID: 1, ProbeID: domain.LocalProbeID, Generation: 1}}},
+	}}
+	recorder := &fakeLocalHeartbeatRecorder{fakeRegionalRepo: regional, heartbeats: heartbeats}
+	activations := &fakeActivationRepo{
+		active: &domain.ProbeActiveConfig{
+			ProbeConfigTarget: domain.ProbeConfigTarget{ProbeID: domain.LocalProbeID},
+			Revision:          4, // Active is revision 4
+		},
+	}
+	svc := NewHeartbeatService(heartbeats, bus)
+	svc.SetRegionalRecorder(assignments, recorder)
+	svc.SetActivationRepo(activations)
+
+	// Check executed under revision 3 (in-flight when rev 4 was activated).
+	monitor := &domain.Monitor{ID: 1}
+	checkResult := ports.CheckResult{
+		Status:               domain.StatusUp,
+		ConfigRevision:       3,
+		AssignmentGeneration: 1,
+	}
+
+	err := svc.Record(ctx, monitor, checkResult)
+	if !errors.Is(err, ports.ErrConflict) {
+		t.Fatalf("expected ErrConflict on active revision mismatch, got %v", err)
+	}
+	if len(recorder.attempts) != 0 || len(heartbeats.heartbeats) != 0 || len(bus.events) != 0 {
+		t.Fatal("mismatched active revision produced effects or events")
+	}
+}
+
+func TestRecordAllowsMatchingActiveRevision(t *testing.T) {
+	ctx := context.Background()
+	heartbeats, regional, bus := newFakeHeartbeatRepo(), newFakeRegionalRepo(), newFakeBus()
+	assignments := healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{
+		1: {MonitorID: 1, Assignments: []domain.ProbeAssignment{{MonitorID: 1, ProbeID: domain.LocalProbeID, Generation: 1}}},
+	}}
+	recorder := &fakeLocalHeartbeatRecorder{fakeRegionalRepo: regional, heartbeats: heartbeats}
+	activations := &fakeActivationRepo{
+		active: &domain.ProbeActiveConfig{
+			ProbeConfigTarget: domain.ProbeConfigTarget{ProbeID: domain.LocalProbeID},
+			Revision:          4,
+		},
+	}
+	svc := NewHeartbeatService(heartbeats, bus)
+	svc.SetRegionalRecorder(assignments, recorder)
+	svc.SetActivationRepo(activations)
+
+	monitor := &domain.Monitor{ID: 1}
+	checkResult := ports.CheckResult{
+		Status:               domain.StatusUp,
+		ConfigRevision:       4,
+		AssignmentGeneration: 1,
+	}
+
+	if err := svc.Record(ctx, monitor, checkResult); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(recorder.attempts) != 1 {
+		t.Fatalf("expected 1 attempt, got %d", len(recorder.attempts))
+	}
+	if recorder.attempts[0].Heartbeat.ConfigRevision != 4 {
+		t.Fatalf("expected ConfigRevision 4, got %d", recorder.attempts[0].Heartbeat.ConfigRevision)
+	}
+}

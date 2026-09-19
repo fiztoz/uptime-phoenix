@@ -22,6 +22,7 @@ type ShardedScheduler struct {
 	monitorRepo    ports.MonitorRepository
 	leaseReader    ports.WorkerMonitorReader
 	assignments    ports.MonitorProbeAssignmentRepository
+	activation     ports.ProbeConfigActivationRepository
 	checkerFn      func(string) (ports.Checker, bool)
 	heartbeatSvc   *services.HeartbeatService
 	maintenanceSvc *services.MaintenanceService
@@ -95,6 +96,12 @@ func (s *ShardedScheduler) SetProxyRepo(repo ports.ProxyRepository) {
 // SetAssignmentRepo scopes hub execution to monitors the local probe may run.
 func (s *ShardedScheduler) SetAssignmentRepo(repo ports.MonitorProbeAssignmentRepository) {
 	s.assignments = repo
+}
+
+// SetActivationRepo attaches the active configuration store so scheduled checks
+// capture and carry the active configuration revision.
+func (s *ShardedScheduler) SetActivationRepo(repo ports.ProbeConfigActivationRepository) {
+	s.activation = repo
 }
 
 // Run starts the sharded scheduler loop. Blocks until ctx is canceled.
@@ -175,29 +182,43 @@ func (s *ShardedScheduler) tick(ctx context.Context) {
 		s.logger.Error("sharded scheduler: failed to list leased monitors", "error", err)
 		return
 	}
-	monitors, err = filterLocalRunnable(ctx, s.assignments, monitors)
+	runnable, err := filterLocalRunnable(ctx, s.assignments, monitors)
 	if err != nil {
 		s.logger.Error("sharded scheduler: failed to filter local assignments", "error", err)
 		return
 	}
 
-	for _, m := range monitors {
-		if !s.shouldRun(m, now) {
+	var appliedRevision int64
+	if s.activation != nil {
+		if active, err := s.activation.GetActive(ctx, domain.LocalProbeID); err == nil && active != nil {
+			appliedRevision = active.Revision
+		}
+	}
+
+	for _, r := range runnable {
+		if !s.shouldRun(r.Monitor, now) {
 			continue
 		}
 
-		s.lastCheck.Store(m.ID, now)
-		s.startCheck(ctx, m)
+		s.lastCheck.Store(r.Monitor.ID, now)
+		checkConfig := checkConfigForMonitor(r.Monitor)
+		checkConfig["_proxy"] = s.proxyResolver.configFor(ctx, r.Monitor)
+		s.startCheck(ctx, scheduledCheck{
+			Monitor:        r.Monitor,
+			Generation:     r.Generation,
+			ConfigRevision: appliedRevision,
+			CheckConfig:    checkConfig,
+		})
 	}
 }
 
-func (s *ShardedScheduler) startCheck(ctx context.Context, m *domain.Monitor) {
+func (s *ShardedScheduler) startCheck(ctx context.Context, check scheduledCheck) {
 	go func() {
 		if !s.slots.acquire(ctx) {
 			return
 		}
 		defer s.slots.release()
-		s.runCheck(ctx, m)
+		s.runCheck(ctx, check)
 	}()
 }
 
@@ -217,7 +238,8 @@ func (s *ShardedScheduler) shouldRun(m *domain.Monitor, now time.Time) bool {
 }
 
 // runCheck executes a single monitor check with panic recovery.
-func (s *ShardedScheduler) runCheck(ctx context.Context, m *domain.Monitor) {
+func (s *ShardedScheduler) runCheck(ctx context.Context, check scheduledCheck) {
+	m := check.Monitor
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Error("sharded scheduler: panic in check goroutine",
@@ -232,8 +254,10 @@ func (s *ShardedScheduler) runCheck(ctx context.Context, m *domain.Monitor) {
 	if s.maintenanceSvc != nil {
 		if active, _ := s.maintenanceSvc.IsActive(ctx, m.ID); active {
 			if err := s.heartbeatSvc.Record(heartbeatRecordContext(), m, ports.CheckResult{
-				Status:  domain.StatusMaintenance,
-				Message: "maintenance window active",
+				Status:               domain.StatusMaintenance,
+				Message:              "maintenance window active",
+				ConfigRevision:       check.ConfigRevision,
+				AssignmentGeneration: check.Generation,
 			}); err != nil {
 				s.logger.Warn("scheduler: record maintenance heartbeat failed", "monitor_id", m.ID, "error", err)
 			}
@@ -257,17 +281,16 @@ func (s *ShardedScheduler) runCheck(ctx context.Context, m *domain.Monitor) {
 		return
 	}
 
-	// If m.ProxyID is set, inject the resolved proxy under "_proxy" (nil
-	// otherwise, which checkers safely ignore) — mirrors LocalScheduler.runCheck.
-	checkConfig := checkConfigForMonitor(m)
-	checkConfig["_proxy"] = s.proxyResolver.configFor(ctx, m)
-	result, err := checker.Check(checkCtx, checkConfig)
+	// Perform the check using the captured execution settings.
+	result, err := checker.Check(checkCtx, check.CheckConfig)
 	if err != nil {
 		result = ports.CheckResult{
 			Status:  domain.StatusDown,
 			Message: err.Error(),
 		}
 	}
+	result.ConfigRevision = check.ConfigRevision
+	result.AssignmentGeneration = check.Generation
 
 	// Apply upside-down mode.
 	if m.UpsideDown {

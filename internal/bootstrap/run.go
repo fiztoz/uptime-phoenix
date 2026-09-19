@@ -27,6 +27,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/logger"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/metrics"
 	notifieradapter "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier"
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/probe"
 	repo "github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	mariadbrepo "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb"
 	sqliterepo "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/sqlite"
@@ -145,6 +146,7 @@ func Run(cfg Config) error {
 	heartbeatSvc := services.NewHeartbeatService(repos.heartbeat, bus)
 	heartbeatSvc.SetTLSInfoRepo(repos.tlsInfo)
 	heartbeatSvc.SetRegionalRecorder(repos.probeAssignments, repos.localHeartbeat)
+	heartbeatSvc.SetActivationRepo(repos.probeActivation)
 	healthSvc := services.NewMonitorHealthService(repos.monitor, repos.probeAssignments, repos.regionalCommit, nil)
 	healthSvc.SetProjections(repos.projections)
 	heartbeatSvc.SetOverallProjector(healthSvc)
@@ -363,6 +365,7 @@ func Run(cfg Config) error {
 			)
 			sharded.SetProxyRepo(repos.proxy)
 			sharded.SetAssignmentRepo(repos.probeAssignments)
+			sharded.SetActivationRepo(repos.probeActivation)
 			sched = sharded
 			log.Info("sharded scheduler configured",
 				"worker_id", cfg.WorkerID,
@@ -382,6 +385,7 @@ func Run(cfg Config) error {
 			)
 			local.SetProxyRepo(repos.proxy)
 			local.SetAssignmentRepo(repos.probeAssignments)
+			local.SetActivationRepo(repos.probeActivation)
 			sched = local
 		}
 		var schedCtx context.Context
@@ -447,6 +451,8 @@ func Run(cfg Config) error {
 	conditionHandlers := handlers.NewMonitorConditionHandlers(conditionSvc, accessSvc)
 	statsHandlers := handlers.NewStatsHandlers(monitorStatsSvc, accessSvc)
 	pushHandler := handlers.NewPushHandler(monitorSvc, heartbeatSvc)
+	pushHandler.SetAssignmentRepo(repos.probeAssignments)
+	pushHandler.SetActivationRepo(repos.probeActivation)
 	badgeHandlers := handlers.NewBadgeHandlers(repos.monitor, repos.heartbeat, aggregateSvc)
 	backupHandlers := handlers.NewBackupHandlers(backupSvc)
 	configHandlers := handlers.NewConfigHandlers(configSvc)
@@ -649,6 +655,7 @@ type repoBundle struct {
 	localHeartbeat       ports.LocalHeartbeatRecorder
 	projections          ports.MonitorHealthProjectionRepository
 	probeInstallation    ports.ProbeInstallationRepository
+	probeActivation      ports.ProbeConfigActivationRepository
 }
 
 func wireRepositories(engine string, db *bun.DB) repoBundle {
@@ -687,8 +694,10 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationPolicy = r.EscalationPolicyRepo
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
+		encoder := probe.LocalConfigEncoder{}
 		b.probeAssignments = mariadbrepo.NewProbeAssignmentRepo(db)
 		b.probeInstallation = mariadbrepo.NewProbeInstallationRepo(db)
+		b.probeActivation = mariadbrepo.NewProbeActivationRepo(db, encoder)
 		commits := mariadbrepo.NewRegionalCommitRepo(db)
 		b.regionalCommit = commits
 		b.localHeartbeat = commits
@@ -725,8 +734,10 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationPolicy = r.EscalationPolicyRepo
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
+		encoder := probe.LocalConfigEncoder{}
 		b.probeAssignments = sqliterepo.NewProbeAssignmentRepo(db)
 		b.probeInstallation = sqliterepo.NewProbeInstallationRepo(db)
+		b.probeActivation = sqliterepo.NewProbeActivationRepo(db, encoder)
 		commits := sqliterepo.NewRegionalCommitRepo(db)
 		b.regionalCommit = commits
 		b.localHeartbeat = commits

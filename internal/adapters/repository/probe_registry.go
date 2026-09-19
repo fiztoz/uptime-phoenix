@@ -249,9 +249,9 @@ func CreateMonitorWithLocalAssignment(ctx context.Context, db *bun.DB, model *Mo
 	})
 }
 
-// ExecutableByLocal reports which monitors the hub worker may run.
-func (r *ProbeAssignmentStore) ExecutableByLocal(ctx context.Context, monitorIDs []int64) (map[int64]struct{}, error) {
-	allowed := make(map[int64]struct{}, len(monitorIDs))
+// ExecutableByLocal reports which monitors the hub worker may run and their local generation.
+func (r *ProbeAssignmentStore) ExecutableByLocal(ctx context.Context, monitorIDs []int64) (map[int64]int64, error) {
+	allowed := make(map[int64]int64, len(monitorIDs))
 	if len(monitorIDs) == 0 {
 		return allowed, nil
 	}
@@ -260,8 +260,13 @@ func (r *ProbeAssignmentStore) ExecutableByLocal(ctx context.Context, monitorIDs
 		Where("monitor_id IN (?)", bun.List(monitorIDs)).Scan(ctx, &withSet); err != nil {
 		return nil, fmt.Errorf("list assignment sets: %w", err)
 	}
-	var withLocal []int64
-	if err := r.db.NewSelect().Table("monitor_probe_assignments").Column("monitor_id").
+	type localRow struct {
+		MonitorID  int64 `bun:"monitor_id"`
+		Generation int64 `bun:"generation"`
+	}
+	var withLocal []localRow
+	if err := r.db.NewSelect().Table("monitor_probe_assignments").
+		Column("monitor_id", "generation").
 		Where("monitor_id IN (?) AND probe_id = ? AND active = ?", bun.List(monitorIDs), domain.LocalProbeID, true).
 		Scan(ctx, &withLocal); err != nil {
 		return nil, fmt.Errorf("list local assignments: %w", err)
@@ -270,17 +275,17 @@ func (r *ProbeAssignmentStore) ExecutableByLocal(ctx context.Context, monitorIDs
 	for _, id := range withSet {
 		sets[id] = struct{}{}
 	}
-	local := make(map[int64]struct{}, len(withLocal))
-	for _, id := range withLocal {
-		local[id] = struct{}{}
+	local := make(map[int64]int64, len(withLocal))
+	for _, row := range withLocal {
+		local[row.MonitorID] = row.Generation
 	}
 	for _, id := range monitorIDs {
 		if _, ok := sets[id]; !ok {
-			allowed[id] = struct{}{}
+			allowed[id] = 1
 			continue
 		}
-		if _, ok := local[id]; ok {
-			allowed[id] = struct{}{}
+		if gen, ok := local[id]; ok {
+			allowed[id] = gen
 		}
 	}
 	return allowed, nil

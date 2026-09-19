@@ -71,6 +71,18 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		if activeGeneration != hb.AssignmentGeneration {
 			return ports.ErrConflict
 		}
+		var activeRevision int64
+		activeConfigQuery := tx.NewSelect().TableExpr("probe_active_configs").Column("revision").Where("probe_id = ?", hb.ProbeID)
+		if tx.Dialect().Name() == dialect.MySQL {
+			activeConfigQuery = activeConfigQuery.For("UPDATE")
+		}
+		if err := activeConfigQuery.Scan(ctx, &activeRevision); err == nil {
+			if activeRevision > 0 && hb.ConfigRevision != activeRevision {
+				return ports.ErrConflict
+			}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
 		previous := new(monitorProbeStateModel)
 		stateQuery := tx.NewSelect().Model(previous).Where("monitor_id = ? AND probe_id = ?", hb.MonitorID, hb.ProbeID)
 		if tx.Dialect().Name() == dialect.MySQL {

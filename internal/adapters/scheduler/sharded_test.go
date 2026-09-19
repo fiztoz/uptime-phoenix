@@ -123,3 +123,49 @@ func TestShardedScheduler_Run_RecordsAfterCheckContextDeadline(t *testing.T) {
 		t.Fatal("expected heartbeat recorded even when check context deadline exceeded")
 	}
 }
+
+func TestShardedScheduler_CapturesAppliedRevisionAndGeneration(t *testing.T) {
+	monitor := &domain.Monitor{
+		ID:       1,
+		Name:     "sharded",
+		Type:     "http",
+		Active:   true,
+		Interval: 1,
+		Timeout:  5,
+		Config:   map[string]any{"url": "https://example.com"},
+	}
+	monitorRepo := newMockMonitorRepo(monitor)
+	heartbeatRepo := newMockHeartbeatRepo()
+	heartbeatSvc := services.NewHeartbeatService(heartbeatRepo, newMockBus())
+	checker := &recordingChecker{}
+	sched := NewShardedScheduler(
+		&leasedMonitorRepo{mockMonitorRepo: monitorRepo, owned: []*domain.Monitor{monitor}},
+		func(string) (ports.Checker, bool) { return checker, true },
+		heartbeatSvc,
+		nil,
+		slog.New(slog.DiscardHandler),
+		ShardedSchedulerConfig{WorkerID: "worker-1"},
+	)
+
+	assignments := &mockAssignments{remoteOnly: map[int64]struct{}{}}
+	sched.SetAssignmentRepo(assignments)
+	sched.SetActivationRepo(&mockActivationRepo{revision: 9})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	_ = sched.Run(ctx)
+
+	if heartbeatRepo.count() == 0 {
+		t.Fatal("expected at least 1 heartbeat")
+	}
+	latest, err := heartbeatRepo.GetLatest(context.Background(), 1)
+	if err != nil || latest == nil {
+		t.Fatalf("missing heartbeat for monitor 1: %v", err)
+	}
+	if latest.ConfigRevision != 9 {
+		t.Fatalf("expected ConfigRevision 9, got %d", latest.ConfigRevision)
+	}
+	if latest.AssignmentGeneration != 1 {
+		t.Fatalf("expected AssignmentGeneration 1, got %d", latest.AssignmentGeneration)
+	}
+}
