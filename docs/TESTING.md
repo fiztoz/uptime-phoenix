@@ -136,6 +136,11 @@ go test -race -count=1 ./internal/adapters/importer/uptimekuma/
 # Repository tests
 go test -v ./internal/adapters/repository/...
 
+# Probe key provisioning: real filesystem creation/load/restart, concurrent
+# no-replace publication, permissions and CLI; encrypted DB/key reopen runs
+# SQLite and MariaDB when TEST_MARIADB_DSN is set.
+go test -race -count=1 ./internal/adapters/auth ./cmd/phoenix-probe-key ./internal/adapters/repository -run 'ProbeSecretKey|KeyCommand|PreparedProbeConfigFileKey'
+
 # HTTP handler tests
 go test -v ./internal/adapters/http/...
 

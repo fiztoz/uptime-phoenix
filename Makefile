@@ -148,6 +148,10 @@ build: build-backend build-frontend ## Build Go binary + frontend
 build-backend: ## Build Go binary (CGO_ENABLED=0, static)
 	CGO_ENABLED=0 go build $(GO_BUILD_FLAGS) -o bin/$(APP_NAME) ./cmd/app
 
+.PHONY: build-probe-key
+build-probe-key: ## Build the explicit probe snapshot key provisioning tool
+	CGO_ENABLED=0 go build $(GO_BUILD_FLAGS) -o bin/phoenix-probe-key ./cmd/phoenix-probe-key
+
 .PHONY: build-frontend
 build-frontend: ## Build SvelteKit frontend (production)
 	cd web && bun install --frozen-lockfile && bun run build

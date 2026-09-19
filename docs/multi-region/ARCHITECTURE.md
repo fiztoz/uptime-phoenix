@@ -345,9 +345,16 @@ The AES-256-GCM adapter requires an explicitly supplied 32-byte key. Its payload
 is format byte one, a fresh 12-byte nonce, ciphertext and a 16-byte tag. Authenticated
 metadata binds the format domain, hub/probe, revision, schema, SHA-256 and source/
 effective timestamps normalized to UTC microseconds. Only ciphertext and nonsecret
-metadata reach this table. The constructor neither generates nor persists a key;
-durable key provisioning, permissions, backup and rotation must be wired before
-live use. No new dependency or default boot requirement is introduced.
+metadata reach this table. Explicit key provisioning now uses
+`phoenix-probe-key init`: a synced private staging file is published without
+replacement and the directory is synced. `NewProbeConfigProtectorFromFile` loads
+exactly 32 raw bytes from a regular owner/root file with mode 0400 or 0600 and a
+trusted parent. Relative links confined to that parent support projected mounts.
+Loading never generates or replaces a key. The tool's `check` command validates
+the file only, not database authentication or readiness. See
+[key provisioning and recovery](KEY_PROVISIONING.md). Runtime wiring, retained
+snapshot authentication at startup and rotation remain open. No new dependency
+or default boot requirement is introduced.
 
 Preparation serializes on the probe registration and compares the latest retained
 revision before insertion. A higher revision requires the caller's expected
@@ -406,7 +413,7 @@ acceptance, or current ownership. It returns metadata only and writes no state.
 
 This is a consistent committed source view, not a guarantee that it is still current
 when saved or later used. It does not turn multi-statement configuration edits into a
-single transaction. Next, provision the durable key and activate atomically with
+single transaction. Next, wire the provisioned key and activate atomically with
 current configuration, registration and assignment fences bound to the validated
 revision/hash. Remote construction and validation additionally need durable resource
 mappings, watchdog settings and session authority; they remain unimplemented.
@@ -481,7 +488,10 @@ Support graceful shutdown: stop scheduling, bound in-flight check completion, co
 
 ### 11.1 Proposed runtime configuration
 
-These names are new planned configuration, not existing environment variables. Implement them through `caarlos0/env` and validate them before opening network listeners.
+These names are planned runtime configuration. `PROBE_SECRET_KEY_FILE` is already
+parsed through `caarlos0/env` by the standalone key tool; hub/worker startup does
+not consume it yet. Implement runtime settings through `caarlos0/env` and validate
+them before opening network listeners.
 
 | Setting | Default / requirement |
 |---|---|
@@ -489,7 +499,7 @@ These names are new planned configuration, not existing environment variables. I
 | `MODE=probe` | New explicit edge mode; never invokes hub DB/auth bootstrap |
 | `PROBE_LISTEN_ADDR` | `:8443` in probe mode; configurable port/bind address |
 | `PROBE_DATA_DIR` | `/var/lib/uptime-phoenix/probe`; persistent local filesystem, exclusive owner, never a shared network WAL directory |
-| `PROBE_SECRET_KEY_FILE` | Required protected 32-byte key file for recoverable hub connection secrets; also required for edge snapshot secret protection in probe mode |
+| `PROBE_SECRET_KEY_FILE` | Implemented for standalone `phoenix-probe-key init/check`; planned runtime input for the protected 32-byte installation key |
 | `PROBE_TLS_CERT_FILE`, `PROBE_TLS_KEY_FILE` | Default inside persistent probe data directory; explicit existing files allowed |
 | `PROBE_TELEMETRY_MAX_BYTES` | `536870912` bytes |
 | `PROBE_TELEMETRY_RETENTION_HOURS` | `168` hours |

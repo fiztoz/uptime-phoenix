@@ -12,7 +12,11 @@ M0 and M1 are **in progress**, not complete. The foundation implements executabl
 | Retry | Pure `EvaluateRetry`/`EvaluateObservation` reused by `HeartbeatService.Record`; maintenance then retry; independent state inputs; local Record atomically commits heartbeat+observation+state for the `local` assignment with a stream-wide sequence; `PromoteCondition` is the shared consecutive/hysteresis rule | Do not dispatch regional incidents from the existing dispatcher; capacity and certificate state now use assignment-specific repository views; durable regional delivery remains open |
 | Health | Pure complete-assignment ANY/ALL truth table, deadline freshness, explicit missing/future/invalidated evidence, paused counts, duration-based uptime/coverage; `MonitorHealthService.Current`/`History`/`ProjectCurrent`/`ProcessDirty` | Incident recovery, browser/HTTP consumers of UNKNOWN, and historical pause/freshness configuration |
 | Protocol | Bounded envelope validation, all five telemetry kinds, ACK/retry/gap, complete state/config DTOs and transfer frames, bounded hash-checked staging, config reference/target/capability checks, revision comparison, hello/welcome/health and trusted handshake comparison, command/enrollment/rotation-reset request and receipt DTOs, admin/browser ProbeView/HealthView/assignment/regional heartbeat events, 306 valid/invalid fixtures plus baseline HTTP/browser documents | Remote config building/validation and atomic activation; environment readiness; authenticated sessions/leases; durable application receipts |
-| Database | Migrations `035`–`047` on MariaDB/SQLite; local backfill; credential-free registration stores; atomic revision-checked assignment replacement; tombstones prevent generation reuse; `RegionalCommit`/`Ingest` persist per-probe observations, cursors, optional incidents, and dirty buckets; delivery outcomes correlate to stored transitions; monitor Create writes a local assignment in the same transaction; hub ClaimBatch/schedulers skip remote-only sets; heartbeats carry `probe_id` (default `local`) and rollups unique `(monitor_id,probe_id,bucket)`; overall snapshots and history intervals; atomic membership/policy history on initialization and replacement; capacity and TLS state keyed by probe/generation; durable local sequence allocator with atomic heartbeat/regional recording; availability attempt throttles and availability incidents keyed by probe/generation; escalation inherits alert identity and only executes current-local work; both source recording ports accept atomic availability incidents/intents; probe-scoped queue leases and atomic outcome receipts; stable source UUIDs and lifecycle versions on legacy alerts; encrypted immutable prepared config snapshots; consistent local-source construction and deterministic dependency closure; exact local prepared-revision semantic validation | Live lifecycle/outbox integration, remote config building/validation, environment readiness, activation and key provisioning, edge DB, historical-generation ingest authorization |
+| Database | Migrations `035`–`047` on MariaDB/SQLite; local backfill; credential-free registration stores; atomic revision-checked assignment replacement; tombstones prevent generation reuse; `RegionalCommit`/`Ingest` persist per-probe observations, cursors, optional incidents, and dirty buckets; delivery outcomes correlate to stored transitions; monitor Create writes a local assignment in the same transaction; hub ClaimBatch/schedulers skip remote-only sets; heartbeats carry `probe_id` (default `local`) and rollups unique `(monitor_id,probe_id,bucket)`; overall snapshots and history intervals; atomic membership/policy history on initialization and replacement; capacity and TLS state keyed by probe/generation; durable local sequence allocator with atomic heartbeat/regional recording; availability attempt throttles and availability incidents keyed by probe/generation; escalation inherits alert identity and only executes current-local work; both source recording ports accept atomic availability incidents/intents; probe-scoped queue leases and atomic outcome receipts; stable source UUIDs and lifecycle versions on legacy alerts; encrypted immutable prepared config snapshots; consistent local-source construction and deterministic dependency closure; exact local prepared-revision semantic validation | Live lifecycle/outbox integration, remote config building/validation, environment readiness, key startup wiring and activation, edge DB, historical-generation ingest authorization |
+
+Explicit key provisioning and protected file loading are implemented by the standalone
+`phoenix-probe-key` tool and auth adapter. See [key provisioning](KEY_PROVISIONING.md).
+Hub/worker startup does not consume a key yet; activation remains gated.
 
 Registration metadata still conveys no authentication authority. SQLite/MariaDB `MonitorRepo.Create` now inserts the reserved local assignment in the same transaction, so create/clone/import/restore through that path cannot leave an unassigned monitor. Hub `ClaimBatch` and both schedulers skip monitors whose assignment set has no active `local` member; monitors with no assignment set keep today's local execution. Remote assignment replacement is still not exposed on HTTP routes.
 
@@ -568,3 +572,63 @@ module-resolution failure uncovered. The remaining
 gate-full steps were resumed and passed; the already-passing backend checks were
 not repeated for this test-only import correction. No operator-installation migration
 rehearsal or remote runtime claim is implied by these results.
+
+
+## Durable snapshot key provisioning — 2026-09-19
+
+`phoenix-probe-key init` explicitly creates a cryptographically random 32-byte
+installation key in an existing private directory. A mode-0600 staging file is
+written, synced and closed before atomic no-replace publication; the staging link
+is removed and the parent directory is synced before reporting success. Existing
+keys, malformed files and symlinks are never replaced. Concurrent creators cannot
+clobber the winner. Loading never generates or repairs missing key material.
+
+`NewProbeConfigProtectorFromFile` validates the opened file's regular type,
+owner/root identity, exact mode 0400/0600 and exact raw length, with a bounded
+read. The parent must have trusted ownership and no group/other write permission.
+Confined relative symlinks support projected Secret layouts; escaped/absolute
+links are rejected. Linux and macOS supply ownership checks; other platforms fail
+closed. Diagnostics omit paths and key bytes. The temporary key buffer is cleared
+after constructing the existing protector.
+
+The standalone tool parses `PROBE_SECRET_KEY_FILE` through `caarlos0/env`, with
+an explicit `--file` override. `check` constructs the protector but does not
+connect to a database or claim that a key matches retained ciphertext. Build it
+with `make build-probe-key`; release images/archives do not yet include it.
+[Provisioning and recovery](KEY_PROVISIONING.md) covers private files, projected
+mounts, backups, interrupted publication, and why replacing a key is not rotation.
+
+This completes the file-provisioning prerequisite. Hub/worker bootstrap still does
+not consume the setting. Schema remains 047; no dependency, HTTP route, default
+startup requirement or dispatch behavior changed. Next: wire the provisioned key,
+authenticate retained snapshots before writing new ones, and atomically activate
+the exact validated revision/hash with current source, registration and assignment
+fences. Then use the applied revision for recording, integrate transactional
+lifecycle/throttle/escalation planning, and implement the reconciled delivery
+consumer. Remote runtime remains disabled; M0/M1 are still in progress.
+
+Focused race contracts passed with SQLite and a disposable MariaDB: database/key
+reopen preserves exact prepared bytes, another valid key fails authentication,
+and failed decryption leaves retained ciphertext unchanged. Filesystem tests
+cover missing/short/oversized/insecure files, FIFO/device/directory rejection,
+projected links, directory ownership/permissions, cancellation, backup reload,
+and 20 concurrent creators. Separate compiled CLI processes proved one winner
+among eight creators, restart checking and no-overwrite behavior; a CGO-free Linux
+build passed create/check/no-replace in the disposable Linux container.
+
+The initial special-mode test assumed this host's filesystem retained setuid.
+An independent chmod/stat control showed mode 4600 is stored as 0600, while 0640
+is retained. The test now verifies the fixture and skips only an unsupported
+special-mode case; ordinary permission cases remain mandatory and production
+mode checks were unchanged.
+
+Full `make gate-full` passed on Go 1.26.6 with `TEST_MARIADB_DSN` set: build,
+vet, complete backend race suite (SQLite and disposable MariaDB), golangci-lint
+with zero issues, frontend check with zero errors/warnings, 251 frontend tests,
+production build, Prettier/ESLint, all 12 Chromium E2E tests and the full Helm
+render/topology matrix. `govulncheck` found no reachable vulnerabilities and none
+in imported packages (three advisories in unused module code). Final auth/CLI
+race tests and a fresh build also passed after threading context through the
+private directory-opening helper. Formatting, production core import boundaries,
+whitespace and documentation links/fences passed. No operator-installation rollout
+or remote runtime is claimed by these checks.

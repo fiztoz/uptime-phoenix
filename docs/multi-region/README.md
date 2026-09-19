@@ -16,6 +16,9 @@ Let one private Phoenix hub manage independent execution probes, assign each mon
 4. [Implementation plan](IMPLEMENTATION_PLAN.md): dependency-ordered milestones, file ownership, verification matrix, rollout, and agent handoff.
 5. [Original Gemini research](../../research/distributed-agent-worker-az-architecture.md): historical rationale and illustrations. Its executable-looking examples are not implementation contracts.
 
+The implemented standalone key tool is documented in
+[key provisioning and recovery](KEY_PROVISIONING.md).
+
 These documents define the proposed feature together. Existing `AGENTS.md` rules remain authoritative. Update the contract before implementing any intentional departure, and record the reason in the decision log below. They do not mark the feature complete or authorize a production deployment.
 
 ## Delivery boundaries
@@ -61,6 +64,7 @@ The default single-pod installation must continue to work without probes, Redis,
 | D26 | Legacy alerts retain their API IDs and secret ack tokens while gaining unique source UUIDs and atomic lifecycle versions | Source lookup remains assignment-scoped. Publication must join the recorder transaction; referenced source mappings block downgrade, while unpublished mappings may reset on explicit rollback |
 | D27 | Prepared configuration preserves exact bytes as authenticated ciphertext in immutable per-probe revisions; preparation does not activate configuration | Revision conflicts cannot replace retained credentials. Local-only decoding preserves push, direct Docker configuration and ack links without relaxing remote V1. Key provisioning, runtime validation, activation and consumer reconciliation remain explicit gates |
 | D28 | Local snapshot construction reads one committed database view, preserves exact maintenance links, and filters to the selected dependency graph | MariaDB uses explicit repeatable-read isolation; SQLite keeps one read transaction. Unlinked maintenance suppresses nothing, matching the live service. Prepared source content is not a current-configuration fence or an activation receipt |
+| D29 | Provision installation keys explicitly with atomic no-replace publication; loading never creates or repairs a key | Missing keys must not silently orphan retained ciphertext. File-only validation grants no database readiness or activation authority; runtime wiring must authenticate retained snapshots |
 
 ## Handoff state
 
