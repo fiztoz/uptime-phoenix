@@ -11,8 +11,8 @@ M0 and M1 are **in progress**, not complete. The foundation implements executabl
 | Domain | Reserved `local` identity, registration/assignment types, positive revision/generation contracts, `UNKNOWN=4`, ANY/ALL policy and count/coverage types, regional observation/state/stream/incident/delivery/command types, overall projection/history/dirty-bucket types, persisted assignment/policy effective-time intervals | Historical pause and timing configuration |
 | Retry | Pure `EvaluateRetry`/`EvaluateObservation` reused by `HeartbeatService.Record`; maintenance then retry; independent state inputs; local Record atomically commits heartbeat+observation+state for the `local` assignment with a stream-wide sequence; `PromoteCondition` is the shared consecutive/hysteresis rule | Do not dispatch regional incidents from the existing dispatcher; capacity and certificate state now use assignment-specific repository views; durable regional delivery remains open |
 | Health | Pure complete-assignment ANY/ALL truth table, deadline freshness, explicit missing/future/invalidated evidence, paused counts, duration-based uptime/coverage; `MonitorHealthService.Current`/`History`/`ProjectCurrent`/`ProcessDirty` | Incident recovery, browser/HTTP consumers of UNKNOWN, and historical pause/freshness configuration |
-| Protocol | Bounded envelope validation, all five telemetry kinds, ACK/retry/gap, complete state/config DTOs and transfer frames, bounded hash-checked staging, config reference/target/capability checks, revision comparison, hello/welcome/health and trusted handshake comparison, command/enrollment/rotation-reset request and receipt DTOs, admin/browser ProbeView/HealthView/assignment/regional heartbeat events, 306 valid/invalid fixtures plus baseline HTTP/browser documents | Remote config building, extension/runtime validators and atomic activation; authenticated sessions/leases; durable application receipts |
-| Database | Migrations `035`–`047` on MariaDB/SQLite; local backfill; credential-free registration stores; atomic revision-checked assignment replacement; tombstones prevent generation reuse; `RegionalCommit`/`Ingest` persist per-probe observations, cursors, optional incidents, and dirty buckets; delivery outcomes correlate to stored transitions; monitor Create writes a local assignment in the same transaction; hub ClaimBatch/schedulers skip remote-only sets; heartbeats carry `probe_id` (default `local`) and rollups unique `(monitor_id,probe_id,bucket)`; overall snapshots and history intervals; atomic membership/policy history on initialization and replacement; capacity and TLS state keyed by probe/generation; durable local sequence allocator with atomic heartbeat/regional recording; availability attempt throttles and availability incidents keyed by probe/generation; escalation inherits alert identity and only executes current-local work; both source recording ports accept atomic availability incidents/intents; probe-scoped queue leases and atomic outcome receipts; stable source UUIDs and lifecycle versions on legacy alerts; encrypted immutable prepared config snapshots; consistent local-source construction and deterministic dependency closure | Live lifecycle/outbox integration, remote config building, runtime validation/activation and key provisioning, edge DB, historical-generation ingest authorization |
+| Protocol | Bounded envelope validation, all five telemetry kinds, ACK/retry/gap, complete state/config DTOs and transfer frames, bounded hash-checked staging, config reference/target/capability checks, revision comparison, hello/welcome/health and trusted handshake comparison, command/enrollment/rotation-reset request and receipt DTOs, admin/browser ProbeView/HealthView/assignment/regional heartbeat events, 306 valid/invalid fixtures plus baseline HTTP/browser documents | Remote config building/validation and atomic activation; environment readiness; authenticated sessions/leases; durable application receipts |
+| Database | Migrations `035`–`047` on MariaDB/SQLite; local backfill; credential-free registration stores; atomic revision-checked assignment replacement; tombstones prevent generation reuse; `RegionalCommit`/`Ingest` persist per-probe observations, cursors, optional incidents, and dirty buckets; delivery outcomes correlate to stored transitions; monitor Create writes a local assignment in the same transaction; hub ClaimBatch/schedulers skip remote-only sets; heartbeats carry `probe_id` (default `local`) and rollups unique `(monitor_id,probe_id,bucket)`; overall snapshots and history intervals; atomic membership/policy history on initialization and replacement; capacity and TLS state keyed by probe/generation; durable local sequence allocator with atomic heartbeat/regional recording; availability attempt throttles and availability incidents keyed by probe/generation; escalation inherits alert identity and only executes current-local work; both source recording ports accept atomic availability incidents/intents; probe-scoped queue leases and atomic outcome receipts; stable source UUIDs and lifecycle versions on legacy alerts; encrypted immutable prepared config snapshots; consistent local-source construction and deterministic dependency closure; exact local prepared-revision semantic validation | Live lifecycle/outbox integration, remote config building/validation, environment readiness, activation and key provisioning, edge DB, historical-generation ingest authorization |
 
 Registration metadata still conveys no authentication authority. SQLite/MariaDB `MonitorRepo.Create` now inserts the reserved local assignment in the same transaction, so create/clone/import/restore through that path cannot leave an unassigned monitor. Hub `ClaimBatch` and both schedulers skip monitors whose assignment set has no active `local` member; monitors with no assignment set keep today's local execution. Remote assignment replacement is still not exposed on HTTP routes.
 
@@ -515,3 +515,56 @@ reachable vulnerabilities and none in imported packages (three module advisories
 outside imported/called code). Frontend/type/build/browser/Helm and real-app provider
 smoke were not rerun for this internal builder; live startup/dispatch is unchanged.
 A populated operator-installation migration rehearsal remains a rollout gate.
+
+
+## Local prepared-configuration semantic validation — 2026-09-19
+
+`LocalProbeConfigValidationService.ValidatePrepared` authenticates and validates an
+exact positive local revision. Latest/zero and remote targets are rejected. The
+adapter rechecks the complete graph, uses installed checker/provider validators,
+reuses notification-template CRUD rules without mutating caller data, loads
+maintenance timezones and parses cron schedules, and checks proxy host syntax.
+Paused monitors and disabled dependencies are validated. Scheduler timeout, TLS
+and accepted-status-code overrides are applied before checker validation. Unknown
+capability names/versions and missing runtime extensions fail closed.
+
+The local push exception is explicit: inbound tokens remain in hub-owned storage,
+so validation verifies the registered push implementation/capability without calling
+its token-requiring validator. A push token embedded in the snapshot is rejected.
+The local watchdog remains disabled. Cron checks reject impossible dates and the
+host-specific Local timezone; proxy syntax preserves IPv6 and all three protocols.
+Errors expose only fixed categories/indexes or service sentinels, never extension
+diagnostics or secret values.
+
+This is a read-only semantic gate. Success returns metadata, writes no applied
+receipt, executes no checks or sends, and proves no network/resource access. It
+inherits the scope of the existing extension validators. Inbound push identity,
+ICMP privileges, Docker access and current configuration/assignment authority still
+need activation checks. Schema stays at 047; no dependency, route or bootstrap
+consumer was added. Source construction and schema-only preparation remain separate,
+so invalid desired content can be retained without being mistaken for active work.
+
+Next: durable encryption-key provisioning and atomic local activation with current
+source/registration/assignment fences bound to the exact validated revision/hash.
+Then replace local revision one, join lifecycle/throttle/escalation planning to
+recording, and implement the reconciled delivery consumer. Remote construction,
+resource readiness and runtime remain gated; M0/M1 are still in progress.
+
+Verification passed on Go 1.26.6: full build/vet/backend race suite with
+`TEST_MARIADB_DSN` set (SQLite and disposable Colima MariaDB both executed),
+golangci-lint with zero issues, frontend type check with zero errors/warnings,
+unit tests, production build, Prettier/ESLint, all 12 Chromium E2E tests, and the
+full Helm render/topology matrix. `govulncheck` found no reachable vulnerabilities
+and none in imported packages (three advisories in unused module code). Formatting,
+production core import boundaries and documentation links/fences passed.
+
+The initial `make gate-full` stopped at a pre-existing `vitest` import in
+`web/src/lib/probe-views.test.ts`; this repository uses `bun:test` and does not
+depend on Vitest. An isolated TypeScript repro failed only this file while a
+neighboring Bun test passed with the same compiler flags. Changing the import to
+`bun:test` fixed the repro and the full frontend type gate, without a new dependency.
+Earlier backend-focused gates did not run the frontend type check, leaving this
+module-resolution failure uncovered. The remaining
+gate-full steps were resumed and passed; the already-passing backend checks were
+not repeated for this test-only import correction. No operator-installation migration
+rehearsal or remote runtime claim is implied by these results.

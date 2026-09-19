@@ -42,3 +42,11 @@ type LocalProbeConfigSourceRepository interface {
 type LocalProbeConfigEncoder interface {
 	EncodeLocal(definition domain.LocalProbeConfigDefinition) ([]byte, error)
 }
+
+// LocalProbeConfigValidator checks complete local snapshots against installed
+// extension validators without checks, sends, persistence or activation. It must
+// validate disabled dependencies too and never include confidential data in errors.
+// Success proves configuration semantics, not network access or current authority.
+type LocalProbeConfigValidator interface {
+	ValidateLocal(ctx context.Context, document []byte, target domain.ProbeConfigTarget) error
+}

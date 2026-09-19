@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 
 /** Field names frozen from PROTOCOL.md §§7–8. Keep in lockstep with Go DTOs. */
 const healthViewKeys = [

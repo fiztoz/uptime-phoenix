@@ -180,6 +180,21 @@ Follow existing patterns in the same package. Key rules:
 
 ### 2.6 Colima multi-region runtime smoke
 
+The local configuration semantic-validation contracts run with:
+
+~~~bash
+go test -race -count=1 ./internal/adapters/probe ./internal/core/services ./internal/adapters/repository -run 'LocalConfigValidation|ValidateNotificationTemplateDoesNot'
+~~~
+
+They cover the installed checker/provider inventory, the local token-free push
+exception, effective checker overrides, disabled entries, structured templates,
+timezone/cron/proxy syntax, unsupported capabilities, cancellation and secret-safe
+errors. No checker `Check` or provider `Send` is invoked. With `TEST_MARIADB_DSN`
+set, both engines prove exact encrypted revision validation after reconnect,
+rejection of invalid newer content without fallback, and unchanged protected history.
+Validation grants no activation or delivery authority; network/resource readiness,
+current source/assignment fencing and durable activation require separate tests.
+
 The local configuration construction contracts run with:
 
 ~~~bash

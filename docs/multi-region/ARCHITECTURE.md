@@ -383,12 +383,33 @@ collection to 1,000, policy steps to 20,000 and relation rows to 262,144. Final 
 still obey all protocol limits. Source/encoding failures return fixed diagnostics and
 sentinels without credentials. No schema change or default startup wiring is added.
 
+`LocalProbeConfigValidationService.ValidatePrepared` authenticates an exact positive
+local revision and passes its original bytes to `LocalConfigValidator`. It does not
+accept revision zero/latest. The adapter rechecks target and graph, requires installed
+checker/provider implementations and supported capability versions, and calls their
+existing validators on decoded settings. Checker settings include the same timeout,
+TLS and status-code overrides as the local scheduler. Disabled assignments and
+dependencies are validated too. Reusable templates pass the same provider-specific
+rules as CRUD through the nonmutating `ValidateNotificationTemplate` entry point.
+Maintenance checks load the timezone and parse the evaluator's five-field/descriptor
+cron grammar, rejecting schedules with no next occurrence and host-specific `Local`
+zones. Proxy hosts must be valid host components, including unbracketed IPv6, rather
+than URLs or host:port strings. Errors expose fixed sections/indexes or service
+sentinels, never raw validator diagnostics. No checks or notifications execute.
+
+Local push credentials are deliberately absent from snapshots, so the validator
+checks the registered push implementation/capabilities but does not call its
+credential-requiring validator; an embedded `push_token` is rejected. Activation still needs to verify the
+hub-owned inbound identity. Validation proves only the semantics checked by installed
+validators, not target availability, ICMP privileges, Docker/socket access, provider
+acceptance, or current ownership. It returns metadata only and writes no state.
+
 This is a consistent committed source view, not a guarantee that it is still current
 when saved or later used. It does not turn multi-statement configuration edits into a
-single transaction. Next, run checker/notifier/template/schedule/proxy validators,
-provision the durable key, and activate atomically with current configuration,
-registration and assignment fences. Remote construction additionally needs durable
-resource mappings, watchdog settings and session authority; it remains unimplemented.
+single transaction. Next, provision the durable key and activate atomically with
+current configuration, registration and assignment fences bound to the validated
+revision/hash. Remote construction and validation additionally need durable resource
+mappings, watchdog settings and session authority; they remain unimplemented.
 Recording must then use the applied revision instead of local revision one.
 Delivery must reconcile an intent against applied configuration and current
 lifecycle/assignment immediately before I/O; merely reading a prepared document
