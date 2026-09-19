@@ -11,10 +11,11 @@ Let one private Phoenix hub manage independent execution probes, assign each mon
 ## Read in this order
 
 1. [Project instructions](../../AGENTS.md), [project architecture](../ARCHITECTURE.md), and [testing guide](../TESTING.md).
-2. [Architecture and decisions](ARCHITECTURE.md): ownership, state machines, persistence, trust, compatibility, deployment, and failure behavior.
-3. [Protocol and API contract](PROTOCOL.md): transport messages, delivery semantics, administrative APIs, browser events, and exact field names.
-4. [Implementation plan](IMPLEMENTATION_PLAN.md): dependency-ordered milestones, file ownership, verification matrix, rollout, and agent handoff.
-5. [Original Gemini research](../../research/distributed-agent-worker-az-architecture.md): historical rationale and illustrations. Its executable-looking examples are not implementation contracts.
+2. [Continuation guide](CONTINUATION_GUIDE.md) and [current implementation status](IMPLEMENTATION_STATUS.md): concrete first assignment, code map, pitfalls, acceptance tests, and handoff instructions for continuing agents.
+3. [Architecture and decisions](ARCHITECTURE.md): ownership, state machines, persistence, trust, compatibility, deployment, and failure behavior.
+4. [Protocol and API contract](PROTOCOL.md): transport messages, delivery semantics, administrative APIs, browser events, and exact field names.
+5. [Implementation plan](IMPLEMENTATION_PLAN.md): dependency-ordered milestones, file ownership, verification matrix, rollout, and agent handoff.
+6. [Original Gemini research](../../research/distributed-agent-worker-az-architecture.md): historical rationale and illustrations. Its executable-looking examples are not implementation contracts.
 
 The implemented standalone key tool is documented in
 [key provisioning and recovery](KEY_PROVISIONING.md).
@@ -70,6 +71,6 @@ The default single-pod installation must continue to work without probes, Redis,
 
 - Implementation is in progress. M0 and M1 remain incomplete until all acceptance criteria pass; the status document identifies the executable subset.
 - The branch is intended to be checked out in the ordinary repository directory, not a new linked worktree.
-- Continue with remaining milestone M0 contracts and M1 work in the status document. Do not copy the research's Go snippets or SQL directly into production files.
+- Start with the next unfinished step in the continuation guide, checking newer status entries before implementing it. At the guide's baseline, this is protected-config bootstrap with trusted installation identity and key verification, followed by source fencing and local activation. Do not copy the research's Go snippets or SQL directly into production files.
 - Commit each coherent implementation milestone with its tests. Keep defaults compatible until the explicit activation gate passes.
 - Multiple agents may implement disjoint milestones after shared contracts land; the ownership table assigns every shared integration surface to one integrator.

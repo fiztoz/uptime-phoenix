@@ -456,4 +456,17 @@ Command, enrollment, and rotation/reset HTTP request/receipt DTOs add 60 fixture
 
 Admin/browser views add 21 fixtures (306 total) plus baseline compatibility documents under `testdata/v1/baseline/`. Typed decoders cover ProbeView (including reserved `local`), fleet lists, create/patch, assignment replacement, HealthView, regional heartbeats that keep `message`, and the section-8 browser events. Existing HTTP heartbeat/monitor/alert/maintenance/template/`access_code` names and browser `msg` are captured separately so they cannot be renamed by accident. The config snapshot inventory test is the runtime-extension matrix for all pull checkers and notification providers.
 
-Pure regional observation/state/stream/incident/command types and atomic `RegionalCommit` / `ProbeIngest` ports are defined. Local overall current/history projection writes exist. Authenticated session/deadline/lease integration remains M2 work. Config construction, checker/provider/template/cron/timezone validation, atomic activation, incident/delivery identity correlation and lifecycle monotonicity, state snapshot authorization, missing-assignment reconciliation, durable application receipts, and remote snapshot projection transactions remain M1/M3 integration work. Implement those before claiming complete protocol compatibility or enabling any remote capability.
+Pure regional observation/state/stream/incident/command types and atomic
+`RegionalCommit` / `ProbeIngest` ports are defined and have storage implementations.
+Local overall current/history projection writes, incident/delivery correlation and
+lifecycle storage checks also exist. Outside these wire helpers, local complete
+snapshot construction, exact prepared-revision semantic validation, and explicit
+key-file provisioning/loading are implemented. They do not activate configuration.
+
+Trusted installation/key startup wiring, current-source fencing, atomic local
+activation and live lifecycle/outbox integration remain open. Remote construction
+and environment validation, authenticated session/deadline/lease integration,
+state snapshot authorization, missing-assignment reconciliation, durable application
+receipts, and remote snapshot projection transactions remain M2/M3 work. See the
+[continuation guide](CONTINUATION_GUIDE.md) and [implementation status](IMPLEMENTATION_STATUS.md)
+before claiming complete protocol compatibility or enabling a remote capability.

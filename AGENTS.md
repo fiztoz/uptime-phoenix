@@ -16,6 +16,7 @@ Before writing any code, read the relevant design doc:
 - `docs/ROADMAP.md` — phased delivery timeline, what to build in which sprint
 - `docs/ARCHITECTURE.md` — detailed technical design (15 sections, the single source of truth)
 - `docs/TESTING.md` — how to test every change (gate commands, manual checklists, regression areas)
+- [Multi-region continuation guide](docs/multi-region/CONTINUATION_GUIDE.md) — start here for multi-region implementation; verify its baseline against the latest `IMPLEMENTATION_STATUS.md`, then follow the relevant architecture/protocol contracts and acceptance tests
 - `research/uptime-kuma.md` — original Uptime Kuma research (feature reference)
 - `research/uptime-kuma-stack-alternatives.md` — why Go + Svelte 5 was chosen
 - `research/uptime-kuma-k8s-architecture.md` — K8s deployment design

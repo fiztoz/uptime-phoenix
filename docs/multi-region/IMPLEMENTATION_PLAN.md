@@ -275,4 +275,16 @@ Stop rollout on lost acknowledged data, cross-probe state interference, incorrec
 
 ## 17. Start instruction for the next agent
 
-Continue from [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) on the shared branch. Read the design documents and project instructions, confirm HEAD and the next migration number, finish the remaining M0 contracts/fixtures, and extend the existing M1 foundation without enabling remote execution. The first foundation already captures the local baseline; do not recreate or overwrite those types, fixtures, or migration 035. Keep each milestone reviewable and commit its contract, code, and tests together. Do not start SSH provisioning or the public push gateway until the V1 monitoring/replay path has passed M6.
+Start with [CONTINUATION_GUIDE.md](CONTINUATION_GUIDE.md) and the newest entries in
+[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) on the shared branch. The guide
+provides a bounded first assignment, verified code references, transaction hazards,
+and acceptance tests. At baseline `4cc76f0`, the next step is protected-config
+bootstrap with trusted installation identity and key verification; source fencing,
+atomic local activation, and execution/delivery integration follow in that order.
+
+Read the relevant design documents and project instructions, confirm HEAD and the
+next migration number, and extend the existing foundation without enabling remote
+execution prematurely. Do not recreate completed types, fixtures, key provisioning,
+or migrations. Keep each milestone reviewable and commit its contract, code, tests
+and status update together. SSH provisioning and the public push gateway remain
+after the V1 monitoring/replay path passes M6.

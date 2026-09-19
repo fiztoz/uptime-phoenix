@@ -2,6 +2,11 @@
 
 Started: 2026-09-13. Source baseline: `b706fb09` on `codex/multi-region-probe-plan`, based on application `5183093c`. This branch belongs in the ordinary repository checkout so subsequent agents can continue the same work.
 
+**Continuing implementation:** read [CONTINUATION_GUIDE.md](CONTINUATION_GUIDE.md)
+for the next bounded assignment, current code map, failure scenarios and acceptance
+tests. Check newer commits and the latest entries below before following its
+`4cc76f0` baseline. Earlier dated “next” instructions are historical.
+
 ## Current delivery
 
 M0 and M1 are **in progress**, not complete. The foundation implements executable contracts, shared health rules, additive registration/assignment storage, and current-state snapshot decoding/assembly. It does not supply a running remote probe. No probe listener, enrollment endpoint, remote scheduler, connector, provider outbox consumer, remote ingest endpoint, or regional user interface is enabled.
