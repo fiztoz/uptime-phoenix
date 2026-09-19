@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/sqlite"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -78,6 +79,9 @@ func TestLocalHeartbeatContract(t *testing.T) {
 			t.Run("StaleStateAndAssignments", func(t *testing.T) { testLocalHeartbeatGuards(t, newProbeRegistryFixture(t, engine)) })
 			t.Run("RestartDeletionAndExhaustion", func(t *testing.T) { testLocalHeartbeatDurability(t, newProbeRegistryFixture(t, engine)) })
 			t.Run("Migration", func(t *testing.T) { testLocalSequenceMigration(t, newProbeRegistryFixture(t, engine)) })
+			t.Run("LifecycleAndOutbox", func(t *testing.T) { testLocalHeartbeatLifecycleAndOutbox(t, newProbeRegistryFixture(t, engine)) })
+			t.Run("LifecycleFaultInjection", func(t *testing.T) { testLocalHeartbeatLifecycleFaultInjection(t, newProbeRegistryFixture(t, engine)) })
+			t.Run("AckAndResolveCancellation", func(t *testing.T) { testLocalHeartbeatAckAndResolveCancellation(t, newProbeRegistryFixture(t, engine)) })
 		})
 	}
 }
@@ -455,4 +459,399 @@ func testLocalSequenceMigration(t *testing.T, f probeRegistryFixture) {
 			t.Fatalf("schema accepted %s", statement)
 		}
 	}
+}
+
+func testLocalHeartbeatLifecycleAndOutbox(t *testing.T, f probeRegistryFixture) {
+	t.Helper()
+	ctx := context.Background()
+	uID := f.user(t)
+	mID := localMonitor(t, f)
+	notifID := f.notification(t, uID)
+	policyID := f.escalationPolicy(t, uID)
+
+	at := time.Date(2026, 9, 19, 10, 0, 0, 0, time.UTC)
+	downCommit := domain.LocalHeartbeatCommit{
+		Heartbeat: domain.Heartbeat{
+			MonitorID:            mID,
+			ProbeID:              domain.LocalProbeID,
+			StreamID:             domain.LocalStreamID,
+			AssignmentGeneration: 1,
+			ConfigRevision:       1,
+			Status:               domain.StatusDown,
+			DownCount:            1,
+			Time:                 at,
+			ReceivedAt:           at,
+			Msg:                  "Connection refused",
+		},
+		RawStatus:        domain.StatusDown,
+		ExpectedStateSeq: 0,
+		Incident: &domain.RegionalIncident{
+			Status: domain.AlertStatusFiring,
+		},
+		Alert: &domain.Alert{
+			Status: domain.AlertStatusFiring,
+		},
+		Escalation: &domain.AlertEscalation{
+			PolicyID:  policyID,
+			NextStep:  1,
+			NextRunAt: at.Add(5 * time.Minute),
+		},
+		ThrottleUpdate: true,
+		DeliveryIntents: []domain.DeliveryIntent{
+			{NotificationID: notifID, NotificationVersion: 1},
+		},
+	}
+
+	hb, err := f.localHeartbeat.CommitLocalHeartbeat(ctx, downCommit)
+	if err != nil {
+		t.Fatalf("down commit failed: %v", err)
+	}
+	if hb.SourceSeq != 1 {
+		t.Fatalf("expected seq 1, got %d", hb.SourceSeq)
+	}
+
+	// Verify alert was created
+	var alert repository.AlertModel
+	if err := f.db.NewSelect().Model(&alert).Where("monitor_id = ?", mID).Scan(ctx); err != nil {
+		t.Fatalf("failed to query alert: %v", err)
+	}
+	if alert.Status != domain.AlertStatusFiring || alert.TransitionVersion != 1 || alert.SourceAlertID == "" || alert.AckToken == "" || alert.OpenMonitorID == nil {
+		t.Fatalf("alert shape mismatch: %+v", alert)
+	}
+
+	// Verify probe_incident was created with identical source_alert_id and transition_version
+	inc, err := f.incidents.GetIncident(ctx, alert.SourceAlertID)
+	if err != nil {
+		t.Fatalf("failed to query incident: %v", err)
+	}
+	if inc.Status != domain.AlertStatusFiring || inc.TransitionVersion != 1 || inc.SourceAlertID != alert.SourceAlertID {
+		t.Fatalf("incident shape mismatch: %+v", inc)
+	}
+
+	// Verify escalation was created
+	var esc repository.AlertEscalationModel
+	if err := f.db.NewSelect().Model(&esc).Where("alert_id = ?", alert.ID).Scan(ctx); err != nil {
+		t.Fatalf("failed to query escalation: %v", err)
+	}
+	if esc.Status != domain.EscalationStatePending || esc.NextStep != 1 || esc.PolicyID != policyID {
+		t.Fatalf("escalation shape mismatch: %+v", esc)
+	}
+
+	// Verify throttle was recorded
+	var throttleCount int
+	if err := f.db.NewSelect().Table("notification_throttles").ColumnExpr("COUNT(*)").Where("monitor_id = ?", mID).Scan(ctx, &throttleCount); err != nil || throttleCount != 1 {
+		t.Fatalf("throttle was not recorded: count=%d, %v", throttleCount, err)
+	}
+
+	// Verify delivery intent was created
+	var intentCount int
+	if err := f.db.NewSelect().Table("probe_delivery_intents").ColumnExpr("COUNT(*)").Where("source_alert_id = ?", alert.SourceAlertID).Scan(ctx, &intentCount); err != nil || intentCount != 1 {
+		t.Fatalf("failed to query intents: count=%d, %v", intentCount, err)
+	}
+
+	// 2. Recovery transition:
+	recTime := at.Add(2 * time.Minute)
+	upCommit := domain.LocalHeartbeatCommit{
+		Heartbeat: domain.Heartbeat{
+			MonitorID:            mID,
+			ProbeID:              domain.LocalProbeID,
+			StreamID:             domain.LocalStreamID,
+			AssignmentGeneration: 1,
+			ConfigRevision:       1,
+			Status:               domain.StatusUp,
+			DownCount:            0,
+			Time:                 recTime,
+			ReceivedAt:           recTime,
+			Msg:                  "OK",
+		},
+		RawStatus:        domain.StatusUp,
+		ExpectedStateSeq: 1,
+		Incident: &domain.RegionalIncident{
+			SourceAlertID: alert.SourceAlertID,
+			Status:        domain.AlertStatusResolved,
+			ResolvedAt:    &recTime,
+		},
+		Alert: &domain.Alert{
+			SourceAlertID: alert.SourceAlertID,
+			Status:        domain.AlertStatusResolved,
+			ResolvedAt:    &recTime,
+		},
+		ThrottleClear: true,
+		DeliveryIntents: []domain.DeliveryIntent{
+			{NotificationID: notifID, NotificationVersion: 1, EventKind: domain.DeliveryEventIncidentSummary},
+		},
+	}
+
+	hb2, err := f.localHeartbeat.CommitLocalHeartbeat(ctx, upCommit)
+	if err != nil {
+		t.Fatalf("up commit failed: %v", err)
+	}
+	if hb2.SourceSeq != 2 {
+		t.Fatalf("expected seq 2, got %d", hb2.SourceSeq)
+	}
+
+	// Verify alert is resolved
+	var resolvedAlert repository.AlertModel
+	if err := f.db.NewSelect().Model(&resolvedAlert).Where("id = ?", alert.ID).Scan(ctx); err != nil {
+		t.Fatalf("failed to re-query alert: %v", err)
+	}
+	if resolvedAlert.Status != domain.AlertStatusResolved || resolvedAlert.TransitionVersion != 2 || resolvedAlert.OpenMonitorID != nil || resolvedAlert.ResolvedAt == nil {
+		t.Fatalf("resolved alert mismatch: %+v", resolvedAlert)
+	}
+
+	// Verify probe_incident is resolved
+	inc, err = f.incidents.GetIncident(ctx, alert.SourceAlertID)
+	if err != nil {
+		t.Fatalf("failed to re-query incident: %v", err)
+	}
+	if inc.Status != domain.AlertStatusResolved || inc.TransitionVersion != 2 || inc.ResolvedAt == nil {
+		t.Fatalf("resolved incident mismatch: %+v", inc)
+	}
+
+	// Verify escalation is resolved
+	if err := f.db.NewSelect().Model(&esc).Where("alert_id = ?", alert.ID).Scan(ctx); err != nil {
+		t.Fatalf("failed to re-query escalation: %v", err)
+	}
+	if esc.Status != domain.EscalationStateCanceled {
+		t.Fatalf("escalation status on resolve: %s", esc.Status)
+	}
+
+	// Verify throttle was cleared
+	assertTableCount(t, f, "notification_throttles", 0)
+
+	// Verify delivery intents: 2 rows (1 superseded, 1 pending)
+	var supersededCount int
+	if err := f.db.NewSelect().Table("probe_delivery_intents").ColumnExpr("COUNT(*)").
+		Where("source_alert_id = ? AND status = ?", alert.SourceAlertID, domain.DeliveryStatusSuperseded).
+		Scan(ctx, &supersededCount); err != nil || supersededCount != 1 {
+		t.Fatalf("superseded intent count = %d, err = %v", supersededCount, err)
+	}
+	var pendingCount int
+	if err := f.db.NewSelect().Table("probe_delivery_intents").ColumnExpr("COUNT(*)").
+		Where("source_alert_id = ? AND status = ? AND event_kind = ?", alert.SourceAlertID, domain.DeliveryStatusPending, domain.DeliveryEventIncidentSummary).
+		Scan(ctx, &pendingCount); err != nil || pendingCount != 1 {
+		t.Fatalf("pending recovery intent count = %d, err = %v", pendingCount, err)
+	}
+}
+
+func testLocalHeartbeatLifecycleFaultInjection(t *testing.T, f probeRegistryFixture) {
+	t.Helper()
+	ctx := context.Background()
+	uID := f.user(t)
+	mID := localMonitor(t, f)
+	notifID := f.notification(t, uID)
+	policyID := f.escalationPolicy(t, uID)
+
+	// Clear dirty buckets to observe partial writes
+	if _, err := f.db.ExecContext(ctx, "DELETE FROM probe_dirty_buckets"); err != nil {
+		t.Fatal(err)
+	}
+
+	at := time.Date(2026, 9, 19, 11, 0, 0, 0, time.UTC)
+	for _, table := range []string{"alerts", "probe_incidents", "probe_delivery_intents", "notification_throttles", "alert_escalations"} {
+		trigger := fmt.Sprintf("CREATE TRIGGER fail_local_write BEFORE INSERT ON %s BEGIN SELECT RAISE(ABORT, 'injected lifecycle write failure'); END", table)
+		if f.engine == "mariadb" {
+			trigger = fmt.Sprintf("CREATE TRIGGER fail_local_write BEFORE INSERT ON %s FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected lifecycle write failure'", table)
+		}
+		if _, err := f.db.ExecContext(ctx, trigger); err != nil {
+			t.Fatal(err)
+		}
+
+		downCommit := domain.LocalHeartbeatCommit{
+			Heartbeat: domain.Heartbeat{
+				MonitorID:            mID,
+				ProbeID:              domain.LocalProbeID,
+				StreamID:             domain.LocalStreamID,
+				AssignmentGeneration: 1,
+				ConfigRevision:       1,
+				Status:               domain.StatusDown,
+				DownCount:            1,
+				Time:                 at,
+				ReceivedAt:           at,
+				Msg:                  "Connection refused",
+			},
+			RawStatus:        domain.StatusDown,
+			ExpectedStateSeq: 0,
+			Incident: &domain.RegionalIncident{
+				Status: domain.AlertStatusFiring,
+			},
+			Alert: &domain.Alert{
+				Status: domain.AlertStatusFiring,
+			},
+			Escalation: &domain.AlertEscalation{
+				PolicyID:  policyID,
+				NextStep:  1,
+				NextRunAt: at.Add(5 * time.Minute),
+			},
+			ThrottleUpdate: true,
+			DeliveryIntents: []domain.DeliveryIntent{
+				{NotificationID: notifID, NotificationVersion: 1},
+			},
+		}
+
+		hb, err := f.localHeartbeat.CommitLocalHeartbeat(ctx, downCommit)
+		if err == nil || hb != nil {
+			t.Fatalf("%s fault returned success/partial: %+v, %v", table, hb, err)
+		}
+		if _, err := f.db.ExecContext(ctx, "DROP TRIGGER fail_local_write"); err != nil {
+			t.Fatal(err)
+		}
+		if got := localSequence(t, f); got != 0 {
+			t.Fatalf("%s fault consumed sequence %d", table, got)
+		}
+		for _, changed := range []string{
+			"heartbeats", "probe_observations", "monitor_probe_state", "probe_dirty_buckets",
+			"alerts", "probe_incidents", "probe_delivery_intents", "notification_throttles", "alert_escalations",
+		} {
+			assertTableCount(t, f, changed, 0)
+		}
+	}
+
+	// Fault recovery: commit succeeds cleanly
+	downCommit := domain.LocalHeartbeatCommit{
+		Heartbeat: domain.Heartbeat{
+			MonitorID:            mID,
+			ProbeID:              domain.LocalProbeID,
+			StreamID:             domain.LocalStreamID,
+			AssignmentGeneration: 1,
+			ConfigRevision:       1,
+			Status:               domain.StatusDown,
+			DownCount:            1,
+			Time:                 at,
+			ReceivedAt:           at,
+			Msg:                  "Connection refused",
+		},
+		RawStatus:        domain.StatusDown,
+		ExpectedStateSeq: 0,
+		Incident: &domain.RegionalIncident{
+			Status: domain.AlertStatusFiring,
+		},
+		Alert: &domain.Alert{
+			Status: domain.AlertStatusFiring,
+		},
+		Escalation: &domain.AlertEscalation{
+			PolicyID:  policyID,
+			NextStep:  1,
+			NextRunAt: at.Add(5 * time.Minute),
+		},
+		ThrottleUpdate: true,
+		DeliveryIntents: []domain.DeliveryIntent{
+			{NotificationID: notifID, NotificationVersion: 1},
+		},
+	}
+	hb, err := f.localHeartbeat.CommitLocalHeartbeat(ctx, downCommit)
+	if err != nil || hb.SourceSeq != 1 {
+		t.Fatalf("fault recovery failed: %+v %v", hb, err)
+	}
+}
+
+func testLocalHeartbeatAckAndResolveCancellation(t *testing.T, f probeRegistryFixture) {
+	t.Helper()
+	ctx := context.Background()
+	uID := f.user(t)
+	mID := localMonitor(t, f)
+	notifID := f.notification(t, uID)
+	policyID := f.escalationPolicy(t, uID)
+
+	at := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	downCommit := domain.LocalHeartbeatCommit{
+		Heartbeat: domain.Heartbeat{
+			MonitorID:            mID,
+			ProbeID:              domain.LocalProbeID,
+			StreamID:             domain.LocalStreamID,
+			AssignmentGeneration: 1,
+			ConfigRevision:       1,
+			Status:               domain.StatusDown,
+			DownCount:            1,
+			Time:                 at,
+			ReceivedAt:           at,
+			Msg:                  "Connection refused",
+		},
+		RawStatus:        domain.StatusDown,
+		ExpectedStateSeq: 0,
+		Incident: &domain.RegionalIncident{
+			Status: domain.AlertStatusFiring,
+		},
+		Alert: &domain.Alert{
+			Status: domain.AlertStatusFiring,
+		},
+		Escalation: &domain.AlertEscalation{
+			PolicyID:  policyID,
+			NextStep:  1,
+			NextRunAt: at.Add(5 * time.Minute),
+		},
+		ThrottleUpdate: true,
+		DeliveryIntents: []domain.DeliveryIntent{
+			{NotificationID: notifID, NotificationVersion: 1},
+		},
+	}
+	_, err := f.localHeartbeat.CommitLocalHeartbeat(ctx, downCommit)
+	if err != nil {
+		t.Fatalf("down commit failed: %v", err)
+	}
+
+	r := alertScopeRepos(f)
+	alert, err := r.alerts.GetOpenByMonitorID(ctx, mID)
+	if err != nil {
+		t.Fatalf("failed to get open alert: %v", err)
+	}
+
+	// 1. Acknowledge alert via AlertService with EscalationService
+	escSvc := services.NewEscalationService(r.policies, r.assignments, r.state, r.alerts, newEngineMonitorRepo(f), nil, &regionalAlertNotifier{})
+	alertSvc := services.NewAlertService(r.alerts)
+	alertSvc.SetEscalationCanceller(escSvc)
+
+	alert, err = alertSvc.Acknowledge(ctx, alert.ID, &uID)
+	if err != nil {
+		t.Fatalf("ack failed: %v", err)
+	}
+	if alert.TransitionVersion != 2 {
+		t.Fatalf("expected version 2 after ack, got %d", alert.TransitionVersion)
+	}
+
+	inc, err := f.incidents.GetIncident(ctx, alert.SourceAlertID)
+	if err != nil {
+		t.Fatalf("failed to query incident: %v", err)
+	}
+	if inc.Status != domain.AlertStatusAcked || inc.TransitionVersion != 2 || inc.AckedAt == nil {
+		t.Fatalf("incident was not acked in lockstep: %+v", inc)
+	}
+
+	var esc repository.AlertEscalationModel
+	if err := f.db.NewSelect().Model(&esc).Where("alert_id = ?", alert.ID).Scan(ctx); err != nil {
+		t.Fatalf("failed to query escalation: %v", err)
+	}
+	if esc.Status != domain.EscalationStateCanceled {
+		t.Fatalf("escalation was not cancelled on ack: %s", esc.Status)
+	}
+
+	var intentStatus string
+	if err := f.db.NewSelect().Table("probe_delivery_intents").Column("status").Where("source_alert_id = ?", alert.SourceAlertID).Scan(ctx, &intentStatus); err != nil {
+		t.Fatalf("failed to query intent status: %v", err)
+	}
+	if intentStatus != domain.DeliveryStatusSuperseded {
+		t.Fatalf("intent was not superseded on ack: %s", intentStatus)
+	}
+
+	// 2. Resolve alert via AlertStore.Update
+	resTime := at.Add(3 * time.Minute)
+	alert.Status = domain.AlertStatusResolved
+	alert.ResolvedAt = &resTime
+	alert.OpenMonitorID = nil
+	if err := r.alerts.Update(ctx, alert); err != nil {
+		t.Fatalf("resolve failed: %v", err)
+	}
+	if alert.TransitionVersion != 3 {
+		t.Fatalf("expected version 3 after resolve, got %d", alert.TransitionVersion)
+	}
+
+	inc, err = f.incidents.GetIncident(ctx, alert.SourceAlertID)
+	if err != nil {
+		t.Fatalf("failed to query incident: %v", err)
+	}
+	if inc.Status != domain.AlertStatusResolved || inc.TransitionVersion != 3 || inc.ResolvedAt == nil {
+		t.Fatalf("incident was not resolved in lockstep: %+v", inc)
+	}
+
+	assertTableCount(t, f, "notification_throttles", 0)
 }

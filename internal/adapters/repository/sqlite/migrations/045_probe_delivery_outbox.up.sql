@@ -32,7 +32,10 @@ CREATE TABLE IF NOT EXISTS probe_delivery_intents (
            (incident_status = 'resolved' AND resolved_at IS NOT NULL AND check_status = 1)),
     CHECK ((status = 'pending' AND attempt = 0 AND lease_token IS NULL AND leased_at IS NULL AND lease_until IS NULL) OR
            (status = 'leased' AND attempt >= 1 AND lease_token IS NOT NULL AND leased_at IS NOT NULL AND lease_until IS NOT NULL AND lease_until > leased_at) OR
-           (status IN ('retrying', 'sent', 'failed', 'superseded') AND attempt >= 1 AND lease_token IS NOT NULL AND leased_at IS NOT NULL AND lease_until IS NULL AND outcome_at IS NOT NULL)),
+           (status IN ('retrying', 'sent', 'failed') AND attempt >= 1 AND lease_token IS NOT NULL AND leased_at IS NOT NULL AND lease_until IS NULL AND outcome_at IS NOT NULL) OR
+           (status = 'superseded' AND lease_until IS NULL AND outcome_at IS NOT NULL AND
+               ((attempt = 0 AND lease_token IS NULL AND leased_at IS NULL) OR
+                (attempt >= 1 AND lease_token IS NOT NULL AND leased_at IS NOT NULL)))),
     FOREIGN KEY (source_alert_id) REFERENCES probe_incidents(source_alert_id) ON DELETE CASCADE,
     FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE,
     FOREIGN KEY (probe_id) REFERENCES probes(id) ON DELETE RESTRICT

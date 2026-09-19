@@ -739,4 +739,31 @@ Contract tests and unit tests verify:
 
 Next: Step D2 (commit lifecycle and notification intent with the observation). Remote runtime remains disabled; M0/M1 are still in progress.
 
+## Atomic observation lifecycle, throttles, and delivery outbox (Step D2) — 2026-09-19
+
+`LocalHeartbeatRecorder.CommitLocalHeartbeat` now owns the complete local availability transaction atomically across all 9 tables:
+1. Stream sequence allocation (`probe_local_sequence`)
+2. Heartbeat (`heartbeats`) and regional observation (`probe_observations`)
+3. Retry state (`monitor_probe_state`)
+4. Dirty buckets (`probe_dirty_buckets`)
+5. Source incident identity/version and lifecycle transition across both `alerts` and `probe_incidents` (lockstep version, identical UUID `source_alert_id`, preserving legacy alert ID and ack token)
+6. Applicable throttle changes (`notification_throttles`) and escalation changes (`alert_escalations`)
+7. Outbox delivery intent creation (`probe_delivery_intents`) for step-zero notifications and recovery notifications.
+
+Key architecture and protocol invariants enforced:
+- **Lockstep Lifecycle**: `alerts` and `probe_incidents` advance `transition_version` in lockstep with identical UUID `source_alert_id`. Acknowledging or resolving an incident transitions both tables together.
+- **Cancellation of Future Work**:
+  - On resolution (UP heartbeat): `alert_escalations` are canceled/resolved, pending `probe_delivery_intents` are superseded, and `notification_throttles` are cleared.
+  - On acknowledgement: `probe_delivery_intents` pending for the incident are superseded, and `probe_incidents` is updated in lockstep.
+- **Protocol Conformity for Superseded Intents**: Updated migrations `045_probe_delivery_outbox` on SQLite and MariaDB to permit `status = 'superseded'` when `attempt = 0` (canceled prior to any provider claim/send), matching `PROTOCOL.md` §2.5.
+- **Transactional All-or-Nothing Guarantee**: Injected faults in any of the tables (`alerts`, `probe_incidents`, `probe_delivery_intents`, `notification_throttles`, `alert_escalations`, etc.) roll back the entire transaction without consuming a stream sequence, leaving no partial state.
+
+Contract and unit tests verify:
+- `TestLocalHeartbeatContract/sqlite/LifecycleAndOutbox`: DOWN heartbeat atomically creates alert, probe_incident, escalation, throttle, and delivery intent; UP heartbeat resolves alert, resolves probe_incident, cancels escalation, clears throttle, supersedes pending intent, and enqueues recovery summary.
+- `TestLocalHeartbeatContract/sqlite/LifecycleFaultInjection`: Trigger-injected failures on each table prove zero partial writes and zero consumed sequence.
+- `TestLocalHeartbeatContract/sqlite/AckAndResolveCancellation`: Acknowledgement updates alert and probe_incident in lockstep, cancels escalation, and supersedes pending delivery intents.
+- Full regression verification: `go test -race -count=1 ./...` passes across domain, services, repository, and cmd packages.
+
+Next: Step D3 (reconcile before provider I/O, then cut over once). Live provider sending remains disabled until D3 is complete.
+
 

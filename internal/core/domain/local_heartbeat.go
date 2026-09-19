@@ -8,5 +8,9 @@ type LocalHeartbeatCommit struct {
 	RawStatus        Status
 	ExpectedStateSeq int64
 	Incident         *RegionalIncident
+	Alert            *Alert
 	DeliveryIntents  []DeliveryIntent
+	Escalation       *AlertEscalation
+	ThrottleUpdate   bool
+	ThrottleClear    bool
 }

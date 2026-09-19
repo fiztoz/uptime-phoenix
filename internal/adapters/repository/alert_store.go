@@ -119,45 +119,95 @@ func (r *AlertStore) Update(ctx context.Context, a *domain.Alert) error {
 	}
 	m.UpdatedAt = time.Now().UTC()
 	normalizeAlertTimes(m)
-	q := r.db.NewUpdate().Model(m).WherePK().
-		Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ?", m.MonitorID, m.ProbeID, m.AssignmentGeneration).
-		Where("transition_version < ?", int64(math.MaxInt64))
-	switch m.Status {
-	case domain.AlertStatusAcked:
-		if m.AckedAt == nil || m.OpenMonitorID == nil || *m.OpenMonitorID != m.MonitorID {
+
+	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		q := tx.NewUpdate().Model(m).WherePK().
+			Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ?", m.MonitorID, m.ProbeID, m.AssignmentGeneration).
+			Where("transition_version < ?", int64(math.MaxInt64))
+		switch m.Status {
+		case domain.AlertStatusAcked:
+			if m.AckedAt == nil || m.OpenMonitorID == nil || *m.OpenMonitorID != m.MonitorID {
+				return domain.ErrValidation
+			}
+			q = q.Set("status = ?", m.Status).Set("acked_at = ?", m.AckedAt).
+				Set("acked_by_user_id = ?", m.AckedByUserID).Where("status = ?", domain.AlertStatusFiring)
+		case domain.AlertStatusResolved:
+			if m.ResolvedAt == nil || m.OpenMonitorID != nil {
+				return domain.ErrValidation
+			}
+			q = q.Set("status = ?", m.Status).Set("resolved_at = ?", m.ResolvedAt).Set("open_monitor_id = NULL").
+				Where("status IN (?, ?)", domain.AlertStatusFiring, domain.AlertStatusAcked)
+		default:
 			return domain.ErrValidation
 		}
-		q = q.Set("status = ?", m.Status).Set("acked_at = ?", m.AckedAt).
-			Set("acked_by_user_id = ?", m.AckedByUserID).Where("status = ?", domain.AlertStatusFiring)
-	case domain.AlertStatusResolved:
-		if m.ResolvedAt == nil || m.OpenMonitorID != nil {
-			return domain.ErrValidation
+		res, err := q.Set("transition_version = transition_version + 1").Set("updated_at = ?", m.UpdatedAt).Exec(ctx)
+		if err != nil {
+			return r.translate(err)
 		}
-		q = q.Set("status = ?", m.Status).Set("resolved_at = ?", m.ResolvedAt).Set("open_monitor_id = NULL").
-			Where("status IN (?, ?)", domain.AlertStatusFiring, domain.AlertStatusAcked)
-	default:
-		return domain.ErrValidation
-	}
-	res, err := q.Set("transition_version = transition_version + 1").Set("updated_at = ?", m.UpdatedAt).Exec(ctx)
-	if err != nil {
-		return r.translate(err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("alert update affected rows: %w", err)
-	}
-	stored, err := r.GetByID(ctx, a.ID)
-	if err != nil {
-		return err
-	}
-	if stored.MonitorID != m.MonitorID || stored.ProbeID != m.ProbeID || stored.AssignmentGeneration != m.AssignmentGeneration {
-		return ports.ErrNotFound
-	}
-	if n == 0 && stored.Status != m.Status {
-		return ports.ErrConflict
-	}
-	*a = *stored
-	return nil
+		n, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("alert update affected rows: %w", err)
+		}
+		stored := new(AlertModel)
+		filterQuery := tx.NewSelect().Model(stored)
+		if r.scope.ProbeID != "" {
+			filterQuery = filterQuery.Where("probe_id = ? AND assignment_generation = ?", r.scope.ProbeID, r.scope.Generation)
+		} else {
+			filterQuery = filterQuery.Where("probe_id = ?", domain.LocalProbeID)
+		}
+		if err := filterQuery.Where("id = ?", a.ID).Scan(ctx); err != nil {
+			return r.translate(err)
+		}
+		normalizeAlertTimes(stored)
+		if stored.MonitorID != m.MonitorID || stored.ProbeID != m.ProbeID || stored.AssignmentGeneration != m.AssignmentGeneration {
+			return ports.ErrNotFound
+		}
+		if n == 0 && stored.Status != m.Status {
+			return ports.ErrConflict
+		}
+
+		if n > 0 && stored.SourceAlertID != "" {
+			incUpdate := tx.NewUpdate().TableExpr("probe_incidents").
+				Set("status = ?", m.Status).
+				Set("transition_version = ?", stored.TransitionVersion).
+				Set("updated_at = ?", m.UpdatedAt).
+				Where("source_alert_id = ?", stored.SourceAlertID)
+			if m.Status == domain.AlertStatusAcked {
+				incUpdate = incUpdate.Set("acked_at = ?", m.AckedAt)
+			} else if m.Status == domain.AlertStatusResolved {
+				incUpdate = incUpdate.Set("resolved_at = ?", m.ResolvedAt)
+			}
+			if _, err := incUpdate.Exec(ctx); err != nil {
+				return r.translate(err)
+			}
+
+			if m.Status == domain.AlertStatusAcked {
+				if _, err := tx.NewUpdate().TableExpr("probe_delivery_intents").
+					Set("status = ?", domain.DeliveryStatusSuperseded).
+					Set("outcome_at = ?", m.UpdatedAt).
+					Where("source_alert_id = ? AND status IN (?, ?)", stored.SourceAlertID, domain.DeliveryStatusPending, domain.DeliveryStatusRetrying).
+					Exec(ctx); err != nil {
+					return r.translate(err)
+				}
+			} else if m.Status == domain.AlertStatusResolved {
+				if _, err := tx.NewUpdate().TableExpr("probe_delivery_intents").
+					Set("status = ?", domain.DeliveryStatusSuperseded).
+					Set("outcome_at = ?", m.UpdatedAt).
+					Where("source_alert_id = ? AND status IN (?, ?)", stored.SourceAlertID, domain.DeliveryStatusPending, domain.DeliveryStatusRetrying).
+					Exec(ctx); err != nil {
+					return r.translate(err)
+				}
+				if _, err := tx.NewDelete().TableExpr("notification_throttles").
+					Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ?", m.MonitorID, m.ProbeID, m.AssignmentGeneration).
+					Exec(ctx); err != nil {
+					return r.translate(err)
+				}
+			}
+		}
+
+		*a = *stored.ToDomain()
+		return nil
+	})
 }
 
 // GetBySourceAlertID resolves the stable source identity within this view's scope.

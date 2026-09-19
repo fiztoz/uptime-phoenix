@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
 
@@ -57,16 +59,307 @@ func copyCommitIncident(incident *domain.RegionalIncident) *domain.RegionalIncid
 	return &copy
 }
 
-func commitIncidentAndDeliveriesTx(ctx context.Context, tx bun.Tx, obs domain.RegionalObservation, incident *domain.RegionalIncident, intents []domain.DeliveryIntent) error {
-	if incident != nil {
-		if err := bindCommitIncident(obs, incident); err != nil {
-			return err
-		}
-		if err := putIncidentTx(ctx, tx, incident); err != nil {
-			return err
+func copyCommitAlert(alert *domain.Alert) *domain.Alert {
+	if alert == nil {
+		return nil
+	}
+	copy := *alert
+	return &copy
+}
+
+func copyCommitEscalation(escalation *domain.AlertEscalation) *domain.AlertEscalation {
+	if escalation == nil {
+		return nil
+	}
+	copy := *escalation
+	return &copy
+}
+
+func generateAckToken() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func commitLifecycleAndDeliveriesTx(ctx context.Context, tx bun.Tx, obs domain.RegionalObservation, commit *domain.LocalHeartbeatCommit) error {
+	if commit.Incident == nil && commit.Alert != nil {
+		commit.Incident = &domain.RegionalIncident{
+			SourceAlertID:        commit.Alert.SourceAlertID,
+			TransitionVersion:    commit.Alert.TransitionVersion,
+			ProbeID:              obs.ProbeID,
+			MonitorID:            obs.MonitorID,
+			AssignmentGeneration: obs.AssignmentGeneration,
+			Scope:                domain.IncidentScopeRegional,
+			SubjectKind:          domain.IncidentSubjectAvailability,
+			Status:               commit.Alert.Status,
+			StartedAt:            commit.Alert.FiredAt,
+			ResolvedAt:           commit.Alert.ResolvedAt,
+			AckedAt:              commit.Alert.AckedAt,
+			Reason:               commit.Alert.Message,
+			ConfigRevision:       obs.ConfigRevision,
 		}
 	}
-	return enqueueDeliveryIntentsTx(ctx, tx, obs, incident, intents)
+	if commit.Alert == nil && commit.Incident != nil {
+		commit.Alert = &domain.Alert{
+			SourceAlertID:        commit.Incident.SourceAlertID,
+			TransitionVersion:    commit.Incident.TransitionVersion,
+			ProbeID:              obs.ProbeID,
+			AssignmentGeneration: obs.AssignmentGeneration,
+			MonitorID:            obs.MonitorID,
+			Status:               commit.Incident.Status,
+			Message:              commit.Incident.Reason,
+			FiredAt:              commit.Incident.StartedAt,
+			ResolvedAt:           commit.Incident.ResolvedAt,
+			AckedAt:              commit.Incident.AckedAt,
+		}
+	}
+
+	if commit.Incident != nil {
+		if commit.Incident.SourceAlertID == "" {
+			if commit.Alert != nil && commit.Alert.SourceAlertID != "" {
+				commit.Incident.SourceAlertID = commit.Alert.SourceAlertID
+			} else if commit.Incident.Status == domain.AlertStatusFiring {
+				id, err := uuid.NewRandom()
+				if err != nil {
+					return err
+				}
+				commit.Incident.SourceAlertID = id.String()
+			} else if commit.Incident.Status == domain.AlertStatusResolved {
+				var existingSourceID string
+				var existingVersion int64
+				err := tx.NewSelect().TableExpr("alerts").Column("source_alert_id", "transition_version").
+					Where("open_monitor_id = ? AND probe_id = ? AND assignment_generation = ?", obs.MonitorID, obs.ProbeID, obs.AssignmentGeneration).
+					Scan(ctx, &existingSourceID, &existingVersion)
+				if err == nil {
+					commit.Incident.SourceAlertID = existingSourceID
+					commit.Incident.TransitionVersion = existingVersion + 1
+				} else {
+					var inc probeIncidentModel
+					if err := tx.NewSelect().Model(&inc).
+						Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ? AND status = ?", obs.MonitorID, obs.ProbeID, obs.AssignmentGeneration, domain.AlertStatusFiring).
+						Scan(ctx); err == nil {
+						commit.Incident.SourceAlertID = inc.SourceAlertID
+						commit.Incident.TransitionVersion = inc.TransitionVersion + 1
+					}
+				}
+			}
+		}
+
+		if commit.Incident.SourceAlertID != "" {
+			var existingInc probeIncidentModel
+			err := tx.NewSelect().Model(&existingInc).Where("source_alert_id = ?", commit.Incident.SourceAlertID).Scan(ctx)
+			if err == nil {
+				if commit.Incident.StartedAt.IsZero() {
+					commit.Incident.StartedAt = existingInc.StartedAt
+				}
+				if commit.Incident.TransitionVersion == 0 {
+					commit.Incident.TransitionVersion = existingInc.TransitionVersion + 1
+				}
+				if commit.Incident.Reason == "" {
+					commit.Incident.Reason = existingInc.Reason
+				}
+				if commit.Incident.SubjectKind == "" {
+					commit.Incident.SubjectKind = existingInc.SubjectKind
+				}
+				if commit.Incident.ConditionKind == "" && existingInc.ConditionKind != nil {
+					commit.Incident.ConditionKind = *existingInc.ConditionKind
+				}
+				if commit.Incident.CertificateThreshold == 0 && existingInc.CertificateThreshold != nil {
+					commit.Incident.CertificateThreshold = int64(*existingInc.CertificateThreshold)
+				}
+				if commit.Incident.HubIncidentID == 0 {
+					commit.Incident.HubIncidentID = existingInc.HubIncidentID
+				}
+			}
+		}
+
+		if commit.Alert != nil {
+			commit.Alert.SourceAlertID = commit.Incident.SourceAlertID
+			if commit.Alert.TransitionVersion == 0 {
+				commit.Alert.TransitionVersion = commit.Incident.TransitionVersion
+			}
+			if commit.Alert.FiredAt.IsZero() {
+				commit.Alert.FiredAt = commit.Incident.StartedAt
+			}
+		}
+
+		if err := bindCommitIncident(obs, commit.Incident); err != nil {
+			return err
+		}
+		if err := putIncidentTx(ctx, tx, commit.Incident); err != nil {
+			return err
+		}
+
+		switch commit.Incident.Status {
+		case domain.AlertStatusFiring:
+			existingAlert := new(AlertModel)
+			alertQuery := tx.NewSelect().Model(existingAlert).
+				Where("open_monitor_id = ? AND probe_id = ? AND assignment_generation = ?", obs.MonitorID, obs.ProbeID, obs.AssignmentGeneration)
+			if tx.Dialect().Name() == dialect.MySQL {
+				alertQuery = alertQuery.For("UPDATE")
+			}
+			err := alertQuery.Scan(ctx)
+			if errors.Is(err, sql.ErrNoRows) {
+				ackToken := ""
+				if commit.Alert != nil && commit.Alert.AckToken != "" {
+					ackToken = commit.Alert.AckToken
+				} else {
+					ackToken = generateAckToken()
+				}
+				alertMsg := obs.Message
+				if commit.Alert != nil && commit.Alert.Message != "" {
+					alertMsg = commit.Alert.Message
+				} else if alertMsg == "" {
+					alertMsg = fmt.Sprintf("Monitor %d is DOWN", obs.MonitorID)
+				}
+				newAlert := &AlertModel{
+					SourceAlertID:        commit.Incident.SourceAlertID,
+					TransitionVersion:    commit.Incident.TransitionVersion,
+					ProbeID:              obs.ProbeID,
+					AssignmentGeneration: obs.AssignmentGeneration,
+					MonitorID:            obs.MonitorID,
+					Status:               domain.AlertStatusFiring,
+					Message:              alertMsg,
+					FiredAt:              commit.Incident.StartedAt,
+					AckToken:             ackToken,
+					OpenMonitorID:        &obs.MonitorID,
+					CreatedAt:            obs.ReceivedAt,
+					UpdatedAt:            obs.ReceivedAt,
+				}
+				if _, err := tx.NewInsert().Model(newAlert).Exec(ctx); err != nil {
+					return fmt.Errorf("insert alert: %w", probeRegistryError(err))
+				}
+				if commit.Alert != nil {
+					commit.Alert.ID = newAlert.ID
+					commit.Alert.SourceAlertID = newAlert.SourceAlertID
+					commit.Alert.TransitionVersion = newAlert.TransitionVersion
+					commit.Alert.AckToken = newAlert.AckToken
+					commit.Alert.OpenMonitorID = newAlert.OpenMonitorID
+					commit.Alert.Status = newAlert.Status
+					commit.Alert.FiredAt = newAlert.FiredAt
+				}
+				if commit.Escalation != nil {
+					esc := &AlertEscalationModel{
+						AlertID:   newAlert.ID,
+						MonitorID: obs.MonitorID,
+						PolicyID:  commit.Escalation.PolicyID,
+						NextStep:  commit.Escalation.NextStep,
+						NextRunAt: commit.Escalation.NextRunAt,
+						Status:    domain.EscalationStatePending,
+						CreatedAt: obs.ReceivedAt,
+						UpdatedAt: obs.ReceivedAt,
+					}
+					if _, err := tx.NewInsert().Model(esc).Exec(ctx); err != nil {
+						return fmt.Errorf("insert escalation: %w", probeRegistryError(err))
+					}
+					commit.Escalation.ID = esc.ID
+					commit.Escalation.AlertID = newAlert.ID
+				}
+			} else if err != nil {
+				return err
+			} else {
+				if existingAlert.SourceAlertID != commit.Incident.SourceAlertID {
+					return ports.ErrConflict
+				}
+				if commit.Alert != nil {
+					commit.Alert.ID = existingAlert.ID
+					commit.Alert.SourceAlertID = existingAlert.SourceAlertID
+					commit.Alert.TransitionVersion = existingAlert.TransitionVersion
+					commit.Alert.AckToken = existingAlert.AckToken
+					commit.Alert.OpenMonitorID = existingAlert.OpenMonitorID
+					commit.Alert.Status = existingAlert.Status
+					commit.Alert.FiredAt = existingAlert.FiredAt
+				}
+			}
+
+		case domain.AlertStatusResolved:
+			existingAlert := new(AlertModel)
+			alertQuery := tx.NewSelect().Model(existingAlert).
+				Where("source_alert_id = ?", commit.Incident.SourceAlertID)
+			if tx.Dialect().Name() == dialect.MySQL {
+				alertQuery = alertQuery.For("UPDATE")
+			}
+			err := alertQuery.Scan(ctx)
+			if err == nil {
+				if existingAlert.Status != domain.AlertStatusResolved {
+					resolvedAt := obs.ObservedAt
+					if commit.Incident.ResolvedAt != nil {
+						resolvedAt = *commit.Incident.ResolvedAt
+					}
+					if _, err := tx.NewUpdate().TableExpr("alerts").
+						Set("status = ?", domain.AlertStatusResolved).
+						Set("resolved_at = ?", resolvedAt).
+						Set("open_monitor_id = NULL").
+						Set("transition_version = ?", commit.Incident.TransitionVersion).
+						Set("updated_at = ?", obs.ReceivedAt).
+						Where("id = ? AND status IN (?, ?)", existingAlert.ID, domain.AlertStatusFiring, domain.AlertStatusAcked).
+						Exec(ctx); err != nil {
+						return fmt.Errorf("resolve alert: %w", probeRegistryError(err))
+					}
+				}
+				if commit.Alert != nil {
+					commit.Alert.ID = existingAlert.ID
+					commit.Alert.SourceAlertID = existingAlert.SourceAlertID
+					commit.Alert.TransitionVersion = commit.Incident.TransitionVersion
+					commit.Alert.Status = domain.AlertStatusResolved
+					commit.Alert.ResolvedAt = commit.Incident.ResolvedAt
+				}
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+
+			if _, err := tx.NewUpdate().TableExpr("alert_escalations").
+				Set("status = ?", domain.EscalationStateCanceled).
+				Set("updated_at = ?", obs.ReceivedAt).
+				Where("monitor_id = ? AND status IN (?, ?)", obs.MonitorID, domain.EscalationStatePending, "leased").
+				Exec(ctx); err != nil {
+				return fmt.Errorf("cancel escalation on resolve: %w", probeRegistryError(err))
+			}
+
+			if _, err := tx.NewUpdate().TableExpr("probe_delivery_intents").
+				Set("status = ?", domain.DeliveryStatusSuperseded).
+				Set("outcome_at = ?", obs.ReceivedAt).
+				Where("source_alert_id = ? AND status IN (?, ?)", commit.Incident.SourceAlertID, domain.DeliveryStatusPending, domain.DeliveryStatusRetrying).
+				Exec(ctx); err != nil {
+				return fmt.Errorf("supersede deliveries on resolve: %w", probeRegistryError(err))
+			}
+		}
+	}
+
+	if commit.ThrottleUpdate {
+		throttle := &notificationThrottleModel{
+			MonitorID:            obs.MonitorID,
+			ProbeID:              obs.ProbeID,
+			AssignmentGeneration: obs.AssignmentGeneration,
+			LastAttemptAt:        &obs.ObservedAt,
+		}
+		insert := tx.NewInsert().Model(throttle)
+		if tx.Dialect().Name() == dialect.MySQL {
+			insert = insert.On("DUPLICATE KEY UPDATE").Set("last_attempt_at = VALUES(last_attempt_at)")
+		} else {
+			insert = insert.On("CONFLICT (monitor_id, probe_id, assignment_generation) DO UPDATE").Set("last_attempt_at = EXCLUDED.last_attempt_at")
+		}
+		if _, err := insert.Exec(ctx); err != nil {
+			return fmt.Errorf("update notification throttle: %w", probeRegistryError(err))
+		}
+	}
+	if commit.ThrottleClear || (commit.Incident != nil && commit.Incident.Status == domain.AlertStatusResolved) {
+		if _, err := tx.NewDelete().TableExpr("notification_throttles").
+			Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ?", obs.MonitorID, obs.ProbeID, obs.AssignmentGeneration).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("clear notification throttle: %w", probeRegistryError(err))
+		}
+	}
+
+	return enqueueDeliveryIntentsTx(ctx, tx, obs, commit.Incident, commit.DeliveryIntents)
+}
+
+func commitIncidentAndDeliveriesTx(ctx context.Context, tx bun.Tx, obs domain.RegionalObservation, incident *domain.RegionalIncident, intents []domain.DeliveryIntent) error {
+	commit := &domain.LocalHeartbeatCommit{
+		Incident:        incident,
+		DeliveryIntents: intents,
+	}
+	return commitLifecycleAndDeliveriesTx(ctx, tx, obs, commit)
 }
 
 // GetDeliveryIntent returns durable source work in exactly one probe scope.
@@ -222,7 +515,30 @@ func enqueueDeliveryIntentsTx(ctx context.Context, tx bun.Tx, obs domain.Regiona
 		(incident.Status == domain.AlertStatusResolved && obs.Status != domain.StatusUp) || len(obs.Message) > 65535 {
 		return fmt.Errorf("availability delivery context: %w", domain.ErrValidation)
 	}
-	for _, intent := range intents {
+	for i := range intents {
+		intent := &intents[i]
+		if intent.DeliveryID == "" {
+			id, err := uuid.NewRandom()
+			if err != nil {
+				return err
+			}
+			intent.DeliveryID = id.String()
+		}
+		if intent.SourceAlertID == "" {
+			intent.SourceAlertID = incident.SourceAlertID
+		}
+		if intent.SourceTransitionVersion == 0 {
+			intent.SourceTransitionVersion = incident.TransitionVersion
+		}
+		if intent.ProbeID == "" {
+			intent.ProbeID = incident.ProbeID
+		}
+		if intent.AvailableAt.IsZero() {
+			intent.AvailableAt = obs.ObservedAt
+		}
+		if intent.EventKind == "" {
+			intent.EventKind = domain.DeliveryEventStatusChange
+		}
 		id, err := canonicalIdentity("delivery_id", intent.DeliveryID)
 		if err != nil {
 			return err

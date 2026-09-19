@@ -137,6 +137,36 @@ func (f probeRegistryFixture) monitor(t *testing.T) int64 {
 	return id
 }
 
+func (f probeRegistryFixture) notification(t *testing.T, userID int64) int64 {
+	t.Helper()
+	result, err := f.db.ExecContext(context.Background(),
+		"INSERT INTO notifications (user_id, name, type, active, is_default, config) VALUES (?, ?, ?, ?, ?, ?)",
+		userID, "Test Notif", "webhook", true, false, "{}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func (f probeRegistryFixture) escalationPolicy(t *testing.T, userID int64) int64 {
+	t.Helper()
+	result, err := f.db.ExecContext(context.Background(),
+		"INSERT INTO escalation_policies (user_id, name, description, enabled) VALUES (?, ?, ?, ?)",
+		userID, "Test Policy", "Desc", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 func (f probeRegistryFixture) remote(t *testing.T, id, key string) domain.Probe {
 	t.Helper()
 	probe := domain.Probe{ID: id, Key: key, Kind: domain.ProbeKindRemote, Name: key, Enabled: true}

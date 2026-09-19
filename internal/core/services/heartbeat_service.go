@@ -376,7 +376,57 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 			configRevision = 1
 		}
 		hb.AssignmentGeneration, hb.StreamID, hb.ConfigRevision = generation, domain.LocalStreamID, configRevision
-		saved, err := s.regional.CommitLocalHeartbeat(ctx, domain.LocalHeartbeatCommit{Heartbeat: hb, RawStatus: raw, ExpectedStateSeq: expectedSeq})
+		commit := domain.LocalHeartbeatCommit{Heartbeat: hb, RawStatus: raw, ExpectedStateSeq: expectedSeq}
+		if hb.Important {
+			prev := domain.StatusUp
+			if oldStatus != nil {
+				prev = *oldStatus
+			}
+			cur := hb.Status
+			if cur == domain.StatusDown && prev != domain.StatusDown {
+				commit.Incident = &domain.RegionalIncident{
+					ProbeID:              domain.LocalProbeID,
+					MonitorID:            monitor.ID,
+					AssignmentGeneration: generation,
+					Scope:                domain.IncidentScopeRegional,
+					SubjectKind:          domain.IncidentSubjectAvailability,
+					Status:               domain.AlertStatusFiring,
+					StartedAt:            hb.Time,
+					Reason:               hb.Msg,
+					ConfigRevision:       configRevision,
+				}
+				commit.Alert = &domain.Alert{
+					ProbeID:              domain.LocalProbeID,
+					AssignmentGeneration: generation,
+					MonitorID:            monitor.ID,
+					Status:               domain.AlertStatusFiring,
+					Message:              fmt.Sprintf("%s is DOWN", monitor.Name),
+					FiredAt:              hb.Time,
+				}
+				commit.ThrottleUpdate = true
+			} else if cur == domain.StatusUp && prev == domain.StatusDown {
+				commit.Incident = &domain.RegionalIncident{
+					ProbeID:              domain.LocalProbeID,
+					MonitorID:            monitor.ID,
+					AssignmentGeneration: generation,
+					Scope:                domain.IncidentScopeRegional,
+					SubjectKind:          domain.IncidentSubjectAvailability,
+					Status:               domain.AlertStatusResolved,
+					ResolvedAt:           &hb.Time,
+					Reason:               hb.Msg,
+					ConfigRevision:       configRevision,
+				}
+				commit.Alert = &domain.Alert{
+					ProbeID:              domain.LocalProbeID,
+					AssignmentGeneration: generation,
+					MonitorID:            monitor.ID,
+					Status:               domain.AlertStatusResolved,
+					ResolvedAt:           &hb.Time,
+				}
+				commit.ThrottleClear = true
+			}
+		}
+		saved, err := s.regional.CommitLocalHeartbeat(ctx, commit)
 		if errors.Is(err, ports.ErrStaleLocalState) {
 			continue
 		}

@@ -22,6 +22,10 @@ var _ ports.LocalHeartbeatRecorder = (*RegionalCommitStore)(nil)
 func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit domain.LocalHeartbeatCommit) (*domain.Heartbeat, error) {
 	callerIncident := commit.Incident
 	commit.Incident = copyCommitIncident(commit.Incident)
+	callerAlert := commit.Alert
+	commit.Alert = copyCommitAlert(commit.Alert)
+	callerEscalation := commit.Escalation
+	commit.Escalation = copyCommitEscalation(commit.Escalation)
 	hb := commit.Heartbeat
 	if hb.ID != 0 || hb.SourceSeq != 0 || hb.MonitorID <= 0 || hb.ProbeID != domain.LocalProbeID ||
 		hb.StreamID != domain.LocalStreamID || hb.AssignmentGeneration < 1 || commit.ExpectedStateSeq < 0 ||
@@ -133,13 +137,21 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		if err := markDirtyTx(ctx, tx, domain.DirtyBucketsForObservation(observation)); err != nil {
 			return err
 		}
-		return commitIncidentAndDeliveriesTx(ctx, tx, observation, commit.Incident, commit.DeliveryIntents)
+		return commitLifecycleAndDeliveriesTx(ctx, tx, observation, &commit)
 	})
 	if err != nil {
 		return nil, err
 	}
-	if callerIncident != nil {
+	if callerIncident != nil && commit.Incident != nil {
 		callerIncident.HubIncidentID = commit.Incident.HubIncidentID
+		callerIncident.SourceAlertID = commit.Incident.SourceAlertID
+		callerIncident.TransitionVersion = commit.Incident.TransitionVersion
+	}
+	if callerAlert != nil && commit.Alert != nil {
+		*callerAlert = *commit.Alert
+	}
+	if callerEscalation != nil && commit.Escalation != nil {
+		*callerEscalation = *commit.Escalation
 	}
 	return &hb, nil
 }
