@@ -34,17 +34,18 @@ type assignmentConditionEvaluator interface {
 
 // HeartbeatService handles heartbeat recording and status transition evaluation.
 type HeartbeatService struct {
-	heartbeats  ports.HeartbeatRepository
-	bus         ports.EventBus
-	dispatcher  ports.NotificationDispatcher
-	tlsInfo     ports.TLSInfoRepository
-	certAlert   certAlertEvaluator
-	conditions  monitorConditionEvaluator
-	assignments ports.MonitorProbeAssignmentRepository
-	regional    ports.LocalHeartbeatRecorder
-	activations ports.ProbeConfigActivationRepository
-	projector   overallHealthProjector
-	maintenance maintenanceChecker
+	heartbeats    ports.HeartbeatRepository
+	bus           ports.EventBus
+	dispatcher    ports.NotificationDispatcher
+	tlsInfo       ports.TLSInfoRepository
+	certAlert     certAlertEvaluator
+	conditions    monitorConditionEvaluator
+	assignments   ports.MonitorProbeAssignmentRepository
+	regional      ports.LocalHeartbeatRecorder
+	activations   ports.ProbeConfigActivationRepository
+	projector     overallHealthProjector
+	maintenance   maintenanceChecker
+	monitorNotifs ports.MonitorNotificationRepository
 }
 
 type overallHealthProjector interface {
@@ -108,6 +109,12 @@ func (s *HeartbeatService) SetMaintenance(m maintenanceChecker) {
 // nil, Record keeps heartbeat and regional writes without a current projection.
 func (s *HeartbeatService) SetOverallProjector(p overallHealthProjector) {
 	s.projector = p
+}
+
+// SetMonitorNotificationRepo attaches monitor-notification link retrieval so
+// availability status transitions can enqueue delivery outbox intents atomically.
+func (s *HeartbeatService) SetMonitorNotificationRepo(repo ports.MonitorNotificationRepository) {
+	s.monitorNotifs = repo
 }
 
 // Record saves a heartbeat from a check result and evaluates status transitions.
@@ -424,6 +431,19 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 					ResolvedAt:           &hb.Time,
 				}
 				commit.ThrottleClear = true
+			}
+			if s.monitorNotifs != nil && commit.Incident != nil {
+				if links, err := s.monitorNotifs.ListByMonitor(ctx, monitor.ID); err == nil {
+					for _, link := range links {
+						commit.DeliveryIntents = append(commit.DeliveryIntents, domain.DeliveryIntent{
+							ProbeID:             domain.LocalProbeID,
+							NotificationID:      link.NotificationID,
+							NotificationVersion: configRevision,
+							EventKind:           domain.DeliveryEventStatusChange,
+							AvailableAt:         hb.Time,
+						})
+					}
+				}
 			}
 		}
 		saved, err := s.regional.CommitLocalHeartbeat(ctx, commit)

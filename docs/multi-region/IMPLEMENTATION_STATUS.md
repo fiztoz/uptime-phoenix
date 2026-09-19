@@ -764,6 +764,38 @@ Contract and unit tests verify:
 - `TestLocalHeartbeatContract/sqlite/AckAndResolveCancellation`: Acknowledgement updates alert and probe_incident in lockstep, cancels escalation, and supersedes pending delivery intents.
 - Full regression verification: `go test -race -count=1 ./...` passes across domain, services, repository, and cmd packages.
 
-Next: Step D3 (reconcile before provider I/O, then cut over once). Live provider sending remains disabled until D3 is complete.
 
+## Reconcile before provider I/O, then cut over once (Step D3) — 2026-09-19
 
+`DeliveryOutboxConsumer` in `internal/core/services/delivery_consumer.go` is now implemented and wired, providing pre-send reconciliation before provider I/O and a single cutover from the legacy dispatcher:
+
+1. **Pre-send Reconciliation (`ReconcileBeforeSend`)**:
+   - Rechecks claim authority and lease expiry before making any external provider calls.
+   - Rechecks assignment generation and active state (`monitor_probe_assignments`). If the assignment was removed or rotated, the delivery intent is superseded (`assignment_superseded`).
+   - Rechecks active configuration revision (`probe_active_configs`) and channel version. If the channel was rotated or config advanced, the delivery is superseded (`channel_version_rotated`).
+   - Rechecks notification channel existence and active state (`notifications`). If disabled or removed, the delivery is superseded (`channel_disabled`).
+   - Rechecks monitor-channel link (`monitor_notifications`). If the link was removed, the delivery is superseded (`monitor_unlinked`).
+   - Rechecks maintenance window (`maintenanceChecker.IsActive`). If maintenance became active while queued, the delivery is superseded (`maintenance_active`).
+   - Rechecks incident lifecycle in `probe_incidents`:
+     - If the incident was resolved while an old `DOWN` delivery was queued/leased, the `DOWN` delivery is superseded (`incident_recovered`) and an explicit delayed incident summary is sent instead.
+     - If the incident was acknowledged, resends are suppressed (`incident_acknowledged`).
+2. **Redacted Error Classification and Bounded Backoff**:
+   - Provider errors are sanitized into fixed, snake_case error categories (`err_timeout`, `err_auth`, `err_rate_limit`, `err_network`, `err_bad_request`, `err_server_error`, `err_unknown`), ensuring no credentials, tokens, or raw provider messages leak into stored error codes or logs.
+   - Bounded exponential retry backoff (`CalculateBackoff`) with configurable max attempts.
+3. **Atomic Outcome Commit (`FinishDelivery`)**:
+   - Commits queue status (`sent`, `failed`, or `superseded`), attempt count, and outcome timestamps using the current token/attempt. Stale worker completions fail safely.
+   - Explicitly documents the unavoidable at-least-once external duplicate window if a probe crashes after provider acceptance but before the local outcome commit (T26).
+4. **Single Cutover from `NotificationDispatcher`**:
+   - `NotificationDispatcher.SetOutboxDelivery(true)` silences legacy availability alert dispatching (`cur == domain.StatusDown`, `cur == domain.StatusUp`, and still-DOWN resends) to prevent duplicate sends.
+   - Collateral damage prevention: preserves folder alerting, status-page recovery auto-resolve, certificate alerts, capacity alerts, and escalation ladders (step zero initiation remains dispatcher-owned, per T39).
+5. **Bootstrap Integration (`internal/bootstrap/run.go`)**:
+   - Wires `DeliveryOutboxConsumer`, `heartbeatSvc.SetMonitorNotificationRepo`, and sets `notifDispatcher.SetOutboxDelivery(true)`.
+   - Starts the delivery outbox consumer loop for the local probe when running in worker/all mode.
+
+Verification and Acceptance Tests:
+- Scenarios T06, T08, T25, T26, T27, and T39 implemented and verified in `internal/core/services/delivery_consumer_test.go`.
+- Full regression verification: `go test -race -count=1 ./...` passes across all packages.
+- Repository contracts pass on SQLite and MariaDB (`DeliveryOutboxContract`, `LocalHeartbeatContract`).
+- Zero warnings on `go vet ./internal/...`, `gofmt -l internal/` is empty, and `go build ./...` succeeds.
+
+Next: Milestone 1 is now complete (Steps A, B, C, D1, D2, D3 all implemented and verified). The local foundation, protected configuration, atomic local recording, and delivery outbox consumer are fully operational. Next is Milestone 2 (Edge runtime and enrollment).

@@ -110,6 +110,8 @@ type NotificationDispatcher struct {
 	throttles   ports.NotificationThrottleRepository
 	assignments ports.MonitorProbeAssignmentRepository
 
+	outboxDelivery bool // when true, availability alerts are dispatched by outbox consumer
+
 	mu           sync.Mutex
 	lastNotified map[domain.NotificationThrottleKey]time.Time
 	now          func() time.Time // injectable clock for tests
@@ -163,6 +165,14 @@ func (d *NotificationDispatcher) SetEscalationStarter(e escalationStarter) {
 // (e.g. https://status.example.com). Empty disables AckURL injection.
 func (d *NotificationDispatcher) SetPublicURL(url string) {
 	d.publicURL = strings.TrimRight(strings.TrimSpace(url), "/")
+}
+
+// SetOutboxDelivery enables or disables outbox delivery mode. When enabled,
+// availability alert dispatching is owned by the delivery outbox consumer and
+// skipped here to prevent duplicate sends, while folder alerting, escalation,
+// and auto-resolve remain active.
+func (d *NotificationDispatcher) SetOutboxDelivery(enabled bool) {
+	d.outboxDelivery = enabled
 }
 
 // OnHeartbeat evaluates a recorded heartbeat and dispatches an alert when the
@@ -238,15 +248,19 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 		// The escalation policy owns steps 1..N and starts only after this
 		// line, so the initial notification can be neither lost nor duplicated
 		// by a policy (docs/F2.3-ESCALATION-CONTRACTS.md, contract 2).
-		startedAt, duration := alertLifecycleTiming(alert, now)
-		d.dispatch(ctx, monitor, cur, prev, ackURL, checkOutput, startedAt, duration)
+		if !d.outboxDelivery {
+			startedAt, duration := alertLifecycleTiming(alert, now)
+			d.dispatch(ctx, monitor, cur, prev, ackURL, checkOutput, startedAt, duration)
+		}
 		d.startEscalation(ctx, monitor, alert)
 	case cur == domain.StatusUp && prev == domain.StatusDown:
 		// Recovery — resolve the open alert entity, notify, clear resend throttle,
 		// auto-resolve status-page incidents.
 		alert := d.resolveAlert(ctx, lifecycle, monitor.ID, now)
-		startedAt, duration := alertLifecycleTiming(alert, now)
-		d.dispatch(ctx, monitor, cur, prev, "", checkOutput, startedAt, duration)
+		if !d.outboxDelivery {
+			startedAt, duration := alertLifecycleTiming(alert, now)
+			d.dispatch(ctx, monitor, cur, prev, "", checkOutput, startedAt, duration)
+		}
 		d.forget(ctx, key)
 		if d.autoResolve != nil {
 			if err := d.autoResolve.AutoResolveOnRecovery(ctx, monitor.ID); err != nil {
@@ -268,8 +282,10 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 		}
 		if monitor.ResendInterval > 0 && d.reserveAttempt(ctx, key, now, time.Duration(monitor.ResendInterval)*time.Minute) {
 			alert, ackURL := d.openAlertForResend(ctx, lifecycle, monitor, now)
-			startedAt, duration := alertLifecycleTiming(alert, now)
-			d.dispatch(ctx, monitor, cur, prev, ackURL, checkOutput, startedAt, duration)
+			if !d.outboxDelivery {
+				startedAt, duration := alertLifecycleTiming(alert, now)
+				d.dispatch(ctx, monitor, cur, prev, ackURL, checkOutput, startedAt, duration)
+			}
 		}
 	}
 	// PENDING transitions (UP→PENDING, PENDING→UP) intentionally do not alert:

@@ -5,6 +5,15 @@ import "time"
 const (
 	DeliveryStatusPending = "pending"
 	DeliveryStatusLeased  = "leased"
+
+	ErrCodeNetworkTimeout      = "network_timeout"
+	ErrCodeConnectionRefused   = "connection_refused"
+	ErrCodeRateLimited         = "rate_limited"
+	ErrCodeAuthFailed          = "auth_failed"
+	ErrCodeBadRequest          = "bad_request"
+	ErrCodeProviderServerError = "provider_server_error"
+	ErrCodeUnknownSenderType   = "unknown_sender_type"
+	ErrCodeProviderError       = "provider_error"
 )
 
 // DeliveryIntent reserves a stable source delivery identity for one channel
