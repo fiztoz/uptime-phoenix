@@ -201,19 +201,9 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 	}
 	receiver := hubStateReceiver{ingest: t.stateIngest, session: domain.ProbeReplaySession{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: input.Generation, OwnerID: input.OwnerID}}
 	defer receiver.discard()
-	err = session.Run(runCtx, func(frameCtx context.Context, envelope Envelope) error {
+	err = session.RunWithHealth(runCtx, func(frameCtx context.Context, envelope Envelope) error {
 		if receiver.transfer != nil && !time.Now().Before(receiver.transfer.deadline) {
 			receiver.discard()
-		}
-		if envelope.Type == "health" {
-			// Refresh the DB lease/writability proof for each probe health.
-			if err := established(frameCtx); err != nil {
-				return errors.New("connector authority unavailable")
-			}
-			if ready.Swap(ingest != nil) != (ingest != nil) {
-				wakeHealth()
-			}
-			return nil
 		}
 		data, err := json.Marshal(envelope)
 		if err != nil {
@@ -283,6 +273,16 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 			return errors.New("probe rejected prepared configuration")
 		}
 		return errors.New("unsupported hub session operation")
+	}, func(frameCtx context.Context, _ HealthReceipt) error {
+		// This independent worker refreshes authority while replay/config work
+		// waits. The callback captures this session's exact connector lease.
+		if err := established(frameCtx); err != nil {
+			return errors.New("connector authority unavailable")
+		}
+		if ready.Swap(ingest != nil) != (ingest != nil) {
+			wakeHealth()
+		}
+		return nil
 	})
 	stop()
 	senders.Wait()

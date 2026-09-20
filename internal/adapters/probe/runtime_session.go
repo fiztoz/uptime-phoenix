@@ -202,7 +202,7 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 			transfer.Discard()
 		}
 	}()
-	err = session.Run(establishedCtx, func(frameCtx context.Context, envelope Envelope) error {
+	err = session.RunWithHealth(establishedCtx, func(frameCtx context.Context, envelope Envelope) error {
 		if transfer != nil && !time.Now().Before(deadline) {
 			transfer.Discard()
 			transfer = nil
@@ -223,17 +223,6 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 			return session.SendControl(frameCtx, response)
 		}
 		switch envelope.Type {
-		case "health":
-			var h Health
-			if err := json.Unmarshal(envelope.Payload, &h); err == nil {
-				if statePump != nil {
-					statePump.updateHubHealth(h)
-				}
-				if pump != nil {
-					pump.updateHubHealth(h)
-				}
-			}
-			return nil // Session validates exact role and payload.
 		case "state.applied":
 			if statePump == nil {
 				return errors.New("unsupported current state receipt")
@@ -314,6 +303,14 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 		default:
 			return errors.New("unsupported edge runtime operation")
 		}
+	}, func(_ context.Context, sample HealthReceipt) error {
+		if statePump != nil {
+			statePump.updateHubHealth(sample.Health)
+		}
+		if pump != nil {
+			pump.updateHubHealth(sample.Health)
+		}
+		return nil
 	})
 	end()
 	<-healthDone

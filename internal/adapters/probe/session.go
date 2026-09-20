@@ -79,6 +79,10 @@ func (s *Session) Run(ctx context.Context, handle func(context.Context, Envelope
 	if handle == nil {
 		return errors.New("handler function is required")
 	}
+	return s.run(ctx, func(ctx context.Context, e Envelope, _ time.Time, _ *Health) error { return handle(ctx, e) })
+}
+
+func (s *Session) run(ctx context.Context, handle func(context.Context, Envelope, time.Time, *Health) error) error {
 	if !atomic.CompareAndSwapInt32(&s.runStarted, 0, 1) {
 		return errors.New("session Run is single-use and cannot be called concurrently or repeated")
 	}
@@ -257,7 +261,7 @@ func (s *Session) checkSendState(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (s *Session) readerLoop(ctx context.Context, handle func(context.Context, Envelope) error) error {
+func (s *Session) readerLoop(ctx context.Context, handle func(context.Context, Envelope, time.Time, *Health) error) error {
 	for {
 		readTimeout := s.readTimeout
 		if readTimeout <= 0 {
@@ -265,6 +269,7 @@ func (s *Session) readerLoop(ctx context.Context, handle func(context.Context, E
 		}
 		readCtx, readCancel := context.WithTimeout(ctx, readTimeout)
 		msgType, data, err := s.conn.Read(readCtx)
+		receivedAt := time.Now() // Preserve the process monotonic component before dispatch.
 		readCancel()
 
 		if err != nil {
@@ -296,16 +301,18 @@ func (s *Session) readerLoop(ctx context.Context, handle func(context.Context, E
 			return errors.New("handshake and enrollment frames are forbidden during established session")
 		}
 
+		var health *Health
 		if envelope.Type == "health" {
-			_, health, err := DecodeHealth(data)
+			_, decoded, err := DecodeHealth(data)
 			if err != nil {
 				_ = s.Close()
 				return errors.New("invalid health frame payload")
 			}
-			if health.Role != s.cfg.PeerRole {
+			if decoded.Role != s.cfg.PeerRole {
 				_ = s.Close()
 				return errors.New("health peer role mismatch")
 			}
+			health = &decoded
 		}
 
 		handlerTimeout := s.handlerTimeout
@@ -313,7 +320,7 @@ func (s *Session) readerLoop(ctx context.Context, handle func(context.Context, E
 			handlerTimeout = 10 * time.Second
 		}
 		handleCtx, handleCancel := context.WithTimeout(ctx, handlerTimeout)
-		err = handle(handleCtx, envelope)
+		err = handle(handleCtx, envelope, receivedAt, health)
 		handleCancel()
 
 		if err != nil {

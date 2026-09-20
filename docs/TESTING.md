@@ -1036,3 +1036,13 @@ otherwise the shared MariaDB schema no longer matches `_migrations`. See
 [hub watchdog acceptance](multi-region/M3_HUB_WATCHDOG_ACCEPTANCE.md) for the full
 gate and remaining config/runtime/provider requirements. Storage tests do not
 constitute both-side watchdog process acceptance.
+
+### M3 independent incoming health
+
+Run `go test -race -count=1 ./internal/adapters/probe` for the real WebSocket/TLS
+regressions. `TestSessionHealth*` covers blocked callbacks, original monotonic
+receipt time, unhealthy sample order, overload/join, duplicate Run and stale/wrong
+role rejection. `TestHubHealthConfirmsConfigImmediatelyAfterDurableReceipt` must
+observe fresh health authority while its config receipt callback remains blocked,
+and must still withhold the applied revision until commit. This is transport
+acceptance; the complete watchdog runtime/provider and M3 partition checks remain.

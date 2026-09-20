@@ -213,3 +213,48 @@ renewal progress deadline must advance after durable checkpoint progress, not
 after evaluation alone. An in-memory timer that runs while storage is stuck does
 not prove useful progress. These are integration requirements, not implemented
 runtime acceptance.
+
+`Session.RunWithHealth` now implements the bounded independent ingress path above
+and is used by both production transports. See
+[M3_HEALTH_INGRESS_ACCEPTANCE.md](M3_HEALTH_INGRESS_ACCEPTANCE.md). The watchdog
+service must consume each `HealthReceipt` with its original monotonic timestamp
+and generation; neither runtime currently has that watchdog callback. Do not
+recompute receipt time at service dequeue or treat this transport change as
+watchdog completion. Settings, runtime progress fencing, source service, mirror
+authorization and probe provider context remain the next integration work.
+
+### Inspected settings and provider seams for the next implementation
+
+- `LocalProbeConfigSource` and `LocalProbeConfigDefinition` have no watchdog
+  settings or probe display metadata yet. Add them to the same saved source graph
+  used by `readProbeConfigSource` / `ResolveRemoteProbeConfig`, so watchdog-only
+  channels/templates are retained even with zero monitor assignments. Preserve
+  local disabled defaults. `RefreshRemote` compares encoded complete source bytes
+  under its transaction; do not add a separate unsynchronized settings cache.
+- `ConfigSnapshot` decoding selects exact required fields but permits unknown
+  fields. A compatible optional probe metadata extension can carry name/location
+  while enabled watchdog snapshots require that metadata and a `watchdog.v1`
+  capability. Capability derivation and the edge advertised inventory must agree.
+  Keep enabled-watchdog activation rejected until the actual source service,
+  provider reconciliation and replay path are wired. Do not remove the guard merely
+  to make snapshot tests pass.
+- The operator CLI currently accepts register/enroll/assign/prepare/status. Extend
+  `RunProbeAdmin` through an explicit settings command with a revision fence and
+  metadata-only output. Name/location originate in the authoritative `Probe` row;
+  do not infer them from a monitor or transport endpoint.
+- `AlertContext` currently has ProbeID but no ProbeName/ProbeLocation/source ID.
+  `notificationTemplateValues` assumes a numeric monitor/group entity ID, and
+  default webhook output always contains a monitor object. Introduce explicit
+  probe identity/context and the already-designed template variables; preserve
+  numeric IDs and existing output for monitor/group events. Probe JSON must not
+  invent monitor fields. `isAuxiliaryAlert`, `alertTitle`, `alertBody` and provider
+  built-in layouts need deliberate probe-connection rendering, not a fabricated
+  MonitorName/MonitorType. Check SMTP/Teams/Feishu layouts that use monitor labels
+  even in their auxiliary branches.
+- `ValidateProbeWatchdogCommit` requires unarmed state to have no open incident.
+  Define administrative disable behavior consistently with its lifecycle before
+  writing the service; do not accidentally emit a healthy recovery page because
+  an operator disabled the watchdog. Re-enable needs fresh monotonic arming.
+
+These are traced integration seams, not implemented settings or provider behavior.
+Complete them together with the timer/source service and real composition roots.

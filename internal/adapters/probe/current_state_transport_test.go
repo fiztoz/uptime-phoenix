@@ -37,9 +37,10 @@ func TestHubHealthConfirmsConfigImmediatelyAfterDurableReceipt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	recording, release := make(chan struct{}), make(chan struct{})
+	established := make(chan struct{}, 2)
 	done := make(chan error, 1)
 	go func() {
-		done <- s.transport.Run(ctx, s.input, func(context.Context) error { return nil }, func(ctx context.Context, _ domain.ProbeActiveConfig) error {
+		done <- s.transport.Run(ctx, s.input, func(context.Context) error { established <- struct{}{}; return nil }, func(ctx context.Context, _ domain.ProbeActiveConfig) error {
 			close(recording)
 			select {
 			case <-release:
@@ -64,6 +65,24 @@ func TestHubHealthConfirmsConfigImmediatelyAfterDurableReceipt(t *testing.T) {
 	case <-recording:
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
+	}
+	select {
+	case <-established: // Initial health from performHandshakeAndConfig.
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	healthy, queue := true, int64(0)
+	healthFrame, err := encodeFrame("health", Decimal(s.input.Generation), Health{Role: "probe", Ready: true, DBWritable: true, SchedulerHealthy: &healthy, ConfigRevision: s.snapshot.Revision, QueueBytes: &queue, ClockTime: Timestamp(time.Now().UTC()), Errors: []string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, healthFrame); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-established:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("health authority refresh waited behind the blocked configuration receipt")
 	}
 	healths := make(chan Health, 16)
 	readerDone := make(chan struct{})

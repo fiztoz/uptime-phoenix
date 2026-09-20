@@ -7,6 +7,24 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 independent health ingress — 2026-09-20
+
+`Session.RunWithHealth` separates ordered health callbacks from ordered replay,
+state and configuration work in both production transports. Receipt timestamps
+retain the local monotonic clock; invalid roles/generations are rejected before
+callbacks, and bounded queue overflow closes the session without silently dropping
+health samples. Both callback workers are canceled and joined on shutdown.
+
+See [verification and retrospective](M3_HEALTH_INGRESS_ACCEPTANCE.md) and
+[evidence](M3_HEALTH_INGRESS_EVIDENCE.json). The original synchronous-reader failure
+was reproduced, and a real TLS test holds config receipt storage open while
+requiring later health to progress. The final full Go race suite passed with
+226 MariaDB-named passes and zero MariaDB skips; build and zero-issue lint passed.
+The health callback also now receives the exact validated object, closing a
+reproduced case-insensitive JSON alias overwrite. This is an ingress prerequisite: no source
+watchdog is enabled. Continue the complete settings/timer/provider/replay
+integration described below; the M3 completion goal remains active.
+
 ## M3 hub watchdog source persistence prerequisite — 2026-09-20
 
 Hub migration 059 adds durable source ownership, an independent transition journal
