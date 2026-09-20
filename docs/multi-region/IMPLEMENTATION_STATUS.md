@@ -7,7 +7,84 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
-## Current delivery
+## Committed continuation baseline — 2026-09-20
+
+The user requested commits after acceptance. The implementation is committed
+locally on `codex/multi-region-probe-plan`, preserving the earlier seven unpushed
+commits. Nothing was pushed or deployed.
+
+| Commit | Scope |
+|---|---|
+| `18762e7` | M1 durable local delivery, escalation, refresh and lock-order corrections; migration 051 |
+| `32c26a8` | M2 autonomous probe, fenced hub connectors and operator CLI; migrations 052–053 and private edge schema |
+| `311e50a` | First M3 increment: automatic remote configuration sync and durable applied receipts |
+
+The combined committed source exactly matches the implementation that passed
+`make gate-full`, live DB contracts and process acceptance below. Isolated staged
+M1 and M2 snapshots additionally passed CGO-free builds and focused race tests.
+Current reports and the retrospective accompany these commits. M3 replay and
+recovery remain the next bounded work; the whole milestone is not complete.
+
+## M3 configuration synchronization — 2026-09-20
+
+The first M3 increment is implemented: enabled hub connectors automatically build
+complete remote snapshots from saved authorized source, preserve revisions on
+no-op reconciliation, transfer changed revisions and persist exact application
+receipts under current connector leases. CLI status distinguishes prepared from
+applied. Existing snapshot/receipt tables provide durable work; no new schema or
+external dependency was added. Source/API edits, concurrent publication, restart,
+stale receipts and late transaction rollback passed SQLite/live MariaDB tests and
+a real two-worker process smoke. `make gate-full` passed (exit 0), including full
+Go race tests, zero lint issues, frontend checks, 12 browser journeys and Helm validation.
+
+Read [the increment report](M3_CONFIG_SYNC_ACCEPTANCE.md) and updated
+[operator guide](M2_OPERATOR_GUIDE.md). Antigravity's M2 audit is complete and
+independently checked. Native input control prevented new delegation; Codex owns
+this M3 implementation and the shared contract now restricts delayed agent work
+to a separate read-only report.
+
+M3 remains in progress. The next bounded increment is ordered, fenced telemetry
+replay and durable cursor/ACK handling; current-state recovery, retention/gaps,
+watchdogs and commands follow. Do not restart the completed M0–M2 work below.
+
+## Integrator acceptance — 2026-09-20 (validated changes after a2551f8)
+
+**M0/M1 corrections and M2 engineering acceptance are complete and independently
+verified.** The commit ledger above records the accepted implementation. Read
+[the acceptance report](M2_ACCEPTANCE_REPORT.md), [operator guide](M2_OPERATOR_GUIDE.md)
+and [retrospective](../postmortems/2026-09-20-m1-integration-followup.md).
+Earlier dated status/next-work notes below are historical.
+
+The local path now has one durable delivery owner, atomic incident/escalation
+registration, applied configuration authority, automatic refresh and ACK links.
+The monitor/configuration MariaDB lock order is consistent. The final two-worker
+M1 process test passed DOWN, escalation, ACK cancellation, restart and UP recovery.
+
+M2 supplies a separate private SQLite probe, stable identity/TLS files and exclusive
+process lock, pinned TLS enrollment, fenced sessions, HTTP/TCP/DNS scheduling,
+exact-byte protected configuration activation and durable direct provider delivery.
+Normal worker/all mode opts into DB-leased connectors with `PROBES_ENABLED=true`.
+`phoenix-probe-admin` provides manual registration, enrollment, assignment and
+complete snapshot preparation. No normal hub API or frontend is exposed by the edge.
+
+Final M2 process acceptance passed with two real MariaDB hub workers. During a
+complete hub outage, a failed provider attempt survived edge restart, then DOWN/UP
+resolved one incident. Source sequence advanced 17 → 36, connection generation
+2 → 3, config stayed at revision 1 and the stream UUID remained unchanged.
+
+`make gate-full`, a final full Go race run, lint (0 issues), the complete live
+MariaDB/SQLite repository contracts and both final CGO-free process smokes passed.
+The report records commands, logs, initial failed fixture/teardown runs and fixes.
+M3 replay/retention/gaps/watchdogs, remote commands and fleet UI remain open. M2's
+fixed bounded queues stop visibly at capacity; they do not implement retention.
+
+Antigravity used Gemini 3.8 Flash High for four bounded implementation slices;
+Codex reviewed, corrected and integrated them. Its final read-only audit is now
+complete; Codex traced the three concerns and independently reran the focused
+runtime/session/connector race tests. See [the review disposition](M2_RUNTIME_SESSION_INTEGRATOR_REVIEW.md).
+The integrator's acceptance remains supported by its own DB and process evidence.
+
+## Current delivery (historical foundation summary)
 
 M0 and M1 are **in progress**, not complete. The foundation implements executable contracts, shared health rules, additive registration/assignment storage, and current-state snapshot decoding/assembly. It does not supply a running remote probe. No probe listener, enrollment endpoint, remote scheduler, connector, provider outbox consumer, remote ingest endpoint, or regional user interface is enabled.
 
@@ -813,4 +890,3 @@ All 8 failure modes identified in the retrospective have been addressed.
      14. `RestartReclaim`
      15. `CompleteEscalationBehavior`
      16. `SourceEditsThroughSupportedAppPath`
-

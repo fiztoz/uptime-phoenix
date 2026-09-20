@@ -1,44 +1,25 @@
 # Multi-region implementation guide for continuing agents
 
-> **2026-09-20 update:** M0 and M1 local cutover foundations (first activation/refresh,
-> applied-snapshot intent planning, disabled and group-inherited channels, maintenance parity,
-> restart/reclaim, and supported app edits) are implemented and pass all 16 runtime integration
-> acceptance tests in `TestLocalDeliveryContract` on SQLite with race detection. Default/no-key startup
-> preserves zero-dependency legacy dispatch, while key-configured startup activates the local outbox
-> pipeline. Per project rules, M1 remains in progress until live MariaDB verification is performed
-> with a configured `TEST_MARIADB_DSN`. Read the latest
-> [status update](IMPLEMENTATION_STATUS.md#local-runtime-cutover-and-m0m1-status--2026-09-20).
-> The next step is live MariaDB verification followed by M2 (Remote Probes & Ingest).
+> **Current baseline, 2026-09-20:** M0/M1 corrections and M2 engineering acceptance
+> passed, and the first M3 configuration-sync increment is committed through
+> `311e50a`. Antigravity's final M2 audit is delivered and independently checked.
+> The user authorized M3. Start
+> with the current [implementation status](IMPLEMENTATION_STATUS.md),
+> [M2 acceptance](M2_ACCEPTANCE_REPORT.md), and
+> [M3 configuration-sync contract](M3_CONFIG_SYNC_WORK_CONTRACT.md).
+> Preserve subsequent work; do not reset to an older commit or repeat M1 work.
 
+The detailed A–D material below is historical implementation guidance from the
+`4cc76f0` baseline. Its descriptions of missing M1/M2 features and proposed flags
+are not current status. Consult [M2_OPERATOR_GUIDE.md](M2_OPERATOR_GUIDE.md) for the
+operational binaries and supported flow. The first M3 configuration-sync increment
+is implemented; read [its acceptance report](M3_CONFIG_SYNC_ACCEPTANCE.md) for gate
+status. Ordered telemetry replay is next, followed by retention/gaps, current state
+and watchdogs under the M3 dependencies. Finish and verify one bounded
+increment at a time; do not claim the entire milestone from a component test.
 
-**Start here if you are taking over implementation.** This guide explains the
-next work in small, testable steps and identifies mistakes that can lose history,
-leak credentials, or send incorrect notifications. Complete one step at a time.
-
-Verified against code at **`4cc76f0` on 2026-09-19**, on
-`codex/multi-region-probe-plan`. This is a baseline, not a command to reset the
-checkout. M0/M1 are still in progress. **There is no running remote probe.**
-
-This guide makes the existing design actionable. It does not replace
-[AGENTS.md](../../AGENTS.md), [ARCHITECTURE.md](ARCHITECTURE.md), or
-[PROTOCOL.md](PROTOCOL.md). Proposed implementation steps below are not claims
-that those APIs, database rows, or runtime switches already exist.
-
-For your first implementation, complete **step A only**. Steps B–D explain the
-dependencies you must preserve, not a request to deliver the whole feature in one
-change. If A is already complete at your HEAD, take the next unfinished step.
-
-Jump to: [first actions](#1-your-first-actions),
-[terminology](#2-learn-these-distinctions-before-changing-code),
-[code map](#3-what-exists-and-where-to-look),
-[A: startup and keys](#4-step-a--integrate-key-and-installation-ownership-safely),
-[B: source freshness](#5-step-b--make-configuration-freshness-enforceable),
-[C: activation](#6-step-c--persist-exact-local-activation-atomically),
-[D: execution and delivery](#7-step-d--connect-execution-recording-and-durable-delivery),
-[remote work](#8-later-remote-work-follow-the-milestone-dependencies),
-[concerns](#9-concerns-to-check-in-every-relevant-patch),
-[testing](#10-testing-workflow-and-evidence),
-[copyable assignment and handoff](#11-how-to-split-work-and-hand-it-off).
+Read [AGENTS.md](../../AGENTS.md), [ARCHITECTURE.md](ARCHITECTURE.md),
+[PROTOCOL.md](PROTOCOL.md) and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
 ## 1. Your first actions
 
@@ -53,9 +34,9 @@ Jump to: [first actions](#1-your-first-actions),
    someone else's uncommitted work. Use the existing checkout unless the task
    explicitly calls for isolation. Do not reset to the baseline commit.
 4. Identify one deliverable, its affected files, and its acceptance tests. Start
-   with step A below unless newer commits have already completed it.
-5. Recheck both migration directories before reserving a number. `047` is the
-   latest at this baseline; do not assume the next number is still available.
+   with the unfinished increment in the latest status, not historical step A.
+5. Recheck both migration directories before reserving a number. the historical `047` baseline is obsolete; `053` is already present.
+   Do not assume the next number is still available.
 6. Read the existing tests alongside the implementation. Extend them rather than
    replacing the foundation with a second subsystem.
 

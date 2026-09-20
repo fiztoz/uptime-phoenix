@@ -46,7 +46,12 @@ flowchart TB
 
 ### 2.2 Process modes and packaging
 
-The current application gates `all`, `api`, and `worker` in `internal/bootstrap/run.go`. `probe` is a new mode requiring explicit wiring and configuration validation. Add `cmd/probe/main.go` as a dedicated executable entry point using the same modules; the all-in-one app may also dispatch `MODE=probe` before hub bootstrap. A probe must not create users, require a JWT secret, start hub rollups, or connect to MariaDB/Redis.
+The hub gates `all`, `api`, and `worker` in `internal/bootstrap/run.go`. M2 implements
+`cmd/probe/main.go` as a dedicated executable with separate edge bootstrap. The
+all-in-one app does not dispatch `MODE=probe`; use the dedicated executable. It
+does not create users, require a JWT secret, embed the frontend, start hub rollups,
+or connect to MariaDB/Redis. Explicit init creates identity/key/storage; ordinary
+run only opens intact retained state. See [M2 operator guide](M2_OPERATOR_GUIDE.md).
 
 Keep existing all-in-one and split API/worker image behavior. A probe artifact must use the worker-compatible checker/notifier runtime, an edge SQLite directory, and its own listener. It need not carry frontend assets. An optimized image is optional; shared implementation is required.
 
@@ -338,6 +343,40 @@ Provide up/down migrations. Down migration must refuse while non-local assignmen
 
 ## 8. Synchronization and bounded queues
 
+### Implemented M3 configuration synchronization (2026-09-20)
+
+The connector now reconciles enabled remote probes from saved authorized source
+before connecting and every 15-second lease renewal. `RemoteProbeConfigSyncStore`
+uses the existing serializable authority transaction, complete source reader,
+pure dependency resolver and explicit DTO encoder. It validates supported edge
+semantics before atomically inserting a new encrypted desired snapshot. Comparing
+with the last snapshot's fixed revision/timestamps avoids revision churn on a
+no-op; credentials stay encrypted and unchanged ciphertext is retained.
+
+The latest row in `probe_config_snapshots` is durable desired work. The matching
+`probe_active_configs` pointer and immutable `probe_config_applied_receipts` rows
+are application evidence. Existing schema 047/049 supports this; no new migration
+or parallel queue is added. Saved source is itself durable reconciliation input:
+missed in-memory events and API/worker splits cannot permanently lose a change.
+Desired publication follows source edits asynchronously, bounded by reconciliation
+and contention; it is not an instantaneous revocation mechanism across partitions.
+
+Validated application receipts check probe/installation/revision/hash/count and
+current unexpired connector owner/generation in the same transaction as pointer
+and receipt writes. Duplicate receipts preserve the first committed timestamp;
+stale receipts cannot regress the pointer. The remote edge remains authority for
+actual execution. Receipt loss or a failed receipt commit closes the socket for
+idempotent retry; a transfer without durable receipt expires after 60 seconds.
+
+Remote ACK links are disabled in encoded DTOs without mutating local preferences.
+Unsupported edge capabilities fail publication rather than being silently omitted.
+The current runtime remains HTTP/TCP/DNS plus direct delivery. Telemetry ingest,
+retention/gaps, current-state reconciliation and watchdogs are still M3 work.
+
+The remaining preparation-only discussion below describes the historical 047
+foundation and must be read alongside this implemented increment and M2 acceptance.
+
+
 The hub is the single writer of desired configuration. A snapshot contains the complete authorized configuration for one probe, with explicit revisions and assignment generations. Use full snapshots in V1 for correctness; optimize to deltas only after measurement. Config changes enqueue durable sync work; an in-memory event is a wake-up hint, not the only copy of the change.
 
 The implemented `047` foundation retains **prepared**, not active, snapshots in
@@ -434,7 +473,16 @@ The probe validates and stages the whole snapshot, including checker/provider ca
 
 The transport sends application control, configuration, and current-state snapshots ahead of history replay. Use one writer task with bounded queues and fair scheduling, avoiding uncontrolled goroutines per message. A current-state snapshot has the latest per-assignment source sequence; it can update the hub's current projection before the historical cursor catches up. Subsequent old telemetry never replaces a projection with a higher sequence. Snapshot ingestion does not fabricate raw history or resend regional notifications.
 
-Default edge telemetry retention is 7 days and 512 MiB, whichever is reached first. Start pressure warnings at 80%. Reserve at least 10% of that budget for transitions and gap markers; provider delivery/state storage has a separate 64 MiB budget. These are initial configurable defaults requiring capacity tests, not proven capacity claims. At 1,000 monitors every 60 seconds, the probe generates 1.44 million observations/day before retries, so byte limits can dominate time retention.
+The M3 target is edge telemetry retention of 7 days and 512 MiB, whichever is reached first. Start pressure warnings at 80%. Reserve at least 10% of that budget for transitions and gap markers; provider delivery/state storage has a separate 64 MiB budget. These are initial configurable defaults requiring capacity tests, not proven capacity claims. At 1,000 monitors every 60 seconds, the probe generates 1.44 million observations/day before retries, so byte limits can dominate time retention.
+
+The implemented M2 engineering runtime uses separate fixed 64 MiB telemetry and
+delivery bounds, with no deletion/replay/retention. Before leasing a provider
+attempt it reserves a maximum-sized outcome event, so observations cannot exhaust
+the room needed to persist that result after external I/O. A full queue stops
+recording with an error and unhealthy scheduler diagnostics; it never discards
+evidence. M3 must implement configurable retention and declared gaps before
+long-running fleet use. The target environment settings below are not all active
+in M2; consult the operator guide for implemented settings.
 
 Evict already-acknowledged records first, then the oldest unsent ordinary observations while preserving explicit gap ranges. Prefer transitions over repetitive samples, but finite storage still requires an eventual loss policy. Persist/coalesce a gap before discarding events, send the gap to the hub, and advance the hub cursor only through an acknowledged gap transaction. Mark affected historical coverage UNKNOWN. Never silently claim complete telemetry.
 
@@ -504,7 +552,7 @@ them before opening network listeners.
 | Setting | Default / requirement |
 |---|---|
 | `PROBES_ENABLED` | `false` on hub; enables fleet/connector features only after migration compatibility gate |
-| `MODE=probe` | New explicit edge mode; never invokes hub DB/auth bootstrap |
+| Dedicated `probe run` | Implemented M2 entry point; never invokes hub DB/auth bootstrap; `MODE=probe` is not dispatched by the hub executable |
 | `PROBE_LISTEN_ADDR` | `:8443` in probe mode; configurable port/bind address |
 | `PROBE_DATA_DIR` | `/var/lib/uptime-phoenix/probe`; persistent local filesystem, exclusive owner, never a shared network WAL directory |
 | `PROBE_SECRET_KEY_FILE` | Implemented for standalone `phoenix-probe-key init/check`; planned runtime input for the protected 32-byte installation key |
@@ -538,11 +586,17 @@ Backups must preserve edge identity, SQLite WAL-consistent state, and TLS/secret
 
 ### Local foundation correction contract — 2026-09-20
 
-Ordinary bootstrap keeps the legacy availability dispatcher and does not start the
-experimental outbox consumer. Selecting a secret key verifies installation ownership
-only; it does not imply activation or a notification cutover. The internal outbox
-path is explicitly selected by its caller and is tested separately until complete
-startup, refresh and escalation integration is available. M1 remains in progress.
+Ordinary bootstrap without a probe secret key keeps the legacy availability
+runtime. The integrated key-configured path verifies installation ownership,
+prepares/activates local configuration and selects the durable availability outbox.
+Its recorder owns incident/alert creation, initial delivery and escalation registration
+in one transaction. The legacy dispatcher does not repeat those effects. Due
+escalation steps enqueue deliveries and advance their ladder atomically; provider
+I/O runs only through the consumer. This corrects the initial 2026-09-20 guard,
+which enabled both delivery owners in the follow-up patch. The real two-worker
+MariaDB smoke verifies this integration; final project gates remain recorded in
+IMPLEMENTATION_STATUS.md. M2 remote connectors are opt-in through
+`PROBES_ENABLED=true` in worker/all mode and the separate probe executable.
 
 Applied local execution reads a complete source definition under a serializable
 transaction on MariaDB (explicit isolation, independent of session defaults), or a
@@ -571,3 +625,10 @@ Acknowledgement suppresses a claimed unsent DOWN even on attempt one.
 Migration 050 upgrades the outbox constraint for previously applied 045 databases
 and preserves existing rows. Run upgrades with writers stopped; downgrade refuses
 zero-attempt superseded rows which the old schema cannot represent.
+
+Migration 051 records escalation policy/step identity on durable availability
+work. Its downgrade refuses to erase retained escalation context. A source refresh
+coalesces successful configuration mutation hints, with a five-second reconciliation
+fallback for lost hints/non-HTTP writers. Refresh stops with the runtime context.
+Monitor creation takes the local registration lock before inserting monitor rows,
+matching serializable source-read order and avoiding the reproduced MariaDB deadlock.
