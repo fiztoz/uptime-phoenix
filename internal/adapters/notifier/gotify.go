@@ -37,7 +37,7 @@ func (GotifySender) Send(ctx context.Context, config map[string]any, alert domai
 	var title, message string
 	if isAuxiliaryAlert(alert) {
 		priority = 8
-		if isCapacityCondition(alert) && alert.ConditionState == domain.ConditionStateOK {
+		if isCapacityCondition(alert) && alert.ConditionState == domain.ConditionStateOK || isProbeConnection(alert) && alert.Status == domain.StatusUp {
 			priority = 0
 		}
 		title = alertTitleWithPrefix("Phoenix:", alert)

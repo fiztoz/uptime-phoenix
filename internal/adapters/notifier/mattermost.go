@@ -60,7 +60,7 @@ func (MattermostSender) Send(ctx context.Context, config map[string]any, alert d
 		case domain.StatusPending:
 			color = "#FFA500"
 		}
-		if alert.CheckOutput != "" {
+		if !isProbeConnection(alert) && alert.CheckOutput != "" {
 			text += "\n" + alert.CheckOutput
 		}
 	}
@@ -68,7 +68,10 @@ func (MattermostSender) Send(ctx context.Context, config map[string]any, alert d
 	fields := []map[string]any{
 		{"short": true, "title": "Type", "value": alert.MonitorType},
 	}
-	if alert.MonitorTarget != "" {
+	if isProbeConnection(alert) {
+		fields = []map[string]any{{"short": true, "title": "Probe", "value": probeAlertName(alert)}, {"short": true, "title": "Location", "value": alert.ProbeLocation}}
+	}
+	if !isProbeConnection(alert) && alert.MonitorTarget != "" {
 		fields = append(fields, map[string]any{"short": true, "title": "Target", "value": alert.MonitorTarget})
 	}
 

@@ -10,8 +10,10 @@
 > persistence is also implemented; see [hub acceptance](M3_HUB_WATCHDOG_ACCEPTANCE.md).
 > Saved watchdog settings and explicit probe display metadata are implemented;
 > see [settings acceptance](M3_WATCHDOG_SETTINGS_ACCEPTANCE.md). The enabled config
-> guard still rejects activation. Next complete source timing, health admission,
-> mirror authorization and runtime/provider integration per
+> guard still rejects activation. Source timing and health admission are integrated;
+> source provider authorization and explicit probe messages are implemented (see
+> [delivery verification](M3_WATCHDOG_DELIVERY_ACCEPTANCE.md)). Next complete
+> mirror authorization and enabled both-side process acceptance per
 > [both watchdogs](M3_WATCHDOG_WORK_CONTRACT.md).
 > Verify Git HEAD and uncommitted work before editing; never reset to an older baseline.
 

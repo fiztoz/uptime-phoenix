@@ -22,21 +22,23 @@ type watchdogOwnerEvent struct {
 // tick reservation share a short gate; all config/storage work happens outside it.
 // One Run owns the source controller. Configure dependencies before starting it.
 type ProbeWatchdogRuntime struct {
-	repo       ports.ProbeWatchdogRepository
-	configs    ports.EdgeConfigReader
-	authority  func(context.Context) (domain.ProbeWatchdogAuthority, error)
-	source     *ProbeWatchdogSource
-	origin     time.Time
-	now        func() time.Time
-	interval   time.Duration
-	mu         sync.Mutex
-	generation int64
-	connected  bool
-	queue      []watchdogOwnerEvent
-	interrupt  *watchdogOwnerEvent
-	wake       chan struct{}
-	started    atomic.Bool
-	progress   atomic.Int64
+	repo            ports.ProbeWatchdogRepository
+	configs         ports.EdgeConfigReader
+	authority       func(context.Context) (domain.ProbeWatchdogAuthority, error)
+	delivery        *ProbeWatchdogDeliveryService
+	deliveryProbeID string
+	source          *ProbeWatchdogSource
+	origin          time.Time
+	now             func() time.Time
+	interval        time.Duration
+	mu              sync.Mutex
+	generation      int64
+	connected       bool
+	queue           []watchdogOwnerEvent
+	interrupt       *watchdogOwnerEvent
+	wake            chan struct{}
+	started         atomic.Bool
+	progress        atomic.Int64
 }
 
 var _ ports.ProbeHealthAdmission = (*ProbeWatchdogRuntime)(nil)
@@ -50,6 +52,12 @@ func NewProbeWatchdogRuntime(repo ports.ProbeWatchdogRepository, configs ports.E
 	}
 	return &ProbeWatchdogRuntime{repo: repo, configs: configs, authority: authority, source: source,
 		origin: time.Now(), now: time.Now, interval: 5 * time.Second, wake: make(chan struct{}, 1)}, nil
+}
+
+// SetDelivery attaches hub source delivery before Run. It shares cancellation
+// and join lifetime with the stable owner, but never blocks the timer actor.
+func (r *ProbeWatchdogRuntime) SetDelivery(service *ProbeWatchdogDeliveryService, probeID string) {
+	r.delivery, r.deliveryProbeID = service, probeID
 }
 
 // Begin follows durable adoption of a strictly newer session generation. It
@@ -190,6 +198,12 @@ func (r *ProbeWatchdogRuntime) step(ctx context.Context, event watchdogOwnerEven
 func (r *ProbeWatchdogRuntime) Run(ctx context.Context, report func(error)) error {
 	if !r.started.CompareAndSwap(false, true) {
 		return ports.ErrConflict
+	}
+	if r.delivery != nil {
+		deliveryCtx, stop := context.WithCancel(ctx)
+		joined := make(chan struct{})
+		go func() { defer close(joined); r.delivery.Run(deliveryCtx, r.deliveryProbeID, report) }()
+		defer func() { stop(); <-joined }()
 	}
 	var pending *watchdogOwnerEvent
 	for ctx.Err() == nil {

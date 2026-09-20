@@ -37,7 +37,14 @@ func (FeishuSender) Send(ctx context.Context, config map[string]any, alert domai
 		targetLine = fmt.Sprintf("**Target:** %s\n", alert.MonitorTarget)
 	}
 	bodyContent := fmt.Sprintf("**Monitor:** %s\n**Type:** %s\n%s**Message:** %s", alert.MonitorName, alert.MonitorType, targetLine, alert.Message)
-	if isAuxiliaryAlert(alert) {
+	if isProbeConnection(alert) {
+		color = "red"
+		if alert.Status == domain.StatusUp {
+			color = "green"
+		}
+		headerContent = fmt.Sprintf("%s %s", alertEmoji(alert), alertTitle(alert))
+		bodyContent = alertBody(alert)
+	} else if isAuxiliaryAlert(alert) {
 		emoji = alertEmoji(alert)
 		color = "orange"
 		if isCapacityCondition(alert) {

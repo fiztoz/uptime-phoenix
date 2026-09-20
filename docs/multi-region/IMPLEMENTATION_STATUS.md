@@ -7,6 +7,24 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 watchdog source delivery prerequisite — 2026-09-20
+
+Source delivery now reconciles exact applied settings, channel version/activity,
+incident/ACK and current claim/owner before bounded provider I/O. Both composition
+roots are wired; shutdown joins the provider worker independently of timer storage.
+All eleven existing providers carry explicit probe context, and templates/webhooks
+preserve source identity without fabricated monitors. A reproduced MariaDB lease
+clock mismatch, urgent Gotify recovery and oversized Slack headers are fixed.
+
+See [verification](M3_WATCHDOG_DELIVERY_ACCEPTANCE.md),
+[evidence](M3_WATCHDOG_DELIVERY_EVIDENCE.json) and
+[retrospective](M3_WATCHDOG_DELIVERY_RETROSPECTIVE.md). Full Go race: 22 test
+packages, 3,250 named passes, zero failures/MariaDB skips. CGO-free build and lint
+passed. Antigravity acknowledged the independently verified provider findings and
+coding lessons; it owns no files. Enabled config remains guarded. Continue exact
+watchdog mirror authorization and both-side process acceptance, then the remaining
+M3 commands/rotation/reset/partition work. This prerequisite is not M3 completion.
+
 ## M3 watchdog source runtime prerequisite — 2026-09-20
 
 Both composition roots now run a durable watchdog source controller with ordered

@@ -27,7 +27,7 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 	recording := services.NewEdgeRecordingService(store, store, cron)
 	schedule := scheduler.NewEdgeScheduler(configs, recording, checker.Get, cron)
 	delivery := services.NewEdgeDeliveryService(store, configs, store, cron, notifier.Get)
-	watchdog, err := services.NewProbeWatchdogRuntime(store, configs, func(ctx context.Context) (domain.ProbeWatchdogAuthority, error) {
+	watchdogAuthority := func(ctx context.Context) (domain.ProbeWatchdogAuthority, error) {
 		i, err := store.ReadIdentity(ctx)
 		if err != nil {
 			return domain.ProbeWatchdogAuthority{}, err
@@ -36,10 +36,16 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 			return domain.ProbeWatchdogAuthority{}, ports.ErrNotFound
 		}
 		return domain.ProbeWatchdogAuthority{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID}, nil
-	}, "hub")
+	}
+	watchdog, err := services.NewProbeWatchdogRuntime(store, configs, watchdogAuthority, "hub")
 	if err != nil {
 		return err
 	}
+	watchdogDelivery, err := services.NewProbeWatchdogDeliveryService(store, configs, store, watchdogAuthority, notifier.Get)
+	if err != nil {
+		return err
+	}
+	delivery.SetWatchdog(watchdogDelivery)
 	diagnostic := func(ctx context.Context) (probe.Health, error) {
 		state, err := store.ReadDiagnostics(ctx)
 		if err != nil {

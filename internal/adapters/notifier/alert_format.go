@@ -19,11 +19,28 @@ func isCapacityCondition(alert domain.AlertContext) bool {
 }
 
 func isAuxiliaryAlert(alert domain.AlertContext) bool {
-	return isCertificateExpiry(alert) || isCapacityCondition(alert)
+	return isCertificateExpiry(alert) || isCapacityCondition(alert) || isProbeConnection(alert)
+}
+
+func isProbeConnection(alert domain.AlertContext) bool {
+	return alert.EventKind == domain.DeliveryEventProbeConnection && alert.AlertScope == domain.AlertScopeProbe
+}
+
+func probeAlertName(alert domain.AlertContext) string {
+	if alert.ProbeName != "" {
+		return alert.ProbeName
+	}
+	return alert.ProbeID
 }
 
 // alertTitle returns a short title appropriate for the event kind.
 func alertTitle(alert domain.AlertContext) string {
+	if isProbeConnection(alert) {
+		if alert.Status == domain.StatusUp {
+			return "Probe connection restored: " + probeAlertName(alert)
+		}
+		return "Probe connection lost: " + probeAlertName(alert)
+	}
 	if isCertificateExpiry(alert) {
 		return fmt.Sprintf("Certificate expiring: %s (%d days)", alert.MonitorName, alert.CertDaysRemaining)
 	}
@@ -56,6 +73,17 @@ func alertTitleWithPrefix(prefix string, alert domain.AlertContext) string {
 // alertBody expands the human-readable body. Certificate events include
 // threshold, days remaining, issuer, and NotAfter when present.
 func alertBody(alert domain.AlertContext) string {
+	if isProbeConnection(alert) {
+		body := alert.Message
+		if body == "" {
+			body = alertTitle(alert)
+		}
+		body += "\nProbe: " + probeAlertName(alert)
+		if alert.ProbeLocation != "" {
+			body += "\nLocation: " + alert.ProbeLocation
+		}
+		return body
+	}
 	if isCapacityCondition(alert) {
 		if alert.Message != "" {
 			return alert.Message
@@ -106,6 +134,11 @@ func webhookEventPayload(alert domain.AlertContext) map[string]any {
 			"id":     alert.MonitorID,
 		},
 		"check_output": alert.CheckOutput,
+	}
+	if isProbeConnection(alert) {
+		delete(body, "monitor")
+		body["probe"] = map[string]any{"id": alert.ProbeID, "name": alert.ProbeName, "location": alert.ProbeLocation}
+		body["delivery_scope"], body["source_alert_id"] = alert.DeliveryScope, alert.SourceAlertID
 	}
 	if isCertificateExpiry(alert) {
 		body["cert_threshold"] = alert.CertThreshold

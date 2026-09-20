@@ -56,10 +56,19 @@ func (SlackSender) Send(ctx context.Context, config map[string]any, alert domain
 		sectionText = fmt.Sprintf("*Status:* %s\n*Message:* %s%s", alert.Status, alert.Message, targetLine)
 	}
 
+	header := fmt.Sprintf("%s %s", emoji, alert.MonitorName)
+	contextText := fmt.Sprintf("Monitor type: %s | %s", alert.MonitorType, time.Now().Format(time.RFC3339))
+	if isProbeConnection(alert) {
+		header = fmt.Sprintf("%s %s", emoji, alertTitle(alert))
+		if runes := []rune(header); len(runes) > 150 {
+			header = string(runes[:149]) + "…"
+		}
+		contextText = "Probe connection | " + time.Now().UTC().Format(time.RFC3339)
+	}
 	blocks := []map[string]any{
 		{
 			"type": "header",
-			"text": map[string]any{"type": "plain_text", "text": fmt.Sprintf("%s %s", emoji, alert.MonitorName)},
+			"text": map[string]any{"type": "plain_text", "text": header},
 		},
 		{
 			"type": "section",
@@ -71,7 +80,7 @@ func (SlackSender) Send(ctx context.Context, config map[string]any, alert domain
 		{
 			"type": "context",
 			"elements": []map[string]any{
-				{"type": "mrkdwn", "text": fmt.Sprintf("Monitor type: %s | %s", alert.MonitorType, time.Now().Format(time.RFC3339))},
+				{"type": "mrkdwn", "text": contextText},
 			},
 		},
 	}

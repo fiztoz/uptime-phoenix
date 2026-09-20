@@ -351,3 +351,23 @@ Trace these concrete seams before continuing:
 These are traced requirements for the next implementation, not completed behavior.
 Codex retains source ownership. Antigravity owns no files and its audits do not
 substitute for real engine, process or provider effect assertions.
+
+### Source provider integration
+
+The next increment implements the delivery service, both source storage
+authorizers, composition wiring and explicit probe context/templates/provider
+messages. See [delivery verification](M3_WATCHDOG_DELIVERY_ACCEPTANCE.md) and
+[retrospective](M3_WATCHDOG_DELIVERY_RETROSPECTIVE.md). ACK suppresses queued DOWN;
+recovery still uses the exact resolved source identity. A single send deadline is
+covered by current claim/parent leases. Hub watchdog claim and expiry checks use
+the same database clock. Provider work runs outside storage locks and is joined
+on owner shutdown. The enabled-runtime guard remains.
+
+Continue the mirror boundary above: map watchdog DTOs, authorize retained exact
+configuration and delivery channel versions, distinguish hub source UUIDs from
+edge mirrors, and support null monitor/generation parent receipts. Source versions
+and stream sequence order history across wall-clock rollback. Unknown or forged
+acknowledgements must not become trusted operator actions; complete the command
+correlation path before accepting them. No mirrored event may enqueue hub sends.
+Then prove enabled both-side paging through real processes before removing the
+capability/config guard. The whole M3 completion contract remains open.

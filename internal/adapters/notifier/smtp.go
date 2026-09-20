@@ -74,7 +74,10 @@ func (SMTPSender) Send(ctx context.Context, config map[string]any, alert domain.
 	if alert.MonitorTarget != "" {
 		targetLine = fmt.Sprintf("Target: %s\n", alert.MonitorTarget)
 	}
-	if isAuxiliaryAlert(alert) {
+	if isProbeConnection(alert) {
+		subject = alertTitleWithPrefix("Phoenix Alert:", alert)
+		body = alertBody(alert) + "\nTime: " + time.Now().UTC().Format(time.RFC3339)
+	} else if isAuxiliaryAlert(alert) {
 		subject = alertTitleWithPrefix("Phoenix Alert:", alert)
 		body = fmt.Sprintf("Monitor: %s\nType: %s\n%sEvent: %s\n%s\nTime: %s\n",
 			alert.MonitorName, alert.MonitorType, targetLine, alert.EventKind, alertBody(alert),

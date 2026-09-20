@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -12,17 +11,23 @@ import (
 // EdgeDeliveryService sends only durable source work authorized by the current
 // accepted graph. It has no hub repository or hub-reachability dependency.
 type EdgeDeliveryService struct {
-	outbox  ports.DeliveryOutboxRepository
-	configs ports.EdgeConfigReader
-	checks  ports.EdgeCheckRepository
-	cron    ports.CronEvaluator
-	sender  func(string) (ports.NotificationSender, bool)
-	now     func() time.Time
+	watchdog *ProbeWatchdogDeliveryService
+	outbox   ports.DeliveryOutboxRepository
+	configs  ports.EdgeConfigReader
+	checks   ports.EdgeCheckRepository
+	cron     ports.CronEvaluator
+	sender   func(string) (ports.NotificationSender, bool)
+	now      func() time.Time
 }
 
 // NewEdgeDeliveryService wires immutable config reads and actual provider lookup.
 func NewEdgeDeliveryService(outbox ports.DeliveryOutboxRepository, configs ports.EdgeConfigReader, checks ports.EdgeCheckRepository, cron ports.CronEvaluator, sender func(string) (ports.NotificationSender, bool)) *EdgeDeliveryService {
 	return &EdgeDeliveryService{outbox: outbox, configs: configs, checks: checks, cron: cron, sender: sender, now: time.Now}
+}
+
+// SetWatchdog attaches probe-scoped delivery reconciliation before Run.
+func (s *EdgeDeliveryService) SetWatchdog(watchdog *ProbeWatchdogDeliveryService) {
+	s.watchdog = watchdog
 }
 
 // ProcessNext claims one delivery so work cannot expire while waiting behind a
@@ -36,6 +41,9 @@ func (s *EdgeDeliveryService) ProcessNext(ctx context.Context, probeID string) (
 }
 
 func (s *EdgeDeliveryService) process(ctx context.Context, item domain.QueuedDelivery) error {
+	if item.EventKind == domain.DeliveryEventProbeConnection && s.watchdog != nil {
+		return s.watchdog.Process(ctx, item)
+	}
 	claim := domain.DeliveryClaim{DeliveryID: item.DeliveryID, ProbeID: item.ProbeID, Attempt: item.Attempt, LeaseToken: item.LeaseToken}
 	finish := func(status, code string, retry time.Time) error {
 		return s.outbox.FinishDelivery(ctx, claim, domain.DeliveryResult{Status: status, ErrorCode: code, At: s.now().UTC(), RetryAt: retry})
@@ -134,20 +142,5 @@ func edgeAlertContext(item domain.QueuedDelivery, a domain.EdgeResolvedAssignmen
 // Run processes source work until shutdown. A bounded pause on storage failures
 // avoids a busy loop; callers receive errors through the supplied diagnostic hook.
 func (s *EdgeDeliveryService) Run(ctx context.Context, probeID string, report func(error)) {
-	for ctx.Err() == nil {
-		worked, err := s.ProcessNext(ctx, probeID)
-		if err != nil && !errors.Is(err, context.Canceled) && report != nil {
-			report(err)
-		}
-		if worked && err == nil {
-			continue
-		}
-		timer := time.NewTimer(time.Second)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-	}
+	runSourceDeliveries(ctx, func(ctx context.Context) (bool, error) { return s.ProcessNext(ctx, probeID) }, report)
 }

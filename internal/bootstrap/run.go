@@ -452,7 +452,17 @@ func Run(cfg Config) error {
 			}
 			authority := domain.ProbeWatchdogAuthority{HubID: installationHubID, ProbeID: owner.ProbeID, StreamID: connection.StreamID, RuntimeOwner: owner}
 			reader := repo.NewProbeWatchdogConfigReader(watchdogStore, authority, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get))
-			return services.NewProbeWatchdogRuntime(watchdogStore, reader, func(context.Context) (domain.ProbeWatchdogAuthority, error) { return authority, nil }, "probe")
+			readAuthority := func(context.Context) (domain.ProbeWatchdogAuthority, error) { return authority, nil }
+			runtime, err := services.NewProbeWatchdogRuntime(watchdogStore, reader, readAuthority, "probe")
+			if err != nil {
+				return nil, err
+			}
+			delivery, err := services.NewProbeWatchdogDeliveryService(repo.NewRegionalCommitStore(db), reader, watchdogStore, readAuthority, notifieradapter.Get)
+			if err != nil {
+				return nil, err
+			}
+			runtime.SetDelivery(delivery, owner.ProbeID)
+			return runtime, nil
 		}); err != nil {
 			return err
 		}

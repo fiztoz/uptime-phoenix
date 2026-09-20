@@ -257,3 +257,63 @@ func TestProbeConnectorWatchdogStallCancelsAndJoinsBeforeRelease(t *testing.T) {
 		t.Fatal("parent released before watchdog storage joined")
 	}
 }
+
+type blockingWatchdogSender struct {
+	started, canceled, release chan struct{}
+}
+
+func (*blockingWatchdogSender) Type() string                  { return "webhook" }
+func (*blockingWatchdogSender) Validate(map[string]any) error { return nil }
+func (s *blockingWatchdogSender) Send(ctx context.Context, _ map[string]any, _ domain.AlertContext) error {
+	close(s.started)
+	<-ctx.Done()
+	close(s.canceled)
+	<-s.release
+	return ctx.Err()
+}
+
+func TestProbeWatchdogRuntimeDeliveryDoesNotBlockProgressAndIsJoined(t *testing.T) {
+	r, repo, _ := watchdogRuntimeFixture(t)
+	_, _, authority, config := watchdogSourceFixture(t)
+	authority.HealthGeneration = 0
+	config.Probe.Name = "Edge"
+	config.Channels[1].Notification.Type = "webhook"
+	f := &watchdogDeliveryFake{edgeDeliveryFake: edgeDeliveryFake{config: config, item: domain.QueuedDelivery{DeliveryIntent: domain.DeliveryIntent{ProbeID: authority.ProbeID, DeliveryID: "delivery", NotificationID: 1, NotificationVersion: 1, EventKind: domain.DeliveryEventProbeConnection}, Attempt: 1, LeaseToken: "claim"}}}
+	sender := &blockingWatchdogSender{started: make(chan struct{}), canceled: make(chan struct{}), release: make(chan struct{})}
+	var release sync.Once
+	defer release.Do(func() { close(sender.release) })
+	delivery, err := NewProbeWatchdogDeliveryService(f, f, f, func(context.Context) (domain.ProbeWatchdogAuthority, error) { return authority, nil }, func(string) (ports.NotificationSender, bool) { return sender, true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.SetDelivery(delivery, authority.ProbeID)
+	committed := make(chan struct{}, 1)
+	repo.beforeCommit = func(context.Context) error {
+		select {
+		case committed <- struct{}{}:
+		default:
+		}
+		return nil
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { defer close(done); _ = r.Run(ctx, nil) }()
+	waitWatchdogSignal(t, sender.started)
+	waitWatchdogSignal(t, committed)
+	// The timer reaches another transaction while the provider remains blocked.
+	r.signal()
+	waitWatchdogSignal(t, committed)
+	cancel()
+	waitWatchdogSignal(t, sender.canceled)
+	select {
+	case <-done:
+		t.Fatal("watchdog owner returned before provider worker exited")
+	case <-time.After(20 * time.Millisecond):
+	}
+	release.Do(func() { close(sender.release) })
+	waitWatchdogSignal(t, done)
+	if f.result.Status != "" {
+		t.Fatal("canceled attempt recorded a delivery outcome")
+	}
+}

@@ -482,12 +482,17 @@ func (r *RegionalCommitStore) ClaimDeliveries(ctx context.Context, probeID strin
 		if err := lockSQLiteOutbox(ctx, tx); err != nil {
 			return err
 		}
+		dbNow, err := replayDatabaseTime(ctx, tx)
+		if err != nil {
+			return err
+		}
 		var rows []deliveryIntentModel
 		q := tx.NewSelect().Model(&rows).
-			Where("intent.probe_id = ? AND intent.available_at <= ?", probeID, at).
+			Where("intent.probe_id = ?", probeID).
+			Where("(intent.event_kind = ? AND intent.available_at <= ?) OR (intent.event_kind <> ? AND intent.available_at <= ?)", domain.DeliveryEventProbeConnection, dbNow, domain.DeliveryEventProbeConnection, at).
 			Where("intent.attempt < ?", int64(math.MaxInt64)).
-			Where("(intent.status IN (?, ?) OR (intent.status = ? AND intent.lease_until <= ?))",
-				domain.DeliveryStatusPending, domain.DeliveryStatusRetrying, domain.DeliveryStatusLeased, at).
+			Where("intent.status IN (?, ?) OR (intent.status = ? AND ((intent.event_kind = ? AND intent.lease_until <= ?) OR (intent.event_kind <> ? AND intent.lease_until <= ?)))",
+				domain.DeliveryStatusPending, domain.DeliveryStatusRetrying, domain.DeliveryStatusLeased, domain.DeliveryEventProbeConnection, dbNow, domain.DeliveryEventProbeConnection, at).
 			Where(`((intent.event_kind = 'probe_connection' AND EXISTS (SELECT 1 FROM probe_hub_watchdog_incidents AS owned
  JOIN probes AS p ON p.id = owned.probe_id WHERE owned.source_alert_id = intent.source_alert_id AND owned.probe_id = intent.probe_id AND p.enabled = ?))
  OR (intent.event_kind <> 'probe_connection' AND intent.assignment_generation = (SELECT assignment.generation FROM monitor_probe_assignments AS assignment
@@ -503,7 +508,14 @@ func (r *RegionalCommitStore) ClaimDeliveries(ctx context.Context, probeID strin
 		for i := range rows {
 			row := &rows[i]
 			token := rand.Text()
-			row.Status, row.Attempt, row.LeaseToken, row.LeasedAt, row.LeaseUntil = domain.DeliveryStatusLeased, row.Attempt+1, &token, &at, &until
+			claimAt, claimUntil := at, until
+			if row.EventKind == domain.DeliveryEventProbeConnection {
+				// Watchdog provider authority uses DB time too. Mixing caller
+				// lease time with the DB authorization clock rejects healthy
+				// workers under ordinary cross-host clock skew.
+				claimAt, claimUntil = dbNow, outboxTime(dbNow.Add(lease))
+			}
+			row.Status, row.Attempt, row.LeaseToken, row.LeasedAt, row.LeaseUntil = domain.DeliveryStatusLeased, row.Attempt+1, &token, &claimAt, &claimUntil
 			if _, err := tx.NewUpdate().Model(row).Column("status", "attempt", "lease_token", "leased_at", "lease_until").WherePK().Exec(ctx); err != nil {
 				return err
 			}
@@ -569,7 +581,15 @@ func (r *RegionalCommitStore) FinishDelivery(ctx context.Context, claim domain.D
 			}
 			return ports.ErrConflict
 		}
-		if row.LeaseUntil == nil || row.LeasedAt == nil || result.At.Before(row.LeasedAt.UTC()) || !result.At.Before(row.LeaseUntil.UTC()) {
+		authorityAt := result.At
+		if row.EventKind == domain.DeliveryEventProbeConnection {
+			var err error
+			authorityAt, err = replayDatabaseTime(ctx, tx)
+			if err != nil {
+				return err
+			}
+		}
+		if row.LeaseUntil == nil || row.LeasedAt == nil || authorityAt.Before(row.LeasedAt.UTC()) || !authorityAt.Before(row.LeaseUntil.UTC()) {
 			return ports.ErrConflict
 		}
 		outcome := domain.RegionalDelivery{

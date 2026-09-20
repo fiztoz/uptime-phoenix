@@ -30,6 +30,11 @@ var notificationTemplatePlaceholder = regexp.MustCompile(`\{\{\s*([a-z][a-z0-9_.
 
 var notificationTemplateVariables = []string{
 	"alert.scope",
+	"alert.delivery_scope",
+	"alert.source_id",
+	"probe.id",
+	"probe.name",
+	"probe.location",
 	"alert.id",
 	"alert.name",
 	"alert.type",
@@ -290,6 +295,11 @@ func notificationTemplateValues(alert AlertContext, now time.Time) map[string]no
 		entityType = AlertScopeGroup
 		entityTarget = ""
 	}
+	entityIDValue := intValue(entityID)
+	if scope == AlertScopeProbe {
+		entityIDValue = stringValue(alert.ProbeID)
+		entityName, entityType, entityTarget = alert.ProbeName, AlertScopeProbe, ""
+	}
 	thresholdDisplay := ""
 	if alert.GroupCondition == GroupConditionThreshold && alert.GroupThreshold > 0 {
 		thresholdDisplay = strconv.Itoa(alert.GroupThreshold)
@@ -324,7 +334,12 @@ func notificationTemplateValues(alert AlertContext, now time.Time) map[string]no
 
 	return map[string]notificationTemplateValue{
 		"alert.scope":                stringValue(scope),
-		"alert.id":                   intValue(entityID),
+		"alert.id":                   entityIDValue,
+		"alert.delivery_scope":       stringValue(string(alert.DeliveryScope)),
+		"alert.source_id":            stringValue(alert.SourceAlertID),
+		"probe.id":                   stringValue(alert.ProbeID),
+		"probe.name":                 stringValue(alert.ProbeName),
+		"probe.location":             stringValue(alert.ProbeLocation),
 		"alert.name":                 stringValue(entityName),
 		"alert.type":                 stringValue(entityType),
 		"alert.target":               stringValue(entityTarget),

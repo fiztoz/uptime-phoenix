@@ -230,6 +230,25 @@ provider error classification, auxiliary intents and remote activation remain
 later integration. No exactly-once external delivery guarantee follows from a
 lease receipt.
 
+The M3 watchdog provider increment adds `AlertScopeProbe` separately from delivery
+scope, explicit probe name/location/source identity, the designed template variables,
+and probe-shaped webhook output. Existing provider adapters render probe connection
+loss/recovery without inventing monitor context. `ProbeWatchdogDeliveryService`
+reuses the source outbox and rechecks the exact applied graph, active channel/version,
+source incident/transition, ACK and current owner/claim before a bounded send.
+ACK supersedes DOWN; an acknowledged incident's genuine recovery remains eligible.
+One ten-second context covers authorization and provider I/O. Both claim and hub
+parent leases must cover that budget; no DB lock spans the request. Hub watchdog
+claim/reclaim/finish authority uses database time, while outcome timestamps retain
+the source wall clock. Legacy non-watchdog claim semantics are unchanged.
+
+The hub delivery worker shares cancellation and join lifetime with the stable
+watchdog owner, independently of timer persistence. The edge delegates watchdog
+items from its existing dispatcher. Enabled configuration remains guarded until
+watchdog mirror replay and both-side process acceptance pass. See
+[delivery verification](M3_WATCHDOG_DELIVERY_ACCEPTANCE.md) for the executed scope;
+this does not promise exactly-once external notification.
+
 ### 5.3 Acknowledgement and escalation
 
 Regional acknowledgement requested through the hub is a durable, idempotent command to the owning probe. The hub returns a command receipt and displays `pending` until the probe confirms applying it. During a partition, an operator cannot assume a queued acknowledgement has already stopped remote resends/escalations. Include a warning next to that pending state in the UI.
