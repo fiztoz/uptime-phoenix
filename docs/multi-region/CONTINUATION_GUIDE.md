@@ -1,22 +1,21 @@
 # Multi-region implementation guide for continuing agents
 
-> **Current baseline, 2026-09-20:** M0/M1 corrections and M2 engineering acceptance
-> passed, and the first M3 configuration-sync increment is committed through
-> `311e50a`. Antigravity's final M2 audit is delivered and independently checked.
-> The user authorized M3. Start
-> with the current [implementation status](IMPLEMENTATION_STATUS.md),
-> [M2 acceptance](M2_ACCEPTANCE_REPORT.md), and
-> [M3 configuration-sync contract](M3_CONFIG_SYNC_WORK_CONTRACT.md).
-> Preserve subsequent work; do not reset to an older commit or repeat M1 work.
+> **Current continuation, 2026-09-20:** M0/M1 corrections, M2 engineering
+> acceptance and the first M3 configuration-sync increment are committed through
+> `d3eea61`. Ordered telemetry replay is committed in `f1095f8` with the full
+> gate, live MariaDB contracts and offline/restart process smoke passing. Consult
+> [implementation status](IMPLEMENTATION_STATUS.md) and the
+> [acceptance record](M3_REPLAY_ACCEPTANCE.md) for evidence and remaining work.
+> Preserve newer work. Do not reset to an older commit or repeat completed steps.
 
-The detailed A–D material below is historical implementation guidance from the
-`4cc76f0` baseline. Its descriptions of missing M1/M2 features and proposed flags
-are not current status. Consult [M2_OPERATOR_GUIDE.md](M2_OPERATOR_GUIDE.md) for the
-operational binaries and supported flow. The first M3 configuration-sync increment
-is implemented; read [its acceptance report](M3_CONFIG_SYNC_ACCEPTANCE.md) for gate
-status. Ordered telemetry replay is next, followed by retention/gaps, current state
-and watchdogs under the M3 dependencies. Finish and verify one bounded
-increment at a time; do not claim the entire milestone from a component test.
+The detailed A–D material below is historical guidance from `4cc76f0`.
+Descriptions of missing M1/M2 features and proposed flags are not current status.
+Use [the operator guide](M2_OPERATOR_GUIDE.md) for the supported runtime, and
+[the replay retrospective](M3_REPLAY_RETROSPECTIVE.md) for verified coding lessons.
+Next work is retention/explicit gaps and current-state recovery, followed by
+watchdogs and commands under the M3 dependencies. Receipt and delivery-history
+cleanup and hub `telemetry.retry` emission remain explicit gaps. Finish and verify one bounded increment at a time;
+never infer whole-milestone completion from a helper or an agent handoff.
 
 Read [AGENTS.md](../../AGENTS.md), [ARCHITECTURE.md](ARCHITECTURE.md),
 [PROTOCOL.md](PROTOCOL.md) and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
@@ -35,7 +34,7 @@ Read [AGENTS.md](../../AGENTS.md), [ARCHITECTURE.md](ARCHITECTURE.md),
    explicitly calls for isolation. Do not reset to the baseline commit.
 4. Identify one deliverable, its affected files, and its acceptance tests. Start
    with the unfinished increment in the latest status, not historical step A.
-5. Recheck both migration directories before reserving a number. the historical `047` baseline is obsolete; `053` is already present.
+5. Recheck both migration directories before reserving a number. The historical `047` baseline is obsolete; `054` is already present.
    Do not assume the next number is still available.
 6. Read the existing tests alongside the implementation. Extend them rather than
    replacing the foundation with a second subsystem.

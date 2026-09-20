@@ -1,11 +1,12 @@
-# Edge engineering runtime and M3 configuration sync
+# Edge runtime, configuration synchronization and ordered replay
 
 M2 supplies an autonomous edge and authenticated management connection. HTTP,
 TCP and DNS checks and direct notifications run from accepted local configuration
 during a hub outage. The first M3 increment adds automatic remote snapshot
-construction and durable application receipts. Fleet UI, telemetry replay/ACK/
-retention, remote commands and watchdog paging remain unfinished.
-Hub health explicitly reports ingestion unavailable in this build.
+construction and durable application receipts. The ordered replay increment now
+commits retained availability observations, incident transitions and delivery
+outcomes to the hub. Fleet UI, configurable retention/gaps, current-state snapshot
+recovery, remote commands and watchdog paging remain unfinished.
 
 ## Initialize the probe
 
@@ -121,11 +122,27 @@ Retry state, incident identity and sequence survive an edge restart. An ambiguou
 provider timeout can cause duplicate external effects: delivery is durable
 at-least-once, not an exactly-once provider guarantee.
 
-M2 retains telemetry without replaying or deleting it. Telemetry and delivery
-queues each have a 64 MiB bound. A provider attempt reserves outcome space before
-external I/O. At capacity, recording fails visibly and scheduler readiness becomes
-unhealthy; evidence is not silently dropped. M3 must provide configurable retention,
-replay and explicit gaps before long-running fleet deployment.
+On reconnect the edge replays exact retained event bytes from its local durable
+ACK cursor. Only a validated ACK for the sent batch atomically advances that cursor
+and prunes those telemetry rows. Welcome and health never delete evidence. Lost
+ACKs cause duplicate replay, which reads durable hub receipts without rewriting
+history or triggering provider sends. A stale generation cannot prune the outbox. Storage failures close the session
+for reconnect; hub `telemetry.retry` emission remains unfinished.
+
+Telemetry and delivery queues retain their existing 64 MiB bounds. Delivery
+history is not pruned by telemetry ACKs. A provider attempt reserves outcome space
+before external I/O. At capacity, recording fails visibly and scheduler readiness
+becomes unhealthy; evidence is not silently dropped. Configurable retention,
+explicit gaps and delivery-history cleanup remain necessary for long-running fleets.
+
+The hub authorizes exact retained configuration and assignment membership at the
+observation time, within a seven-day history horizon. Accepted old-generation
+history cannot become current state; future-dated evidence cannot refresh state.
+Permanent rejections are durable `probe_telemetry_receipts` with redacted codes.
+Those receipts have no pruning policy in this increment; migration 054 downgrade
+refuses to discard them. Unknown/retired streams or a restored hub cursor below
+already-pruned edge data block replay pending explicit gap/reset recovery. Preserve
+both stores and identities; do not delete rows or reset cursors to force progress.
 
 ## Reproduce acceptance
 
@@ -134,5 +151,9 @@ replay and explicit gaps before long-running fleet deployment.
 MariaDB database ending in `_smoke`. It uses local targets and webhook recipients,
 real enrollment/assignment commands, automatic source edits and durable receipts,
 two hub workers and a standalone edge, then stops
-all child processes. The report contains safe IDs, sequence/fence progress and
+all child processes. Add `--verify-replay --mariadb-container CONTAINER` to check
+hub/edge durable cursors, offline mixed-event replay, exact observation sequences,
+incident/delivery mirrors, zero hub send intents and a second cold restart. The
+container option runs read-only queries against the same disposable database.
+The report contains safe IDs, sequence/fence progress and
 outcomes; private keys and stores remain in the private output directory.

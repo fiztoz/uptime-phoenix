@@ -926,3 +926,26 @@ exercise bootstrap, two sharded workers, actual webhook calls, step-zero escalat
 acknowledgement, process restart and recovery. Its fixed five-second scheduler-rate
 assertion can be timing-sensitive; record an initial failure and any fresh-database
 retry separately, rather than describing a retry as an uninterrupted pass.
+
+## M3 ordered replay integration
+
+`TestProbeReplayAcceptance` in `internal/adapters/repository` runs the same mixed
+replay/receipt contract on SQLite and MariaDB when `TEST_MARIADB_DSN` points to a
+disposable test database. It covers stale and expired leases, exact retained
+configuration and channel authority, historical/future state separation, rejected
+and duplicate prefixes, concurrent ingestion, timestamp precision, final-write
+rollback and guarded migration 054 downgrade. Run with `-race -count=1`.
+
+The private edge `TestReplay*` tests cover byte preservation, bounds, holes,
+exhaustion, ACK fences, both rollback directions and reopen. Probe adapter
+`TestReplayAcceptance*`, `TestEdgeReplay*` and
+`TestEdgeRuntime_RealTLS_ReplayBatchAndACK` exercise ACK/retry loops and real TLS
+lost-ACK reconnect through the production path. Local socket access is required.
+
+For full processes, build `cmd/app`, `cmd/probe`, `cmd/phoenix-probe-admin` with
+`CGO_ENABLED=0` and use `scripts/probe_runtime_smoke.py --verify-replay` with its
+three binary paths, a new private output directory, and `--mariadb-container`.
+`DB_DSN` must name a fresh localhost database ending in `_smoke`. This checks two
+hub workers, offline DOWN/provider retry, edge restart, UP recovery, exact backlog
+mirrors and durable cursors, zero hub send intents, then a second cold restart.
+It stops its child processes. See [replay acceptance](multi-region/M3_REPLAY_ACCEPTANCE.md).

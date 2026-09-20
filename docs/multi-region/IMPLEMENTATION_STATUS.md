@@ -7,7 +7,43 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
-## Committed continuation baseline — 2026-09-20
+## M3 ordered telemetry replay — 2026-09-20
+
+The second M3 increment is committed locally as `f1095f8` on top of `d3eea61`.
+The real edge outbox now replays availability observations, incident transitions and delivery outcomes
+through DB-fenced hub ingestion. Migration 054 persists immutable outcome receipts;
+accepted writes, rejection reasons, dirty buckets and the cursor commit together.
+Only a validated ACK for a sent batch prunes the edge under its current generation.
+Historical assignments and exact protected config/channel authority are checked
+through `AccessService`; history cannot create provider work or revive retired
+current state. Lost ACKs and reconnects preserve source identity and exact bytes.
+
+The SQLite/live MariaDB contracts, race-enabled TLS lost-ACK tests, CGO-free builds
+and two-worker offline/restart/replay process acceptance passed. The complete live
+repository matrix passed in 201.407s. `make gate-full` passed with exit 0,
+including full Go race tests, zero lint issues, Svelte zero errors/warnings,
+12 Chromium journeys and Helm validation. The
+[acceptance report](M3_REPLAY_ACCEPTANCE.md) is the authoritative final ledger.
+The process run replayed 22 offline events, retained one resolved incident and two
+successful delivery outcomes, reached matching hub/edge cursors 69, and created
+zero hub send intents.
+
+Antigravity contributed two bounded edge slices through `/goal`, with planning
+via `/grill-me` and a final `/learn` retrospective. Codex rejected initial handoff
+claims, reproduced defects, fixed/integrated the implementation and ran the checks.
+Read the [retrospective](M3_REPLAY_RETROSPECTIVE.md) and
+[work contract](M3_REPLAY_WORK_CONTRACT.md). All delegated source ownership is
+returned; no older agent task may resume source edits.
+
+**Next:** retention eviction and explicit gap receipts, then current-state
+recovery under the protocol dependencies. Watchdogs, remote commands, aggregate/UI
+integration and fleet UI remain later work. Receipt and delivery-history cleanup
+are not implemented. Recoverable storage errors close the session for replay on
+reconnect; hub emission of `telemetry.retry` remains unfinished. M3 remains in
+progress; do not restart the accepted M0–M2 or configuration-sync work from
+historical notes below.
+
+## Earlier committed continuation baseline — 2026-09-20
 
 The user requested commits after acceptance. The implementation is committed
 locally on `codex/multi-region-probe-plan`, preserving the earlier seven unpushed
@@ -22,8 +58,9 @@ commits. Nothing was pushed or deployed.
 The combined committed source exactly matches the implementation that passed
 `make gate-full`, live DB contracts and process acceptance below. Isolated staged
 M1 and M2 snapshots additionally passed CGO-free builds and focused race tests.
-Current reports and the retrospective accompany these commits. M3 replay and
-recovery remain the next bounded work; the whole milestone is not complete.
+Current reports and the retrospective accompany these commits. This historical
+baseline preceded the replay increment described above; the whole milestone is
+not complete.
 
 ## M3 configuration synchronization — 2026-09-20
 
@@ -43,9 +80,8 @@ independently checked. Native input control prevented new delegation; Codex owns
 this M3 implementation and the shared contract now restricts delayed agent work
 to a separate read-only report.
 
-M3 remains in progress. The next bounded increment is ordered, fenced telemetry
-replay and durable cursor/ACK handling; current-state recovery, retention/gaps,
-watchdogs and commands follow. Do not restart the completed M0–M2 work below.
+This configuration-sync entry preceded ordered replay. Follow the newer replay
+entry above for current acceptance and remaining M3 work. Do not restart the completed M0–M2 work below.
 
 ## Integrator acceptance — 2026-09-20 (validated changes after a2551f8)
 
