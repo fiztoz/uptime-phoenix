@@ -228,7 +228,6 @@ def main():
         registered = admin("register", "--probe-id", identity["probe_id"], "--stream-id", identity["stream_id"],
                            "--key", "edge-smoke", "--name", "Edge smoke", "--endpoint",
                            f"wss://127.0.0.1:{args.port + 3}/ws/probe/v1", "--fingerprint", identity["certificate_fingerprint"])
-        admin("enroll", "--probe-id", identity["probe_id"], "--token-file", str(enrollment_file))
         assignment = admin("assign", "--monitor-id", str(monitor), "--expected-revision", "1", "--probes", identity["probe_id"])
         generation = next(member["generation"] for member in assignment["assignments"] if member["probe_id"] == identity["probe_id"])
         api("POST", f"/api/notifications/{notification}/monitor/{monitor}", {"include_target": False})
@@ -236,6 +235,12 @@ def main():
         assert admin("status", "--probe-id", identity["probe_id"])["applied_revision"] == "0"
         for worker in ("worker-a", "worker-b"):
             start(worker, args.app_binary, [], dict(env, MODE="worker", WORKER_ID=worker, PROBES_ENABLED="true"))
+        if args.verify_replay:
+            wait_for("background worker owns the not-yet-enrolled runtime", lambda: bool(hub_query(
+                "SELECT JSON_OBJECT('epoch', epoch) FROM probe_runtime_owners "
+                f"WHERE probe_id='{identity['probe_id']}' AND owner_id <> ''")))
+        admin("enroll", "--probe-id", identity["probe_id"], "--token-file", str(enrollment_file))
+        mark("operator enrollment succeeds with background connectors already running")
         wait_for("real hub connector activates accepted config", lambda: edge_progress()["config_revision"] == 1)
         wait_for("edge records healthy checks", lambda: edge_rows("SELECT status FROM edge_regional_state") == [{"status": 1}])
         assert admin("status", "--probe-id", identity["probe_id"])["state"] == "active"
@@ -246,6 +251,27 @@ def main():
         assert admin("status", "--probe-id", identity["probe_id"])["sync_pending"] is False
         if args.verify_replay:
             wait_for("live telemetry reaches a durable hub and edge cursor", lambda: edge_progress()["committed_seq"] > 0 and hub_cursor() >= edge_progress()["committed_seq"])
+        runtime_evidence = None
+        if args.verify_replay:
+            def runtime_owner():
+                return hub_query("SELECT JSON_OBJECT('epoch', epoch, 'owner_id', owner_id) FROM probe_runtime_owners "
+                                 f"WHERE probe_id='{identity['probe_id']}'")[0]
+
+            owner_before = runtime_owner()
+            generation_before = edge_progress()["connection_generation"]
+            stop("edge")
+            wait_for("closed edge session releases its connection fence", lambda: hub_query(
+                "SELECT JSON_OBJECT('connected', connected) FROM probe_sessions "
+                f"WHERE probe_id='{identity['probe_id']}'") == [{"connected": 0}])
+            time.sleep(3)  # Another worker must not steal ownership during backoff.
+            assert runtime_owner() == owner_before
+            start("edge", args.probe_binary, edge_args, edge_env)
+            wait_for("edge reconnect advances session within the same runtime owner", lambda:
+                     edge_progress()["connection_generation"] > generation_before and edge_progress()["committed_seq"] > 0)
+            assert runtime_owner() == owner_before
+            runtime_evidence = {"epoch": owner_before["epoch"], "generation_before": generation_before,
+                                "generation_after": edge_progress()["connection_generation"], "stable_across_backoff": True}
+            mark("two hub workers preserve runtime ownership across an edge restart")
         first = edge_progress()
         time.sleep(16)  # Cross a real lease renewal with two competing workers.
         assert edge_progress()["connection_generation"] == first["connection_generation"]
@@ -363,7 +389,7 @@ def main():
         report = {"passed": passed, "identity": identity, "before_restart": before, "final": final,
                   "incident": incident, "provider_attempt_statuses": provider_attempts, "successful_webhook_statuses": [h["status"] for h in hooks],
                   "replay_verified": args.verify_replay, "replay": replay_evidence,
-                  "history_verified": args.verify_history, "history": history_evidence}
+                  "history_verified": args.verify_history, "history": history_evidence, "runtime_ownership": runtime_evidence}
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print("Evidence:", output, flush=True)
     finally:

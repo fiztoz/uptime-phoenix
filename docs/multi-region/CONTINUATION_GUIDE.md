@@ -4,7 +4,9 @@
 > config/replay/retention/current-state work. Historical recomputation is accepted;
 > consult [implementation status](IMPLEMENTATION_STATUS.md) and
 > [history acceptance](M3_HISTORY_ACCEPTANCE.md) for exact evidence and limitations.
-> Next is [both watchdogs](M3_WATCHDOG_WORK_CONTRACT.md). Verify Git HEAD and
+> Stable runtime ownership and the pure watchdog timer are also accepted; see
+> [runtime acceptance](M3_RUNTIME_ACCEPTANCE.md). Next implement watchdog source
+> persistence and delivery per [both watchdogs](M3_WATCHDOG_WORK_CONTRACT.md). Verify Git HEAD and
 > uncommitted work before editing; never reset to an older baseline.
 
 The detailed A–D material below is historical guidance from `4cc76f0`.

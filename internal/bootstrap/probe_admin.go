@@ -102,7 +102,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	}
 	connections := repository.NewProbeConnectorStore(db)
 	configs := services.NewProbeConfigService(repos.probeConfig, probe.ConfigInspector{}, protector)
-	connector, err := services.NewProbeConnectorService(connections, connections, protector, configs, probe.NewHubTransport(policy), installation.HubID, owner.String(), func(f int, h time.Duration) time.Duration { return probe.ReconnectDelay(f, h, rand.Float64()) })
+	connector, err := services.NewProbeConnectorService(connections, connections, connections, protector, configs, probe.NewHubTransport(policy), installation.HubID, owner.String(), func(f int, h time.Duration) time.Duration { return probe.ReconnectDelay(f, h, rand.Float64()) })
 	if err != nil {
 		return fail("Connector initialization failed")
 	}

@@ -981,3 +981,24 @@ complete overall coverage and consumed work through real restarted hub workers.
 This smoke is shorter than the final required M3 15-minute partition acceptance.
 See [history acceptance](multi-region/M3_HISTORY_ACCEPTANCE.md) and its linked
 retrospective for exact validation evidence and remaining milestone work.
+
+## M3 runtime ownership and watchdog timer
+
+`TestProbeRuntime*` and `TestProbeConnectorLeaseContract` in the shared repository
+package cover both engines with `TEST_MARIADB_DSN`: competing owners, same-worker
+duplicate loops, reconnect retention, stale release/renewal, child expiry bounds,
+backward-clock deadlines, rollback, disable, legacy adoption and takeover during
+replay. Migration 058 refuses to discard even released owner epochs. Keep fixture
+migration restore lists current when rebuilding prior schemas.
+
+`TestProbeConnectorRuntime*`, `TestProbeConnectorEnrollment*` and
+`TestProbeWatchdog*` in core services cover lifecycle cancellation, enrollment
+while a worker already owns retries, monotonic loss/recovery timing and measured
+handoff checkpoints. A timer unit test is not watchdog notification acceptance.
+
+The runtime process smoke with `--verify-replay` now starts both workers before
+operator enrollment and proves that an edge restart advances connection generation
+without changing runtime ownership. It continues the offline delivery/replay and
+history assertions above. See [runtime acceptance](multi-region/M3_RUNTIME_ACCEPTANCE.md)
+and [the retrospective](multi-region/M3_RUNTIME_RETROSPECTIVE.md). Both watchdogs,
+commands/offline ACK and the fifteen-minute partition remain separate M3 gates.

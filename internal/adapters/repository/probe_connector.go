@@ -82,7 +82,8 @@ func readProbeSession(ctx context.Context, tx bun.Tx, probeID string) (probeSess
 	return row, err
 }
 
-// AcquireConnector creates a new fence after expiration or same-owner reconnect.
+// AcquireConnector is the legacy acquisition path for a probe not yet adopted
+// by a runtime owner. Adopted probes require AcquireRuntimeConnector.
 func (s *ProbeConnectorStore) AcquireConnector(ctx context.Context, probeID, ownerID string) (domain.ProbeConnectorLease, error) {
 	if !domain.ValidHubID(ownerID) {
 		return domain.ProbeConnectorLease{}, domain.ErrValidation
@@ -92,29 +93,39 @@ func (s *ProbeConnectorStore) AcquireConnector(ctx context.Context, probeID, own
 		if !enabled {
 			return ports.ErrConflict
 		}
-		row, err := readProbeSession(ctx, tx, probeID)
-		missing := errors.Is(err, sql.ErrNoRows)
-		if err != nil && !missing {
-			return err
-		}
-		if !missing && (row.LeaseUntil > now && row.OwnerID != ownerID || row.Generation == math.MaxInt64) {
+		// Once adopted, every subsequent attempt must present the runtime epoch.
+		if _, err := readProbeRuntime(ctx, tx, probeID); !errors.Is(err, sql.ErrNoRows) {
+			if err != nil {
+				return err
+			}
 			return ports.ErrConflict
 		}
-		row = probeSessionModel{ProbeID: probeID, OwnerID: ownerID, Generation: row.Generation + 1, LeaseUntil: now + 60}
-		if missing {
-			_, err = tx.NewInsert().Model(&row).Exec(ctx)
-		} else {
-			_, err = tx.NewUpdate().Model(&row).WherePK().Exec(ctx)
-		}
-		if err == nil {
-			result = row.lease()
-		}
+		var err error
+		result, err = acquireProbeConnector(ctx, tx, probeID, ownerID, now, now+60)
 		return err
 	})
 	if err != nil {
 		return domain.ProbeConnectorLease{}, err
 	}
 	return result, nil
+}
+
+func acquireProbeConnector(ctx context.Context, tx bun.Tx, probeID, ownerID string, now, until int64) (domain.ProbeConnectorLease, error) {
+	row, err := readProbeSession(ctx, tx, probeID)
+	missing := errors.Is(err, sql.ErrNoRows)
+	if err != nil && !missing {
+		return domain.ProbeConnectorLease{}, err
+	}
+	if !missing && (row.LeaseUntil > now && row.OwnerID != ownerID || row.Generation == math.MaxInt64) {
+		return domain.ProbeConnectorLease{}, ports.ErrConflict
+	}
+	row = probeSessionModel{ProbeID: probeID, OwnerID: ownerID, Generation: row.Generation + 1, LeaseUntil: min(now+60, until)}
+	if missing {
+		_, err = tx.NewInsert().Model(&row).Exec(ctx)
+	} else {
+		_, err = tx.NewUpdate().Model(&row).WherePK().Exec(ctx)
+	}
+	return row.lease(), err
 }
 
 func matchesProbeSession(row probeSessionModel, lease domain.ProbeConnectorLease) bool {
@@ -132,7 +143,10 @@ func (s *ProbeConnectorStore) RenewConnector(ctx context.Context, lease domain.P
 		if !enabled || !matchesProbeSession(row, lease) || row.LeaseUntil <= now {
 			return ports.ErrConflict
 		}
-		row.LeaseUntil = now + 60
+		row.LeaseUntil, err = connectorLeaseDeadline(ctx, tx, row, now)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.NewUpdate().Model(&row).WherePK().Exec(ctx); err != nil {
 			return err
 		}

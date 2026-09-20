@@ -429,7 +429,7 @@ func Run(cfg Config) error {
 		transport := probe.NewHubTransport(policy)
 		transport.SetStateIngest(stateIngest)
 		connections := repo.NewProbeConnectorStore(db)
-		connector, err := services.NewProbeConnectorService(connections, connections, credentialProtector,
+		connector, err := services.NewProbeConnectorService(connections, connections, connections, credentialProtector,
 			services.NewProbeConfigService(repos.probeConfig, probe.ConfigInspector{}, protector),
 			transport, installationHubID, owner.String(),
 			func(failures int, healthy time.Duration) time.Duration {

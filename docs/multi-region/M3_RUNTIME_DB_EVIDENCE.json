@@ -1,0 +1,467 @@
+{
+  "baseline_commit": "97a0df7",
+  "scope": "Stable runtime ownership and pure watchdog timer; watchdog source lifecycle/delivery not enabled; M3 incomplete",
+  "full_race_command": "GOTOOLCHAIN=go1.26.6 GOCACHE=/private/tmp/phoenix-go-cache-template-race TEST_MARIADB_DSN=<disposable localhost MariaDB> go test -race -count=1 -timeout=20m -json ./...",
+  "test_database": "phoenix_m3_history_ci (schema includes 058)",
+  "full_race_log": "/private/tmp/phoenix-m3-runtime-full-accepted.jsonl",
+  "full_race_log_sha256": "de2ead6a505f3a9aebab6b79446d4ef19641df247cb75f6acf485f2ec7fd3519",
+  "exit_code": 0,
+  "mariadb_pass_count": 202,
+  "mariadb_skip_count": 0,
+  "mariadb_test_passes": [
+    "TestMariaDBDisksQueryDedupesDevice",
+    "TestDatabaseChecker_Validate/mariadb_valid",
+    "TestMariaDBOpenMissingDSN",
+    "TestDatabaseChecker_Check_MariaDB_BadHost",
+    "TestMigration015_AlertLifecycle_MariaDB",
+    "TestAlertSourceContract/mariadb/Transitions",
+    "TestAlertSourceContract/mariadb/Migration",
+    "TestAlertSourceContract/mariadb/IdentityAndScope",
+    "TestAlertSourceContract/mariadb",
+    "TestMonitorCreateInitializesLocalAssignment/mariadb",
+    "TestClaimBatchSkipsRemoteOnlyAndKeepsLegacy/mariadb",
+    "TestDeliveryOutboxContract/mariadb/AtomicRecording",
+    "TestDeliveryOutboxContract/mariadb/LeaseRestartAndRetry",
+    "TestDeliveryOutboxContract/mariadb/CompletionRollback",
+    "TestDeliveryOutboxContract/mariadb/ConcurrentClaims",
+    "TestDeliveryOutboxContract/mariadb/RegionalScope",
+    "TestDeliveryOutboxContract/mariadb/SnapshotAndMigration",
+    "TestDeliveryOutboxContract/mariadb/Validation",
+    "TestDeliveryOutboxContract/mariadb",
+    "TestRepositoryContract_SQLite/TestMariaDBRegression_ZeroTimeInsert",
+    "TestRepositoryContract_SQLite/TestMariaDBRegression_HeartbeatLatestTimestampTie",
+    "TestRepositoryContract_SQLite/TestMariaDBRegression_HeartbeatBatchLatestTimestampTie",
+    "TestRepositoryContract_SQLite/TestMariaDBRegression_HeartbeatBatchResolvesStaleMonitors",
+    "TestRepositoryContract_SQLite/TestMariaDBRegression_LatestImportantBeforeTimestampTie",
+    "TestRepositoryContract_SQLite/TestMariaDBRegression_GetByMonitorIDJoin",
+    "TestRepositoryContract_SQLite/TestMariaDBRegression_ReorderMonitorsObservableOrder",
+    "TestRepositoryContract_MariaDB/CRUDAndFiltering",
+    "TestRepositoryContract_MariaDB/TestMariaDBRegression_ZeroTimeInsert",
+    "TestRepositoryContract_MariaDB/TestMariaDBRegression_HeartbeatLatestTimestampTie",
+    "TestRepositoryContract_MariaDB/TestMariaDBRegression_HeartbeatBatchLatestTimestampTie",
+    "TestRepositoryContract_MariaDB/TestMariaDBRegression_HeartbeatBatchResolvesStaleMonitors",
+    "TestRepositoryContract_MariaDB/TestMariaDBRegression_LatestImportantBeforeTimestampTie",
+    "TestRepositoryContract_MariaDB/TestMariaDBRegression_GetByMonitorIDJoin",
+    "TestRepositoryContract_MariaDB/TestMariaDBRegression_ReorderMonitorsObservableOrder",
+    "TestRepositoryContract_MariaDB/GroupDeleteRehomesChildren",
+    "TestRepositoryContract_MariaDB/UserPermissionUpsert",
+    "TestRepositoryContract_MariaDB",
+    "TestMariaDBDSNSafety",
+    "TestEscalationContract_MariaDB/PolicyRoundTripWithSteps",
+    "TestEscalationContract_MariaDB/UpdateReplacesTheWholeStepLadder",
+    "TestEscalationContract_MariaDB/UpdateUnknownPolicyIsNotFound",
+    "TestEscalationContract_MariaDB/AssignmentIsAtMostOnePerEntity",
+    "TestEscalationContract_MariaDB/StateCreateIsUniquePerAlert",
+    "TestEscalationContract_MariaDB/ClaimDueIsExactlyOnceAcrossWorkers",
+    "TestEscalationContract_MariaDB/ClaimSkipsFutureAndRespectsLiveLease",
+    "TestEscalationContract_MariaDB/AdvanceAndFinishAreGuardedByTheClaimToken",
+    "TestEscalationContract_MariaDB/CancelBeatsALiveLease",
+    "TestEscalationContract_MariaDB/ClaimOrderBreaksTimestampTieByID",
+    "TestEscalationContract_MariaDB/DeletingAPolicyCascades",
+    "TestEscalationContract_MariaDB",
+    "TestEscalationOutboxContract/mariadb/RollbackAndClaimFence",
+    "TestEscalationOutboxContract/mariadb/ProviderRetrySurvivesRunnerRestart",
+    "TestEscalationOutboxContract/mariadb/AckBetweenQueueAndSend",
+    "TestEscalationOutboxContract/mariadb/ColdReaderRejectsUnappliedChannel",
+    "TestEscalationOutboxContract/mariadb",
+    "TestRegionalCommitMarksDirtyBucketsAndProjectsOverallHistory/mariadb",
+    "TestHeartbeatProbeIDAndRollupUniqueKey/mariadb",
+    "TestLocalStreamTwoMonitors/mariadb",
+    "TestLocalStreamExplicitSequenceControl/mariadb",
+    "TestHeartbeatRecordWritesLocalRegionalState/mariadb",
+    "TestRegionalIncidentsAreIndependentPerProbe/mariadb",
+    "TestInsightsFilterContract/mariadb/descendants",
+    "TestInsightsFilterContract/mariadb/empty-groups",
+    "TestInsightsFilterContract/mariadb/empty-grants",
+    "TestInsightsFilterContract/mariadb/intersect-grants",
+    "TestInsightsFilterContract/mariadb/intersect-single-group",
+    "TestInsightsFilterContract/mariadb/intersect-ungrouped",
+    "TestInsightsFilterContract/mariadb/disabled",
+    "TestInsightsFilterContract/mariadb/type",
+    "TestInsightsFilterContract/mariadb",
+    "TestLocalDeliveryContract/mariadb/NewConfigDuringOutage",
+    "TestLocalDeliveryContract/mariadb/DefaultAvailabilitySend",
+    "TestLocalDeliveryContract/mariadb/ResendAfterInterval",
+    "TestLocalDeliveryContract/mariadb/AckBetweenClaimAndFirstSend",
+    "TestLocalDeliveryContract/mariadb/DownAfterMaintenance",
+    "TestLocalDeliveryContract/mariadb/RecoveryAfterAck",
+    "TestLocalDeliveryContract/mariadb/RejectForeignSnapshotKey",
+    "TestLocalDeliveryContract/mariadb/Existing045Upgrade",
+    "TestLocalDeliveryContract/mariadb/DelayedSummaryKeepsDurableRetry",
+    "TestLocalDeliveryContract/mariadb/ChannelEditRequiresNewAppliedVersion",
+    "TestLocalDeliveryContract/mariadb/FirstActivationAndRefresh",
+    "TestLocalDeliveryContract/mariadb/InheritedAndDisabledChannels",
+    "TestLocalDeliveryContract/mariadb/MaintenanceParity",
+    "TestLocalDeliveryContract/mariadb/RestartReclaim",
+    "TestLocalDeliveryContract/mariadb/CompleteEscalationBehavior",
+    "TestLocalDeliveryContract/mariadb/SourceEditsThroughSupportedAppPath",
+    "TestLocalDeliveryContract/mariadb/BootstrapWiringMustCreateOutboxWork",
+    "TestLocalDeliveryContract/mariadb/ChannelEditMustRefreshWithoutManualTrigger",
+    "TestLocalDeliveryContract/mariadb/EscalationMustNotUseUnappliedChannel",
+    "TestLocalDeliveryContract/mariadb/AckURLMustIncludePublicURL",
+    "TestLocalDeliveryContract/mariadb",
+    "TestProbeInstallationRacesSnapshotWriter/mariadb",
+    "TestLocalHeartbeatContract/mariadb/Rollback",
+    "TestLocalHeartbeatContract/mariadb/ConcurrentConnections",
+    "TestLocalHeartbeatContract/mariadb/StaleStateAndAssignments",
+    "TestLocalHeartbeatContract/mariadb/RestartDeletionAndExhaustion",
+    "TestLocalHeartbeatContract/mariadb/Migration",
+    "TestLocalHeartbeatContract/mariadb/LifecycleAndOutbox",
+    "TestLocalHeartbeatContract/mariadb/LifecycleFaultInjection",
+    "TestLocalHeartbeatContract/mariadb/AckAndResolveCancellation",
+    "TestLocalHeartbeatContract/mariadb",
+    "TestMigration016_UpDownUp_MariaDB",
+    "TestWorkerMonitorReaderScopesCurrentLeases/mariadb",
+    "TestClaimBatchReturnsOnlyItsBoundedClaim/mariadb",
+    "TestMariaDBLeaseTimestampPrecisionControl",
+    "TestClaimBatchConcurrentWorkers/mariadb",
+    "TestMonitorHealthReaderUsesPersistedRegionalState/mariadb",
+    "TestNotificationThrottleContract/mariadb/ScopeRestartAndClock",
+    "TestNotificationThrottleContract/mariadb/ConcurrentReservations",
+    "TestNotificationThrottleContract/mariadb/Dispatcher",
+    "TestNotificationThrottleContract/mariadb/MigrationAndRollback",
+    "TestNotificationThrottleContract/mariadb",
+    "TestProbeActivationLocksSourceThroughCommit/mariadb/monitor_update",
+    "TestProbeActivationLocksSourceThroughCommit/mariadb/tag_link_insert",
+    "TestProbeActivationContract/mariadb/FirstValidAndIdempotentRetry",
+    "TestProbeActivationContract/mariadb/OlderRevisionAndHashConflict",
+    "TestProbeActivationContract/mariadb/WrongTargetAndDisabledProbe",
+    "TestProbeActivationContract/mariadb/SourceFreshnessTwoConnections",
+    "TestProbeActivationContract/mariadb/ConcurrentRaces",
+    "TestProbeActivationContract/mariadb/EmptyConfiguration",
+    "TestProbeActivationContract/mariadb/DowngradeGuards",
+    "TestProbeActivationContract/mariadb",
+    "TestAssignmentHistoryPreservesMembershipPolicyAndGeneration/mariadb",
+    "TestAssignmentHistoryFailureRollsBackEntireReplacement/mariadb",
+    "TestAssignmentHistoryLocalDowngradeAndConstraints/mariadb",
+    "TestAssignmentHistoryMigrationBackfillsOnlyKnownRevision/mariadb",
+    "TestPreparedProbeConfigFileKeyRestart/mariadb",
+    "TestLocalConfigSourceContract/mariadb/CompleteProtectedGraph",
+    "TestLocalConfigSourceContract/mariadb/ConsistentConcurrentEdit",
+    "TestLocalConfigSourceContract/mariadb/EmptyLegacyAndFailure",
+    "TestLocalConfigSourceContract/mariadb",
+    "TestRemoteConfigSyncContract/mariadb/ReceiptFencingAndLateRollback",
+    "TestRemoteConfigSyncContract/mariadb/SourceEditsAndRestart",
+    "TestRemoteConfigSyncContract/mariadb/ConcurrentPublication",
+    "TestRemoteConfigSyncContract/mariadb",
+    "TestPreparedProbeConfigContract/mariadb/RoundTripRotation",
+    "TestPreparedProbeConfigContract/mariadb/ConcurrentWriters",
+    "TestPreparedProbeConfigContract/mariadb/RollbackMigrationBounds",
+    "TestPreparedProbeConfigContract/mariadb",
+    "TestLocalConfigValidationProtectedRevisions/mariadb",
+    "TestProbeConnectionPreparationContract/mariadb",
+    "TestProbeConnectorLeaseContract/mariadb",
+    "TestProbeCurrentStateAcceptance/mariadb/UpgradePreservesExactObservation",
+    "TestProbeCurrentStateAcceptance/mariadb/EmptyInitialSnapshotThenFirstEvidence",
+    "TestProbeCurrentStateAcceptance/mariadb/SameObservationAllowsIncidentMetadataOnly",
+    "TestProbeCurrentStateAcceptance/mariadb/KnownIncidentMustMatchSnapshotAssignment",
+    "TestProbeCurrentStateAcceptance/mariadb/AheadOfBacklogAndDurableReceipt",
+    "TestProbeCurrentStateAcceptance/mariadb/OmittedAssignmentStaysUnknownUntilNewEvidence",
+    "TestProbeCurrentStateAcceptance/mariadb/SequenceOrdersBackwardClock",
+    "TestProbeCurrentStateAcceptance/mariadb/AuthorityAndFinalReceiptRollback",
+    "TestProbeCurrentStateAcceptance/mariadb",
+    "TestProbeHistoryAcceptance/mariadb/ReplayAndGapBeyondRollupLookback",
+    "TestProbeHistoryAcceptance/mariadb/LastWriteRollbackAndRestart",
+    "TestProbeHistoryAcceptance/mariadb/RevisionSurvivesConsumeReinsertABA",
+    "TestProbeHistoryAcceptance/mariadb",
+    "TestProbeHistoryLegacyRollupsPreserveManagedCoverage/mariadb",
+    "TestProbeHistoryWindowReplacementPreservesBothSides/mariadb",
+    "TestProbeHistoryAssignmentRemovalClosesRegionalDenominator/mariadb",
+    "TestProbeHistoryLateClockRegressionRepairsBeyondFreshness/mariadb",
+    "TestProbeHistoryParentsPreserveLegacySampleStatistics/mariadb",
+    "TestProbeInstallationContract/mariadb/RetainedSnapshots",
+    "TestProbeInstallationContract/mariadb/DowngradeGuards",
+    "TestProbeInstallationContract/mariadb/InitializationAndIdempotency",
+    "TestProbeInstallationContract/mariadb/ConcurrentInitializers",
+    "TestProbeInstallationContract/mariadb",
+    "TestProbeRegistryContract/mariadb/RegistryAndIdentity",
+    "TestProbeRegistryContract/mariadb/ReplacementAndTombstones",
+    "TestProbeRegistryContract/mariadb/ConcurrentReplacement",
+    "TestProbeRegistryContract/mariadb/AtomicRollbackAndOverflow",
+    "TestProbeRegistryContract/mariadb/LegacyBackfillAndDown",
+    "TestProbeRegistryContract/mariadb/SchemaConstraints",
+    "TestProbeRegistryContract/mariadb",
+    "TestProbeReplayAcceptance/mariadb/LeaseExpiresDuringBatch",
+    "TestProbeReplayAcceptance/mariadb/MixedDurableOutcomes",
+    "TestProbeReplayAcceptance/mariadb/LateRollback",
+    "TestProbeReplayAcceptance/mariadb/LeaseAndStreamFences",
+    "TestProbeReplayAcceptance/mariadb/HistoricalAuthority",
+    "TestProbeReplayAcceptance/mariadb/ExactConfigAndParent",
+    "TestProbeReplayAcceptance/mariadb/TimestampPrecision",
+    "TestProbeReplayAcceptance/mariadb/ConcurrentDuplicate",
+    "TestProbeReplayAcceptance/mariadb",
+    "TestProbeReplayGapAcceptance/mariadb/DurableGapAndOverlap",
+    "TestProbeReplayGapAcceptance/mariadb/AuthorityAndLateRollback",
+    "TestProbeReplayGapAcceptance/mariadb",
+    "TestProbeRuntimeOwnership/mariadb",
+    "TestProbeRuntimeAdoptsLegacyAndFencesDisable/mariadb",
+    "TestProbeRuntimeReleaseRollback/mariadb",
+    "TestProbeRuntimeTakeoverFencesReplay/mariadb",
+    "TestProbeRuntimeRenewalCannotShortenExistingDeadline/mariadb",
+    "TestRegionalAlertContract/mariadb/IsolationAndGeneration",
+    "TestRegionalAlertContract/mariadb/ConcurrentOpenAndTransitions",
+    "TestRegionalAlertContract/mariadb/DispatcherAndRunner",
+    "TestRegionalAlertContract/mariadb/PopulatedMigration",
+    "TestRegionalAlertContract/mariadb",
+    "TestRegionalAuxiliaryContract/mariadb/IndependentPromotionAndRecovery",
+    "TestRegionalAuxiliaryContract/mariadb/IndependentCertificates",
+    "TestRegionalAuxiliaryContract/mariadb/CurrentLocalAndCleanup",
+    "TestRegionalAuxiliaryContract/mariadb/MigrationAndGuards",
+    "TestRegionalAuxiliaryContract/mariadb/LocalRecorder",
+    "TestRegionalAuxiliaryContract/mariadb",
+    "TestRegionalCommitKeepsIndependentRetryCounters/mariadb",
+    "TestProbeIngestIsIdempotentAndRejectsGaps/mariadb"
+  ],
+  "critical_both_engine_cases": [
+    "TestProbeRuntimeOwnership",
+    "TestProbeRuntimeAdoptsLegacyAndFencesDisable",
+    "TestProbeRuntimeReleaseRollback",
+    "TestProbeRuntimeTakeoverFencesReplay",
+    "TestProbeRuntimeRenewalCannotShortenExistingDeadline",
+    "TestProbeConnectorLeaseContract"
+  ],
+  "critical_service_cases": [
+    "TestProbeConnectorRuntimeSurvivesReconnectBackoff",
+    "TestProbeConnectorRuntimeFailureCancelsAndJoinsSession",
+    "TestProbeConnectorRuntimeCompletionDoesNotBecomeCanceled",
+    "TestProbeConnectorEnrollmentWhileWorkerOwnsRuntime",
+    "TestProbeConnectorEnrollmentRechecksPreparedAuthority"
+  ],
+  "package_passes": [
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/cmd/phoenix-config",
+      "Elapsed": 1.482
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/cmd/phoenix-probe-key",
+      "Elapsed": 1.512
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/auth",
+      "Elapsed": 1.629
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/http",
+      "Elapsed": 1.568
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/cmd/probe",
+      "Elapsed": 1.851
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/http/middleware",
+      "Elapsed": 1.597
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/metrics",
+      "Elapsed": 1.399
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/importer/uptimekuma",
+      "Elapsed": 1.641
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb",
+      "Elapsed": 1.3980000000000001
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/bootstrap",
+      "Elapsed": 1.6989999999999998
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/core/domain",
+      "Elapsed": 1.413
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier",
+      "Elapsed": 10.547
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/ws",
+      "Elapsed": 8.163
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/edge",
+      "Elapsed": 9.201
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/core/services",
+      "Elapsed": 17.264
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/scheduler",
+      "Elapsed": 22.872
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/checker",
+      "Elapsed": 41.086
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/probe",
+      "Elapsed": 41.078
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/sqlite",
+      "Elapsed": 71.56
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository",
+      "Elapsed": 349.19
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/http/handlers",
+      "Elapsed": 367.821
+    }
+  ],
+  "source_sha256": {
+    "internal/adapters/repository/mariadb/migrations/058_probe_runtime_owners.down.sql": "c677d7bb503a58e27c2557a7c48ffa9e6948ace07ed0331901645f6fd97f2463",
+    "internal/adapters/repository/mariadb/migrations/058_probe_runtime_owners.up.sql": "58468090bb6969aa51f965d66dbf9cbdb28e5663971c522cdd9850d66d3db620",
+    "internal/adapters/repository/probe_connector.go": "3a5f643d25d813b1f5fa333650575a419fdbf791aae35e67f9866d778f9d4c5b",
+    "internal/adapters/repository/probe_registry_test.go": "47f26e9051f0d536e49235eb89897f4a428c48ece7c2d0b861aa63d443a59069",
+    "internal/adapters/repository/probe_runtime.go": "7896db95c2e6e805bc0422a8bb81155a0497c5301a370bc284fb8e232da57993",
+    "internal/adapters/repository/probe_runtime_test.go": "54bb660927d364305705a3c1348ddd6a9079e95a6cbc1003d147ed1b2fa54cde",
+    "internal/adapters/repository/sqlite/migrations/058_probe_runtime_owners.down.sql": "c677d7bb503a58e27c2557a7c48ffa9e6948ace07ed0331901645f6fd97f2463",
+    "internal/adapters/repository/sqlite/migrations/058_probe_runtime_owners.up.sql": "4a94a87099553366526f021897223e4ea27e67b4b27610351fd15b737dd7a8ba",
+    "internal/bootstrap/probe_admin.go": "70b89e6eb8869672d2d8507e9c49649bd31e1653e13cdc7b891aff5d796399e2",
+    "internal/bootstrap/run.go": "ec7afb6ed33938352cabc85b19beb65ecaa4d64f9b248ff32ac131190c2271fa",
+    "internal/core/domain/probe_connector.go": "66ec7e2c97470614b54320eb0fbc541d76d62c19477d54bbc822e62265ccc48b",
+    "internal/core/domain/probe_watchdog.go": "559ba0dc1a4c9ab21ae765b1c896660e1562c300935cc47d1943e74cf03c14fa",
+    "internal/core/ports/probe_runtime.go": "885549f64f7c9435cfd0675c4b1051c1d6023d9ac8bb161ae090999a3de6ebc6",
+    "internal/core/services/probe_connector_runtime.go": "35c4580fc23c55f23a7dc56ac9a34781eb456f7080df705fdc49024cf5885a4f",
+    "internal/core/services/probe_connector_service.go": "71b559529de60f00e42cd801573f694d7dc755b0e37dcb933900e7cd376f1f07",
+    "internal/core/services/probe_connector_service_test.go": "f8d925a9792d3719e993e6c8a5660c75ebb82aef620d8f4246b6cad0b4a5e6ef",
+    "internal/core/services/probe_watchdog_timer.go": "35a7305e21ee6977e3813b2bb988550c53f9c64dcc30bf6a1c5d56c0ad1642c3",
+    "internal/core/services/probe_watchdog_timer_test.go": "a24cd0b7ef468d648c948f25cbfa058129cdc4dde9f1351583f2e255a751be28",
+    "scripts/probe_runtime_smoke.py": "3be5284913e3c771671eb0a32d2978aaff1461a524ae0eaf9e8381ad6b39f07e"
+  },
+  "process_report": "/private/tmp/phoenix-m3-runtime-process-acceptance/report.json",
+  "process_report_sha256": "40a79f0388b9ae877bc2b22cc1a9ed1a477dd774fd36bd5282c9827685791b57",
+  "process_source_sha256": {
+    "internal/adapters/repository/mariadb/migrations/058_probe_runtime_owners.down.sql": "c677d7bb503a58e27c2557a7c48ffa9e6948ace07ed0331901645f6fd97f2463",
+    "internal/adapters/repository/mariadb/migrations/058_probe_runtime_owners.up.sql": "58468090bb6969aa51f965d66dbf9cbdb28e5663971c522cdd9850d66d3db620",
+    "internal/adapters/repository/probe_connector.go": "3a5f643d25d813b1f5fa333650575a419fdbf791aae35e67f9866d778f9d4c5b",
+    "internal/adapters/repository/probe_registry_test.go": "47f26e9051f0d536e49235eb89897f4a428c48ece7c2d0b861aa63d443a59069",
+    "internal/adapters/repository/probe_runtime.go": "e2f4a3ee5194272265d60b39e425244dcfc2817ecbbd452261daeb42ddc4cc65",
+    "internal/adapters/repository/probe_runtime_test.go": "c5acebda05e2e70e6ac44171b478ff241ad3682834455e0c076807531bf56303",
+    "internal/adapters/repository/sqlite/migrations/058_probe_runtime_owners.down.sql": "c677d7bb503a58e27c2557a7c48ffa9e6948ace07ed0331901645f6fd97f2463",
+    "internal/adapters/repository/sqlite/migrations/058_probe_runtime_owners.up.sql": "4a94a87099553366526f021897223e4ea27e67b4b27610351fd15b737dd7a8ba",
+    "internal/bootstrap/probe_admin.go": "70b89e6eb8869672d2d8507e9c49649bd31e1653e13cdc7b891aff5d796399e2",
+    "internal/bootstrap/run.go": "ec7afb6ed33938352cabc85b19beb65ecaa4d64f9b248ff32ac131190c2271fa",
+    "internal/core/domain/probe_connector.go": "66ec7e2c97470614b54320eb0fbc541d76d62c19477d54bbc822e62265ccc48b",
+    "internal/core/domain/probe_watchdog.go": "559ba0dc1a4c9ab21ae765b1c896660e1562c300935cc47d1943e74cf03c14fa",
+    "internal/core/ports/probe_runtime.go": "885549f64f7c9435cfd0675c4b1051c1d6023d9ac8bb161ae090999a3de6ebc6",
+    "internal/core/services/probe_connector_runtime.go": "35c4580fc23c55f23a7dc56ac9a34781eb456f7080df705fdc49024cf5885a4f",
+    "internal/core/services/probe_connector_service.go": "71b559529de60f00e42cd801573f694d7dc755b0e37dcb933900e7cd376f1f07",
+    "internal/core/services/probe_connector_service_test.go": "f8d925a9792d3719e993e6c8a5660c75ebb82aef620d8f4246b6cad0b4a5e6ef",
+    "internal/core/services/probe_watchdog_timer.go": "35a7305e21ee6977e3813b2bb988550c53f9c64dcc30bf6a1c5d56c0ad1642c3",
+    "internal/core/services/probe_watchdog_timer_test.go": "a24cd0b7ef468d648c948f25cbfa058129cdc4dde9f1351583f2e255a751be28",
+    "scripts/probe_runtime_smoke.py": "3be5284913e3c771671eb0a32d2978aaff1461a524ae0eaf9e8381ad6b39f07e"
+  },
+  "process_source_difference_note": "Process smoke preceded only the final backward-clock parent-deadline correction and its test; final both-engine full race gate verifies that correction.",
+  "process_changed_files_since_run": [
+    "internal/adapters/repository/probe_runtime.go",
+    "internal/adapters/repository/probe_runtime_test.go"
+  ],
+  "process_metrics": {
+    "runtime_ownership": {
+      "epoch": 1,
+      "generation_before": 3,
+      "generation_after": 4,
+      "stable_across_backoff": true
+    },
+    "replay": {
+      "offline_high_water": 48,
+      "offline_backlog_count": 21,
+      "mirrored_observation_sequences": [
+        28,
+        29,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        46
+      ],
+      "mirrored_incidents": [
+        {
+          "id": "99646d43-ecbd-49ed-9e31-e93cf057f6d4",
+          "status": "resolved"
+        }
+      ],
+      "mirrored_delivery_outcomes": [
+        {
+          "id": "261706b7-d547-4381-b395-09bfde23e168",
+          "status": "sent"
+        },
+        {
+          "id": "b90e3f69-aabe-479f-86b4-ae0434f10754",
+          "status": "sent"
+        }
+      ],
+      "hub_send_intents": 0,
+      "hub_cursor": 50,
+      "edge_cursor": 50
+    },
+    "history": {
+      "total_checks": 45,
+      "known_us": 55918183,
+      "unknown_us": 2827016,
+      "managed": 1,
+      "bucket_utc_epoch": 1789906380,
+      "source_observations": 45,
+      "overall_coverage_us": 60000000,
+      "pending_minute_work": 0
+    },
+    "successful_webhook_statuses": [
+      0,
+      1
+    ],
+    "final": {
+      "probe_id": "58535b5e-a5ab-4212-80c7-7ec2becef045",
+      "stream_id": "6e6cc5ee-49e7-4c74-9179-e2f034491f93",
+      "last_created_seq": 54,
+      "committed_seq": 54,
+      "config_revision": 2,
+      "connection_generation": 6
+    }
+  },
+  "process_is_final_fifteen_minute_gate": false,
+  "additional_checks": {
+    "lint": {
+      "path": "/private/tmp/phoenix-m3-runtime-lint-accepted.log",
+      "sha256": "e92606b0bf483111dff0a120c315ea165821348f31365020e2468a0059095c47"
+    },
+    "cgo_free_build": {
+      "path": "/private/tmp/phoenix-m3-runtime-build-accepted.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "cancellation_repro_before": {
+      "path": "/private/tmp/phoenix-m3-runtime-cancel-before.log",
+      "sha256": "a4eef0fe6949574f792b5820841aeac071d3d1522d3e9cc2b2cbb329ee90cd2f"
+    },
+    "cancellation_repro_after": {
+      "path": "/private/tmp/phoenix-m3-runtime-cancel-after.log",
+      "sha256": "063bd4290b9f8c45303d51445715388eb4a92d18052a0f7f1704fc80733783bf"
+    },
+    "enrollment_repro_before": {
+      "path": "/private/tmp/phoenix-m3-runtime-enroll-before.log",
+      "sha256": "e36f906608b36a5da69016130319958b835334ef1cdc0edb91e0bd94a9245492"
+    },
+    "clock_repro_before": {
+      "path": "/private/tmp/phoenix-m3-runtime-clock-before.log",
+      "sha256": "78f43f35c8b9b92c4b72b690a4774d3c99cdbe1d73e86cb37aa707429f0e2110"
+    },
+    "clock_repro_after": {
+      "path": "/private/tmp/phoenix-m3-runtime-clock-after.log",
+      "sha256": "9b5acc8b560de06eea543014aef8196fe5b08430ef034464e19babffcddf46ca"
+    }
+  }
+}

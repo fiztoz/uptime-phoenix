@@ -7,6 +7,37 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 runtime ownership and watchdog timer prerequisite — 2026-09-20
+
+Hub migration 058 adds stable runtime epochs across reconnect attempts and
+backoff, with separately fenced session generations. Child authority cannot
+outlive its parent; release/takeover invalidates it atomically, and backward DB
+clock steps cannot shorten the parent below an existing child deadline. The
+production worker uses this ownership. Operator enrollment remains independent
+of worker retries and rechecks the immutable prepared registration.
+
+The pure 45/90/30-second timer handles arming, degraded application health,
+interrupted recovery, delayed ticks and measured handoff checkpoints. It is not
+wired to a source incident/outbox yet, and enabled watchdog config is still
+rejected. **Neither watchdog notification path is complete.**
+
+The final full Go race suite passed with 202 MariaDB-named passes and zero
+MariaDB skips; CGO-free build and lint passed. Two real workers enrolled an edge
+while ownership was already held, then retained one runtime epoch through an
+edge restart. Offline DOWN/retry/UP and 21 retained events replayed without any
+hub send intents; production history recomputation passed. See
+[runtime acceptance](M3_RUNTIME_ACCEPTANCE.md),
+[evidence](M3_RUNTIME_DB_EVIDENCE.json) and
+[retrospective](M3_RUNTIME_RETROSPECTIVE.md). Antigravity's bounded no-tools review
+identified the cleanup cancellation race; the integrator independently fixed
+enrollment starvation and backward-clock parent expiry. Antigravity acknowledged
+the verified lessons and owns no files.
+
+**Next:** watchdog source checkpoint/incident/delivery transactions and config,
+then real health-loop integration and both-side provider acceptance. Follow
+[M3_WATCHDOG_WORK_CONTRACT.md](M3_WATCHDOG_WORK_CONTRACT.md), then the remaining
+[M3 contract](M3_COMPLETION_WORK_CONTRACT.md). M3 remains incomplete.
+
 ## M3 historical recomputation increment — 2026-09-20
 
 Historical replay now corrects regional 1m/1h/1d rollups and overall intervals at

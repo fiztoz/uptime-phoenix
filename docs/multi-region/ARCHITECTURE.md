@@ -103,7 +103,7 @@ Add narrow ports only where two adapters or a meaningful test fake need them:
 | Remote ingest | Atomically deduplicate a batch, store history/mirrors, update cursors, and mark aggregates dirty |
 | Probe configuration store | Read and install a complete versioned snapshot atomically |
 | Durable queue | Read batches, acknowledge ranges, and persist declared retention gaps |
-| Connector lease | Acquire/renew/release with generation fencing |
+| Connector ownership | Runtime epoch across retries; child session generation per connection |
 | Probe transport | Open a session, send a typed application message, and close it |
 | Credential store | Read/write/rotate protected connection credentials |
 
@@ -269,6 +269,7 @@ This is the target schema contract, not ready-to-run migration SQL. Implementati
 | `probes` | `id` PK, unique human `key`, name, location, kind (`local`/`remote`), endpoint, enabled/revoked timestamps, certificate pin, encrypted credential/version, runtime status, last seen, applied/desired revisions |
 | `monitor_probes` | PK `(monitor_id,probe_id)`, active, generation, assigned time, desired/applied config revision |
 | `monitor_probe_assignment_history` | Monitor/probe/generation, effective-from/to UTC, policy revision; supports historical aggregation; historical ingest authorization remains to be wired |
+| `probe_runtime_owners` | Stable owner epoch/lease across reconnect backoff; migration 058 |
 | `probe_sessions` | Probe ID, connector owner, lease expiry, connection generation; transactional fencing |
 | `probe_local_sequence` | Singleton local-stream high-water mark; allocated with the heartbeat/observation/state transaction and retained after monitor/history deletion |
 | `probe_streams` | PK `(probe_id,stream_id)`, current/retired epoch, contiguous committed cursor, retirement time, declared gap records |
@@ -511,7 +512,11 @@ Require TLS 1.3 for the probe transport. Persist TLS keys and identity across co
 
 ### 9.3 Connection and credential fencing
 
-A hub connector acquires a DB lease with a 60-second TTL and refreshes every 15 seconds. Every accepted session carries its connection generation. The probe rejects commands from older generations after accepting a newer one. Session replacement closes the old connection without allowing its eventual close callback to mark the new one offline. Hub writes also check current lease/generation; losing the DB lease stops command dispatch and closes the session.
+A hub worker acquires a runtime DB lease with a 60-second TTL and refreshes every 15 seconds. Migration 058 retains its epoch through reconnect attempts and backoff; each socket additionally gets an independent session generation. Child deadlines cannot exceed current parent authority. Parent release or takeover invalidates its child session atomically, and renewal cannot shorten an existing parent deadline after a backward DB clock step. Watchdog integration must keep the timer with this stable runtime owner and use process-monotonic elapsed time, not DB wall-time subtraction. Source watchdog checkpoint/incident/delivery integration is still required.
+
+First enrollment uses the separate one-use operator exchange after revalidating the immutable prepared credential and enabled registration. It must remain possible while runtime workers are waiting for that enrollment.
+
+Every accepted session carries its connection generation. The probe rejects commands from older generations after accepting a newer one. Session replacement closes the old connection without allowing its eventual close callback to mark the new one offline. Hub writes also check current lease/generation; losing the DB lease stops command dispatch and closes the session.
 
 Runtime credential rotation keeps pending and active versions during a bounded 10-minute overlap. Both participants persist preparation before activation and retry with a stable rotation ID. Recovery can use the prepared credential if the final response was lost. Rotation completion retires the old credential; revocation closes sessions and rejects reconnects immediately at the reachable side.
 

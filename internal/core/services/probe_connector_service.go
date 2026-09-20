@@ -17,6 +17,8 @@ import (
 type ProbeConnectorService struct {
 	connections    ports.ProbeConnectionRepository
 	leases         ports.ProbeConnectorLeaseRepository
+	runtimes       ports.ProbeRuntimeLeaseRepository
+	renewInterval  time.Duration
 	protector      ports.ProbeCredentialProtector
 	configs        *ProbeConfigService
 	transport      ports.ProbeConnectionTransport
@@ -40,11 +42,11 @@ func (s *ProbeConnectorService) SetReplayIngest(ingest ports.ProbeReplayService)
 
 // NewProbeConnectorService requires verified installation authority and a unique
 // worker owner. Backoff is supplied by the transport composition root.
-func NewProbeConnectorService(connections ports.ProbeConnectionRepository, leases ports.ProbeConnectorLeaseRepository, protector ports.ProbeCredentialProtector, configs *ProbeConfigService, transport ports.ProbeConnectionTransport, hubID, ownerID string, delay func(int, time.Duration) time.Duration) (*ProbeConnectorService, error) {
-	if connections == nil || leases == nil || protector == nil || configs == nil || transport == nil || !domain.ValidHubID(hubID) || !domain.ValidHubID(ownerID) || delay == nil {
+func NewProbeConnectorService(connections ports.ProbeConnectionRepository, leases ports.ProbeConnectorLeaseRepository, runtimes ports.ProbeRuntimeLeaseRepository, protector ports.ProbeCredentialProtector, configs *ProbeConfigService, transport ports.ProbeConnectionTransport, hubID, ownerID string, delay func(int, time.Duration) time.Duration) (*ProbeConnectorService, error) {
+	if connections == nil || leases == nil || runtimes == nil || protector == nil || configs == nil || transport == nil || !domain.ValidHubID(hubID) || !domain.ValidHubID(ownerID) || delay == nil {
 		return nil, domain.ErrValidation
 	}
-	return &ProbeConnectorService{connections: connections, leases: leases, protector: protector, configs: configs, transport: transport, hubID: hubID, ownerID: ownerID, delay: delay}, nil
+	return &ProbeConnectorService{connections: connections, leases: leases, runtimes: runtimes, renewInterval: 15 * time.Second, protector: protector, configs: configs, transport: transport, hubID: hubID, ownerID: ownerID, delay: delay}, nil
 }
 
 // Prepare creates recoverable runtime authorization before any network request.
@@ -94,11 +96,16 @@ func (s *ProbeConnectorService) Enroll(ctx context.Context, probeID, enrollmentT
 	if c.State == "active" {
 		return nil
 	}
-	lease, err := s.leases.AcquireConnector(ctx, probeID, s.ownerID)
+	// Revalidate enabled registration and the immutable prepared credential at
+	// the DB boundary. Enrollment is a separate, one-use operator exchange; it
+	// must remain possible while a worker owns runtime retries awaiting it.
+	c, err = s.connections.PrepareConnection(ctx, *c)
 	if err != nil {
 		return err
 	}
-	defer s.release(lease)
+	if c.State == "active" {
+		return nil
+	}
 	token, err := s.protector.OpenCredential(ctx, c.ProbeCredentialMetadata, c.ProtectedCredential)
 	if err != nil {
 		return err
@@ -162,9 +169,27 @@ func (s *ProbeConnectorService) Run(ctx context.Context, report func(error)) {
 }
 
 func (s *ProbeConnectorService) connectLoop(ctx context.Context, probeID string, report func(error)) {
+	for ctx.Err() == nil {
+		err := s.withRuntime(ctx, probeID, func(ownedCtx context.Context, runtime domain.ProbeRuntimeLease) error {
+			s.ownedConnectLoop(ownedCtx, runtime, report)
+			return ownedCtx.Err()
+		})
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil && !errors.Is(err, ports.ErrConflict) && report != nil {
+			report(errors.New("probe runtime ownership unavailable"))
+		}
+		if !waitProbeConnector(ctx, 5*time.Second) {
+			return
+		}
+	}
+}
+
+func (s *ProbeConnectorService) ownedConnectLoop(ctx context.Context, runtime domain.ProbeRuntimeLease, report func(error)) {
 	failures := 0
 	for ctx.Err() == nil {
-		healthy, err := s.connectOnce(ctx, probeID)
+		healthy, err := s.connectOnce(ctx, runtime)
 		if ctx.Err() != nil {
 			return
 		}
@@ -186,9 +211,10 @@ func (s *ProbeConnectorService) connectLoop(ctx context.Context, probeID string,
 	}
 }
 
-func (s *ProbeConnectorService) connectOnce(ctx context.Context, probeID string) (time.Duration, error) {
+func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.ProbeRuntimeLease) (time.Duration, error) {
+	probeID := runtime.ProbeID
 	opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	lease, err := s.leases.AcquireConnector(opCtx, probeID, s.ownerID)
+	lease, err := s.runtimes.AcquireRuntimeConnector(opCtx, runtime)
 	cancel()
 	if err != nil {
 		return 0, err
@@ -227,7 +253,7 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, probeID string)
 	renewed := make(chan struct{})
 	go func() {
 		defer close(renewed)
-		ticker := time.NewTicker(15 * time.Second)
+		ticker := time.NewTicker(s.renewInterval)
 		defer ticker.Stop()
 		for {
 			select {

@@ -57,8 +57,9 @@ endpoint or pin cannot silently rotate an existing registration.
 
 Run `phoenix-probe-admin enroll --probe-id UUID --token-file /private/token`.
 The token file must be a private regular file. Tokens never appear in command
-arguments, ordinary output, URLs, logs or hub plaintext storage. Keep connector
-workers stopped during initial enrollment to avoid competing for their lease.
+arguments, ordinary output, URLs, logs or hub plaintext storage. Enrollment can
+run with connector workers already running: the one-use operator exchange is
+independent of their runtime lease and revalidates the prepared registration.
 
 If the enrollment receipt is lost, retain the prepared credential and start the
 connector: runtime authentication with the same credential recovers the binding.
@@ -79,9 +80,11 @@ policy and checks the assignment revision. Tombstones retain generations; never
 guess a recreated generation.
 
 Start compatible normal hub workers with `PROBES_ENABLED=true`. Only worker/all
-mode claims connectors. Workers compete through a database-clock lease and
-monotonic generation. Failed renewal cancels the socket; stale callbacks cannot
-release or update a successor.
+mode claims connectors. Workers retain a database-clock runtime lease through
+reconnect backoff; individual sessions advance their own generation. Failed
+renewal cancels the socket; stale callbacks cannot release or update a successor.
+Use a uniform worker version when adopting migration 058: older workers do not
+understand the parent runtime fence. Downgrade cannot discard a persisted epoch.
 
 The connector builds each remote probe's complete authorized saved graph before
 connecting, then reconciles it at the 15-second lease-renewal interval. Monitor,
