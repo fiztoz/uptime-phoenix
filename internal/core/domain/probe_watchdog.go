@@ -52,3 +52,42 @@ type ProbeWatchdogCheckpoint struct {
 	LossElapsed time.Duration
 	PendingLoss bool
 }
+
+// ProbeWatchdogAuthority binds a source operation to its installation. Hub-side
+// operations also require RuntimeOwner; edge operations use the exclusive local
+// store owner. HealthGeneration is nonzero only for a newly received health frame
+// and must match current session authority before its checkpoint can commit.
+type ProbeWatchdogAuthority struct {
+	HubID            string
+	ProbeID          string
+	StreamID         string
+	RuntimeOwner     ProbeRuntimeLease
+	HealthGeneration int64
+}
+
+// ProbeWatchdogState is one coherent source checkpoint and incident snapshot.
+// Version fences concurrent changes, including acknowledgement. IncidentSeq is
+// the source sequence of the latest transition; resends keep its identity.
+type ProbeWatchdogState struct {
+	Version        int64
+	ConfigRevision int64
+	Checkpoint     ProbeWatchdogCheckpoint
+	Status         ProbeWatchdogStatus
+	Incident       *RegionalIncident
+	IncidentSeq    int64
+	LastEnqueuedAt *time.Time
+}
+
+// ProbeWatchdogRecord commits a timer checkpoint and optional incident/send work
+// under one expected version. A checkpoint alone does not authorize provider I/O.
+// Incident is nil when no lifecycle transition is proposed. At is source UTC wall
+// time for history, independent of Checkpoint's measured monotonic duration.
+type ProbeWatchdogRecord struct {
+	ExpectedVersion int64
+	ConfigRevision  int64
+	Checkpoint      ProbeWatchdogCheckpoint
+	Status          ProbeWatchdogStatus
+	At              time.Time
+	Incident        *RegionalIncident
+	DeliveryIntents []DeliveryIntent
+}

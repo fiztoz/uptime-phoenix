@@ -141,5 +141,25 @@ the lease. Keep health receipt and timer mutation on the same process clock.
 Recovery continuity cannot be inherited across ownership changes. No subtraction
 of saved wall timestamps and no independent poller inferring health receipt time.
 
-Existing runtime migration is hub 058; edge remains 004. Check directories before
-reserving the next numbers. No other agent owns source files.
+Runtime migration is hub 058. Edge migration 005 now implements the source
+checkpoint/incident/telemetry/delivery transaction; see
+[M3_WATCHDOG_SOURCE_ACCEPTANCE.md](M3_WATCHDOG_SOURCE_ACCEPTANCE.md). Check the
+migration directories before reserving the next numbers. No other agent owns
+source files. The enabled-watchdog config guard remains.
+
+The next source adapter must distinguish hub-owned connection incidents from
+mirrored edge connection incidents even though both have the remote probe identity.
+A known hub source UUID must not become writable through edge replay. Preserve
+that ownership for all historical incidents, not only the currently open one.
+Hub source sequences must not advance the remote edge stream cursor. Extend the
+existing outbox with explicit probe scope; do not fabricate monitor/assignment
+values to satisfy old schema constraints. Retained config revision/channel
+membership must authorize mirrored watchdog events and delivery results without
+requiring a monitor assignment. Original wall clocks may regress; source versions
+and sequence remain the order.
+
+The edge storage transaction preserves a last resolved identity across unarming.
+Treat `Status != resolved` as open; nonnil is insufficient. Recovery from firing
+cannot invent ACK metadata, and healthy checkpoints cannot enqueue recovery work
+without a new transition. Generation-fence every checkpoint derived from health;
+do not relabel delayed stale health as a generation-zero local timer write.

@@ -7,6 +7,29 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 edge watchdog source persistence prerequisite — 2026-09-20
+
+Edge migration 005 adds probe-scoped incident/delivery storage and a durable
+watchdog checkpoint. The source transaction atomically fences config/session/
+version, commits exact telemetry/sequence and queues delivery intents. Restart
+retains incident and ACK identity; checkpoints do not allocate telemetry, firing
+resends retain their source sequence, and recovery cannot invent an ACK or repeat
+its delivery on a later healthy checkpoint.
+
+Real-edge tests cover competing writers, late-write rollback, duplicate send IDs,
+restart, disable/re-enable, backward source clocks, migration preservation and
+foreign keys. The complete Go race suite passed with 202 MariaDB-named passes
+and zero MariaDB skips, along with CGO-free build and zero-issue lint. See
+[acceptance](M3_WATCHDOG_SOURCE_ACCEPTANCE.md),
+[evidence](M3_WATCHDOG_SOURCE_EVIDENCE.json) and
+[retrospective](M3_WATCHDOG_SOURCE_RETROSPECTIVE.md) for the exact verification.
+Antigravity's no-tools audit was independently checked and feedback returned.
+
+**Next:** hub watchdog source persistence/ownership and mirror authorization,
+complete settings, health-loop integration and actual provider reconciliation.
+Enabled watchdog config remains rejected. Neither watchdog runs or pages yet.
+ACK storage is not an implemented command workflow. M3 remains incomplete.
+
 ## M3 runtime ownership and watchdog timer prerequisite — 2026-09-20
 
 Hub migration 058 adds stable runtime epochs across reconnect attempts and

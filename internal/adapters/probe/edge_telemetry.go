@@ -8,7 +8,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
-// EdgeTelemetryEncoder serializes the M2 availability/delivery source events.
+// EdgeTelemetryEncoder serializes source availability, watchdog and delivery events.
 // Full V1 validators check every persisted event before its transaction commits.
 type EdgeTelemetryEncoder struct{}
 
@@ -20,18 +20,44 @@ func (EdgeTelemetryEncoder) EncodeObservation(o domain.RegionalObservation) ([]b
 	return encodeEdgeEvent(TelemetryEvent{Seq: Decimal(o.Seq), Kind: "observation", ObservedAt: Timestamp(o.ObservedAt.UTC()), Data: Observation{MonitorID: o.MonitorID, AssignmentGeneration: Decimal(o.AssignmentGeneration), ConfigRevision: Decimal(o.ConfigRevision), Status: status, RawStatus: raw, DownCount: int64(o.DownCount), Ping: int64(o.Ping), DurationMS: int64(o.DurationMS), Message: o.Message, Important: o.Important, Conditions: []ConditionObservation{}}})
 }
 
-// EncodeIncident records only availability transitions supported by this slice.
+// EncodeIncident records supported source transitions with explicit entity scope.
+// A watchdog has no monitor/generation; acknowledgement metadata is preserved.
 func (EdgeTelemetryEncoder) EncodeIncident(seq int64, at time.Time, i domain.RegionalIncident) ([]byte, error) {
-	if i.SubjectKind != domain.IncidentSubjectAvailability || i.Scope != domain.IncidentScopeRegional || i.AckedAt != nil || i.EscalationPolicyID != 0 {
+	if i.EscalationPolicyID != 0 || i.EscalationPolicyVersion != 0 || i.EscalationStatus != "" || i.EscalationNextStep != nil || i.EscalationNextRunAt != nil || i.ConditionKind != "" || i.CertificateThreshold != 0 {
 		return nil, domain.ErrValidation
 	}
-	monitorID, generation := i.MonitorID, Decimal(i.AssignmentGeneration)
-	var resolvedAt *Timestamp
+	kind := "alert.transition"
+	var monitorID *int64
+	var generation *Decimal
+	switch {
+	case i.SubjectKind == domain.IncidentSubjectAvailability && i.Scope == domain.IncidentScopeRegional:
+		if i.MonitorID <= 0 || i.AssignmentGeneration <= 0 || i.AckedAt != nil {
+			return nil, domain.ErrValidation
+		}
+		id, gen := i.MonitorID, Decimal(i.AssignmentGeneration)
+		monitorID, generation = &id, &gen
+	case i.SubjectKind == domain.IncidentSubjectWatchdog && i.Scope == domain.IncidentScopeProbeConnection:
+		if i.MonitorID != 0 || i.AssignmentGeneration != 0 {
+			return nil, domain.ErrValidation
+		}
+		kind = "watchdog.transition"
+	default:
+		return nil, domain.ErrValidation
+	}
+	var resolvedAt, ackedAt *Timestamp
+	var ack *IncidentAcknowledgement
 	if i.ResolvedAt != nil {
 		t := Timestamp(i.ResolvedAt.UTC())
 		resolvedAt = &t
 	}
-	return encodeEdgeEvent(TelemetryEvent{Seq: Decimal(seq), Kind: "alert.transition", ObservedAt: Timestamp(at.UTC()), Data: IncidentTransition{SourceAlertID: i.SourceAlertID, Scope: string(i.Scope), MonitorID: &monitorID, AssignmentGeneration: &generation, Status: i.Status, TransitionVersion: Decimal(i.TransitionVersion), StartedAt: Timestamp(i.StartedAt.UTC()), ResolvedAt: resolvedAt, Reason: i.Reason, ConfigRevision: Decimal(i.ConfigRevision), Subject: IncidentSubject{Kind: domain.IncidentSubjectAvailability}}})
+	if i.AckedAt != nil {
+		t := Timestamp(i.AckedAt.UTC())
+		ackedAt = &t
+		ack = &IncidentAcknowledgement{CommandID: i.AckCommandID, ActorDisplayName: i.AckActorDisplayName, Note: i.AckNote}
+	} else if i.AckCommandID != "" || i.AckActorDisplayName != "" || i.AckNote != nil {
+		return nil, domain.ErrValidation
+	}
+	return encodeEdgeEvent(TelemetryEvent{Seq: Decimal(seq), Kind: kind, ObservedAt: Timestamp(at.UTC()), Data: IncidentTransition{SourceAlertID: i.SourceAlertID, Scope: string(i.Scope), MonitorID: monitorID, AssignmentGeneration: generation, Status: i.Status, TransitionVersion: Decimal(i.TransitionVersion), StartedAt: Timestamp(i.StartedAt.UTC()), ResolvedAt: resolvedAt, Reason: i.Reason, ConfigRevision: Decimal(i.ConfigRevision), Subject: IncidentSubject{Kind: i.SubjectKind}, AckedAt: ackedAt, Acknowledgement: ack}})
 }
 
 // EncodeDelivery stores a redacted provider outcome under a new stream sequence.

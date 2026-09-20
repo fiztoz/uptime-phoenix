@@ -1002,3 +1002,21 @@ without changing runtime ownership. It continues the offline delivery/replay and
 history assertions above. See [runtime acceptance](multi-region/M3_RUNTIME_ACCEPTANCE.md)
 and [the retrospective](multi-region/M3_RUNTIME_RETROSPECTIVE.md). Both watchdogs,
 commands/offline ACK and the fifteen-minute partition remain separate M3 gates.
+
+## M3 edge watchdog source transaction
+
+Run `go test -race -count=1 ./internal/core/domain ./internal/adapters/repository/edge -run 'Test(Edge|Probe)Watchdog'`
+for exact lifecycle validation and the real edge SQLite transaction. These cases
+cover competing commits, stale config/session/version, counter and final-write
+rollback, restart with ACK, backward source wall clocks, duplicate delivery IDs,
+disable/re-enable, migration rollback and existing lease/telemetry preservation.
+`TestProbeWatchdogRecoveryCannotInventAcknowledgement` and
+`TestProbeWatchdogRecoveryCheckpointCannotPageAgain` are regressions for rejected
+source effects, not just status-code checks.
+
+This gate supplements the full Go race suite with `TEST_MARIADB_DSN` set to a
+disposable test DB, CGO-free build and lint. See
+[source acceptance](multi-region/M3_WATCHDOG_SOURCE_ACCEPTANCE.md) and its evidence.
+It does not prove a running watchdog: enabled-watchdog config remains guarded,
+and hub ownership/replay, health callbacks and actual provider reconciliation
+must be integrated before real both-side process acceptance.

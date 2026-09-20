@@ -23,8 +23,8 @@ type edgeDeliveryRow struct {
 	NotificationID          int64  `bun:"notification_id"`
 	NotificationVersion     int64  `bun:"notification_version"`
 	EventKind               string `bun:"event_kind"`
-	MonitorID               int64  `bun:"monitor_id"`
-	Generation              int64  `bun:"generation"`
+	MonitorID               int64  `bun:"monitor_id,nullzero"`
+	Generation              int64  `bun:"generation,nullzero"`
 	SourceSeq               int64  `bun:"source_seq"`
 	ConfigRevision          int64  `bun:"config_revision"`
 	CheckStatus             int    `bun:"check_status"`
@@ -375,4 +375,19 @@ func sameEdgeDeliveryResult(row *edgeDeliveryRow, result domain.DeliveryResult, 
 		}
 	}
 	return true
+}
+
+// Source recorders validate scope/lifecycle before sharing this bounded insert.
+// NULL monitor/generation represent a probe entity, never a fabricated monitor.
+func insertEdgeQueuedDelivery(ctx context.Context, tx bun.Tx, item domain.QueuedDelivery) error {
+	var retainedBytes int64
+	if err := tx.NewRaw("SELECT COALESCE(SUM(length(CAST(check_output AS BLOB)) + 1024), 0) FROM edge_delivery_outbox").Scan(ctx, &retainedBytes); err != nil {
+		return err
+	}
+	if retainedBytes > maxDeliveryQueueBytes-int64(len(item.CheckOutput))-1024 {
+		return ErrQueueFull
+	}
+	row := edgeDeliveryRow{DeliveryID: item.DeliveryID, SourceAlertID: item.SourceAlertID, SourceTransitionVersion: item.SourceTransitionVersion, NotificationID: item.NotificationID, NotificationVersion: item.NotificationVersion, EventKind: item.EventKind, MonitorID: item.MonitorID, Generation: item.AssignmentGeneration, SourceSeq: item.SourceSeq, ConfigRevision: item.ConfigRevision, CheckStatus: int(item.CheckStatus), CheckOutput: item.CheckOutput, ObservedAt: item.ObservedAt.UTC().UnixMicro(), IncidentStatus: item.IncidentStatus, StartedAt: item.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(item.ResolvedAt), AvailableAt: item.AvailableAt.UTC().UnixMicro(), Status: domain.DeliveryStatusPending, CreatedAt: item.CreatedAt.UTC().UnixMicro()}
+	_, err := tx.NewInsert().Model(&row).Exec(ctx)
+	return err
 }

@@ -255,6 +255,19 @@ Send control health every 15 seconds. A link is suspect after 45 seconds without
 
 The connection watchdog arms after first successful configuration activation, or after restart of a previously activated probe. A brand-new unenrolled installation does not page about a hub it has never known. Persist open watchdog identity to avoid startup duplicates.
 
+**Implemented storage prerequisite (edge migration 005):** a singleton watchdog
+checkpoint retains measured loss duration and source incident identity. One writer
+transaction fences installation/config/session/version and commits lifecycle,
+exact sequenced telemetry and probe-scoped provider intents. Watchdog incident
+and delivery rows have null monitor/generation. Checkpoints and resends allocate
+no incident event; recovery preserves prior ACK metadata and creates send work
+only with a new resolution transition. A last resolved identity may remain while
+unarmed; incident status determines whether it is open. Existing regional data,
+telemetry bytes and leases survive the transactionally rebuilt edge tables.
+This storage is not wired to a running watchdog yet. The enabled-config guard
+remains until hub mirroring, source ownership, settings and runtime/provider
+integration are complete; see [source acceptance](M3_WATCHDOG_SOURCE_ACCEPTANCE.md).
+
 Global maintenance pause and revocation cannot be delivered magically through a partition. Use last accepted schedules, prominently expose stale configuration, and require provider-side credential revocation for an emergency stop against an unreachable or compromised VM.
 
 ## 7. Persistence and migration design

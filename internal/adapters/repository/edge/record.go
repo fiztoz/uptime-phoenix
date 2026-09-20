@@ -41,17 +41,22 @@ type edgeStateRow struct {
 }
 
 type edgeIncidentRow struct {
-	bun.BaseModel     `bun:"table:edge_alerts"`
-	SourceAlertID     string `bun:",pk"`
-	MonitorID         int64
-	Generation        int64
-	Status            string
-	TransitionVersion int64
-	StartedAt         int64
-	ResolvedAt        *int64
-	AckedAt           *int64
-	Reason            string
-	ConfigRevision    int64
+	bun.BaseModel       `bun:"table:edge_alerts"`
+	SourceAlertID       string `bun:",pk"`
+	MonitorID           int64  `bun:"monitor_id,nullzero"`
+	Generation          int64  `bun:"generation,nullzero"`
+	Scope               string
+	SubjectKind         string
+	AckCommandID        string `bun:"ack_command_id,nullzero"`
+	AckActorDisplayName string `bun:"ack_actor_display_name,nullzero"`
+	AckNote             *string
+	Status              string
+	TransitionVersion   int64
+	StartedAt           int64
+	ResolvedAt          *int64
+	AckedAt             *int64
+	Reason              string
+	ConfigRevision      int64
 }
 
 func timeFromMicro(value *int64) *time.Time {
@@ -71,7 +76,7 @@ func microFromTime(value *time.Time) *int64 {
 }
 
 func (row edgeIncidentRow) incident(probeID string) *domain.RegionalIncident {
-	return &domain.RegionalIncident{SourceAlertID: row.SourceAlertID, ProbeID: probeID, MonitorID: row.MonitorID, AssignmentGeneration: row.Generation, Scope: domain.IncidentScopeRegional, SubjectKind: domain.IncidentSubjectAvailability, Status: row.Status, TransitionVersion: row.TransitionVersion, StartedAt: time.UnixMicro(row.StartedAt).UTC(), ResolvedAt: timeFromMicro(row.ResolvedAt), AckedAt: timeFromMicro(row.AckedAt), Reason: row.Reason, ConfigRevision: row.ConfigRevision}
+	return &domain.RegionalIncident{SourceAlertID: row.SourceAlertID, ProbeID: probeID, MonitorID: row.MonitorID, AssignmentGeneration: row.Generation, Scope: domain.IncidentScope(row.Scope), SubjectKind: row.SubjectKind, AckCommandID: row.AckCommandID, AckActorDisplayName: row.AckActorDisplayName, AckNote: row.AckNote, Status: row.Status, TransitionVersion: row.TransitionVersion, StartedAt: time.UnixMicro(row.StartedAt).UTC(), ResolvedAt: timeFromMicro(row.ResolvedAt), AckedAt: timeFromMicro(row.AckedAt), Reason: row.Reason, ConfigRevision: row.ConfigRevision}
 }
 
 func readEdgeEvidence(ctx context.Context, db bun.IDB, i domain.EdgeIdentity, monitorID, generation int64) (domain.EdgeMonitorEvidence, error) {
@@ -246,7 +251,7 @@ func saveEdgeIncident(ctx context.Context, tx bun.Tx, o domain.RegionalObservati
 	if !domain.ValidHubID(inc.SourceAlertID) || inc.ProbeID != o.ProbeID || inc.MonitorID != o.MonitorID || inc.AssignmentGeneration != o.AssignmentGeneration || inc.ConfigRevision != o.ConfigRevision || inc.Scope != domain.IncidentScopeRegional || inc.SubjectKind != domain.IncidentSubjectAvailability || inc.StartedAt.IsZero() || inc.AckedAt != nil || inc.EscalationPolicyID != 0 {
 		return domain.ErrValidation
 	}
-	row := edgeIncidentRow{SourceAlertID: inc.SourceAlertID, MonitorID: inc.MonitorID, Generation: inc.AssignmentGeneration, Status: inc.Status, TransitionVersion: inc.TransitionVersion, StartedAt: inc.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(inc.ResolvedAt), Reason: inc.Reason, ConfigRevision: inc.ConfigRevision}
+	row := newEdgeIncidentRow(inc)
 	if prior == nil || prior.Status == domain.AlertStatusResolved {
 		if inc.Status != domain.AlertStatusFiring || inc.TransitionVersion != 1 || inc.ResolvedAt != nil || o.Status != domain.StatusDown {
 			return domain.ErrValidation
@@ -271,17 +276,9 @@ func insertEdgeIntent(ctx context.Context, tx bun.Tx, o domain.RegionalObservati
 	if o.Status == domain.StatusDown && inc.Status != domain.AlertStatusFiring || o.Status == domain.StatusUp && inc.Status != domain.AlertStatusResolved {
 		return domain.ErrValidation
 	}
-	// Provider work has an independent bound. Include fixed metadata as well as
-	// variable output; pressure must roll back the entire source transaction.
-	var retainedBytes int64
-	if err := tx.NewRaw("SELECT COALESCE(SUM(length(CAST(check_output AS BLOB)) + 1024), 0) FROM edge_delivery_outbox").Scan(ctx, &retainedBytes); err != nil {
-		return err
-	}
-	if retainedBytes > maxDeliveryQueueBytes-int64(len(o.Message))-1024 {
-		return ErrQueueFull
-	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO edge_delivery_outbox
-	 (delivery_id, source_alert_id, source_transition_version, notification_id, notification_version, event_kind, monitor_id, generation, source_seq, config_revision, check_status, check_output, observed_at, incident_status, started_at, resolved_at, available_at, status, created_at)
-	 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`, intent.DeliveryID, inc.SourceAlertID, inc.TransitionVersion, intent.NotificationID, intent.NotificationVersion, intent.EventKind, o.MonitorID, o.AssignmentGeneration, o.Seq, o.ConfigRevision, o.Status, o.Message, o.ObservedAt.UnixMicro(), inc.Status, inc.StartedAt.UTC().UnixMicro(), microFromTime(inc.ResolvedAt), intent.AvailableAt.UTC().UnixMicro(), o.ReceivedAt.UnixMicro())
-	return err
+	return insertEdgeQueuedDelivery(ctx, tx, domain.QueuedDelivery{DeliveryIntent: intent, MonitorID: o.MonitorID, AssignmentGeneration: o.AssignmentGeneration, StreamID: o.StreamID, SourceSeq: o.Seq, ConfigRevision: o.ConfigRevision, CheckStatus: o.Status, CheckOutput: o.Message, ObservedAt: o.ObservedAt, IncidentStatus: inc.Status, StartedAt: inc.StartedAt, ResolvedAt: inc.ResolvedAt, CreatedAt: o.ReceivedAt})
+}
+
+func newEdgeIncidentRow(inc domain.RegionalIncident) edgeIncidentRow {
+	return edgeIncidentRow{SourceAlertID: inc.SourceAlertID, MonitorID: inc.MonitorID, Generation: inc.AssignmentGeneration, Scope: string(inc.Scope), SubjectKind: inc.SubjectKind, Status: inc.Status, TransitionVersion: inc.TransitionVersion, StartedAt: inc.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(inc.ResolvedAt), AckedAt: microFromTime(inc.AckedAt), AckCommandID: inc.AckCommandID, AckActorDisplayName: inc.AckActorDisplayName, AckNote: inc.AckNote, Reason: inc.Reason, ConfigRevision: inc.ConfigRevision}
 }
