@@ -12,6 +12,8 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
+var _ ports.ProbeWatchdogRepository = (*Store)(nil)
+
 type edgeWatchdogRow struct {
 	bun.BaseModel  `bun:"table:edge_watchdog_state"`
 	ID             int `bun:"id,pk"`

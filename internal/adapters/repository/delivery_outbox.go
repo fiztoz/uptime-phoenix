@@ -29,9 +29,9 @@ type deliveryIntentModel struct {
 	EventKind               string     `bun:"event_kind"`
 	EscalationPolicyID      int64      `bun:"escalation_policy_id"`
 	EscalationStep          int        `bun:"escalation_step"`
-	MonitorID               int64      `bun:"monitor_id"`
-	AssignmentGeneration    int64      `bun:"assignment_generation"`
-	StreamID                string     `bun:"stream_id"`
+	MonitorID               int64      `bun:"monitor_id,nullzero"`
+	AssignmentGeneration    int64      `bun:"assignment_generation,nullzero"`
+	StreamID                string     `bun:"stream_id,nullzero"`
 	SourceSeq               int64      `bun:"source_seq"`
 	ConfigRevision          int64      `bun:"config_revision"`
 	CheckStatus             int        `bun:"check_status"`
@@ -488,9 +488,11 @@ func (r *RegionalCommitStore) ClaimDeliveries(ctx context.Context, probeID strin
 			Where("intent.attempt < ?", int64(math.MaxInt64)).
 			Where("(intent.status IN (?, ?) OR (intent.status = ? AND intent.lease_until <= ?))",
 				domain.DeliveryStatusPending, domain.DeliveryStatusRetrying, domain.DeliveryStatusLeased, at).
-			Where(`intent.assignment_generation = (SELECT assignment.generation FROM monitor_probe_assignments AS assignment
+			Where(`((intent.event_kind = 'probe_connection' AND EXISTS (SELECT 1 FROM probe_hub_watchdog_incidents AS owned
+ JOIN probes AS p ON p.id = owned.probe_id WHERE owned.source_alert_id = intent.source_alert_id AND owned.probe_id = intent.probe_id AND p.enabled = ?))
+ OR (intent.event_kind <> 'probe_connection' AND intent.assignment_generation = (SELECT assignment.generation FROM monitor_probe_assignments AS assignment
  WHERE assignment.monitor_id = intent.monitor_id AND assignment.probe_id = intent.probe_id
- AND assignment.active = ?)`, true).
+ AND assignment.active = ?)))`, true, true).
 			OrderExpr("intent.available_at ASC, intent.created_at ASC, intent.delivery_id ASC").Limit(limit)
 		if tx.Dialect().Name() == dialect.MySQL {
 			q = q.For("UPDATE SKIP LOCKED")

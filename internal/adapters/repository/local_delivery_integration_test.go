@@ -302,7 +302,7 @@ func testLocalDeliveryExisting045Upgrade(t *testing.T, engine string) {
 		t.Fatalf("pre-upgrade lease: %v %v", claimed, err)
 	}
 	// Revert additive migrations while preserving an actual pending receipt.
-	for _, name := range []string{"051_escalation_delivery_context", "050_delivery_cancellation"} {
+	for _, name := range []string{"059_probe_watchdog_source", "051_escalation_delivery_context", "050_delivery_cancellation"} {
 		if err := runEngineMigration(t, p.f.db, engine, name, "down"); err != nil {
 			t.Fatal(err)
 		}
@@ -326,6 +326,9 @@ func testLocalDeliveryExisting045Upgrade(t *testing.T, engine string) {
 	// Cancellation before a first claim is new in 050 and cannot be downgraded.
 	p.record(t, domain.StatusDown)
 	p.record(t, domain.StatusUp)
+	if err := runEngineMigration(t, p.f.db, engine, "059_probe_watchdog_source", "down"); err != nil {
+		t.Fatal(err)
+	}
 	if err := runEngineMigration(t, p.f.db, engine, "051_escalation_delivery_context", "down"); err != nil {
 		t.Fatal(err)
 	}
@@ -342,6 +345,9 @@ func testLocalDeliveryExisting045Upgrade(t *testing.T, engine string) {
 		t.Fatal(err)
 	}
 	if err := runEngineMigration(t, p.f.db, engine, "051_escalation_delivery_context", "up"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runEngineMigration(t, p.f.db, engine, "059_probe_watchdog_source", "up"); err != nil {
 		t.Fatal(err)
 	}
 }

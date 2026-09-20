@@ -7,6 +7,29 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 hub watchdog source persistence prerequisite — 2026-09-20
+
+Hub migration 059 adds durable source ownership, an independent transition journal
+and watchdog checkpoints. Hub/edge mirror identity cannot be adopted in either
+direction. One fenced transaction commits source history and probe-scoped outbox
+work; it checks both parent runtime and applicable health-session expiry before
+commit, without advancing the remote cursor or changing monitor health.
+
+Both-engine tests cover ownership, rollback, contention, restart/ACK, backward
+clocks, timestamp precision, duplicate delivery IDs, migrations and legacy lease
+preservation. The full Go race suite passed in 21 test packages with 226
+MariaDB-named passes and zero MariaDB skips; CGO-free build and zero-issue lint
+passed. See [acceptance](M3_HUB_WATCHDOG_ACCEPTANCE.md),
+[evidence](M3_HUB_WATCHDOG_EVIDENCE.json) and
+[retrospective](M3_HUB_WATCHDOG_RETROSPECTIVE.md) for exact verification. Antigravity's
+read-only audit was independently checked and feedback returned.
+
+**Next:** complete settings/snapshot dependencies, source timer coordination,
+health callbacks, watchdog replay authorization, probe notification context and
+real provider reconciliation on both sides. Enabled config remains rejected;
+source persistence alone does not complete either watchdog. The full M3 goal,
+including commands, rotation/reset and real partition acceptance, remains active.
+
 ## M3 edge watchdog source persistence prerequisite — 2026-09-20
 
 Edge migration 005 adds probe-scoped incident/delivery storage and a durable

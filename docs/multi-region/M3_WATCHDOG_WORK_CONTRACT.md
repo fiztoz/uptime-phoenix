@@ -163,3 +163,53 @@ Treat `Status != resolved` as open; nonnil is insufficient. Recovery from firing
 cannot invent ACK metadata, and healthy checkpoints cannot enqueue recovery work
 without a new transition. Generation-fence every checkpoint derived from health;
 do not relabel delayed stale health as a generation-zero local timer write.
+
+
+### Hub source counterpart
+
+Hub migration 059 now implements source ownership, journal/checkpoint and nullable
+probe outbox context. See [hub acceptance](M3_HUB_WATCHDOG_ACCEPTANCE.md). The new
+`ProbeWatchdogRepository` port is implemented by the hub store and private edge
+store. This does not enable runtime, provider sends or wire watchdog mirroring.
+
+The next implementation should complete config and runtime as one integration:
+operator settings and protected dependency closure; explicit probe name/location
+for notification context; both application-health callbacks; source service/timer
+coordination; mirror authorization; actual source delivery reconciliation. Keep
+claims scoped to tested behavior until both process paths work. Preserve the
+existing shared outbox rather than add a second notification queue.
+
+When authorizing a resend result, its channel version can refer to a newer accepted
+config than the incident's opening revision. Resolve channel/watchdog membership
+from that delivery version while retaining the exact source incident transition;
+do not require a new firing lifecycle event merely because channel config changed.
+A hub source journal never increments an edge replay cursor. Current runtime
+ownership and health generation remain mandatory even when callbacks are delayed.
+
+### Runtime ingress audit and integration constraints
+
+The read-only Antigravity follow-up (same `b5e7f7af` conversation) confirms that
+`Session.readerLoop` currently executes the supplied callback synchronously. Both
+hub replay ingestion and edge config application can delay reading later health
+frames. Outgoing priority queues do not solve this incoming blocking. Introduce a
+bounded receive dispatcher: one ordered non-health worker and a separate ordered
+health worker. Capture a `time.Time` retaining its process monotonic component at
+read completion, before queueing; never use the time a worker happens to run or
+`health.clock_time` as receipt time. Validate role/generation before admission.
+
+Keep every healthy and unhealthy sample in order. Queue overflow must close the
+session and interrupt stabilization, rather than silently replacing/dropping an
+unhealthy sample. A full queue cannot safely receive a synthetic replacement
+sample as suggested in the audit. Both workers need bounded contexts and must be
+joined on cancellation; non-health ordering and durable-receipt-after-commit stay
+unchanged. Prove behavior with stalled real replay/config handlers, not only a
+standalone timer test. The hub lease callback already captures its generation in
+`connectOnce`; retain that fence when adding explicit health observation inputs.
+
+Keep the watchdog owner outside individual sessions and retain each sample's
+generation through all later health-derived checkpoints. A stale in-flight sample
+must never be relabeled as an unfenced local tick after reconnect. The parent
+renewal progress deadline must advance after durable checkpoint progress, not
+after evaluation alone. An in-memory timer that runs while storage is stuck does
+not prove useful progress. These are integration requirements, not implemented
+runtime acceptance.

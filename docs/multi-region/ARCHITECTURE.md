@@ -268,6 +268,16 @@ This storage is not wired to a running watchdog yet. The enabled-config guard
 remains until hub mirroring, source ownership, settings and runtime/provider
 integration are complete; see [source acceptance](M3_WATCHDOG_SOURCE_ACCEPTANCE.md).
 
+**Hub source counterpart (migration 059):** hub-owned connection incidents have a
+durable ownership registry distinct from mirrored edge watchdogs. Both refer to
+the remote probe, but neither can adopt the other's source UUID. A separate hub
+transition journal/checkpoint commits with probe-scoped outbox intents; its sequence
+never advances edge replay. Source writes fence the runtime epoch and, when based
+on health, the child generation and earlier applicable expiry through final commit.
+The generic mirror APIs cannot overwrite hub source lifecycle or outcomes. Runtime,
+config, wire watchdog replay and provider integration remain guarded; see
+[hub source acceptance](M3_HUB_WATCHDOG_ACCEPTANCE.md).
+
 Global maintenance pause and revocation cannot be delivered magically through a partition. Use last accepted schedules, prominently expose stale configuration, and require provider-side credential revocation for an emergency stop against an unreachable or compromised VM.
 
 ## 7. Persistence and migration design

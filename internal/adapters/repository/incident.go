@@ -155,8 +155,15 @@ func (r *RegionalCommitStore) ListDeliveriesByIncident(ctx context.Context, sour
 }
 
 func putIncidentTx(ctx context.Context, tx bun.Tx, incident *domain.RegionalIncident) error {
+	return putIncidentWithOwnerTx(ctx, tx, incident, false)
+}
+
+func putIncidentWithOwnerTx(ctx context.Context, tx bun.Tx, incident *domain.RegionalIncident, hubWatchdog bool) error {
 	if err := validateIncident(incident); err != nil {
 		return err
+	}
+	if hubWatchdog && (incident.Scope != domain.IncidentScopeProbeConnection || incident.SubjectKind != domain.IncidentSubjectWatchdog) {
+		return domain.ErrValidation
 	}
 	if err := lockSQLiteIncidents(ctx, tx); err != nil {
 		return err
@@ -171,6 +178,16 @@ func putIncidentTx(ctx context.Context, tx bun.Tx, incident *domain.RegionalInci
 		q = q.For("UPDATE")
 	}
 	err := q.Scan(ctx)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	owned, ownerErr := hubOwnsWatchdogIncident(ctx, tx, row.SourceAlertID)
+	if ownerErr != nil {
+		return ownerErr
+	}
+	if owned && !hubWatchdog || err == nil && !owned && hubWatchdog {
+		return ports.ErrConflict
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
 			return fmt.Errorf("insert incident: %w", probeRegistryError(err))
@@ -182,6 +199,11 @@ func putIncidentTx(ctx context.Context, tx bun.Tx, incident *domain.RegionalInci
 			}
 		}
 		incident.HubIncidentID = row.HubIncidentID
+		if hubWatchdog {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO probe_hub_watchdog_incidents (source_alert_id, probe_id, created_at) VALUES (?, ?, ?)", row.SourceAlertID, row.ProbeID, now); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	if err != nil {
@@ -221,6 +243,13 @@ func putDeliveryTx(ctx context.Context, tx bun.Tx, delivery *domain.RegionalDeli
 		return fmt.Errorf("delivery incident: %w", probeRegistryError(err))
 	}
 	if !sourceOwned {
+		owned, err := hubOwnsWatchdogIncident(ctx, tx, delivery.SourceAlertID)
+		if err != nil {
+			return err
+		}
+		if owned {
+			return ports.ErrConflict
+		}
 		exists, err := deliveryIDExistsTx(ctx, tx, "probe_delivery_intents", delivery.DeliveryID)
 		if err != nil {
 			return err

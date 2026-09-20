@@ -6,9 +6,10 @@
 > [history acceptance](M3_HISTORY_ACCEPTANCE.md) for exact evidence and limitations.
 > Stable runtime ownership and the pure watchdog timer are also accepted; see
 > [runtime acceptance](M3_RUNTIME_ACCEPTANCE.md). Edge source persistence is also
-> implemented; see [source acceptance](M3_WATCHDOG_SOURCE_ACCEPTANCE.md). Next add
-> hub watchdog persistence and mirror authorization, then complete config and
-> runtime/provider integration per [both watchdogs](M3_WATCHDOG_WORK_CONTRACT.md).
+> implemented; see [source acceptance](M3_WATCHDOG_SOURCE_ACCEPTANCE.md). Hub source
+> persistence is also implemented; see [hub acceptance](M3_HUB_WATCHDOG_ACCEPTANCE.md).
+> Next complete config, mirror authorization and runtime/provider integration per
+> [both watchdogs](M3_WATCHDOG_WORK_CONTRACT.md).
 > Verify Git HEAD and uncommitted work before editing; never reset to an older baseline.
 
 The detailed A–D material below is historical guidance from `4cc76f0`.

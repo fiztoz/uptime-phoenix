@@ -143,6 +143,10 @@ func TestRegionalIncidentsAreIndependentPerProbe(t *testing.T) {
 			if _, err := f.db.ExecContext(ctx, "DELETE FROM probe_incidents"); err != nil {
 				t.Fatal(err)
 			}
+			// Source ownership references incidents even while its tables are empty.
+			if err := runEngineMigration(t, f.db, f.engine, "059_probe_watchdog_source", "down"); err != nil {
+				t.Fatal(err)
+			}
 			if err := runEngineMigration(t, f.db, f.engine, "045_probe_delivery_outbox", "down"); err != nil {
 				t.Fatal(err)
 			}
@@ -158,7 +162,7 @@ func TestRegionalIncidentsAreIndependentPerProbe(t *testing.T) {
 			// Recreating 045 drops additive delivery columns/check constraints too.
 			// MariaDB fixtures share a schema whose migration ledger still records
 			// these versions; rebuilding just the base table poisons later tests.
-			for _, name := range []string{"050_delivery_cancellation", "051_escalation_delivery_context"} {
+			for _, name := range []string{"050_delivery_cancellation", "051_escalation_delivery_context", "059_probe_watchdog_source"} {
 				if err := runEngineMigration(t, f.db, f.engine, name, "up"); err != nil {
 					t.Fatalf("restore delivery schema %s: %v", name, err)
 				}

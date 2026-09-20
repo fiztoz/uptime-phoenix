@@ -1020,3 +1020,19 @@ disposable test DB, CGO-free build and lint. See
 It does not prove a running watchdog: enabled-watchdog config remains guarded,
 and hub ownership/replay, health callbacks and actual provider reconciliation
 must be integrated before real both-side process acceptance.
+
+## M3 hub watchdog source transaction
+
+Run `go test -race -count=1 ./internal/adapters/repository -run '^TestHubWatchdog'`
+with `TEST_MARIADB_DSN` set to a disposable local database. Verify actual
+MariaDB-named pass events and no engine skips. The contract covers source and
+mirror ownership, runtime/session/config fences, late rollback, competing writers,
+restart/ACK, exact timestamp precision, typed delivery collisions and DB-clock
+expiry during encoding. Migration tests preserve availability leases across
+SQLite rollback and MariaDB interrupted copy/atomic rename.
+
+Legacy outbox migration tests must restore 059 after reconstructing 045/050/051;
+otherwise the shared MariaDB schema no longer matches `_migrations`. See
+[hub watchdog acceptance](multi-region/M3_HUB_WATCHDOG_ACCEPTANCE.md) for the full
+gate and remaining config/runtime/provider requirements. Storage tests do not
+constitute both-side watchdog process acceptance.
