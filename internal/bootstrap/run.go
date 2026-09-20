@@ -34,6 +34,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/scheduler"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/telemetry"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/ws"
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
@@ -72,12 +73,14 @@ func Run(cfg Config) error {
 
 	repos := wireRepositories(cfg.DBEngine, db)
 
+	var protector ports.ProbeConfigProtector
 	if cfg.ProbeSecretKeyFile != "" {
-		protector, err := auth.NewProbeConfigProtectorFromFile(ctx, cfg.ProbeSecretKeyFile)
+		p, err := auth.NewProbeConfigProtectorFromFile(ctx, cfg.ProbeSecretKeyFile)
 		if err != nil {
 			log.Error("failed to load probe secret key", "error", err)
 			return fmt.Errorf("probe secret key: %w", err)
 		}
+		protector = p
 		installationSvc := services.NewProbeInstallationService(repos.probeInstallation)
 		inst, err := installationSvc.InitializeOrVerify(ctx, protector, cfg.ProbeHubID)
 		if err != nil {
@@ -308,8 +311,58 @@ func Run(cfg Config) error {
 	heartbeatSvc.SetCertAlert(certAlertSvc)
 	log.Info("notification dispatcher wired to heartbeat service", "group_alerting", true, "cert_alerts", true, "alert_lifecycle", true, "escalation", true)
 
-	// Availability stays on the legacy dispatcher until applied-config refresh,
-	// lifecycle and escalation cutover are integrated as one runtime contract.
+	var deliveryConsumer *services.DeliveryOutboxConsumer
+	if cfg.ProbeSecretKeyFile != "" && protector != nil {
+		inspector := probe.ConfigInspector{}
+		preparedSvc := services.NewProbeConfigService(repos.probeConfig, inspector, protector)
+		validator := probe.NewLocalConfigValidator(checkeradapter.Get, notifieradapter.Get)
+		validationSvc := services.NewLocalProbeConfigValidationService(preparedSvc, validator)
+		activationSvc := services.NewLocalProbeConfigActivationService(validationSvc, repos.probeActivation)
+		encoder := probe.LocalConfigEncoder{}
+		refreshSvc := services.NewLocalProbeConfigRefreshService(
+			repos.localProbeConfigSource,
+			encoder,
+			preparedSvc,
+			activationSvc,
+			repos.probeActivation,
+			repos.probeInstallation,
+		)
+		refreshSvc.StartEventSubscription(ctx, bus)
+		activeCfg, err := refreshSvc.Refresh(ctx)
+		if err != nil {
+			log.Error("failed to activate initial probe configuration", "error", err)
+			return fmt.Errorf("probe config refresh: %w", err)
+		}
+		log.Info("probe configuration activated", "revision", activeCfg.Revision)
+
+		heartbeatSvc.SetActivationRepo(repos.probeActivation)
+		notifDispatcher.SetOutboxDelivery(true)
+
+		deliveryConsumer = services.NewDeliveryOutboxConsumer(
+			repos.deliveryOutbox,
+			repos.notification,
+			services.DefaultDeliveryConsumerConfig(),
+		)
+		deliveryConsumer.SetAssignmentRepository(repos.probeAssignments)
+		deliveryConsumer.SetActivationRepository(repos.probeActivation)
+		deliveryConsumer.SetIncidentRepository(repos.probeIncident)
+		deliveryConsumer.SetMonitorNotificationRepository(repos.monitorNotif)
+		deliveryConsumer.SetMonitorRepository(repos.monitor)
+		deliveryConsumer.SetAlertRepository(repos.alert)
+		deliveryConsumer.SetTemplateRepository(repos.notificationTemplate)
+		deliveryConsumer.SetMaintenanceChecker(maintenanceSvc)
+		deliveryConsumer.SetCronEvaluator(cronEval)
+		deliveryConsumer.SetTagReader(tagSvc)
+		for _, t := range []string{
+			"telegram", "discord", "slack", "smtp", "webhook",
+			"teams", "mattermost", "gotify",
+			"bark", "feishu", "line",
+		} {
+			if sender, ok := notifieradapter.Get(t); ok {
+				deliveryConsumer.RegisterSender(sender)
+			}
+		}
+	}
 
 	aggregateSvc := services.NewAggregateService(repos.heartbeat, repos.monitor, log)
 	monitorStatsSvc := services.NewMonitorStatsService(repos.heartbeat, repos.monitor, repos.tlsInfo, aggregateSvc)
@@ -367,6 +420,9 @@ func Run(cfg Config) error {
 			)
 			sharded.SetProxyRepo(repos.proxy)
 			sharded.SetAssignmentRepo(repos.probeAssignments)
+			if cfg.ProbeSecretKeyFile != "" {
+				sharded.SetActivationRepo(repos.probeActivation)
+			}
 			sched = sharded
 			log.Info("sharded scheduler configured",
 				"worker_id", cfg.WorkerID,
@@ -386,6 +442,9 @@ func Run(cfg Config) error {
 			)
 			local.SetProxyRepo(repos.proxy)
 			local.SetAssignmentRepo(repos.probeAssignments)
+			if cfg.ProbeSecretKeyFile != "" {
+				local.SetActivationRepo(repos.probeActivation)
+			}
 			sched = local
 		}
 		var schedCtx context.Context
@@ -413,6 +472,11 @@ func Run(cfg Config) error {
 			}()
 		} else {
 			log.Info("heartbeat retention disabled (HEARTBEAT_RETENTION_DAYS=0)")
+		}
+		if deliveryConsumer != nil {
+			go func() {
+				deliveryConsumerLoop(schedCtx, deliveryConsumer, time.Second, log)
+			}()
 		}
 	}
 
@@ -452,6 +516,9 @@ func Run(cfg Config) error {
 	statsHandlers := handlers.NewStatsHandlers(monitorStatsSvc, accessSvc)
 	pushHandler := handlers.NewPushHandler(monitorSvc, heartbeatSvc)
 	pushHandler.SetAssignmentRepo(repos.probeAssignments)
+	if cfg.ProbeSecretKeyFile != "" {
+		pushHandler.SetActivationRepo(repos.probeActivation)
+	}
 	badgeHandlers := handlers.NewBadgeHandlers(repos.monitor, repos.heartbeat, aggregateSvc)
 	backupHandlers := handlers.NewBackupHandlers(backupSvc)
 	configHandlers := handlers.NewConfigHandlers(configSvc)
@@ -618,45 +685,47 @@ func openDB(cfg Config, log *logger.SlogLogger) (*bun.DB, error) {
 }
 
 type repoBundle struct {
-	user                 ports.UserRepository
-	apiKey               ports.APIKeyRepository
-	monitor              ports.MonitorRepository
-	monitorGroup         ports.MonitorGroupRepository
-	heartbeat            ports.HeartbeatRepository
-	monitorCondition     ports.MonitorConditionRepository
-	tlsInfo              ports.TLSInfoRepository
-	notification         ports.NotificationRepository
-	notificationTemplate ports.NotificationTemplateRepository
-	monitorNotif         ports.MonitorNotificationRepository
-	groupNotif           ports.GroupNotificationRepository
-	statusPage           ports.StatusPageRepository
-	incident             ports.IncidentRepository
-	incidentUpdate       ports.IncidentUpdateRepository
-	cname                ports.StatusPageCNAMERepository
-	spMonitor            ports.StatusPageMonitorRepository
-	spSubscriber         ports.StatusPageSubscriberRepository
-	tag                  ports.TagRepository
-	maintenance          ports.MaintenanceRepository
-	proxy                ports.ProxyRepository
-	monitorTag           ports.MonitorTagRepository
-	maintMonitor         ports.MaintenanceWindowMonitorRepository
-	webAuthnCred         ports.WebAuthnCredentialRepository
-	userPerm             ports.UserPermissionRepository
-	oidcIdentity         ports.OIDCIdentityRepository
-	configKey            ports.ConfigKeyRepository
-	alert                ports.AlertRepository
-	notificationThrottle ports.NotificationThrottleRepository
-	escalationPolicy     ports.EscalationPolicyRepository
-	escalationAssign     ports.EscalationAssignmentRepository
-	alertEscalation      ports.AlertEscalationRepository
-	probeAssignments     ports.MonitorProbeAssignmentRepository
-	regionalCommit       ports.RegionalCommitRepository
-	localHeartbeat       ports.LocalHeartbeatRecorder
-	projections          ports.MonitorHealthProjectionRepository
-	probeInstallation    ports.ProbeInstallationRepository
-	probeActivation      ports.ProbeConfigActivationRepository
-	deliveryOutbox       ports.DeliveryOutboxRepository
-	probeIncident        ports.ProbeIncidentRepository
+	user                   ports.UserRepository
+	apiKey                 ports.APIKeyRepository
+	monitor                ports.MonitorRepository
+	monitorGroup           ports.MonitorGroupRepository
+	heartbeat              ports.HeartbeatRepository
+	monitorCondition       ports.MonitorConditionRepository
+	tlsInfo                ports.TLSInfoRepository
+	notification           ports.NotificationRepository
+	notificationTemplate   ports.NotificationTemplateRepository
+	monitorNotif           ports.MonitorNotificationRepository
+	groupNotif             ports.GroupNotificationRepository
+	statusPage             ports.StatusPageRepository
+	incident               ports.IncidentRepository
+	incidentUpdate         ports.IncidentUpdateRepository
+	cname                  ports.StatusPageCNAMERepository
+	spMonitor              ports.StatusPageMonitorRepository
+	spSubscriber           ports.StatusPageSubscriberRepository
+	tag                    ports.TagRepository
+	maintenance            ports.MaintenanceRepository
+	proxy                  ports.ProxyRepository
+	monitorTag             ports.MonitorTagRepository
+	maintMonitor           ports.MaintenanceWindowMonitorRepository
+	webAuthnCred           ports.WebAuthnCredentialRepository
+	userPerm               ports.UserPermissionRepository
+	oidcIdentity           ports.OIDCIdentityRepository
+	configKey              ports.ConfigKeyRepository
+	alert                  ports.AlertRepository
+	notificationThrottle   ports.NotificationThrottleRepository
+	escalationPolicy       ports.EscalationPolicyRepository
+	escalationAssign       ports.EscalationAssignmentRepository
+	alertEscalation        ports.AlertEscalationRepository
+	probeAssignments       ports.MonitorProbeAssignmentRepository
+	regionalCommit         ports.RegionalCommitRepository
+	localHeartbeat         ports.LocalHeartbeatRecorder
+	projections            ports.MonitorHealthProjectionRepository
+	probeInstallation      ports.ProbeInstallationRepository
+	probeActivation        ports.ProbeConfigActivationRepository
+	deliveryOutbox         ports.DeliveryOutboxRepository
+	probeIncident          ports.ProbeIncidentRepository
+	probeConfig            ports.ProbeConfigRepository
+	localProbeConfigSource ports.LocalProbeConfigSourceRepository
 }
 
 func wireRepositories(engine string, db *bun.DB) repoBundle {
@@ -699,6 +768,8 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.probeAssignments = mariadbrepo.NewProbeAssignmentRepo(db)
 		b.probeInstallation = mariadbrepo.NewProbeInstallationRepo(db)
 		b.probeActivation = mariadbrepo.NewProbeActivationRepo(db, encoder)
+		b.probeConfig = mariadbrepo.NewProbeConfigRepo(db)
+		b.localProbeConfigSource = repo.NewLocalProbeConfigSourceStore(db)
 		commits := mariadbrepo.NewRegionalCommitRepo(db)
 		b.regionalCommit = commits
 		b.localHeartbeat = commits
@@ -741,6 +812,8 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.probeAssignments = sqliterepo.NewProbeAssignmentRepo(db)
 		b.probeInstallation = sqliterepo.NewProbeInstallationRepo(db)
 		b.probeActivation = sqliterepo.NewProbeActivationRepo(db, encoder)
+		b.probeConfig = sqliterepo.NewProbeConfigRepo(db)
+		b.localProbeConfigSource = repo.NewLocalProbeConfigSourceStore(db)
 		commits := sqliterepo.NewRegionalCommitRepo(db)
 		b.regionalCommit = commits
 		b.localHeartbeat = commits
@@ -1002,6 +1075,33 @@ func aggregateRollupLoop(ctx context.Context, aggSvc *services.AggregateService,
 				log.Error("1d rollup failed", "error", err)
 			}
 			rollupCancel()
+		}
+	}
+}
+
+// deliveryConsumerLoop processes queued delivery intents on a schedule.
+// Blocks until ctx is canceled.
+func deliveryConsumerLoop(ctx context.Context, consumer *services.DeliveryOutboxConsumer, interval time.Duration, log *logger.SlogLogger) {
+	log.Info("delivery consumer loop starting", "interval", interval.String())
+	defer log.Info("delivery consumer loop stopped")
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runCtx, cancel := context.WithTimeout(ctx, interval*4)
+			processed, err := consumer.ProcessBatch(runCtx, domain.LocalProbeID, time.Now().UTC(), 50)
+			cancel()
+			if err != nil {
+				log.Error("delivery consumer batch failed", "error", err)
+				continue
+			}
+			if processed > 0 {
+				log.Info("deliveries processed", "count", processed)
+			}
 		}
 	}
 }

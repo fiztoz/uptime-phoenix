@@ -3,6 +3,7 @@ package repository_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,11 +11,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/uptrace/bun"
+
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/auth"
+	checker "github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/eventbus"
+	notifier "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier"
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/probe"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/sqlite"
+	scheduler "github.com/fiztoz/uptime-phoenix/internal/adapters/scheduler"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
@@ -49,11 +56,36 @@ type reviewPipeline struct {
 }
 
 type pipelineRepositories struct {
-	MonitorRepo             ports.MonitorRepository
-	HeartbeatRepo           ports.HeartbeatRepository
-	NotificationRepo        ports.NotificationRepository
-	MonitorNotificationRepo ports.MonitorNotificationRepository
-	AlertRepo               ports.AlertRepository
+	MonitorRepo                  ports.MonitorRepository
+	HeartbeatRepo                ports.HeartbeatRepository
+	NotificationRepo             ports.NotificationRepository
+	MonitorNotificationRepo      ports.MonitorNotificationRepository
+	AlertRepo                    ports.AlertRepository
+	MaintenanceRepo              ports.MaintenanceRepository
+	MaintenanceWindowMonitorRepo ports.MaintenanceWindowMonitorRepository
+	EscalationPolicyRepo         ports.EscalationPolicyRepository
+	EscalationAssignmentRepo     ports.EscalationAssignmentRepository
+	AlertEscalationRepo          ports.AlertEscalationRepository
+	MonitorGroupRepo             ports.MonitorGroupRepository
+}
+
+func refreshService(t *testing.T, f probeRegistryFixture, db *bun.DB) *services.LocalProbeConfigRefreshService {
+	t.Helper()
+	_, prepared := sourceConfigBuilder(t, f, db)
+	validator := probe.NewLocalConfigValidator(checker.Get, notifier.Get)
+	valSvc := services.NewLocalProbeConfigValidationService(prepared, validator)
+	actRepo := activationRepo(f, db)
+	actSvc := services.NewLocalProbeConfigActivationService(valSvc, actRepo)
+	instRepo := installationRepo(f, db)
+	sourceStore := repository.NewLocalProbeConfigSourceStore(db)
+	return services.NewLocalProbeConfigRefreshService(
+		sourceStore,
+		probe.LocalConfigEncoder{},
+		prepared,
+		actSvc,
+		actRepo,
+		instRepo,
+	)
 }
 
 func newReviewPipeline(t *testing.T, engine string, activate bool) reviewPipeline {
@@ -63,13 +95,41 @@ func newReviewPipeline(t *testing.T, engine string, activate bool) reviewPipelin
 	var repos pipelineRepositories
 	if engine == "sqlite" {
 		r := sqlite.NewRepository(f.db)
-		repos = pipelineRepositories{r.MonitorRepo, r.HeartbeatRepo, r.NotificationRepo, r.MonitorNotificationRepo, r.AlertRepo}
+		repos = pipelineRepositories{
+			MonitorRepo:                  r.MonitorRepo,
+			HeartbeatRepo:                r.HeartbeatRepo,
+			NotificationRepo:             r.NotificationRepo,
+			MonitorNotificationRepo:      r.MonitorNotificationRepo,
+			AlertRepo:                    r.AlertRepo,
+			MaintenanceRepo:              r.MaintenanceRepo,
+			MaintenanceWindowMonitorRepo: r.MaintenanceWindowMonitorRepo,
+			EscalationPolicyRepo:         r.EscalationPolicyRepo,
+			EscalationAssignmentRepo:     r.EscalationAssignmentRepo,
+			AlertEscalationRepo:          r.AlertEscalationRepo,
+			MonitorGroupRepo:             r.MonitorGroupRepo,
+		}
 	} else {
 		r := mariadb.NewRepository(f.db)
-		repos = pipelineRepositories{r.MonitorRepo, r.HeartbeatRepo, r.NotificationRepo, r.MonitorNotificationRepo, r.AlertRepo}
+		repos = pipelineRepositories{
+			MonitorRepo:                  r.MonitorRepo,
+			HeartbeatRepo:                r.HeartbeatRepo,
+			NotificationRepo:             r.NotificationRepo,
+			MonitorNotificationRepo:      r.MonitorNotificationRepo,
+			AlertRepo:                    r.AlertRepo,
+			MaintenanceRepo:              r.MaintenanceRepo,
+			MaintenanceWindowMonitorRepo: r.MaintenanceWindowMonitorRepo,
+			EscalationPolicyRepo:         r.EscalationPolicyRepo,
+			EscalationAssignmentRepo:     r.EscalationAssignmentRepo,
+			AlertEscalationRepo:          r.AlertEscalationRepo,
+			MonitorGroupRepo:             r.MonitorGroupRepo,
+		}
 	}
+	uid := f.user(t)
 	id := localMonitor(t, f)
-	nid := f.notification(t, f.user(t))
+	if _, err := f.db.ExecContext(ctx, "UPDATE monitors SET user_id = ? WHERE id = ?", uid, id); err != nil {
+		t.Fatal(err)
+	}
+	nid := f.notification(t, uid)
 	if err := repos.MonitorNotificationRepo.Attach(ctx, id, nid, true); err != nil {
 		t.Fatal(err)
 	}
@@ -375,6 +435,551 @@ func testLocalDeliveryNewConfigDuringOutage(t *testing.T, engine string) {
 	}
 }
 
+func testLocalDeliveryFirstActivationAndRefresh(t *testing.T, engine string) {
+	ctx := context.Background()
+	p := newReviewPipeline(t, engine, false)
+	seedInstallation(t, p.f)
+	refreshSvc := refreshService(t, p.f, p.f.db)
+
+	// 1. First activation creates revision 1.
+	active, err := refreshSvc.Refresh(ctx)
+	if err != nil {
+		t.Fatalf("first activation failed: %v", err)
+	}
+	if active.Revision != 1 {
+		t.Fatalf("active revision = %d, want 1", active.Revision)
+	}
+
+	// 2. Refresh when unchanged returns revision 1 without new preparation.
+	active2, err := refreshSvc.Refresh(ctx)
+	if err != nil {
+		t.Fatalf("second refresh failed: %v", err)
+	}
+	if active2.Revision != 1 {
+		t.Fatalf("active2 revision = %d, want 1", active2.Revision)
+	}
+
+	// 3. Edit source (monitor name).
+	p.monitor.Name = "Refreshed Monitor"
+	if err := p.repos.MonitorRepo.Update(ctx, p.monitor); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. Calling refresh detects change, prepares revision 2 and activates it.
+	active3, err := refreshSvc.Refresh(ctx)
+	if err != nil {
+		t.Fatalf("refresh on source edit failed: %v", err)
+	}
+	if active3.Revision != 2 {
+		t.Fatalf("active3 revision = %d, want 2", active3.Revision)
+	}
+
+	// 5. Verify activation repo has revision 2 as active.
+	current, err := activationRepo(p.f, p.f.db).GetActive(ctx, domain.LocalProbeID)
+	if err != nil || current.Revision != 2 {
+		t.Fatalf("stored active revision = %v, err = %v, want 2", current, err)
+	}
+}
+
+func testLocalDeliveryInheritedAndDisabledChannels(t *testing.T, engine string) {
+	ctx := context.Background()
+	p := newReviewPipeline(t, engine, true)
+
+	// Channel 1 is direct active link.
+	links, err := p.repos.MonitorNotificationRepo.ListByMonitor(ctx, p.monitor.ID)
+	if err != nil || len(links) == 0 {
+		t.Fatalf("expected channel 1 attached: %v", err)
+	}
+	notif1, err := p.repos.NotificationRepo.GetByID(ctx, links[0].NotificationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notif1.Config = map[string]any{"url": "https://channel1.example.com"}
+	if err := p.repos.NotificationRepo.Update(ctx, notif1); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create Channel 2 that is disabled.
+	nid2 := p.f.notification(t, p.f.user(t))
+	notif2, err := p.repos.NotificationRepo.GetByID(ctx, nid2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notif2.Active = false
+	notif2.Config = map[string]any{"url": "https://channel2.example.com"}
+	if err := p.repos.NotificationRepo.Update(ctx, notif2); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.repos.MonitorNotificationRepo.Attach(ctx, p.monitor.ID, nid2, true); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create Channel 3 for inherited escalation from group.
+	nid3 := p.f.notification(t, p.f.user(t))
+	notif3, err := p.repos.NotificationRepo.GetByID(ctx, nid3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notif3.Config = map[string]any{"url": "https://channel3-inherited.example.com"}
+	if err := p.repos.NotificationRepo.Update(ctx, notif3); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create parent group and attach monitor to it.
+	grp := &domain.MonitorGroup{UserID: p.f.user(t), Name: "Parent Group"}
+	if err := p.repos.MonitorGroupRepo.Create(ctx, grp); err != nil {
+		t.Fatal(err)
+	}
+	p.monitor.GroupID = &grp.ID
+	if err := p.repos.MonitorRepo.Update(ctx, p.monitor); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create escalation policy with Step 1 paging Channel 3, assigned to group.
+	policy := &domain.EscalationPolicy{
+		UserID:  p.f.user(t),
+		Name:    "Group Escalation",
+		Enabled: true,
+		Steps: []domain.EscalationStep{
+			{
+				StepOrder:       1,
+				WaitMinutes:     0,
+				NotificationIDs: []int64{nid3},
+			},
+		},
+	}
+	if err := p.repos.EscalationPolicyRepo.Create(ctx, policy); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.repos.EscalationAssignmentRepo.AssignGroup(ctx, grp.ID, policy.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Activate config with channels and group-inherited policy.
+	refreshSvc := refreshService(t, p.f, p.f.db)
+	activeCfg, err := refreshSvc.Refresh(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wire escalation service to test inherited channel execution.
+	notifier := services.NewNotificationService(p.repos.NotificationRepo, p.repos.MonitorNotificationRepo)
+	notifier.RegisterSender(p.sender)
+	escalationSvc := services.NewEscalationService(
+		p.repos.EscalationPolicyRepo,
+		p.repos.EscalationAssignmentRepo,
+		p.repos.AlertEscalationRepo,
+		p.repos.AlertRepo,
+		p.repos.MonitorRepo,
+		p.repos.MonitorGroupRepo,
+		notifier,
+	)
+	escalationSvc.SetAssignmentRepository(p.f.assignments)
+
+	dispatcher := services.NewNotificationDispatcher(notifier, reviewMaintenance{})
+	dispatcher.SetAssignmentRepository(p.f.assignments)
+	alertSvc := services.NewAlertService(p.repos.AlertRepo)
+	alertSvc.SetEscalationCanceller(escalationSvc)
+	dispatcher.SetAlertLifecycle(alertSvc)
+	dispatcher.SetThrottleRepository(repository.NewNotificationThrottleStore(p.f.db))
+	dispatcher.SetOutboxDelivery(true)
+	dispatcher.SetEscalationStarter(escalationSvc)
+	p.heartbeats.SetDispatcher(dispatcher)
+
+	// Configure pipeline with active activation repo and outbox delivery.
+	actRepo := activationRepo(p.f, p.f.db)
+	p.heartbeats.SetActivationRepo(actRepo)
+	p.heartbeats.SetMonitorNotificationRepo(p.repos.MonitorNotificationRepo)
+	p.consumer.SetActivationRepository(actRepo)
+
+	// Record DOWN with active revision.
+	if err := p.heartbeats.Record(ctx, p.monitor, ports.CheckResult{
+		Status:               domain.StatusDown,
+		Message:              "failure",
+		AssignmentGeneration: 1,
+		ConfigRevision:       activeCfg.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Send step 0 notifications via consumer.
+	p.send(t)
+
+	// Verify only the direct active channel received Step 0. Disabled channel 2 received nothing.
+	if len(p.sender.alerts) != 1 {
+		t.Fatalf("expected 1 notification sent for active channel, got %d: %+v", len(p.sender.alerts), p.sender.alerts)
+	}
+	if len(p.sender.configs) != 1 || p.sender.configs[0]["url"] != "https://channel1.example.com" {
+		t.Fatalf("unexpected configs sent: %+v", p.sender.configs)
+	}
+
+	// Now run due escalation step 1 -> executes inherited Channel 3!
+	sent, err := escalationSvc.RunDue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent != 1 {
+		t.Fatalf("expected 1 escalation step sent for inherited channel, got %d", sent)
+	}
+	if len(p.sender.alerts) != 2 {
+		t.Fatalf("expected total 2 alerts (step 0 direct + step 1 inherited), got %d", len(p.sender.alerts))
+	}
+	if p.sender.configs[1]["url"] != "https://channel3-inherited.example.com" {
+		t.Fatalf("inherited channel config mismatch: %+v", p.sender.configs[1])
+	}
+}
+
+func testLocalDeliveryMaintenanceParity(t *testing.T, engine string) {
+	ctx := context.Background()
+	p := newReviewPipeline(t, engine, true)
+	p.consumer.SetCronEvaluator(scheduler.NewCronEvaluator())
+	now := time.Now().UTC()
+
+	// 1. Create active single maintenance window covering this monitor.
+	mw := &domain.MaintenanceWindow{
+		UserID:    p.f.user(t),
+		Title:     "Emergency Maintenance",
+		Strategy:  "single",
+		Active:    true,
+		StartDate: now.Add(-10 * time.Minute),
+		EndDate:   now.Add(10 * time.Minute),
+		Timezone:  "UTC",
+	}
+	if err := p.repos.MaintenanceRepo.Create(ctx, mw); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.repos.MaintenanceWindowMonitorRepo.Assign(ctx, mw.ID, p.monitor.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Refresh config so maintenance is in applied configuration.
+	refreshSvc := refreshService(t, p.f, p.f.db)
+	activeCfg, err := refreshSvc.Refresh(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Record DOWN during maintenance window.
+	if err := p.heartbeats.Record(ctx, p.monitor, ports.CheckResult{
+		Status:               domain.StatusDown,
+		Message:              "down during maint",
+		AssignmentGeneration: 1,
+		ConfigRevision:       activeCfg.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert no deliveries queued and no alerts sent.
+	p.send(t)
+	if len(p.sender.alerts) != 0 {
+		t.Fatalf("maintenance window should suppress all alerts, but sent %d", len(p.sender.alerts))
+	}
+
+	// 2. Test cron maintenance window parity.
+	mw.Active = false
+	if err := p.repos.MaintenanceRepo.Update(ctx, mw); err != nil {
+		t.Fatal(err)
+	}
+	mwCron := &domain.MaintenanceWindow{
+		UserID:   p.f.user(t),
+		Title:    "Nightly Cron Maintenance",
+		Strategy: "cron",
+		CronExpr: "* * * * *",
+		Duration: 60,
+		Active:   true,
+		Timezone: "UTC",
+	}
+	if err := p.repos.MaintenanceRepo.Create(ctx, mwCron); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.repos.MaintenanceWindowMonitorRepo.Assign(ctx, mwCron.ID, p.monitor.ID); err != nil {
+		t.Fatal(err)
+	}
+	activeCfgCron, err := refreshSvc.Refresh(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Record DOWN during cron maintenance window -> suppressed.
+	if err := p.heartbeats.Record(ctx, p.monitor, ports.CheckResult{
+		Status:               domain.StatusDown,
+		Message:              "down during cron maint",
+		AssignmentGeneration: 1,
+		ConfigRevision:       activeCfgCron.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p.send(t)
+	if len(p.sender.alerts) != 0 {
+		t.Fatalf("cron maintenance window should suppress alerts, but sent %d", len(p.sender.alerts))
+	}
+
+	// 3. Deactivate cron window, refresh config, and queue a DOWN delivery.
+	mwCron.Active = false
+	if err := p.repos.MaintenanceRepo.Update(ctx, mwCron); err != nil {
+		t.Fatal(err)
+	}
+	activeCfg2, err := refreshSvc.Refresh(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Record DOWN when maintenance is inactive -> queues delivery.
+	if err := p.heartbeats.Record(ctx, p.monitor, ports.CheckResult{
+		Status:               domain.StatusDown,
+		Message:              "down before maint",
+		AssignmentGeneration: 1,
+		ConfigRevision:       activeCfg2.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now activate a new maintenance window and refresh config before consumer sends.
+	mw2 := &domain.MaintenanceWindow{
+		UserID:    p.f.user(t),
+		Title:     "New Maintenance",
+		Strategy:  "single",
+		Active:    true,
+		StartDate: now.Add(-5 * time.Minute),
+		EndDate:   now.Add(15 * time.Minute),
+		Timezone:  "UTC",
+	}
+	if err := p.repos.MaintenanceRepo.Create(ctx, mw2); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.repos.MaintenanceWindowMonitorRepo.Assign(ctx, mw2.ID, p.monitor.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = refreshSvc.Refresh(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Now consumer runs -> should supersede the delivery due to active maintenance in snapshot.
+	p.send(t)
+	if len(p.sender.alerts) != 0 {
+		t.Fatalf("consumer should supersede delivery during maintenance, but sent %d", len(p.sender.alerts))
+	}
+}
+
+func testLocalDeliveryRestartReclaim(t *testing.T, engine string) {
+	ctx := context.Background()
+	p := newReviewPipeline(t, engine, true)
+	p.record(t, domain.StatusDown)
+
+	// Worker 1 claims delivery with 1-second lease.
+	claimed, err := p.outbox.ClaimDeliveries(ctx, domain.LocalProbeID, time.Now().UTC(), time.Second, 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim failed: %v, len=%d", err, len(claimed))
+	}
+	if claimed[0].Attempt != 1 {
+		t.Fatalf("claimed attempt = %d, want 1", claimed[0].Attempt)
+	}
+
+	// Worker 1 "crashes" and lease expires.
+	expiredLeasedAt := time.Now().UTC().Add(-2 * time.Minute)
+	expiredLeaseUntil := time.Now().UTC().Add(-1 * time.Minute)
+	if _, err := p.f.db.ExecContext(ctx, "UPDATE probe_delivery_intents SET leased_at = ?, lease_until = ?", expiredLeasedAt, expiredLeaseUntil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stale Worker 1 attempts to finish delivery with old lease token -> must fail with ErrConflict.
+	claim := domain.DeliveryClaim{
+		DeliveryID: claimed[0].DeliveryID,
+		ProbeID:    claimed[0].ProbeID,
+		Attempt:    claimed[0].Attempt,
+		LeaseToken: claimed[0].LeaseToken,
+	}
+	err = p.outbox.FinishDelivery(ctx, claim, domain.DeliveryResult{
+		Status: domain.DeliveryStatusSent,
+		At:     time.Now().UTC(),
+	})
+	if !errors.Is(err, ports.ErrConflict) {
+		t.Fatalf("expected ErrConflict on expired lease token commit, got: %v", err)
+	}
+
+	// Worker 2 (restarted consumer) reclaims the expired delivery and sends.
+	p.send(t)
+
+	if len(p.sender.alerts) != 1 {
+		t.Fatalf("restarted consumer should have sent 1 alert, got %d", len(p.sender.alerts))
+	}
+
+	// Verify delivery is finished (no pending/retrying).
+	count, err := p.f.db.NewSelect().TableExpr("probe_delivery_intents").
+		Where("status IN (?, ?)", domain.DeliveryStatusPending, domain.DeliveryStatusRetrying).
+		Count(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 pending/retrying deliveries after reclaim, got %d", count)
+	}
+}
+
+func testLocalDeliveryCompleteEscalationBehavior(t *testing.T, engine string) {
+	ctx := context.Background()
+	p := newReviewPipeline(t, engine, true)
+
+	// Create Channel 2 for escalation.
+	nid2 := p.f.notification(t, p.f.user(t))
+
+	// Create escalation policy with Step 1 (wait 0 min, pages Channel 2).
+	policy := &domain.EscalationPolicy{
+		UserID:  p.f.user(t),
+		Name:    "Test Escalation",
+		Enabled: true,
+		Steps: []domain.EscalationStep{
+			{
+				StepOrder:       1,
+				WaitMinutes:     0,
+				NotificationIDs: []int64{nid2},
+			},
+		},
+	}
+	if err := p.repos.EscalationPolicyRepo.Create(ctx, policy); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.repos.EscalationAssignmentRepo.AssignMonitor(ctx, p.monitor.ID, policy.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Refresh config so escalation policy is in applied configuration.
+	refreshSvc := refreshService(t, p.f, p.f.db)
+	activeCfg, err := refreshSvc.Refresh(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Setup escalation service wired to dispatcher.
+	notifier := services.NewNotificationService(p.repos.NotificationRepo, p.repos.MonitorNotificationRepo)
+	notifier.RegisterSender(p.sender)
+	escalationSvc := services.NewEscalationService(
+		p.repos.EscalationPolicyRepo,
+		p.repos.EscalationAssignmentRepo,
+		p.repos.AlertEscalationRepo,
+		p.repos.AlertRepo,
+		p.repos.MonitorRepo,
+		p.repos.MonitorGroupRepo,
+		notifier,
+	)
+	escalationSvc.SetAssignmentRepository(p.f.assignments)
+
+	dispatcher := services.NewNotificationDispatcher(notifier, reviewMaintenance{})
+	dispatcher.SetAssignmentRepository(p.f.assignments)
+	alertSvc := services.NewAlertService(p.repos.AlertRepo)
+	alertSvc.SetEscalationCanceller(escalationSvc)
+	dispatcher.SetAlertLifecycle(alertSvc)
+	dispatcher.SetThrottleRepository(repository.NewNotificationThrottleStore(p.f.db))
+	dispatcher.SetOutboxDelivery(true)
+	dispatcher.SetEscalationStarter(escalationSvc)
+	p.heartbeats.SetDispatcher(dispatcher)
+
+	// Record DOWN.
+	if err := p.heartbeats.Record(ctx, p.monitor, ports.CheckResult{
+		Status:               domain.StatusDown,
+		Message:              "escalation test down",
+		AssignmentGeneration: 1,
+		ConfigRevision:       activeCfg.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Send step 0 via consumer.
+	p.send(t)
+	if len(p.sender.alerts) != 1 {
+		t.Fatalf("expected step 0 alert sent, got %d", len(p.sender.alerts))
+	}
+
+	// Run due escalation step 1.
+	sent, err := escalationSvc.RunDue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent != 1 {
+		t.Fatalf("expected 1 escalation step sent, got %d", sent)
+	}
+	if len(p.sender.alerts) != 2 {
+		t.Fatalf("expected total 2 alerts (step 0 + step 1), got %d", len(p.sender.alerts))
+	}
+
+	// Record UP (recovery).
+	if err := p.heartbeats.Record(ctx, p.monitor, ports.CheckResult{
+		Status:               domain.StatusUp,
+		Message:              "recovered",
+		AssignmentGeneration: 1,
+		ConfigRevision:       activeCfg.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify escalation is canceled and cannot send more steps.
+	sentAfterResolve, err := escalationSvc.RunDue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sentAfterResolve != 0 {
+		t.Fatalf("expected 0 escalation steps sent after resolution, got %d", sentAfterResolve)
+	}
+}
+
+func testLocalDeliverySourceEditsThroughSupportedAppPath(t *testing.T, engine string) {
+	ctx := context.Background()
+	p := newReviewPipeline(t, engine, true)
+
+	// 1. Initial applied revision 1 is active.
+	reader, ok := activationRepo(p.f, p.f.db).(ports.LocalAppliedConfigReader)
+	if !ok {
+		t.Fatal("activation repo does not implement LocalAppliedConfigReader")
+	}
+	applied, err := reader.ReadAppliedLocal(ctx)
+	if err != nil || applied.Revision != 1 {
+		t.Fatalf("expected applied revision 1, got %v, err=%v", applied, err)
+	}
+
+	// 2. Edit monitor through MonitorRepo.Update (supported app path).
+	p.monitor.Name = "Updated Name"
+	if err := p.repos.MonitorRepo.Update(ctx, p.monitor); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. ReadAppliedLocal now detects source mismatch and returns ErrConflict.
+	_, err = reader.ReadAppliedLocal(ctx)
+	if !errors.Is(err, ports.ErrConflict) {
+		t.Fatalf("expected ErrConflict after monitor update, got: %v", err)
+	}
+
+	// 4. Refresh prepares and activates revision 2.
+	refreshSvc := refreshService(t, p.f, p.f.db)
+	active2, err := refreshSvc.Refresh(ctx)
+	if err != nil {
+		t.Fatalf("refresh after update failed: %v", err)
+	}
+	if active2.Revision != 2 {
+		t.Fatalf("active revision after update = %d, want 2", active2.Revision)
+	}
+
+	// 5. ReadAppliedLocal now returns applied revision 2.
+	applied2, err := reader.ReadAppliedLocal(ctx)
+	if err != nil || applied2.Revision != 2 {
+		t.Fatalf("expected applied revision 2, got %v, err=%v", applied2, err)
+	}
+
+	// 6. Record DOWN and send successfully with revision 2.
+	if err := p.heartbeats.Record(ctx, p.monitor, ports.CheckResult{
+		Status:               domain.StatusDown,
+		Message:              "down rev2",
+		AssignmentGeneration: 1,
+		ConfigRevision:       2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p.send(t)
+	if len(p.sender.alerts) != 1 {
+		t.Fatalf("expected 1 alert sent, got %d", len(p.sender.alerts))
+	}
+}
+
 func TestLocalDeliveryContract(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
@@ -388,6 +993,12 @@ func TestLocalDeliveryContract(t *testing.T) {
 			t.Run("Existing045Upgrade", func(t *testing.T) { testLocalDeliveryExisting045Upgrade(t, engine) })
 			t.Run("DelayedSummaryKeepsDurableRetry", func(t *testing.T) { testLocalDeliveryDelayedSummaryKeepsDurableRetry(t, engine) })
 			t.Run("ChannelEditRequiresNewAppliedVersion", func(t *testing.T) { testLocalDeliveryChannelEditRequiresNewAppliedVersion(t, engine) })
+			t.Run("FirstActivationAndRefresh", func(t *testing.T) { testLocalDeliveryFirstActivationAndRefresh(t, engine) })
+			t.Run("InheritedAndDisabledChannels", func(t *testing.T) { testLocalDeliveryInheritedAndDisabledChannels(t, engine) })
+			t.Run("MaintenanceParity", func(t *testing.T) { testLocalDeliveryMaintenanceParity(t, engine) })
+			t.Run("RestartReclaim", func(t *testing.T) { testLocalDeliveryRestartReclaim(t, engine) })
+			t.Run("CompleteEscalationBehavior", func(t *testing.T) { testLocalDeliveryCompleteEscalationBehavior(t, engine) })
+			t.Run("SourceEditsThroughSupportedAppPath", func(t *testing.T) { testLocalDeliverySourceEditsThroughSupportedAppPath(t, engine) })
 		})
 	}
 }

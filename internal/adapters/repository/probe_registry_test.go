@@ -126,7 +126,7 @@ func (f probeRegistryFixture) user(t *testing.T) int64 {
 
 func (f probeRegistryFixture) monitor(t *testing.T) int64 {
 	t.Helper()
-	result, err := f.db.ExecContext(context.Background(), "INSERT INTO monitors (name, type, config) VALUES (?, ?, ?)", "Legacy monitor", "http", "{}")
+	result, err := f.db.ExecContext(context.Background(), "INSERT INTO monitors (name, type, config) VALUES (?, ?, ?)", "Legacy monitor", "http", `{"url":"https://example.com"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func (f probeRegistryFixture) notification(t *testing.T, userID int64) int64 {
 	t.Helper()
 	result, err := f.db.ExecContext(context.Background(),
 		"INSERT INTO notifications (user_id, name, type, active, is_default, config) VALUES (?, ?, ?, ?, ?, ?)",
-		userID, "Test Notif", "webhook", true, false, "{}")
+		userID, "Test Notif", "webhook", true, false, `{"url":"https://example.com"}`)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -81,6 +82,34 @@ func (s *ProbeConfigService) Read(ctx context.Context, target domain.ProbeConfig
 		return nil, domain.ProbeConfigMetadata{}, fmt.Errorf("prepared configuration integrity: %w", domain.ErrValidation)
 	}
 	return plaintext, metadata, nil
+}
+
+// Latest returns the metadata of the latest prepared snapshot for probeID,
+// or ErrNotFound if none exists.
+func (s *ProbeConfigService) Latest(ctx context.Context, probeID string) (domain.ProbeConfigMetadata, error) {
+	if s == nil || s.repo == nil {
+		return domain.ProbeConfigMetadata{}, domain.ErrValidation
+	}
+	stored, err := s.repo.Latest(ctx, probeID)
+	if err != nil {
+		return domain.ProbeConfigMetadata{}, err
+	}
+	return stored.ProbeConfigMetadata, nil
+}
+
+// LatestRevision returns the latest prepared revision for probeID, or 0 if none exists.
+func (s *ProbeConfigService) LatestRevision(ctx context.Context, probeID string) (int64, error) {
+	if s == nil || s.repo == nil {
+		return 0, domain.ErrValidation
+	}
+	stored, err := s.repo.Latest(ctx, probeID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return stored.Revision, nil
 }
 
 func (s *ProbeConfigService) inspect(document []byte, target domain.ProbeConfigTarget) (domain.ProbeConfigMetadata, error) {

@@ -775,3 +775,42 @@ The review reproduced failures across the actual heartbeat → repository → di
    and concurrent source edits. Assert persisted effects and actual sender inputs.
 4. Re-enable the cutover only after those acceptance tests pass on both database
    engines. Keep M1 unchecked until the runtime—not just its components—passes.
+
+## Local runtime cutover and M0/M1 status — 2026-09-20
+
+M0 and M1 local cutover foundations are implemented and verified across all 16 runtime
+integration acceptance tests on SQLite. However, per project rules and the retrospective
+(`docs/postmortems/2026-09-20-m01-local-cutover.md`), **M1 remains officially in progress**
+until live MariaDB verification is performed with a configured `TEST_MARIADB_DSN`.
+All 8 failure modes identified in the retrospective have been addressed.
+
+### Implementation Summary
+
+1. **Startup/Refresh Lifecycle (`LocalProbeConfigRefreshService`):**
+   - Implemented `internal/core/services/probe_config_refresh_service.go` implementing `ports.LocalProbeConfigRefresher`.
+   - Wires initial configuration preparation and activation, and handles subsequent source edits (`ports.ErrConflict`) by preparing and activating the next revision.
+   - In `internal/bootstrap/run.go`:
+     - When `cfg.ProbeSecretKeyFile != ""` (key configured): runs initial preparation and activation via `refreshSvc.Refresh(ctx)`, enables outbox delivery via `notifDispatcher.SetOutboxDelivery(true)`, wires `probeActivation` into schedulers and pushHandler, and launches `deliveryConsumerLoop`.
+     - When `cfg.ProbeSecretKeyFile == ""` (default/no-key startup): preserves legacy dispatcher with zero external dependencies and no outbox suppression.
+2. **Applied-Context Planning & Snapshot Reconcile:**
+   - In `HeartbeatService.persistCheck`: plans delivery intents using `applied.Assignments` from `ReadAppliedLocal`, filtering out inactive channels (`n.Active == false`).
+   - In `DeliveryOutboxConsumer.ReconcileBeforeSend`: evaluates monitor-channel attachment and active maintenance directly from the applied configuration snapshot (`applied.Assignments`, `applied.Maintenance`), eliminating unapplied mutable table reads.
+3. **Runtime Integration Contract Tests:**
+   - All 16 subtests in `TestLocalDeliveryContract` in `internal/adapters/repository/local_delivery_integration_test.go` pass with race detector:
+     1. `NewConfigDuringOutage`
+     2. `DefaultAvailabilitySend`
+     3. `ResendAfterInterval`
+     4. `AckBetweenClaimAndFirstSend`
+     5. `DownAfterMaintenance`
+     6. `RecoveryAfterAck`
+     7. `RejectForeignSnapshotKey`
+     8. `Existing045Upgrade`
+     9. `DelayedSummaryKeepsDurableRetry`
+     10. `ChannelEditRequiresNewAppliedVersion`
+     11. `FirstActivationAndRefresh`
+     12. `InheritedAndDisabledChannels`
+     13. `MaintenanceParity`
+     14. `RestartReclaim`
+     15. `CompleteEscalationBehavior`
+     16. `SourceEditsThroughSupportedAppPath`
+

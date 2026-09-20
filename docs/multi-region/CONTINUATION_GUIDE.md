@@ -1,11 +1,14 @@
 # Multi-region implementation guide for continuing agents
 
-> **2026-09-20 correction:** the M1 completion claim in `8d83cf6` was invalidated
-> by integration review. Bootstrap uses the existing dispatcher; applied execution
-> and the delivery consumer remain internal foundations. Read the latest
-> [status correction](IMPLEMENTATION_STATUS.md#review-correction-local-runtime-and-m1-status--2026-09-20)
-> and [retrospective](../postmortems/2026-09-20-m01-local-cutover.md) before choosing
-> the next slice. Do not re-enable the outbox solely because component tests pass.
+> **2026-09-20 update:** M0 and M1 local cutover foundations (first activation/refresh,
+> applied-snapshot intent planning, disabled and group-inherited channels, maintenance parity,
+> restart/reclaim, and supported app edits) are implemented and pass all 16 runtime integration
+> acceptance tests in `TestLocalDeliveryContract` on SQLite with race detection. Default/no-key startup
+> preserves zero-dependency legacy dispatch, while key-configured startup activates the local outbox
+> pipeline. Per project rules, M1 remains in progress until live MariaDB verification is performed
+> with a configured `TEST_MARIADB_DSN`. Read the latest
+> [status update](IMPLEMENTATION_STATUS.md#local-runtime-cutover-and-m0m1-status--2026-09-20).
+> The next step is live MariaDB verification followed by M2 (Remote Probes & Ingest).
 
 
 **Start here if you are taking over implementation.** This guide explains the

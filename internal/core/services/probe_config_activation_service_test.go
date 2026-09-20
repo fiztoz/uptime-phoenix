@@ -14,9 +14,10 @@ import (
 )
 
 type actFakeActivationRepo struct {
-	active   map[string]*domain.ProbeActiveConfig
-	receipts map[string]map[int64]*domain.ProbeActiveConfig
-	err      error
+	active            map[string]*domain.ProbeActiveConfig
+	receipts          map[string]map[int64]*domain.ProbeActiveConfig
+	currentSourceHash string
+	err               error
 }
 
 func newActFakeActivationRepo() *actFakeActivationRepo {
@@ -56,6 +57,16 @@ func (f *actFakeActivationRepo) ActivateLocal(ctx context.Context, params ports.
 	if f.err != nil {
 		return nil, f.err
 	}
+	if f.currentSourceHash != "" && params.SHA256 != f.currentSourceHash {
+		return nil, ports.ErrConflict
+	}
+	if active, ok := f.active[params.Target.ProbeID]; ok {
+		if active.Revision != params.ExpectedActiveRevision || params.Revision <= active.Revision {
+			return nil, ports.ErrConflict
+		}
+	} else if params.ExpectedActiveRevision != 0 {
+		return nil, ports.ErrConflict
+	}
 	result := &domain.ProbeActiveConfig{
 		ProbeConfigTarget: params.Target,
 		Revision:          params.Revision,
@@ -78,6 +89,27 @@ type actFakeConfigRepo struct {
 func (f *actFakeConfigRepo) Save(ctx context.Context, snapshot domain.ProtectedProbeConfig, expectedRevision int64) (*domain.ProtectedProbeConfig, error) {
 	if f.snapshots == nil {
 		f.snapshots = make(map[int64]*domain.ProtectedProbeConfig)
+	}
+	var maxRev int64
+	var latest *domain.ProtectedProbeConfig
+	for rev, s := range f.snapshots {
+		if rev > maxRev {
+			maxRev = rev
+			latest = s
+		}
+	}
+	if latest != nil {
+		if latest.Revision == snapshot.Revision {
+			if domain.SameProbeConfigMetadata(latest.ProbeConfigMetadata, snapshot.ProbeConfigMetadata) {
+				return latest, nil
+			}
+			return nil, ports.ErrConflict
+		}
+		if latest.Revision != expectedRevision || snapshot.Revision <= latest.Revision {
+			return nil, ports.ErrConflict
+		}
+	} else if expectedRevision != 0 {
+		return nil, ports.ErrConflict
 	}
 	f.snapshots[snapshot.Revision] = &snapshot
 	return &snapshot, nil

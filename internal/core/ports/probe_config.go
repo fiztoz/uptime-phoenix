@@ -51,3 +51,9 @@ type LocalProbeConfigEncoder interface {
 type LocalProbeConfigValidator interface {
 	ValidateLocal(ctx context.Context, document []byte, target domain.ProbeConfigTarget) error
 }
+
+// LocalProbeConfigRefresher coordinates preparation and activation of new
+// configuration revisions when local source state has changed.
+type LocalProbeConfigRefresher interface {
+	Refresh(ctx context.Context) (*domain.ProbeActiveConfig, error)
+}

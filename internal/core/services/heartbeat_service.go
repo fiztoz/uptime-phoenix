@@ -435,10 +435,43 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 				}
 				commit.ThrottleClear = true
 			}
-			if s.monitorNotifs != nil && commit.Incident != nil {
-				links, err := s.monitorNotifs.ListByMonitor(ctx, monitor.ID)
-				if err != nil {
-					return nil, nil, fmt.Errorf("read delivery links: %w", err)
+			if commit.Incident != nil {
+				var links []domain.MonitorNotification
+				usedApplied := false
+				if s.activations != nil {
+					if reader, ok := s.activations.(ports.LocalAppliedConfigReader); ok {
+						applied, readErr := reader.ReadAppliedLocal(ctx)
+						if readErr == nil && applied != nil {
+							usedApplied = true
+							for _, a := range applied.Assignments {
+								if a.Monitor != nil && a.Monitor.ID == monitor.ID {
+									activeNotifs := make(map[int64]bool, len(applied.Notifications))
+									for _, n := range applied.Notifications {
+										if n != nil && n.Active {
+											activeNotifs[n.ID] = true
+										}
+									}
+									for _, link := range a.NotificationLinks {
+										if activeNotifs[link.NotificationID] {
+											links = append(links, link)
+										}
+									}
+									break
+								}
+							}
+						}
+					}
+				}
+				if !usedApplied && s.monitorNotifs != nil {
+					rawLinks, err := s.monitorNotifs.ListByMonitor(ctx, monitor.ID)
+					if err != nil {
+						return nil, nil, fmt.Errorf("read delivery links: %w", err)
+					}
+					for _, rl := range rawLinks {
+						if rl != nil {
+							links = append(links, *rl)
+						}
+					}
 				}
 				for _, link := range links {
 					commit.DeliveryIntents = append(commit.DeliveryIntents, domain.DeliveryIntent{

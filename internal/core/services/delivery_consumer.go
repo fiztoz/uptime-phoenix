@@ -59,6 +59,7 @@ type DeliveryOutboxConsumer struct {
 	alerts        ports.AlertRepository
 	templates     ports.NotificationTemplateRepository
 	maintenance   maintenanceChecker
+	cronEval      ports.CronEvaluator
 	senders       map[string]ports.NotificationSender
 	tagReader     NotificationTagReader
 	cfg           DeliveryConsumerConfig
@@ -127,6 +128,11 @@ func (c *DeliveryOutboxConsumer) SetTemplateRepository(repo ports.NotificationTe
 // SetMaintenanceChecker attaches active maintenance window suppression.
 func (c *DeliveryOutboxConsumer) SetMaintenanceChecker(m maintenanceChecker) {
 	c.maintenance = m
+}
+
+// SetCronEvaluator attaches cron expression evaluator for maintenance schedules.
+func (c *DeliveryOutboxConsumer) SetCronEvaluator(eval ports.CronEvaluator) {
+	c.cronEval = eval
 }
 
 // SetTagReader attaches monitor tag metadata.
@@ -316,7 +322,50 @@ func (c *DeliveryOutboxConsumer) ReconcileBeforeSend(
 	}
 
 	// 5. Check monitor-channel link.
-	if c.monitorNotifs != nil {
+	if applied != nil {
+		linked := false
+		for _, a := range applied.Assignments {
+			if a.Monitor != nil && a.Monitor.ID == delivery.MonitorID {
+				// Direct links
+				for _, link := range a.NotificationLinks {
+					if link.NotificationID == delivery.NotificationID {
+						linked = true
+						break
+					}
+				}
+				if linked {
+					break
+				}
+				// Escalation policy channels
+				if a.EscalationPolicyID != nil {
+					for _, policy := range applied.Policies {
+						if policy != nil && policy.ID == *a.EscalationPolicyID && policy.Enabled {
+							for _, step := range policy.Steps {
+								for _, notifID := range step.NotificationIDs {
+									if notifID == delivery.NotificationID {
+										linked = true
+										break
+									}
+								}
+								if linked {
+									break
+								}
+							}
+						}
+						if linked {
+							break
+						}
+					}
+				}
+				if linked {
+					break
+				}
+			}
+		}
+		if !linked {
+			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "channel_unlinked"}, notif, nil, nil
+		}
+	} else if c.monitorNotifs != nil {
 		links, err := c.monitorNotifs.ListByMonitor(ctx, delivery.MonitorID)
 		if err != nil {
 			return ReconciliationDecision{}, nil, nil, fmt.Errorf("check monitor links: %w", err)
@@ -334,7 +383,40 @@ func (c *DeliveryOutboxConsumer) ReconcileBeforeSend(
 	}
 
 	// 6. Check maintenance window.
-	if c.maintenance != nil {
+	if applied != nil {
+		inMaintenance := false
+		now := c.now().UTC()
+		for _, m := range applied.Maintenance {
+			if m.Window == nil || !m.Window.Active {
+				continue
+			}
+			covers := false
+			for _, mid := range m.MonitorIDs {
+				if mid == delivery.MonitorID {
+					covers = true
+					break
+				}
+			}
+			if !covers {
+				continue
+			}
+			if m.Window.Strategy == "single" {
+				if !now.Before(m.Window.StartDate.UTC()) && now.Before(m.Window.EndDate.UTC()) {
+					inMaintenance = true
+					break
+				}
+			} else if m.Window.Strategy == "cron" && m.Window.CronExpr != "" && c.cronEval != nil {
+				loc := locationForTimezone(m.Window.Timezone)
+				if c.cronEval.IsWindowActive(m.Window.CronExpr, m.Window.Duration, now, loc) {
+					inMaintenance = true
+					break
+				}
+			}
+		}
+		if inMaintenance {
+			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "maintenance_active"}, notif, nil, nil
+		}
+	} else if c.maintenance != nil {
 		inMaintenance, err := c.maintenance.IsActive(ctx, delivery.MonitorID)
 		if err != nil {
 			return ReconciliationDecision{}, nil, nil, err
