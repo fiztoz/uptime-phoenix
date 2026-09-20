@@ -34,7 +34,7 @@ func (m *mockProbeInstallationRepo) Get(ctx context.Context) (*domain.ProbeInsta
 	return &copy, nil
 }
 
-func (m *mockProbeInstallationRepo) Initialize(ctx context.Context, inst domain.ProbeInstallation) (*domain.ProbeInstallation, error) {
+func (m *mockProbeInstallationRepo) Initialize(ctx context.Context, inst domain.ProbeInstallation, verify func(domain.ProbeConfigMetadata, []byte) error) (*domain.ProbeInstallation, error) {
 	if m.initErr != nil {
 		return nil, m.initErr
 	}

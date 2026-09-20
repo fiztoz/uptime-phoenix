@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -39,4 +40,51 @@ func filterLocalRunnable(ctx context.Context, assignments ports.MonitorProbeAssi
 		}
 	}
 	return out, nil
+}
+
+func captureScheduledChecks(ctx context.Context, runnable []runnableMonitor, activation ports.ProbeConfigActivationRepository, proxies *proxyResolver) ([]scheduledCheck, error) {
+	var applied *domain.LocalProbeConfigDefinition
+	if activation != nil {
+		reader, ok := activation.(ports.LocalAppliedConfigReader)
+		if !ok {
+			return nil, fmt.Errorf("applied execution reader unavailable: %w", domain.ErrValidation)
+		}
+		var err error
+		applied, err = reader.ReadAppliedLocal(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	checks := make([]scheduledCheck, 0, len(runnable))
+	for _, r := range runnable {
+		m, gen, revision := r.Monitor, r.Generation, int64(0)
+		var proxyConfig map[string]any
+		if applied != nil {
+			m = nil
+			for _, a := range applied.Assignments {
+				if a.Monitor.ID == r.Monitor.ID && a.Generation == gen {
+					m = a.Monitor
+					break
+				}
+			}
+			if m == nil || !m.Active {
+				continue
+			}
+			revision = applied.Revision
+			if m.ProxyID != nil {
+				for _, p := range applied.Proxies {
+					if p.ID == *m.ProxyID {
+						proxyConfig = proxyCheckConfig(p)
+						break
+					}
+				}
+			}
+		} else {
+			proxyConfig = proxies.configFor(ctx, m)
+		}
+		config := checkConfigForMonitor(m)
+		config["_proxy"] = proxyConfig
+		checks = append(checks, scheduledCheck{Monitor: m, Generation: gen, ConfigRevision: revision, CheckConfig: config})
+	}
+	return checks, nil
 }

@@ -66,7 +66,7 @@ func (s *ProbeInstallationStore) Get(ctx context.Context) (*domain.ProbeInstalla
 // Initialize atomically inserts the singleton installation record.
 // If an identical record already exists, it returns the existing record idempotently.
 // If a different record exists, it returns ports.ErrConflict.
-func (s *ProbeInstallationStore) Initialize(ctx context.Context, inst domain.ProbeInstallation) (*domain.ProbeInstallation, error) {
+func (s *ProbeInstallationStore) Initialize(ctx context.Context, inst domain.ProbeInstallation, verify func(domain.ProbeConfigMetadata, []byte) error) (*domain.ProbeInstallation, error) {
 	if s == nil || s.db == nil {
 		return nil, domain.ErrValidation
 	}
@@ -82,6 +82,12 @@ func (s *ProbeInstallationStore) Initialize(ctx context.Context, inst domain.Pro
 
 	var result *domain.ProbeInstallation
 	err := s.db.RunInTx(ctx, opts, func(ctx context.Context, tx bun.Tx) error {
+		if err := lockProbeInstallation(ctx, tx); err != nil {
+			return err
+		}
+		if err := verifyRetainedSnapshots(ctx, tx, normalized.HubID, verify); err != nil {
+			return err
+		}
 		existing := new(probeInstallationModel)
 		q := tx.NewSelect().Model(existing).Where("id = 1")
 		if tx.Dialect().Name() == dialect.MySQL {
@@ -144,6 +150,10 @@ func (s *ProbeInstallationStore) VerifyRetainedSnapshots(ctx context.Context, hu
 		return domain.ErrValidation
 	}
 
+	return verifyRetainedSnapshots(ctx, s.db, hubID, check)
+}
+
+func verifyRetainedSnapshots(ctx context.Context, db bun.IDB, hubID string, check func(domain.ProbeConfigMetadata, []byte) error) error {
 	const batchSize = 20
 	var lastProbeID string
 	var lastRevision int64
@@ -154,7 +164,7 @@ func (s *ProbeInstallationStore) VerifyRetainedSnapshots(ctx context.Context, hu
 		}
 
 		var batch []probeConfigModel
-		q := s.db.NewSelect().Model(&batch).
+		q := db.NewSelect().Model(&batch).
 			Order("probe_id ASC", "revision ASC").
 			Limit(batchSize)
 		if lastProbeID != "" {
@@ -175,6 +185,9 @@ func (s *ProbeInstallationStore) VerifyRetainedSnapshots(ctx context.Context, hu
 			}
 			if row.HubID != hubID {
 				return domain.ErrProbeInstallationConflict
+			}
+			if check == nil {
+				return domain.ErrValidation
 			}
 			snap := row.domain()
 			if err := check(snap.ProbeConfigMetadata, snap.ProtectedPayload); err != nil {
@@ -198,4 +211,15 @@ func (s *ProbeInstallationStore) HasSnapshots(ctx context.Context) (bool, error)
 		return false, domain.ErrValidation
 	}
 	return s.db.NewSelect().Table("probe_config_snapshots").Exists(ctx)
+}
+
+// The reserved local registration serializes installation creation and every
+// protected writer, including writes for remote probes and the first binding.
+func lockProbeInstallation(ctx context.Context, tx bun.Tx) error {
+	if tx.Dialect().Name() == dialect.SQLite {
+		_, err := tx.NewUpdate().Table("probes").Set("id = id").Where("id = ?", domain.LocalProbeID).Exec(ctx)
+		return err
+	}
+	var id string
+	return tx.NewSelect().Table("probes").Column("id").Where("id = ?", domain.LocalProbeID).For("UPDATE").Scan(ctx, &id)
 }

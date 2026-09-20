@@ -43,7 +43,15 @@ func (m *pushMockAssignments) ListHistory(_ context.Context, _ int64, _, _ time.
 }
 
 type pushMockActivation struct {
-	active *domain.ProbeActiveConfig
+	active  *domain.ProbeActiveConfig
+	monitor *domain.Monitor
+}
+
+func (m *pushMockActivation) ReadAppliedLocal(context.Context) (*domain.LocalProbeConfigDefinition, error) {
+	if m.active == nil {
+		return nil, ports.ErrNotFound
+	}
+	return &domain.LocalProbeConfigDefinition{Revision: m.active.Revision, Assignments: []domain.ProbeConfigAssignment{{Generation: 3, Monitor: m.monitor}}}, nil
 }
 
 func (m *pushMockActivation) GetActive(_ context.Context, _ string) (*domain.ProbeActiveConfig, error) {
@@ -103,7 +111,7 @@ func TestPushHandler_CapturesAppliedRevisionAndGeneration(t *testing.T) {
 	monSvc := services.NewMonitorService(monitorRepo, bus)
 
 	handler := handlers.NewPushHandler(monSvc, hbSvc)
-	handler.SetActivationRepo(&pushMockActivation{
+	handler.SetActivationRepo(&pushMockActivation{monitor: mon,
 		active: &domain.ProbeActiveConfig{
 			ProbeConfigTarget: domain.ProbeConfigTarget{ProbeID: domain.LocalProbeID},
 			Revision:          8,

@@ -534,3 +534,40 @@ Backups must preserve edge identity, SQLite WAL-consistent state, and TLS/secret
 - [coder/websocket API](https://pkg.go.dev/github.com/coder/websocket): connection lifecycle, bounded reads, and ping/pong behavior. Message multiplexing, durable delivery, and replay are application responsibilities.
 - [MariaDB partitioning limitations](https://mariadb.com/docs/server/server-usage/partitioning-tables/partitioning-limitations): partition keys constrain unique indexes and foreign keys.
 - [SQLite WAL](https://www.sqlite.org/wal.html) and [synchronous settings](https://www.sqlite.org/pragma.html#pragma_synchronous): document the chosen persistence guarantee and test crash recovery.
+
+
+### Local foundation correction contract — 2026-09-20
+
+Ordinary bootstrap keeps the legacy availability dispatcher and does not start the
+experimental outbox consumer. Selecting a secret key verifies installation ownership
+only; it does not imply activation or a notification cutover. The internal outbox
+path is explicitly selected by its caller and is tested separately until complete
+startup, refresh and escalation integration is available. M1 remains in progress.
+
+Applied local execution reads a complete source definition under a serializable
+transaction on MariaDB (explicit isolation, independent of session defaults), or a
+SQLite writer transaction. Re-encoding with the selected snapshot's revision and
+timestamps must match its hash. Only that captured definition may supply checker,
+proxy, channel and template settings. A changed source fails closed until a new
+revision is prepared and activated. Activation uses the same isolation so source
+updates, deletes and phantom relationship inserts cannot commit between its reads
+and commit. No checker/provider I/O occurs under database locks. This deliberately
+conservative reader is a foundation, not a high-throughput refresh architecture.
+
+Installation initialization and every protected write take the reserved local
+registration lock first. Initialization verifies retained history inside that
+transaction before binding a key. A write to an initialized installation supplies
+a key confirmation derived by its protector; the store compares it with the durable
+binding before accepting ciphertext. Pre-installation prepared history remains
+supported for explicit verified adoption. No key confirmation is returned in views.
+
+Availability lifecycle reuses the open incident across maintenance. The atomic
+recorder owns due resend reservations and resolves into one durable per-channel
+recovery intent. If the outage was never delivered, that recovery intent is a delayed
+summary. The consumer supersedes an obsolete claimed DOWN without doing direct
+summary I/O. All sends, including summaries, use claim checks and durable outcomes.
+Acknowledgement suppresses a claimed unsent DOWN even on attempt one.
+
+Migration 050 upgrades the outbox constraint for previously applied 045 databases
+and preserves existing rows. Run upgrades with writers stopped; downgrade refuses
+zero-attempt superseded rows which the old schema cannot represent.

@@ -82,6 +82,70 @@ func generateAckToken() string {
 }
 
 func commitLifecycleAndDeliveriesTx(ctx context.Context, tx bun.Tx, obs domain.RegionalObservation, commit *domain.LocalHeartbeatCommit) error {
+	// Resolve the incident identity before allocating a new UUID. Maintenance and
+	// retries do not close an outage, and an acknowledgement must survive either.
+	if commit.Incident != nil && commit.Incident.SourceAlertID == "" {
+		open := new(AlertModel)
+		q := tx.NewSelect().Model(open).Where("open_monitor_id = ? AND probe_id = ? AND assignment_generation = ?", obs.MonitorID, obs.ProbeID, obs.AssignmentGeneration)
+		if tx.Dialect().Name() == dialect.MySQL {
+			q = q.For("UPDATE")
+		}
+		err := q.Scan(ctx)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil {
+			requested := commit.Incident.Status
+			inc := new(probeIncidentModel)
+			err = tx.NewSelect().Model(inc).Where("source_alert_id = ?", open.SourceAlertID).Scan(ctx)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if err == nil {
+				stored := incidentFromModel(inc)
+				commit.Incident = &stored
+			} else {
+				commit.Incident.SourceAlertID = open.SourceAlertID
+				commit.Incident.TransitionVersion = open.TransitionVersion
+				commit.Incident.StartedAt = open.FiredAt
+				commit.Incident.Status = open.Status
+				commit.Incident.AckedAt = open.AckedAt
+			}
+			if commit.Incident.ConfigRevision != obs.ConfigRevision {
+				commit.Incident.ConfigRevision = obs.ConfigRevision
+				commit.Incident.TransitionVersion = open.TransitionVersion + 1
+			}
+			if requested == domain.AlertStatusResolved {
+				commit.Incident.Status = requested
+				commit.Incident.TransitionVersion = open.TransitionVersion + 1
+				commit.Incident.ResolvedAt = &obs.ObservedAt
+			} else if open.Status == domain.AlertStatusAcked {
+				// Still acknowledged: commit the observation without reopening or paging.
+				return nil
+			}
+			commit.Alert = open.ToDomain()
+			commit.Alert.Status = commit.Incident.Status
+			commit.Alert.TransitionVersion = commit.Incident.TransitionVersion
+			commit.Alert.ResolvedAt = commit.Incident.ResolvedAt
+		} else if commit.Incident.Status == domain.AlertStatusResolved {
+			// A legacy DOWN can have no alert (e.g. notifications were suppressed).
+			return nil
+		}
+	}
+	if commit.ResendInterval > 0 {
+		var throttle notificationThrottleModel
+		q := tx.NewSelect().Model(&throttle).Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ?", obs.MonitorID, obs.ProbeID, obs.AssignmentGeneration)
+		if tx.Dialect().Name() == dialect.MySQL {
+			q = q.For("UPDATE")
+		}
+		err := q.Scan(ctx)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil && throttle.LastAttemptAt != nil && obs.ObservedAt.Sub(*throttle.LastAttemptAt) < commit.ResendInterval {
+			return nil
+		}
+	}
 	if commit.Incident == nil && commit.Alert != nil {
 		commit.Incident = &domain.RegionalIncident{
 			SourceAlertID:        commit.Alert.SourceAlertID,
@@ -261,6 +325,15 @@ func commitLifecycleAndDeliveriesTx(ctx context.Context, tx bun.Tx, obs domain.R
 				if existingAlert.SourceAlertID != commit.Incident.SourceAlertID {
 					return ports.ErrConflict
 				}
+				if existingAlert.TransitionVersion < commit.Incident.TransitionVersion {
+					// A fresh applied config keeps the same outage identity while
+					// advancing both lifecycle snapshots together.
+					existingAlert.TransitionVersion = commit.Incident.TransitionVersion
+					existingAlert.UpdatedAt = obs.ReceivedAt
+					if _, err := tx.NewUpdate().Model(existingAlert).Column("transition_version", "updated_at").WherePK().Exec(ctx); err != nil {
+						return err
+					}
+				}
 				if commit.Alert != nil {
 					commit.Alert.ID = existingAlert.ID
 					commit.Alert.SourceAlertID = existingAlert.SourceAlertID
@@ -311,7 +384,7 @@ func commitLifecycleAndDeliveriesTx(ctx context.Context, tx bun.Tx, obs domain.R
 			if _, err := tx.NewUpdate().TableExpr("alert_escalations").
 				Set("status = ?", domain.EscalationStateCanceled).
 				Set("updated_at = ?", obs.ReceivedAt).
-				Where("monitor_id = ? AND status IN (?, ?)", obs.MonitorID, domain.EscalationStatePending, "leased").
+				Where("alert_id IN (SELECT id FROM alerts WHERE source_alert_id = ?) AND status IN (?, ?)", commit.Incident.SourceAlertID, domain.EscalationStatePending, "leased").
 				Exec(ctx); err != nil {
 				return fmt.Errorf("cancel escalation on resolve: %w", probeRegistryError(err))
 			}
@@ -351,6 +424,18 @@ func commitLifecycleAndDeliveriesTx(ctx context.Context, tx bun.Tx, obs domain.R
 		}
 	}
 
+	if commit.Incident != nil && commit.Incident.Status == domain.AlertStatusResolved {
+		for i := range commit.DeliveryIntents {
+			intent := &commit.DeliveryIntents[i]
+			sent, err := tx.NewSelect().TableExpr("probe_delivery_intents").Where("source_alert_id = ? AND notification_id = ? AND check_status = ? AND status = ?", commit.Incident.SourceAlertID, intent.NotificationID, domain.StatusDown, domain.DeliveryStatusSent).Exists(ctx)
+			if err != nil {
+				return err
+			}
+			if !sent {
+				intent.EventKind = domain.DeliveryEventIncidentSummary
+			}
+		}
+	}
 	return enqueueDeliveryIntentsTx(ctx, tx, obs, commit.Incident, commit.DeliveryIntents)
 }
 

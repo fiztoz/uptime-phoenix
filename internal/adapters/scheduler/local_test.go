@@ -726,7 +726,15 @@ func (c *panicChecker) Check(ctx context.Context, config map[string]any) (ports.
 }
 
 type mockActivationRepo struct {
-	revision int64
+	revision   int64
+	definition *domain.LocalProbeConfigDefinition
+}
+
+func (m *mockActivationRepo) ReadAppliedLocal(context.Context) (*domain.LocalProbeConfigDefinition, error) {
+	if m.definition == nil {
+		return nil, ports.ErrConflict
+	}
+	return m.definition, nil
 }
 
 func (m *mockActivationRepo) GetActive(_ context.Context, probeID string) (*domain.ProbeActiveConfig, error) {
@@ -772,7 +780,9 @@ func TestLocalScheduler_CapturesAppliedRevisionAndGeneration(t *testing.T) {
 
 	assignments := &mockAssignments{remoteOnly: map[int64]struct{}{}}
 	sched.SetAssignmentRepo(assignments)
-	sched.SetActivationRepo(&mockActivationRepo{revision: 7})
+	sched.SetActivationRepo(&mockActivationRepo{revision: 7, definition: &domain.LocalProbeConfigDefinition{
+		Revision: 7, Assignments: []domain.ProbeConfigAssignment{{Generation: 1, Monitor: &domain.Monitor{ID: 1, Name: "applied", Type: "http", Active: true, Interval: 1, Timeout: 5, Config: map[string]any{"url": "https://applied.example.com"}}}},
+	}})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
@@ -784,6 +794,11 @@ func TestLocalScheduler_CapturesAppliedRevisionAndGeneration(t *testing.T) {
 	latest, err := heartbeatRepo.GetLatest(context.Background(), 1)
 	if err != nil || latest == nil {
 		t.Fatalf("missing heartbeat for monitor 1: %v", err)
+	}
+	checker.mu.Lock()
+	defer checker.mu.Unlock()
+	if len(checker.configsCalled) == 0 || checker.configsCalled[0]["url"] != "https://applied.example.com" {
+		t.Fatalf("checker used mutable settings: %#v", checker.configsCalled)
 	}
 	if latest.ConfigRevision != 7 {
 		t.Fatalf("expected ConfigRevision 7, got %d", latest.ConfigRevision)

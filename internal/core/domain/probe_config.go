@@ -33,6 +33,7 @@ type ProbeConfigMetadata struct {
 // Neither this object nor decrypted document bytes belong in HTTP views or logs.
 type ProtectedProbeConfig struct {
 	ProbeConfigMetadata
+	KeyConfirmation  string // Write-only proof bound to the trusted installation.
 	ProtectedPayload []byte
 	StoredAt         time.Time
 }

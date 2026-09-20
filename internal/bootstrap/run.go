@@ -34,7 +34,6 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/scheduler"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/telemetry"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/ws"
-	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
@@ -147,8 +146,6 @@ func Run(cfg Config) error {
 	heartbeatSvc := services.NewHeartbeatService(repos.heartbeat, bus)
 	heartbeatSvc.SetTLSInfoRepo(repos.tlsInfo)
 	heartbeatSvc.SetRegionalRecorder(repos.probeAssignments, repos.localHeartbeat)
-	heartbeatSvc.SetActivationRepo(repos.probeActivation)
-	heartbeatSvc.SetMonitorNotificationRepo(repos.monitorNotif)
 	healthSvc := services.NewMonitorHealthService(repos.monitor, repos.probeAssignments, repos.regionalCommit, nil)
 	healthSvc.SetProjections(repos.projections)
 	heartbeatSvc.SetOverallProjector(healthSvc)
@@ -311,39 +308,8 @@ func Run(cfg Config) error {
 	heartbeatSvc.SetCertAlert(certAlertSvc)
 	log.Info("notification dispatcher wired to heartbeat service", "group_alerting", true, "cert_alerts", true, "alert_lifecycle", true, "escalation", true)
 
-	// Delivery outbox consumer (Step D3): claims due intents, reconciles before
-	// provider I/O, and commits outcomes atomically. Availability alerts cut over
-	// here, while legacy dispatcher handles folder alerts, escalation, and auto-resolve.
-	deliveryConsumer := services.NewDeliveryOutboxConsumer(
-		repos.deliveryOutbox,
-		repos.notification,
-		services.DeliveryConsumerConfig{
-			LeaseDuration: 5 * time.Minute,
-			MaxAttempts:   5,
-			BatchLimit:    50,
-			PublicURL:     cfg.PublicURL,
-		},
-	)
-	deliveryConsumer.SetAssignmentRepository(repos.probeAssignments)
-	deliveryConsumer.SetActivationRepository(repos.probeActivation)
-	deliveryConsumer.SetIncidentRepository(repos.probeIncident)
-	deliveryConsumer.SetMonitorNotificationRepository(repos.monitorNotif)
-	deliveryConsumer.SetMonitorRepository(repos.monitor)
-	deliveryConsumer.SetAlertRepository(repos.alert)
-	deliveryConsumer.SetTemplateRepository(repos.notificationTemplate)
-	deliveryConsumer.SetMaintenanceChecker(maintenanceSvc)
-	deliveryConsumer.SetTagReader(tagSvc)
-	for _, t := range []string{
-		"telegram", "discord", "slack", "smtp", "webhook",
-		"teams", "mattermost", "gotify",
-		"bark", "feishu", "line",
-	} {
-		if sender, ok := notifieradapter.Get(t); ok {
-			deliveryConsumer.RegisterSender(sender)
-		}
-	}
-	notifDispatcher.SetOutboxDelivery(true)
-	log.Info("delivery outbox consumer wired to regional store", "outbox_cutover", true)
+	// Availability stays on the legacy dispatcher until applied-config refresh,
+	// lifecycle and escalation cutover are integrated as one runtime contract.
 
 	aggregateSvc := services.NewAggregateService(repos.heartbeat, repos.monitor, log)
 	monitorStatsSvc := services.NewMonitorStatsService(repos.heartbeat, repos.monitor, repos.tlsInfo, aggregateSvc)
@@ -401,7 +367,6 @@ func Run(cfg Config) error {
 			)
 			sharded.SetProxyRepo(repos.proxy)
 			sharded.SetAssignmentRepo(repos.probeAssignments)
-			sharded.SetActivationRepo(repos.probeActivation)
 			sched = sharded
 			log.Info("sharded scheduler configured",
 				"worker_id", cfg.WorkerID,
@@ -421,7 +386,6 @@ func Run(cfg Config) error {
 			)
 			local.SetProxyRepo(repos.proxy)
 			local.SetAssignmentRepo(repos.probeAssignments)
-			local.SetActivationRepo(repos.probeActivation)
 			sched = local
 		}
 		var schedCtx context.Context
@@ -441,10 +405,6 @@ func Run(cfg Config) error {
 		// F2.3 escalation runner.
 		go func() {
 			escalationRunnerLoop(schedCtx, escalationSvc, escalationPollInterval(cfg), log)
-		}()
-		// Delivery outbox consumer runner for local probe.
-		go func() {
-			deliveryConsumerLoop(schedCtx, deliveryConsumer, log)
 		}()
 		// Heartbeat retention — prune rows older than HEARTBEAT_RETENTION_DAYS.
 		if cfg.HeartbeatRetentionDays > 0 {
@@ -492,7 +452,6 @@ func Run(cfg Config) error {
 	statsHandlers := handlers.NewStatsHandlers(monitorStatsSvc, accessSvc)
 	pushHandler := handlers.NewPushHandler(monitorSvc, heartbeatSvc)
 	pushHandler.SetAssignmentRepo(repos.probeAssignments)
-	pushHandler.SetActivationRepo(repos.probeActivation)
 	badgeHandlers := handlers.NewBadgeHandlers(repos.monitor, repos.heartbeat, aggregateSvc)
 	backupHandlers := handlers.NewBackupHandlers(backupSvc)
 	configHandlers := handlers.NewConfigHandlers(configSvc)
@@ -1043,28 +1002,6 @@ func aggregateRollupLoop(ctx context.Context, aggSvc *services.AggregateService,
 				log.Error("1d rollup failed", "error", err)
 			}
 			rollupCancel()
-		}
-	}
-}
-
-// deliveryConsumerLoop claims and reconciles due delivery outbox intents for the local probe.
-func deliveryConsumerLoop(ctx context.Context, consumer *services.DeliveryOutboxConsumer, log *logger.SlogLogger) {
-	log.Info("delivery outbox consumer loop starting")
-	defer log.Info("delivery outbox consumer loop stopped")
-
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			processed, err := consumer.ProcessBatch(ctx, domain.LocalProbeID, time.Now().UTC(), 50)
-			if err != nil && !errors.Is(err, context.Canceled) {
-				log.Error("delivery consumer batch error", "error", err)
-			} else if processed > 0 {
-				log.Debug("delivery consumer processed intents", "count", processed)
-			}
 		}
 	}
 }

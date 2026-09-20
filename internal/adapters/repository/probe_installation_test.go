@@ -59,7 +59,7 @@ func testProbeInstallationInitAndIdempotent(t *testing.T, f probeRegistryFixture
 		UpdatedAt:      now,
 	}
 
-	created, err := repo.Initialize(ctx, inst)
+	created, err := repo.Initialize(ctx, inst, nil)
 	if err != nil {
 		t.Fatalf("unexpected error on Initialize: %v", err)
 	}
@@ -77,7 +77,7 @@ func testProbeInstallationInitAndIdempotent(t *testing.T, f probeRegistryFixture
 	}
 
 	// 4. Idempotent retry with identical record succeeds
-	retry, err := repo.Initialize(ctx, inst)
+	retry, err := repo.Initialize(ctx, inst, nil)
 	if err != nil {
 		t.Fatalf("unexpected error on idempotent Initialize: %v", err)
 	}
@@ -88,7 +88,7 @@ func testProbeInstallationInitAndIdempotent(t *testing.T, f probeRegistryFixture
 	// 5. Conflicting record fails with ErrConflict
 	conflictInst := inst
 	conflictInst.KeyHash = "9999999922223333444455556666777788889999aaaabbbbccccddddeeeeffff"
-	_, err = repo.Initialize(ctx, conflictInst)
+	_, err = repo.Initialize(ctx, conflictInst, nil)
 	if !errors.Is(err, ports.ErrConflict) {
 		t.Fatalf("expected ErrConflict on conflicting Initialize, got %v", err)
 	}
@@ -127,15 +127,15 @@ func testProbeInstallationConcurrency(t *testing.T, f probeRegistryFixture) {
 
 	go func() {
 		defer wg.Done()
-		_, errA = repo1.Initialize(ctx, instA)
+		_, errA = repo1.Initialize(ctx, instA, nil)
 	}()
 	go func() {
 		defer wg.Done()
-		_, errB = repo2.Initialize(ctx, instB)
+		_, errB = repo2.Initialize(ctx, instB, nil)
 	}()
 	wg.Wait()
 
-	if (errA == nil && !errors.Is(errB, ports.ErrConflict)) && (errB == nil && !errors.Is(errA, ports.ErrConflict)) {
+	if !((errA == nil && errors.Is(errB, ports.ErrConflict)) || (errB == nil && errors.Is(errA, ports.ErrConflict))) {
 		t.Fatalf("expected exactly one winner and one ErrConflict, got errA=%v, errB=%v", errA, errB)
 	}
 }
@@ -212,7 +212,7 @@ func testProbeInstallationDowngradeGuards(t *testing.T, f probeRegistryFixture) 
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
-	if _, err := repo.Initialize(ctx, inst); err != nil {
+	if _, err := repo.Initialize(ctx, inst, nil); err != nil {
 		t.Fatalf("init failed: %v", err)
 	}
 

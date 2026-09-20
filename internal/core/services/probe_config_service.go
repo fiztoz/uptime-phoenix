@@ -42,7 +42,7 @@ func (s *ProbeConfigService) Prepare(ctx context.Context, target domain.ProbeCon
 	if err != nil {
 		return domain.ProbeConfigMetadata{}, fmt.Errorf("protect prepared configuration: %w", err)
 	}
-	stored, err := s.repo.Save(ctx, domain.ProtectedProbeConfig{ProbeConfigMetadata: metadata, ProtectedPayload: payload}, expectedRevision)
+	stored, err := s.repo.Save(ctx, domain.ProtectedProbeConfig{ProbeConfigMetadata: metadata, ProtectedPayload: payload, KeyConfirmation: s.protector.KeyHash(target.HubID)}, expectedRevision)
 	if err != nil {
 		return domain.ProbeConfigMetadata{}, fmt.Errorf("store prepared configuration: %w", err)
 	}

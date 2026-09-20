@@ -113,29 +113,18 @@ func (s *LocalScheduler) tick(ctx context.Context) {
 		return
 	}
 
-	var appliedRevision int64
-	if s.activation != nil {
-		if active, err := s.activation.GetActive(ctx, domain.LocalProbeID); err == nil && active != nil {
-			appliedRevision = active.Revision
-		}
+	checks, err := captureScheduledChecks(ctx, runnable, s.activation, s.proxyResolver)
+	if err != nil {
+		s.logger.Error("scheduler: capture applied settings failed", "error", err)
+		return
 	}
-
 	now := time.Now().UTC()
-
-	for _, r := range runnable {
-		if !s.shouldRun(r.Monitor, now) {
+	for _, check := range checks {
+		if !s.shouldRun(check.Monitor, now) {
 			continue
 		}
-
-		s.lastCheck.Store(r.Monitor.ID, now)
-		checkConfig := checkConfigForMonitor(r.Monitor)
-		checkConfig["_proxy"] = s.proxyResolver.configFor(ctx, r.Monitor)
-		s.startCheck(ctx, scheduledCheck{
-			Monitor:        r.Monitor,
-			Generation:     r.Generation,
-			ConfigRevision: appliedRevision,
-			CheckConfig:    checkConfig,
-		})
+		s.lastCheck.Store(check.Monitor.ID, now)
+		s.startCheck(ctx, check)
 	}
 }
 

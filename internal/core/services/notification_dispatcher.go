@@ -240,7 +240,7 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 	switch {
 	case cur == domain.StatusDown && prev != domain.StatusDown:
 		// Confirmed failure (the retry window, if any, is already exhausted).
-		if !d.reserveAttempt(ctx, key, now, 0) {
+		if !d.outboxDelivery && !d.reserveAttempt(ctx, key, now, 0) {
 			return
 		}
 		alert, ackURL := d.openAlert(ctx, lifecycle, monitor, now)
@@ -269,6 +269,9 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 			}
 		}
 	case cur == domain.StatusDown && prev == domain.StatusDown:
+		if d.outboxDelivery {
+			return
+		}
 		// Still down — re-alert only once per ResendInterval (minutes), and never
 		// while the open alert is acknowledged (F2.2).
 		if lifecycle != nil {

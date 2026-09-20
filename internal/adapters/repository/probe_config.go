@@ -57,6 +57,17 @@ func (r *ProbeConfigStore) Save(ctx context.Context, snapshot domain.ProtectedPr
 		StoredAt: time.Now().UTC().Truncate(time.Microsecond)}
 	var result *domain.ProtectedProbeConfig
 	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := lockProbeInstallation(ctx, tx); err != nil {
+			return err
+		}
+		var installation probeInstallationModel
+		err := tx.NewSelect().Model(&installation).Where("id = 1").Scan(ctx)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil && (installation.HubID != m.HubID || installation.KeyHash != snapshot.KeyConfirmation) {
+			return domain.ErrProbeKeyMismatch
+		}
 		if tx.Dialect().Name() == dialect.SQLite {
 			if _, err := tx.NewUpdate().Table("probes").Set("id = id").Where("id = ?", m.ProbeID).Exec(ctx); err != nil {
 				return err
@@ -72,9 +83,9 @@ func (r *ProbeConfigStore) Save(ctx context.Context, snapshot domain.ProtectedPr
 		}
 		latest := new(probeConfigModel)
 		q := tx.NewSelect().Model(latest).Where("probe_id = ?", m.ProbeID).Order("revision DESC").Limit(1)
-		// This is the transaction's first consistent read, after the probe lock.
-		// No snapshot-index gap lock is needed for independently prepared probes.
-		err := q.Scan(ctx)
+		// Installation and per-probe locks were taken before any consistent reads.
+		// Snapshot writers cannot commit a newer revision while these are held.
+		err = q.Scan(ctx)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}

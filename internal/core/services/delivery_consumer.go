@@ -43,6 +43,7 @@ const (
 type ReconciliationDecision struct {
 	Action ReconciliationAction
 	Reason string
+	Config *domain.LocalProbeConfigDefinition // Captured settings matching the applied hash.
 }
 
 // DeliveryOutboxConsumer processes due delivery intents from the regional outbox.
@@ -203,27 +204,13 @@ func (c *DeliveryOutboxConsumer) ProcessOne(ctx context.Context, delivery domain
 		return nil
 
 	case ReconcileSendDelayedSummary:
-		// Old unsent DOWN after recovery: supersede the obsolete DOWN intent,
-		// and send the delayed incident summary.
-		slog.Info("delivery consumer: superseding old DOWN with delayed summary",
-			"delivery_id", delivery.DeliveryID)
-		result := domain.DeliveryResult{
-			Status: domain.DeliveryStatusSuperseded,
-			At:     now,
-		}
-		if finishErr := c.outbox.FinishDelivery(ctx, claim, result); finishErr != nil {
-			if errors.Is(finishErr, ports.ErrConflict) {
-				return nil
-			}
-			return fmt.Errorf("finish superseded delivery on summary: %w", finishErr)
-		}
-		// Send the delayed incident summary to provider.
-		c.sendIncidentSummary(ctx, delivery, notif, monitor)
-		return nil
+		// Recovery committed its own durable summary intent. Finish only this
+		// obsolete DOWN; never perform an untracked provider send here.
+		return c.outbox.FinishDelivery(ctx, claim, domain.DeliveryResult{Status: domain.DeliveryStatusSuperseded, At: c.now().UTC()})
 
 	case ReconcileSendNormal:
 		// Proceed to provider I/O.
-		return c.executeSendAndFinish(ctx, claim, delivery, notif, monitor)
+		return c.executeSendAndFinish(ctx, claim, delivery, notif, monitor, decision.Config)
 	}
 
 	return nil
@@ -237,14 +224,26 @@ func (c *DeliveryOutboxConsumer) ReconcileBeforeSend(
 	now := c.now().UTC()
 
 	// 1. Check claim authority & lease expiry.
-	if delivery.LeaseUntil == nil || !now.Before(delivery.LeaseUntil.UTC()) {
+	stored, err := c.outbox.GetDeliveryIntent(ctx, delivery.ProbeID, delivery.DeliveryID)
+	if err != nil {
+		return ReconciliationDecision{}, nil, nil, err
+	}
+	if stored.Status != domain.DeliveryStatusLeased || stored.Attempt != delivery.Attempt || stored.LeaseToken != delivery.LeaseToken {
+		return ReconciliationDecision{Action: ReconcileDropExpired, Reason: "claim_superseded"}, nil, nil, nil
+	}
+	if stored.LeaseUntil == nil || !now.Before(stored.LeaseUntil.UTC()) {
 		return ReconciliationDecision{Action: ReconcileDropExpired, Reason: "lease_expired"}, nil, nil, nil
 	}
 
 	// 2. Check assignment generation and active state.
 	if c.assignments != nil {
 		set, err := c.assignments.GetByMonitorID(ctx, delivery.MonitorID)
-		if err != nil || set == nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "assignment_superseded"}, nil, nil, nil
+		} else if err != nil {
+			return ReconciliationDecision{}, nil, nil, err
+		}
+		if set == nil {
 			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "assignment_superseded"}, nil, nil, nil
 		}
 		found := false
@@ -260,20 +259,55 @@ func (c *DeliveryOutboxConsumer) ReconcileBeforeSend(
 	}
 
 	// 3. Check active configuration & channel version.
+	var applied *domain.LocalProbeConfigDefinition
 	if c.activations != nil {
 		active, err := c.activations.GetActive(ctx, delivery.ProbeID)
-		if err != nil || active == nil || active.Revision != delivery.NotificationVersion {
+		if errors.Is(err, ports.ErrNotFound) {
+			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "channel_version_rotated"}, nil, nil, nil
+		} else if err != nil {
+			return ReconciliationDecision{}, nil, nil, err
+		}
+		if active == nil || active.Revision != delivery.NotificationVersion {
 			// Channel version is no longer applicable. Do not send using rotated/stale credentials.
 			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "channel_version_rotated"}, nil, nil, nil
+		}
+		reader, ok := c.activations.(ports.LocalAppliedConfigReader)
+		if !ok {
+			return ReconciliationDecision{}, nil, nil, domain.ErrValidation
+		}
+		applied, err = reader.ReadAppliedLocal(ctx)
+		if errors.Is(err, ports.ErrConflict) || errors.Is(err, ports.ErrNotFound) {
+			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "configuration_changed"}, nil, nil, nil
+		}
+		if err != nil {
+			return ReconciliationDecision{}, nil, nil, err
+		}
+		if applied.Revision != delivery.NotificationVersion {
+			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "configuration_changed"}, nil, nil, nil
 		}
 	}
 
 	// 4. Check notification channel existence and active state.
 	var notif *domain.Notification
-	if c.notifs != nil {
+	if applied != nil {
+		for _, channel := range applied.Notifications {
+			if channel.ID == delivery.NotificationID {
+				notif = channel
+				break
+			}
+		}
+		if notif == nil || !notif.Active {
+			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "channel_disabled"}, nil, nil, nil
+		}
+	} else if c.notifs != nil {
 		var err error
 		notif, err = c.notifs.GetByID(ctx, delivery.NotificationID)
-		if err != nil || notif == nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "channel_removed"}, nil, nil, nil
+		} else if err != nil {
+			return ReconciliationDecision{}, nil, nil, err
+		}
+		if notif == nil {
 			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "channel_removed"}, nil, nil, nil
 		}
 		if !notif.Active {
@@ -302,38 +336,57 @@ func (c *DeliveryOutboxConsumer) ReconcileBeforeSend(
 	// 6. Check maintenance window.
 	if c.maintenance != nil {
 		inMaintenance, err := c.maintenance.IsActive(ctx, delivery.MonitorID)
-		if err == nil && inMaintenance {
+		if err != nil {
+			return ReconciliationDecision{}, nil, nil, err
+		}
+		if inMaintenance {
 			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "maintenance_active"}, notif, nil, nil
 		}
 	}
 
 	// 7. Check incident lifecycle & acknowledgement.
 	var monitor *domain.Monitor
-	if c.monitors != nil {
-		monitor, _ = c.monitors.GetByID(ctx, delivery.MonitorID)
+	if applied != nil {
+		for _, a := range applied.Assignments {
+			if a.Monitor.ID == delivery.MonitorID && a.Generation == delivery.AssignmentGeneration {
+				monitor = a.Monitor
+				break
+			}
+		}
+		if monitor == nil {
+			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "assignment_superseded"}, nil, nil, nil
+		}
+	} else if c.monitors != nil {
+		monitor, err = c.monitors.GetByID(ctx, delivery.MonitorID)
+		if err != nil {
+			return ReconciliationDecision{}, nil, nil, err
+		}
 	}
 
 	if c.incidents != nil {
 		incident, err := c.incidents.GetIncident(ctx, delivery.SourceAlertID)
-		if err == nil && incident != nil {
-			// Old unsent DOWN after recovery: supersede and send delayed summary.
+		if err != nil {
+			return ReconciliationDecision{}, nil, nil, err
+		}
+		if incident != nil {
+			// Recovery already queued a durable summary when needed; retire the old DOWN.
 			if delivery.CheckStatus == domain.StatusDown &&
 				(incident.Status == domain.AlertStatusResolved || incident.ResolvedAt != nil) {
 				return ReconciliationDecision{Action: ReconcileSendDelayedSummary, Reason: "recovered_delayed_summary"}, notif, monitor, nil
 			}
-			// Acknowledged incident suppresses resends.
-			if incident.AckedAt != nil {
+			// Acknowledgement suppresses DOWN, including the first claimed attempt.
+			if incident.AckedAt != nil && delivery.CheckStatus == domain.StatusDown {
 				if delivery.EventKind == domain.DeliveryEventIncidentSummary {
 					// Summaries can still be sent.
-				} else if delivery.Attempt > 1 {
-					// Retrying resends are suppressed by acknowledgement.
+				} else {
+					// Recovery work remains eligible.
 					return ReconciliationDecision{Action: ReconcileSupersede, Reason: "acknowledged_resend"}, notif, monitor, nil
 				}
 			}
 		}
 	}
 
-	return ReconciliationDecision{Action: ReconcileSendNormal, Reason: "valid"}, notif, monitor, nil
+	return ReconciliationDecision{Action: ReconcileSendNormal, Reason: "valid", Config: applied}, notif, monitor, nil
 }
 
 func (c *DeliveryOutboxConsumer) executeSendAndFinish(
@@ -342,6 +395,7 @@ func (c *DeliveryOutboxConsumer) executeSendAndFinish(
 	delivery domain.QueuedDelivery,
 	notif *domain.Notification,
 	monitor *domain.Monitor,
+	applied *domain.LocalProbeConfigDefinition,
 ) error {
 	now := c.now().UTC()
 
@@ -365,7 +419,7 @@ func (c *DeliveryOutboxConsumer) executeSendAndFinish(
 	}
 
 	ackURL := c.resolveAckURL(ctx, delivery)
-	alertContext := c.buildAlertContext(ctx, delivery, notif, monitor, ackURL, delivery.EventKind)
+	alertContext := c.buildAlertContext(ctx, delivery, notif, monitor, ackURL, delivery.EventKind, applied)
 
 	// NOTE on crash window:
 	// If the provider accepts the send below, but the probe process crashes
@@ -374,6 +428,7 @@ func (c *DeliveryOutboxConsumer) executeSendAndFinish(
 	// leading to an external duplicate. This window is unavoidable in distributed
 	// systems without provider-side idempotency keys.
 	sendErr := sender.Send(ctx, notif.Config, alertContext)
+	now = c.now().UTC()
 
 	var result domain.DeliveryResult
 	if sendErr == nil {
@@ -413,27 +468,6 @@ func (c *DeliveryOutboxConsumer) executeSendAndFinish(
 	return nil
 }
 
-func (c *DeliveryOutboxConsumer) sendIncidentSummary(
-	ctx context.Context,
-	delivery domain.QueuedDelivery,
-	notif *domain.Notification,
-	monitor *domain.Monitor,
-) {
-	if notif == nil {
-		return
-	}
-	sender, ok := c.senders[notif.Type]
-	if !ok {
-		return
-	}
-	alertContext := c.buildAlertContext(ctx, delivery, notif, monitor, "", domain.DeliveryEventIncidentSummary)
-	if err := sender.Send(ctx, notif.Config, alertContext); err != nil {
-		slog.Error("delivery consumer: send delayed summary failed",
-			"delivery_id", delivery.DeliveryID,
-			"error", err)
-	}
-}
-
 func (c *DeliveryOutboxConsumer) buildAlertContext(
 	ctx context.Context,
 	delivery domain.QueuedDelivery,
@@ -441,6 +475,7 @@ func (c *DeliveryOutboxConsumer) buildAlertContext(
 	monitor *domain.Monitor,
 	ackURL string,
 	eventKind string,
+	applied *domain.LocalProbeConfigDefinition,
 ) domain.AlertContext {
 	startedAt := delivery.StartedAt.UTC()
 	var duration time.Duration
@@ -486,7 +521,15 @@ func (c *DeliveryOutboxConsumer) buildAlertContext(
 	}
 
 	tags := make(map[string]string)
-	if c.tagReader != nil {
+	if applied != nil {
+		for _, a := range applied.Assignments {
+			if a.Monitor.ID == delivery.MonitorID {
+				for _, tag := range a.Tags {
+					tags[tag.Name] = tag.Value
+				}
+			}
+		}
+	} else if c.tagReader != nil {
 		if details, err := c.tagReader.TagsForMonitor(ctx, delivery.MonitorID); err == nil {
 			for _, t := range details {
 				if t.Name != "" {
@@ -515,11 +558,25 @@ func (c *DeliveryOutboxConsumer) buildAlertContext(
 		AckURL:             ackURL,
 	}
 
+	if delivery.CheckStatus == domain.StatusUp {
+		alert.PreviousStatus = domain.StatusDown
+	}
+
 	// Apply template and target policies if notif is provided.
 	if notif != nil {
 		alert = applyAckURLPolicy(notif, alert)
 		includeTarget := domain.DefaultIncludeTarget
-		if c.monitorNotifs != nil {
+		if applied != nil {
+			for _, a := range applied.Assignments {
+				if a.Monitor.ID == delivery.MonitorID {
+					for _, link := range a.NotificationLinks {
+						if link.NotificationID == notif.ID {
+							includeTarget = link.IncludeTarget
+						}
+					}
+				}
+			}
+		} else if c.monitorNotifs != nil {
 			if links, err := c.monitorNotifs.ListByMonitor(ctx, delivery.MonitorID); err == nil {
 				for _, l := range links {
 					if l.NotificationID == notif.ID {
@@ -531,7 +588,15 @@ func (c *DeliveryOutboxConsumer) buildAlertContext(
 		}
 		alert = applyTargetPolicy(includeTarget, alert)
 
-		if notif.TemplateID != nil && c.templates != nil {
+		if applied != nil && notif.TemplateID != nil {
+			for _, template := range applied.Templates {
+				if template.ID == *notif.TemplateID && template.Provider == notif.Type {
+					alert.TemplateTitle = template.TitleTemplate
+					alert.TemplateBody = template.BodyTemplate
+					alert.TemplateConfig = template.Config
+				}
+			}
+		} else if notif.TemplateID != nil && c.templates != nil {
 			if tmpl, err := c.templates.GetByID(ctx, *notif.TemplateID); err == nil && tmpl != nil && tmpl.Provider == notif.Type {
 				alert.TemplateTitle = tmpl.TitleTemplate
 				alert.TemplateBody = tmpl.BodyTemplate

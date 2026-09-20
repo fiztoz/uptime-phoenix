@@ -1,5 +1,13 @@
 # Multi-region implementation guide for continuing agents
 
+> **2026-09-20 correction:** the M1 completion claim in `8d83cf6` was invalidated
+> by integration review. Bootstrap uses the existing dispatcher; applied execution
+> and the delivery consumer remain internal foundations. Read the latest
+> [status correction](IMPLEMENTATION_STATUS.md#review-correction-local-runtime-and-m1-status--2026-09-20)
+> and [retrospective](../postmortems/2026-09-20-m01-local-cutover.md) before choosing
+> the next slice. Do not re-enable the outbox solely because component tests pass.
+
+
 **Start here if you are taking over implementation.** This guide explains the
 next work in small, testable steps and identifies mistakes that can lose history,
 leak credentials, or send incorrect notifications. Complete one step at a time.

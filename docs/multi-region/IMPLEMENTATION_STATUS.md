@@ -17,11 +17,11 @@ M0 and M1 are **in progress**, not complete. The foundation implements executabl
 | Retry | Pure `EvaluateRetry`/`EvaluateObservation` reused by `HeartbeatService.Record`; maintenance then retry; independent state inputs; local Record atomically commits heartbeat+observation+state for the `local` assignment with a stream-wide sequence; `PromoteCondition` is the shared consecutive/hysteresis rule | Do not dispatch regional incidents from the existing dispatcher; capacity and certificate state now use assignment-specific repository views; durable regional delivery remains open |
 | Health | Pure complete-assignment ANY/ALL truth table, deadline freshness, explicit missing/future/invalidated evidence, paused counts, duration-based uptime/coverage; `MonitorHealthService.Current`/`History`/`ProjectCurrent`/`ProcessDirty` | Incident recovery, browser/HTTP consumers of UNKNOWN, and historical pause/freshness configuration |
 | Protocol | Bounded envelope validation, all five telemetry kinds, ACK/retry/gap, complete state/config DTOs and transfer frames, bounded hash-checked staging, config reference/target/capability checks, revision comparison, hello/welcome/health and trusted handshake comparison, command/enrollment/rotation-reset request and receipt DTOs, admin/browser ProbeView/HealthView/assignment/regional heartbeat events, 306 valid/invalid fixtures plus baseline HTTP/browser documents | Remote config building/validation and atomic activation; environment readiness; authenticated sessions/leases; durable application receipts |
-| Database | Migrations `035`–`047` on MariaDB/SQLite; local backfill; credential-free registration stores; atomic revision-checked assignment replacement; tombstones prevent generation reuse; `RegionalCommit`/`Ingest` persist per-probe observations, cursors, optional incidents, and dirty buckets; delivery outcomes correlate to stored transitions; monitor Create writes a local assignment in the same transaction; hub ClaimBatch/schedulers skip remote-only sets; heartbeats carry `probe_id` (default `local`) and rollups unique `(monitor_id,probe_id,bucket)`; overall snapshots and history intervals; atomic membership/policy history on initialization and replacement; capacity and TLS state keyed by probe/generation; durable local sequence allocator with atomic heartbeat/regional recording; availability attempt throttles and availability incidents keyed by probe/generation; escalation inherits alert identity and only executes current-local work; both source recording ports accept atomic availability incidents/intents; probe-scoped queue leases and atomic outcome receipts; stable source UUIDs and lifecycle versions on legacy alerts; encrypted immutable prepared config snapshots; consistent local-source construction and deterministic dependency closure; exact local prepared-revision semantic validation | Live lifecycle/outbox integration, remote config building/validation, environment readiness, key startup wiring and activation, edge DB, historical-generation ingest authorization |
+| Database | Migrations `035`–`050` on MariaDB/SQLite; local backfill; credential-free registration stores; atomic revision-checked assignment replacement; tombstones prevent generation reuse; `RegionalCommit`/`Ingest` persist per-probe observations, cursors, optional incidents, and dirty buckets; delivery outcomes correlate to stored transitions; monitor Create writes a local assignment in the same transaction; hub ClaimBatch/schedulers skip remote-only sets; heartbeats carry `probe_id` (default `local`) and rollups unique `(monitor_id,probe_id,bucket)`; overall snapshots and history intervals; atomic membership/policy history on initialization and replacement; capacity and TLS state keyed by probe/generation; durable local sequence allocator with atomic heartbeat/regional recording; availability attempt throttles and availability incidents keyed by probe/generation; escalation inherits alert identity and only executes current-local work; both source recording ports accept atomic availability incidents/intents; probe-scoped queue leases and atomic outcome receipts; stable source UUIDs and lifecycle versions on legacy alerts; encrypted immutable prepared config snapshots; consistent local-source construction and deterministic dependency closure; exact local prepared-revision semantic validation | Startup/refresh and lifecycle/outbox integration, remote config building/validation, environment readiness, edge DB, historical-generation ingest authorization |
 
 Explicit key provisioning and protected file loading are implemented by the standalone
 `phoenix-probe-key` tool and auth adapter. See [key provisioning](KEY_PROVISIONING.md).
-Hub/worker startup does not consume a key yet; activation remains gated.
+Hub/worker startup can verify an explicitly configured key against installation identity and retained snapshots. It does not automatically prepare/activate a configuration or enable the outbox consumer.
 
 Registration metadata still conveys no authentication authority. SQLite/MariaDB `MonitorRepo.Create` now inserts the reserved local assignment in the same transaction, so create/clone/import/restore through that path cannot leave an unassigned monitor. Hub `ClaimBatch` and both schedulers skip monitors whose assignment set has no active `local` member; monitors with no assignment set keep today's local execution. Remote assignment replacement is still not exposed on HTTP routes.
 
@@ -718,84 +718,60 @@ Contract tests on SQLite and MariaDB verify:
 - Downgrade guards refuse while populated and succeed when empty.
 
 
-## Execution revision and assignment generation recording (Step D1) — 2026-09-19
+## Review correction: local runtime and M1 status — 2026-09-20
 
-`ports.CheckResult` now carries `ConfigRevision int64` and `AssignmentGeneration int64`.
+The completion claim in `8d83cf6` is withdrawn. M0/M1 remain **in progress**.
+The review reproduced failures across the actual heartbeat → repository → dispatcher
+→ consumer path despite the previous unit and race suites passing. See the
+[retrospective](../postmortems/2026-09-20-m01-local-cutover.md) for mechanisms and evidence.
 
-Schedulers and ingest handlers capture the applied configuration revision, active assignment generation, and execution settings (including resolved proxy) at scheduling/ingest time:
-1. **`LocalScheduler` and `ShardedScheduler`**: On each tick, monitors are filtered by active local assignments via `ExecutableByLocal`, which returns `map[int64]int64` (monitor ID to active assignment generation). The scheduler captures `appliedRevision` from `ProbeConfigActivationRepository.GetActive(ctx, domain.LocalProbeID)`, `generation` from the assignment map, and passes them with resolved proxy settings to `ports.CheckResult`.
-2. **`PushHandler`**: Ingests inbound push heartbeats, queries `ProbeConfigActivationRepository` and `MonitorProbeAssignmentRepository.ExecutableByLocal`, and stamps `ConfigRevision` and `AssignmentGeneration` on `ports.CheckResult`.
-3. **`HeartbeatService.persistCheck` and `LocalHeartbeatStore.CommitLocalHeartbeat`**:
-   - Enforce that `hb.AssignmentGeneration` matches the active local assignment generation; if the assignment was removed (`ErrNotFound`) or bumped (`ErrConflict`), the check is rejected.
-   - Enforce that `hb.ConfigRevision` matches the active configuration revision in `probe_active_configs`; if the active revision changed, the check is rejected with `ErrConflict`.
-   - In-flight checks invalidated by assignment removal or configuration change are rejected without mutating current state, advancing sequence, or emitting events.
-   - Preserves 100% backward compatibility: when regional recording or active configuration is not configured (`s.regional == nil`), legacy recording remains unaffected.
+### Current runtime
 
-Contract tests and unit tests verify:
-- Unit tests in `local_heartbeat_test.go`: `TestRecordCapturesExecutedRevisionAndGeneration`, `TestRecordRejectsInFlightCheckOnGenerationMismatch`, `TestRecordRejectsInFlightCheckOnAssignmentRemoval`, `TestRecordRejectsInFlightCheckOnActiveRevisionMismatch`, `TestRecordAllowsMatchingActiveRevision`.
-- Scheduler unit tests: `TestLocalScheduler_CapturesAppliedRevisionAndGeneration` and `TestShardedScheduler_CapturesAppliedRevisionAndGeneration`.
-- Push handler unit tests: `TestPushHandler_CapturesAppliedRevisionAndGeneration`.
-- Repository contract tests: `testLocalHeartbeatGuards` on SQLite and MariaDB verify that stale config revisions conflict and matching revisions commit.
+- Bootstrap retains the existing availability dispatcher, reminders and escalation
+  path. It does not set `SetOutboxDelivery(true)`, inject an activation repository
+  into schedulers/push/heartbeat services, or run the delivery consumer. Configured
+  installation keys verify identity; they do not enable an unfinished cutover.
+- Local observations still use the regional recorder and assignment-generation
+  fencing. Legacy execution has no applied revision contract; its compatibility
+  revision must not be interpreted as evidence of applied configuration.
+- No remote runtime, enrollment flow, or remote provider execution is enabled.
 
-Next: Step D2 (commit lifecycle and notification intent with the observation). Remote runtime remains disabled; M0/M1 are still in progress.
+### Corrected internal foundations
 
-## Atomic observation lifecycle, throttles, and delivery outbox (Step D2) — 2026-09-19
+- Applied execution captures a resolved source graph only if it re-encodes to the
+  selected snapshot hash. Schedulers, push ingestion and the consumer use that
+  captured graph. An edited source requires fresh preparation/activation before
+  this internal path can run. This conservative reader is not a config-refresh loop.
+- Activation and applied reads use explicit SERIALIZABLE transactions on MariaDB
+  and the SQLite writer lock. Tests attempt a monitor edit and a tag-link insertion
+  after the source read but before activation commits, on a second connection.
+  Database serialization failures receive bounded transaction retries.
+- Installation initialization and protected snapshot writes share the reserved
+  local registration lock. Initialization verifies retained ciphertext while holding
+  that lock; writes after installation must prove the bound hub/key confirmation.
+- Atomic availability recording reuses the open incident across maintenance,
+  checks reminder throttles and acknowledgement in the transaction, and preserves
+  the outage start time. Recovery cancels source-scoped future work.
+- Recovery queues a durable incident summary when no original DOWN was recorded
+  sent to that channel. Processing obsolete DOWN work never sends an untracked
+  summary. Summary failures use the normal lease/retry/outcome path with UP status
+  and the actual resolution time. ACK suppresses first and repeated DOWN attempts;
+  it does not suppress recovery.
+- Migration **050** upgrades existing 045 tables without dropping queued work or
+  lease identities. Historical 045 files retain their original schema. Downgrading
+  050 refuses while attempt-zero cancellation records cannot fit the old schema.
+  All writers must be stopped for MariaDB's table replacement.
 
-`LocalHeartbeatRecorder.CommitLocalHeartbeat` now owns the complete local availability transaction atomically across all 9 tables:
-1. Stream sequence allocation (`probe_local_sequence`)
-2. Heartbeat (`heartbeats`) and regional observation (`probe_observations`)
-3. Retry state (`monitor_probe_state`)
-4. Dirty buckets (`probe_dirty_buckets`)
-5. Source incident identity/version and lifecycle transition across both `alerts` and `probe_incidents` (lockstep version, identical UUID `source_alert_id`, preserving legacy alert ID and ack token)
-6. Applicable throttle changes (`notification_throttles`) and escalation changes (`alert_escalations`)
-7. Outbox delivery intent creation (`probe_delivery_intents`) for step-zero notifications and recovery notifications.
+### Remaining acceptance work before cutover
 
-Key architecture and protocol invariants enforced:
-- **Lockstep Lifecycle**: `alerts` and `probe_incidents` advance `transition_version` in lockstep with identical UUID `source_alert_id`. Acknowledging or resolving an incident transitions both tables together.
-- **Cancellation of Future Work**:
-  - On resolution (UP heartbeat): `alert_escalations` are canceled/resolved, pending `probe_delivery_intents` are superseded, and `notification_throttles` are cleared.
-  - On acknowledgement: `probe_delivery_intents` pending for the incident are superseded, and `probe_incidents` is updated in lockstep.
-- **Protocol Conformity for Superseded Intents**: Updated migrations `045_probe_delivery_outbox` on SQLite and MariaDB to permit `status = 'superseded'` when `attempt = 0` (canceled prior to any provider claim/send), matching `PROTOCOL.md` §2.5.
-- **Transactional All-or-Nothing Guarantee**: Injected faults in any of the tables (`alerts`, `probe_incidents`, `probe_delivery_intents`, `notification_throttles`, `alert_escalations`, etc.) roll back the entire transaction without consuming a stream sequence, leaving no partial state.
-
-Contract and unit tests verify:
-- `TestLocalHeartbeatContract/sqlite/LifecycleAndOutbox`: DOWN heartbeat atomically creates alert, probe_incident, escalation, throttle, and delivery intent; UP heartbeat resolves alert, resolves probe_incident, cancels escalation, clears throttle, supersedes pending intent, and enqueues recovery summary.
-- `TestLocalHeartbeatContract/sqlite/LifecycleFaultInjection`: Trigger-injected failures on each table prove zero partial writes and zero consumed sequence.
-- `TestLocalHeartbeatContract/sqlite/AckAndResolveCancellation`: Acknowledgement updates alert and probe_incident in lockstep, cancels escalation, and supersedes pending delivery intents.
-- Full regression verification: `go test -race -count=1 ./...` passes across domain, services, repository, and cmd packages.
-
-
-## Reconcile before provider I/O, then cut over once (Step D3) — 2026-09-19
-
-`DeliveryOutboxConsumer` in `internal/core/services/delivery_consumer.go` is now implemented and wired, providing pre-send reconciliation before provider I/O and a single cutover from the legacy dispatcher:
-
-1. **Pre-send Reconciliation (`ReconcileBeforeSend`)**:
-   - Rechecks claim authority and lease expiry before making any external provider calls.
-   - Rechecks assignment generation and active state (`monitor_probe_assignments`). If the assignment was removed or rotated, the delivery intent is superseded (`assignment_superseded`).
-   - Rechecks active configuration revision (`probe_active_configs`) and channel version. If the channel was rotated or config advanced, the delivery is superseded (`channel_version_rotated`).
-   - Rechecks notification channel existence and active state (`notifications`). If disabled or removed, the delivery is superseded (`channel_disabled`).
-   - Rechecks monitor-channel link (`monitor_notifications`). If the link was removed, the delivery is superseded (`monitor_unlinked`).
-   - Rechecks maintenance window (`maintenanceChecker.IsActive`). If maintenance became active while queued, the delivery is superseded (`maintenance_active`).
-   - Rechecks incident lifecycle in `probe_incidents`:
-     - If the incident was resolved while an old `DOWN` delivery was queued/leased, the `DOWN` delivery is superseded (`incident_recovered`) and an explicit delayed incident summary is sent instead.
-     - If the incident was acknowledged, resends are suppressed (`incident_acknowledged`).
-2. **Redacted Error Classification and Bounded Backoff**:
-   - Provider errors are sanitized into fixed, snake_case error categories (`err_timeout`, `err_auth`, `err_rate_limit`, `err_network`, `err_bad_request`, `err_server_error`, `err_unknown`), ensuring no credentials, tokens, or raw provider messages leak into stored error codes or logs.
-   - Bounded exponential retry backoff (`CalculateBackoff`) with configurable max attempts.
-3. **Atomic Outcome Commit (`FinishDelivery`)**:
-   - Commits queue status (`sent`, `failed`, or `superseded`), attempt count, and outcome timestamps using the current token/attempt. Stale worker completions fail safely.
-   - Explicitly documents the unavoidable at-least-once external duplicate window if a probe crashes after provider acceptance but before the local outcome commit (T26).
-4. **Single Cutover from `NotificationDispatcher`**:
-   - `NotificationDispatcher.SetOutboxDelivery(true)` silences legacy availability alert dispatching (`cur == domain.StatusDown`, `cur == domain.StatusUp`, and still-DOWN resends) to prevent duplicate sends.
-   - Collateral damage prevention: preserves folder alerting, status-page recovery auto-resolve, certificate alerts, capacity alerts, and escalation ladders (step zero initiation remains dispatcher-owned, per T39).
-5. **Bootstrap Integration (`internal/bootstrap/run.go`)**:
-   - Wires `DeliveryOutboxConsumer`, `heartbeatSvc.SetMonitorNotificationRepo`, and sets `notifDispatcher.SetOutboxDelivery(true)`.
-   - Starts the delivery outbox consumer loop for the local probe when running in worker/all mode.
-
-Verification and Acceptance Tests:
-- Scenarios T06, T08, T25, T26, T27, and T39 implemented and verified in `internal/core/services/delivery_consumer_test.go`.
-- Full regression verification: `go test -race -count=1 ./...` passes across all packages.
-- Repository contracts pass on SQLite and MariaDB (`DeliveryOutboxContract`, `LocalHeartbeatContract`).
-- Zero warnings on `go vet ./internal/...`, `gofmt -l internal/` is empty, and `go build ./...` succeeds.
-
-Next: Milestone 1 is now complete (Steps A, B, C, D1, D2, D3 all implemented and verified). The local foundation, protected configuration, atomic local recording, and delivery outbox consumer are fully operational. Next is Milestone 2 (Edge runtime and enrollment).
+1. Wire installation validation, first preparation/activation and subsequent source
+   edits into one supported startup/refresh lifecycle. Test default/no-key startup
+   and existing installations through the real app.
+2. Complete applied-context planning for inherited channels, disabled channels,
+   escalation step zero and later steps, maintenance and other local notification
+   behavior. An outbox switch alone does not prove parity.
+3. Prove provider effects across the connected runtime: exactly one initial send,
+   due reminders, ACK, recovery, restart/reclaim, outage recovery during a lease,
+   and concurrent source edits. Assert persisted effects and actual sender inputs.
+4. Re-enable the cutover only after those acceptance tests pass on both database
+   engines. Keep M1 unchecked until the runtime—not just its components—passes.

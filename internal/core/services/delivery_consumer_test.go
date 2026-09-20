@@ -111,12 +111,6 @@ func (s *mockSender) count() int {
 	return len(s.alerts)
 }
 
-func (s *mockSender) last() domain.AlertContext {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.alerts[len(s.alerts)-1]
-}
-
 type fakeProbeAssignmentRepo struct {
 	sets map[int64]*domain.MonitorProbeAssignments
 }
@@ -221,6 +215,7 @@ func TestDeliveryConsumer_Reconcile_ExpiredLease(t *testing.T) {
 		LeaseUntil: &expired,
 	}
 
+	outbox.intents[delivery.DeliveryID] = &delivery
 	err := consumer.ProcessOne(ctx, delivery)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -503,13 +498,10 @@ func TestDeliveryConsumer_Reconcile_OldDownAfterRecovery_DelayedSummary(t *testi
 		t.Fatalf("finishLogs = %#v; want 1 superseded", outbox.finishLogs)
 	}
 
-	// 2. The sender received a delayed incident summary instead of a raw DOWN.
-	if sender.count() != 1 {
-		t.Fatalf("sender called %d times; want 1", sender.count())
-	}
-	alert := sender.last()
-	if alert.EventKind != domain.DeliveryEventIncidentSummary {
-		t.Errorf("EventKind = %q; want %q", alert.EventKind, domain.DeliveryEventIncidentSummary)
+	// Recovery commits a separate durable summary. Processing the obsolete DOWN
+	// must never perform untracked provider I/O.
+	if sender.count() != 0 {
+		t.Fatalf("sender called %d times for superseded DOWN; want 0", sender.count())
 	}
 }
 

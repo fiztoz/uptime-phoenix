@@ -1,6 +1,10 @@
+-- Stop all writers. The old schema cannot represent cancellation before claim.
+CREATE TABLE IF NOT EXISTS delivery_cancellation_downgrade_guard (ok INTEGER NOT NULL CHECK (ok = 1));
+INSERT INTO delivery_cancellation_downgrade_guard (ok) SELECT 0 FROM probe_delivery_intents WHERE status = 'superseded' AND attempt = 0 LIMIT 1;
+DROP TABLE delivery_cancellation_downgrade_guard;
 -- Source-owned availability work. Mirrored outcomes never populate this table.
 -- No provider secrets or requests are stored here.
-CREATE TABLE IF NOT EXISTS probe_delivery_intents (
+CREATE TABLE IF NOT EXISTS probe_delivery_intents_v049 (
     delivery_id TEXT NOT NULL PRIMARY KEY,
     source_alert_id TEXT NOT NULL,
     source_transition_version INTEGER NOT NULL CHECK (typeof(source_transition_version) = 'integer' AND source_transition_version >= 1),
@@ -37,5 +41,7 @@ CREATE TABLE IF NOT EXISTS probe_delivery_intents (
     FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE,
     FOREIGN KEY (probe_id) REFERENCES probes(id) ON DELETE RESTRICT
 );
-CREATE INDEX IF NOT EXISTS idx_probe_delivery_due
-    ON probe_delivery_intents (probe_id, available_at, created_at, delivery_id);
+INSERT INTO probe_delivery_intents_v049 SELECT * FROM probe_delivery_intents;
+DROP TABLE probe_delivery_intents;
+ALTER TABLE probe_delivery_intents_v049 RENAME TO probe_delivery_intents;
+CREATE INDEX idx_probe_delivery_due ON probe_delivery_intents (probe_id, available_at, created_at, delivery_id);

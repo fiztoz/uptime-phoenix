@@ -383,14 +383,14 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 			configRevision = 1
 		}
 		hb.AssignmentGeneration, hb.StreamID, hb.ConfigRevision = generation, domain.LocalStreamID, configRevision
-		commit := domain.LocalHeartbeatCommit{Heartbeat: hb, RawStatus: raw, ExpectedStateSeq: expectedSeq}
-		if hb.Important {
+		commit := domain.LocalHeartbeatCommit{Heartbeat: hb, RawStatus: raw, ExpectedStateSeq: expectedSeq, LegacyConfig: expectedRevision <= 0}
+		if s.monitorNotifs != nil && (hb.Important || hb.Status == domain.StatusDown && monitor.ResendInterval > 0) {
 			prev := domain.StatusUp
 			if oldStatus != nil {
 				prev = *oldStatus
 			}
 			cur := hb.Status
-			if cur == domain.StatusDown && prev != domain.StatusDown {
+			if cur == domain.StatusDown {
 				commit.Incident = &domain.RegionalIncident{
 					ProbeID:              domain.LocalProbeID,
 					MonitorID:            monitor.ID,
@@ -411,7 +411,10 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 					FiredAt:              hb.Time,
 				}
 				commit.ThrottleUpdate = true
-			} else if cur == domain.StatusUp && prev == domain.StatusDown {
+				if prev == domain.StatusDown {
+					commit.ResendInterval = time.Duration(monitor.ResendInterval) * time.Minute
+				}
+			} else if cur == domain.StatusUp {
 				commit.Incident = &domain.RegionalIncident{
 					ProbeID:              domain.LocalProbeID,
 					MonitorID:            monitor.ID,
@@ -433,16 +436,18 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 				commit.ThrottleClear = true
 			}
 			if s.monitorNotifs != nil && commit.Incident != nil {
-				if links, err := s.monitorNotifs.ListByMonitor(ctx, monitor.ID); err == nil {
-					for _, link := range links {
-						commit.DeliveryIntents = append(commit.DeliveryIntents, domain.DeliveryIntent{
-							ProbeID:             domain.LocalProbeID,
-							NotificationID:      link.NotificationID,
-							NotificationVersion: configRevision,
-							EventKind:           domain.DeliveryEventStatusChange,
-							AvailableAt:         hb.Time,
-						})
-					}
+				links, err := s.monitorNotifs.ListByMonitor(ctx, monitor.ID)
+				if err != nil {
+					return nil, nil, fmt.Errorf("read delivery links: %w", err)
+				}
+				for _, link := range links {
+					commit.DeliveryIntents = append(commit.DeliveryIntents, domain.DeliveryIntent{
+						ProbeID:             domain.LocalProbeID,
+						NotificationID:      link.NotificationID,
+						NotificationVersion: configRevision,
+						EventKind:           domain.DeliveryEventStatusChange,
+						AvailableAt:         hb.Time,
+					})
 				}
 			}
 		}

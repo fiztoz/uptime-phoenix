@@ -81,7 +81,7 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 			activeConfigQuery = activeConfigQuery.For("UPDATE")
 		}
 		if err := activeConfigQuery.Scan(ctx, &activeRevision); err == nil {
-			if activeRevision > 0 && hb.ConfigRevision != activeRevision {
+			if !commit.LegacyConfig && activeRevision > 0 && hb.ConfigRevision != activeRevision {
 				return ports.ErrConflict
 			}
 		} else if !errors.Is(err, sql.ErrNoRows) {

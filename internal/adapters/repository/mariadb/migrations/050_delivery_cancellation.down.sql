@@ -1,6 +1,12 @@
+-- Stop all writers. The old schema cannot represent cancellation before claim.
+CREATE TABLE IF NOT EXISTS delivery_cancellation_downgrade_guard (ok INTEGER NOT NULL CHECK (ok = 1));
+INSERT INTO delivery_cancellation_downgrade_guard (ok) SELECT 0 FROM probe_delivery_intents WHERE status = 'superseded' AND attempt = 0 LIMIT 1;
+DROP TABLE delivery_cancellation_downgrade_guard;
+-- Resume safely after a prior atomic rename but before migration bookkeeping.
+DROP TABLE IF EXISTS probe_delivery_intents_previous;
 -- Source-owned availability work. Mirrored outcomes never populate this table.
 -- Channel versions refer to accepted configuration, not mutable credentials.
-CREATE TABLE IF NOT EXISTS probe_delivery_intents (
+CREATE TABLE IF NOT EXISTS probe_delivery_intents_v049 (
     delivery_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
     source_alert_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     source_transition_version BIGINT NOT NULL CHECK (source_transition_version >= 1),
@@ -38,3 +44,6 @@ CREATE TABLE IF NOT EXISTS probe_delivery_intents (
     FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE,
     FOREIGN KEY (probe_id) REFERENCES probes(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
+INSERT INTO probe_delivery_intents_v049 SELECT * FROM probe_delivery_intents ON DUPLICATE KEY UPDATE delivery_id = VALUES(delivery_id);
+RENAME TABLE probe_delivery_intents TO probe_delivery_intents_previous, probe_delivery_intents_v049 TO probe_delivery_intents;
+DROP TABLE probe_delivery_intents_previous;

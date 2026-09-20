@@ -187,7 +187,7 @@ func TestLocalProbeConfigActivationService_Validation(t *testing.T) {
 		}
 	})
 
-	t.Run("context cancelled", func(t *testing.T) {
+	t.Run("context canceled", func(t *testing.T) {
 		cancCtx, cancel := context.WithCancel(ctx)
 		cancel()
 		if _, err := svc.Activate(cancCtx, validTarget, 1, validHash, 0); !errors.Is(err, context.Canceled) {

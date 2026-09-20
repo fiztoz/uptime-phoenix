@@ -149,7 +149,11 @@ func TestShardedScheduler_CapturesAppliedRevisionAndGeneration(t *testing.T) {
 
 	assignments := &mockAssignments{remoteOnly: map[int64]struct{}{}}
 	sched.SetAssignmentRepo(assignments)
-	sched.SetActivationRepo(&mockActivationRepo{revision: 9})
+	applied := *monitor
+	applied.Config = map[string]any{"url": "https://applied.example.com"}
+	sched.SetActivationRepo(&mockActivationRepo{revision: 9, definition: &domain.LocalProbeConfigDefinition{
+		Revision: 9, Assignments: []domain.ProbeConfigAssignment{{Generation: 1, Monitor: &applied}},
+	}})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
@@ -161,6 +165,11 @@ func TestShardedScheduler_CapturesAppliedRevisionAndGeneration(t *testing.T) {
 	latest, err := heartbeatRepo.GetLatest(context.Background(), 1)
 	if err != nil || latest == nil {
 		t.Fatalf("missing heartbeat for monitor 1: %v", err)
+	}
+	checker.mu.Lock()
+	defer checker.mu.Unlock()
+	if len(checker.configsCalled) == 0 || checker.configsCalled[0]["url"] != "https://applied.example.com" {
+		t.Fatalf("checker used mutable settings: %#v", checker.configsCalled)
 	}
 	if latest.ConfigRevision != 9 {
 		t.Fatalf("expected ConfigRevision 9, got %d", latest.ConfigRevision)

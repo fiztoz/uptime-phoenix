@@ -121,9 +121,26 @@ func (h *PushHandler) Receive(c echo.Context) error {
 
 	var configRevision int64
 	if h.activation != nil {
-		if active, err := h.activation.GetActive(ctx, domain.LocalProbeID); err == nil && active != nil {
-			configRevision = active.Revision
+		reader, ok := h.activation.(ports.LocalAppliedConfigReader)
+		if !ok {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "applied configuration unavailable"})
 		}
+		definition, err := reader.ReadAppliedLocal(ctx)
+		if err != nil {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "applied configuration unavailable"})
+		}
+		var selected *domain.Monitor
+		for _, assignment := range definition.Assignments {
+			if assignment.Monitor.ID == mon.ID {
+				selected = assignment.Monitor
+				break
+			}
+		}
+		if selected == nil || !selected.Active {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "monitor not found"})
+		}
+		mon = selected
+		configRevision = definition.Revision
 	}
 	var assignmentGeneration int64
 	if h.assignments != nil {

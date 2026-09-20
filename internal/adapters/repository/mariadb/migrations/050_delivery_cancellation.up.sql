@@ -1,6 +1,9 @@
+-- Stop all writers. Preserve source identities, pending work and existing leases.
+-- Resume safely after a prior atomic rename but before migration bookkeeping.
+DROP TABLE IF EXISTS probe_delivery_intents_previous;
 -- Source-owned availability work. Mirrored outcomes never populate this table.
 -- Channel versions refer to accepted configuration, not mutable credentials.
-CREATE TABLE IF NOT EXISTS probe_delivery_intents (
+CREATE TABLE IF NOT EXISTS probe_delivery_intents_v050 (
     delivery_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
     source_alert_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     source_transition_version BIGINT NOT NULL CHECK (source_transition_version >= 1),
@@ -32,9 +35,15 @@ CREATE TABLE IF NOT EXISTS probe_delivery_intents (
            (incident_status = 'resolved' AND resolved_at IS NOT NULL AND check_status = 1)),
     CHECK ((status = 'pending' AND attempt = 0 AND lease_token IS NULL AND leased_at IS NULL AND lease_until IS NULL) OR
            (status = 'leased' AND attempt >= 1 AND lease_token IS NOT NULL AND leased_at IS NOT NULL AND lease_until IS NOT NULL AND lease_until > leased_at) OR
-           (status IN ('retrying', 'sent', 'failed', 'superseded') AND attempt >= 1 AND lease_token IS NOT NULL AND leased_at IS NOT NULL AND lease_until IS NULL AND outcome_at IS NOT NULL)),
+           (status IN ('retrying', 'sent', 'failed') AND attempt >= 1 AND lease_token IS NOT NULL AND leased_at IS NOT NULL AND lease_until IS NULL AND outcome_at IS NOT NULL) OR
+           (status = 'superseded' AND lease_until IS NULL AND outcome_at IS NOT NULL AND
+               ((attempt = 0 AND lease_token IS NULL AND leased_at IS NULL) OR
+                (attempt >= 1 AND lease_token IS NOT NULL AND leased_at IS NOT NULL)))),
     INDEX idx_probe_delivery_due (probe_id, available_at, created_at, delivery_id),
     FOREIGN KEY (source_alert_id) REFERENCES probe_incidents(source_alert_id) ON DELETE CASCADE,
     FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE,
     FOREIGN KEY (probe_id) REFERENCES probes(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
+INSERT INTO probe_delivery_intents_v050 SELECT * FROM probe_delivery_intents ON DUPLICATE KEY UPDATE delivery_id = VALUES(delivery_id);
+RENAME TABLE probe_delivery_intents TO probe_delivery_intents_previous, probe_delivery_intents_v050 TO probe_delivery_intents;
+DROP TABLE probe_delivery_intents_previous;

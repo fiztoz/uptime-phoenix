@@ -2,6 +2,11 @@
 
 Status: M0 and M1 are in progress; later milestones are planned. See [implementation status](IMPLEMENTATION_STATUS.md) for the tested subset and remaining work. Checkboxes describe whole work items, not partial progress. Application baseline, decisions, and reading order are in [README.md](README.md). Implement [ARCHITECTURE.md](ARCHITECTURE.md) and [PROTOCOL.md](PROTOCOL.md) as one contract.
 
+The 2026-09-20 review withdrew the completion claim in `8d83cf6`. Default runtime
+cutover is disabled pending startup/refresh integration and full local notification
+parity. See [the corrected status](IMPLEMENTATION_STATUS.md#review-correction-local-runtime-and-m1-status--2026-09-20).
+
+
 ## 1. Outcome and scope
 
 Deliver a private hub that manages regional execution assignments and public probes that retain local monitoring and direct alerting through a hub/network outage. Preserve the default local installation and existing permissions, providers, monitor types, and database choices.

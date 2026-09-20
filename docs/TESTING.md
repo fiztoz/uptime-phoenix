@@ -895,3 +895,34 @@ suites, load, manual UI).
 - [ ] Every exported function has a doc comment
 - [ ] If this is a release: follow `docs/RELEASING.md` — release is a local, manual,
       owner-triggered procedure, never automated
+
+
+### Local delivery cutover regression gate (2026-09-20)
+
+`TestLocalDeliveryContract` composes the real heartbeat, alert, throttle and outbox
+repositories with the dispatcher/consumer and a recording provider. It exercises
+both SQLite and MariaDB when `TEST_MARIADB_DSN` is supplied. Keep the normal
+bootstrap dispatcher enabled until the full M1 cutover acceptance work in
+`docs/multi-region/IMPLEMENTATION_STATUS.md` is complete.
+
+```bash
+go test -race -count=1 ./internal/adapters/repository -run 'TestLocalDeliveryContract|TestProbeActivationLocksSourceThroughCommit|TestProbeInstallationRacesSnapshotWriter'
+```
+
+This gate asserts actual sends and their captured settings, maintenance continuity,
+reminders, acknowledgement before a first send, recovery after acknowledgement,
+durable summary retries, applied revision changes during an outage, immutable
+channel selection, existing-045 lease preservation, and the 050 downgrade guard.
+The activation test attempts writes on a second connection after the source read
+and before receipt commit; a pre-activation edit alone does not prove this property.
+
+Migration 050 requires stopping **all** API/worker writers on MariaDB while copying
+and atomically replacing the outbox table. It preserves delivery IDs and leases.
+Do not edit an already-applied migration to change an existing installation.
+A populated attempt-zero cancellation intentionally blocks downgrade to 049.
+
+Run `scripts/multi_region_smoke.py` with the disposable database setup above to
+exercise bootstrap, two sharded workers, actual webhook calls, step-zero escalation,
+acknowledgement, process restart and recovery. Its fixed five-second scheduler-rate
+assertion can be timing-sensitive; record an initial failure and any fresh-database
+retry separately, rather than describing a retry as an uninterrupted pass.

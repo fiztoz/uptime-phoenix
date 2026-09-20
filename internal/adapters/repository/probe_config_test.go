@@ -257,6 +257,15 @@ func testPreparedConfigConcurrency(t *testing.T, f probeRegistryFixture) {
 
 func testPreparedConfigRollback(t *testing.T, f probeRegistryFixture) {
 	t.Helper()
+	// The active pointer has a FK to prepared snapshots; test 047 at its boundary.
+	if err := runEngineMigration(t, f.db, f.engine, "049_probe_activation", "down"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := runEngineMigration(t, f.db, f.engine, "049_probe_activation", "up"); err != nil {
+			t.Error(err)
+		}
+	})
 	ctx := context.Background()
 	for range 2 {
 		if err := runEngineMigration(t, f.db, f.engine, "047_probe_config_snapshots", "down"); err != nil {

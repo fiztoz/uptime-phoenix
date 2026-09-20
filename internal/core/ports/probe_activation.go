@@ -35,3 +35,9 @@ type ProbeConfigActivationRepository interface {
 	// or expectedActiveRevision does not match.
 	ActivateLocal(ctx context.Context, params LocalActivationParams) (*domain.ProbeActiveConfig, error)
 }
+
+// LocalAppliedConfigReader captures only settings proven to match the selected
+// local snapshot. A source edit returns ErrConflict until a new activation.
+type LocalAppliedConfigReader interface {
+	ReadAppliedLocal(ctx context.Context) (*domain.LocalProbeConfigDefinition, error)
+}

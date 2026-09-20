@@ -11,10 +11,12 @@ type ProbeInstallationRepository interface {
 	// Get returns the singleton installation record, or ErrNotFound if not yet initialized.
 	Get(ctx context.Context) (*domain.ProbeInstallation, error)
 
-	// Initialize atomically inserts the singleton installation record.
+	// Initialize verifies retained ciphertext and inserts the singleton under the
+	// same lock used by snapshot writers. verify must only inspect/decrypt the
+	// supplied bytes; it must not perform database or provider I/O.
 	// If an identical record already exists, it returns the existing record idempotently.
 	// If a different record exists, it returns ErrConflict.
-	Initialize(ctx context.Context, inst domain.ProbeInstallation) (*domain.ProbeInstallation, error)
+	Initialize(ctx context.Context, inst domain.ProbeInstallation, verify func(domain.ProbeConfigMetadata, []byte) error) (*domain.ProbeInstallation, error)
 
 	// HasSnapshots returns true if any prepared probe configuration snapshots exist.
 	HasSnapshots(ctx context.Context) (bool, error)

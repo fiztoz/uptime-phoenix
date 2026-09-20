@@ -13,13 +13,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/uptrace/bun"
+
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/sqlite"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
-	"github.com/uptrace/bun"
 )
 
 func localCommit(monitorID, expected int64) domain.LocalHeartbeatCommit {
@@ -822,7 +823,7 @@ func testLocalHeartbeatAckAndResolveCancellation(t *testing.T, f probeRegistryFi
 		t.Fatalf("failed to query escalation: %v", err)
 	}
 	if esc.Status != domain.EscalationStateCanceled {
-		t.Fatalf("escalation was not cancelled on ack: %s", esc.Status)
+		t.Fatalf("escalation was not canceled on ack: %s", esc.Status)
 	}
 
 	var intentStatus string

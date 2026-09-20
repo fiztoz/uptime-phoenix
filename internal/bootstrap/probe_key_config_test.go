@@ -1,14 +1,13 @@
 package bootstrap
 
 import (
-	"os"
 	"testing"
 )
 
 func TestProbeKeyConfigValidation(t *testing.T) {
 	// Clean environment
-	os.Unsetenv("PROBE_HUB_ID")
-	os.Unsetenv("PROBE_SECRET_KEY_FILE")
+	t.Setenv("PROBE_HUB_ID", "")
+	t.Setenv("PROBE_SECRET_KEY_FILE", "")
 
 	// 1. Default / empty is valid
 	cfg, err := LoadConfig()
@@ -20,7 +19,7 @@ func TestProbeKeyConfigValidation(t *testing.T) {
 	}
 
 	// 2. Valid PROBE_HUB_ID
-	os.Setenv("PROBE_HUB_ID", "11111111-2222-4333-8444-555555555555")
+	t.Setenv("PROBE_HUB_ID", "11111111-2222-4333-8444-555555555555")
 	cfg, err = LoadConfig()
 	if err != nil {
 		t.Fatalf("unexpected error with valid PROBE_HUB_ID: %v", err)
@@ -30,11 +29,11 @@ func TestProbeKeyConfigValidation(t *testing.T) {
 	}
 
 	// 3. Invalid PROBE_HUB_ID
-	os.Setenv("PROBE_HUB_ID", "not-a-uuid")
+	t.Setenv("PROBE_HUB_ID", "not-a-uuid")
 	_, err = LoadConfig()
 	if err == nil {
 		t.Fatalf("expected error on invalid PROBE_HUB_ID")
 	}
 
-	os.Unsetenv("PROBE_HUB_ID")
+	t.Setenv("PROBE_HUB_ID", "")
 }

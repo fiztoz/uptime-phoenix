@@ -1,6 +1,7 @@
 package repository_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/uptrace/bun"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/auth"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/probe"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb"
@@ -45,18 +47,23 @@ func activationRepo(f probeRegistryFixture, db *bun.DB) ports.ProbeConfigActivat
 	return mariadb.NewProbeActivationRepo(db, probe.LocalConfigEncoder{})
 }
 
-func seedInstallation(t *testing.T, f probeRegistryFixture, hubID string) {
+func seedInstallation(t *testing.T, f probeRegistryFixture) {
+	const hubID = "11111111-2222-4333-8444-555555555555"
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	instRepo := installationRepo(f, f.db)
-	_, err := instRepo.Initialize(context.Background(), domain.ProbeInstallation{
+	protector, err := auth.NewProbeConfigProtector(bytes.Repeat([]byte{37}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = instRepo.Initialize(context.Background(), domain.ProbeInstallation{
 		HubID:          hubID,
-		KeyHash:        strings.Repeat("1", 64),
+		KeyHash:        protector.KeyHash(hubID),
 		ProtocolFloor:  1,
 		AuthorityEpoch: 1,
 		CreatedAt:      now,
 		UpdatedAt:      now,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +73,7 @@ func testProbeActivationFirstValidAndIdempotentRetry(t *testing.T, f probeRegist
 	t.Helper()
 	ctx := context.Background()
 	hubID := "11111111-2222-4333-8444-555555555555"
-	seedInstallation(t, f, hubID)
+	seedInstallation(t, f)
 
 	target := domain.ProbeConfigTarget{HubID: hubID, ProbeID: domain.LocalProbeID}
 	monID := f.monitor(t)
@@ -140,7 +147,7 @@ func testProbeActivationOlderRevisionAndHashConflict(t *testing.T, f probeRegist
 	t.Helper()
 	ctx := context.Background()
 	hubID := "11111111-2222-4333-8444-555555555555"
-	seedInstallation(t, f, hubID)
+	seedInstallation(t, f)
 
 	target := domain.ProbeConfigTarget{HubID: hubID, ProbeID: domain.LocalProbeID}
 	monID := f.monitor(t)
@@ -237,7 +244,7 @@ func testProbeActivationWrongTargetAndDisabledProbe(t *testing.T, f probeRegistr
 	t.Helper()
 	ctx := context.Background()
 	hubID := "11111111-2222-4333-8444-555555555555"
-	seedInstallation(t, f, hubID)
+	seedInstallation(t, f)
 
 	target := domain.ProbeConfigTarget{HubID: hubID, ProbeID: domain.LocalProbeID}
 	monID := f.monitor(t)
@@ -291,7 +298,7 @@ func testProbeActivationSourceFreshnessTwoConnections(t *testing.T, f probeRegis
 	t.Helper()
 	ctx := context.Background()
 	hubID := "11111111-2222-4333-8444-555555555555"
-	seedInstallation(t, f, hubID)
+	seedInstallation(t, f)
 
 	target := domain.ProbeConfigTarget{HubID: hubID, ProbeID: domain.LocalProbeID}
 	monID := f.monitor(t)
@@ -395,7 +402,7 @@ func testProbeActivationConcurrentRaces(t *testing.T, f probeRegistryFixture) {
 	t.Helper()
 	ctx := context.Background()
 	hubID := "11111111-2222-4333-8444-555555555555"
-	seedInstallation(t, f, hubID)
+	seedInstallation(t, f)
 
 	target := domain.ProbeConfigTarget{HubID: hubID, ProbeID: domain.LocalProbeID}
 	monID := f.monitor(t)
@@ -452,7 +459,7 @@ func testProbeActivationEmptyConfiguration(t *testing.T, f probeRegistryFixture)
 	t.Helper()
 	ctx := context.Background()
 	hubID := "11111111-2222-4333-8444-555555555555"
-	seedInstallation(t, f, hubID)
+	seedInstallation(t, f)
 
 	target := domain.ProbeConfigTarget{HubID: hubID, ProbeID: domain.LocalProbeID}
 
@@ -490,7 +497,7 @@ func testProbeActivationDowngradeGuards(t *testing.T, f probeRegistryFixture) {
 	t.Helper()
 	ctx := context.Background()
 	hubID := "11111111-2222-4333-8444-555555555555"
-	seedInstallation(t, f, hubID)
+	seedInstallation(t, f)
 
 	target := domain.ProbeConfigTarget{HubID: hubID, ProbeID: domain.LocalProbeID}
 	builder, _ := sourceConfigBuilder(t, f, f.db)

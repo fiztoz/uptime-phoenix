@@ -104,7 +104,12 @@ func (s *ProbeInstallationService) InitializeOrVerify(ctx context.Context, prote
 		UpdatedAt:      now,
 	}
 
-	created, ierr := s.repo.Initialize(ctx, inst)
+	created, ierr := s.repo.Initialize(ctx, inst, func(meta domain.ProbeConfigMetadata, payload []byte) error {
+		if _, err := protector.Open(ctx, meta, payload); err != nil {
+			return domain.ErrProbeKeyMismatch
+		}
+		return nil
+	})
 	if ierr != nil {
 		if errors.Is(ierr, ports.ErrConflict) {
 			recheck, rerr := s.repo.Get(ctx)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
 
@@ -103,7 +104,7 @@ func (r *ProbeActivationStore) ActivateLocal(ctx context.Context, params ports.L
 	}
 
 	var applied *domain.ProbeActiveConfig
-	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err := runConfigAuthorityTx(ctx, r.db, func(ctx context.Context, tx bun.Tx) error {
 		// 1. Lock & verify probe registration.
 		if tx.Dialect().Name() == dialect.SQLite {
 			if _, err := tx.NewUpdate().Table("probes").Set("id = id").Where("id = ?", params.Target.ProbeID).Exec(ctx); err != nil {
@@ -278,4 +279,80 @@ func (r *ProbeActivationStore) ActivateLocal(ctx context.Context, params ports.L
 		return nil, probeRegistryError(err)
 	}
 	return applied, nil
+}
+
+// configAuthorityTxOptions makes ordinary source SELECTs locking reads on MariaDB,
+// including predicate/gap locks for relationship insertion. Never inherit READ COMMITTED.
+func configAuthorityTxOptions(db *bun.DB) *sql.TxOptions {
+	if db.Dialect().Name() == dialect.MySQL {
+		return &sql.TxOptions{Isolation: sql.LevelSerializable}
+	}
+	return nil
+}
+
+// ReadAppliedLocal captures execution settings only when the entire source graph
+// still encodes to the selected immutable snapshot. Provider/checker I/O follows commit.
+func (r *ProbeActivationStore) ReadAppliedLocal(ctx context.Context) (*domain.LocalProbeConfigDefinition, error) {
+	var definition *domain.LocalProbeConfigDefinition
+	err := runConfigAuthorityTx(ctx, r.db, func(ctx context.Context, tx bun.Tx) error {
+		if tx.Dialect().Name() == dialect.SQLite {
+			if _, err := tx.NewUpdate().Table("probes").Set("id = id").Where("id = ?", domain.LocalProbeID).Exec(ctx); err != nil {
+				return err
+			}
+		}
+		var active probeActiveConfigModel
+		if err := tx.NewSelect().Model(&active).Where("probe_id = ?", domain.LocalProbeID).Scan(ctx); err != nil {
+			return probeRegistryError(err)
+		}
+		var snapshot probeConfigModel
+		if err := tx.NewSelect().Model(&snapshot).Where("probe_id = ? AND revision = ?", domain.LocalProbeID, active.Revision).Scan(ctx); err != nil {
+			return err
+		}
+		if active.HubID != snapshot.HubID || active.SHA256 != snapshot.SHA256 {
+			return ports.ErrConflict
+		}
+		source, err := readLocalConfigSource(ctx, tx)
+		if err != nil {
+			return err
+		}
+		resolved, err := services.ResolveLocalProbeConfig(source)
+		if err != nil {
+			return err
+		}
+		resolved.Target = domain.ProbeConfigTarget{HubID: active.HubID, ProbeID: domain.LocalProbeID}
+		resolved.Revision = active.Revision
+		resolved.CreatedAt = snapshot.CreatedAt.UTC()
+		resolved.EffectiveAt = snapshot.EffectiveAt.UTC()
+		document, err := r.encoder.EncodeLocal(resolved)
+		if err != nil {
+			return err
+		}
+		if fmt.Sprintf("%x", sha256.Sum256(document)) != active.SHA256 {
+			return ports.ErrConflict
+		}
+		definition = &resolved
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, ports.ErrConflict) || errors.Is(err, ports.ErrNotFound) {
+			return nil, err
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, domain.ErrInternal // Source decoder errors can contain credentials.
+	}
+	return definition, nil
+}
+
+// runConfigAuthorityTx retries database serialization failures from concurrent
+// writers. The callback contains database work only; it never calls a provider.
+func runConfigAuthorityTx(ctx context.Context, db *bun.DB, fn func(context.Context, bun.Tx) error) error {
+	for attempt := 0; ; attempt++ {
+		err := db.RunInTx(ctx, configAuthorityTxOptions(db), fn)
+		var conflict *mysql.MySQLError
+		if attempt >= 3 || ctx.Err() != nil || !errors.As(err, &conflict) || (conflict.Number != 1020 && conflict.Number != 1213) {
+			return err
+		}
+	}
 }
