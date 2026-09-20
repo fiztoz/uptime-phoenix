@@ -378,6 +378,17 @@ func testRotationResultDetails(t *testing.T, f rotationFixture) {
 			t.Fatal("wrong prepared version accepted", err)
 		}
 	}
+	for _, mutate := range []func(*domain.ProbeCommandOutcome){
+		func(out *domain.ProbeCommandOutcome) { out.CertificateVersion = 2 },
+		func(out *domain.ProbeCommandOutcome) { out.CertificateFingerprint = f.current.Fingerprint },
+		func(out *domain.ProbeCommandOutcome) { out.CertificateNotAfter = &r.OverlapExpiresAt },
+	} {
+		out := domain.ProbeCommandOutcome{CommandID: r.PrepareCommandID, Status: "applied", AppliedAt: &r.CreatedAt, CredentialVersion: 2}
+		mutate(&out)
+		if err := f.commands.CompleteCommand(t.Context(), f.session, out); !errors.Is(err, domain.ErrValidation) {
+			t.Fatal("certificate details accepted on credential operation", err)
+		}
+	}
 	if err := f.commands.CompleteCommand(t.Context(), f.session, domain.ProbeCommandOutcome{CommandID: r.PrepareCommandID, Status: "applied", AppliedAt: &r.OverlapExpiresAt, CredentialVersion: 2}); !errors.Is(err, domain.ErrValidation) {
 		t.Fatal("expired source application accepted", err)
 	}

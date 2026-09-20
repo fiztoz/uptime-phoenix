@@ -19,7 +19,10 @@
 > increment passed its final gate; see [source acceptance](M3_EDGE_CREDENTIAL_ACCEPTANCE.md).
 > Hub issuance, candidate reconnect selection and receipt recovery are now
 > integrated; check [hub acceptance](M3_HUB_CREDENTIAL_ACCEPTANCE.md) for the final
-> gate evidence. Continue certificate rotation and explicit reset under [the command contract](M3_COMMAND_WORK_CONTRACT.md), bounded flushing and the
+> gate evidence. Certificate source storage is now implemented; check the latest
+> status and [certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md) before
+> wiring startup recovery, live TLS selection, session admission and hub rotation.
+> Continue explicit reset under [the command contract](M3_COMMAND_WORK_CONTRACT.md), bounded flushing and the
 > complete fifteen-minute partition under [the M3 contract](M3_COMPLETION_WORK_CONTRACT.md).
 > Verify Git HEAD and uncommitted work before editing; never reset to an older baseline.
 

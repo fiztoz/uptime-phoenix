@@ -559,6 +559,7 @@ func readAndValidateTLSFile(root *os.Root, filename string) (tls.Certificate, st
 	if err != nil {
 		return tls.Certificate{}, "", fmt.Errorf("parse leaf certificate: %w", err)
 	}
+	cert.Leaf = leaf
 
 	now := time.Now().UTC()
 	if now.Before(leaf.NotBefore) {
@@ -575,6 +576,10 @@ func readAndValidateTLSFile(root *os.Root, filename string) (tls.Certificate, st
 }
 
 func generateRuntimeTLS() (tls.Certificate, []byte, []byte, string, error) {
+	return generateRuntimeTLSFor(time.Now().UTC(), 365)
+}
+
+func generateRuntimeTLSFor(now time.Time, validForDays int) (tls.Certificate, []byte, []byte, string, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return tls.Certificate{}, nil, nil, "", fmt.Errorf("generate ecdsa key: %w", err)
@@ -585,9 +590,9 @@ func generateRuntimeTLS() (tls.Certificate, []byte, []byte, string, error) {
 		return tls.Certificate{}, nil, nil, "", fmt.Errorf("generate certificate serial: %w", err)
 	}
 
-	now := time.Now().UTC()
-	notBefore := now.Add(-5 * time.Minute)    // allow small initial clock skew
-	notAfter := now.Add(365 * 24 * time.Hour) // one year validity
+	now = now.UTC().Truncate(time.Second)
+	notBefore := now.Add(-5 * time.Minute) // allow small initial clock skew
+	notAfter := now.Add(time.Duration(validForDays) * 24 * time.Hour)
 
 	template := &x509.Certificate{
 		SerialNumber: serialNumber,
@@ -624,6 +629,12 @@ func generateRuntimeTLS() (tls.Certificate, []byte, []byte, string, error) {
 	cert, err := tls.X509KeyPair(certPEM, privPEM)
 	if err != nil {
 		return tls.Certificate{}, nil, nil, "", fmt.Errorf("assemble keypair: %w", err)
+	}
+	// Populate explicitly: supported Go versions allow x509keypairleaf=0, which
+	// otherwise leaves Leaf nil even though the key pair parsed successfully.
+	cert.Leaf, err = x509.ParseCertificate(derBytes)
+	if err != nil {
+		return tls.Certificate{}, nil, nil, "", fmt.Errorf("parse generated certificate: %w", err)
 	}
 
 	sum := sha256.Sum256(derBytes)

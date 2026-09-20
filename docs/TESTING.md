@@ -1069,6 +1069,23 @@ keeps the V1 positive timing range with a lower suspect threshold only when a
 custom loss interval is 45 seconds or shorter. These prerequisites do not prove
 running watchdogs, provider delivery, commands or full partition recovery.
 
+## M3 certificate source storage
+
+Run `go test -race -count=1 ./internal/adapters/auth ./internal/adapters/probe ./internal/adapters/repository/edge -run 'TestEdgeCertificate|TestEdgeCredentialRotation|TestRuntimeIdentity'`.
+These tests use actual generated certificates, authenticated encryption and private
+SQLite databases. They assert effect/receipt atomicity, reopened-store recovery,
+metadata/ciphertext validation, no plaintext persisted private keys, version/pin
+matching, session fences, overlap expiry/clock rollback, mutual exclusion with
+credential rotation, capacity and active-material preservation. Populated migration
+checks preserve an existing ACK and reject destructive certificate downgrade.
+
+The full live `TEST_MARIADB_DSN` gate also exercises strict existing hub receipt
+validation: certificate-only details must not be accepted on credential commands.
+This is a storage foundation; passing it does not prove live TLS switching,
+bootstrap-expiry recovery or hub certificate rotation. See
+[certificate storage acceptance](multi-region/M3_CERTIFICATE_STORAGE_ACCEPTANCE.md)
+and [the remaining contract](multi-region/M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md).
+
 ## M3 hub credential rotation
 
 Run `go test -race -count=2 ./internal/adapters/repository -run 'TestProbeCredentialRotation|TestProbeCommandStorage|TestProbeRegistryContract'`

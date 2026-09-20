@@ -79,6 +79,10 @@ type ProbeCommandOutcome struct {
 	Message   string
 	// CredentialVersion is present only for successful credential preparation.
 	CredentialVersion int64
+	// Certificate details are present only for successful certificate preparation.
+	CertificateVersion     int64
+	CertificateFingerprint string
+	CertificateNotAfter    *time.Time
 }
 
 // ProbeCredentialCommand binds one closed prepare/activate operation. TokenHash

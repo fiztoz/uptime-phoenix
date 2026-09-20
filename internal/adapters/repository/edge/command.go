@@ -27,22 +27,30 @@ const maxAppliedCommands = 16384
 var _ ports.EdgeCommandRepository = (*Store)(nil)
 
 type edgeCommandRow struct {
-	bun.BaseModel     `bun:"table:edge_applied_commands"`
-	CommandID         string `bun:"command_id,pk"`
-	Kind              string
-	RequestHash       []byte
-	Status            string
-	AppliedAt         *int64
-	Code              string
-	Message           string
-	RetainUntil       int64
-	CredentialVersion *int64
+	bun.BaseModel          `bun:"table:edge_applied_commands"`
+	CommandID              string `bun:"command_id,pk"`
+	Kind                   string
+	RequestHash            []byte
+	Status                 string
+	AppliedAt              *int64
+	Code                   string
+	Message                string
+	RetainUntil            int64
+	CredentialVersion      *int64
+	CertificateVersion     *int64
+	CertificateFingerprint *string
+	CertificateNotAfter    *int64
 }
 
 func (r edgeCommandRow) outcome() domain.ProbeCommandOutcome {
 	out := domain.ProbeCommandOutcome{CommandID: r.CommandID, Status: r.Status, AppliedAt: timeFromMicro(r.AppliedAt), Code: r.Code, Message: r.Message}
 	if r.CredentialVersion != nil {
 		out.CredentialVersion = *r.CredentialVersion
+	}
+	if r.CertificateVersion != nil && r.CertificateFingerprint != nil && r.CertificateNotAfter != nil {
+		out.CertificateVersion = *r.CertificateVersion
+		out.CertificateFingerprint = *r.CertificateFingerprint
+		out.CertificateNotAfter = timeFromMicro(r.CertificateNotAfter)
 	}
 	return out
 }
@@ -71,6 +79,9 @@ func (s *Store) applyCommand(ctx context.Context, authority domain.EdgeCommandAu
 		}
 		now := s.commandNow().UTC().Truncate(time.Microsecond)
 		if err := expireCredentialOverlaps(ctx, tx, now); err != nil {
+			return err
+		}
+		if err := expireCertificateOverlaps(ctx, tx, now); err != nil {
 			return err
 		}
 		var prior edgeCommandRow

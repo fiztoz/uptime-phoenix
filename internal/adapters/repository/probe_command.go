@@ -327,7 +327,8 @@ func validCommandSession(s domain.ProbeReplaySession) bool {
 }
 
 func validCommandOutcome(r domain.ProbeCommandOutcome) bool {
-	if r.CredentialVersion < 0 {
+	// Certificate dispatch is not enabled until its separate hub journal is wired.
+	if r.CredentialVersion < 0 || r.CertificateVersion != 0 || r.CertificateFingerprint != "" || r.CertificateNotAfter != nil {
 		return false
 	}
 	if !domain.ValidHubID(r.CommandID) || len(r.Message) > 4096 || len(r.Code) > 128 {

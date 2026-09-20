@@ -30,10 +30,23 @@ var migrations embed.FS
 // Store holds one SQLite connection. The composition root must hold the runtime
 // identity's exclusive directory lock from before Open until after Close.
 type Store struct {
-	db         *bun.DB
-	telemetry  ports.EdgeTelemetryEncoder
-	retention  RetentionPolicy
-	commandNow func() time.Time
+	db           *bun.DB
+	telemetry    ports.EdgeTelemetryEncoder
+	retention    RetentionPolicy
+	commandNow   func() time.Time
+	certificates ports.EdgeCertificateMaterial
+}
+
+// WithCertificateMaterial enables protected local certificate command effects.
+// Configure it before publishing the store; it performs no network or file I/O.
+func WithCertificateMaterial(material ports.EdgeCertificateMaterial) Option {
+	return func(s *Store) error {
+		if material == nil {
+			return domain.ErrValidation
+		}
+		s.certificates = material
+		return nil
+	}
 }
 
 // Option supplies an optional execution dependency before the store is published.

@@ -89,6 +89,14 @@ func prepareCredential(ctx context.Context, tx bun.Tx, c domain.ProbeCredentialC
 		rejectCredential(result, "rotation_in_progress", "Another credential overlap is still active")
 		return nil
 	}
+	active, err = tx.NewSelect().Model((*edgeCertificateRotation)(nil)).Where("overlap_closed = ? AND overlap_expires_at > ?", false, now.UnixMicro()).Exists(ctx)
+	if err != nil {
+		return err
+	}
+	if active {
+		rejectCredential(result, "rotation_in_progress", "Another certificate overlap is still active")
+		return nil
+	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM edge_credential_rotations WHERE retain_until < ? AND version < ?", now.UnixMicro(), highest); err != nil {
 		return err
 	}

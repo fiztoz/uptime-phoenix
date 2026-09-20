@@ -7,6 +7,28 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 certificate storage foundation — 2026-09-21
+
+Edge migration 008 stores protected local certificate material, atomic active/
+high-water selection and immutable prepare/activate receipts. Source authority,
+fixed overlap, credential/certificate exclusion, bounded retention and guarded
+downgrade are implemented. Key generation and purpose-separated authenticated
+encryption are local; no private key is returned to the hub. The runtime still
+selects the bootstrap certificate; live certificate rotation is not yet wired.
+
+The final CGO-free build, full race suite and zero-issue lint passed: 22 packages,
+3,527 named passes, zero failures and two existing optional skips. Of 283
+MariaDB-named passes, 271 explicitly select the live engine; none skipped.
+All 17 source hashes remained unchanged. See
+[acceptance](M3_CERTIFICATE_STORAGE_ACCEPTANCE.md) and
+[evidence](M3_CERTIFICATE_STORAGE_EVIDENCE.json). Antigravity's review led to a
+reproduced compatibility-setting nil-leaf fix; it acknowledged the corrected
+toolchain and overlap lessons in [the retrospective](M3_CERTIFICATE_STORAGE_RETROSPECTIVE.md).
+Continue [the certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md)
+for runtime/hub integration. Antigravity owns no files. Live certificate
+rotation, explicit reset, remaining pressure/flush work and the complete
+fifteen-minute scenario are not complete. The M3 goal remains active.
+
 ## M3 hub credential rotation — 2026-09-21
 
 Hub migration 062 persists protected candidate credentials and immutable prepare/

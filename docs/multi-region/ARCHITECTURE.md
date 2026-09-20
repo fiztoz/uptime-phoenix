@@ -281,10 +281,19 @@ Edge migration 007 adds digest-only credential preparations, irreversible overla
 retirement and a durable version high-water. Source prepare/activate effects share
 the command receipt transaction. Atomic credential/session admission returns the
 fixed overlap deadline, and successful commands force reauthentication. The probe
-advertises `command.credential_rotation.v1` with this source path wired. This does
-not supply protected hub issuance, candidate selection or automatic rotation recovery.
+advertises `command.credential_rotation.v1` with this source path wired. Hub
+migration 062 now supplies protected issuance, candidate selection, fenced result
+promotion and lost-result recovery; see [hub acceptance](M3_HUB_CREDENTIAL_ACCEPTANCE.md).
 
-Hub credential rotation, certificate rotation, explicit stream reset and the broader
+Edge migration 008 adds the certificate storage foundation: locally generated
+P-256 private keys encrypted with a distinct purpose under the local protection
+key, atomic prepare/activate receipts, fixed overlap and retained version high-water.
+The active journal row survives cleanup. Bootstrap identity files remain immutable.
+This foundation does not yet change the served TLS certificate or advertise a
+certificate execution capability. See [the certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md)
+for the remaining startup, session-admission and hub work.
+
+Certificate runtime/hub integration, explicit stream reset and the broader
 fifteen-minute M3 scenario remain unfinished. Watchdog ACK remains unsupported
 by the positive-assignment-generation regional command target.
 
@@ -404,6 +413,7 @@ Use a dedicated edge schema and migration runner under `internal/adapters/reposi
 | `edge_identity` | Probe/hub ID, current stream UUID, next sequence, pinned installation authority, activation marker |
 | `edge_credentials` | Hashed current inbound token and enrollment authorization; TLS private key remains a protected file |
 | `edge_credential_rotations` / `edge_credential_state` | Bounded digest-only candidate/previous identities, fixed overlap expiry/retirement, activation time and retained version high-water |
+| `edge_certificate_rotations` / `edge_certificate_state` | Protected local key/certificate journal and atomic active/high-water selection; immutable bootstrap identity remains separate |
 | `edge_config` | Desired staging snapshot and active snapshot revision/hash, immutable canonical snapshot bytes protected at rest |
 | `edge_assignments` | Materialized active assignment generation and scheduler data |
 | `edge_regional_state` | Last evaluated state, counts, certificate/condition state, source incident IDs |
