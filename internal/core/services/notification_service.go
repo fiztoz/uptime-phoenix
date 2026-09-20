@@ -29,7 +29,19 @@ type NotificationService struct {
 	tagReader        NotificationTagReader             // optional: monitor template metadata
 	monitors         ports.MonitorRepository           // optional: name lookup for reverse assignment
 	groups           ports.MonitorGroupRepository      // optional: name lookup for reverse assignment
+	appliedReader    ports.LocalAppliedConfigReader    // optional: applied configuration snapshot lookup
+	bus              ports.EventBus                    // optional: event bus for mutation events
 	senders          map[string]ports.NotificationSender
+}
+
+// SetAppliedConfigReader wires applied configuration snapshot lookup.
+func (s *NotificationService) SetAppliedConfigReader(reader ports.LocalAppliedConfigReader) {
+	s.appliedReader = reader
+}
+
+// SetEventBus wires event bus for publishing notification mutation events.
+func (s *NotificationService) SetEventBus(bus ports.EventBus) {
+	s.bus = bus
 }
 
 // SetTemplateRepository wires reusable notification templates into validation
@@ -135,12 +147,24 @@ func (s *NotificationService) Update(ctx context.Context, n *domain.Notification
 	if err := s.validateTemplateAssignment(ctx, n); err != nil {
 		return err
 	}
-	return s.repo.Update(ctx, n)
+	if err := s.repo.Update(ctx, n); err != nil {
+		return err
+	}
+	if s.bus != nil {
+		_ = s.bus.Publish(ctx, ports.Event{Type: "notification.update", Payload: n.ID})
+	}
+	return nil
 }
 
 // Delete deletes a notification by its ID.
 func (s *NotificationService) Delete(ctx context.Context, id int64) error {
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	if s.bus != nil {
+		_ = s.bus.Publish(ctx, ports.Event{Type: "notification.delete", Payload: id})
+	}
+	return nil
 }
 
 // Notify dispatches a status-change alert to all assigned notification providers
@@ -309,18 +333,44 @@ func (s *NotificationService) DispatchToNotificationIDs(ctx context.Context, not
 	if len(notificationIDs) == 0 {
 		return nil
 	}
+	var applied *domain.LocalProbeConfigDefinition
+	if s.appliedReader != nil {
+		var err error
+		applied, err = s.appliedReader.ReadAppliedLocal(ctx)
+		if err != nil {
+			return fmt.Errorf("read applied notification configuration: %w", err)
+		}
+		if applied == nil {
+			return fmt.Errorf("missing applied notification configuration: %w", ports.ErrConflict)
+		}
+	}
 	var errs []error
 	delivered := 0
 	for _, id := range notificationIDs {
-		n, err := s.repo.GetByID(ctx, id)
-		if err != nil {
-			if errors.Is(err, ports.ErrNotFound) {
-				// Deleted between policy save and dispatch — skip, but say so.
+		var n *domain.Notification
+		if applied != nil {
+			for _, ch := range applied.Notifications {
+				if ch != nil && ch.ID == id {
+					n = ch
+					break
+				}
+			}
+			if n == nil {
 				errs = append(errs, fmt.Errorf("notification %d: %w", id, ports.ErrNotFound))
 				continue
 			}
-			errs = append(errs, fmt.Errorf("notification %d: %w", id, err))
-			continue
+		} else {
+			var err error
+			n, err = s.repo.GetByID(ctx, id)
+			if err != nil {
+				if errors.Is(err, ports.ErrNotFound) {
+					// Deleted between policy save and dispatch — skip, but say so.
+					errs = append(errs, fmt.Errorf("notification %d: %w", id, ports.ErrNotFound))
+					continue
+				}
+				errs = append(errs, fmt.Errorf("notification %d: %w", id, err))
+				continue
+			}
 		}
 		if !n.Active {
 			continue

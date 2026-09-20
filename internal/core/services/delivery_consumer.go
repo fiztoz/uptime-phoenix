@@ -328,7 +328,7 @@ func (c *DeliveryOutboxConsumer) ReconcileBeforeSend(
 			if a.Monitor != nil && a.Monitor.ID == delivery.MonitorID {
 				// Direct links
 				for _, link := range a.NotificationLinks {
-					if link.NotificationID == delivery.NotificationID {
+					if delivery.EscalationStep == 0 && link.NotificationID == delivery.NotificationID {
 						linked = true
 						break
 					}
@@ -337,10 +337,13 @@ func (c *DeliveryOutboxConsumer) ReconcileBeforeSend(
 					break
 				}
 				// Escalation policy channels
-				if a.EscalationPolicyID != nil {
+				if delivery.EscalationStep > 0 && a.EscalationPolicyID != nil && *a.EscalationPolicyID == delivery.EscalationPolicyID {
 					for _, policy := range applied.Policies {
 						if policy != nil && policy.ID == *a.EscalationPolicyID && policy.Enabled {
 							for _, step := range policy.Steps {
+								if step.StepOrder != delivery.EscalationStep {
+									continue
+								}
 								for _, notifID := range step.NotificationIDs {
 									if notifID == delivery.NotificationID {
 										linked = true
@@ -372,7 +375,7 @@ func (c *DeliveryOutboxConsumer) ReconcileBeforeSend(
 		}
 		linked := false
 		for _, link := range links {
-			if link.NotificationID == delivery.NotificationID {
+			if delivery.EscalationStep == 0 && link.NotificationID == delivery.NotificationID {
 				linked = true
 				break
 			}
@@ -598,6 +601,15 @@ func (c *DeliveryOutboxConsumer) buildAlertContext(
 		msg = fmt.Sprintf("%s is %s", monitorName, delivery.CheckStatus.String())
 	}
 
+	if delivery.EscalationStep > 0 && applied != nil {
+		for _, p := range applied.Policies {
+			if p != nil && p.ID == delivery.EscalationPolicyID {
+				msg = fmt.Sprintf("ESCALATION step %d (%s): %s is still DOWN and unacknowledged", delivery.EscalationStep, p.Name, monitorName)
+				break
+			}
+		}
+	}
+
 	if ackURL != "" && delivery.CheckStatus == domain.StatusDown && eventKind != domain.DeliveryEventIncidentSummary {
 		msg = msg + "\nAcknowledge: " + ackURL
 	}
@@ -622,7 +634,8 @@ func (c *DeliveryOutboxConsumer) buildAlertContext(
 	}
 
 	alert := domain.AlertContext{
-		AlertScope:         domain.AlertScopeMonitor,
+		AlertScope: domain.AlertScopeMonitor,
+		ProbeID:    delivery.ProbeID, AssignmentGeneration: delivery.AssignmentGeneration, DeliveryScope: domain.IncidentScopeRegional,
 		MonitorID:          delivery.MonitorID,
 		MonitorName:        monitorName,
 		MonitorType:        monitorType,
@@ -640,7 +653,7 @@ func (c *DeliveryOutboxConsumer) buildAlertContext(
 		AckURL:             ackURL,
 	}
 
-	if delivery.CheckStatus == domain.StatusUp {
+	if delivery.CheckStatus == domain.StatusUp || delivery.EscalationStep > 0 {
 		alert.PreviousStatus = domain.StatusDown
 	}
 

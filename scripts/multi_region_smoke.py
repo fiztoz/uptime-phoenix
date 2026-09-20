@@ -26,6 +26,7 @@ def main():
     parser.add_argument("--app-binary", required=True, type=Path)
     parser.add_argument("--port", type=int, default=38766)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--applied-outbox", action="store_true", help="Enable protected local configuration and the durable delivery runtime")
     args = parser.parse_args()
     dsn = os.environ.get("DB_DSN", "")
     if not re.fullmatch(r"[^@]+@tcp\(127\.0\.0\.1:\d+\)/[a-zA-Z0-9_]+_smoke\?.+", dsn):
@@ -68,6 +69,15 @@ def main():
                OTEL_EXPORTER_OTLP_ENDPOINT="", PUBLIC_URL="", PRODUCTION="false",
                SHARD_BATCH_SIZE="1", SHARD_POLL_EVERY="1", SHARD_LEASE_TTL="30",
                ESCALATION_POLL_SECONDS="1", HEARTBEAT_RETENTION_DAYS="0")
+    if args.applied_outbox:
+        key_file = output / "probe-secret.key"
+        with key_file.open("xb") as key:
+            key.write(secrets.token_bytes(32))
+        key_file.chmod(0o600)
+        env.update(PROBE_SECRET_KEY_FILE=str(key_file.resolve()),
+                   PUBLIC_URL=f"http://127.0.0.1:{args.port}")
+    else:
+        env.pop("PROBE_SECRET_KEY_FILE", None)
     processes = {}
     logs = []
     passed = []
@@ -139,7 +149,7 @@ def main():
         notifications = {}
         for key in hooks:
             notifications[key] = api("POST", "/api/notifications", {
-                "name": key, "type": "webhook", "active": True,
+                "name": key, "type": "webhook", "active": True, "include_ack_url": True,
                 "config": {"url": sink_url + "/hook/" + key}})["id"]
         monitors = {}
         for key in target_status:
@@ -176,6 +186,11 @@ def main():
         for mid in monitors.values():
             assert {"up", "pending", "down"}.issubset({row["status"] for row in beats(mid)})
             assert alert(mid)["status"] == "firing"
+        if args.applied_outbox:
+            with lock:
+                first_message = hooks["direct-first"][0]["message"]
+            assert f"http://127.0.0.1:{args.port}/ack/" in first_message, first_message
+            passed.append("real bootstrap supplies PublicURL to outbox consumer")
         first_alert = alert(monitors["first"])
         api("POST", f"/api/alerts/{first_alert['id']}/ack")
         wait_for("acknowledgement cancels remaining escalation", lambda: (
@@ -206,7 +221,7 @@ def main():
             assert [p["status"] for p in payloads] == [0, 1]
             assert all(p["monitor"]["id"] == mid for p in payloads)
         assert hook_count("later") == 0
-        report = {"passed": passed, "monitor_ids": monitors, "request_counts": counts,
+        report = {"applied_outbox": args.applied_outbox, "passed": passed, "monitor_ids": monitors, "request_counts": counts,
                   "webhook_counts": {key: hook_count(key) for key in hooks}}
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print("Smoke passed. Evidence:", output, flush=True)

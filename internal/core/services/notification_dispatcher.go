@@ -228,6 +228,17 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 		return
 	}
 
+	if d.outboxDelivery {
+		// Availability lifecycle, step zero and escalation registration already
+		// committed with the heartbeat. Retain only independent side effects.
+		if hb.Status == domain.StatusUp && prevStatus != nil && *prevStatus == domain.StatusDown && d.autoResolve != nil {
+			if err := d.autoResolve.AutoResolveOnRecovery(ctx, monitor.ID); err != nil {
+				slog.Error("notification dispatcher: auto-resolve failed", "monitor_id", monitor.ID, "error", err)
+			}
+		}
+		return
+	}
+
 	cur := hb.Status
 	prev := domain.StatusUp // first-ever heartbeat is treated as a transition from UP
 	if prevStatus != nil {

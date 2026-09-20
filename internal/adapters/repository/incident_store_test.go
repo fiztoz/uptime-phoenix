@@ -155,6 +155,17 @@ func TestRegionalIncidentsAreIndependentPerProbe(t *testing.T) {
 			if err := runEngineMigration(t, f.db, f.engine, "045_probe_delivery_outbox", "up"); err != nil {
 				t.Fatal(err)
 			}
+			// Recreating 045 drops additive delivery columns/check constraints too.
+			// MariaDB fixtures share a schema whose migration ledger still records
+			// these versions; rebuilding just the base table poisons later tests.
+			for _, name := range []string{"050_delivery_cancellation", "051_escalation_delivery_context"} {
+				if err := runEngineMigration(t, f.db, f.engine, name, "up"); err != nil {
+					t.Fatalf("restore delivery schema %s: %v", name, err)
+				}
+			}
+			if rows, err := outbox(f).ClaimDeliveries(ctx, domain.LocalProbeID, time.Now().UTC(), time.Minute, 1); err != nil || len(rows) != 0 {
+				t.Fatalf("restored schema cannot serve the current delivery consumer: %v", err)
+			}
 		})
 	}
 }

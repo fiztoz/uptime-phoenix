@@ -54,6 +54,8 @@ type EscalationService struct {
 	groups           ports.MonitorGroupRepository
 	notifier         escalationNotifier
 	probeAssignments ports.MonitorProbeAssignmentRepository
+	appliedReader    ports.LocalAppliedConfigReader
+	outbox           ports.EscalationOutboxRepository
 
 	// workerID names this process in lease_owner. Empty in single-worker
 	// installs, which is fine — the per-claim nonce still makes the token unique.
@@ -84,6 +86,17 @@ func NewEscalationService(
 		notifier:    notifier,
 		now:         time.Now,
 	}
+}
+
+// SetAppliedConfigReader wires applied configuration snapshot lookup.
+func (s *EscalationService) SetAppliedConfigReader(reader ports.LocalAppliedConfigReader) {
+	s.appliedReader = reader
+}
+
+// SetDeliveryOutbox selects durable delivery for each due step. The applied
+// reader must be wired before workers start; the durable path fails closed.
+func (s *EscalationService) SetDeliveryOutbox(repo ports.EscalationOutboxRepository) {
+	s.outbox = repo
 }
 
 // SetAssignmentRepository checks execution identity before starting or sending a ladder.
@@ -513,7 +526,7 @@ func (s *EscalationService) StatesForAlerts(ctx context.Context, alertIDs []int6
 // ---------------------------------------------------------------------------
 
 // RunDue claims and processes every escalation step that is due, returning the
-// number of steps actually sent.
+// number of steps durably queued (or sent in legacy mode).
 //
 // Called on a ticker by the worker. It is safe to run concurrently in several
 // processes: each row is claimed with a compare-and-set lease, so exactly one
@@ -573,13 +586,49 @@ func (s *EscalationService) runOne(ctx context.Context, e *domain.AlertEscalatio
 		return false, nil
 	}
 
-	policy, err := s.policies.GetByID(ctx, e.PolicyID)
-	if err != nil {
-		if errors.Is(err, ports.ErrNotFound) {
-			_, _ = s.state.Finish(ctx, e.ID, token, domain.EscalationStateCanceled)
-			return false, nil
+	var policy *domain.EscalationPolicy
+	var monitor *domain.Monitor
+	var appliedRevision int64
+	if s.outbox != nil && s.appliedReader == nil {
+		return false, domain.ErrValidation
+	}
+	if s.appliedReader != nil {
+		applied, readErr := s.appliedReader.ReadAppliedLocal(ctx)
+		if readErr != nil {
+			return false, fmt.Errorf("read applied escalation configuration: %w", readErr)
 		}
-		return false, fmt.Errorf("read policy: %w", err)
+		if applied == nil {
+			return false, fmt.Errorf("missing applied escalation configuration: %w", ports.ErrConflict)
+		}
+		appliedRevision = applied.Revision
+		for _, p := range applied.Policies {
+			if p != nil && p.ID == e.PolicyID {
+				policy = p
+				break
+			}
+		}
+		for _, a := range applied.Assignments {
+			if a.Monitor != nil && a.Monitor.ID == e.MonitorID && a.EscalationPolicyID != nil && *a.EscalationPolicyID == e.PolicyID {
+				monitor = a.Monitor
+				break
+			}
+		}
+		if policy == nil || monitor == nil {
+			_, finishErr := s.state.Finish(ctx, e.ID, token, domain.EscalationStateCanceled)
+			return false, finishErr
+		}
+	}
+
+	if policy == nil {
+		var err error
+		policy, err = s.policies.GetByID(ctx, e.PolicyID)
+		if err != nil {
+			if errors.Is(err, ports.ErrNotFound) {
+				_, _ = s.state.Finish(ctx, e.ID, token, domain.EscalationStateCanceled)
+				return false, nil
+			}
+			return false, fmt.Errorf("read policy: %w", err)
+		}
 	}
 	if !policy.Enabled {
 		_, _ = s.state.Finish(ctx, e.ID, token, domain.EscalationStateCanceled)
@@ -593,9 +642,24 @@ func (s *EscalationService) runOne(ctx context.Context, e *domain.AlertEscalatio
 		return false, nil
 	}
 
-	monitor, err := s.monitors.GetByID(ctx, e.MonitorID)
-	if err != nil {
-		return false, fmt.Errorf("read monitor: %w", err)
+	if s.outbox != nil {
+		plan := domain.EscalationStepCommit{
+			EscalationID: e.ID, ClaimToken: token, ExpectedStep: e.NextStep,
+			ConfigRevision: appliedRevision, At: now, NotificationIDs: step.NotificationIDs,
+		}
+		if next != nil {
+			plan.NextStep = next.StepOrder
+			plan.NextRunAt = now.Add(time.Duration(next.WaitMinutes) * time.Minute)
+		}
+		return s.outbox.CommitEscalationStep(ctx, plan)
+	}
+
+	if monitor == nil {
+		var err error
+		monitor, err = s.monitors.GetByID(ctx, e.MonitorID)
+		if err != nil {
+			return false, fmt.Errorf("read monitor: %w", err)
+		}
 	}
 
 	dispatched := true

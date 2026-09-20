@@ -365,6 +365,9 @@ func testOutboxSnapshotMigration(t *testing.T, f probeRegistryFixture) {
 		if err := runEngineMigration(t, f.db, f.engine, "050_delivery_cancellation", "up"); err != nil {
 			t.Fatal(err)
 		}
+		if err := runEngineMigration(t, f.db, f.engine, "051_escalation_delivery_context", "up"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	c := queuedLocalCommit(id)
 	hb, err := f.localHeartbeat.CommitLocalHeartbeat(ctx, c)
@@ -427,6 +430,9 @@ func testOutboxSnapshotMigration(t *testing.T, f probeRegistryFixture) {
 		t.Fatal(err)
 	}
 	if err := runEngineMigration(t, f.db, f.engine, "050_delivery_cancellation", "up"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runEngineMigration(t, f.db, f.engine, "051_escalation_delivery_context", "up"); err != nil {
 		t.Fatal(err)
 	}
 }

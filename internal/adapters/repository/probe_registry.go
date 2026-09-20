@@ -242,6 +242,13 @@ func InitializeLocalAssignment(ctx context.Context, tx bun.Tx, monitorID int64) 
 // in one transaction so create/clone/import/restore cannot leave an unassigned row.
 func CreateMonitorWithLocalAssignment(ctx context.Context, db *bun.DB, model *MonitorModel) error {
 	return db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		// Match configuration activation/read lock order: local probe before
+		// monitor rows. Inserting first deadlocks a concurrent SERIALIZABLE
+		// source reader (probe -> monitors) and makes ordinary creation fail.
+		if _, err := tx.NewUpdate().Table("probes").Set("revision = revision").Where("id = ?", domain.LocalProbeID).Exec(ctx); err != nil {
+			return err
+		}
+
 		if _, err := tx.NewInsert().Model(model).Exec(ctx); err != nil {
 			return err
 		}

@@ -28,6 +28,8 @@ type DeliveryIntent struct {
 	NotificationVersion     int64
 	EventKind               string
 	AvailableAt             time.Time
+	EscalationPolicyID      int64
+	EscalationStep          int
 }
 
 // QueuedDelivery is durable source work, distinct from a mirrored delivery
@@ -74,4 +76,17 @@ type DeliveryResult struct {
 	ErrorCode string
 	At        time.Time
 	RetryAt   time.Time
+}
+
+// EscalationStepCommit atomically advances a claimed ladder and creates durable
+// deliveries. ConfigRevision binds the plan to the verified applied graph.
+type EscalationStepCommit struct {
+	EscalationID    int64
+	ClaimToken      string
+	ExpectedStep    int
+	ConfigRevision  int64
+	At              time.Time
+	NextStep        int
+	NextRunAt       time.Time
+	NotificationIDs []int64
 }

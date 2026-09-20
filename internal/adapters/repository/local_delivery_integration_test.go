@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -53,6 +51,7 @@ type reviewPipeline struct {
 	consumer   *services.DeliveryOutboxConsumer
 	outbox     ports.DeliveryOutboxRepository
 	sender     *reviewSender
+	active     ports.ProbeConfigActivationRepository
 }
 
 type pipelineRepositories struct {
@@ -157,6 +156,11 @@ func newReviewPipeline(t *testing.T, engine string, activate bool) reviewPipelin
 	sender := &reviewSender{}
 	notifier := services.NewNotificationService(repos.NotificationRepo, repos.MonitorNotificationRepo)
 	notifier.RegisterSender(sender)
+	if activate {
+		if reader, ok := active.(ports.LocalAppliedConfigReader); ok {
+			notifier.SetAppliedConfigReader(reader)
+		}
+	}
 	dispatcher := services.NewNotificationDispatcher(notifier, reviewMaintenance{})
 	dispatcher.SetAssignmentRepository(f.assignments)
 	dispatcher.SetAlertLifecycle(services.NewAlertService(repos.AlertRepo))
@@ -179,7 +183,7 @@ func newReviewPipeline(t *testing.T, engine string, activate bool) reviewPipelin
 	consumer.SetAlertRepository(repos.AlertRepo)
 	consumer.SetMaintenanceChecker(reviewMaintenance{})
 	consumer.RegisterSender(sender)
-	return reviewPipeline{f, repos, monitor, heartbeats, consumer, outbox, sender}
+	return reviewPipeline{f, repos, monitor, heartbeats, consumer, outbox, sender, active}
 }
 
 func (p reviewPipeline) record(t *testing.T, status domain.Status) {
@@ -292,31 +296,21 @@ func testLocalDeliveryRejectForeignSnapshotKey(t *testing.T, engine string) {
 func testLocalDeliveryExisting045Upgrade(t *testing.T, engine string) {
 	p := newReviewPipeline(t, engine, true)
 	ctx := context.Background()
-	// Model an installation that already applied 045 from the upstream commit.
-	// Recreate the empty outbox with that exact old schema; leave migration tracking intact.
-	if _, err := p.f.db.ExecContext(ctx, "DROP TABLE probe_delivery_intents"); err != nil {
-		t.Fatal(err)
-	}
-	old, err := os.ReadFile(filepath.Join(engine, "migrations/045_probe_delivery_outbox.up.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, stmt := range strings.Split(string(old), ";") {
-		if strings.TrimSpace(stmt) == "" {
-			continue
-		}
-		if _, err := p.f.db.ExecContext(ctx, stmt); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := p.f.db.ExecContext(ctx, "DELETE FROM _migrations WHERE filename = ?", "050_delivery_cancellation.up.sql"); err != nil {
-		t.Fatal(err)
-	}
-	p.record(t, domain.StatusDown) // Pending work exists under the already-applied 045 schema.
+	p.record(t, domain.StatusDown)
 	claimed, err := p.outbox.ClaimDeliveries(ctx, domain.LocalProbeID, time.Now().UTC(), time.Minute, 1)
 	if err != nil || len(claimed) != 1 {
 		t.Fatalf("pre-upgrade lease: %v %v", claimed, err)
 	}
+	// Revert additive migrations while preserving an actual pending receipt.
+	for _, name := range []string{"051_escalation_delivery_context", "050_delivery_cancellation"} {
+		if err := runEngineMigration(t, p.f.db, engine, name, "down"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.f.db.ExecContext(ctx, "DELETE FROM _migrations WHERE filename = ?", name+".up.sql"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	if err := repository.RunMigrations(p.f.db.DB, engine); err != nil {
 		t.Fatal(err)
 	}
@@ -332,6 +326,9 @@ func testLocalDeliveryExisting045Upgrade(t *testing.T, engine string) {
 	// Cancellation before a first claim is new in 050 and cannot be downgraded.
 	p.record(t, domain.StatusDown)
 	p.record(t, domain.StatusUp)
+	if err := runEngineMigration(t, p.f.db, engine, "051_escalation_delivery_context", "down"); err != nil {
+		t.Fatal(err)
+	}
 	if err := runEngineMigration(t, p.f.db, engine, "050_delivery_cancellation", "down"); err == nil {
 		t.Fatal("downgrade lost attempt-zero cancellation")
 	}
@@ -342,6 +339,9 @@ func testLocalDeliveryExisting045Upgrade(t *testing.T, engine string) {
 		t.Fatal(err)
 	}
 	if err := runEngineMigration(t, p.f.db, engine, "050_delivery_cancellation", "up"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runEngineMigration(t, p.f.db, engine, "051_escalation_delivery_context", "up"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -575,6 +575,8 @@ func testLocalDeliveryInheritedAndDisabledChannels(t *testing.T, engine string) 
 		notifier,
 	)
 	escalationSvc.SetAssignmentRepository(p.f.assignments)
+	escalationSvc.SetAppliedConfigReader(p.active.(ports.LocalAppliedConfigReader))
+	escalationSvc.SetDeliveryOutbox(repository.NewEscalationOutboxStore(p.f.db, probe.LocalConfigEncoder{}))
 
 	dispatcher := services.NewNotificationDispatcher(notifier, reviewMaintenance{})
 	dispatcher.SetAssignmentRepository(p.f.assignments)
@@ -621,6 +623,7 @@ func testLocalDeliveryInheritedAndDisabledChannels(t *testing.T, engine string) 
 	if sent != 1 {
 		t.Fatalf("expected 1 escalation step sent for inherited channel, got %d", sent)
 	}
+	p.send(t)
 	if len(p.sender.alerts) != 2 {
 		t.Fatalf("expected total 2 alerts (step 0 direct + step 1 inherited), got %d", len(p.sender.alerts))
 	}
@@ -854,6 +857,9 @@ func testLocalDeliveryCompleteEscalationBehavior(t *testing.T, engine string) {
 	// Setup escalation service wired to dispatcher.
 	notifier := services.NewNotificationService(p.repos.NotificationRepo, p.repos.MonitorNotificationRepo)
 	notifier.RegisterSender(p.sender)
+	if reader, ok := p.active.(ports.LocalAppliedConfigReader); ok {
+		notifier.SetAppliedConfigReader(reader)
+	}
 	escalationSvc := services.NewEscalationService(
 		p.repos.EscalationPolicyRepo,
 		p.repos.EscalationAssignmentRepo,
@@ -864,6 +870,10 @@ func testLocalDeliveryCompleteEscalationBehavior(t *testing.T, engine string) {
 		notifier,
 	)
 	escalationSvc.SetAssignmentRepository(p.f.assignments)
+	escalationSvc.SetDeliveryOutbox(repository.NewEscalationOutboxStore(p.f.db, probe.LocalConfigEncoder{}))
+	if reader, ok := p.active.(ports.LocalAppliedConfigReader); ok {
+		escalationSvc.SetAppliedConfigReader(reader)
+	}
 
 	dispatcher := services.NewNotificationDispatcher(notifier, reviewMaintenance{})
 	dispatcher.SetAssignmentRepository(p.f.assignments)
@@ -899,6 +909,10 @@ func testLocalDeliveryCompleteEscalationBehavior(t *testing.T, engine string) {
 	if sent != 1 {
 		t.Fatalf("expected 1 escalation step sent, got %d", sent)
 	}
+	if len(p.sender.alerts) != 1 {
+		t.Fatal("escalation runner performed provider I/O before the outbox consumer")
+	}
+	p.send(t)
 	if len(p.sender.alerts) != 2 {
 		t.Fatalf("expected total 2 alerts (step 0 + step 1), got %d", len(p.sender.alerts))
 	}
@@ -980,6 +994,214 @@ func testLocalDeliverySourceEditsThroughSupportedAppPath(t *testing.T, engine st
 	}
 }
 
+func testLocalDeliveryBootstrapWiringMustCreateOutboxWork(t *testing.T, engine string) {
+	p := newReviewPipeline(t, engine, true)
+	// Match run.go key-configured wiring: activation and monitorNotificationRepo are both wired.
+	p.heartbeats.SetMonitorNotificationRepo(p.repos.MonitorNotificationRepo)
+	p.record(t, domain.StatusDown)
+	p.send(t)
+	count, err := p.f.db.NewSelect().TableExpr("probe_delivery_intents").Count(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.sender.alerts) != 1 {
+		t.Fatalf("key-configured bootstrap: provider sends=%d queued intents=%d; want one initial DOWN", len(p.sender.alerts), count)
+	}
+}
+
+func testLocalDeliveryChannelEditMustRefreshWithoutManualTrigger(t *testing.T, engine string) {
+	p := newReviewPipeline(t, engine, true)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bus := eventbus.NewMemoryBus()
+	defer bus.Close()
+	refresh := refreshService(t, p.f, p.f.db)
+	refresh.SetReconcileInterval(20 * time.Millisecond)
+	refresh.StartEventSubscription(ctx, bus)
+	links, err := p.repos.MonitorNotificationRepo.ListByMonitor(ctx, p.monitor.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := p.repos.NotificationRepo.GetByID(ctx, links[0].NotificationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.Config = map[string]any{"url": "https://edited-channel.example.com/hook"}
+	svc := services.NewNotificationService(p.repos.NotificationRepo, p.repos.MonitorNotificationRepo)
+	if err := svc.Update(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	reader := activationRepo(p.f, p.f.db).(ports.LocalAppliedConfigReader)
+	deadline := time.Now().Add(2 * time.Second)
+	refreshed := false
+	for time.Now().Before(deadline) {
+		applied, err := reader.ReadAppliedLocal(ctx)
+		if err == nil && applied.Revision > 1 {
+			refreshed = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !refreshed {
+		t.Fatal("notification service update left applied graph stale; scheduler cannot capture checks")
+	}
+}
+
+func testLocalDeliveryEscalationMustNotUseUnappliedChannel(t *testing.T, engine string) {
+	ctx := context.Background()
+	p := newReviewPipeline(t, engine, true)
+
+	// Create Channel 2 for escalation.
+	nid2 := p.f.notification(t, p.f.user(t))
+
+	// Create escalation policy with Step 1 (wait 0 min, pages Channel 2).
+	policy := &domain.EscalationPolicy{
+		UserID:  p.f.user(t),
+		Name:    "Test Escalation",
+		Enabled: true,
+		Steps: []domain.EscalationStep{
+			{
+				StepOrder:       1,
+				WaitMinutes:     0,
+				NotificationIDs: []int64{nid2},
+			},
+		},
+	}
+	if err := p.repos.EscalationPolicyRepo.Create(ctx, policy); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.repos.EscalationAssignmentRepo.AssignMonitor(ctx, p.monitor.ID, policy.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Refresh config so escalation policy is in applied configuration.
+	refreshSvc := refreshService(t, p.f, p.f.db)
+	activeCfg, err := refreshSvc.Refresh(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Setup escalation service wired to dispatcher and applied reader.
+	notifier := services.NewNotificationService(p.repos.NotificationRepo, p.repos.MonitorNotificationRepo)
+	notifier.RegisterSender(p.sender)
+	if reader, ok := p.active.(ports.LocalAppliedConfigReader); ok {
+		notifier.SetAppliedConfigReader(reader)
+	}
+	escalationSvc := services.NewEscalationService(
+		p.repos.EscalationPolicyRepo,
+		p.repos.EscalationAssignmentRepo,
+		p.repos.AlertEscalationRepo,
+		p.repos.AlertRepo,
+		p.repos.MonitorRepo,
+		p.repos.MonitorGroupRepo,
+		notifier,
+	)
+	escalationSvc.SetAssignmentRepository(p.f.assignments)
+	escalationSvc.SetDeliveryOutbox(repository.NewEscalationOutboxStore(p.f.db, probe.LocalConfigEncoder{}))
+	if reader, ok := p.active.(ports.LocalAppliedConfigReader); ok {
+		escalationSvc.SetAppliedConfigReader(reader)
+	}
+
+	dispatcher := services.NewNotificationDispatcher(notifier, reviewMaintenance{})
+	dispatcher.SetAssignmentRepository(p.f.assignments)
+	alertSvc := services.NewAlertService(p.repos.AlertRepo)
+	alertSvc.SetEscalationCanceller(escalationSvc)
+	dispatcher.SetAlertLifecycle(alertSvc)
+	dispatcher.SetThrottleRepository(repository.NewNotificationThrottleStore(p.f.db))
+	dispatcher.SetOutboxDelivery(true)
+	dispatcher.SetEscalationStarter(escalationSvc)
+	p.heartbeats.SetDispatcher(dispatcher)
+
+	// Record DOWN.
+	if err := p.heartbeats.Record(ctx, p.monitor, ports.CheckResult{
+		Status:               domain.StatusDown,
+		Message:              "escalation test down",
+		AssignmentGeneration: 1,
+		ConfigRevision:       activeCfg.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Send step 0 via consumer.
+	p.send(t)
+	if len(p.sender.alerts) != 1 {
+		t.Fatalf("expected step 0 alert sent, got %d", len(p.sender.alerts))
+	}
+
+	editedChannel, err := p.repos.NotificationRepo.GetByID(ctx, nid2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	editedChannel.Config = map[string]any{"url": "https://unapplied-escalation.example.com/hook"}
+	if err := p.repos.NotificationRepo.Update(ctx, editedChannel); err != nil {
+		t.Fatal(err)
+	}
+	// Run due escalation step 1.
+	sent, err := escalationSvc.RunDue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent != 0 || len(p.sender.alerts) != 1 {
+		t.Fatalf("unapplied channel must fail closed: steps=%d sends=%d", sent, len(p.sender.alerts))
+	}
+	assertTableCount(t, p.f, "probe_delivery_intents", 1)
+}
+
+func testLocalDeliveryAckURLMustIncludePublicURL(t *testing.T, engine string) {
+	ctx := context.Background()
+	p := newReviewPipeline(t, engine, true)
+
+	// Set IncludeAckURL on the attached channel and refresh applied config
+	links, err := p.repos.MonitorNotificationRepo.ListByMonitor(ctx, p.monitor.ID)
+	if err != nil || len(links) == 0 {
+		t.Fatalf("expected notification channel attached: %v", err)
+	}
+	notif, err := p.repos.NotificationRepo.GetByID(ctx, links[0].NotificationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notif.IncludeAckURL = true
+	if err := p.repos.NotificationRepo.Update(ctx, notif); err != nil {
+		t.Fatal(err)
+	}
+	refreshSvc := refreshService(t, p.f, p.f.db)
+	activeCfg, err := refreshSvc.Refresh(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	consumerConfig := services.DefaultDeliveryConsumerConfig()
+	consumerConfig.PublicURL = "https://uptime.example.com"
+	consumer := services.NewDeliveryOutboxConsumer(p.outbox, p.repos.NotificationRepo, consumerConfig)
+	consumer.SetAssignmentRepository(p.f.assignments)
+	consumer.SetActivationRepository(p.active)
+	consumer.SetIncidentRepository(p.f.incidents)
+	consumer.SetMonitorNotificationRepository(p.repos.MonitorNotificationRepo)
+	consumer.SetMonitorRepository(p.repos.MonitorRepo)
+	consumer.SetAlertRepository(p.repos.AlertRepo)
+	consumer.SetMaintenanceChecker(reviewMaintenance{})
+	consumer.RegisterSender(p.sender)
+
+	if err := p.heartbeats.Record(ctx, p.monitor, ports.CheckResult{
+		Status:               domain.StatusDown,
+		Message:              "review sample",
+		AssignmentGeneration: 1,
+		ConfigRevision:       activeCfg.Revision,
+	}); err != nil {
+		t.Fatalf("record status: %v", err)
+	}
+	if _, err := consumer.ProcessBatch(ctx, domain.LocalProbeID, time.Now().UTC(), 50); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.sender.alerts) != 1 {
+		t.Fatalf("expected 1 alert sent, got %d", len(p.sender.alerts))
+	}
+	ackURL := p.sender.alerts[0].AckURL
+	if !strings.HasPrefix(ackURL, "https://uptime.example.com/ack/") {
+		t.Fatalf("expected ackURL with public URL prefix, got %q", ackURL)
+	}
+}
+
 func TestLocalDeliveryContract(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
@@ -999,6 +1221,10 @@ func TestLocalDeliveryContract(t *testing.T) {
 			t.Run("RestartReclaim", func(t *testing.T) { testLocalDeliveryRestartReclaim(t, engine) })
 			t.Run("CompleteEscalationBehavior", func(t *testing.T) { testLocalDeliveryCompleteEscalationBehavior(t, engine) })
 			t.Run("SourceEditsThroughSupportedAppPath", func(t *testing.T) { testLocalDeliverySourceEditsThroughSupportedAppPath(t, engine) })
+			t.Run("BootstrapWiringMustCreateOutboxWork", func(t *testing.T) { testLocalDeliveryBootstrapWiringMustCreateOutboxWork(t, engine) })
+			t.Run("ChannelEditMustRefreshWithoutManualTrigger", func(t *testing.T) { testLocalDeliveryChannelEditMustRefreshWithoutManualTrigger(t, engine) })
+			t.Run("EscalationMustNotUseUnappliedChannel", func(t *testing.T) { testLocalDeliveryEscalationMustNotUseUnappliedChannel(t, engine) })
+			t.Run("AckURLMustIncludePublicURL", func(t *testing.T) { testLocalDeliveryAckURLMustIncludePublicURL(t, engine) })
 		})
 	}
 }

@@ -747,8 +747,8 @@ func TestDeliveryConsumer_T26_ProviderAcceptsThenProbeCrashes(t *testing.T) {
 	}
 }
 
-// T39: Disabled inherited escalation policy does not fall through and page another group; step zero remains dispatcher-owned.
-func TestDeliveryConsumer_T39_StepZeroRemainsDispatcherOwned(t *testing.T) {
+// The atomic recorder owns availability lifecycle and escalation registration.
+func TestDeliveryConsumer_DispatcherDoesNotDuplicateAtomicRecorder(t *testing.T) {
 	ctx := context.Background()
 	notifier := &fakeNotifier{}
 	dispatcher := NewNotificationDispatcher(notifier, &consumerMaintenanceChecker{})
@@ -780,9 +780,8 @@ func TestDeliveryConsumer_T39_StepZeroRemainsDispatcherOwned(t *testing.T) {
 	if notifier.count() != 0 {
 		t.Errorf("notifier called %d times via legacy dispatcher; want 0", notifier.count())
 	}
-	// But escalation ladder was still evaluated!
-	if !escalationStarted {
-		t.Errorf("escalation ladder was not started")
+	if escalationStarted {
+		t.Error("dispatcher started a second escalation owner after the atomic recorder")
 	}
 }
 

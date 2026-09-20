@@ -295,43 +295,9 @@ func configAuthorityTxOptions(db *bun.DB) *sql.TxOptions {
 func (r *ProbeActivationStore) ReadAppliedLocal(ctx context.Context) (*domain.LocalProbeConfigDefinition, error) {
 	var definition *domain.LocalProbeConfigDefinition
 	err := runConfigAuthorityTx(ctx, r.db, func(ctx context.Context, tx bun.Tx) error {
-		if tx.Dialect().Name() == dialect.SQLite {
-			if _, err := tx.NewUpdate().Table("probes").Set("id = id").Where("id = ?", domain.LocalProbeID).Exec(ctx); err != nil {
-				return err
-			}
-		}
-		var active probeActiveConfigModel
-		if err := tx.NewSelect().Model(&active).Where("probe_id = ?", domain.LocalProbeID).Scan(ctx); err != nil {
-			return probeRegistryError(err)
-		}
-		var snapshot probeConfigModel
-		if err := tx.NewSelect().Model(&snapshot).Where("probe_id = ? AND revision = ?", domain.LocalProbeID, active.Revision).Scan(ctx); err != nil {
-			return err
-		}
-		if active.HubID != snapshot.HubID || active.SHA256 != snapshot.SHA256 {
-			return ports.ErrConflict
-		}
-		source, err := readLocalConfigSource(ctx, tx)
-		if err != nil {
-			return err
-		}
-		resolved, err := services.ResolveLocalProbeConfig(source)
-		if err != nil {
-			return err
-		}
-		resolved.Target = domain.ProbeConfigTarget{HubID: active.HubID, ProbeID: domain.LocalProbeID}
-		resolved.Revision = active.Revision
-		resolved.CreatedAt = snapshot.CreatedAt.UTC()
-		resolved.EffectiveAt = snapshot.EffectiveAt.UTC()
-		document, err := r.encoder.EncodeLocal(resolved)
-		if err != nil {
-			return err
-		}
-		if fmt.Sprintf("%x", sha256.Sum256(document)) != active.SHA256 {
-			return ports.ErrConflict
-		}
-		definition = &resolved
-		return nil
+		var err error
+		definition, err = readAppliedLocalTx(ctx, tx, r.encoder)
+		return err
 	})
 	if err != nil {
 		if errors.Is(err, ports.ErrConflict) || errors.Is(err, ports.ErrNotFound) {
@@ -343,6 +309,45 @@ func (r *ProbeActivationStore) ReadAppliedLocal(ctx context.Context) (*domain.Lo
 		return nil, domain.ErrInternal // Source decoder errors can contain credentials.
 	}
 	return definition, nil
+}
+
+func readAppliedLocalTx(ctx context.Context, tx bun.Tx, encoder ports.LocalProbeConfigEncoder) (*domain.LocalProbeConfigDefinition, error) {
+	if tx.Dialect().Name() == dialect.SQLite {
+		if _, err := tx.NewUpdate().Table("probes").Set("id = id").Where("id = ?", domain.LocalProbeID).Exec(ctx); err != nil {
+			return nil, err
+		}
+	}
+	var active probeActiveConfigModel
+	if err := tx.NewSelect().Model(&active).Where("probe_id = ?", domain.LocalProbeID).Scan(ctx); err != nil {
+		return nil, probeRegistryError(err)
+	}
+	var snapshot probeConfigModel
+	if err := tx.NewSelect().Model(&snapshot).Where("probe_id = ? AND revision = ?", domain.LocalProbeID, active.Revision).Scan(ctx); err != nil {
+		return nil, err
+	}
+	if active.HubID != snapshot.HubID || active.SHA256 != snapshot.SHA256 {
+		return nil, ports.ErrConflict
+	}
+	source, err := readLocalConfigSource(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := services.ResolveLocalProbeConfig(source)
+	if err != nil {
+		return nil, err
+	}
+	resolved.Target = domain.ProbeConfigTarget{HubID: active.HubID, ProbeID: domain.LocalProbeID}
+	resolved.Revision = active.Revision
+	resolved.CreatedAt = snapshot.CreatedAt.UTC()
+	resolved.EffectiveAt = snapshot.EffectiveAt.UTC()
+	document, err := encoder.EncodeLocal(resolved)
+	if err != nil {
+		return nil, err
+	}
+	if fmt.Sprintf("%x", sha256.Sum256(document)) != active.SHA256 {
+		return nil, ports.ErrConflict
+	}
+	return &resolved, nil
 }
 
 // runConfigAuthorityTx retries database serialization failures from concurrent

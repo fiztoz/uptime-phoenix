@@ -22,3 +22,9 @@ type DeliveryOutboxRepository interface {
 	// GetDeliveryIntent reads only the requested probe's source work.
 	GetDeliveryIntent(ctx context.Context, probeID, deliveryID string) (*domain.QueuedDelivery, error)
 }
+
+// EscalationOutboxRepository commits a due step without provider I/O. A stale
+// claim cannot enqueue work or advance progress. Retrying after commit is a no-op.
+type EscalationOutboxRepository interface {
+	CommitEscalationStep(ctx context.Context, step domain.EscalationStepCommit) (bool, error)
+}

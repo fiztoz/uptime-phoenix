@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -13,14 +14,16 @@ import (
 // LocalProbeConfigRefreshService coordinates the preparation and atomic activation
 // of local configuration snapshots when source data changes.
 type LocalProbeConfigRefreshService struct {
-	source           ports.LocalProbeConfigSourceRepository
-	encoder          ports.LocalProbeConfigEncoder
-	prepared         *ProbeConfigService
-	activationSvc    *LocalProbeConfigActivationService
-	activationRepo   ports.ProbeConfigActivationRepository
-	installationRepo ports.ProbeInstallationRepository
-	mu               sync.Mutex
-	now              func() time.Time
+	source            ports.LocalProbeConfigSourceRepository
+	encoder           ports.LocalProbeConfigEncoder
+	prepared          *ProbeConfigService
+	activationSvc     *LocalProbeConfigActivationService
+	activationRepo    ports.ProbeConfigActivationRepository
+	installationRepo  ports.ProbeInstallationRepository
+	mu                sync.Mutex
+	now               func() time.Time
+	reconcileInterval time.Duration
+	startOnce         sync.Once
 }
 
 // NewLocalProbeConfigRefreshService constructs a new refresh service.
@@ -33,14 +36,22 @@ func NewLocalProbeConfigRefreshService(
 	installationRepo ports.ProbeInstallationRepository,
 ) *LocalProbeConfigRefreshService {
 	return &LocalProbeConfigRefreshService{
-		source:           source,
-		encoder:          encoder,
-		prepared:         prepared,
-		activationSvc:    activationSvc,
-		activationRepo:   activationRepo,
-		installationRepo: installationRepo,
-		now:              time.Now,
+		source:            source,
+		encoder:           encoder,
+		prepared:          prepared,
+		activationSvc:     activationSvc,
+		activationRepo:    activationRepo,
+		installationRepo:  installationRepo,
+		now:               time.Now,
+		reconcileInterval: 5 * time.Second,
 	}
+}
+
+// SetReconcileInterval configures the periodic reconciliation check interval.
+func (s *LocalProbeConfigRefreshService) SetReconcileInterval(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reconcileInterval = d
 }
 
 var _ ports.LocalProbeConfigRefresher = (*LocalProbeConfigRefreshService)(nil)
@@ -125,27 +136,56 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 	return nil, ports.ErrConflict
 }
 
-// StartEventSubscription listens for events that modify the local configuration source
-// and triggers a background refresh.
+// StartEventSubscription coalesces configuration events into one refresh worker.
+// Periodic reconciliation repairs missed events and writes from other processes.
+// Call once per runtime; cancellation stops both subscribers and the worker.
 func (s *LocalProbeConfigRefreshService) StartEventSubscription(ctx context.Context, bus ports.EventBus) {
-	if s == nil || bus == nil {
+	if s == nil {
 		return
 	}
-	events := []string{"monitor.update", "monitor.delete", "status.change", "config.refresh"}
-	for _, eventType := range events {
-		ch := bus.Subscribe(eventType)
-		go func(c <-chan ports.Event) {
+	s.startOnce.Do(func() {
+		dirty := make(chan struct{}, 1)
+		if bus != nil {
+			for _, eventType := range []string{"monitor.update", "monitor.delete", "config.refresh", "notification.update", "notification.delete"} {
+				ch := bus.Subscribe(eventType)
+				go func() {
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case _, ok := <-ch:
+							if !ok {
+								return
+							}
+							select {
+							case dirty <- struct{}{}:
+							default:
+							}
+						}
+					}
+				}()
+			}
+		}
+		s.mu.Lock()
+		interval := s.reconcileInterval
+		s.mu.Unlock()
+		if interval <= 0 {
+			interval = 5 * time.Second
+		}
+		go func() {
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
 			for {
 				select {
 				case <-ctx.Done():
 					return
-				case _, ok := <-c:
-					if !ok {
-						return
-					}
-					_, _ = s.Refresh(ctx)
+				case <-ticker.C:
+				case <-dirty:
+				}
+				if _, err := s.Refresh(ctx); err != nil && ctx.Err() == nil {
+					slog.Error("probe configuration refresh failed; will retry", "error", err)
 				}
 			}
-		}(ch)
-	}
+		}()
+	})
 }

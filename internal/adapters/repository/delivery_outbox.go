@@ -27,6 +27,8 @@ type deliveryIntentModel struct {
 	NotificationID          int64      `bun:"notification_id"`
 	NotificationVersion     int64      `bun:"notification_version"`
 	EventKind               string     `bun:"event_kind"`
+	EscalationPolicyID      int64      `bun:"escalation_policy_id"`
+	EscalationStep          int        `bun:"escalation_step"`
 	MonitorID               int64      `bun:"monitor_id"`
 	AssignmentGeneration    int64      `bun:"assignment_generation"`
 	StreamID                string     `bun:"stream_id"`
@@ -778,6 +780,7 @@ func (m *deliveryIntentModel) queued() domain.QueuedDelivery {
 			DeliveryID: m.DeliveryID, SourceAlertID: m.SourceAlertID, SourceTransitionVersion: m.SourceTransitionVersion,
 			ProbeID: m.ProbeID, NotificationID: m.NotificationID, NotificationVersion: m.NotificationVersion,
 			EventKind: m.EventKind, AvailableAt: m.AvailableAt.UTC(),
+			EscalationPolicyID: m.EscalationPolicyID, EscalationStep: m.EscalationStep,
 		},
 		MonitorID: m.MonitorID, AssignmentGeneration: m.AssignmentGeneration,
 		StreamID: m.StreamID, SourceSeq: m.SourceSeq, ConfigRevision: m.ConfigRevision,

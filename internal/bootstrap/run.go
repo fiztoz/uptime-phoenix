@@ -48,7 +48,8 @@ func Run(cfg Config) error {
 	log := logger.New(cfg.LogLevel)
 	log.Info("phoenix starting", "port", cfg.Port, "db_engine", cfg.DBEngine, "mode", cfg.Mode)
 
-	ctx := context.Background()
+	ctx, cancelRuntime := context.WithCancel(context.Background())
+	defer cancelRuntime()
 	otelShutdown, err := telemetry.Init(ctx, telemetry.Config{
 		Endpoint:    cfg.OTELEndpoint,
 		ServiceName: cfg.OTELService,
@@ -154,6 +155,7 @@ func Run(cfg Config) error {
 	heartbeatSvc.SetOverallProjector(healthSvc)
 
 	notificationSvc := services.NewNotificationService(repos.notification, repos.monitorNotif)
+	notificationSvc.SetEventBus(bus)
 	notificationSvc.SetTemplateRepository(repos.notificationTemplate)
 	notificationTemplateSvc := services.NewNotificationTemplateService(repos.notificationTemplate)
 	// Folder alerting: without this the group attach/detach routes fail closed
@@ -336,12 +338,23 @@ func Run(cfg Config) error {
 		log.Info("probe configuration activated", "revision", activeCfg.Revision)
 
 		heartbeatSvc.SetActivationRepo(repos.probeActivation)
+		heartbeatSvc.SetMonitorNotificationRepo(repos.monitorNotif)
+		// The recorder owns availability lifecycle and durable work. Only the
+		// consumer performs availability provider I/O in this mode.
 		notifDispatcher.SetOutboxDelivery(true)
+		reader, ok := repos.probeActivation.(ports.LocalAppliedConfigReader)
+		if !ok {
+			return domain.ErrValidation
+		}
+		escalationSvc.SetAppliedConfigReader(reader)
+		escalationSvc.SetDeliveryOutbox(repo.NewEscalationOutboxStore(db, encoder))
 
+		consumerCfg := services.DefaultDeliveryConsumerConfig()
+		consumerCfg.PublicURL = cfg.PublicURL
 		deliveryConsumer = services.NewDeliveryOutboxConsumer(
 			repos.deliveryOutbox,
 			repos.notification,
-			services.DefaultDeliveryConsumerConfig(),
+			consumerCfg,
 		)
 		deliveryConsumer.SetAssignmentRepository(repos.probeAssignments)
 		deliveryConsumer.SetActivationRepository(repos.probeActivation)
@@ -575,6 +588,10 @@ func Run(cfg Config) error {
 		cfg.PublicURL,
 	)
 
+	if protector != nil {
+		e.Use(middleware.ConfigRefreshAfterMutation(bus))
+	}
+
 	if isAPI {
 		go func() {
 			addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
@@ -593,6 +610,7 @@ func Run(cfg Config) error {
 
 	<-sigCtx.Done()
 	log.Info("shutdown signal received")
+	cancelRuntime()
 
 	if schedCancel != nil {
 		schedCancel()
