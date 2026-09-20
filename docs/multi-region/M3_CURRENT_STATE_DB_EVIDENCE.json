@@ -1,0 +1,139 @@
+{
+  "commit": "a40f80b6f01833040226e92c02e8cb3693c208ca",
+  "checkout": "immutable git archive, no uncommitted history changes",
+  "command": "GOTOOLCHAIN=go1.26.6 TEST_MARIADB_DSN=<disposable local MariaDB DSN with parseTime=true&loc=UTC&multiStatements=true> go test -race -count=1 -timeout=20m -json ./internal/adapters/repository/...",
+  "log_sha256": "132a7e2dc67fbc09a4e559ca9c99421c817f52deac1b1b7ed63331078e927cfb",
+  "started_at": "2026-09-20T17:56:18.045774+07:00",
+  "finished_at": "2026-09-20T17:59:59.426442+07:00",
+  "mariadb_pass_events": 187,
+  "mariadb_skip_events": 0,
+  "package_results": [
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb",
+      "Action": "pass",
+      "Elapsed": 1.3980000000000001
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/edge",
+      "Action": "pass",
+      "Elapsed": 7.819
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/sqlite",
+      "Action": "pass",
+      "Elapsed": 46.385
+    },
+    {
+      "Package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository",
+      "Action": "pass",
+      "Elapsed": 221.381
+    }
+  ],
+  "critical_mariadb_cases": [
+    {
+      "Test": "TestProbeCurrentStateAcceptance/mariadb/UpgradePreservesExactObservation",
+      "Action": "pass",
+      "Elapsed": 0.16
+    },
+    {
+      "Test": "TestProbeCurrentStateAcceptance/mariadb/EmptyInitialSnapshotThenFirstEvidence",
+      "Action": "pass",
+      "Elapsed": 0.13
+    },
+    {
+      "Test": "TestProbeCurrentStateAcceptance/mariadb/SameObservationAllowsIncidentMetadataOnly",
+      "Action": "pass",
+      "Elapsed": 0.14
+    },
+    {
+      "Test": "TestProbeCurrentStateAcceptance/mariadb/KnownIncidentMustMatchSnapshotAssignment",
+      "Action": "pass",
+      "Elapsed": 0.13
+    },
+    {
+      "Test": "TestProbeCurrentStateAcceptance/mariadb/AheadOfBacklogAndDurableReceipt",
+      "Action": "pass",
+      "Elapsed": 0.13
+    },
+    {
+      "Test": "TestProbeCurrentStateAcceptance/mariadb/OmittedAssignmentStaysUnknownUntilNewEvidence",
+      "Action": "pass",
+      "Elapsed": 0.15
+    },
+    {
+      "Test": "TestProbeCurrentStateAcceptance/mariadb/SequenceOrdersBackwardClock",
+      "Action": "pass",
+      "Elapsed": 0.13
+    },
+    {
+      "Test": "TestProbeCurrentStateAcceptance/mariadb/AuthorityAndFinalReceiptRollback",
+      "Action": "pass",
+      "Elapsed": 0.14
+    },
+    {
+      "Test": "TestProbeCurrentStateAcceptance/mariadb",
+      "Action": "pass",
+      "Elapsed": 1.1
+    },
+    {
+      "Test": "TestProbeReplayAcceptance/mariadb/ExactConfigAndParent",
+      "Action": "pass",
+      "Elapsed": 0.16
+    },
+    {
+      "Test": "TestProbeReplayAcceptance/mariadb/TimestampPrecision",
+      "Action": "pass",
+      "Elapsed": 0.09
+    },
+    {
+      "Test": "TestProbeReplayAcceptance/mariadb/ConcurrentDuplicate",
+      "Action": "pass",
+      "Elapsed": 0.11
+    },
+    {
+      "Test": "TestProbeReplayAcceptance/mariadb/LeaseExpiresDuringBatch",
+      "Action": "pass",
+      "Elapsed": 1.21
+    },
+    {
+      "Test": "TestProbeReplayAcceptance/mariadb/MixedDurableOutcomes",
+      "Action": "pass",
+      "Elapsed": 0.22
+    },
+    {
+      "Test": "TestProbeReplayAcceptance/mariadb/LateRollback",
+      "Action": "pass",
+      "Elapsed": 0.12
+    },
+    {
+      "Test": "TestProbeReplayAcceptance/mariadb/LeaseAndStreamFences",
+      "Action": "pass",
+      "Elapsed": 0.1
+    },
+    {
+      "Test": "TestProbeReplayAcceptance/mariadb/HistoricalAuthority",
+      "Action": "pass",
+      "Elapsed": 0.15
+    },
+    {
+      "Test": "TestProbeReplayAcceptance/mariadb",
+      "Action": "pass",
+      "Elapsed": 2.17
+    },
+    {
+      "Test": "TestProbeReplayGapAcceptance/mariadb/DurableGapAndOverlap",
+      "Action": "pass",
+      "Elapsed": 0.15
+    },
+    {
+      "Test": "TestProbeReplayGapAcceptance/mariadb/AuthorityAndLateRollback",
+      "Action": "pass",
+      "Elapsed": 0.09
+    },
+    {
+      "Test": "TestProbeReplayGapAcceptance/mariadb",
+      "Action": "pass",
+      "Elapsed": 0.24
+    }
+  ]
+}

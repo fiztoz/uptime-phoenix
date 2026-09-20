@@ -71,3 +71,13 @@ build and zero-issue lint passed. No source ownership remains delegated.
 
 Next bounded contract: `M3_HISTORY_WORK_CONTRACT.md`. Current-state acceptance
 does not complete the remaining milestone checklist above.
+
+## Verification correction
+
+Do not reuse `MARIADB_TEST_DSN` from earlier commands. It was ignored and caused
+MariaDB skips; the required name is `TEST_MARIADB_DSN`, as already documented in
+`docs/TESTING.md`. The immutable `a40f80b` matrix now passes with 187 MariaDB pass
+events, zero MariaDB skips and no failures; `M3_CURRENT_STATE_DB_EVIDENCE.json`
+records critical cases. A test-process guard rejects the known incorrect name.
+Check selected test events as well as exit status; `[no tests to run]` is not
+acceptance. This verification failure belongs to Codex's integration work.

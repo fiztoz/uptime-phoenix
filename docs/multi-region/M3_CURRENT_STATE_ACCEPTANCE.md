@@ -1,5 +1,13 @@
 # M3 current-state recovery increment
 
+> Verification correction: earlier matrix commands supplied `MARIADB_TEST_DSN`,
+> but this repository reads `TEST_MARIADB_DSN`. Those runs skipped MariaDB; their
+> MariaDB claims are withdrawn. An immutable export of commit `a40f80b` then passed
+> the **complete real MariaDB/SQLite matrix** in 221.381s with the correct variable:
+> **187 MariaDB pass events and zero MariaDB skips**. Current-state, replay and gap
+> acceptance groups all executed. See [machine-readable evidence](M3_CURRENT_STATE_DB_EVIDENCE.json).
+> A new `TestMain` guard rejects the misspelled variable, even with no selected tests.
+
 Baseline: `6b40df9`, 2026-09-20. This increment is part of M3; the entire
 milestone is still incomplete. Final gate results are recorded below. No push or
 deployment is included.
@@ -50,13 +58,13 @@ wrong assignment/incident identity and late transaction failure have effect test
 - Focused TLS/state pump suite passed with race detection (19.114s), including
   current state before 300 queued events, periodic refresh while replay stalls,
   no history pruning from state receipts, receipt deadline and single transfer.
-- Expanded SQLite/live MariaDB state contracts passed (10.441s), including
+- Expanded SQLite state contracts passed (MariaDB was skipped in that invocation) (10.441s), including
   zero-watermark recovery, immutable evidence and incident-reference ownership.
-- First complete SQLite/live MariaDB repository matrix passed (212.039s). That
+- First SQLite repository matrix passed (MariaDB was skipped) (212.039s). That
   run preceded the final upgrade-backfill change, so a final matrix is required.
 - Upgrade regression first failed on SQLite with `conflict`; after backfill it
-  passed with race detection (3.614s). The final complete SQLite/live MariaDB
-  repository matrix, including both upgrade regressions, passed (203.384s).
+  passed with race detection (3.614s). That follow-up matrix passed SQLite (203.384s) but also skipped MariaDB. The
+  corrected immutable matrix above includes both upgrade regressions.
 - Full probe adapter race suite after the health-wake correction passed (36.320s).
 - `CGO_ENABLED=0 go build ./...` and `golangci-lint run` passed after the final
   corrections; lint reported zero issues. `git diff --check` passed.
@@ -66,12 +74,13 @@ wrong assignment/incident identity and late transaction failure have effect test
   handler tests were not repeated after those bounded corrections.
 
 Commands used `GOTOOLCHAIN=go1.26.6` and the existing temporary Go/lint caches.
-The disposable MariaDB DSN included `parseTime=true&loc=UTC&multiStatements=true`.
+The corrected run uses `TEST_MARIADB_DSN`. The disposable MariaDB DSN included `parseTime=true&loc=UTC&multiStatements=true`.
 Logs: `/private/tmp/phoenix-m3-state-race-full.log`,
 `/private/tmp/phoenix-m3-state-probe-final.log`,
 `/private/tmp/phoenix-m3-state-mariadb-accepted.log`,
 `/private/tmp/phoenix-m3-state-build-final.log` and
-`/private/tmp/phoenix-m3-state-lint-final.log`.
+`/private/tmp/phoenix-m3-state-lint-final.log`. Corrected DB execution log:
+`/private/tmp/phoenix-m3-current-a40f80b-real-matrix.jsonl`.
 
 No frontend or Helm files changed in this increment. The final M3 product gate
 and real 15-minute partition/command recovery acceptance are still required.
@@ -124,3 +133,20 @@ Verified fixes and these lessons were sent back with explicit no-edit ownership.
 Required follow-up remains tracked in `M3_COMPLETION_WORK_CONTRACT.md`: historical
 gap coverage and 1m/1h/1d/overall recomputation, both watchdogs, commands and offline
 ACKs, rotations/reset, cleanup, bounded shutdown flush and full process acceptance.
+
+### Verification-command retrospective
+
+The suite deliberately skips MariaDB when `TEST_MARIADB_DSN` is absent. Codex
+used a transposed variable name and inferred database coverage from package-level
+success. The documentation already named the correct variable; this was an
+integrator verification failure. No inference from elapsed time or a green
+package line can establish that an optional engine ran.
+
+The remedy is both immediate and persistent: the immutable accepted source was
+rerun with the correct variable and explicit JSON pass events, historical claims
+were corrected, and the test process now fails on the known incorrect variable.
+The negative guard check passed even with `-run '^$'`; it therefore catches the
+misconfiguration independently of test selection. Also inspect positive test
+selection: one initial history command returned `[no tests to run]` because its
+regular expression grouped across a slash. That result was discarded and the
+intended cases were rerun with JSON events.

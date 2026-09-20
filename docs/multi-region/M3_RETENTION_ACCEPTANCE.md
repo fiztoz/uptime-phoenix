@@ -1,5 +1,13 @@
 # M3 retention and replay recovery increment
 
+> Verification correction: matrix commands later found to use
+> `MARIADB_TEST_DSN` cannot establish MariaDB acceptance because the suite reads
+> `TEST_MARIADB_DSN`. The complete immutable `a40f80b` repository matrix has now
+> passed with the correct variable, including real MariaDB replay/gap contracts,
+> 187 MariaDB pass events and zero MariaDB skips. See
+> [current DB evidence](M3_CURRENT_STATE_DB_EVIDENCE.json) and the
+> [verification retrospective](M3_CURRENT_STATE_ACCEPTANCE.md).
+
 Date: 2026-09-20. Builds on `eb5c59e`. M3 remains in progress.
 
 ## Behavior

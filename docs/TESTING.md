@@ -309,6 +309,15 @@ DB_DSN='phoenix:phoenix@tcp(127.0.0.1:43306)/phoenix_mr_smoke?parseTime=true&loc
 docker --context colima rm -f phoenix-mr-validation
 ```
 
+The environment name is exactly `TEST_MARIADB_DSN`. The unsupported spelling
+`MARIADB_TEST_DSN` now makes the repository test process fail. Without either
+variable, ordinary local tests deliberately skip MariaDB; a package-level PASS
+therefore does not prove both engines ran. For acceptance, capture `go test -json`
+and verify the relevant `/mariadb` or `_MariaDB` cases have `pass` events, not
+`skip` events. Also confirm the selected test names ran: a malformed `-run`
+expression can return success with `[no tests to run]`.
+
+
 The script starts two sharded app processes, two HTTP monitor targets and local
 webhook receivers. It verifies ownership, retry promotion, initial delivery,
 escalation, acknowledgement cancellation, throttle persistence across process

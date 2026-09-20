@@ -9,6 +9,14 @@ tests. Check newer commits and the latest entries below before following its
 
 ## M3 current-state recovery increment — 2026-09-20
 
+**Verification correction resolved:** earlier commands used the wrong MariaDB
+variable and skipped that engine. An immutable export of accepted commit
+`a40f80b` subsequently passed the complete real database matrix in 221.381s,
+with 187 MariaDB pass events and zero MariaDB skips. The exact critical cases
+and log hash are in `M3_CURRENT_STATE_DB_EVIDENCE.json`. The test process now
+rejects the wrong variable name. See the acceptance retrospective for the error
+and corrected evidence; prior package-level success was not database proof.
+
 High-priority current state is wired through the real edge/runtime/hub storage
 path. Exact source evidence survives history pruning and restart. Initial state
 is committed before backlog replay; periodic state progresses while replay is
