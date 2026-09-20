@@ -51,10 +51,18 @@ func TestProbeCurrentStateAcceptance(t *testing.T) {
 				event.Observation.Ping = 23
 				event.Observation.Message = "source current"
 				r.ingest(t, r.batch(event))
+				// Rehearse dependency order too: 064 extends a table created by
+				// 056. Rebuilding only 056 would leave the current schema invalid.
+				if err := runEngineMigration(t, r.f.db, engine, "064_probe_stream_reset", "down"); err != nil {
+					t.Fatal(err)
+				}
 				if err := runEngineMigration(t, r.f.db, engine, "056_probe_current_state", "down"); err != nil {
 					t.Fatal(err)
 				}
 				if err := runEngineMigration(t, r.f.db, engine, "056_probe_current_state", "up"); err != nil {
+					t.Fatal(err)
+				}
+				if err := runEngineMigration(t, r.f.db, engine, "064_probe_stream_reset", "up"); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := r.store.ApplyCurrentSnapshot(t.Context(), r.session, currentSnapshot(r, 1, currentEntry(r, 1, domain.StatusUp)), &services.AccessService{}); err != nil {

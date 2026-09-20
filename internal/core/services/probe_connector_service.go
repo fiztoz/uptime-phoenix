@@ -25,6 +25,7 @@ type ProbeConnectorService struct {
 	configSync      ports.RemoteProbeConfigSyncRepository
 	replayIngest    ports.ProbeReplayService
 	rotations       ports.ProbeCredentialRotationRepository
+	resets          ports.ProbeStreamResetRepository
 	certificates    ports.ProbeCertificateRotationRepository
 	watchdogFactory func(context.Context, domain.ProbeRuntimeLease) (*ProbeWatchdogRuntime, error)
 	hubID, ownerID  string
@@ -65,6 +66,12 @@ func (s *ProbeConnectorService) SetCredentialRotation(rotations ports.ProbeCrede
 // encryption metadata. Configure before Run.
 func (s *ProbeConnectorService) SetCertificateRotation(certificates ports.ProbeCertificateRotationRepository) {
 	s.certificates = certificates
+}
+
+// SetStreamReset enables recovery confirmation only after authenticated health.
+// Configure before Run; administrative activation alone never confirms the peer.
+func (s *ProbeConnectorService) SetStreamReset(resets ports.ProbeStreamResetRepository) {
+	s.resets = resets
 }
 
 // NewProbeConnectorService requires verified installation authority and a unique
@@ -372,6 +379,11 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 			}
 			if s.certificates != nil {
 				if err := s.certificates.ConfirmCertificateConnection(callbackCtx, replaySession, connection.ProbeCredentialMetadata, pin); err != nil {
+					return err
+				}
+			}
+			if s.resets != nil {
+				if err := s.resets.ConfirmStreamReset(callbackCtx, replaySession, connection.ProbeCredentialMetadata, pin); err != nil {
 					return err
 				}
 			}

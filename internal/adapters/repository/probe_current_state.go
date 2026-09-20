@@ -38,6 +38,7 @@ type probeMissingStateModel struct {
 	AssignmentGeneration int64
 	ConfigRevision       int64
 	SnapshotSeq          int64
+	Reason               string
 	CreatedAt            time.Time
 	AppliedAt            time.Time
 }
@@ -209,7 +210,7 @@ func applyMissingState(ctx context.Context, tx bun.Tx, session domain.ProbeRepla
 	if _, err := tx.NewDelete().Model((*monitorProbeStateModel)(nil)).Where("monitor_id = ? AND probe_id = ?", assignment.MonitorID, session.ProbeID).Exec(ctx); err != nil {
 		return err
 	}
-	row := probeMissingStateModel{MonitorID: assignment.MonitorID, ProbeID: session.ProbeID, StreamID: session.StreamID, AssignmentGeneration: assignment.Generation, ConfigRevision: snapshot.ConfigRevision, SnapshotSeq: snapshot.LastCreatedSeq, CreatedAt: snapshot.CreatedAt.UTC(), AppliedAt: now}
+	row := probeMissingStateModel{MonitorID: assignment.MonitorID, ProbeID: session.ProbeID, StreamID: session.StreamID, AssignmentGeneration: assignment.Generation, ConfigRevision: snapshot.ConfigRevision, SnapshotSeq: snapshot.LastCreatedSeq, CreatedAt: snapshot.CreatedAt.UTC(), AppliedAt: now, Reason: "missing_snapshot_state"}
 	if exists {
 		_, err = tx.NewUpdate().Model(&row).WherePK().Exec(ctx)
 	} else {
@@ -230,7 +231,7 @@ func (r *RegionalCommitStore) readCurrentStates(ctx context.Context, monitorID i
 	args = append(args, args...)
 	query := `SELECT monitor_id,probe_id,assignment_generation,stream_id,seq,config_revision,status,down_count,observed_at,received_at,last_success_at,ping,message,active_source_alert_id,'' AS unknown_reason
  FROM monitor_probe_state WHERE monitor_id = ?` + filter + `
- UNION ALL SELECT monitor_id,probe_id,assignment_generation,stream_id,snapshot_seq,config_revision,4,0,created_at,applied_at,NULL,0,'',NULL,'missing_snapshot_state'
+ UNION ALL SELECT monitor_id,probe_id,assignment_generation,stream_id,snapshot_seq,config_revision,4,0,created_at,applied_at,NULL,0,'',NULL,reason
  FROM probe_missing_state AS missing WHERE monitor_id = ?` + filter + `
  AND NOT EXISTS (SELECT 1 FROM monitor_probe_state AS current WHERE current.monitor_id = missing.monitor_id AND current.probe_id = missing.probe_id)
  ORDER BY probe_id`

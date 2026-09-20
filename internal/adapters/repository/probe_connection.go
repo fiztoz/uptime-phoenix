@@ -111,7 +111,7 @@ func (s *ProbeConnectorStore) GetConnection(ctx context.Context, probeID string)
 // ListConnections returns at most the supported fleet bound for enabled probes.
 func (s *ProbeConnectorStore) ListConnections(ctx context.Context) ([]domain.ProbeConnection, error) {
 	var rows []probeConnectionRow
-	err := s.db.NewSelect().Model(&rows).Join("JOIN probes AS p ON p.id = pc.probe_id").Where("p.enabled = ?", true).OrderExpr("pc.probe_id ASC").Limit(1001).Scan(ctx)
+	err := s.db.NewSelect().Model(&rows).Join("JOIN probes AS p ON p.id = pc.probe_id").Where("p.enabled = ?", true).Where("NOT EXISTS (SELECT 1 FROM probe_stream_resets r WHERE r.probe_id = pc.probe_id AND r.state = ?)", "prepared").OrderExpr("pc.probe_id ASC").Limit(1001).Scan(ctx)
 	if err != nil {
 		return nil, probeConnectionError(ctx, err)
 	}
@@ -175,6 +175,6 @@ func (s *ProbeConnectorStore) GetConnectionCursor(ctx context.Context, probeID, 
 		return 0, domain.ErrValidation
 	}
 	var cursor int64
-	err := s.db.NewRaw("SELECT s.committed_seq FROM probe_streams s JOIN probe_connections c ON c.probe_id = s.probe_id AND c.stream_id = s.stream_id WHERE s.probe_id = ? AND s.stream_id = ? AND s.retired_at IS NULL", probeID, streamID).Scan(ctx, &cursor)
+	err := s.db.NewRaw("SELECT s.committed_seq FROM probe_streams s JOIN probe_connections c ON c.probe_id = s.probe_id AND c.stream_id = s.stream_id WHERE s.probe_id = ? AND s.stream_id = ? AND s.retired_at IS NULL AND NOT EXISTS (SELECT 1 FROM probe_stream_resets r WHERE r.probe_id = s.probe_id AND r.state = 'prepared')", probeID, streamID).Scan(ctx, &cursor)
 	return cursor, probeConnectionError(ctx, err)
 }

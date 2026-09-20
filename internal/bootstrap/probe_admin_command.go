@@ -10,17 +10,18 @@ import (
 // Command output is deliberately metadata only: neither the protected request,
 // operator note nor credential-bearing future command payload is serialized.
 type probeAdminCommandView struct {
-	CommandID            string         `json:"command_id"`
-	Status               string         `json:"status"`
-	RemoteConfirmed      bool           `json:"remote_confirmed"`
-	SourceAlertID        *string        `json:"source_alert_id"`
-	AssignmentGeneration *probe.Decimal `json:"assignment_generation"`
-	CreatedAt            time.Time      `json:"created_at"`
-	ExpiresAt            time.Time      `json:"expires_at"`
-	Attempts             probe.Decimal  `json:"attempts"`
-	AppliedAt            *time.Time     `json:"applied_at"`
-	Code                 *string        `json:"code"`
-	PendingMessage       string         `json:"pending_message,omitempty"`
+	CommandID             string         `json:"command_id"`
+	Status                string         `json:"status"`
+	RemoteConfirmed       bool           `json:"remote_confirmed"`
+	SourceAlertID         *string        `json:"source_alert_id"`
+	AssignmentGeneration  *probe.Decimal `json:"assignment_generation"`
+	CreatedAt             time.Time      `json:"created_at"`
+	ExpiresAt             time.Time      `json:"expires_at"`
+	Attempts              probe.Decimal  `json:"attempts"`
+	AppliedAt             *time.Time     `json:"applied_at"`
+	Code                  *string        `json:"code"`
+	LocalCancellationCode string         `json:"local_cancellation_code,omitempty"`
+	PendingMessage        string         `json:"pending_message,omitempty"`
 }
 
 func probeAdminCommand(c *domain.ProbeCommand) *probeAdminCommandView {
@@ -48,6 +49,10 @@ func probeAdminCommand(c *domain.ProbeCommand) *probeAdminCommandView {
 				v.PendingMessage = "Waiting for the source's durable rotation result. Expiry or a successful connection does not prove activation."
 			}
 		}
+	}
+	if c.LocalCancellationCode == "stream_reset_unconfirmed" {
+		v.LocalCancellationCode = c.LocalCancellationCode
+		v.PendingMessage = "Command canceled locally because its stream was retired. The old source outcome remains unconfirmed; this command will not be sent to the new stream."
 	}
 	return v
 }

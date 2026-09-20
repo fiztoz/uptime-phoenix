@@ -35,6 +35,9 @@ func lockProbeSession(ctx context.Context, tx bun.Tx, session domain.ProbeReplay
 	if !registration.Enabled || registration.Kind != domain.ProbeKindRemote {
 		return replaySessionAuthority{}, ports.ErrConflict
 	}
+	if err := requireNoStreamReset(ctx, tx, session.ProbeID, false); err != nil {
+		return replaySessionAuthority{}, err
+	}
 	now, err := replayDatabaseTime(ctx, tx)
 	if err != nil {
 		return replaySessionAuthority{}, err

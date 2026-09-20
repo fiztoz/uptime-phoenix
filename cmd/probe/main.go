@@ -41,12 +41,12 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	const usage = "Usage: probe <init|token|inspect|run> [--data-dir PATH] [--key-file PATH] [--listen HOST:PORT]\ninit creates a private identity, SQLite store and protection key; prints a 10-minute enrollment token once.\ntoken replaces an unused enrollment token while stopped. inspect reads local progress while stopped.\nrun opens an existing identity; it never regenerates missing secrets.\n"
+	const usage = "Usage: probe <init|token|inspect|run|reset-stream> [--data-dir PATH] [--key-file PATH] [--listen HOST:PORT]\ninit creates a private identity, SQLite store and protection key; prints a 10-minute enrollment token once.\ntoken replaces an unused enrollment token while stopped. inspect reads local progress while stopped.\nreset-stream --plan-file PATH archives and resets a stopped enrolled source under an explicit hub plan.\nrun opens an existing identity; it never regenerates missing secrets.\n"
 	if len(args) == 1 && (args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
 		_, _ = io.WriteString(stdout, usage)
 		return 0
 	}
-	if len(args) == 0 || (args[0] != "init" && args[0] != "token" && args[0] != "inspect" && args[0] != "run") {
+	if len(args) == 0 || (args[0] != "init" && args[0] != "token" && args[0] != "inspect" && args[0] != "run" && args[0] != "reset-stream") {
 		_, _ = io.WriteString(stderr, usage)
 		return 2
 	}
@@ -55,8 +55,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = io.WriteString(stderr, "Invalid probe environment configuration\n")
 		return 2
 	}
+	var resetPlanFile string
 	flags := flag.NewFlagSet("probe", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
+	flags.StringVar(&resetPlanFile, "plan-file", "", "private immutable hub stream-reset plan")
 	flags.StringVar(&cfg.DataDir, "data-dir", cfg.DataDir, "private local data directory")
 	flags.StringVar(&cfg.KeyFile, "key-file", cfg.KeyFile, "protected configuration key")
 	flags.StringVar(&cfg.Listen, "listen", cfg.Listen, "TLS listen address")
@@ -102,7 +104,11 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = io.WriteString(stderr, "Probe certificate protection is unavailable\n")
 		return 1
 	}
-	store, err := edge.Open(ctx, identity.DataDir, domain.EdgeIdentity{ProbeID: identity.ProbeID, StreamID: identity.StreamID, Fingerprint: identity.Fingerprint}, edge.WithStreamResetProtection(protector), edge.WithCertificateMaterial(material), edge.WithTelemetryEncoder(probe.EdgeTelemetryEncoder{}), edge.WithRetentionPolicy(edge.RetentionPolicy{MaxBytes: cfg.TelemetryMaxBytes, MaxAge: time.Duration(cfg.TelemetryRetentionHours) * time.Hour}))
+	openStore := edge.Open
+	if args[0] == "reset-stream" {
+		openStore = edge.OpenForStreamReset
+	}
+	store, err := openStore(ctx, identity.DataDir, domain.EdgeIdentity{ProbeID: identity.ProbeID, StreamID: identity.StreamID, Fingerprint: identity.Fingerprint}, edge.WithStreamResetProtection(protector), edge.WithCertificateMaterial(material), edge.WithTelemetryEncoder(probe.EdgeTelemetryEncoder{}), edge.WithRetentionPolicy(edge.RetentionPolicy{MaxBytes: cfg.TelemetryMaxBytes, MaxAge: time.Duration(cfg.TelemetryRetentionHours) * time.Hour}))
 	if err != nil {
 		_, _ = io.WriteString(stderr, "Probe storage could not be opened\n")
 		return 1
@@ -124,6 +130,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			_, _ = io.WriteString(stderr, "Accepted probe configuration could not be authenticated or validated\n")
 			return 1
 		}
+	}
+	if args[0] == "reset-stream" {
+		return resetStoppedStream(ctx, store, resetPlanFile, stdout, stderr)
 	}
 	enrollment := services.NewEdgeEnrollmentService(store)
 	if args[0] == "run" {

@@ -454,6 +454,7 @@ func Run(cfg Config) error {
 		connector.SetReplayIngest(replay)
 		connector.SetCredentialRotation(commandStore)
 		connector.SetCertificateRotation(commandStore)
+		connector.SetStreamReset(repo.NewProbeStreamResetStore(db, protector, credentialProtector, probe.StreamResetCodec{}))
 		connector.SetConfigSync(repo.NewRemoteProbeConfigSyncStore(db, probe.RemoteConfigEncoder{}, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector))
 		watchdogStore := repo.NewProbeWatchdogStore(db, protector, probe.EdgeTelemetryEncoder{})
 		if err := connector.SetWatchdogFactory(func(ctx context.Context, owner domain.ProbeRuntimeLease) (*services.ProbeWatchdogRuntime, error) {

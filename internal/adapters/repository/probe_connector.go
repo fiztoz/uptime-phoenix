@@ -64,7 +64,16 @@ func (s *ProbeConnectorStore) transaction(ctx context.Context, probeID string, a
 		if err := tx.NewRaw(query).Scan(ctx, &now); err != nil {
 			return err
 		}
-		return action(ctx, tx, probe.Enabled, now)
+		// Reset preparation revokes effective admission without changing the
+		// operator's enabled preference. Release callbacks can still clean up.
+		enabled := probe.Enabled
+		if err := requireNoStreamReset(ctx, tx, probeID, false); err != nil {
+			if !errors.Is(err, ports.ErrConflict) {
+				return err
+			}
+			enabled = false
+		}
+		return action(ctx, tx, enabled, now)
 	})
 	if err != nil {
 		return fmt.Errorf("probe connector transaction: %w", probeRegistryError(err))

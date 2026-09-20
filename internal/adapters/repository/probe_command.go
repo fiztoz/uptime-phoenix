@@ -75,6 +75,9 @@ func (r probeCommandRow) command() *domain.ProbeCommand {
 	if r.NextAttemptAt != nil {
 		c.NextAttemptAt = r.NextAttemptAt.UTC()
 	}
+	if !r.RemoteConfirmed && r.Status == "canceled" {
+		c.LocalCancellationCode = r.ResultCode
+	}
 	if r.RemoteConfirmed {
 		c.Outcome = &domain.ProbeCommandOutcome{CommandID: r.CommandID, Status: r.Status, AppliedAt: utcTimePtr(r.ResultAppliedAt), Code: r.ResultCode, Message: r.ResultMessage, CredentialVersion: r.ResultCredentialVersion, CertificateVersion: r.ResultCertificateVersion, CertificateFingerprint: r.ResultCertificateFingerprint, CertificateNotAfter: utcTimePtr(r.ResultCertificateNotAfter)}
 	}
@@ -155,6 +158,9 @@ func (s *ProbeCommandStore) lockCommandTarget(ctx context.Context, tx bun.Tx, hu
 	}
 	if !registration.Enabled || registration.Kind != domain.ProbeKindRemote {
 		return ports.ErrConflict
+	}
+	if err := requireNoStreamReset(ctx, tx, probeID, true); err != nil {
+		return err
 	}
 	var installation probeInstallationModel
 	if err := tx.NewSelect().Model(&installation).Where("id = 1").Scan(ctx); err != nil {

@@ -140,13 +140,14 @@ type RegionalDelivery struct {
 // source has not confirmed a terminal result, even after the request expires.
 type ProbeCommand struct {
 	ProbeCommandMetadata
-	Status          string
-	RemoteConfirmed bool
-	Attempts        int64
-	LastAttemptAt   *time.Time
-	NextAttemptAt   time.Time
-	UpdatedAt       time.Time
-	Outcome         *ProbeCommandOutcome
+	Status                string
+	RemoteConfirmed       bool
+	Attempts              int64
+	LastAttemptAt         *time.Time
+	NextAttemptAt         time.Time
+	UpdatedAt             time.Time
+	LocalCancellationCode string // Administrative termination; never a source receipt.
+	Outcome               *ProbeCommandOutcome
 }
 
 // RegionalCommit is one atomic local/edge recording. Notification I/O is outside.

@@ -27,7 +27,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status|ack|command-status|rotate-credential|rotation-status|rotate-certificate|certificate-rotation-status> [options]
+const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status|ack|command-status|rotate-credential|rotation-status|rotate-certificate|certificate-rotation-status|prepare-reset|activate-reset|reset-status> [options]
 Uses hub DB_ENGINE, DB_DSN, PROBE_SECRET_KEY_FILE and optional PROBE_ENDPOINT_POLICY_FILE.
 register --probe-id UUID --stream-id UUID --key SLUG --name NAME [--location LOCATION] --endpoint wss://HOST/ws/probe/v1 --fingerprint SHA256
 enroll --probe-id UUID --token-file PATH
@@ -41,6 +41,10 @@ rotate-credential --probe-id UUID --rotation-id UUID --credential-version N
 rotation-status --probe-id UUID --rotation-id UUID
 rotate-certificate --probe-id UUID --rotation-id UUID --certificate-version N [--valid-for-days 365]
 certificate-rotation-status --probe-id UUID --rotation-id UUID
+prepare-reset --probe-id UUID --reset-id UUID --previous-stream-id UUID --stream-id UUID
+activate-reset --probe-id UUID --reset-id UUID --receipt-file PATH
+reset-status --probe-id UUID --reset-id UUID
+Stop the source before reset. Save prepare-reset output privately as the immutable plan; run probe reset-stream --plan-file on the stopped source, then activate-reset with its receipt. Only authenticated new-stream health changes awaiting_peer to complete.
 Certificate rotation creates the key only at the probe; the old pin remains current until an activation receipt confirms promotion.
 Credential rotation retries reuse the rotation ID and version. The ten-minute overlap never extends on retry; active requires a durable source receipt.
 Token and complete snapshot files must be private regular files. Commands print metadata only.
@@ -48,7 +52,7 @@ Registration persists the recoverable protected runtime credential before enroll
 Watchdog replaces saved settings; expected-revision is the settings revision reported by status, initially zero. Saving is not an applied-config receipt.
 ACK retries must reuse the command ID and all original options. Pending means remote alerts may continue until the probe confirms. ACK targets only the named incident, including after reassignment.
 Run compatible hub workers with PROBES_ENABLED=true after enrollment. Workers synchronize supported configurations and replay retained telemetry.
-Fleet UI and explicit gap/reset recovery remain later milestones.
+Fleet UI remains a later milestone.
 `
 
 // RunProbeAdmin is the explicit local-operator composition root for the M2
@@ -59,7 +63,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		_, _ = io.WriteString(out, probeAdminUsage)
 		return 0
 	}
-	if len(args) == 0 || !slices.Contains([]string{"register", "enroll", "assign", "prepare", "watchdog", "status", "ack", "command-status", "rotate-credential", "rotation-status", "rotate-certificate", "certificate-rotation-status"}, args[0]) {
+	if len(args) == 0 || !slices.Contains([]string{"register", "enroll", "assign", "prepare", "watchdog", "status", "ack", "command-status", "rotate-credential", "rotation-status", "rotate-certificate", "certificate-rotation-status", "prepare-reset", "activate-reset", "reset-status"}, args[0]) {
 		_, _ = io.WriteString(stderr, probeAdminUsage)
 		return 2
 	}
@@ -70,10 +74,14 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	var commandID, sourceAlertID, actor, noteFile string
 	var assignmentGeneration, credentialVersion, certificateVersion int64
 	var certificateDays int
+	var resetID, previousStreamID, receiptFile string
 	var rotationID string
 	var commandTTL time.Duration
 	f := flag.NewFlagSet("phoenix-probe-admin", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
+	f.StringVar(&resetID, "reset-id", "", "immutable reset UUID, retained for retries")
+	f.StringVar(&previousStreamID, "previous-stream-id", "", "expected currently bound stream UUID")
+	f.StringVar(&receiptFile, "receipt-file", "", "private source reset receipt")
 	f.StringVar(&probeID, "probe-id", "", "trusted local probe ID")
 	f.StringVar(&streamID, "stream-id", "", "trusted local stream ID")
 	f.StringVar(&key, "key", "", "stable registration slug")
@@ -140,6 +148,9 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	connector, err := services.NewProbeConnectorService(connections, connections, connections, protector, configs, probe.NewHubTransport(policy), installation.HubID, owner.String(), func(f int, h time.Duration) time.Duration { return probe.ReconnectDelay(f, h, rand.Float64()) })
 	if err != nil {
 		return fail("Connector initialization failed")
+	}
+	if slices.Contains([]string{"prepare-reset", "activate-reset", "reset-status"}, args[0]) {
+		return runProbeAdminReset(ctx, repository.NewProbeStreamResetStore(db, protector, protector, probe.StreamResetCodec{}), args[0], installation.HubID, probeID, resetID, previousStreamID, streamID, receiptFile, out, stderr)
 	}
 	registry := repository.NewProbeRegistryStore(db)
 	type assignmentView struct {

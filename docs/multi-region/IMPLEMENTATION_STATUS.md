@@ -7,6 +7,32 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 hub stream reset and operator recovery — 2026-09-21
+
+Hub migration 064 and the stopped-source/hub CLI flow are implemented. Reset
+preparation revokes parent/child runtime authority; source commit preserves its
+archive; activation retains old hub history, reseals the same token for a new
+stream and marks live projection UNKNOWN. Only authenticated peer health confirms
+completion. Old commands remain attributed to their original stream with explicit
+local, remotely unconfirmed cancellation.
+
+The compiled fresh-database workflow passed 30 stages, including source-before-hub
+and hub-before-source restart recovery, unchanged bootstrap/key/pin, original
+archive verification and independent old/new sequence one. Both-engine effect,
+codec and source CLI failure tests pass. The final CGO-free build, full race suite
+and zero-issue lint passed: 3,693 named passes in 22 packages, zero failures and
+two existing optional skips. All 315 MariaDB-named cases passed, including 302
+audited live-engine cases, with no engine skips. All 28 source/harness hashes
+stayed unchanged. See [acceptance](M3_HUB_RESET_ACCEPTANCE.md) and
+[evidence](M3_HUB_RESET_EVIDENCE.json). [The retrospective](M3_HUB_RESET_RETROSPECTIVE.md) records Codex's
+schema/test-harness corrections and Antigravity's retracted unsupported findings.
+No files were delegated; the existing AGENTS.md diff remains excluded.
+
+Continue [pressure and bounded shutdown](M3_SHUTDOWN_WORK_CONTRACT.md), the actual
+fifteen-minute partition and full-M3 requirement audit. The existing 900-second
+command option alone does not prove DOWN/UP inside that partition or fresh state
+ahead of backlog. M3 remains active/incomplete. No push/deployment.
+
 ## M3 source stream-reset checkpoint — 2026-09-21
 
 Edge migration 009 adds authenticated epoch provenance, a durable reservation that

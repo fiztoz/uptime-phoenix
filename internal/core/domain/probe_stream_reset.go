@@ -2,6 +2,27 @@ package domain
 
 import "time"
 
+// ProbeStreamResetIssue identifies one explicit hub administrative decision.
+// Exact retries retain all identifiers; changing any of them is a conflict.
+type ProbeStreamResetIssue struct {
+	ResetID, HubID, ProbeID, PreviousStreamID, StreamID string
+}
+
+// ValidProbeStreamResetIssue validates identifiers without granting permission.
+func ValidProbeStreamResetIssue(i ProbeStreamResetIssue) bool {
+	return configUUID(i.ResetID) && configUUID(i.HubID) && configUUID(i.ProbeID) && configUUID(i.PreviousStreamID) && configUUID(i.StreamID) && i.PreviousStreamID != i.StreamID
+}
+
+// ProbeStreamResetOperation records hub progress separately from enrollment.
+// Source is an operator-supplied local receipt; only ConfirmedAt proves that the
+// new stream has actually passed authenticated runtime admission at the hub.
+type ProbeStreamResetOperation struct {
+	Plan                     ProbeStreamResetPlan
+	State                    string // prepared, awaiting_peer, complete
+	Source                   *EdgeStreamResetRecord
+	ActivatedAt, ConfirmedAt *time.Time
+}
+
 // ProbeStreamResetPlan is immutable operator input issued by the hub before the
 // stopped source changes epoch. It contains no credential or private key.
 type ProbeStreamResetPlan struct {

@@ -26,8 +26,9 @@
 > for its final gate status and [the certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md).
 > Source stream-reset storage and verified TLS startup have passed their full
 > checkpoint gate; see [source reset acceptance](M3_SOURCE_RESET_ACCEPTANCE.md).
-> Continue hub reset preparation/activation/peer confirmation and both CLI adapters
-> under [the reset contract](M3_STREAM_RESET_WORK_CONTRACT.md), bounded flushing and the
+> Hub reset and both operator CLI adapters are now implemented; verify the final
+> [hub reset ledger](M3_HUB_RESET_ACCEPTANCE.md) before accepting that checkpoint.
+> Continue [pressure and bounded shutdown](M3_SHUTDOWN_WORK_CONTRACT.md), then the
 > complete fifteen-minute partition under [the M3 contract](M3_COMPLETION_WORK_CONTRACT.md).
 > Verify Git HEAD and uncommitted work before editing; never reset to an older baseline.
 
@@ -35,7 +36,7 @@ The detailed A–D material below is historical guidance from `4cc76f0`.
 Descriptions of missing M1/M2 features and proposed flags are not current status.
 Use [the operator guide](M2_OPERATOR_GUIDE.md), the latest status entry and the
 [full M3 work contract](M3_COMPLETION_WORK_CONTRACT.md). Commands,
-explicit reset, cleanup, bounded shutdown flush and the real 15-minute partition
+remaining cleanup/pressure checks, bounded shutdown flush and the real 15-minute partition
 acceptance remain required. Never infer whole-milestone completion from a helper
 or an agent handoff.
 

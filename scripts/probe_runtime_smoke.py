@@ -8,6 +8,7 @@ hub mirrors/cursors through the container's MariaDB client. Queries are read-onl
 """
 
 import argparse
+from contextlib import closing
 import hashlib
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -96,6 +97,7 @@ def main():
     parser.add_argument("--verify-command", action="store_true", help="exercise queued original-incident ACK across a real link partition and restart")
     parser.add_argument("--verify-credential-rotation", action="store_true", help="verify durable queued credential rotation across hub and edge restart")
     parser.add_argument("--verify-certificate-rotation", action="store_true", help="verify durable TLS certificate rotation across hub and edge restart")
+    parser.add_argument("--verify-stream-reset", action="store_true", help="verify explicit source archive and hub reset through compiled CLIs and real admission")
     parser.add_argument("--command-partition-seconds", type=int, default=15)
     parser.add_argument("--mariadb-container")
     args = parser.parse_args()
@@ -106,6 +108,8 @@ def main():
         parser.error("--verify-credential-rotation requires --verify-replay")
     if args.verify_certificate_rotation and (not args.verify_replay or args.verify_credential_rotation):
         parser.error("--verify-certificate-rotation requires --verify-replay and a separate run from credential rotation")
+    if args.verify_stream_reset and (not args.verify_replay or args.verify_certificate_rotation or args.verify_credential_rotation):
+        parser.error("--verify-stream-reset requires --verify-replay and a separate run from rotations")
     if args.verify_history and not args.verify_replay:
         parser.error("--verify-history requires --verify-replay")
     if args.verify_watchdog and not args.verify_replay:
@@ -164,7 +168,7 @@ def main():
     threading.Thread(target=sink.serve_forever, daemon=True).start()
     sink_url = f"http://127.0.0.1:{args.port + 1}"
     relay = None
-    if args.verify_watchdog or args.verify_command or args.verify_credential_rotation or args.verify_certificate_rotation:
+    if args.verify_watchdog or args.verify_command or args.verify_credential_rotation or args.verify_certificate_rotation or args.verify_stream_reset:
         relay = PartitionRelay(("127.0.0.1", args.port + 4), ("127.0.0.1", args.port + 3))
         threading.Thread(target=relay.serve_forever, daemon=True).start()
 
@@ -228,7 +232,7 @@ def main():
             return False
 
     def edge_rows(query):
-        with sqlite3.connect(f"file:{edge_dir}/edge.db?mode=ro", uri=True, timeout=2) as db:
+        with closing(sqlite3.connect(f"file:{edge_dir}/edge.db?mode=ro", uri=True, timeout=2)) as db:
             db.row_factory = sqlite3.Row
             return [dict(row) for row in db.execute(query)]
 
@@ -711,6 +715,81 @@ def main():
                                     "hub_certificate_version": 2, "source_certificate_version": 2,
                                     "credential_version": 1, "generation_before_restart": generation_before,
                                     "generation_after_restart": final["connection_generation"], "high_water": high_water}
+        reset_evidence = None
+        if args.verify_stream_reset:
+            stop("edge")
+            old_stream = identity["stream_id"]
+            original = edge_progress()
+            anchors = {name: hashlib.sha256((edge_dir / name).read_bytes()).hexdigest()
+                       for name in ("identity.json", "tls.pem", "config.key")}
+            old_history = hub_query("SELECT JSON_OBJECT('receipts',COUNT(*)) FROM probe_telemetry_receipts "
+                                    f"WHERE probe_id='{identity['probe_id']}' AND stream_id='{old_stream}'")[0]
+            reset_id, new_stream = str(uuid.uuid4()), str(uuid.uuid4())
+            prepare_args = ("prepare-reset", "--probe-id", identity["probe_id"], "--reset-id", reset_id,
+                            "--previous-stream-id", old_stream, "--stream-id", new_stream)
+            plan = admin(*prepare_args)
+            assert admin(*prepare_args) == plan
+            status_args = ("reset-status", "--probe-id", identity["probe_id"], "--reset-id", reset_id)
+            assert admin(*status_args)["state"] == "prepared"
+            assert hub_query("SELECT JSON_OBJECT('owner',owner_id,'lease',lease_until,'connected',connected) FROM probe_sessions "
+                             f"WHERE probe_id='{identity['probe_id']}'") == [{"owner": "", "lease": 0, "connected": 0}]
+            mark("reset preparation retries preserve plan and revoke live connector authority")
+            plan_file = output / "reset-plan.json"
+            plan_file.write_text(json.dumps(plan))
+            plan_file.chmod(0o600)
+            reset_args = ["reset-stream", "--data-dir", str(edge_dir), "--plan-file", str(plan_file)]
+            receipt = command(args.probe_binary, reset_args, edge_env)
+            assert command(args.probe_binary, reset_args, edge_env) == receipt
+            assert receipt["state"] == "source_applied" and receipt["unobserved_coverage"] == "unknown"
+            assert int(receipt["source_last_created_seq"]) == original["last_created_seq"]
+            archive = edge_dir / "stream-archives" / reset_id / "edge.db"
+            assert hashlib.sha256(archive.read_bytes()).hexdigest() == receipt["archive_sha256"]
+            with closing(sqlite3.connect(f"file:{archive}?mode=ro&immutable=1", uri=True)) as archived:
+                assert archived.execute("SELECT stream_id,last_created_seq FROM edge_identity").fetchone() == (old_stream, original["last_created_seq"])
+            assert edge_progress()["stream_id"] == new_stream and edge_progress()["last_created_seq"] == 0
+            mark("source reset and lost-output retry preserve a verified archive and start new epoch at zero")
+            start("edge", args.probe_binary, edge_args, edge_env)
+            wait_for("source-only committed reset restarts before hub activation", lambda: edge_http("/readyz") == 200)
+            assert admin(*status_args)["state"] == "prepared"
+            stop("edge")
+            assert command(args.probe_binary, reset_args, edge_env) == receipt
+            receipt_file = output / "reset-source-receipt.json"
+            receipt_file.write_text(json.dumps(receipt))
+            receipt_file.chmod(0o600)
+            activate_args = ("activate-reset", "--probe-id", identity["probe_id"], "--reset-id", reset_id,
+                             "--receipt-file", str(receipt_file))
+            activated = admin(*activate_args)
+            assert activated["state"] == "awaiting_peer" and "confirmed_at" not in activated
+            assert admin(*activate_args) == activated
+            assert hub_query("SELECT JSON_OBJECT('cursor',committed_seq,'retired',retired_at IS NOT NULL) FROM probe_streams "
+                             f"WHERE probe_id='{identity['probe_id']}' AND stream_id='{old_stream}'") == [{"cursor": int(plan["hub_committed_seq"]), "retired": 1}]
+            assert hub_query("SELECT JSON_OBJECT('receipts',COUNT(*)) FROM probe_telemetry_receipts "
+                             f"WHERE probe_id='{identity['probe_id']}' AND stream_id='{old_stream}'")[0] == old_history
+            assert hub_query("SELECT JSON_OBJECT('reason',reason,'stream',stream_id) FROM probe_missing_state "
+                             f"WHERE probe_id='{identity['probe_id']}'") == [{"reason": "stream_reset", "stream": new_stream}]
+            mark("hub activation retains old history and reports UNKNOWN while peer is stopped")
+            for name in ("worker-a", "worker-b"):
+                stop(name)
+            for worker in ("worker-a", "worker-b"):
+                start(worker, args.app_binary, [], dict(env, MODE="worker", WORKER_ID=worker, PROBES_ENABLED="true"))
+            assert admin(*status_args)["state"] == "awaiting_peer"
+            identity["stream_id"] = new_stream
+            start("edge", args.probe_binary, edge_args, edge_env)
+            wait_for("authenticated new-stream health confirms reset after both-side restart", lambda:
+                     admin(*status_args)["state"] == "complete", timeout=90)
+            complete = admin(*status_args)
+            assert complete["confirmed_at"]
+            wait_for("new-stream sequence one replays independently from retained old sequence one", lambda:
+                     hub_cursor() >= 1 and edge_progress()["committed_seq"] >= 1)
+            assert hub_query("SELECT JSON_OBJECT('count',COUNT(DISTINCT stream_id)) FROM probe_telemetry_receipts "
+                             f"WHERE probe_id='{identity['probe_id']}' AND seq=1") == [{"count": 2}]
+            assert {name: hashlib.sha256((edge_dir / name).read_bytes()).hexdigest() for name in anchors} == anchors
+            assert admin(*prepare_args) == plan
+            assert admin(*activate_args) == complete
+            final = edge_progress()
+            reset_evidence = {"operation": complete, "old_history": old_history,
+                              "source_before_reset": original, "bootstrap_files_unchanged": True,
+                              "source_only_restart_verified": True, "hub_only_restart_verified": True}
         report = {"passed": passed, "identity": identity, "before_restart": before, "final": final,
                   "incident": incident, "provider_attempt_statuses": provider_attempts, "successful_webhook_statuses": [h["status"] for h in hooks],
                   "replay_verified": args.verify_replay, "replay": replay_evidence,
@@ -718,7 +797,8 @@ def main():
                   "watchdog_verified": args.verify_watchdog, "watchdog": watchdog_evidence,
                   "command_verified": args.verify_command, "command": command_evidence,
                   "credential_rotation_verified": args.verify_credential_rotation, "credential_rotation": rotation_evidence,
-                  "certificate_rotation_verified": args.verify_certificate_rotation, "certificate_rotation": certificate_evidence}
+                  "certificate_rotation_verified": args.verify_certificate_rotation, "certificate_rotation": certificate_evidence,
+                  "stream_reset_verified": args.verify_stream_reset, "stream_reset": reset_evidence}
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print("Evidence:", output, flush=True)
     finally:

@@ -945,10 +945,31 @@ late-transaction failure, exact retry, capacity, guarded downgrade, epoch chains
 certificate resealing and restart with unchanged pin/token/bootstrap files.
 The publication retry regression keeps directory sync failing after an archive
 is already visible; reset must preserve the original live epoch. Tests do not
-claim to simulate an actual machine power cut. Hub reset and compiled reset CLI
-acceptance remain separate unfinished work; the existing compiled replay/
-certificate workflow is only a regression check for this checkpoint. See
-[source reset evidence](multi-region/M3_SOURCE_RESET_ACCEPTANCE.md).
+claim to simulate an actual machine power cut. See
+[source reset evidence](multi-region/M3_SOURCE_RESET_ACCEPTANCE.md) and the hub/CLI
+acceptance below; the older compiled replay/certificate run was only a source
+checkpoint regression check.
+
+## M3 hub stream reset and operator recovery
+
+Run `rtk proxy go test -race -count=1 ./internal/adapters/repository ./internal/adapters/probe ./cmd/probe -run 'TestProbeStreamReset|TestStreamReset|TestProbeResetCLI'`.
+Set the documented `TEST_MARIADB_DSN` to a disposable live engine and verify its
+named cases ran; a skipped engine is not acceptance. Tests cover stale parent/
+child leases, both transaction rollback boundaries, history/ciphertext retention,
+UNKNOWN current state, exact retries, closed metadata, unresolved rotations and
+populated downgrade refusal. The source CLI exercises a pending archive failure
+and lost post-commit output through real startup.
+
+Build the ordinary app, probe and phoenix-probe-admin binaries, then run
+`scripts/probe_runtime_smoke.py` with `--verify-replay --verify-stream-reset` and
+`--mariadb-container` under the existing disposable `_smoke` DB setup. Do not
+combine the reset flag with rotation flags; their unresolved overlap intentionally
+blocks reset. This process test exercises both recoverable restart orderings,
+metadata-only receipts, archive integrity, UNKNOWN before peer confirmation,
+actual authenticated completion and independent sequence one in old/new streams.
+Diagnostic SQLite readers must close explicitly; read a published archive with
+`mode=ro&immutable=1` so verification cannot create sidecars. See
+[hub reset acceptance](multi-region/M3_HUB_RESET_ACCEPTANCE.md).
 
 ## M3 ordered replay integration
 

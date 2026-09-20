@@ -186,9 +186,11 @@ func readCertificateState(ctx context.Context, db bun.IDB) (domain.EdgeCertifica
 // The TLS owner must authenticate the returned material before publishing it.
 func (s *Store) ReadActiveCertificate(ctx context.Context) (domain.EdgeCertificateState, error) {
 	var state domain.EdgeCertificateState
-	err := s.write(ctx, func(ctx context.Context, tx bun.Tx, identity domain.EdgeIdentity) error {
-		if err := expireCertificateOverlaps(ctx, tx, s.commandNow().UTC()); err != nil {
-			return err
+	read := func(ctx context.Context, tx bun.Tx, identity domain.EdgeIdentity) error {
+		if !s.resetMode {
+			if err := expireCertificateOverlaps(ctx, tx, s.commandNow().UTC()); err != nil {
+				return err
+			}
 		}
 		var err error
 		state, err = readCertificateState(ctx, tx)
@@ -215,7 +217,23 @@ func (s *Store) ReadActiveCertificate(ctx context.Context) (domain.EdgeCertifica
 		}
 		state.Certificate = &certificate
 		return nil
-	})
+	}
+	var err error
+	if s.resetMode {
+		// Pending recovery must validate the current TLS identity before reset,
+		// without changing evidence after its archive reservation. This path is
+		// deliberately read-only; normal runtime writes remain prohibited.
+		err = s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+			identity, err := readIdentity(ctx, tx)
+			if err != nil {
+				return err
+			}
+			return read(ctx, tx, identity)
+		})
+		err = storageError(ctx, err)
+	} else {
+		err = s.write(ctx, read)
+	}
 	if err != nil {
 		return domain.EdgeCertificateState{}, err
 	}

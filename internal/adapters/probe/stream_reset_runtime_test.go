@@ -70,6 +70,10 @@ func TestStreamResetRuntimeKeepsPinAndUsesVerifiedEpochAfterRestart(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
+			if _, err := NewEdgeTLSManager(t.Context(), f.id, recovery, f.protector); err != nil {
+				_ = recovery.Close()
+				t.Fatal("recovery handle cannot authenticate retained TLS before reset", err)
+			}
 			plan := domain.ProbeStreamResetPlan{ResetID: uuid.NewString(), HubID: f.hubID, ProbeID: f.id.ProbeID, EnrollmentID: binding.EnrollmentID, PreviousStreamID: f.id.StreamID, StreamID: uuid.NewString(), Fingerprint: pin, CredentialVersion: 1, CertificateVersion: certificateVersion, ConnectionGeneration: 10, PreparedAt: time.Now().UTC().Truncate(time.Microsecond)}
 			if _, err := recovery.ResetStream(t.Context(), plan); err != nil {
 				_ = recovery.Close()

@@ -312,9 +312,17 @@ A durable authenticated reservation blocks normal restart before a bounded SQLit
 archive is published and synced. Reset selects a new epoch only after preserving
 old evidence, and reseals active TLS material without changing pin/key or bootstrap
 files. Current identity is authenticated through a chain from the initial stream.
-See [source reset checkpoint](M3_SOURCE_RESET_ACCEPTANCE.md) and the
-[remaining hub/CLI contract](M3_STREAM_RESET_WORK_CONTRACT.md). Whole reset and the
-broader fifteen-minute M3 scenario remain unfinished. Watchdog ACK remains unsupported
+Hub migration 064 separates reset phase from enrollment and retains old cursors,
+receipts and command scope. Preparation revokes runtime/session authority;
+activation reseals the same token for the new epoch, invalidates live projection
+with an explicit UNKNOWN marker, and cancels old pending commands locally without
+claiming remote application. Only authenticated new-stream health confirms the
+peer. Operator recovery uses `prepare-reset`, stopped-source `reset-stream`,
+`activate-reset` and `reset-status`; no fleet HTTP/UI reset is introduced.
+See [source checkpoint](M3_SOURCE_RESET_ACCEPTANCE.md),
+[hub/CLI acceptance](M3_HUB_RESET_ACCEPTANCE.md) and
+[the contract](M3_STREAM_RESET_WORK_CONTRACT.md). Bounded shutdown and the broader
+fifteen-minute M3 scenario remain unfinished. Watchdog ACK remains unsupported
 by the positive-assignment-generation regional command target.
 
 Send control health every 15 seconds. A link is suspect after 45 seconds without valid application health and disconnected after 90 seconds. Require 30 seconds of continuous valid health before a watchdog recovery notification. These are defaults, not sub-second promises.
