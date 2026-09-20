@@ -197,17 +197,33 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 		if err != nil {
 			return errors.New("invalid probe response")
 		}
-		if envelope.Type == "telemetry.batch" {
+		if envelope.Type == "telemetry.batch" || envelope.Type == "telemetry.gap" {
 			if ingest == nil {
 				return errors.New("ingest unavailable")
 			}
-			batch, err := decodeReplayBatch(data, m.ProbeID)
+			var batch domain.ProbeReplayBatch
+			if envelope.Type == "telemetry.gap" {
+				batch, err = decodeReplayGap(data, m.ProbeID)
+			} else {
+				batch, err = decodeReplayBatch(data, m.ProbeID)
+			}
 			if err != nil || batch.StreamID != m.StreamID {
 				return errors.New("invalid telemetry batch")
 			}
-			result, err := ingest(frameCtx, batch)
+			commitCtx, cancelCommit := context.WithTimeout(frameCtx, 10*time.Second)
+			result, err := ingest(commitCtx, batch)
+			cancelCommit()
 			if err != nil {
 				ready.Store(false)
+				if errors.Is(err, domain.ErrReplayRetry) && result != nil && result.StreamID == batch.StreamID && result.CommittedSeq >= batch.FirstSeq-1 && result.CommittedSeq <= batch.LastSeq {
+					response, encodeErr := encodeFrame("telemetry.retry", Decimal(input.Generation), TelemetryRetry{StreamID: batch.StreamID, CommittedSeq: Decimal(result.CommittedSeq), RetryAfterMS: 1000})
+					if encodeErr != nil {
+						return encodeErr
+					}
+					// Probe health refreshes writability; the retry frame itself is
+					// only a backoff request and can never acknowledge evidence.
+					return session.SendControl(frameCtx, response)
+				}
 				return errors.New("telemetry commit unavailable")
 			}
 			if result == nil || result.StreamID != batch.StreamID || result.CommittedSeq != batch.LastSeq {

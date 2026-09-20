@@ -1,8 +1,13 @@
 package domain
 
 import (
+	"errors"
 	"time"
 )
+
+// ErrReplayRetry requests bounded backoff after a failed commit with a freshly
+// verified durable cursor. The accompanying result never authorizes pruning.
+var ErrReplayRetry = errors.New("telemetry storage temporarily unavailable")
 
 // Supported replay event kinds.
 const (
@@ -30,6 +35,7 @@ type ProbeReplayBatch struct {
 	FirstSeq int64
 	LastSeq  int64
 	Events   []ProbeReplayEvent
+	Gap      *ProbeTelemetryGap
 }
 
 // ProbeReplayRejection records a permanent rejection for a specific sequence.
@@ -79,8 +85,29 @@ func ValidProbeReplayBatch(session ProbeReplaySession, batch ProbeReplayBatch) b
 	if !ValidHubID(session.HubID) || !ValidHubID(session.OwnerID) || !ValidHubID(session.ProbeID) ||
 		!ValidHubID(session.StreamID) || session.ProbeID == LocalProbeID || session.StreamID == LocalStreamID ||
 		session.ConnectionGeneration <= 0 || batch.ProbeID != session.ProbeID || batch.StreamID != session.StreamID ||
-		len(batch.Events) < 1 || len(batch.Events) > 256 || batch.FirstSeq <= 0 || batch.LastSeq < batch.FirstSeq ||
-		batch.LastSeq-batch.FirstSeq != int64(len(batch.Events)-1) {
+		batch.FirstSeq <= 0 || batch.LastSeq < batch.FirstSeq {
+		return false
+	}
+	if batch.Gap != nil {
+		g := batch.Gap
+		if len(batch.Events) != 0 || g.StreamID != batch.StreamID || g.FromSeq != batch.FirstSeq || g.ThroughSeq != batch.LastSeq || g.ObservedFrom.IsZero() || g.ObservedThrough.Before(g.ObservedFrom) || len(g.AffectedMonitorIDs) > 256 {
+			return false
+		}
+		switch g.Reason {
+		case "retention_age", "retention_bytes", "disk_pressure", "restore_loss":
+		default:
+			return false
+		}
+		seen := make(map[int64]bool, len(g.AffectedMonitorIDs))
+		for _, id := range g.AffectedMonitorIDs {
+			if id <= 0 || seen[id] {
+				return false
+			}
+			seen[id] = true
+		}
+		return true
+	}
+	if len(batch.Events) < 1 || len(batch.Events) > 256 || batch.LastSeq-batch.FirstSeq != int64(len(batch.Events)-1) {
 		return false
 	}
 	for index, event := range batch.Events {

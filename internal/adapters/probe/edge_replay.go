@@ -208,7 +208,7 @@ func (p *edgeReplayPump) run(ctx context.Context) error {
 			return fmt.Errorf("read replay batch: %w", err)
 		}
 
-		if batch == nil || len(batch.Items) == 0 {
+		if batch == nil || len(batch.Items) == 0 && batch.Gap == nil {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -261,7 +261,12 @@ func (p *edgeReplayPump) run(ctx context.Context) error {
 			}
 		}
 
-		frameBytes, err := buildReplayBatchFrame(p.streamID, p.generation, batch)
+		var frameBytes []byte
+		if batch.Gap != nil {
+			frameBytes, err = buildReplayGapFrame(p.streamID, p.generation, batch)
+		} else {
+			frameBytes, err = buildReplayBatchFrame(p.streamID, p.generation, batch)
+		}
 		if err != nil {
 			if p.session != nil {
 				_ = p.session.Close()

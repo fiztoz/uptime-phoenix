@@ -105,12 +105,27 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 		if stream.RetiredAt != nil || batch.FirstSeq > stream.CommittedSeq && batch.FirstSeq-stream.CommittedSeq != 1 {
 			return ports.ErrConflict
 		}
+		if batch.Gap != nil {
+			if err := recordReplayGap(ctx, tx, session, batch.Gap, stream.CommittedSeq, now); err != nil {
+				return err
+			}
+		}
 		// Decode each retained revision at most once in this bounded transaction.
 		configs := make(map[int64]*domain.EdgeResolvedConfig)
 		for _, event := range batch.Events {
 			if event.Seq <= stream.CommittedSeq {
 				var receipt replayReceiptModel
 				if err := tx.NewSelect().Model(&receipt).Where("probe_id = ? AND stream_id = ? AND seq = ?", session.ProbeID, session.StreamID, event.Seq).Scan(ctx); err != nil {
+					if errors.Is(err, sql.ErrNoRows) {
+						lost, gapErr := sequenceHasGap(ctx, tx, session.ProbeID, session.StreamID, event.Seq)
+						if gapErr != nil {
+							return gapErr
+						}
+						if lost {
+							result.Rejected = append(result.Rejected, domain.ProbeReplayRejection{Seq: event.Seq, Code: "history_gap"})
+							continue
+						}
+					}
 					return err
 				}
 				if receipt.Digest != event.Digest || receipt.Kind != event.Kind {

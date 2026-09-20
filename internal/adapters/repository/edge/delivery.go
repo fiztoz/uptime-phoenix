@@ -2,6 +2,7 @@ package edge
 
 import (
 	"context"
+	"errors"
 	"math"
 	"time"
 
@@ -123,13 +124,39 @@ func (s *Store) ClaimDeliveries(ctx context.Context, probeID string, at time.Tim
 			if err := tx.NewRaw("SELECT COUNT(*) FROM edge_delivery_outbox WHERE status = 'leased'").Scan(ctx, &leased); err != nil {
 				return err
 			}
-			for _, row := range rows {
-				if row.Status != domain.DeliveryStatusLeased {
-					leased++
+			if s.retention.MaxBytes > 0 {
+				// A configured small queue may not hold limit maximum outcomes.
+				// Claim the safe prefix, keeping room for bounded loss metadata,
+				// so one oversized request cannot starve every provider forever.
+				capacity := (s.retention.MaxBytes - maxRetainedGaps*queueRowBytes) / (maxTelemetryEventBytes + queueRowBytes)
+				selected := rows[:0]
+				for _, row := range rows {
+					if row.Status != domain.DeliveryStatusLeased {
+						if leased >= capacity {
+							continue
+						}
+						leased++
+					}
+					selected = append(selected, row)
 				}
-			}
-			if queuedBytes > maxTelemetryQueueBytes-leased*maxTelemetryEventBytes {
-				return ErrQueueFull
+				rows = selected
+				if err := s.retainTelemetry(ctx, tx, atUTC, "delivery.result", 0, leased*(maxTelemetryEventBytes+queueRowBytes)); err != nil {
+					if errors.Is(err, ErrQueueFull) {
+						// Commit bounded eviction progress, but authorize no I/O.
+						// A later claim can finish freeing the required capacity.
+						return nil
+					}
+					return err
+				}
+			} else {
+				for _, row := range rows {
+					if row.Status != domain.DeliveryStatusLeased {
+						leased++
+					}
+				}
+				if queuedBytes > maxTelemetryQueueBytes-leased*maxTelemetryEventBytes {
+					return ErrQueueFull
+				}
 			}
 		}
 
@@ -252,7 +279,7 @@ func (s *Store) FinishDelivery(ctx context.Context, claim domain.DeliveryClaim, 
 			return domain.ErrValidation
 		}
 
-		if err := appendTelemetry(ctx, tx, nextSeq, "delivery.result", resultAt, payload); err != nil {
+		if err := s.appendTelemetry(ctx, tx, nextSeq, "delivery.result", resultAt, payload); err != nil {
 			return err
 		}
 

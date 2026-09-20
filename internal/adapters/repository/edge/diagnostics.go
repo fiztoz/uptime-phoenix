@@ -17,6 +17,8 @@ type Diagnostics struct {
 	OldestQueuedAt    *time.Time
 	PendingDeliveries int64
 	FailedDeliveries  int64
+	GapRanges         int64
+	QueuePressure     bool
 }
 
 // ReadDiagnostics reads stream progress and retained telemetry in one transaction.
@@ -37,6 +39,32 @@ func (s *Store) ReadDiagnostics(ctx context.Context) (Diagnostics, error) {
 			return err
 		}
 		out.FirstRetainedSeq, out.QueueBytes, out.OldestQueuedAt = row.First, row.Bytes, timeFromMicro(row.Oldest)
+		var gaps struct {
+			First  int64
+			Oldest *int64
+			Count  int64
+		}
+		if err := tx.NewRaw("SELECT COALESCE(MIN(from_seq),0) AS first, MIN(observed_from) AS oldest, COUNT(*) AS count FROM edge_gaps").Scan(ctx, &gaps); err != nil {
+			return err
+		}
+		out.GapRanges = gaps.Count
+		if gaps.Count > 0 {
+			if out.FirstRetainedSeq == 0 || gaps.First < out.FirstRetainedSeq {
+				out.FirstRetainedSeq = gaps.First
+			}
+			if out.OldestQueuedAt == nil || time.UnixMicro(*gaps.Oldest).Before(*out.OldestQueuedAt) {
+				out.OldestQueuedAt = timeFromMicro(gaps.Oldest)
+			}
+		}
+		if s.retention.MaxBytes > 0 {
+			out.QueueBytes, err = telemetryStorageBytes(ctx, tx)
+			if err != nil {
+				return err
+			}
+			out.QueuePressure = out.QueueBytes >= s.retention.MaxBytes*8/10
+		} else {
+			out.QueueBytes += gaps.Count * queueRowBytes
+		}
 		if err := tx.NewRaw("SELECT COUNT(*) FROM edge_delivery_outbox WHERE status IN ('pending', 'leased', 'retrying')").Scan(ctx, &out.PendingDeliveries); err != nil {
 			return err
 		}

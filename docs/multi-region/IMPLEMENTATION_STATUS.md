@@ -7,6 +7,22 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 retention and recovery increment — 2026-09-20
+
+The next increment adds durable edge retention gaps, ordered hub gap receipts,
+recoverable `telemetry.retry`, queue-pressure diagnostics and provider outcome
+reservations that also work with small configured budgets. The full Go race suite,
+CGO-free build, zero-issue lint and complete live MariaDB/SQLite repository matrix
+passed. See the
+[acceptance ledger](M3_RETENTION_ACCEPTANCE.md) for current test results,
+initial failures and remaining limits. The full milestone checklist remains in
+[M3_COMPLETION_WORK_CONTRACT.md](M3_COMPLETION_WORK_CONTRACT.md).
+
+M3 is not complete. In particular, gap coverage recomputation is queued but not
+consumed, current-state synchronization and both watchdogs are not running, and
+commands/rotation/reset, cleanup and graceful flushing remain open. Antigravity's
+bounded transport-test ownership is returned; its next review is read-only.
+
 ## M3 ordered telemetry replay — 2026-09-20
 
 The second M3 increment is committed locally as `f1095f8` on top of `d3eea61`.

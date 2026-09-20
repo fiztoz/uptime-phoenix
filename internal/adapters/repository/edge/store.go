@@ -31,6 +31,7 @@ var migrations embed.FS
 type Store struct {
 	db        *bun.DB
 	telemetry ports.EdgeTelemetryEncoder
+	retention RetentionPolicy
 }
 
 // Option supplies an optional execution dependency before the store is published.

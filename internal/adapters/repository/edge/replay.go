@@ -2,6 +2,8 @@ package edge
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -72,13 +74,29 @@ func (s *Store) ReadReplayBatch(ctx context.Context, fromSeq int64, maxEvents in
 			return ports.ErrConflict
 		}
 
+		var gap retainedGap
+		gapErr := tx.NewSelect().Model(&gap).Where("through_seq >= ?", fromSeq).Order("from_seq").Limit(1).Scan(ctx)
+		if gapErr != nil && !errors.Is(gapErr, sql.ErrNoRows) {
+			return gapErr
+		}
+		if gapErr == nil && gap.FromSeq <= fromSeq {
+			if gap.ThroughSeq > i.LastCreatedSeq {
+				return ports.ErrConflict
+			}
+			gap.FromSeq = fromSeq
+			batch = &domain.EdgeReplayBatch{StreamID: i.StreamID, FirstSeq: gap.FromSeq, LastSeq: gap.ThroughSeq, Gap: gap.domain(i.StreamID)}
+			return nil
+		}
 		var rows []outboxRow
-		err = tx.NewSelect().
+		query := tx.NewSelect().
 			Model(&rows).
 			Where("seq >= ?", fromSeq).
 			Order("seq ASC").
-			Limit(maxEvents).
-			Scan(ctx)
+			Limit(maxEvents)
+		if gapErr == nil {
+			query = query.Where("seq < ?", gap.FromSeq)
+		}
+		err = query.Scan(ctx)
 		if err != nil {
 			return err
 		}
@@ -146,7 +164,7 @@ func (s *Store) ReadReplayBatch(ctx context.Context, fromSeq int64, maxEvents in
 			stoppedByLimit = true
 		}
 
-		if !stoppedByLimit && items[len(items)-1].Seq < i.LastCreatedSeq {
+		if !stoppedByLimit && items[len(items)-1].Seq < i.LastCreatedSeq && (gapErr != nil || items[len(items)-1].Seq+1 != gap.FromSeq) {
 			return fmt.Errorf("missing telemetry tail sequence: expected up to %d, got %d: %w", i.LastCreatedSeq, items[len(items)-1].Seq, ports.ErrConflict)
 		}
 
@@ -199,6 +217,11 @@ func (s *Store) CommitReplayACK(ctx context.Context, fence domain.EdgeReplayFenc
 		if err != nil {
 			return err
 		}
+		var gapCount int64
+		if err := tx.NewRaw("SELECT COALESCE(SUM(MIN(through_seq, ?) - MAX(from_seq, ?) + 1),0) FROM edge_gaps WHERE through_seq > ? AND from_seq <= ?", result.CommittedSeq, i.CommittedSeq+1, i.CommittedSeq, result.CommittedSeq).Scan(ctx, &gapCount); err != nil {
+			return err
+		}
+		count += gapCount
 		expectedCount := result.CommittedSeq - i.CommittedSeq
 		if count != expectedCount {
 			return fmt.Errorf("cannot commit ACK across missing sequence: expected %d rows, found %d: %w", expectedCount, count, ports.ErrConflict)
@@ -208,7 +231,15 @@ func (s *Store) CommitReplayACK(ctx context.Context, fence domain.EdgeReplayFenc
 			return err
 		}
 
-		_, err = tx.ExecContext(ctx, "DELETE FROM edge_telemetry_outbox WHERE seq <= ?", result.CommittedSeq)
+		if _, err = tx.ExecContext(ctx, "DELETE FROM edge_telemetry_outbox WHERE seq <= ?", result.CommittedSeq); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, "DELETE FROM edge_gaps WHERE through_seq <= ?", result.CommittedSeq); err != nil {
+			return err
+		}
+		if result.CommittedSeq < math.MaxInt64 {
+			_, err = tx.ExecContext(ctx, "UPDATE edge_gaps SET from_seq = ? WHERE from_seq <= ?", result.CommittedSeq+1, result.CommittedSeq)
+		}
 		return err
 	})
 }

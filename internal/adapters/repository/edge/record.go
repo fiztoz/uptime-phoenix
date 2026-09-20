@@ -19,7 +19,7 @@ const maxDeliveryQueueBytes = 64 << 20
 const maxTelemetryEventBytes = 64 << 10
 
 // ErrQueueFull stops recording rather than silently deleting unacknowledged data.
-// Retention/gap declaration is deliberately a later explicit protocol operation.
+// Configured retention must first persist a gap before it can make space.
 var ErrQueueFull = errors.New("edge telemetry queue is full")
 
 var _ ports.EdgeCheckRepository = (*Store)(nil)
@@ -156,7 +156,7 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 		if err != nil {
 			return domain.ErrValidation
 		}
-		if err := appendTelemetry(ctx, tx, o.Seq, "observation", o.ObservedAt, observationBytes); err != nil {
+		if err := s.appendTelemetry(ctx, tx, o.Seq, "observation", o.ObservedAt, observationBytes); err != nil {
 			return err
 		}
 		incident := before.Incident
@@ -169,7 +169,7 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 			if err != nil {
 				return domain.ErrValidation
 			}
-			if err := appendTelemetry(ctx, tx, o.Seq+1, "alert.transition", o.ObservedAt, payload); err != nil {
+			if err := s.appendTelemetry(ctx, tx, o.Seq+1, "alert.transition", o.ObservedAt, payload); err != nil {
 				return err
 			}
 		}
@@ -210,7 +210,7 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 	return committed, nil
 }
 
-func appendTelemetry(ctx context.Context, tx bun.Tx, seq int64, kind string, at time.Time, payload []byte) error {
+func (s *Store) appendTelemetry(ctx context.Context, tx bun.Tx, seq int64, kind string, at time.Time, payload []byte) error {
 	if len(payload) == 0 || len(payload) > maxTelemetryEventBytes {
 		return domain.ErrValidation
 	}
@@ -230,7 +230,11 @@ func appendTelemetry(ctx context.Context, tx bun.Tx, seq int64, kind string, at 
 			return domain.ErrValidation
 		}
 	}
-	if size > maxTelemetryQueueBytes-int64(len(payload))-leased*maxTelemetryEventBytes {
+	if s.retention.MaxBytes > 0 {
+		if err := s.retainTelemetry(ctx, tx, time.Now().UTC(), kind, int64(len(payload))+queueRowBytes, leased*(maxTelemetryEventBytes+queueRowBytes)); err != nil {
+			return err
+		}
+	} else if size > maxTelemetryQueueBytes-int64(len(payload))-leased*maxTelemetryEventBytes {
 		return ErrQueueFull
 	}
 	_, err := tx.ExecContext(ctx, "INSERT INTO edge_telemetry_outbox (seq, kind, observed_at, payload) VALUES (?, ?, ?, ?)", seq, kind, at.UTC().UnixMicro(), payload)

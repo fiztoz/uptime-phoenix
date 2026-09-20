@@ -26,9 +26,11 @@ import (
 )
 
 type edgeOptions struct {
-	DataDir string `env:"PROBE_DATA_DIR" envDefault:"/var/lib/uptime-phoenix/probe"`
-	Listen  string `env:"PROBE_LISTEN_ADDR" envDefault:":8443"`
-	KeyFile string `env:"PROBE_SECRET_KEY_FILE"`
+	DataDir                 string `env:"PROBE_DATA_DIR" envDefault:"/var/lib/uptime-phoenix/probe"`
+	Listen                  string `env:"PROBE_LISTEN_ADDR" envDefault:":8443"`
+	KeyFile                 string `env:"PROBE_SECRET_KEY_FILE"`
+	TelemetryMaxBytes       int64  `env:"PROBE_TELEMETRY_MAX_BYTES" envDefault:"536870912"`
+	TelemetryRetentionHours int    `env:"PROBE_TELEMETRY_RETENTION_HOURS" envDefault:"168"`
 }
 
 func main() {
@@ -58,7 +60,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&cfg.DataDir, "data-dir", cfg.DataDir, "private local data directory")
 	flags.StringVar(&cfg.KeyFile, "key-file", cfg.KeyFile, "protected configuration key")
 	flags.StringVar(&cfg.Listen, "listen", cfg.Listen, "TLS listen address")
-	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 || cfg.DataDir == "" {
+	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 || cfg.DataDir == "" || cfg.TelemetryMaxBytes < 1<<20 || cfg.TelemetryMaxBytes > 1<<40 || cfg.TelemetryRetentionHours < 1 || cfg.TelemetryRetentionHours > 365*24 {
 		_, _ = io.WriteString(stderr, usage)
 		return 2
 	}
@@ -95,7 +97,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = io.WriteString(stderr, "Probe protection key is missing or invalid\n")
 		return 1
 	}
-	store, err := edge.Open(ctx, identity.DataDir, domain.EdgeIdentity{ProbeID: identity.ProbeID, StreamID: identity.StreamID, Fingerprint: identity.Fingerprint}, edge.WithTelemetryEncoder(probe.EdgeTelemetryEncoder{}))
+	store, err := edge.Open(ctx, identity.DataDir, domain.EdgeIdentity{ProbeID: identity.ProbeID, StreamID: identity.StreamID, Fingerprint: identity.Fingerprint}, edge.WithTelemetryEncoder(probe.EdgeTelemetryEncoder{}), edge.WithRetentionPolicy(edge.RetentionPolicy{MaxBytes: cfg.TelemetryMaxBytes, MaxAge: time.Duration(cfg.TelemetryRetentionHours) * time.Hour}))
 	if err != nil {
 		_, _ = io.WriteString(stderr, "Probe storage could not be opened\n")
 		return 1

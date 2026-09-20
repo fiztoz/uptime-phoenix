@@ -17,6 +17,7 @@ type EdgeReplayBatch struct {
 	LastSeq    int64
 	Items      []EdgeReplayItem
 	TotalBytes int
+	Gap        *ProbeTelemetryGap // Exactly one gap or Items, never both.
 }
 
 // EdgeReplayFence fences edge ACK commits to the current established session.

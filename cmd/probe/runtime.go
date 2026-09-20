@@ -40,6 +40,12 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 		if !healthy {
 			codes = append(codes, "scheduler_unavailable")
 		}
+		if state.QueuePressure {
+			codes = append(codes, "queue_pressure")
+		}
+		if state.GapRanges > 0 {
+			codes = append(codes, "telemetry_gap")
+		}
 		var oldest *probe.Timestamp
 		if state.OldestQueuedAt != nil {
 			at := probe.Timestamp(*state.OldestQueuedAt)
@@ -79,11 +85,28 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 		return errors.New("probe listener unavailable")
 	}
 	var workers sync.WaitGroup
-	workers.Add(3)
+	workers.Add(4)
 	failures := make(chan error, 2)
 	report := func(error) { slog.Warn("probe local operation failed; retry pending") }
 	go func() { defer workers.Done(); failures <- schedule.Run(runCtx, report) }()
 	go func() { defer workers.Done(); delivery.Run(runCtx, identity.ProbeID, report) }()
+	go func() {
+		defer workers.Done()
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			opCtx, done := context.WithTimeout(runCtx, 10*time.Second)
+			if sweepErr := store.SweepRetention(opCtx, time.Now().UTC()); sweepErr != nil && runCtx.Err() == nil {
+				report(sweepErr)
+			}
+			done()
+			select {
+			case <-runCtx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 	go func() { defer workers.Done(); failures <- server.ServeTLS(listener, "", "") }()
 	slog.Info("probe runtime listening", "probe_id", identity.ProbeID, "address", listener.Addr().String())
 	select {
