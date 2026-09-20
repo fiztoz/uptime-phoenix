@@ -66,22 +66,23 @@ type ProbeReplaySession struct {
 // ProbeReplayAuthorityFacts contains only nonsecret, transaction-bound facts for
 // one event. History and configuration membership are scoped to MonitorID.
 type ProbeReplayAuthorityFacts struct {
-	ProbeID              string
-	StreamID             string
-	MonitorID            int64
-	MonitorExists        bool
-	ConfigRevision       int64
-	ConfigEffectiveAt    time.Time
-	ConfigFound          bool
-	WatchdogEnabled      bool
-	HubOwnedIncident     bool
-	ConfigAssignment     *EdgeAssignmentIdentity
-	AssignmentHistory    []AssignmentInterval
-	Channels             map[int64]int64
-	PriorIncident        *RegionalIncident
-	ParentTransition     *RegionalIncident
-	PriorDelivery        *RegionalDelivery
-	DeliveryIntentExists bool
+	ProbeID               string
+	StreamID              string
+	MonitorID             int64
+	MonitorExists         bool
+	ConfigRevision        int64
+	ConfigEffectiveAt     time.Time
+	ConfigFound           bool
+	WatchdogEnabled       bool
+	HubOwnedIncident      bool
+	ConfigAssignment      *EdgeAssignmentIdentity
+	AssignmentHistory     []AssignmentInterval
+	Channels              map[int64]int64
+	PriorIncident         *RegionalIncident
+	IssuedAcknowledgement *ProbeAlertAcknowledgement
+	ParentTransition      *RegionalIncident
+	PriorDelivery         *RegionalDelivery
+	DeliveryIntentExists  bool
 }
 
 // ValidProbeReplayBatch verifies contiguous framing at the core boundary too.

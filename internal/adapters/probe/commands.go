@@ -136,36 +136,42 @@ func (CertificatePrepareDetails) isCommandResultDetails() {}
 
 // DecodeCommandRequest validates a command.request payload. It does not apply it.
 func DecodeCommandRequest(data []byte) (Envelope, CommandRequest, error) {
-	var command CommandRequest
 	envelope, fields, err := telemetryFields(data, "command.request")
 	if err != nil {
 		return envelope, CommandRequest{}, err
 	}
+	command, err := decodeCommandRequestFields(fields)
+	return envelope, command, err
+}
+
+func decodeCommandRequestFields(fields map[string]json.RawMessage) (CommandRequest, error) {
+	var command CommandRequest
+	var err error
 	if err := requiredUUID(fields, "command_id", &command.CommandID); err != nil {
-		return envelope, CommandRequest{}, err
+		return CommandRequest{}, err
 	}
 	if err := decodeRequiredFields(fields,
 		field{"kind", &command.Kind}, field{"created_at", &command.CreatedAt}, field{"expires_at", &command.ExpiresAt},
 	); err != nil {
-		return envelope, CommandRequest{}, err
+		return CommandRequest{}, err
 	}
 	var targetRaw json.RawMessage
 	if err := required(fields, "target", &targetRaw); err != nil {
-		return envelope, CommandRequest{}, err
+		return CommandRequest{}, err
 	}
 	command.Target, err = decodeCommandTarget(targetRaw)
 	if err != nil {
-		return envelope, CommandRequest{}, err
+		return CommandRequest{}, err
 	}
 	var dataRaw json.RawMessage
 	if err := required(fields, "data", &dataRaw); err != nil {
-		return envelope, CommandRequest{}, err
+		return CommandRequest{}, err
 	}
 	command.Data, err = decodeCommandData(command.Kind, dataRaw, command.Target)
 	if err != nil {
-		return envelope, CommandRequest{}, err
+		return CommandRequest{}, err
 	}
-	return envelope, command, nil
+	return command, nil
 }
 
 // DecodeCommandResult validates a command.result payload without claiming execution.

@@ -27,7 +27,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status> [options]
+const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status|ack|command-status> [options]
 Uses hub DB_ENGINE, DB_DSN, PROBE_SECRET_KEY_FILE and optional PROBE_ENDPOINT_POLICY_FILE.
 register --probe-id UUID --stream-id UUID --key SLUG --name NAME [--location LOCATION] --endpoint wss://HOST/ws/probe/v1 --fingerprint SHA256
 enroll --probe-id UUID --token-file PATH
@@ -35,9 +35,12 @@ assign --monitor-id ID --expected-revision N --probes UUID[,local]
 prepare --probe-id UUID --expected-revision N --file PATH
 watchdog --probe-id UUID --expected-revision N --enabled=true|false [--notifications ID,ID] [--lost-after-seconds 90] [--recover-after-seconds 30] [--resend-interval 0]
 status --probe-id UUID
+ack --probe-id UUID --command-id UUID --source-alert-id UUID --assignment-generation N --actor NAME [--note-file PATH] [--ttl 24h]
+command-status --probe-id UUID --command-id UUID
 Token and complete snapshot files must be private regular files. Commands print metadata only.
 Registration persists the recoverable protected runtime credential before enrollment.
 Watchdog replaces saved settings; expected-revision is the settings revision reported by status, initially zero. Saving is not an applied-config receipt.
+ACK retries must reuse the command ID and all original options. Pending means remote alerts may continue until the probe confirms. ACK targets only the named incident, including after reassignment.
 Run compatible hub workers with PROBES_ENABLED=true after enrollment. Workers synchronize supported configurations and replay retained telemetry.
 Fleet UI and explicit gap/reset recovery remain later milestones.
 `
@@ -50,7 +53,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		_, _ = io.WriteString(out, probeAdminUsage)
 		return 0
 	}
-	if len(args) == 0 || !slices.Contains([]string{"register", "enroll", "assign", "prepare", "watchdog", "status"}, args[0]) {
+	if len(args) == 0 || !slices.Contains([]string{"register", "enroll", "assign", "prepare", "watchdog", "status", "ack", "command-status"}, args[0]) {
 		_, _ = io.WriteString(stderr, probeAdminUsage)
 		return 2
 	}
@@ -58,6 +61,9 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	var monitorID, revision int64
 	var enabled bool
 	var lostSeconds, recoverSeconds, resendMinutes int64
+	var commandID, sourceAlertID, actor, noteFile string
+	var assignmentGeneration int64
+	var commandTTL time.Duration
 	f := flag.NewFlagSet("phoenix-probe-admin", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
 	f.StringVar(&probeID, "probe-id", "", "trusted local probe ID")
@@ -77,6 +83,12 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	f.StringVar(&members, "probes", "", "complete desired assignment set")
 	f.Int64Var(&monitorID, "monitor-id", 0, "hub monitor ID")
 	f.Int64Var(&revision, "expected-revision", 0, "current revision")
+	f.StringVar(&commandID, "command-id", "", "immutable command UUID, retained for retries")
+	f.StringVar(&sourceAlertID, "source-alert-id", "", "original source incident UUID")
+	f.StringVar(&actor, "actor", "", "operator display name")
+	f.StringVar(&noteFile, "note-file", "", "optional private ACK note file")
+	f.Int64Var(&assignmentGeneration, "assignment-generation", 0, "original incident assignment generation")
+	f.DurationVar(&commandTTL, "ttl", 24*time.Hour, "ACK validity duration, at most 168h")
 	if f.Parse(args[1:]) != nil || f.NArg() != 0 || cfg.ProbeSecretKeyFile == "" || revision < 0 {
 		_, _ = io.WriteString(stderr, probeAdminUsage)
 		return 2
@@ -131,8 +143,38 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		AppliedRevision *probe.Decimal          `json:"applied_revision,omitempty"`
 		SyncPending     *bool                   `json:"sync_pending,omitempty"`
 		Watchdog        *probeAdminWatchdogView `json:"watchdog,omitempty"`
+		Command         *probeAdminCommandView  `json:"command,omitempty"`
 	}{HubID: installation.HubID, ProbeID: probeID}
 	switch args[0] {
+	case "ack", "command-status":
+		if !domain.ValidHubID(commandID) {
+			return fail("A canonical command ID is required; retain it for retries")
+		}
+		commands := repository.NewProbeCommandStore(db, protector, probe.AcknowledgementCodec{})
+		var command *domain.ProbeCommand
+		if args[0] == "ack" {
+			var note *string
+			if noteFile != "" {
+				content, readErr := readPrivateProbeInput(noteFile, 4096)
+				if readErr != nil {
+					return fail("ACK note file must be private and bounded")
+				}
+				value := string(content)
+				clear(content)
+				note = &value
+			}
+			service, initErr := services.NewProbeCommandService(commands, connections, protector, probe.AcknowledgementCodec{})
+			if initErr != nil {
+				return fail("Command service unavailable")
+			}
+			command, err = service.IssueAcknowledgement(ctx, domain.ProbeAcknowledgementIssue{CommandID: commandID, HubID: installation.HubID, ProbeID: probeID, SourceAlertID: sourceAlertID, AssignmentGeneration: assignmentGeneration, ActorDisplayName: actor, Note: note, Lifetime: commandTTL})
+		} else {
+			command, err = commands.GetCommand(ctx, installation.HubID, probeID, commandID)
+		}
+		if err != nil {
+			return fail("Command unavailable or conflicting; verify the original incident, generation and unchanged retry options")
+		}
+		result.State, result.Command = command.Status, probeAdminCommand(command)
 	case "register":
 		// Validate the network trust tuple before creating even a registration.
 		if _, err := probe.NewPinnedHTTPClient(endpoint, pin, policy); err != nil || !domain.ValidHubID(streamID) {

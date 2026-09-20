@@ -35,6 +35,7 @@ type EdgeRuntime struct {
 	health      func(context.Context) (Health, error)
 	replayRepo  ports.EdgeReplayRepository
 	stateRepo   ports.EdgeStateRepository
+	commands    ports.EdgeCommandRepository
 	watchdog    *services.ProbeWatchdogRuntime
 	mu          sync.Mutex
 	closed      bool
@@ -65,6 +66,13 @@ func (r *EdgeRuntime) SetStateRepository(repo ports.EdgeStateRepository) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stateRepo = repo
+}
+
+// SetCommands enables durable source execution before accepting connections.
+func (r *EdgeRuntime) SetCommands(repo ports.EdgeCommandRepository) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.commands = repo
 }
 
 // NewEdgeRuntime validates and copies the local capability inventory.
@@ -188,6 +196,7 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 	r.mu.Lock()
 	replayRepo := r.replayRepo
 	stateRepo := r.stateRepo
+	commands := r.commands
 	r.mu.Unlock()
 	if replayRepo != nil {
 		pump = newEdgeReplayPump(replayRepo, session, i.HubID, i.ProbeID, i.StreamID, welcome.ConnectionGeneration)
@@ -245,6 +254,12 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 			return session.SendControl(frameCtx, response)
 		}
 		switch envelope.Type {
+		case "command.request":
+			response, err := applyEdgeCommand(frameCtx, commands, domain.EdgeCommandAuthority{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID, ConnectionGeneration: int64(welcome.ConnectionGeneration)}, envelope)
+			if err != nil {
+				return err
+			}
+			return session.SendControl(frameCtx, response)
 		case "state.applied":
 			if statePump == nil {
 				return errors.New("unsupported current state receipt")

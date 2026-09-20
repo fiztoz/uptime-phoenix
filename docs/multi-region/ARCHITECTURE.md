@@ -269,11 +269,17 @@ transition in one transaction. An independent incident-version CAS protects
 in-flight checks; recovery retains ACK metadata, and final regional delivery
 authorization suppresses DOWN if ACK committed first. Receipt storage is bounded
 at 16,384 rows, with expiry plus the maximum 365-day telemetry horizon retained.
-This source API remains unwired to the command transport while hub command
-persistence, result handling and replay correlation are completed. See
-[source ACK acceptance](M3_EDGE_ACK_ACCEPTANCE.md).
+Hub migration 061 and the operator CLI now issue/read protected exact ACK
+commands. The current connector fences retry and result writes; peers advertise
+`command.alert_ack.v1` before dispatch. Source execution and authorized mirror
+replay are integrated, with pending telemetry permitted before the control result.
+Only the durable source result sets remote confirmation. See
+[source ACK acceptance](M3_EDGE_ACK_ACCEPTANCE.md) and
+[command acceptance](M3_COMMAND_ACCEPTANCE.md).
 
-Remote ACK commands and the broader fifteen-minute M3 scenario remain unfinished.
+Credential/certificate rotation, explicit stream reset and the broader
+fifteen-minute M3 scenario remain unfinished. Watchdog ACK remains unsupported
+by the positive-assignment-generation regional command target.
 
 Send control health every 15 seconds. A link is suspect after 45 seconds without valid application health and disconnected after 90 seconds. Require 30 seconds of continuous valid health before a watchdog recovery notification. These are defaults, not sub-second promises.
 

@@ -81,6 +81,7 @@ func Run(cfg Config) error {
 
 	var protector ports.ProbeConfigProtector
 	var credentialProtector ports.ProbeCredentialProtector
+	var commandProtector ports.ProbeCommandProtector
 	var installationHubID string
 	if cfg.ProbeSecretKeyFile != "" {
 		p, err := auth.NewProbeConfigProtectorFromFile(ctx, cfg.ProbeSecretKeyFile)
@@ -90,6 +91,7 @@ func Run(cfg Config) error {
 		}
 		protector = p
 		credentialProtector = p
+		commandProtector = p
 		installationSvc := services.NewProbeInstallationService(repos.probeInstallation)
 		inst, err := installationSvc.InitializeOrVerify(ctx, protector, cfg.ProbeHubID)
 		if err != nil {
@@ -422,6 +424,7 @@ func Run(cfg Config) error {
 			return fmt.Errorf("probe connector owner unavailable")
 		}
 		replayStore := repo.NewProbeReplayStore(db, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
+		replayStore.SetCommands(commandProtector, probe.AcknowledgementCodec{})
 		stateIngest, err := services.NewProbeStateService(replayStore, accessSvc)
 		if err != nil {
 			return err
@@ -429,6 +432,11 @@ func Run(cfg Config) error {
 		transport := probe.NewHubTransport(policy)
 		transport.SetStateIngest(stateIngest)
 		connections := repo.NewProbeConnectorStore(db)
+		commands, err := services.NewProbeCommandService(repo.NewProbeCommandStore(db, commandProtector, probe.AcknowledgementCodec{}), connections, commandProtector, probe.AcknowledgementCodec{})
+		if err != nil {
+			return err
+		}
+		transport.SetCommands(commands)
 		connector, err := services.NewProbeConnectorService(connections, connections, connections, credentialProtector,
 			services.NewProbeConfigService(repos.probeConfig, probe.ConfigInspector{}, protector),
 			transport, installationHubID, owner.String(),

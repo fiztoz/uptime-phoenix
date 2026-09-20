@@ -1,6 +1,6 @@
 # Multi-region implementation guide for continuing agents
 
-> **Current continuation, 2026-09-20:** preserve existing local M0–M2 and M3
+> **Current continuation, 2026-09-21:** preserve existing local M0–M2 and M3
 > config/replay/retention/current-state work. Historical recomputation is accepted;
 > consult [implementation status](IMPLEMENTATION_STATUS.md) and
 > [history acceptance](M3_HISTORY_ACCEPTANCE.md) for exact evidence and limitations.
@@ -14,8 +14,9 @@
 > paging passed real partition/restart acceptance; see
 > [watchdog acceptance](M3_WATCHDOG_ACCEPTANCE.md). Durable source ACK storage and
 > lifecycle handling are implemented; see [source ACK acceptance](M3_EDGE_ACK_ACCEPTANCE.md).
-> Continue hub command persistence, transport and authorized mirror replay under
-> [the command contract](M3_COMMAND_WORK_CONTRACT.md), then rotations/reset, bounded flushing and the
+> The hub/operator/transport ACK path is now integrated and verified; see
+> [command acceptance](M3_COMMAND_ACCEPTANCE.md). Continue credential/certificate
+> rotation and explicit reset under [the command contract](M3_COMMAND_WORK_CONTRACT.md), then bounded flushing and the
 > complete fifteen-minute partition under [the M3 contract](M3_COMPLETION_WORK_CONTRACT.md).
 > Verify Git HEAD and uncommitted work before editing; never reset to an older baseline.
 

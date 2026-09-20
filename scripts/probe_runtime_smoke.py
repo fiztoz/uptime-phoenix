@@ -26,6 +26,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 
 class PartitionRelay(socketserver.ThreadingTCPServer):
@@ -92,6 +93,8 @@ def main():
     parser.add_argument("--verify-replay", action="store_true")
     parser.add_argument("--verify-history", action="store_true", help="verify the production history worker after replay and restart")
     parser.add_argument("--verify-watchdog", action="store_true", help="verify real both-side watchdog paging across a network partition and restart")
+    parser.add_argument("--verify-command", action="store_true", help="exercise queued original-incident ACK across a real link partition and restart")
+    parser.add_argument("--command-partition-seconds", type=int, default=15)
     parser.add_argument("--mariadb-container")
     args = parser.parse_args()
     dsn = os.environ.get("DB_DSN", "")
@@ -101,6 +104,8 @@ def main():
         parser.error("--verify-history requires --verify-replay")
     if args.verify_watchdog and not args.verify_replay:
         parser.error("--verify-watchdog requires --verify-replay")
+    if args.verify_command and (not args.verify_replay or not 1 <= args.command_partition_seconds <= 3600):
+        parser.error("--verify-command requires --verify-replay and a partition duration between 1 and 3600 seconds")
     if args.verify_replay and not args.mariadb_container:
         parser.error("--verify-replay requires --mariadb-container for independent hub evidence")
     output = args.output.resolve()
@@ -153,7 +158,7 @@ def main():
     threading.Thread(target=sink.serve_forever, daemon=True).start()
     sink_url = f"http://127.0.0.1:{args.port + 1}"
     relay = None
-    if args.verify_watchdog:
+    if args.verify_watchdog or args.verify_command:
         relay = PartitionRelay(("127.0.0.1", args.port + 4), ("127.0.0.1", args.port + 3))
         threading.Thread(target=relay.serve_forever, daemon=True).start()
 
@@ -515,11 +520,92 @@ def main():
                                  "hook_statuses": [h["status"] for h in watchdog_hooks], "hub_edge_send_intents": 0,
                                  "high_water": high_water}
             final = edge_progress()
+        command_evidence = None
+        if args.verify_command:
+            with lock:
+                target_status = 503
+            wait_for("new regional incident fires before ACK partition", lambda: bool(edge_rows(
+                "SELECT source_alert_id FROM edge_alerts WHERE subject_kind='availability' AND status='firing'")))
+            original_id = edge_rows("SELECT source_alert_id FROM edge_alerts WHERE subject_kind='availability' AND status='firing'")[0]["source_alert_id"]
+            wait_for("original ACK target is mirrored before partition", lambda: hub_query(
+                "SELECT JSON_OBJECT('status',status) FROM probe_incidents "
+                f"WHERE source_alert_id='{original_id}'") == [{"status": "firing"}])
+            relay.partition(True)
+            partition_started = time.monotonic()
+            command_id = str(uuid.uuid4())
+            ack_args = ("ack", "--probe-id", identity["probe_id"], "--command-id", command_id,
+                        "--source-alert-id", original_id, "--assignment-generation", generation, "--actor", "Smoke operator")
+            receipt = admin(*ack_args)["command"]
+            assert receipt["status"] == "pending" and receipt["remote_confirmed"] is False
+            assert "may continue" in receipt["pending_message"]
+            repeated = admin(*ack_args)["command"]
+            assert repeated["created_at"] == receipt["created_at"] and repeated["expires_at"] == receipt["expires_at"]
+            assert edge_rows(f"SELECT status FROM edge_alerts WHERE source_alert_id='{original_id}'") == [{"status": "firing"}]
+            for name in ("worker-a", "worker-b", "edge"):
+                stop(name)
+            start("edge", args.probe_binary, edge_args, edge_env)
+            for worker in ("worker-a", "worker-b"):
+                start(worker, args.app_binary, [], dict(env, MODE="worker", WORKER_ID=worker, PROBES_ENABLED="true"))
+            wait_for("offline process restart preserves unacknowledged original incident", lambda:
+                     edge_http("/readyz") == 200 and edge_rows(
+                         f"SELECT status, transition_version FROM edge_alerts WHERE source_alert_id='{original_id}'") ==
+                     [{"status": "firing", "transition_version": 1}])
+            while time.monotonic() - partition_started < args.command_partition_seconds:
+                assert admin("command-status", "--probe-id", identity["probe_id"], "--command-id", command_id)["command"]["remote_confirmed"] is False
+                time.sleep(max(0.01, min(5, args.command_partition_seconds - (time.monotonic() - partition_started))))
+            partition_elapsed = time.monotonic() - partition_started
+            relay.partition(False)
+            wait_for("pending ACK receives durable source confirmation after reconnect", lambda:
+                     admin("command-status", "--probe-id", identity["probe_id"], "--command-id", command_id)["command"]["remote_confirmed"], timeout=100)
+            confirmed = admin("command-status", "--probe-id", identity["probe_id"], "--command-id", command_id)["command"]
+            assert confirmed["status"] == "applied"
+            assert edge_rows(f"SELECT status, transition_version, ack_command_id FROM edge_alerts WHERE source_alert_id='{original_id}'") == [
+                {"status": "acked", "transition_version": 2, "ack_command_id": command_id}]
+            assert edge_rows(f"SELECT COUNT(*) AS count FROM edge_applied_commands WHERE command_id='{command_id}'") == [{"count": 1}]
+            wait_for("ACK telemetry is correlated with the issued command", lambda: hub_query(
+                "SELECT JSON_OBJECT('status',status,'version',transition_version,'command',ack_command_id) FROM probe_incidents "
+                f"WHERE source_alert_id='{original_id}'") == [{"status": "acked", "version": 2, "command": command_id}])
+            with lock:
+                target_status = 200
+            wait_for("ACKed source recovers while preserving original actor and command", lambda: edge_rows(
+                f"SELECT status, transition_version, ack_command_id FROM edge_alerts WHERE source_alert_id='{original_id}'") == [
+                {"status": "resolved", "transition_version": 3, "ack_command_id": command_id}])
+            with lock:
+                target_status = 503
+            wait_for("later outage gets an independent source incident", lambda: bool(edge_rows(
+                f"SELECT source_alert_id FROM edge_alerts WHERE subject_kind='availability' AND status='firing' AND source_alert_id<>'{original_id}'")))
+            later_id = edge_rows("SELECT source_alert_id FROM edge_alerts WHERE subject_kind='availability' AND status='firing'")[0]["source_alert_id"]
+            assert admin(*ack_args)["command"]["status"] == "applied"
+            late_id = str(uuid.uuid4())
+            late_args = list(ack_args)
+            late_args[late_args.index("--command-id")+1] = late_id
+            admin(*late_args)
+            wait_for("new ACK of resolved original returns already_resolved", lambda:
+                     admin("command-status", "--probe-id", identity["probe_id"], "--command-id", late_id)["command"]["status"] == "already_resolved")
+            assert edge_rows(f"SELECT status, ack_command_id FROM edge_alerts WHERE source_alert_id='{later_id}'") == [{"status": "firing", "ack_command_id": None}]
+            with lock:
+                target_status = 200
+            wait_for("later outage recovers independently", lambda: edge_rows(
+                f"SELECT status FROM edge_alerts WHERE source_alert_id='{later_id}'") == [{"status": "resolved"}])
+            high_water = edge_progress()["last_created_seq"]
+            wait_for("all command-era history is durably replayed", lambda: hub_cursor() >= high_water and edge_progress()["committed_seq"] >= high_water)
+            assert hub_query("SELECT JSON_OBJECT('count',COUNT(*)) FROM probe_telemetry_receipts "
+                             f"WHERE source_alert_id='{original_id}' AND transition_version=2 AND rejection_code=''") == [{"count": 1}]
+            assert hub_query("SELECT JSON_OBJECT('count',COUNT(*)) FROM probe_telemetry_receipts "
+                             f"WHERE probe_id='{identity['probe_id']}' AND rejection_code<>''") == [{"count": 0}]
+            assert hub_query("SELECT JSON_OBJECT('count',COUNT(*)) FROM probe_delivery_intents "
+                             f"WHERE probe_id='{identity['probe_id']}'") == [{"count": 0}]
+            mark("queued ACK applies once to its original incident and cannot silence a later outage")
+            command_evidence = {"command_id": command_id, "original_source_id": original_id, "later_source_id": later_id,
+                                "partition_seconds": partition_elapsed, "source_receipt_count": 1, "confirmed": confirmed,
+                                "ack_transition_receipt_count": 1, "hub_send_intents": 0, "high_water": high_water}
+            final = edge_progress()
         report = {"passed": passed, "identity": identity, "before_restart": before, "final": final,
                   "incident": incident, "provider_attempt_statuses": provider_attempts, "successful_webhook_statuses": [h["status"] for h in hooks],
                   "replay_verified": args.verify_replay, "replay": replay_evidence,
                   "history_verified": args.verify_history, "history": history_evidence, "runtime_ownership": runtime_evidence,
-                  "watchdog_verified": args.verify_watchdog, "watchdog": watchdog_evidence}
+                  "watchdog_verified": args.verify_watchdog, "watchdog": watchdog_evidence,
+                  "command_verified": args.verify_command, "command": command_evidence}
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print("Evidence:", output, flush=True)
     finally:

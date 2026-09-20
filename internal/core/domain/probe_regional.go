@@ -136,18 +136,17 @@ type RegionalDelivery struct {
 	ObservedAt              time.Time
 }
 
-// ProbeCommand is durable command identity. Payload secrets stay in the adapter.
+// ProbeCommand is the hub's nonsecret durable command status. Pending means the
+// source has not confirmed a terminal result, even after the request expires.
 type ProbeCommand struct {
-	CommandID            string
-	ProbeID              string
-	Kind                 string
-	SourceAlertID        *string
-	AssignmentGeneration *int64
-	ExpiresAt            time.Time
-	Status               string
-	RemoteConfirmed      bool
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ProbeCommandMetadata
+	Status          string
+	RemoteConfirmed bool
+	Attempts        int64
+	LastAttemptAt   *time.Time
+	NextAttemptAt   time.Time
+	UpdatedAt       time.Time
+	Outcome         *ProbeCommandOutcome
 }
 
 // RegionalCommit is one atomic local/edge recording. Notification I/O is outside.

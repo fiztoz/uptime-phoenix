@@ -27,6 +27,7 @@ type HubTransport struct {
 	policy         EndpointPolicy
 	receiptTimeout time.Duration
 	stateIngest    ports.ProbeStateService
+	commands       ports.ProbeCommandDispatcher
 }
 
 var _ ports.ProbeConnectionTransport = (*HubTransport)(nil)
@@ -39,6 +40,10 @@ func NewHubTransport(policy EndpointPolicy) *HubTransport {
 
 // SetStateIngest enables transactional current snapshots. Configure it before Run.
 func (t *HubTransport) SetStateIngest(ingest ports.ProbeStateService) { t.stateIngest = ingest }
+
+// SetCommands enables durable command dispatch before Run. Older peers without
+// the execution capability retain health/config/replay without command sends.
+func (t *HubTransport) SetCommands(commands ports.ProbeCommandDispatcher) { t.commands = commands }
 
 func (t *HubTransport) dial(ctx context.Context, endpoint, pin, token string) (*websocket.Conn, error) {
 	client, err := NewPinnedHTTPClient(endpoint, pin, t.policy)
@@ -103,7 +108,7 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 // DB-bound callbacks. Nil admission preserves health/config/replay-only operation.
 func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSessionInput, admission ports.ProbeHealthAdmission, established func(context.Context) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
 	m := input.Connection
-	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil || t.stateIngest != nil && !domain.ValidHubID(input.OwnerID) {
+	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil || (t.stateIngest != nil || t.commands != nil) && !domain.ValidHubID(input.OwnerID) {
 		return domain.ErrValidation
 	}
 	var snapshot ConfigSnapshot
@@ -136,7 +141,8 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	if err != nil {
 		return err
 	}
-	if _, err := ValidateHandshake(hello, frame, HandshakeExpectation{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: Decimal(input.Generation), RequiredCapabilities: required}); err != nil {
+	handshake, err := ValidateHandshake(hello, frame, HandshakeExpectation{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: Decimal(input.Generation), RequiredCapabilities: required})
+	if err != nil {
 		return errors.New("probe handshake rejected")
 	}
 	if err := conn.Write(handshakeCtx, websocket.MessageText, frame); err != nil {
@@ -207,6 +213,10 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	}
 	receiver := hubStateReceiver{ingest: t.stateIngest, session: domain.ProbeReplaySession{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: input.Generation, OwnerID: input.OwnerID}}
 	defer receiver.discard()
+	if t.commands != nil && slices.Contains(handshake.Hello.Capabilities, AcknowledgementCapability) {
+		senders.Add(1)
+		go func() { defer senders.Done(); t.sendCommands(runCtx, session, receiver.session, &ready) }()
+	}
 	err = session.RunWithHealthAdmission(runCtx, func(frameCtx context.Context, envelope Envelope) error {
 		if receiver.transfer != nil && !time.Now().Before(receiver.transfer.deadline) {
 			receiver.discard()
@@ -217,6 +227,23 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 		}
 		if strings.HasPrefix(envelope.Type, "state.") {
 			return receiver.handle(frameCtx, session, data)
+		}
+		if envelope.Type == "command.result" {
+			if t.commands == nil {
+				return errors.New("command result unavailable")
+			}
+			_, result, err := DecodeCommandResult(data)
+			if err != nil {
+				return err
+			}
+			outcome, err := commandOutcome(result)
+			if err != nil {
+				return err
+			}
+			commitCtx, cancelCommit := context.WithTimeout(frameCtx, 10*time.Second)
+			err = t.commands.RecordCommandResult(commitCtx, receiver.session, outcome)
+			cancelCommit()
+			return err
 		}
 		if envelope.Type == "telemetry.batch" || envelope.Type == "telemetry.gap" {
 			if ingest == nil {

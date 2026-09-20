@@ -7,8 +7,9 @@ construction and durable application receipts. The ordered replay increment now
 commits retained availability observations, incident transitions and delivery
 outcomes to the hub. M3 also implements bounded retention/gaps, current-state
 recovery, historical recomputation and bidirectional connection-watchdog paging.
-Remote commands, credential/certificate rotation, explicit stream-reset recovery
-and the final fifteen-minute partition acceptance remain unfinished. Fleet UI is
+Durable regional ACK commands are now available through the local admin CLI.
+Credential/certificate rotation, explicit stream-reset recovery and the final
+fifteen-minute partition acceptance remain unfinished. Fleet UI is
 outside this engineering runtime; consult `IMPLEMENTATION_STATUS.md` for scope.
 
 ## Initialize the probe
@@ -207,3 +208,52 @@ unavailable; no notification contains a remote ACK link. See
 Migration downgrade removes this saved intent, so stop config/runtime writers and
 export the settings before rolling back 060. Both up/down migrations leave the
 existing incident, source journal, telemetry and delivery tables intact.
+
+## Acknowledge an original remote incident
+
+On the hub, use the existing DB and `PROBE_SECRET_KEY_FILE` configuration. Local
+access to that database and key is the operator authority; this does not add an
+HTTP endpoint or a new permission flag. Obtain the original `source_alert_id` and
+`assignment_generation` from its mirrored regional incident. Allocate one command
+UUID and retain it for retries:
+
+```sh
+phoenix-probe-admin ack --probe-id "$PROBE_ID" --command-id "$COMMAND_ID" \
+  --source-alert-id "$SOURCE_ALERT_ID" --assignment-generation "$GENERATION" \
+  --actor "On-call operator" --ttl 24h
+phoenix-probe-admin command-status --probe-id "$PROBE_ID" --command-id "$COMMAND_ID"
+```
+
+An optional `--note-file` must be a private regular file containing at most 4096
+bytes. Actor names are nonblank and bounded to 256 UTF-8 bytes. Lifetime must be
+between one second and seven days. Retrying `ack` must reuse the same command ID,
+original target, actor, note and lifetime. It returns the original creation/expiry
+and current receipt; changed options conflict.
+
+The JSON `command.status` starts as `pending` with `remote_confirmed: false`.
+**Remote alerts may continue while pending.** A socket write or mirrored ACK does
+not confirm the command. The source's durable result changes that status to
+`applied`, `already_applied`, `already_resolved`, `rejected` or `expired` and sets
+`remote_confirmed: true`. A request whose lifetime elapsed can remain pending if
+its earlier result was lost: retries recover the original receipt without applying
+again. A source that never applied the request returns `expired`.
+
+Commands are bound to the original source UUID, assignment generation and durable
+stream. Reassignment does not redirect the ACK, and it cannot acknowledge a later
+outage. A resolved original returns `already_resolved`. The first operator's ACK
+metadata is retained when another command finds an already-acknowledged incident.
+Remote notification links remain omitted; watchdog ACK is not implemented by this
+positive-assignment-generation wire target.
+
+Both hub and probe must include the command integration. The probe advertises
+`command.alert_ack.v1`; older probes retain health/config/replay but do not receive
+ACK commands, which stay pending. Hub request storage is bounded to 16,384 rows,
+1024 unconfirmed commands and 64 MiB per probe. Confirmed requests and edge receipts
+are retained through expiry plus 365 days; unknown results are not discarded to
+make room. Reads expose metadata only, not encrypted payloads or operator notes.
+
+The runnable process harness is `scripts/probe_runtime_smoke.py --verify-replay
+--verify-command --mariadb-container NAME` plus its required binary/output options
+and a fresh disposable localhost `_smoke` database. Its default command partition
+is 15 seconds. `--command-partition-seconds` changes that duration; a short run is
+not the complete fifteen-minute M3 acceptance.

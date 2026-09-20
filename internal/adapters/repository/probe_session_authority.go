@@ -19,6 +19,12 @@ type replaySessionAuthority struct {
 // lockReplaySession shares the exact DB-clock authority fence with current-state
 // application. Its caller holds a serializable transaction through final commit.
 func (s *ProbeReplayStore) lockReplaySession(ctx context.Context, tx bun.Tx, session domain.ProbeReplaySession) (replaySessionAuthority, error) {
+	return lockProbeSession(ctx, tx, session, s.protector.KeyHash(session.HubID))
+}
+
+// lockProbeSession is shared by replay and command writes; callers retain these
+// locks through commit and check the DB clock again after their final write.
+func lockProbeSession(ctx context.Context, tx bun.Tx, session domain.ProbeReplaySession, keyHash string) (replaySessionAuthority, error) {
 	if _, err := tx.ExecContext(ctx, "UPDATE probes SET id = id WHERE id = ?", session.ProbeID); err != nil {
 		return replaySessionAuthority{}, err
 	}
@@ -51,7 +57,7 @@ func (s *ProbeReplayStore) lockReplaySession(ctx context.Context, tx bun.Tx, ses
 	if err := tx.NewSelect().Model(&installation).Where("id = 1").Scan(ctx); err != nil {
 		return replaySessionAuthority{}, err
 	}
-	if installation.HubID != session.HubID || installation.KeyHash != s.protector.KeyHash(session.HubID) {
+	if installation.HubID != session.HubID || installation.KeyHash != keyHash {
 		return replaySessionAuthority{}, domain.ErrProbeKeyMismatch
 	}
 	var stream probeStreamModel

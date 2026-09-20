@@ -7,6 +7,33 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 operational regional ACK commands — 2026-09-21
+
+Hub migration 061 persists immutable protected requests, bounded retry state and
+source results. Current connector authority fences dispatch/results. The operator
+CLI issues/reads incident-specific ACKs; the edge advertises `command.alert_ack.v1`
+and executes against its existing atomic receipt ledger. Replay correlates ACK
+metadata with an issued command before or after the control receipt, permits a
+retained original assignment and preserves ACK metadata through recovery. A later
+outage cannot inherit an older ACK. Watchdog ACK and other command kinds are not
+executed by this increment.
+
+See [acceptance](M3_COMMAND_ACCEPTANCE.md), [evidence](M3_COMMAND_EVIDENCE.json)
+and [retrospective](M3_COMMAND_RETROSPECTIVE.md). The full build/race/lint checks
+passed: 22 tested packages, 3,398 named passes, 264 MariaDB-named passes and zero
+MariaDB skips. All 33 Go/SQL hashes stayed unchanged. A harness-only SQL-null
+expectation correction tripped the aggregate checksum guard; the final harness
+passed all 35 actual process stages. That run used a 15.007-second partition,
+queued ACK, both-side restart, one source effect/receipt, preserved recovery and
+an independent later outage. It is not fifteen-minute acceptance.
+
+Antigravity's read-only audit findings were checked against actual callees; all
+three final concerns were withdrawn after evidence and coding feedback. It owns
+no files. Continue credential/certificate prepare/activate rotation, explicit
+stream reset, remaining pressure/flush acceptance and the complete long-partition
+scenario under [the command contract](M3_COMMAND_WORK_CONTRACT.md) and
+[the M3 contract](M3_COMPLETION_WORK_CONTRACT.md). M3 remains incomplete.
+
 ## M3 source ACK transaction and lifecycle — 2026-09-20
 
 Edge migration 006 adds durable immutable command receipts. The source ACK port

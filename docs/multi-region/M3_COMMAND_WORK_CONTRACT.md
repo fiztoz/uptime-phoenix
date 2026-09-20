@@ -5,7 +5,21 @@ user's active objective remains full M3 completion. Codex owns source, tests,
 migrations and verification; Antigravity owns no files. Preserve unrelated
 `AGENTS.md` changes. Do not push or deploy.
 
-## Traced starting points
+## Current continuation — 2026-09-21
+
+The hub/operator/transport regional ACK workflow is implemented and verified in
+[M3_COMMAND_ACCEPTANCE.md](M3_COMMAND_ACCEPTANCE.md). Preserve its immutable
+payload/session distinction and transaction-bound replay correlation. The
+remaining required work is credential/certificate prepare/activate rotation,
+explicit stream reset, complete pressure/shutdown-flush acceptance and the actual
+fifteen-minute partition. The short ACK process run does not close that scenario.
+Do not implement new monitor/provider types or a fleet UI as a substitute.
+
+The source-only observations and integration checklist below are the historical
+starting contract from `7fee89e`; those ACK integration steps are now completed.
+Use the latest acceptance/status and actual HEAD before resuming.
+
+## Historical traced starting points
 
 - `internal/adapters/probe/commands.go` defines closed request/result DTOs for
   `alert.ack`, stop/history-clear and credential/certificate prepare/activate.

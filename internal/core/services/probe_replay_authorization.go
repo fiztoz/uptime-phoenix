@@ -50,26 +50,8 @@ func (s *AccessService) AuthorizeEvent(_ context.Context, f domain.ProbeReplayAu
 			return reject("event_invalid")
 		}
 	case domain.ReplayKindAlertTransition:
-		i := e.Incident
-		if i == nil || e.Observation != nil || e.Delivery != nil || i.ProbeID != f.ProbeID || !domain.ValidHubID(i.SourceAlertID) || i.TransitionVersion <= 0 || i.Scope != domain.IncidentScopeRegional || i.SubjectKind != domain.IncidentSubjectAvailability || i.AckedAt != nil || i.EscalationPolicyID != 0 || i.AckCommandID != "" || i.ConditionKind != "" || i.CertificateThreshold != 0 || i.StartedAt.IsZero() || i.StartedAt.After(e.ObservedAt) || len(i.Reason) > 4096 {
-			return reject("event_invalid")
-		}
-		if code := authorizeReplayAssignment(f, i.MonitorID, i.AssignmentGeneration, i.ConfigRevision, e.ObservedAt); code != "" {
+		if code := authorizeAvailabilityReplay(f, e); code != "" {
 			return reject(code)
-		}
-		if i.Status != domain.AlertStatusFiring && i.Status != domain.AlertStatusResolved {
-			return reject("event_invalid")
-		}
-		if (i.Status == domain.AlertStatusResolved) != (i.ResolvedAt != nil) || i.ResolvedAt != nil && (i.ResolvedAt.Before(i.StartedAt) || i.ResolvedAt.After(e.ObservedAt)) {
-			return reject("event_invalid")
-		}
-		prior := f.PriorIncident
-		if prior == nil {
-			if i.TransitionVersion != 1 || i.Status != domain.AlertStatusFiring {
-				return reject("transition_version_invalid")
-			}
-		} else if prior.ProbeID != f.ProbeID || prior.MonitorID != i.MonitorID || prior.AssignmentGeneration != i.AssignmentGeneration || prior.SubjectKind != i.SubjectKind || prior.Scope != i.Scope || !prior.StartedAt.Equal(i.StartedAt) || prior.Status == domain.AlertStatusResolved || i.TransitionVersion <= prior.TransitionVersion || i.TransitionVersion-prior.TransitionVersion != 1 {
-			return reject("transition_identity_conflict")
 		}
 	case domain.ReplayKindDeliveryResult:
 		d := e.Delivery

@@ -38,7 +38,7 @@ func decodeReplayBatch(data []byte, probeID string) (domain.ProbeReplayBatch, er
 				e.Observation = &domain.RegionalObservation{MonitorID: value.MonitorID, ProbeID: probeID, AssignmentGeneration: int64(value.AssignmentGeneration), StreamID: wire.StreamID, Seq: e.Seq, ConfigRevision: int64(value.ConfigRevision), Status: replayDomainStatus(value.Status), RawStatus: replayDomainStatus(value.RawStatus), DownCount: int(value.DownCount), Ping: int(value.Ping), DurationMS: int(value.DurationMS), Message: value.Message, Important: value.Important, ObservedAt: e.ObservedAt}
 			}
 		case IncidentTransition:
-			availability := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectAvailability && value.AckedAt == nil && value.Acknowledgement == nil && value.Escalation == nil && value.MonitorID != nil && value.AssignmentGeneration != nil
+			availability := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectAvailability && value.Escalation == nil && value.MonitorID != nil && value.AssignmentGeneration != nil
 			watchdog := event.Kind == domain.ReplayKindWatchdogTransition && value.Subject.Kind == domain.IncidentSubjectWatchdog && value.Escalation == nil && value.MonitorID == nil && value.AssignmentGeneration == nil
 			if availability || watchdog {
 				i := &domain.RegionalIncident{SourceAlertID: value.SourceAlertID, Scope: domain.IncidentScope(value.Scope), ProbeID: probeID, Status: value.Status, TransitionVersion: int64(value.TransitionVersion), StartedAt: time.Time(value.StartedAt).UTC(), Reason: value.Reason, ConfigRevision: int64(value.ConfigRevision), SubjectKind: value.Subject.Kind}

@@ -46,12 +46,6 @@ type ProbeIngestRepository interface {
 	GetCursor(ctx context.Context, probeID, streamID string) (committedSeq int64, err error)
 }
 
-// ProbeCommandRepository stores command identity and results without secrets.
-type ProbeCommandRepository interface {
-	Put(ctx context.Context, command *domain.ProbeCommand) error
-	Get(ctx context.Context, commandID string) (*domain.ProbeCommand, error)
-}
-
 // ProbeIncidentRepository stores source-owned regional incidents. Hub mirror IDs
 // are assigned on insert and are distinct from source_alert_id. Put is idempotent
 // at the same transition version and rejects lower versions or identity changes.

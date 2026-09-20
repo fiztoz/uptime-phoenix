@@ -35,9 +35,11 @@ type replayReceiptModel struct {
 // ProbeReplayStore commits mixed remote telemetry under connector authority.
 // It only mirrors source results: it has no provider or dispatch dependencies.
 type ProbeReplayStore struct {
-	db        *bun.DB
-	decoder   ports.EdgeConfigDecoder
-	protector ports.ProbeConfigProtector
+	db               *bun.DB
+	decoder          ports.EdgeConfigDecoder
+	protector        ports.ProbeConfigProtector
+	commandProtector ports.ProbeCommandProtector
+	commandCodec     ports.ProbeAcknowledgementCodec
 }
 
 var _ ports.ProbeReplayRepository = (*ProbeReplayStore)(nil)
@@ -45,6 +47,11 @@ var _ ports.ProbeReplayRepository = (*ProbeReplayStore)(nil)
 // NewProbeReplayStore uses the same exact protected snapshots as edge execution.
 func NewProbeReplayStore(db *bun.DB, decoder ports.EdgeConfigDecoder, protector ports.ProbeConfigProtector) *ProbeReplayStore {
 	return &ProbeReplayStore{db: db, decoder: decoder, protector: protector}
+}
+
+// SetCommands enables issued-command correlation before accepting replay.
+func (s *ProbeReplayStore) SetCommands(protector ports.ProbeCommandProtector, codec ports.ProbeAcknowledgementCodec) {
+	s.commandProtector, s.commandCodec = protector, codec
 }
 
 // GetCursor reads registered, nonretired progress without creating a stream.
@@ -227,6 +234,12 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 			f.PriorIncident = &v
 		} else if !errors.Is(err, sql.ErrNoRows) {
 			return f, err
+		}
+		if i.Status == domain.AlertStatusAcked && i.AckCommandID != "" {
+			f.IssuedAcknowledgement, err = s.issuedAcknowledgement(ctx, tx, session, i.AckCommandID)
+			if err != nil {
+				return f, err
+			}
 		}
 	case event.Delivery != nil:
 		d := event.Delivery

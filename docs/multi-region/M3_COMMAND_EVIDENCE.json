@@ -1,0 +1,317 @@
+{
+  "baseline": "7fee89ee3c6f5c7b2a88da54afcfe4f367b1fd8b",
+  "started_at": "2026-09-20T17:32:22.893033+00:00",
+  "completed_at": "2026-09-20T17:41:26.393476+00:00",
+  "commands": [
+    {
+      "command": [
+        "go",
+        "build",
+        "./..."
+      ],
+      "exit_code": 0,
+      "log": "/private/tmp/phoenix-m3-hub-command-build.log"
+    },
+    {
+      "command": [
+        "go",
+        "test",
+        "-race",
+        "-count=1",
+        "-timeout=20m",
+        "-json",
+        "./..."
+      ],
+      "exit_code": 0,
+      "log": "/private/tmp/phoenix-m3-hub-command-full.jsonl"
+    },
+    {
+      "command": [
+        "/Users/fizto/go/bin/golangci-lint",
+        "run"
+      ],
+      "exit_code": 0,
+      "log": "/private/tmp/phoenix-m3-hub-command-lint.log"
+    }
+  ],
+  "full_race": {
+    "packages_passed": 22,
+    "named_pass_events": 3398,
+    "mariadb_named_pass_events": 264,
+    "lowercase_mariadb_subtest_pass_events": 227,
+    "failed": [],
+    "named_skips": [
+      "TestDatabaseChecker_Check_MongoDB_RealServer",
+      "TestTelegramSender_Send_DownSeverity"
+    ],
+    "packages_without_test_files": [
+      "github.com/fiztoz/uptime-phoenix",
+      "github.com/fiztoz/uptime-phoenix/cmd/api",
+      "github.com/fiztoz/uptime-phoenix/cmd/app",
+      "github.com/fiztoz/uptime-phoenix/cmd/kuma-import",
+      "github.com/fiztoz/uptime-phoenix/cmd/worker",
+      "github.com/fiztoz/uptime-phoenix/internal/adapters/eventbus",
+      "github.com/fiztoz/uptime-phoenix/internal/adapters/logger",
+      "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/memory",
+      "github.com/fiztoz/uptime-phoenix/internal/adapters/telemetry",
+      "github.com/fiztoz/uptime-phoenix/internal/core/ports",
+      "github.com/fiztoz/uptime-phoenix/internal/version",
+      "github.com/fiztoz/uptime-phoenix/web/node_modules/flatted/golang/pkg/flatted",
+      "github.com/fiztoz/uptime-phoenix/web/tests"
+    ],
+    "mariadb_skips": []
+  },
+  "gate_guard": {
+    "aggregate_exit_code": 1,
+    "reason": "Smoke harness SQL-null expectation was corrected after the Go gate began; its final compiled-process run passed. All Go/SQL hashes remained unchanged.",
+    "changed_paths": [
+      "scripts/probe_runtime_smoke.py"
+    ],
+    "unchanged_go_sql_files": 33,
+    "starting_hashes": {
+      "cmd/probe/runtime.go": "f0143c5162d555223a6f604459417ca1c94a2b8131dbb965e20ddbca5e01b63f",
+      "internal/adapters/auth/probe_command_protector.go": "4ac04b10345f3924b18abc9ca934f0ad34c72b6df5704fd8dbb4b94a7c98300e",
+      "internal/adapters/auth/probe_command_protector_test.go": "66212539aec1c03df5b4ba5eea4241bf7903c8a21deac55a4f0ac7dc1e8ddbbb",
+      "internal/adapters/probe/command_codec.go": "1b1f7d9a4fe63b2f6e2d9e8c34e00dc7553883e3ad181c50003fb47179df3750",
+      "internal/adapters/probe/command_codec_test.go": "a597e1cbc19e42045d8e334f8659ced80e8c88781a0776d6ec974409d089f066",
+      "internal/adapters/probe/command_runtime.go": "8e0b1b013e8fc8f5e247874eac20d96295de66c718969b5f91a5afb0198ead72",
+      "internal/adapters/probe/command_runtime_test.go": "d592b704e02fd7da579e8f71784b4cb435cd3864dedd9118fec89e342c169690",
+      "internal/adapters/probe/commands.go": "c3759f304ff9715a992300c537945dfc0e1dbfd03bfa8111ba1745e751c8b32a",
+      "internal/adapters/probe/hub_transport.go": "d8ed11085a4b8dc6bd6618550938116478b63e309bd7181b3473c9955053d618",
+      "internal/adapters/probe/replay.go": "86b4c32e6cd8001e120ab32fdfcf1e001b069193e0ad101c3d55b6075ceb6301",
+      "internal/adapters/probe/runtime_session.go": "e9be08e3c4335afd3a254facbc1d0141ef4523ebf0a48c12fd4a63f186b1fdf7",
+      "internal/adapters/repository/mariadb/migrations/061_probe_commands.down.sql": "380dbd6df0c05637c6b11536a55cbd1249900d68d7c5b7bf4bac717d82ff3d3f",
+      "internal/adapters/repository/mariadb/migrations/061_probe_commands.up.sql": "94654946f73cb35cf574548987c0f0320bde54862964c923928158adabfe4991",
+      "internal/adapters/repository/probe_ack_replay.go": "5fb370d912fcfb71a114ca790da9ee93c21a26f89a7c63adb072bad6e589c00c",
+      "internal/adapters/repository/probe_ack_replay_test.go": "7faaa291dfd141f903d45ea63d4dbf782af74495f20300aaaf5c658737ff58f6",
+      "internal/adapters/repository/probe_command.go": "aec3c36e897548dc35716dfa43ee349eaaa125fc04489d834332d638673535c6",
+      "internal/adapters/repository/probe_command_test.go": "a04085e722b5a7e4e81c906cd87b7a0013be882bf03972811d2ae6c4732c6532",
+      "internal/adapters/repository/probe_replay.go": "11466fd2a24af36b697600349b0b24f4631d844fdeeef0fbf9d4ec56ec29ca64",
+      "internal/adapters/repository/probe_session_authority.go": "ed797c03ff7d3600943b57741d249a846fd2ef3aef41a4786728c59e9047f51c",
+      "internal/adapters/repository/sqlite/migrations/061_probe_commands.down.sql": "75a34d29dd237f371851c8f92b7b2e3d9f857ff081f9061f83cb5e011efbbef4",
+      "internal/adapters/repository/sqlite/migrations/061_probe_commands.up.sql": "30baf68b920cfb6f5f26740d0b8e883ff93ffacdf978eee3b74b166348f3dd24",
+      "internal/bootstrap/probe_admin.go": "37cd887d7f05e4c0f15ca420b129c69afa2e27ec9b8a47a095472cf289db1d5e",
+      "internal/bootstrap/probe_admin_command.go": "5a9f3eb6eac2ca79be1f3c7d40ac4f6f0f029cf25f3d80475d67f2d243e74d5b",
+      "internal/bootstrap/run.go": "fc7ed5a373fe96dfd4dc46e82dba99899089d4f2f81e96f6b6fe27f7e6325820",
+      "internal/core/domain/probe_command.go": "4c671aab24a2e9ed00287177fd5e5a8592c78087f9c1b878a1723e1155b1efcb",
+      "internal/core/domain/probe_regional.go": "3e72b5442979caacad529c623d90708ec2d1eec03f56886efae9ce785b789a2d",
+      "internal/core/domain/probe_replay.go": "c1dd94e7255273ca3eb2d58befe0950b9d5f47db5e7bb64e7afa784dc5ecfee8",
+      "internal/core/ports/probe_command.go": "6d1744376115f88e71e02d9ae08bba94d1c022fb13847167d065bcc49435474c",
+      "internal/core/ports/probe_regional.go": "5415e4a240b61122a504bb65c2899ea6bb5502e90c84c7226ecf6ec7ed1bb72c",
+      "internal/core/services/probe_ack_replay.go": "e2a5ebaccdc195ea5eaf722e86f2eccda27dc7e15fc992455241891e2cf70d7e",
+      "internal/core/services/probe_ack_replay_test.go": "001c0dd2ab165d06c9a2f371b17a4769423330bde128961791bf31cef9440a54",
+      "internal/core/services/probe_command_service.go": "92c1f0aa4d4ac91ca04f34cc8f8d52d88e2e6a7999b49606d95af8e14eefa622",
+      "internal/core/services/probe_replay_authorization.go": "1692cea3a151a8fceacbe99d068cc860a3ecd3428f72a0f562fa4d1b4f291d51",
+      "scripts/probe_runtime_smoke.py": "3372e2cf2eb944ed29eed9a019be39028bff9bde6b2242009975e878c2268cb8"
+    },
+    "final_hashes": {
+      "cmd/probe/runtime.go": "f0143c5162d555223a6f604459417ca1c94a2b8131dbb965e20ddbca5e01b63f",
+      "internal/adapters/auth/probe_command_protector.go": "4ac04b10345f3924b18abc9ca934f0ad34c72b6df5704fd8dbb4b94a7c98300e",
+      "internal/adapters/auth/probe_command_protector_test.go": "66212539aec1c03df5b4ba5eea4241bf7903c8a21deac55a4f0ac7dc1e8ddbbb",
+      "internal/adapters/probe/command_codec.go": "1b1f7d9a4fe63b2f6e2d9e8c34e00dc7553883e3ad181c50003fb47179df3750",
+      "internal/adapters/probe/command_codec_test.go": "a597e1cbc19e42045d8e334f8659ced80e8c88781a0776d6ec974409d089f066",
+      "internal/adapters/probe/command_runtime.go": "8e0b1b013e8fc8f5e247874eac20d96295de66c718969b5f91a5afb0198ead72",
+      "internal/adapters/probe/command_runtime_test.go": "d592b704e02fd7da579e8f71784b4cb435cd3864dedd9118fec89e342c169690",
+      "internal/adapters/probe/commands.go": "c3759f304ff9715a992300c537945dfc0e1dbfd03bfa8111ba1745e751c8b32a",
+      "internal/adapters/probe/hub_transport.go": "d8ed11085a4b8dc6bd6618550938116478b63e309bd7181b3473c9955053d618",
+      "internal/adapters/probe/replay.go": "86b4c32e6cd8001e120ab32fdfcf1e001b069193e0ad101c3d55b6075ceb6301",
+      "internal/adapters/probe/runtime_session.go": "e9be08e3c4335afd3a254facbc1d0141ef4523ebf0a48c12fd4a63f186b1fdf7",
+      "internal/adapters/repository/mariadb/migrations/061_probe_commands.down.sql": "380dbd6df0c05637c6b11536a55cbd1249900d68d7c5b7bf4bac717d82ff3d3f",
+      "internal/adapters/repository/mariadb/migrations/061_probe_commands.up.sql": "94654946f73cb35cf574548987c0f0320bde54862964c923928158adabfe4991",
+      "internal/adapters/repository/probe_ack_replay.go": "5fb370d912fcfb71a114ca790da9ee93c21a26f89a7c63adb072bad6e589c00c",
+      "internal/adapters/repository/probe_ack_replay_test.go": "7faaa291dfd141f903d45ea63d4dbf782af74495f20300aaaf5c658737ff58f6",
+      "internal/adapters/repository/probe_command.go": "aec3c36e897548dc35716dfa43ee349eaaa125fc04489d834332d638673535c6",
+      "internal/adapters/repository/probe_command_test.go": "a04085e722b5a7e4e81c906cd87b7a0013be882bf03972811d2ae6c4732c6532",
+      "internal/adapters/repository/probe_replay.go": "11466fd2a24af36b697600349b0b24f4631d844fdeeef0fbf9d4ec56ec29ca64",
+      "internal/adapters/repository/probe_session_authority.go": "ed797c03ff7d3600943b57741d249a846fd2ef3aef41a4786728c59e9047f51c",
+      "internal/adapters/repository/sqlite/migrations/061_probe_commands.down.sql": "75a34d29dd237f371851c8f92b7b2e3d9f857ff081f9061f83cb5e011efbbef4",
+      "internal/adapters/repository/sqlite/migrations/061_probe_commands.up.sql": "30baf68b920cfb6f5f26740d0b8e883ff93ffacdf978eee3b74b166348f3dd24",
+      "internal/bootstrap/probe_admin.go": "37cd887d7f05e4c0f15ca420b129c69afa2e27ec9b8a47a095472cf289db1d5e",
+      "internal/bootstrap/probe_admin_command.go": "5a9f3eb6eac2ca79be1f3c7d40ac4f6f0f029cf25f3d80475d67f2d243e74d5b",
+      "internal/bootstrap/run.go": "fc7ed5a373fe96dfd4dc46e82dba99899089d4f2f81e96f6b6fe27f7e6325820",
+      "internal/core/domain/probe_command.go": "4c671aab24a2e9ed00287177fd5e5a8592c78087f9c1b878a1723e1155b1efcb",
+      "internal/core/domain/probe_regional.go": "3e72b5442979caacad529c623d90708ec2d1eec03f56886efae9ce785b789a2d",
+      "internal/core/domain/probe_replay.go": "c1dd94e7255273ca3eb2d58befe0950b9d5f47db5e7bb64e7afa784dc5ecfee8",
+      "internal/core/ports/probe_command.go": "6d1744376115f88e71e02d9ae08bba94d1c022fb13847167d065bcc49435474c",
+      "internal/core/ports/probe_regional.go": "5415e4a240b61122a504bb65c2899ea6bb5502e90c84c7226ecf6ec7ed1bb72c",
+      "internal/core/services/probe_ack_replay.go": "e2a5ebaccdc195ea5eaf722e86f2eccda27dc7e15fc992455241891e2cf70d7e",
+      "internal/core/services/probe_ack_replay_test.go": "001c0dd2ab165d06c9a2f371b17a4769423330bde128961791bf31cef9440a54",
+      "internal/core/services/probe_command_service.go": "92c1f0aa4d4ac91ca04f34cc8f8d52d88e2e6a7999b49606d95af8e14eefa622",
+      "internal/core/services/probe_replay_authorization.go": "1692cea3a151a8fceacbe99d068cc860a3ecd3428f72a0f562fa4d1b4f291d51",
+      "scripts/probe_runtime_smoke.py": "aeaffc4b920e7982d273e131520cd02431184fd5e71753bc97069320edc102a8"
+    }
+  },
+  "process": {
+    "passed": [
+      "TLS-only edge starts without hub",
+      "duplicate data-directory owner rejected; hub routes absent",
+      "hub API ready",
+      "background worker owns the not-yet-enrolled runtime",
+      "operator enrollment succeeds with background connectors already running",
+      "real hub connector activates accepted config",
+      "edge records healthy checks",
+      "hub durably records exact applied receipt",
+      "saved API edit automatically reaches edge",
+      "new desired revision has durable applied receipt",
+      "live telemetry reaches a durable hub and edge cursor",
+      "closed edge session releases its connection fence",
+      "edge reconnect advances session within the same runtime owner",
+      "two hub workers preserve runtime ownership across an edge restart",
+      "two hub workers retain one fenced management session",
+      "offline DOWN and provider retry persist atomically",
+      "pending provider intent resumes after offline process restart",
+      "offline UP resolves the same incident and sends recovery",
+      "offline mixed telemetry survives restart and provider recovery",
+      "reconnection advances fence without resetting source sequence",
+      "reconnected workers commit the full offline telemetry prefix",
+      "replay mirrors observations and outcomes without hub provider work",
+      "cold restart resumes beyond the acknowledged backlog",
+      "reconnection preserves stream, accepted config and delivery history",
+      "new regional incident fires before ACK partition",
+      "original ACK target is mirrored before partition",
+      "offline process restart preserves unacknowledged original incident",
+      "pending ACK receives durable source confirmation after reconnect",
+      "ACK telemetry is correlated with the issued command",
+      "ACKed source recovers while preserving original actor and command",
+      "later outage gets an independent source incident",
+      "new ACK of resolved original returns already_resolved",
+      "later outage recovers independently",
+      "all command-era history is durably replayed",
+      "queued ACK applies once to its original incident and cannot silence a later outage"
+    ],
+    "identity": {
+      "probe_id": "5b7fdab7-9001-48d3-911d-a4b788d5e599",
+      "stream_id": "4ab64807-cdca-4ea3-b453-19ff3e5698cf",
+      "certificate_fingerprint": "370fe8b8fc4427d861f8e31aca578d8b9ca56d11231852ff21a27ebadafe747b",
+      "last_created_seq": "0",
+      "config_revision": "0",
+      "expires_at": "2026-09-20T17:43:55.95553Z"
+    },
+    "before_restart": {
+      "probe_id": "5b7fdab7-9001-48d3-911d-a4b788d5e599",
+      "stream_id": "4ab64807-cdca-4ea3-b453-19ff3e5698cf",
+      "last_created_seq": 32,
+      "committed_seq": 28,
+      "config_revision": 2,
+      "connection_generation": 4
+    },
+    "final": {
+      "probe_id": "5b7fdab7-9001-48d3-911d-a4b788d5e599",
+      "stream_id": "4ab64807-cdca-4ea3-b453-19ff3e5698cf",
+      "last_created_seq": 82,
+      "committed_seq": 82,
+      "config_revision": 2,
+      "connection_generation": 11
+    },
+    "incident": "beca0b03-401e-4f52-a323-a955d3ee5d51",
+    "provider_attempt_statuses": [
+      503,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200
+    ],
+    "successful_webhook_statuses": [
+      0,
+      1,
+      0,
+      1,
+      0,
+      1
+    ],
+    "replay_verified": true,
+    "replay": {
+      "offline_high_water": 49,
+      "offline_backlog_count": 21,
+      "mirrored_observation_sequences": [
+        29,
+        30,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        47
+      ],
+      "mirrored_incidents": [
+        {
+          "id": "beca0b03-401e-4f52-a323-a955d3ee5d51",
+          "status": "resolved"
+        }
+      ],
+      "mirrored_delivery_outcomes": [
+        {
+          "id": "b72c9e5e-8a7d-4a7a-9645-fdf87faa4a5f",
+          "status": "sent"
+        },
+        {
+          "id": "d6603260-0584-420c-80e4-2c313ea652b1",
+          "status": "sent"
+        }
+      ],
+      "hub_send_intents": 0,
+      "hub_cursor": 50,
+      "edge_cursor": 50
+    },
+    "history_verified": false,
+    "history": null,
+    "runtime_ownership": {
+      "epoch": 1,
+      "generation_before": 3,
+      "generation_after": 4,
+      "stable_across_backoff": true
+    },
+    "watchdog_verified": false,
+    "watchdog": null,
+    "command_verified": true,
+    "command": {
+      "command_id": "4cce240f-538d-4a51-8fbc-ed9d6d713bdf",
+      "original_source_id": "638ac97a-3baf-4f70-bc31-fe9ceb2c345c",
+      "later_source_id": "3c321fd9-56e2-4e67-9b7a-cd75d52b6480",
+      "partition_seconds": 15.006943165994016,
+      "source_receipt_count": 1,
+      "confirmed": {
+        "command_id": "4cce240f-538d-4a51-8fbc-ed9d6d713bdf",
+        "status": "applied",
+        "remote_confirmed": true,
+        "source_alert_id": "638ac97a-3baf-4f70-bc31-fe9ceb2c345c",
+        "assignment_generation": "1",
+        "created_at": "2026-09-20T17:35:01.651588Z",
+        "expires_at": "2026-09-21T17:35:01.651588Z",
+        "attempts": "1",
+        "applied_at": "2026-09-20T17:35:19.251251Z",
+        "code": null
+      },
+      "ack_transition_receipt_count": 1,
+      "hub_send_intents": 0,
+      "high_water": 81
+    }
+  },
+  "process_command": "python3 scripts/probe_runtime_smoke.py --app-binary /private/tmp/phoenix-m3-command-bin/app --probe-binary /private/tmp/phoenix-m3-command-bin/probe --admin-binary /private/tmp/phoenix-m3-command-bin/admin --output /private/tmp/phoenix-m3-command-process-acceptance --port 39260 --verify-replay --verify-command --mariadb-container phoenix-m01-fix-validation",
+  "antigravity": {
+    "dispatch_audit_conversation": "7d49f837-3a7c-4bbc-9eb3-a8e8fbb6d034",
+    "integration_audit_conversation": "7b03741e-68be-4d03-b51c-f99d39ce7ac6",
+    "file_ownership": [],
+    "test_execution": false,
+    "disposition": "Dispatch audit reported no findings; all three integration findings were withdrawn after callee evidence."
+  },
+  "logs": {
+    "/private/tmp/phoenix-m3-hub-command-full.jsonl": "8f9b6014ed6140cf7e65fa672e057279fbd7414f79144bcbbb0b191d0c6b4c64",
+    "/private/tmp/phoenix-m3-hub-command-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/private/tmp/phoenix-m3-hub-command-lint.log": "e92606b0bf483111dff0a120c315ea165821348f31365020e2468a0059095c47",
+    "/private/tmp/phoenix-m3-hub-command-storage-v2.jsonl": "2fbb7c33ffd51fb6a128079c64ce6864ab0bb5e1192954e0be71cfa0ba04f367",
+    "/private/tmp/phoenix-m3-hub-command-replay-v2.jsonl": "7874af1f6673a12c5fbeb50d24d83df4ddcee3d5bf1d1363c99d0d1abb797f47",
+    "/private/tmp/phoenix-m3-command-process.log": "5be4c498649a3028a276ae224497c055f54d431ca957a09be6c3d8d98c4a15b7",
+    "/private/tmp/phoenix-m3-ack-audit-feedback.jsonl": "2a9c9f1acea026bccd89562a3fef2f1fe0f0cb1e9fbb9af54fe5089d8565d0b2"
+  }
+}
