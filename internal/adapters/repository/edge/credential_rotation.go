@@ -232,9 +232,17 @@ func (s *Store) AcceptCredentialConnection(ctx context.Context, binding domain.E
 		if binding.HubID != identity.HubID || binding.ProbeID != identity.ProbeID || generation <= identity.ConnectionGeneration {
 			return ports.ErrConflict
 		}
-		bindings, err := runtimeCredentials(ctx, tx, s.commandNow().UTC())
+		now := s.commandNow().UTC()
+		bindings, err := runtimeCredentials(ctx, tx, now)
 		if err != nil {
 			return err
+		}
+		certificateDeadline, eligible, err := certificateAdmission(ctx, tx, identity, binding, now)
+		if err != nil {
+			return err
+		}
+		if !eligible {
+			return nil
 		}
 		for _, candidate := range bindings {
 			if candidate.CredentialVersion == binding.CredentialVersion && candidate.EnrollmentID == binding.EnrollmentID && subtle.ConstantTimeCompare(candidate.TokenHash[:], binding.TokenHash[:]) == 1 {
@@ -244,6 +252,12 @@ func (s *Store) AcceptCredentialConnection(ctx context.Context, binding domain.E
 		if admitted.CredentialVersion == 0 {
 			// Commit the irreversible expiry observation without admitting a socket.
 			return nil
+		}
+		admitted.CertificateFingerprint = binding.CertificateFingerprint
+		admitted.CertificateNotBefore = binding.CertificateNotBefore
+		admitted.CertificateNotAfter = binding.CertificateNotAfter
+		if certificateDeadline != nil && (admitted.ValidUntil == nil || certificateDeadline.Before(*admitted.ValidUntil)) {
+			admitted.ValidUntil = certificateDeadline
 		}
 		_, err = tx.ExecContext(ctx, "UPDATE edge_identity SET connection_generation = ? WHERE id = 1", generation)
 		return err

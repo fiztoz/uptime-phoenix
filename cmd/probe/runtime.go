@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"log/slog"
 	"net"
@@ -20,7 +19,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIdentity, store *edge.Store, configs *services.EdgeConfigService, enrollment *services.EdgeEnrollmentService) error {
+func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIdentity, store *edge.Store, configs *services.EdgeConfigService, enrollment *services.EdgeEnrollmentService, tlsManager *probe.EdgeTLSManager) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cron := scheduler.CronEvaluator{}
@@ -77,7 +76,7 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 		d, err := store.ReadDiagnostics(ctx)
 		return d.Identity, d.FirstRetainedSeq, err
 	}
-	capabilities := []string{"snapshot.v1", "watchdog.v1", probe.AcknowledgementCapability, probe.CredentialRotationCapability, "checker.http.v1", "checker.tcp.v1", "checker.dns.v1"}
+	capabilities := []string{"snapshot.v1", "watchdog.v1", probe.AcknowledgementCapability, probe.CredentialRotationCapability, probe.CertificateRotationCapability, "checker.http.v1", "checker.tcp.v1", "checker.dns.v1"}
 	for _, name := range []string{"telegram", "discord", "slack", "smtp", "webhook", "teams", "mattermost", "gotify", "bark", "feishu", "line"} {
 		if _, ok := notifier.Get(name); ok {
 			capabilities = append(capabilities, "notifier."+name+".v1")
@@ -91,19 +90,20 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 	runtime.SetStateRepository(store)
 	runtime.SetCommands(store)
 	runtime.SetCredentialCommands(store)
+	runtime.SetCertificateCommands(tlsManager)
 	runtime.SetWatchdog(watchdog)
 	defer func() { _ = runtime.Close() }()
-	handler, err := probe.NewEdgeHTTPHandler(identity, enrollment, runtime.Handle, func(ctx context.Context) probe.EdgeReadiness {
+	handler, err := probe.NewManagedEdgeHTTPHandler(identity, enrollment, runtime.Handle, func(ctx context.Context) probe.EdgeReadiness {
 		h, err := diagnostic(ctx)
 		if err != nil {
 			return probe.EdgeReadiness{}
 		}
 		return probe.EdgeReadiness{Ready: h.Ready, DBWritable: h.DBWritable, SchedulerHealthy: *h.SchedulerHealthy, ConfigRevision: h.ConfigRevision}
-	})
+	}, tlsManager)
 	if err != nil {
 		return err
 	}
-	server := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13, Certificates: []tls.Certificate{identity.Certificate}}, BaseContext: func(net.Listener) context.Context { return runCtx }}
+	server := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10, TLSConfig: tlsManager.TLSConfig(), ConnContext: tlsManager.ConnContext, BaseContext: func(net.Listener) context.Context { return runCtx }}
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return errors.New("probe listener unavailable")

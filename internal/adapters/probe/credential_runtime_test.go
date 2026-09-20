@@ -379,3 +379,22 @@ func TestCredentialRuntimeUnconfirmedResultQuiescesAndCloses(t *testing.T) {
 		t.Fatal("fresh authenticated generation could not activate", result.Status)
 	}
 }
+
+func TestCredentialRuntimePreparationBoundsExistingSession(t *testing.T) {
+	f := newCredentialRuntimeFixture(t)
+	connection := f.dial(f.oldToken, 1)
+	payload, _ := f.prepare(2 * time.Second)
+	f.send(connection, 1, payload)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, frame, err := connection.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, receipt, err := DecodeCommandResult(frame)
+	if err != nil || receipt.Status != "applied" {
+		t.Fatal("missing preparation receipt", err)
+	}
+	f.closed(connection, 4*time.Second)
+	_ = f.dial(f.oldToken, 2)
+}

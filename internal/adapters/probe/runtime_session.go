@@ -28,21 +28,22 @@ type EdgeRuntimeState func(context.Context) (domain.EdgeIdentity, int64, error)
 // EdgeRuntime owns authenticated negotiations and one current established session.
 // Configuration commits remain protected by the durable connection generation.
 type EdgeRuntime struct {
-	state       EdgeRuntimeState
-	identity    ports.EdgeIdentityRepository
-	configs     *services.EdgeConfigService
-	cfg         EdgeRuntimeConfig
-	health      func(context.Context) (Health, error)
-	replayRepo  ports.EdgeReplayRepository
-	stateRepo   ports.EdgeStateRepository
-	commands    ports.EdgeCommandRepository
-	credentials ports.EdgeCredentialRepository
-	watchdog    *services.ProbeWatchdogRuntime
-	mu          sync.Mutex
-	closed      bool
-	active      *Session
-	connections map[*websocket.Conn]context.CancelFunc
-	handlers    sync.WaitGroup
+	state        EdgeRuntimeState
+	identity     ports.EdgeIdentityRepository
+	configs      *services.EdgeConfigService
+	cfg          EdgeRuntimeConfig
+	health       func(context.Context) (Health, error)
+	replayRepo   ports.EdgeReplayRepository
+	stateRepo    ports.EdgeStateRepository
+	commands     ports.EdgeCommandRepository
+	credentials  ports.EdgeCredentialRepository
+	certificates ports.EdgeCertificateRepository
+	watchdog     *services.ProbeWatchdogRuntime
+	mu           sync.Mutex
+	closed       bool
+	active       *Session
+	connections  map[*websocket.Conn]context.CancelFunc
+	handlers     sync.WaitGroup
 }
 
 // SetWatchdog attaches the long-lived source owner before accepting sessions.
@@ -82,6 +83,14 @@ func (r *EdgeRuntime) SetCredentialCommands(repo ports.EdgeCredentialRepository)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.credentials = repo
+}
+
+// SetCertificateCommands attaches the TLS owner that publishes only committed
+// active material. Configure it with atomic credential admission before serving.
+func (r *EdgeRuntime) SetCertificateCommands(repo ports.EdgeCertificateRepository) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.certificates = repo
 }
 
 // NewEdgeRuntime validates and copies the local capability inventory.
@@ -166,6 +175,12 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 	// Storage atomically rejects equal generations too. This also fences a
 	// duplicate runtime object; a mutex alone would not protect persistent state.
 	credentials := r.credentials
+	certificates := r.certificates
+	if slices.Contains(r.cfg.Capabilities, CertificateRotationCapability) && (certificates == nil || credentials == nil || binding.CertificateFingerprint == "") {
+		r.mu.Unlock()
+		_ = session.Close()
+		return ErrHandshakeIdentity
+	}
 	if credentials != nil {
 		binding, err = credentials.AcceptCredentialConnection(handshakeCtx, binding, int64(welcome.ConnectionGeneration))
 	} else if slices.Contains(r.cfg.Capabilities, CredentialRotationCapability) {
@@ -281,7 +296,7 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 		}
 		switch envelope.Type {
 		case "command.request":
-			response, reconnect, err := applyEdgeCommand(frameCtx, commands, credentials, domain.EdgeCommandAuthority{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID, ConnectionGeneration: int64(welcome.ConnectionGeneration)}, envelope)
+			response, reconnect, err := applyEdgeCommand(frameCtx, commands, credentials, certificates, domain.EdgeCommandAuthority{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID, ConnectionGeneration: int64(welcome.ConnectionGeneration)}, envelope)
 			if err != nil {
 				return err
 			}
@@ -291,11 +306,11 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 			if err != nil {
 				return err
 			}
-			if reconnect {
+			if reconnect.required {
 				// Immediate close cancels the hub's asynchronous result callback.
 				// Give its bounded ten-second commit an opportunity to finish;
 				// neither the timer nor socket close is interpreted as success.
-				rotationClose = time.AfterFunc(12*time.Second, func() { _ = session.Close() })
+				rotationClose = time.AfterFunc(reconnect.delay(binding), func() { _ = session.Close() })
 			}
 			return nil
 		case "state.applied":

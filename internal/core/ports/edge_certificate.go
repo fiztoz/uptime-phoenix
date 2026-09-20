@@ -27,3 +27,10 @@ type EdgeCertificateRepository interface {
 	ApplyCertificateCommand(context.Context, domain.EdgeCommandAuthority, domain.ProbeCertificateCommand) (domain.ProbeCommandOutcome, error)
 	ReadActiveCertificate(context.Context) (domain.EdgeCertificateState, error)
 }
+
+// ProbeCertificateCommandCodec translates closed wire requests without granting
+// issuance or execution authority. Private keys are never wire inputs.
+type ProbeCertificateCommandCodec interface {
+	EncodeCertificateCommand(context.Context, domain.ProbeCertificateCommand) ([]byte, error)
+	DecodeCertificateCommand(context.Context, []byte) (domain.ProbeCertificateCommand, error)
+}

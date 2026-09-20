@@ -7,6 +7,32 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 certificate source TLS runtime — 2026-09-21
+
+The source now advertises certificate rotation with actual durable TLS selection,
+startup recovery and transactional handshake admission. Protected active material
+is validated before listening, bootstrap files stay immutable, and expired/corrupt
+active state fails closed. Lost activation receipts recover after cold restart
+and fixed-overlap expiry. Prepared sessions, delayed old handshakes and first
+preparation on an already admitted socket obey the applicable deadlines.
+
+The final CGO-free build, full race suite and zero-issue lint passed: 22 packages,
+3,552 named passes, zero failures and two optional skips. All 283 MariaDB-named
+passes ran; 271 explicitly select the live engine. The 29-stage compiled replay/
+credential workflow passed through the new TLS server. All 19 source hashes
+stayed unchanged. See [acceptance](M3_CERTIFICATE_RUNTIME_ACCEPTANCE.md),
+[evidence](M3_CERTIFICATE_RUNTIME_EVIDENCE.json) and
+[the retrospective](M3_CERTIFICATE_RUNTIME_RETROSPECTIVE.md).
+
+Antigravity completed read-only review and corrective teaching, with no file
+ownership. Its cache recovery concern was reproduced and fixed; three unsupported
+lifecycle claims were withdrawn. Source session deadlines, historical receipt
+grace and standalone codec validation received additional reproduced fixes.
+Continue hub certificate issuance, pin selection and receipt-driven promotion
+under [the certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md).
+Hub certificate process acceptance, explicit reset, pressure/flush work and the
+complete fifteen-minute partition remain unfinished. M3 stays active/incomplete.
+
 ## M3 certificate storage foundation — 2026-09-21
 
 Edge migration 008 stores protected local certificate material, atomic active/

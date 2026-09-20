@@ -1109,3 +1109,23 @@ rotation through two workers, offline restarts, source receipts, cold reauthenti
 and unchanged telemetry identity. The complete M3 fifteen-minute partition is a
 separate acceptance requirement. See
 [hub rotation acceptance](multi-region/M3_HUB_CREDENTIAL_ACCEPTANCE.md).
+
+
+## M3 certificate source TLS runtime
+
+Run `go test -race -count=1 ./internal/adapters/probe ./internal/adapters/repository/edge -run 'TestCertificateRuntime|TestCertificateCommandCodec|TestCommandCodecs|TestEdgeCertificateAdmission|TestEdgeTLSRecovery|TestCredentialRuntime'`.
+The fixture uses `http.Server.ServeTLS` with the production manager, rather than
+an httptest server that may supply a static fallback certificate. Pinned clients
+verify no candidate before activation, new selection after commit, lost-result
+recovery after cold restart and overlap retirement, and rejection of a delayed
+old handshake without advancing the durable generation. Tests cover admission
+expiry, first-preparation and late-activation socket lifetimes, historical receipt
+grace, concurrent cache recovery, failed reconciliation, TLS resumption disabled,
+expired bootstrap recovery, and corrupt/wrong-key/expired active material.
+
+Standalone codec tests retain optional top-level fields while rejecting duplicate
+keys and invalid UTF-8, and bind the digest to original wire bytes. Full backend
+race verification still requires the disposable MariaDB DSN to prove existing hub
+behavior did not regress. The compiled replay/credential process harness exercises
+the new TLS server, but does not prove unimplemented hub certificate rotation.
+See [source TLS acceptance](multi-region/M3_CERTIFICATE_RUNTIME_ACCEPTANCE.md).

@@ -119,7 +119,7 @@ func InitializeRuntimeIdentity(ctx context.Context, dataDir string) (*RuntimeIde
 
 	// Case 1: Manifest already exists -> load and validate idempotently
 	if _, err := root.Lstat(identityFileName); err == nil {
-		identity, err := loadAndValidateIdentity(ctx, canonicalDir, root, lock)
+		identity, err := loadAndValidateIdentity(ctx, canonicalDir, root, lock, true)
 		if err != nil {
 			return nil, fmt.Errorf("validate existing identity: %w", err)
 		}
@@ -212,6 +212,18 @@ func InitializeRuntimeIdentity(ctx context.Context, dataDir string) (*RuntimeIde
 // OpenRuntimeIdentity opens and validates an existing runtime identity from dataDir.
 // It fails if the directory is uninitialized, corrupt, expired, or locked by another process.
 func OpenRuntimeIdentity(ctx context.Context, dataDir string) (*RuntimeIdentity, error) {
+	return openRuntimeIdentity(ctx, dataDir, true)
+}
+
+// OpenRuntimeIdentityAnchor validates and locks the immutable bootstrap files
+// without selecting a certificate for serving. Its certificate may be expired.
+// The caller MUST authenticate and validate the durable active TLS identity
+// before listening; a missing/corrupt active selection cannot use this as fallback.
+func OpenRuntimeIdentityAnchor(ctx context.Context, dataDir string) (*RuntimeIdentity, error) {
+	return openRuntimeIdentity(ctx, dataDir, false)
+}
+
+func openRuntimeIdentity(ctx context.Context, dataDir string, validateTime bool) (*RuntimeIdentity, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -248,7 +260,7 @@ func OpenRuntimeIdentity(ctx context.Context, dataDir string) (*RuntimeIdentity,
 		return nil, err
 	}
 
-	identity, err := loadAndValidateIdentity(ctx, canonicalDir, root, lock)
+	identity, err := loadAndValidateIdentity(ctx, canonicalDir, root, lock, validateTime)
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +357,7 @@ func prepareDataDir(ctx context.Context, dataDir string, createIfMissing bool) (
 	return absDir, root, dirFile, nil
 }
 
-func loadAndValidateIdentity(ctx context.Context, dir string, root *os.Root, lock *dirLock) (*RuntimeIdentity, error) {
+func loadAndValidateIdentity(ctx context.Context, dir string, root *os.Root, lock *dirLock, validateTime bool) (*RuntimeIdentity, error) {
 	manifestBytes, err := readDescriptorBounded(root, identityFileName, 4096)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -377,7 +389,7 @@ func loadAndValidateIdentity(ctx context.Context, dir string, root *os.Root, loc
 		return nil, fmt.Errorf("invalid fingerprint in identity manifest: %w", err)
 	}
 
-	tlsCert, fp, err := readAndValidateTLSFile(root, tlsFileName)
+	tlsCert, fp, err := readTLSFile(root, tlsFileName, validateTime)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("corrupt identity: missing %s", tlsFileName)
@@ -541,6 +553,10 @@ func parseAndValidateManifest(data []byte) (*identityManifest, error) {
 }
 
 func readAndValidateTLSFile(root *os.Root, filename string) (tls.Certificate, string, error) {
+	return readTLSFile(root, filename, true)
+}
+
+func readTLSFile(root *os.Root, filename string, validateTime bool) (tls.Certificate, string, error) {
 	data, err := readDescriptorBounded(root, filename, 65536)
 	if err != nil {
 		return tls.Certificate{}, "", err
@@ -562,10 +578,10 @@ func readAndValidateTLSFile(root *os.Root, filename string) (tls.Certificate, st
 	cert.Leaf = leaf
 
 	now := time.Now().UTC()
-	if now.Before(leaf.NotBefore) {
+	if validateTime && now.Before(leaf.NotBefore) {
 		return tls.Certificate{}, "", fmt.Errorf("certificate is not yet valid: not before %s", leaf.NotBefore.Format(time.RFC3339))
 	}
-	if now.After(leaf.NotAfter) {
+	if validateTime && !now.Before(leaf.NotAfter) {
 		return tls.Certificate{}, "", fmt.Errorf("certificate has expired: not after %s", leaf.NotAfter.Format(time.RFC3339))
 	}
 

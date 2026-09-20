@@ -72,7 +72,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if args[0] == "init" {
 		identity, err = probe.InitializeRuntimeIdentity(ctx, cfg.DataDir)
 	} else {
-		identity, err = probe.OpenRuntimeIdentity(ctx, cfg.DataDir)
+		identity, err = probe.OpenRuntimeIdentityAnchor(ctx, cfg.DataDir)
 	}
 	if err != nil {
 		_, _ = io.WriteString(stderr, "Probe identity could not be opened; inspect file permissions, ownership and the exclusive lock\n")
@@ -97,12 +97,22 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = io.WriteString(stderr, "Probe protection key is missing or invalid\n")
 		return 1
 	}
-	store, err := edge.Open(ctx, identity.DataDir, domain.EdgeIdentity{ProbeID: identity.ProbeID, StreamID: identity.StreamID, Fingerprint: identity.Fingerprint}, edge.WithTelemetryEncoder(probe.EdgeTelemetryEncoder{}), edge.WithRetentionPolicy(edge.RetentionPolicy{MaxBytes: cfg.TelemetryMaxBytes, MaxAge: time.Duration(cfg.TelemetryRetentionHours) * time.Hour}))
+	material, err := probe.NewEdgeCertificateMaterial(protector)
+	if err != nil {
+		_, _ = io.WriteString(stderr, "Probe certificate protection is unavailable\n")
+		return 1
+	}
+	store, err := edge.Open(ctx, identity.DataDir, domain.EdgeIdentity{ProbeID: identity.ProbeID, StreamID: identity.StreamID, Fingerprint: identity.Fingerprint}, edge.WithCertificateMaterial(material), edge.WithTelemetryEncoder(probe.EdgeTelemetryEncoder{}), edge.WithRetentionPolicy(edge.RetentionPolicy{MaxBytes: cfg.TelemetryMaxBytes, MaxAge: time.Duration(cfg.TelemetryRetentionHours) * time.Hour}))
 	if err != nil {
 		_, _ = io.WriteString(stderr, "Probe storage could not be opened\n")
 		return 1
 	}
 	defer func() { _ = store.Close() }()
+	tlsManager, err := probe.NewEdgeTLSManager(ctx, identity, store, protector)
+	if err != nil {
+		_, _ = io.WriteString(stderr, "Active probe certificate could not be authenticated or validated\n")
+		return 1
+	}
 	configs := services.NewEdgeConfigService(store, store, probe.NewEdgeConfigDecoder(checker.Get, notifier.Get), protector)
 	progress, err := store.ReadIdentity(ctx)
 	if err != nil {
@@ -117,7 +127,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	enrollment := services.NewEdgeEnrollmentService(store)
 	if args[0] == "run" {
-		if err := serveEdge(ctx, cfg, identity, store, configs, enrollment); err != nil && !errors.Is(err, context.Canceled) {
+		if err := serveEdge(ctx, cfg, identity, store, configs, enrollment, tlsManager); err != nil && !errors.Is(err, context.Canceled) {
 			_, _ = io.WriteString(stderr, "Probe runtime stopped with an error\n")
 			return 1
 		}
@@ -125,6 +135,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	// Explicit CLI DTO: digests, protected payloads and TLS private keys never
 	// leave storage. The new local enrollment token is shown only on issuance.
+	fingerprint, _, err := tlsManager.CurrentIdentity(ctx)
+	if err != nil {
+		return 1
+	}
 	result := struct {
 		ProbeID         string        `json:"probe_id"`
 		StreamID        string        `json:"stream_id"`
@@ -134,7 +148,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		Revision        probe.Decimal `json:"config_revision"`
 		EnrollmentToken string        `json:"enrollment_token,omitempty"`
 		ExpiresAt       *time.Time    `json:"expires_at,omitempty"`
-	}{ProbeID: identity.ProbeID, StreamID: identity.StreamID, Fingerprint: identity.Fingerprint, HubID: progress.HubID, Sequence: probe.Decimal(progress.LastCreatedSeq), Revision: probe.Decimal(progress.ConfigRevision)}
+	}{ProbeID: identity.ProbeID, StreamID: identity.StreamID, Fingerprint: fingerprint, HubID: progress.HubID, Sequence: probe.Decimal(progress.LastCreatedSeq), Revision: probe.Decimal(progress.ConfigRevision)}
 	if args[0] == "init" || args[0] == "token" {
 		at := time.Now().UTC()
 		token, err := enrollment.Issue(ctx, at)

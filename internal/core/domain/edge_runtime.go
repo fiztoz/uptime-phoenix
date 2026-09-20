@@ -34,6 +34,11 @@ type EdgeEnrollment struct {
 	// ValidUntil bounds an authenticated overlap session; nil means current.
 	// It is supplied by storage and must be rechecked at socket admission.
 	ValidUntil *time.Time
+	// Certificate identity is supplied by the server's actual TLS handshake, not
+	// by a remote header. Atomic admission rechecks its current overlap eligibility.
+	CertificateFingerprint string
+	CertificateNotBefore   time.Time
+	CertificateNotAfter    time.Time
 }
 
 // ValidEdgeEnrollment checks immutable binding and digest metadata.

@@ -55,7 +55,7 @@ func (CredentialCommandCodec) DecodeCredentialCommand(ctx context.Context, paylo
 	if len(payload) == 0 || len(payload) > domain.MaxProbeCommandBytes || !bytes.Equal(payload, bytes.TrimSpace(payload)) {
 		return domain.ProbeCredentialCommand{}, domain.ErrValidation
 	}
-	fields, err := objectFields(payload)
+	fields, err := decodeJSONObject(payload)
 	if err != nil {
 		return domain.ProbeCredentialCommand{}, domain.ErrValidation
 	}

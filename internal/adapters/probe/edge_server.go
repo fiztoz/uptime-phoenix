@@ -33,6 +33,19 @@ type EdgeSessionHandler func(context.Context, *websocket.Conn, domain.EdgeEnroll
 // NewEdgeHTTPHandler exposes only TLS probe sockets and bounded health checks.
 // There is no hub auth, admin, public status page or embedded frontend route.
 func NewEdgeHTTPHandler(identity *RuntimeIdentity, enrollment *services.EdgeEnrollmentService, runtime EdgeSessionHandler, health func(context.Context) EdgeReadiness) (*echo.Echo, error) {
+	return newEdgeHTTPHandler(identity, enrollment, runtime, health, nil)
+}
+
+// NewManagedEdgeHTTPHandler binds runtime admission to the actual TLS selection.
+// Install the manager's TLSConfig and ConnContext on the owning HTTP server.
+func NewManagedEdgeHTTPHandler(identity *RuntimeIdentity, enrollment *services.EdgeEnrollmentService, runtime EdgeSessionHandler, health func(context.Context) EdgeReadiness, manager *EdgeTLSManager) (*echo.Echo, error) {
+	if manager == nil {
+		return nil, errors.New("edge server requires a TLS manager")
+	}
+	return newEdgeHTTPHandler(identity, enrollment, runtime, health, manager)
+}
+
+func newEdgeHTTPHandler(identity *RuntimeIdentity, enrollment *services.EdgeEnrollmentService, runtime EdgeSessionHandler, health func(context.Context) EdgeReadiness, manager *EdgeTLSManager) (*echo.Echo, error) {
 	if identity == nil || len(identity.Certificate.Certificate) == 0 || identity.Certificate.Leaf == nil || enrollment == nil || runtime == nil || health == nil {
 		return nil, errors.New("edge server requires identity, authentication, runtime and health dependencies")
 	}
@@ -109,6 +122,14 @@ func NewEdgeHTTPHandler(identity *RuntimeIdentity, enrollment *services.EdgeEnro
 		}
 		appliedAt, expiry := Timestamp(at), Timestamp(identity.Certificate.Leaf.NotAfter)
 		pin := identity.Fingerprint
+		if manager != nil {
+			var notAfter time.Time
+			pin, notAfter, err = manager.CurrentIdentity(ctx)
+			if err != nil {
+				return nil
+			}
+			expiry = Timestamp(notAfter)
+		}
 		frame, err := encodeFrame("enroll.result", 0, EnrollResult{HubID: request.HubID, ProbeID: request.ProbeID, EnrollmentID: request.EnrollmentID, Status: "applied", CredentialVersion: request.CredentialVersion, AppliedAt: &appliedAt, TLSFingerprint: &pin, CertificateNotAfter: &expiry, Message: "Enrollment applied"})
 		if err != nil {
 			return nil
@@ -135,6 +156,12 @@ func NewEdgeHTTPHandler(identity *RuntimeIdentity, enrollment *services.EdgeEnro
 		}
 		if !valid {
 			return echo.NewHTTPError(http.StatusUnauthorized)
+		}
+		if manager != nil {
+			binding, err = manager.bindEnrollment(c.Request().Context(), binding)
+			if err != nil {
+				return echo.NewHTTPError(http.StatusServiceUnavailable)
+			}
 		}
 		conn, err := acceptEdgeSocket(c)
 		if err != nil {

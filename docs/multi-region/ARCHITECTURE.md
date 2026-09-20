@@ -289,11 +289,18 @@ Edge migration 008 adds the certificate storage foundation: locally generated
 P-256 private keys encrypted with a distinct purpose under the local protection
 key, atomic prepare/activate receipts, fixed overlap and retained version high-water.
 The active journal row survives cleanup. Bootstrap identity files remain immutable.
-This foundation does not yet change the served TLS certificate or advertise a
-certificate execution capability. See [the certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md)
-for the remaining startup, session-admission and hub work.
+The source TLS runtime now validates the durable active certificate before opening
+its listener, keeps bootstrap files as immutable pairing anchors, and selects
+committed material through `EdgeTLSManager`. Per-connection TLS selection is bound
+to transactional credential/session admission; TLS resumption is disabled. The
+session lifetime is the earliest certificate, credential or applicable overlap
+deadline. Preparation quiesces effects and bounds the existing socket's receipt
+reconnect grace without truncating historical receipt recovery on a current identity.
+The source advertises `command.certificate_rotation.v1`; hub certificate issuance
+and promotion remain unavailable. See [source runtime acceptance](M3_CERTIFICATE_RUNTIME_ACCEPTANCE.md)
+and [the certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md).
 
-Certificate runtime/hub integration, explicit stream reset and the broader
+Hub certificate integration, explicit stream reset and the broader
 fifteen-minute M3 scenario remain unfinished. Watchdog ACK remains unsupported
 by the positive-assignment-generation regional command target.
 

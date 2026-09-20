@@ -41,7 +41,7 @@ func (AcknowledgementCodec) DecodeAcknowledgement(ctx context.Context, payload [
 	if len(payload) == 0 || len(payload) > domain.MaxProbeCommandBytes || !bytes.Equal(payload, bytes.TrimSpace(payload)) {
 		return domain.ProbeAlertAcknowledgement{}, domain.ErrValidation
 	}
-	fields, err := objectFields(payload)
+	fields, err := decodeJSONObject(payload)
 	if err != nil {
 		return domain.ProbeAlertAcknowledgement{}, domain.ErrValidation
 	}

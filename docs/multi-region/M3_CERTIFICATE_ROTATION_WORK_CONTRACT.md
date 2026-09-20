@@ -118,3 +118,51 @@ post-rotation dials.
 This is a verified API/design direction, not an implemented runtime claim. The
 current serving path still uses the bootstrap certificate. Codex retains all
 implementation and verification ownership.
+
+
+## Hub continuation after source TLS wiring
+
+The source runtime increment is described in
+[M3_CERTIFICATE_RUNTIME_ACCEPTANCE.md](M3_CERTIFICATE_RUNTIME_ACCEPTANCE.md).
+The following is an implementation handoff, not acceptance of unbuilt hub behavior.
+Codex retains file ownership; Antigravity may review supplied changes read-only.
+
+- Trace `ProbeConnectorService.connectOnce`: it currently uses the same
+  `ProbeCredentialMetadata.Fingerprint` both to authenticate retained credential
+  ciphertext and to select the network TLS pin through `ProbeSessionInput`.
+  Introduce a separate explicit trusted dial pin for pending certificate recovery.
+  Do not mutate credential metadata to a candidate pin before decryption, and do
+  not infer source activation from a successful candidate handshake.
+- `ProbeCommandStore.CompleteCommand` already serializes current lease authority,
+  operation transition and source receipt, then rechecks the lease deadline before
+  commit. Extend this path for certificate preparation and activation. Persist the
+  source's exact prepared version/pin/expiry before activation becomes dispatchable.
+  Its immutable activation body cannot be built before the prepared pin exists;
+  reserve a stable activation command ID at issuance and account for its pending
+  storage capacity. No dispatchable placeholder payload may be recorded as success.
+- Add paired hub migrations for certificate operation state, active/high-water
+  versions and receipt metadata. Recheck the current migration maximum before
+  reserving the number. Preserve pending command dependencies and refuse unsafe
+  downgrade. Retain the original request/receipt after expiry for recovery.
+- During activation confirmation, decrypt the current runtime credential with its
+  old authenticated metadata, reseal the same token under the new fingerprint,
+  and atomically promote connection/registration certificate metadata with the
+  source receipt. Credential and certificate rotations exclude one another on
+  both engines; a saved earlier credential operation cannot undo a newer pin.
+- Extend capability-aware claims and strict per-kind outcome checks. Certificate
+  details are valid only for successful certificate preparation, never ACK,
+  credential or activation results. Successful certificate results use the existing
+  hub-commit-before-close lifecycle. Unsupported peers must not receive these
+  commands or starve other supported pending work.
+- Candidate pin selection and confirmation must share the current connector fence.
+  Old-pin fallback is allowed only before the original overlap deadline and before
+  any source session was admitted. Use a typed pre-WebSocket TLS mismatch outcome,
+  not string matching or catch-all fallback. Persist observed overlap retirement
+  so a backward clock cannot reopen old trust. After expiry, candidate-only
+  recovery can require explicit verified operator action if activation never ran.
+
+Verify actual SQLite and MariaDB effects, stale leases, late-write rollback,
+immutable retry, wrong-pin/wrong-key rejection, operation exclusion and retained
+high-water. Then run source and hub cold restart with an activation reply lost
+before the hub receipt commit, including recovery after overlap expiry. Existing
+compiled credential/replay acceptance is only a regression baseline for this step.
