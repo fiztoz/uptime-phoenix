@@ -115,19 +115,27 @@ func (c *ConfigTransfer) AddChunk(data []byte, now time.Time) (err error) {
 // It consumes staging on success or failure. A returned snapshot still needs all
 // runtime validators and a fenced, revision-checked atomic activation transaction.
 func (c *ConfigTransfer) Commit(data []byte, now time.Time) (ConfigSnapshot, error) {
+	snapshot, _, err := c.CommitDocument(data, now)
+	return snapshot, err
+}
+
+// CommitDocument also returns the exact authenticated bytes for protected storage.
+// Re-marshaling the DTO would change whitespace/unknown fields and invalidate
+// the hub's original hash. This does not authorize activation by itself.
+func (c *ConfigTransfer) CommitDocument(data []byte, now time.Time) (ConfigSnapshot, []byte, error) {
 	defer c.Discard()
 	if err := c.checkOpen(now); err != nil {
-		return ConfigSnapshot{}, err
+		return ConfigSnapshot{}, nil, err
 	}
 	envelope, commit, err := DecodeConfigCommit(data)
 	if err != nil {
-		return ConfigSnapshot{}, err
+		return ConfigSnapshot{}, nil, err
 	}
 	if commit.ConfigTransferIdentity != c.begin.ConfigTransferIdentity || envelope.ConnectionGeneration != c.target.ConnectionGeneration || commit.SHA256 != c.begin.SHA256 {
-		return ConfigSnapshot{}, errors.New("config commit identity, generation, or hash mismatch")
+		return ConfigSnapshot{}, nil, errors.New("config commit identity, generation, or hash mismatch")
 	}
 	if c.received != c.begin.ChunkCount || c.totalBytes != c.begin.TotalBytes {
-		return ConfigSnapshot{}, errors.New("config commit requires all chunks and exact byte total")
+		return ConfigSnapshot{}, nil, errors.New("config commit requires all chunks and exact byte total")
 	}
 	content := make([]byte, 0, c.totalBytes)
 	for _, chunk := range c.chunks {
@@ -135,32 +143,32 @@ func (c *ConfigTransfer) Commit(data []byte, now time.Time) (ConfigSnapshot, err
 	}
 	hash := sha256.Sum256(content)
 	if hex.EncodeToString(hash[:]) != c.begin.SHA256 {
-		return ConfigSnapshot{}, errors.New("config snapshot hash mismatch")
+		return ConfigSnapshot{}, nil, errors.New("config snapshot hash mismatch")
 	}
 	snapshot, err := DecodeConfigSnapshot(content)
 	if err != nil {
-		return ConfigSnapshot{}, err
+		return ConfigSnapshot{}, nil, err
 	}
 	if snapshot.HubID != c.target.HubID || snapshot.ProbeID != c.target.ProbeID || snapshot.Revision != c.begin.Revision || !time.Time(snapshot.EffectiveAt).Equal(time.Time(c.begin.EffectiveAt)) {
-		return ConfigSnapshot{}, errors.New("config snapshot target or metadata mismatch")
+		return ConfigSnapshot{}, nil, errors.New("config snapshot target or metadata mismatch")
 	}
 	required := configCapabilities(snapshot)
 	if len(required) != len(c.begin.RequiredCapabilities) {
-		return ConfigSnapshot{}, errors.New("config capability union differs from begin")
+		return ConfigSnapshot{}, nil, errors.New("config capability union differs from begin")
 	}
 	for _, capability := range c.begin.RequiredCapabilities {
 		if !required[capability] {
-			return ConfigSnapshot{}, errors.New("config capability union differs from begin")
+			return ConfigSnapshot{}, nil, errors.New("config capability union differs from begin")
 		}
 	}
 	for _, assignment := range snapshot.Assignments {
 		for _, binding := range assignment.ResourceBindings {
 			if local, exists := c.bindings[binding.BindingKey]; !exists || local.Kind != binding.Kind {
-				return ConfigSnapshot{}, errors.New("config requires an unavailable local resource binding")
+				return ConfigSnapshot{}, nil, errors.New("config requires an unavailable local resource binding")
 			}
 		}
 	}
-	return snapshot, nil
+	return snapshot, content, nil
 }
 
 func (c *ConfigTransfer) checkOpen(now time.Time) error {

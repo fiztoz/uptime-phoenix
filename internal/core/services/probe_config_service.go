@@ -25,6 +25,22 @@ func NewProbeConfigService(repo ports.ProbeConfigRepository, inspector ports.Pro
 	return &ProbeConfigService{repo: repo, inspector: inspector, protector: protector}
 }
 
+// LatestMetadata cheaply detects a new prepared revision. It does not authenticate
+// document bytes or authorize execution; callers must use Read before transfer.
+func (s *ProbeConfigService) LatestMetadata(ctx context.Context, target domain.ProbeConfigTarget) (domain.ProbeConfigMetadata, error) {
+	if err := s.ready(ctx, target); err != nil {
+		return domain.ProbeConfigMetadata{}, err
+	}
+	stored, err := s.repo.Latest(ctx, target.ProbeID)
+	if err != nil {
+		return domain.ProbeConfigMetadata{}, err
+	}
+	if stored == nil || stored.ProbeConfigTarget != target || !domain.ValidProbeConfigMetadata(stored.ProbeConfigMetadata) {
+		return domain.ProbeConfigMetadata{}, domain.ErrValidation
+	}
+	return stored.ProbeConfigMetadata, nil
+}
+
 // Prepare protects exact document bytes before any write. The result is metadata
 // only, never a config.applied receipt. Callers must authorize the trusted target.
 func (s *ProbeConfigService) Prepare(ctx context.Context, target domain.ProbeConfigTarget, document []byte, expectedRevision int64) (domain.ProbeConfigMetadata, error) {

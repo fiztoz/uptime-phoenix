@@ -48,6 +48,10 @@ func (v *LocalConfigValidator) ValidateLocal(ctx context.Context, document []byt
 	if err != nil || s.HubID != target.HubID || s.ProbeID != target.ProbeID || s.Watchdog.Enabled {
 		return localConfigInvalid(ctx, "snapshot", 0)
 	}
+	return v.validateSnapshot(ctx, s)
+}
+
+func (v *LocalConfigValidator) validateSnapshot(ctx context.Context, s ConfigSnapshot) error {
 	for i, a := range s.Assignments {
 		if err := ctx.Err(); err != nil {
 			return err

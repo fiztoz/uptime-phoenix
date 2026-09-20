@@ -155,9 +155,11 @@ func TestCommandRequiredFieldsAreNotNullable(t *testing.T) {
 	}
 }
 
-func TestNoProbeMutationRoutesOrListeners(t *testing.T) {
-	root := filepath.Join("..", "..", "..")
-	needles := []string{"/api/probes", "/ws/probe/enroll", "/ws/probe/v1", "PROBES_ENABLED"}
+// Remote admin mutations belong to M5. Protocol DTOs and the M2 outbound
+// pinned client may name wire endpoints without registering hub HTTP routes.
+func TestNoUnimplementedProbeAdminRoutes(t *testing.T) {
+	root := filepath.Join("..", "http")
+	needles := []string{"/api/probes", `Group("/probes"`, `Group("/probe"`}
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err

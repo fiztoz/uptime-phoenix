@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 
 	// Module-root package is `assets` (//go:embed web/dist); import path is the module path.
@@ -41,6 +43,9 @@ import (
 
 // Run starts Phoenix with the given configuration and blocks until shutdown.
 func Run(cfg Config) error {
+	if cfg.ProbesEnabled && cfg.ProbeSecretKeyFile == "" {
+		return fmt.Errorf("PROBES_ENABLED requires PROBE_SECRET_KEY_FILE")
+	}
 	if err := validateJWTExpireHours(cfg.JWTExpireH); err != nil {
 		return err
 	}
@@ -75,6 +80,8 @@ func Run(cfg Config) error {
 	repos := wireRepositories(cfg.DBEngine, db)
 
 	var protector ports.ProbeConfigProtector
+	var credentialProtector ports.ProbeCredentialProtector
+	var installationHubID string
 	if cfg.ProbeSecretKeyFile != "" {
 		p, err := auth.NewProbeConfigProtectorFromFile(ctx, cfg.ProbeSecretKeyFile)
 		if err != nil {
@@ -82,6 +89,7 @@ func Run(cfg Config) error {
 			return fmt.Errorf("probe secret key: %w", err)
 		}
 		protector = p
+		credentialProtector = p
 		installationSvc := services.NewProbeInstallationService(repos.probeInstallation)
 		inst, err := installationSvc.InitializeOrVerify(ctx, protector, cfg.ProbeHubID)
 		if err != nil {
@@ -89,6 +97,7 @@ func Run(cfg Config) error {
 			return fmt.Errorf("probe installation: %w", err)
 		}
 		log.Info("probe installation verified", "hub_id", inst.HubID)
+		installationHubID = inst.HubID
 	}
 
 	jwtAuth := auth.NewJWTAuthenticator(cfg.JWTSecret, cfg.JWTExpireH, repos.user)
@@ -395,6 +404,34 @@ func Run(cfg Config) error {
 
 	isAPI := cfg.Mode == "all" || cfg.Mode == "api"
 	isWorker := cfg.Mode == "all" || cfg.Mode == "worker"
+	var connectorDone chan struct{}
+	if cfg.ProbesEnabled && isWorker {
+		policy, err := probe.LoadEndpointPolicy(cfg.ProbeEndpointPolicyFile)
+		if err != nil {
+			return err
+		}
+		owner, err := uuid.NewRandom()
+		if err != nil {
+			return fmt.Errorf("probe connector owner unavailable")
+		}
+		connections := repo.NewProbeConnectorStore(db)
+		connector, err := services.NewProbeConnectorService(connections, connections, credentialProtector,
+			services.NewProbeConfigService(repos.probeConfig, probe.ConfigInspector{}, protector),
+			probe.NewHubTransport(policy), installationHubID, owner.String(),
+			func(failures int, healthy time.Duration) time.Duration {
+				return probe.ReconnectDelay(failures, healthy, rand.Float64())
+			})
+		if err != nil {
+			return err
+		}
+		connectorDone = make(chan struct{})
+		go func() {
+			defer close(connectorDone)
+			connector.Run(ctx, func(err error) { log.Warn("probe connector", "error", err) })
+		}()
+		defer func() { cancelRuntime(); <-connectorDone }()
+		log.Info("probe connector enabled", "owner_id", owner.String())
+	}
 
 	// The hub filters every outbound frame against the receiving client's visible
 	// monitor set. Without accessSvc it would fail closed and emit nothing.
@@ -611,6 +648,9 @@ func Run(cfg Config) error {
 	<-sigCtx.Done()
 	log.Info("shutdown signal received")
 	cancelRuntime()
+	if connectorDone != nil {
+		<-connectorDone
+	}
 
 	if schedCancel != nil {
 		schedCancel()

@@ -137,6 +137,11 @@ type Config struct {
 	// ProbeHubID is an explicit installation UUID (optional). If unset, a fresh UUIDv4
 	// is generated on first initialization.
 	ProbeHubID string `env:"PROBE_HUB_ID" envDefault:""`
+
+	// ProbesEnabled opts compatible hub workers into remote connector ownership.
+	ProbesEnabled bool `env:"PROBES_ENABLED" envDefault:"false"`
+	// ProbeEndpointPolicyFile explicitly permits private management destinations.
+	ProbeEndpointPolicyFile string `env:"PROBE_ENDPOINT_POLICY_FILE" envDefault:""`
 }
 
 // LoadConfig parses environment into Config.
@@ -150,6 +155,9 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.ProbeHubID != "" && !domain.ValidHubID(cfg.ProbeHubID) {
 		return Config{}, fmt.Errorf("PROBE_HUB_ID must be a valid canonical UUID, got %q", cfg.ProbeHubID)
+	}
+	if cfg.ProbesEnabled && cfg.ProbeSecretKeyFile == "" {
+		return Config{}, fmt.Errorf("PROBES_ENABLED requires PROBE_SECRET_KEY_FILE")
 	}
 	return cfg, nil
 }
