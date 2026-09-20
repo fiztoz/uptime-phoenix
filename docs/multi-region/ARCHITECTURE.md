@@ -244,8 +244,8 @@ the source wall clock. Legacy non-watchdog claim semantics are unchanged.
 
 The hub delivery worker shares cancellation and join lifetime with the stable
 watchdog owner, independently of timer persistence. The edge delegates watchdog
-items from its existing dispatcher. Enabled configuration remains guarded until
-watchdog mirror replay and both-side process acceptance pass. See
+items from its existing dispatcher. Watchdog mirror replay and enabled both-side
+process acceptance now pass. See
 [delivery verification](M3_WATCHDOG_DELIVERY_ACCEPTANCE.md) for the executed scope;
 this does not promise exactly-once external notification.
 
@@ -258,6 +258,13 @@ Probe acknowledgement state and escalation progress survive restart. The edge ru
 Existing local acknowledgement links use opaque database tokens, not signatures, and retain their behavior. Remote regional acknowledgement URLs are deferred from V1: omit them from remote notifications, even when the channel requests a link. Use the authenticated hub command after the source incident has been mirrored. A future link mechanism must define scoped authority, expiry, and offline-created incident lookup before activation; never distribute a hub-wide signing secret to probes. Surface this limitation in remote channel configuration.
 
 ## 6. Watchdogs and offline operation
+
+**Current implementation:** enabled `watchdog.v1` configuration, source timing,
+durable both-side delivery and edge-to-hub watchdog mirroring are verified by
+[the real partition/restart acceptance](M3_WATCHDOG_ACCEPTANCE.md). The storage
+prerequisite descriptions below record earlier implementation stages; their
+activation guards have now been removed for complete metadata/capability graphs.
+Remote ACK commands and the broader fifteen-minute M3 scenario remain unfinished.
 
 Send control health every 15 seconds. A link is suspect after 45 seconds without valid application health and disconnected after 90 seconds. Require 30 seconds of continuous valid health before a watchdog recovery notification. These are defaults, not sub-second promises.
 

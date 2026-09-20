@@ -7,6 +7,30 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 enabled watchdogs and mirror replay — 2026-09-20
+
+Both sides now page from durable watchdog incidents, and edge history mirrors to
+the hub without redelivery. Enabled configs require explicit probe metadata and
+`watchdog.v1`; old edges fail capability negotiation. Replay preserves null probe
+entity context, historical channel revisions, immutable source versions and
+backward-clock ordering. Historical hub source UUIDs remain protected. Remote ACK
+metadata still fails closed until durable command correlation is implemented.
+
+See [watchdog acceptance](M3_WATCHDOG_ACCEPTANCE.md) and
+[evidence](M3_WATCHDOG_EVIDENCE.json). The final full Go race gate passed in 22
+packages with 3,288 named pass events, zero failures and zero MariaDB skips;
+CGO-free build and zero-issue lint passed. All 33 real-process stages passed with
+both owners alive during a network partition, independent DOWN pages, an offline
+edge restart without duplicate initial paging, stable recovery, zero mirror
+rejections and zero hub sends for the edge watchdog. This was a short watchdog
+partition, not the final fifteen-minute M3 acceptance.
+
+Antigravity corrected its version-contract and ACK-authority assumptions, then
+returned no actionable implementation findings; Codex verified actual effects.
+No source ownership is delegated. Continue
+[durable commands and offline ACK](M3_COMMAND_WORK_CONTRACT.md), rotations/reset,
+bounded shutdown and the full long-partition scenario. M3 remains incomplete.
+
 ## M3 watchdog source delivery prerequisite — 2026-09-20
 
 Source delivery now reconciles exact applied settings, channel version/activity,

@@ -15,7 +15,7 @@ func ValidateProbeWatchdogCommit(probeID string, before ProbeWatchdogState, reco
 	}
 	incident := before.Incident
 	if record.Incident != nil {
-		if err := validateWatchdogTransition(probeID, record.ConfigRevision, before.Incident, *record.Incident); err != nil {
+		if err := ValidateProbeWatchdogTransition(probeID, record.ConfigRevision, before.Incident, *record.Incident); err != nil {
 			return err
 		}
 		incident = record.Incident
@@ -56,7 +56,9 @@ func ValidateProbeWatchdogCommit(probeID string, before ProbeWatchdogState, reco
 	return nil
 }
 
-func validateWatchdogTransition(probeID string, revision int64, prior *RegionalIncident, inc RegionalIncident) error {
+// ValidateProbeWatchdogTransition validates source and mirror lifecycle identity.
+// Its caller supplies verified configuration and acknowledgement authority.
+func ValidateProbeWatchdogTransition(probeID string, revision int64, prior *RegionalIncident, inc RegionalIncident) error {
 	if !ValidHubID(inc.SourceAlertID) || inc.ProbeID != probeID || inc.MonitorID != 0 || inc.AssignmentGeneration != 0 || inc.Scope != IncidentScopeProbeConnection || inc.SubjectKind != IncidentSubjectWatchdog || inc.ConfigRevision != revision || inc.StartedAt.IsZero() || inc.TransitionVersion <= 0 || len(inc.Reason) > 4096 || !utf8.ValidString(inc.Reason) || inc.ConditionKind != "" || inc.CertificateThreshold != 0 || inc.EscalationPolicyID != 0 || inc.EscalationPolicyVersion != 0 || inc.EscalationStatus != "" || inc.EscalationNextStep != nil || inc.EscalationNextRunAt != nil {
 		return ErrValidation
 	}
@@ -88,6 +90,9 @@ func validateWatchdogTransition(probeID string, revision int64, prior *RegionalI
 			return ErrValidation
 		}
 		return nil
+	}
+	if prior.ProbeID != probeID || prior.Scope != IncidentScopeProbeConnection || prior.SubjectKind != IncidentSubjectWatchdog || prior.MonitorID != 0 || prior.AssignmentGeneration != 0 {
+		return ErrValidation
 	}
 	if inc.SourceAlertID != prior.SourceAlertID || inc.StartedAt.UTC().UnixMicro() != prior.StartedAt.UTC().UnixMicro() || prior.TransitionVersion == math.MaxInt64 || inc.TransitionVersion != prior.TransitionVersion+1 || inc.Status == AlertStatusFiring {
 		return ErrValidation

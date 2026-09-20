@@ -114,6 +114,10 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 					at := incident.ResolvedAt.UTC().Truncate(time.Microsecond)
 					incident.ResolvedAt = &at
 				}
+				if incident.AckedAt != nil {
+					at := incident.AckedAt.UTC().Truncate(time.Microsecond)
+					incident.AckedAt = &at
+				}
 				event.Incident = &incident
 			}
 			facts, err := s.replayFacts(ctx, tx, session, event, configs)
@@ -137,15 +141,17 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 					if err := updateReplayState(ctx, tx, obs, now); err != nil {
 						return err
 					}
-				case domain.ReplayKindAlertTransition:
+				case domain.ReplayKindAlertTransition, domain.ReplayKindWatchdogTransition:
 					incident := *event.Incident
 					if err := putIncidentTx(ctx, tx, &incident); err != nil {
 						return err
 					}
 					receipt.SourceAlertID = &incident.SourceAlertID
 					receipt.TransitionVersion = &incident.TransitionVersion
-					receipt.MonitorID = &incident.MonitorID
-					receipt.AssignmentGeneration = &incident.AssignmentGeneration
+					if incident.Scope == domain.IncidentScopeRegional {
+						receipt.MonitorID = &incident.MonitorID
+						receipt.AssignmentGeneration = &incident.AssignmentGeneration
+					}
 					receipt.ConfigRevision = &incident.ConfigRevision
 					receipt.Status = &incident.Status
 					receipt.StartedAt = &incident.StartedAt
@@ -227,12 +233,32 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 		var parent replayReceiptModel
 		err := tx.NewSelect().Model(&parent).Where("source_alert_id = ? AND transition_version = ? AND probe_id = ? AND rejection_code = ''", d.SourceAlertID, d.SourceTransitionVersion, session.ProbeID).Scan(ctx)
 		if err == nil {
-			if parent.MonitorID == nil || parent.AssignmentGeneration == nil || parent.ConfigRevision == nil || parent.Status == nil || parent.StartedAt == nil {
+			if parent.ConfigRevision == nil || parent.Status == nil || parent.StartedAt == nil {
 				return f, domain.ErrInternal
 			}
-			f.ParentTransition = &domain.RegionalIncident{SourceAlertID: d.SourceAlertID, TransitionVersion: d.SourceTransitionVersion, ProbeID: session.ProbeID, MonitorID: *parent.MonitorID, AssignmentGeneration: *parent.AssignmentGeneration, ConfigRevision: *parent.ConfigRevision, Status: *parent.Status, StartedAt: parent.StartedAt.UTC(), ResolvedAt: utcTimePtr(parent.ResolvedAt)}
-			f.MonitorID = *parent.MonitorID
+			f.ParentTransition = &domain.RegionalIncident{SourceAlertID: d.SourceAlertID, TransitionVersion: d.SourceTransitionVersion, ProbeID: session.ProbeID, ConfigRevision: *parent.ConfigRevision, Status: *parent.Status, StartedAt: parent.StartedAt.UTC(), ResolvedAt: utcTimePtr(parent.ResolvedAt)}
+			switch parent.Kind {
+			case domain.ReplayKindWatchdogTransition:
+				if parent.MonitorID != nil || parent.AssignmentGeneration != nil {
+					return f, domain.ErrInternal
+				}
+				f.ParentTransition.Scope, f.ParentTransition.SubjectKind = domain.IncidentScopeProbeConnection, domain.IncidentSubjectWatchdog
+			case domain.ReplayKindAlertTransition:
+				if parent.MonitorID == nil || parent.AssignmentGeneration == nil {
+					return f, domain.ErrInternal
+				}
+				f.MonitorID = *parent.MonitorID
+				f.ParentTransition.MonitorID, f.ParentTransition.AssignmentGeneration = *parent.MonitorID, *parent.AssignmentGeneration
+				f.ParentTransition.Scope, f.ParentTransition.SubjectKind = domain.IncidentScopeRegional, domain.IncidentSubjectAvailability
+			default:
+				return f, domain.ErrInternal
+			}
 			f.ConfigRevision = *parent.ConfigRevision
+			if d.EventKind == domain.DeliveryEventProbeConnection {
+				// V1 dependency versions equal their enclosing snapshot revision.
+				// A resend can use a newer graph without another outage transition.
+				f.ConfigRevision = d.NotificationVersion
+			}
 		} else if !errors.Is(err, sql.ErrNoRows) {
 			return f, err
 		}
@@ -249,31 +275,49 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 			return f, err
 		}
 	}
-	if f.MonitorID <= 0 || f.ConfigRevision <= 0 {
-		return f, nil
+	var sourceID string
+	if event.Incident != nil {
+		sourceID = event.Incident.SourceAlertID
+	} else if event.Delivery != nil {
+		sourceID = event.Delivery.SourceAlertID
 	}
-	var err error
-	f.MonitorExists, err = tx.NewSelect().Table("monitors").Where("id = ?", f.MonitorID).Exists(ctx)
-	if err != nil {
-		return f, err
-	}
-	// Lock assignment authority before committing evidence. SERIALIZABLE also
-	// protects absent membership and monitor-deletion predicates.
-	if f.MonitorExists {
-		if _, err := tx.ExecContext(ctx, "UPDATE monitor_probe_assignment_sets SET revision = revision WHERE monitor_id = ?", f.MonitorID); err != nil {
+	if sourceID != "" {
+		owned, err := hubOwnsWatchdogIncident(ctx, tx, sourceID)
+		if err != nil {
 			return f, err
 		}
-	}
-	var history []probeAssignmentHistoryModel
-	if err := tx.NewSelect().Model(&history).Where("monitor_id = ? AND probe_id = ? AND started_at <= ?", f.MonitorID, session.ProbeID, event.ObservedAt.UTC()).Where("ended_at IS NULL OR ended_at > ?", event.ObservedAt.UTC()).Scan(ctx); err != nil {
-		return f, err
-	}
-	for _, row := range history {
-		interval := domain.AssignmentInterval{ProbeID: row.ProbeID, Generation: row.Generation, Revision: row.Revision, Policy: row.HealthPolicy, From: row.StartedAt.UTC()}
-		if row.EndedAt != nil {
-			interval.To = row.EndedAt.UTC()
+		f.HubOwnedIncident = owned
+		if owned {
+			return f, nil
 		}
-		f.AssignmentHistory = append(f.AssignmentHistory, interval)
+	}
+	if f.ConfigRevision <= 0 {
+		return f, nil
+	}
+	if f.MonitorID > 0 {
+		var err error
+		f.MonitorExists, err = tx.NewSelect().Table("monitors").Where("id = ?", f.MonitorID).Exists(ctx)
+		if err != nil {
+			return f, err
+		}
+		// Lock assignment authority before committing evidence. SERIALIZABLE also
+		// protects absent membership and monitor-deletion predicates.
+		if f.MonitorExists {
+			if _, err := tx.ExecContext(ctx, "UPDATE monitor_probe_assignment_sets SET revision = revision WHERE monitor_id = ?", f.MonitorID); err != nil {
+				return f, err
+			}
+		}
+		var history []probeAssignmentHistoryModel
+		if err := tx.NewSelect().Model(&history).Where("monitor_id = ? AND probe_id = ? AND started_at <= ?", f.MonitorID, session.ProbeID, event.ObservedAt.UTC()).Where("ended_at IS NULL OR ended_at > ?", event.ObservedAt.UTC()).Scan(ctx); err != nil {
+			return f, err
+		}
+		for _, row := range history {
+			interval := domain.AssignmentInterval{ProbeID: row.ProbeID, Generation: row.Generation, Revision: row.Revision, Policy: row.HealthPolicy, From: row.StartedAt.UTC()}
+			if row.EndedAt != nil {
+				interval.To = row.EndedAt.UTC()
+			}
+			f.AssignmentHistory = append(f.AssignmentHistory, interval)
+		}
 	}
 	resolved, found := configs[f.ConfigRevision]
 	if !found {
@@ -306,7 +350,17 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 	if resolved == nil {
 		return f, nil
 	}
+	f.ConfigFound = true
 	f.ConfigEffectiveAt = resolved.Metadata.EffectiveAt.UTC()
+	if f.MonitorID == 0 {
+		f.WatchdogEnabled = resolved.Watchdog.Enabled
+		for _, id := range resolved.Watchdog.NotificationIDs {
+			if channel, ok := resolved.Channels[id]; ok && channel.Notification != nil && channel.Notification.Active {
+				f.Channels[id] = channel.Version
+			}
+		}
+		return f, nil
+	}
 	for _, a := range resolved.Assignments {
 		if a.Monitor != nil && a.Monitor.ID == f.MonitorID {
 			f.ConfigAssignment = &domain.EdgeAssignmentIdentity{MonitorID: a.Monitor.ID, Generation: a.Generation, Active: a.Monitor.Active}

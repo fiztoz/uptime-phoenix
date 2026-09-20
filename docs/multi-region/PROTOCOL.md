@@ -133,9 +133,11 @@ The optional root `probe` display extension contains exact `name` and `location`
 string members. Name is nonblank and at most 200 Unicode code points; location is
 at most 255. Both come from the authoritative registration, never a monitor or
 endpoint. Unknown members cannot overwrite canonical names through case aliases.
-Older documents may omit the extension. Enabled watchdog runtime support will
-require this metadata and its negotiated capability; the current build still
-rejects enabled watchdog activation.
+Older disabled-watchdog documents may omit the extension. Enabled remote watchdog
+snapshots require this metadata and the negotiated `watchdog.v1` capability.
+The current source/runtime/provider and mirror implementation supports that
+capability; see [watchdog acceptance](M3_WATCHDOG_ACCEPTANCE.md). Remote ACK
+transitions remain rejected until durable command authority can be correlated.
 
 Every member listed in section 3.2 is required, including empty arrays and explicit nullable references. Snapshot revision and assignment generations are positive. All dependency versions equal the enclosing revision. Bound the snapshot to 16 MiB, each collection entry to 256 KiB, assignments to 10,000, and each dependency collection to 1,000. IDs are unique and positive within their collection; binding keys follow the hello key grammar. Per-assignment link/maintenance lists and per-step/watchdog notification lists are unique positive IDs bounded to 1,000. Assignment notification IDs exactly match its link IDs. Each channel/template, assignment/proxy/policy, and policy/watchdog/channel reference resolves in this snapshot, including disabled entries. Template and channel providers must match.
 

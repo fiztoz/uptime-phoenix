@@ -371,3 +371,21 @@ acknowledgements must not become trusted operator actions; complete the command
 correlation path before accepting them. No mirrored event may enqueue hub sends.
 Then prove enabled both-side paging through real processes before removing the
 capability/config guard. The whole M3 completion contract remains open.
+
+### Enabled watchdog acceptance
+
+Watchdog mirror authorization, required probe metadata and `watchdog.v1` capability
+are implemented. The guard is removed for complete remote graphs. Actual hub and
+edge processes passed all 33 replay/history/watchdog stages, including a network
+partition with both owners alive, two independent DOWN pages, offline edge restart
+without a duplicate initial page, stable recovery and edge history mirrored with
+zero hub redelivery. See [watchdog acceptance](M3_WATCHDOG_ACCEPTANCE.md).
+
+Historical delivery authorization loads the retained snapshot at notification
+version (equal to snapshot revision in V1), independently of the opening transition
+revision. Probe receipts keep null monitor/generation. Administrative disable can
+close a known incident under a disabled config. Wall-clock rollback does not regress
+source sequence/version/attempt ordering. Hub source IDs remain protected for
+transitions and outcomes. Uncorrelated remote ACK metadata still fails closed;
+complete the durable command path next. The final long-partition/ACK/rotation/reset
+and shutdown acceptance remain part of the active M3 goal.

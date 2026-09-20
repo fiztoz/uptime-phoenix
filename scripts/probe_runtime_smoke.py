@@ -16,6 +16,9 @@ import os
 from pathlib import Path
 import re
 import secrets
+import select
+import socket
+import socketserver
 import sqlite3
 import ssl
 import subprocess
@@ -23,6 +26,61 @@ import threading
 import time
 import urllib.error
 import urllib.request
+
+
+class PartitionRelay(socketserver.ThreadingTCPServer):
+    """Transparent local TCP fault injector; TLS stays end to end."""
+
+    allow_reuse_address = True
+    daemon_threads = True
+
+    def __init__(self, address, destination):
+        self.destination = destination
+        self.gate = threading.Lock()
+        self.blocked = False
+        self.connections = set()
+
+        class Handler(socketserver.BaseRequestHandler):
+            def handle(inner):
+                pair = [inner.request]
+                try:
+                    with self.gate:
+                        if self.blocked:
+                            return
+                    upstream = socket.create_connection(self.destination, timeout=2)
+                    pair.append(upstream)
+                    with self.gate:
+                        if self.blocked:
+                            return
+                        self.connections.update(pair)
+                    for conn in pair:
+                        conn.settimeout(2)
+                    while True:
+                        ready, _, _ = select.select(pair, [], [], 1)
+                        for source in ready:
+                            data = source.recv(65536)
+                            if not data:
+                                return
+                            pair[1 if source is pair[0] else 0].sendall(data)
+                except OSError:
+                    pass
+                finally:
+                    with self.gate:
+                        self.connections.difference_update(pair)
+                    for conn in pair:
+                        conn.close()
+
+        super().__init__(address, Handler)
+
+    def partition(self, blocked):
+        with self.gate:
+            self.blocked = blocked
+            if blocked:
+                for conn in self.connections:
+                    try:
+                        conn.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
 
 
 def main():
@@ -33,6 +91,7 @@ def main():
     parser.add_argument("--port", type=int, default=38920)
     parser.add_argument("--verify-replay", action="store_true")
     parser.add_argument("--verify-history", action="store_true", help="verify the production history worker after replay and restart")
+    parser.add_argument("--verify-watchdog", action="store_true", help="verify real both-side watchdog paging across a network partition and restart")
     parser.add_argument("--mariadb-container")
     args = parser.parse_args()
     dsn = os.environ.get("DB_DSN", "")
@@ -40,6 +99,8 @@ def main():
         parser.error("DB_DSN must name a disposable localhost database ending in _smoke")
     if args.verify_history and not args.verify_replay:
         parser.error("--verify-history requires --verify-replay")
+    if args.verify_watchdog and not args.verify_replay:
+        parser.error("--verify-watchdog requires --verify-replay")
     if args.verify_replay and not args.mariadb_container:
         parser.error("--verify-replay requires --mariadb-container for independent hub evidence")
     output = args.output.resolve()
@@ -91,6 +152,10 @@ def main():
     sink = ThreadingHTTPServer(("127.0.0.1", args.port + 1), TargetAndSink)
     threading.Thread(target=sink.serve_forever, daemon=True).start()
     sink_url = f"http://127.0.0.1:{args.port + 1}"
+    relay = None
+    if args.verify_watchdog:
+        relay = PartitionRelay(("127.0.0.1", args.port + 4), ("127.0.0.1", args.port + 3))
+        threading.Thread(target=relay.serve_forever, daemon=True).start()
 
     def mark(label):
         passed.append(label)
@@ -227,7 +292,7 @@ def main():
                       "resend_interval": 0, "config": {"url": sink_url + "/target"}})["id"]
         registered = admin("register", "--probe-id", identity["probe_id"], "--stream-id", identity["stream_id"],
                            "--key", "edge-smoke", "--name", "Edge smoke", "--endpoint",
-                           f"wss://127.0.0.1:{args.port + 3}/ws/probe/v1", "--fingerprint", identity["certificate_fingerprint"])
+                           f"wss://127.0.0.1:{args.port + (4 if relay else 3)}/ws/probe/v1", "--fingerprint", identity["certificate_fingerprint"], "--location", "Local verification")
         assignment = admin("assign", "--monitor-id", str(monitor), "--expected-revision", "1", "--probes", identity["probe_id"])
         generation = next(member["generation"] for member in assignment["assignments"] if member["probe_id"] == identity["probe_id"])
         api("POST", f"/api/notifications/{notification}/monitor/{monitor}", {"include_target": False})
@@ -386,10 +451,75 @@ def main():
         assert final["last_created_seq"] > before["last_created_seq"] and final["config_revision"] == 2
         assert len(hooks) == 2
         mark("reconnection preserves stream, accepted config and delivery history")
+        watchdog_evidence = None
+        if args.verify_watchdog:
+            admin("watchdog", "--probe-id", identity["probe_id"], "--expected-revision", "0",
+                  "--enabled=true", "--notifications", str(notification), "--lost-after-seconds", "90",
+                  "--recover-after-seconds", "30", "--resend-interval", "0")
+            wait_for("enabled watchdog config durably applied on both sides", lambda:
+                     edge_progress()["config_revision"] == 3 and admin("status", "--probe-id", identity["probe_id"])["applied_revision"] == "3")
+            wait_for("both watchdogs observe healthy application frames", lambda:
+                     edge_rows("SELECT status FROM edge_watchdog_state") == [{"status": "healthy"}] and
+                     hub_query("SELECT JSON_OBJECT('status',status) FROM probe_watchdog_state") == [{"status": "healthy"}])
+            hook_start = len(hooks)
+            relay.partition(True)
+            partition_started = time.monotonic()
+            wait_for("both live owners send watchdog DOWN during network partition", lambda:
+                     len(hooks) == hook_start + 2, timeout=140)
+            down_elapsed = time.monotonic() - partition_started
+            source = edge_rows("SELECT source_alert_id, status FROM edge_alerts WHERE subject_kind='watchdog'")
+            assert len(source) == 1 and source[0]["status"] == "firing"
+            edge_watchdog_id = source[0]["source_alert_id"]
+            hub_source = hub_query("SELECT JSON_OBJECT('source_alert_id',i.source_alert_id,'status',i.status) "
+                                   "FROM probe_incidents i JOIN probe_hub_watchdog_incidents h ON h.source_alert_id=i.source_alert_id")
+            assert len(hub_source) == 1 and hub_source[0]["status"] == "firing"
+            hub_watchdog_id = hub_source[0]["source_alert_id"]
+            assert edge_watchdog_id != hub_watchdog_id
+            down = list(hooks[hook_start:])
+            assert {h["source_alert_id"] for h in down} == {edge_watchdog_id, hub_watchdog_id}
+            assert all(h["status"] == 0 and h["probe"]["id"] == identity["probe_id"] and "monitor" not in h for h in down)
+            stop("edge")
+            start("edge", args.probe_binary, edge_args, edge_env)
+            wait_for("offline edge restart retains the original watchdog", lambda:
+                     edge_http("/readyz") == 200 and edge_rows("SELECT source_alert_id,status FROM edge_alerts WHERE subject_kind='watchdog'") == source)
+            time.sleep(6)
+            assert len(hooks) == hook_start + 2
+            mark("watchdog restart does not duplicate the initial notification")
+            relay.partition(False)
+            restored_at = time.monotonic()
+            wait_for("both watchdogs send stable recovery after reconnect", lambda:
+                     len(hooks) == hook_start + 4, timeout=100)
+            recovery_elapsed = time.monotonic() - restored_at
+            assert recovery_elapsed >= 30, "reconnect alone resolved a watchdog"
+            watchdog_hooks = list(hooks[hook_start:])
+            for source_id in (edge_watchdog_id, hub_watchdog_id):
+                assert [h["status"] for h in watchdog_hooks if h["source_alert_id"] == source_id] == [0, 1]
+            high_water = edge_progress()["last_created_seq"]
+            wait_for("edge watchdog lifecycle and provider outcomes replay durably", lambda:
+                     hub_cursor() >= high_water and edge_progress()["committed_seq"] >= high_water)
+            mirrored = hub_query("SELECT JSON_OBJECT('id',source_alert_id,'status',status,'version',transition_version) "
+                                 f"FROM probe_incidents WHERE source_alert_id='{edge_watchdog_id}'")
+            assert mirrored == [{"id": edge_watchdog_id, "status": "resolved", "version": 2}]
+            outcomes = hub_query("SELECT JSON_OBJECT('status',status,'count',COUNT(*)) FROM probe_delivery_events "
+                                 f"WHERE source_alert_id='{edge_watchdog_id}' GROUP BY status")
+            assert outcomes == [{"status": "sent", "count": 2}]
+            assert hub_query("SELECT JSON_OBJECT('count',COUNT(*)) FROM probe_delivery_intents "
+                             f"WHERE source_alert_id='{edge_watchdog_id}'") == [{"count": 0}]
+            rejected = hub_query("SELECT JSON_OBJECT('count',COUNT(*)) FROM probe_telemetry_receipts "
+                                 f"WHERE probe_id='{identity['probe_id']}' AND rejection_code<>''")
+            assert rejected == [{"count": 0}]
+            mark("mirrored edge watchdog causes no hub redelivery or rejection")
+            watchdog_evidence = {"edge_source_id": edge_watchdog_id, "hub_source_id": hub_watchdog_id,
+                                 "down_after_seconds": down_elapsed, "recovery_after_reconnect_seconds": recovery_elapsed,
+                                 "edge_mirror": mirrored, "edge_delivery_outcomes": outcomes,
+                                 "hook_statuses": [h["status"] for h in watchdog_hooks], "hub_edge_send_intents": 0,
+                                 "high_water": high_water}
+            final = edge_progress()
         report = {"passed": passed, "identity": identity, "before_restart": before, "final": final,
                   "incident": incident, "provider_attempt_statuses": provider_attempts, "successful_webhook_statuses": [h["status"] for h in hooks],
                   "replay_verified": args.verify_replay, "replay": replay_evidence,
-                  "history_verified": args.verify_history, "history": history_evidence, "runtime_ownership": runtime_evidence}
+                  "history_verified": args.verify_history, "history": history_evidence, "runtime_ownership": runtime_evidence,
+                  "watchdog_verified": args.verify_watchdog, "watchdog": watchdog_evidence}
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print("Evidence:", output, flush=True)
     finally:
@@ -401,6 +531,10 @@ def main():
                 shutdown_errors.append(str(error))
         sink.shutdown()
         sink.server_close()
+        if relay:
+            relay.partition(True)
+            relay.shutdown()
+            relay.server_close()
         for log in logs:
             log.close()
         if shutdown_errors:

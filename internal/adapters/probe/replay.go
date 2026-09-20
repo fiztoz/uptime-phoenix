@@ -38,11 +38,20 @@ func decodeReplayBatch(data []byte, probeID string) (domain.ProbeReplayBatch, er
 				e.Observation = &domain.RegionalObservation{MonitorID: value.MonitorID, ProbeID: probeID, AssignmentGeneration: int64(value.AssignmentGeneration), StreamID: wire.StreamID, Seq: e.Seq, ConfigRevision: int64(value.ConfigRevision), Status: replayDomainStatus(value.Status), RawStatus: replayDomainStatus(value.RawStatus), DownCount: int(value.DownCount), Ping: int(value.Ping), DurationMS: int(value.DurationMS), Message: value.Message, Important: value.Important, ObservedAt: e.ObservedAt}
 			}
 		case IncidentTransition:
-			if event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectAvailability && value.AckedAt == nil && value.Acknowledgement == nil && value.Escalation == nil && value.MonitorID != nil && value.AssignmentGeneration != nil {
-				i := &domain.RegionalIncident{SourceAlertID: value.SourceAlertID, Scope: domain.IncidentScope(value.Scope), MonitorID: *value.MonitorID, ProbeID: probeID, AssignmentGeneration: int64(*value.AssignmentGeneration), Status: value.Status, TransitionVersion: int64(value.TransitionVersion), StartedAt: time.Time(value.StartedAt).UTC(), Reason: value.Reason, ConfigRevision: int64(value.ConfigRevision), SubjectKind: value.Subject.Kind}
+			availability := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectAvailability && value.AckedAt == nil && value.Acknowledgement == nil && value.Escalation == nil && value.MonitorID != nil && value.AssignmentGeneration != nil
+			watchdog := event.Kind == domain.ReplayKindWatchdogTransition && value.Subject.Kind == domain.IncidentSubjectWatchdog && value.Escalation == nil && value.MonitorID == nil && value.AssignmentGeneration == nil
+			if availability || watchdog {
+				i := &domain.RegionalIncident{SourceAlertID: value.SourceAlertID, Scope: domain.IncidentScope(value.Scope), ProbeID: probeID, Status: value.Status, TransitionVersion: int64(value.TransitionVersion), StartedAt: time.Time(value.StartedAt).UTC(), Reason: value.Reason, ConfigRevision: int64(value.ConfigRevision), SubjectKind: value.Subject.Kind}
+				if availability {
+					i.MonitorID, i.AssignmentGeneration = *value.MonitorID, int64(*value.AssignmentGeneration)
+				}
 				if value.ResolvedAt != nil {
 					at := time.Time(*value.ResolvedAt).UTC()
 					i.ResolvedAt = &at
+				}
+				if value.AckedAt != nil && value.Acknowledgement != nil {
+					at := time.Time(*value.AckedAt).UTC()
+					i.AckedAt, i.AckCommandID, i.AckActorDisplayName, i.AckNote = &at, value.Acknowledgement.CommandID, value.Acknowledgement.ActorDisplayName, value.Acknowledgement.Note
 				}
 				e.Incident = i
 			}

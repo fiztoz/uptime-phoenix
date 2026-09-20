@@ -51,7 +51,6 @@ func TestEdgeConfigDecoderRejectsUnsupportedWithoutIO(t *testing.T) {
 		t.Fatalf("lost accepted execution context: %+v %v", resolved, err)
 	}
 	for name, mutate := range map[string]func(*ConfigSnapshot){
-		"watchdog":    func(s *ConfigSnapshot) { s.Watchdog.Enabled = true },
 		"certificate": func(s *ConfigSnapshot) { s.Assignments[0].Monitor.CertExpiryNotify = true },
 		"unsupported checker": func(s *ConfigSnapshot) {
 			s.Assignments[0].Monitor.Type = "ping"

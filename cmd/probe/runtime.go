@@ -77,7 +77,7 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 		d, err := store.ReadDiagnostics(ctx)
 		return d.Identity, d.FirstRetainedSeq, err
 	}
-	capabilities := []string{"snapshot.v1", "checker.http.v1", "checker.tcp.v1", "checker.dns.v1"}
+	capabilities := []string{"snapshot.v1", "watchdog.v1", "checker.http.v1", "checker.tcp.v1", "checker.dns.v1"}
 	for _, name := range []string{"telegram", "discord", "slack", "smtp", "webhook", "teams", "mattermost", "gotify", "bark", "feishu", "line"} {
 		if _, ok := notifier.Get(name); ok {
 			capabilities = append(capabilities, "notifier."+name+".v1")

@@ -132,6 +132,9 @@ func configReferencesExist[T any](ids []int64, entries map[int64]T) bool {
 
 func configCapabilities(snapshot ConfigSnapshot) map[string]bool {
 	required := map[string]bool{"snapshot.v1": true}
+	if snapshot.Watchdog.Enabled {
+		required["watchdog.v1"] = true
+	}
 	for _, assignment := range snapshot.Assignments {
 		for _, capability := range assignment.RequiredCapabilities {
 			required[capability] = true

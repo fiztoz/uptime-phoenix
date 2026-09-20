@@ -9,18 +9,18 @@
 > implemented; see [source acceptance](M3_WATCHDOG_SOURCE_ACCEPTANCE.md). Hub source
 > persistence is also implemented; see [hub acceptance](M3_HUB_WATCHDOG_ACCEPTANCE.md).
 > Saved watchdog settings and explicit probe display metadata are implemented;
-> see [settings acceptance](M3_WATCHDOG_SETTINGS_ACCEPTANCE.md). The enabled config
-> guard still rejects activation. Source timing and health admission are integrated;
-> source provider authorization and explicit probe messages are implemented (see
-> [delivery verification](M3_WATCHDOG_DELIVERY_ACCEPTANCE.md)). Next complete
-> mirror authorization and enabled both-side process acceptance per
-> [both watchdogs](M3_WATCHDOG_WORK_CONTRACT.md).
+> see [settings acceptance](M3_WATCHDOG_SETTINGS_ACCEPTANCE.md). Source timing,
+> provider delivery and mirror authorization are now integrated. Enabled both-side
+> paging passed real partition/restart acceptance; see
+> [watchdog acceptance](M3_WATCHDOG_ACCEPTANCE.md). The next work is durable commands
+> and offline incident-specific ACK, rotations/reset, bounded flushing and the
+> complete fifteen-minute partition under [the M3 contract](M3_COMPLETION_WORK_CONTRACT.md).
 > Verify Git HEAD and uncommitted work before editing; never reset to an older baseline.
 
 The detailed A–D material below is historical guidance from `4cc76f0`.
 Descriptions of missing M1/M2 features and proposed flags are not current status.
 Use [the operator guide](M2_OPERATOR_GUIDE.md), the latest status entry and the
-[full M3 work contract](M3_COMPLETION_WORK_CONTRACT.md). Watchdogs, commands,
+[full M3 work contract](M3_COMPLETION_WORK_CONTRACT.md). Commands,
 rotations/reset, cleanup, bounded shutdown flush and the real 15-minute partition
 acceptance remain required. Never infer whole-milestone completion from a helper
 or an agent handoff.

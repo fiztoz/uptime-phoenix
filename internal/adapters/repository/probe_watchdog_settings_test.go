@@ -93,17 +93,17 @@ func testWatchdogSettingsGraph(t *testing.T, f probeRegistryFixture) {
 	if err != nil || next.Revision != meta.Revision+1 || next.SHA256 == meta.SHA256 {
 		t.Fatal("channel removal not published", err)
 	}
-	// Enabling is saved intent only until real runtime/provider support is wired.
+	// Saved enabled intent publishes a complete new graph, not an applied receipt.
 	deleted.Enabled = true
 	if _, err := store.Replace(ctx, probeRegistryID1, deleted.Revision, deleted); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := syncer.RefreshRemote(ctx, syncTarget(), at); err == nil {
-		t.Fatal("unsupported runtime enabled silently")
+	if _, err := syncer.RefreshRemote(ctx, syncTarget(), at); err != nil {
+		t.Fatal("enabled watchdog graph rejected", err)
 	}
 	retained, err := repository.NewProbeConfigStore(f.db).Latest(ctx, probeRegistryID1)
-	if err != nil || retained.Revision != next.Revision {
-		t.Fatal("invalid enable overwrote last valid config", err)
+	if err != nil || retained.Revision != next.Revision+1 {
+		t.Fatal("enabled graph not published at a new revision", err)
 	}
 }
 

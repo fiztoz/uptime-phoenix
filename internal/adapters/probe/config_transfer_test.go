@@ -242,7 +242,7 @@ func TestConfigRevisionComparison(t *testing.T) {
 
 func configTestTarget() ConfigTarget {
 	return ConfigTarget{HubID: "b1123604-32c5-40aa-89f9-b62f93dceac2", ProbeID: "e645246b-b176-4422-8ae5-b79629ee6a29", ConnectionGeneration: 7,
-		Capabilities:     []string{"snapshot.v1", "checker.http.v1", "checker.docker.v1", "checker.tcp.v1", "notifier.webhook.v1", "notifier.discord.v1", "notifier.smtp.v1"},
+		Capabilities:     []string{"snapshot.v1", "watchdog.v1", "checker.http.v1", "checker.docker.v1", "checker.tcp.v1", "notifier.webhook.v1", "notifier.discord.v1", "notifier.smtp.v1"},
 		ResourceBindings: []ResourceBinding{{BindingKey: "docker-local", Kind: "docker_socket"}}}
 }
 

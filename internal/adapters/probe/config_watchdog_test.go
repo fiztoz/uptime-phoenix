@@ -2,8 +2,14 @@ package probe
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/notifier"
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
 func TestConfigProbeMetadataUsesExactBoundedFields(t *testing.T) {
@@ -39,5 +45,34 @@ func TestConfigProbeMetadataUsesExactBoundedFields(t *testing.T) {
 				t.Fatal("metadata escaped whitelist", err)
 			}
 		})
+	}
+}
+
+func TestEnabledWatchdogRequiresMetadataAndCapability(t *testing.T) {
+	s := m2Config(t)
+	s.Watchdog.Enabled = true
+	target := domain.ProbeConfigTarget{HubID: s.HubID, ProbeID: s.ProbeID}
+	decoder := NewEdgeConfigDecoder(checker.Get, notifier.Get)
+	if _, err := decoder.DecodeEdge(t.Context(), configBytes(t, s), target); !errors.Is(err, domain.ErrValidation) {
+		t.Fatal("watchdog accepted without probe metadata", err)
+	}
+	s.Probe = &ConfigProbeDisplay{Name: "Bangkok edge", Location: "TH"}
+	document := configBytes(t, s)
+	resolved, err := decoder.DecodeEdge(t.Context(), document, target)
+	if err != nil || !resolved.Watchdog.Enabled || resolved.Probe.Name != s.Probe.Name {
+		t.Fatal("enabled watchdog graph not resolved", err)
+	}
+	begin, chunks, commit := configTestFrames(t, document)
+	transferTarget := configTestTarget()
+	transferTarget.Capabilities = []string{"snapshot.v1", "checker.http.v1", "notifier.webhook.v1"}
+	if _, err := NewConfigTransfer(begin, time.Now(), transferTarget); !errors.Is(err, ErrUnsupportedCapability) {
+		t.Fatal("old edge accepted watchdog transfer", err)
+	}
+	transferTarget.Capabilities = append(transferTarget.Capabilities, "watchdog.v1")
+	// Use the complete inventory for unrelated disabled dependencies too.
+	transferTarget.Capabilities = append(transferTarget.Capabilities, "notifier.discord.v1", "notifier.smtp.v1")
+	transfer := filledConfigTransfer(t, begin, chunks, time.Now(), transferTarget)
+	if _, err := transfer.Commit(commit, time.Now()); err != nil {
+		t.Fatal("capable edge rejected complete watchdog graph", err)
 	}
 }

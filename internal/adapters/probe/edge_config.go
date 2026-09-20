@@ -106,8 +106,8 @@ func (d *EdgeConfigDecoder) DecodeEdge(ctx context.Context, document []byte, tar
 }
 
 func validateEdgeRuntimeSnapshot(s ConfigSnapshot) error {
-	if s.Watchdog.Enabled {
-		return fmt.Errorf("connection watchdog is unavailable in this build: %w", ErrUnsupportedCapability)
+	if s.Watchdog.Enabled && s.Probe == nil {
+		return fmt.Errorf("enabled connection watchdog requires probe metadata: %w", domain.ErrValidation)
 	}
 	for _, a := range s.Assignments {
 		if a.Monitor.Type != "http" && a.Monitor.Type != "tcp" && a.Monitor.Type != "dns" || len(a.ResourceBindings) != 0 {

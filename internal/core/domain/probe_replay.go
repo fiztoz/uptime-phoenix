@@ -11,9 +11,10 @@ var ErrReplayRetry = errors.New("telemetry storage temporarily unavailable")
 
 // Supported replay event kinds.
 const (
-	ReplayKindObservation     = "observation"
-	ReplayKindAlertTransition = "alert.transition"
-	ReplayKindDeliveryResult  = "delivery.result"
+	ReplayKindObservation        = "observation"
+	ReplayKindAlertTransition    = "alert.transition"
+	ReplayKindWatchdogTransition = "watchdog.transition"
+	ReplayKindDeliveryResult     = "delivery.result"
 )
 
 // ProbeReplayEvent is one immutable source event in the replayed stream.
@@ -71,6 +72,9 @@ type ProbeReplayAuthorityFacts struct {
 	MonitorExists        bool
 	ConfigRevision       int64
 	ConfigEffectiveAt    time.Time
+	ConfigFound          bool
+	WatchdogEnabled      bool
+	HubOwnedIncident     bool
 	ConfigAssignment     *EdgeAssignmentIdentity
 	AssignmentHistory    []AssignmentInterval
 	Channels             map[int64]int64

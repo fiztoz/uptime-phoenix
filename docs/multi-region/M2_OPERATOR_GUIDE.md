@@ -5,8 +5,11 @@ TCP and DNS checks and direct notifications run from accepted local configuratio
 during a hub outage. The first M3 increment adds automatic remote snapshot
 construction and durable application receipts. The ordered replay increment now
 commits retained availability observations, incident transitions and delivery
-outcomes to the hub. Fleet UI, configurable retention/gaps, current-state snapshot
-recovery, remote commands and watchdog paging remain unfinished.
+outcomes to the hub. M3 also implements bounded retention/gaps, current-state
+recovery, historical recomputation and bidirectional connection-watchdog paging.
+Remote commands, credential/certificate rotation, explicit stream-reset recovery
+and the final fifteen-minute partition acceptance remain unfinished. Fleet UI is
+outside this engineering runtime; consult `IMPLEMENTATION_STATUS.md` for scope.
 
 ## Initialize the probe
 
@@ -162,11 +165,12 @@ The report contains safe IDs, sequence/fence progress and
 outcomes; private keys and stores remain in the private output directory.
 
 
-## Saved connection-watchdog settings (M3 preparation)
+## Connection-watchdog settings
 
-Migration 060 adds saved per-probe watchdog settings. This is operator intent:
-**the current build still rejects enabled watchdog activation** until both source
-runtimes and provider reconciliation are integrated. Saving reports
+Migration 060 adds saved per-probe watchdog settings. Enabled remote snapshots now
+require the negotiated `watchdog.v1` capability and explicit probe display metadata.
+Both source runtimes persist incidents and send through their own accepted channels;
+edge watchdog history replays without hub redelivery. Saving settings reports
 `watchdog_saved`; it never reports an applied receipt or a healthy connection.
 
 `phoenix-probe-admin status --probe-id UUID` includes a `watchdog` metadata object
@@ -176,7 +180,7 @@ channels. Read this revision before replacing the whole settings object:
 
 ```sh
 phoenix-probe-admin watchdog --probe-id UUID --expected-revision 0 \
-  --enabled=false --notifications 12,34 --lost-after-seconds 90 \
+  --enabled=true --notifications 12,34 --lost-after-seconds 90 \
   --recover-after-seconds 30 --resend-interval 5
 ```
 
@@ -192,6 +196,13 @@ snapshot without requiring a settings edit. Disabled channels and watchdog-only
 templates remain in the complete dependency graph, even with zero assigned
 monitors. Settings revisions are separate from complete config revisions and
 applied receipts. Do not infer one from the other.
+
+Each side pages after sustained loss of valid application health, and recovery
+requires continuous healthy frames for the configured interval. A handshake alone
+does not recover the incident. Disable closes an open source incident
+administratively without a recovery notification. Remote ACK commands are still
+unavailable; no notification contains a remote ACK link. See
+[both-side process acceptance](M3_WATCHDOG_ACCEPTANCE.md).
 
 Migration downgrade removes this saved intent, so stop config/runtime writers and
 export the settings before rolling back 060. Both up/down migrations leave the
