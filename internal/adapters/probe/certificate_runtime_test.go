@@ -174,11 +174,13 @@ func (f *certificateRuntimeFixture) start() {
 	if err != nil {
 		f.t.Fatal(err)
 	}
+	// Advertise certificate support independently: unrelated command capabilities
+	// must not be required for certificate dispatch.
 	configs := services.NewEdgeConfigService(f.store, f.store, NewEdgeConfigDecoder(checker.Get, notifier.Get), f.protector)
 	f.runtime, err = NewEdgeRuntime(func(ctx context.Context) (domain.EdgeIdentity, int64, error) {
 		d, e := f.store.ReadDiagnostics(ctx)
 		return d.Identity, d.FirstRetainedSeq, e
-	}, f.store, configs, EdgeRuntimeConfig{AgentVersion: "certificate-test", Capabilities: []string{"snapshot.v1", CredentialRotationCapability, CertificateRotationCapability}}, func(context.Context) (Health, error) {
+	}, f.store, configs, EdgeRuntimeConfig{AgentVersion: "certificate-test", Capabilities: []string{"snapshot.v1", CertificateRotationCapability}}, func(context.Context) (Health, error) {
 		healthy, q := true, int64(0)
 		return Health{Role: "probe", Ready: false, DBWritable: true, SchedulerHealthy: &healthy, QueueBytes: &q, ClockTime: Timestamp(time.Now().UTC()), Errors: []string{}}, nil
 	})

@@ -52,7 +52,7 @@ func newCommandFixture(t *testing.T, engine string) commandFixture {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	note := "Private operator context"
 	ack := domain.ProbeAlertAcknowledgement{CommandID: "99999999-9999-4999-8999-999999999999", ProbeID: r.session.ProbeID, SourceAlertID: r.incident(1, 1).Incident.SourceAlertID, AssignmentGeneration: 1, CreatedAt: now, ExpiresAt: now.Add(time.Hour), ActorDisplayName: "Operator", Note: &note}
-	f := commandFixture{replayFixture: r, commands: repository.NewProbeCommandStore(r.f.db, p, probe.AcknowledgementCodec{}, p, probe.CredentialCommandCodec{}), protector: p, ack: ack}
+	f := commandFixture{replayFixture: r, commands: repository.NewProbeCommandStore(r.f.db, p, probe.AcknowledgementCodec{}, p, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{}), protector: p, ack: ack}
 	f.request = f.protect(t, ack)
 	return f
 }
@@ -248,7 +248,7 @@ func testCommandConcurrent(t *testing.T, f commandFixture) {
 		t.Fatal(err)
 	}
 	defer func() { _ = peerDB.Close() }()
-	peer := repository.NewProbeCommandStore(peerDB, f.protector, probe.AcknowledgementCodec{}, f.protector, probe.CredentialCommandCodec{})
+	peer := repository.NewProbeCommandStore(peerDB, f.protector, probe.AcknowledgementCodec{}, f.protector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
 	var wg sync.WaitGroup
 	results := make(chan error, 2)
 	for _, s := range []*repository.ProbeCommandStore{f.commands, peer} {

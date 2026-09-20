@@ -124,6 +124,13 @@ func (s *ProbeCommandStore) CreateCredentialRotation(ctx context.Context, c doma
 		if busy {
 			return ports.ErrConflict
 		}
+		busy, err = tx.NewSelect().Model((*probeCertificateRotationRow)(nil)).Where("probe_id = ? AND (state IN (?, ?) OR overlap_expires_at > ?)", m.ProbeID, "preparing", "activating", now).Exists(ctx)
+		if err != nil {
+			return err
+		}
+		if busy {
+			return ports.ErrConflict
+		}
 		if _, err := tx.NewDelete().Model((*probeCredentialRotationRow)(nil)).Where("probe_id = ? AND state IN (?, ?) AND retain_until < ?", m.ProbeID, "active", "failed", now).Exec(ctx); err != nil {
 			return err
 		}
@@ -229,7 +236,7 @@ func reserveCommandCapacity(ctx context.Context, tx bun.Tx, probeID string, now 
 	// both immutable bodies for every retained rotation, regardless of the
 	// individual receipt's age. Terminal rotation pruning releases them first.
 	if _, err := tx.NewDelete().Model((*probeCommandRow)(nil)).Where("probe_id = ? AND retain_until < ? AND (remote_confirmed = ? OR (status = ? AND attempts = 0))", probeID, now, true, "canceled").
-		Where("command_id NOT IN (SELECT prepare_command_id FROM probe_credential_rotations WHERE probe_id = ? UNION ALL SELECT activate_command_id FROM probe_credential_rotations WHERE probe_id = ?)", probeID, probeID).Exec(ctx); err != nil {
+		Where("command_id NOT IN (SELECT prepare_command_id FROM probe_credential_rotations WHERE probe_id = ? UNION ALL SELECT activate_command_id FROM probe_credential_rotations WHERE probe_id = ?)", probeID, probeID).Where("command_id NOT IN (SELECT prepare_command_id FROM probe_certificate_rotations WHERE probe_id = ? UNION ALL SELECT activate_command_id FROM probe_certificate_rotations WHERE probe_id = ?)", probeID, probeID).Exec(ctx); err != nil {
 		return err
 	}
 	count, err := tx.NewSelect().Model((*probeCommandRow)(nil)).Where("probe_id = ?", probeID).Count(ctx)
@@ -248,6 +255,11 @@ func reserveCommandCapacity(ctx context.Context, tx bun.Tx, probeID string, now 
 	if err := tx.NewRaw("SELECT COALESCE(SUM("+length+"),0) FROM probe_commands WHERE probe_id = ?", probeID).Scan(ctx, &size); err != nil {
 		return err
 	}
+	reserved, err := tx.NewSelect().Model((*probeCertificateRotationRow)(nil)).Where("probe_id = ? AND state = ?", probeID, "preparing").Count(ctx)
+	if err != nil {
+		return err
+	}
+	size += int64(reserved) * (domain.MaxProbeCommandBytes + domain.ProbeConfigProtectionOverhead)
 	if count > maxProbeCommands-additionalCount || pending > maxPendingProbeCommands-additionalCount || size > maxProbeCommandStorageBytes-int64(additionalBytes) {
 		return ports.ErrConflict
 	}

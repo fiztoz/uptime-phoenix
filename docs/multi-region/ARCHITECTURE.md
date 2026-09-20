@@ -296,11 +296,18 @@ to transactional credential/session admission; TLS resumption is disabled. The
 session lifetime is the earliest certificate, credential or applicable overlap
 deadline. Preparation quiesces effects and bounds the existing socket's receipt
 reconnect grace without truncating historical receipt recovery on a current identity.
-The source advertises `command.certificate_rotation.v1`; hub certificate issuance
-and promotion remain unavailable. See [source runtime acceptance](M3_CERTIFICATE_RUNTIME_ACCEPTANCE.md)
-and [the certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md).
+The source advertises `command.certificate_rotation.v1`. Hub migration 063 adds
+bounded certificate operations and reserves the activation command ID/capacity
+before dispatch. A durable prepare receipt supplies its immutable activation body;
+a durable activation receipt promotes the pin and reseals the same credential
+under that pin in one fenced transaction. Candidate network trust is separate
+from credential authenticated metadata until promotion. Fallback is limited to
+a typed pre-HTTP pin mismatch and a freshly checked original overlap deadline.
+See [hub certificate acceptance](M3_HUB_CERTIFICATE_ACCEPTANCE.md),
+[source runtime acceptance](M3_CERTIFICATE_RUNTIME_ACCEPTANCE.md) and
+[the certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md).
 
-Hub certificate integration, explicit stream reset and the broader
+Explicit stream reset and the broader
 fifteen-minute M3 scenario remain unfinished. Watchdog ACK remains unsupported
 by the positive-assignment-generation regional command target.
 

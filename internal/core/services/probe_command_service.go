@@ -13,22 +13,23 @@ import (
 // ProbeCommandService issues and retries immutable requests. Operator authorization
 // belongs to its inbound adapter; source replay authorization stays in AccessService.
 type ProbeCommandService struct {
-	repo            ports.ProbeCommandRepository
-	connections     ports.ProbeConnectionRepository
-	protector       ports.ProbeCommandProtector
-	codec           ports.ProbeAcknowledgementCodec
-	credentialCodec ports.ProbeCredentialCommandCodec
-	now             func() time.Time
+	repo             ports.ProbeCommandRepository
+	connections      ports.ProbeConnectionRepository
+	protector        ports.ProbeCommandProtector
+	codec            ports.ProbeAcknowledgementCodec
+	credentialCodec  ports.ProbeCredentialCommandCodec
+	certificateCodec ports.ProbeCertificateCommandCodec
+	now              func() time.Time
 }
 
 var _ ports.ProbeCommandDispatcher = (*ProbeCommandService)(nil)
 
 // NewProbeCommandService wires the existing installation key and connection scope.
-func NewProbeCommandService(repo ports.ProbeCommandRepository, connections ports.ProbeConnectionRepository, protector ports.ProbeCommandProtector, codec ports.ProbeAcknowledgementCodec, credentialCodec ports.ProbeCredentialCommandCodec) (*ProbeCommandService, error) {
-	if repo == nil || connections == nil || protector == nil || codec == nil || credentialCodec == nil {
+func NewProbeCommandService(repo ports.ProbeCommandRepository, connections ports.ProbeConnectionRepository, protector ports.ProbeCommandProtector, codec ports.ProbeAcknowledgementCodec, credentialCodec ports.ProbeCredentialCommandCodec, certificateCodec ports.ProbeCertificateCommandCodec) (*ProbeCommandService, error) {
+	if repo == nil || connections == nil || protector == nil || codec == nil || credentialCodec == nil || certificateCodec == nil {
 		return nil, domain.ErrValidation
 	}
-	return &ProbeCommandService{repo: repo, connections: connections, protector: protector, codec: codec, credentialCodec: credentialCodec, now: time.Now}, nil
+	return &ProbeCommandService{repo: repo, connections: connections, protector: protector, codec: codec, credentialCodec: credentialCodec, certificateCodec: certificateCodec, now: time.Now}, nil
 }
 
 // IssueAcknowledgement persists an operator's exact original-incident request.
@@ -119,6 +120,8 @@ func (s *ProbeCommandService) NextCommand(ctx context.Context, session domain.Pr
 		_, err = s.codec.DecodeAcknowledgement(ctx, plain)
 	case "credential.prepare", "credential.activate":
 		_, err = s.credentialCodec.DecodeCredentialCommand(ctx, plain)
+	case "certificate.prepare", "certificate.activate":
+		_, err = s.certificateCodec.DecodeCertificateCommand(ctx, plain)
 	default:
 		err = domain.ErrValidation
 	}
@@ -138,5 +141,5 @@ func (s *ProbeCommandService) RecordCommandResult(ctx context.Context, session d
 	if err := s.repo.CompleteCommand(ctx, session, result); err != nil {
 		return false, err
 	}
-	return command.Kind == "credential.prepare" || command.Kind == "credential.activate", nil
+	return command.Kind == "credential.prepare" || command.Kind == "credential.activate" || command.Kind == "certificate.prepare" || command.Kind == "certificate.activate", nil
 }

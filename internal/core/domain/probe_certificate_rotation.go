@@ -1,6 +1,52 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrProbeCertificateMismatch proves TLS rejected the pin before HTTP admission.
+var ErrProbeCertificateMismatch = errors.New("probe certificate fingerprint mismatch")
+
+// ProbeCertificateRotationIssue is stable operator input; retries never create a
+// second preparation or extend the original overlap.
+type ProbeCertificateRotationIssue struct {
+	HubID, ProbeID, RotationID string
+	CertificateVersion         int64
+	ValidForDays               int
+}
+
+// ProbeCertificateRotation records public operation metadata. Current is the
+// original credential encryption scope, distinct from the candidate TLS pin.
+type ProbeCertificateRotation struct {
+	RotationID                                   string
+	Current                                      ProbeCredentialMetadata
+	CertificateVersion, PreviousVersion          int64
+	ValidForDays                                 int
+	PrepareCommandID, ActivateCommandID          string
+	CreatedAt, OverlapExpiresAt                  time.Time
+	OverlapClosed                                bool
+	State                                        string
+	PreparedAt, ActivatedAt, CertificateNotAfter *time.Time
+	Fingerprint, FailureCode                     string
+	UpdatedAt                                    time.Time
+}
+
+// ProtectedProbeCertificateRotation supplies the immutable prepare request.
+// Activation bytes are created atomically from the confirmed preparation pin.
+type ProtectedProbeCertificateRotation struct {
+	ProbeCertificateRotation
+	PrepareCommand ProtectedProbeCommand
+}
+
+// ProbeCertificateSelection separates network trust from credential AEAD scope.
+// A candidate handshake alone never confirms source activation.
+type ProbeCertificateSelection struct {
+	Current                          ProbeCredentialMetadata
+	CandidateFingerprint, RotationID string
+	AllowCurrentFallback             bool
+	FallbackUntil                    time.Time
+}
 
 // MaxEdgeCertificateBytes bounds local PEM before authenticated encryption.
 const MaxEdgeCertificateBytes = 16 << 10

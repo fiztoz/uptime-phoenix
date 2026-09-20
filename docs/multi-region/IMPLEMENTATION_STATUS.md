@@ -7,6 +7,37 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 hub certificate rotation — 2026-09-21
+
+Hub migration 063 adds bounded certificate operations, reserved activation identity/
+capacity and strict immutable receipts. Preparation confirms the pin before
+activation becomes dispatchable; activation confirmation atomically promotes the
+pin and reseals the same runtime token. Fenced candidate-first TLS recovery keeps
+credential encryption metadata separate, bounds old-pin fallback by the original
+overlap and persists observed retirement. The operator CLI, both engines and real
+TLS/process paths are integrated, including certificate-only peers and lost
+activation recovery after both stores restart beyond the deadline.
+
+The final CGO-free build, full race suite and zero-issue lint passed: 22 packages,
+3,608 named passes, zero failures and two existing optional skips. All 305
+MariaDB-named passes ran; 293 explicitly select the live engine. The final compiled
+workflow passed 29 stages. All 32 source hashes remained unchanged. See
+[acceptance](M3_HUB_CERTIFICATE_ACCEPTANCE.md),
+[evidence](M3_HUB_CERTIFICATE_EVIDENCE.json) and
+[retrospective](M3_HUB_CERTIFICATE_RETROSPECTIVE.md).
+
+Pre-commit verification reproduced and fixed a MariaDB UTC expiry shift and a
+certificate-only sender startup omission. A migration-rehearsal assertion now
+compares preserved column names independently of physical order. Antigravity's
+initial audit/follow-up hit service output limits; Codex verified its claims and
+sent corrections. A separate teaching response succeeded. No file ownership was
+delegated and existing AGENTS.md changes are excluded.
+
+Continue [explicit stream reset](M3_STREAM_RESET_WORK_CONTRACT.md), pressure/
+bounded-flush acceptance and the complete fifteen-minute partition. The reset
+contract includes corrected advisory review, but reset is not implemented. M3
+remains active/incomplete. No push or deployment occurred.
+
 ## M3 certificate source TLS runtime — 2026-09-21
 
 The source now advertises certificate rotation with actual durable TLS selection,

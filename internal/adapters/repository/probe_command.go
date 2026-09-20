@@ -22,44 +22,48 @@ const probeCommandRetention = 365 * 24 * time.Hour
 // ProbeCommandStore persists exact protected requests and source confirmation on
 // either hub engine. It performs no socket I/O and never logs command plaintext.
 type ProbeCommandStore struct {
-	db              *bun.DB
-	protector       ports.ProbeCommandProtector
-	codec           ports.ProbeAcknowledgementCodec
-	credentials     ports.ProbeCredentialProtector
-	credentialCodec ports.ProbeCredentialCommandCodec
+	db               *bun.DB
+	protector        ports.ProbeCommandProtector
+	codec            ports.ProbeAcknowledgementCodec
+	credentials      ports.ProbeCredentialProtector
+	credentialCodec  ports.ProbeCredentialCommandCodec
+	certificateCodec ports.ProbeCertificateCommandCodec
 }
 
 var _ ports.ProbeCommandRepository = (*ProbeCommandStore)(nil)
 
 // NewProbeCommandStore shares the verified installation key and closed wire codec.
-func NewProbeCommandStore(db *bun.DB, protector ports.ProbeCommandProtector, codec ports.ProbeAcknowledgementCodec, credentials ports.ProbeCredentialProtector, credentialCodec ports.ProbeCredentialCommandCodec) *ProbeCommandStore {
-	return &ProbeCommandStore{db: db, protector: protector, codec: codec, credentials: credentials, credentialCodec: credentialCodec}
+func NewProbeCommandStore(db *bun.DB, protector ports.ProbeCommandProtector, codec ports.ProbeAcknowledgementCodec, credentials ports.ProbeCredentialProtector, credentialCodec ports.ProbeCredentialCommandCodec, certificateCodec ports.ProbeCertificateCommandCodec) *ProbeCommandStore {
+	return &ProbeCommandStore{db: db, protector: protector, codec: codec, credentials: credentials, credentialCodec: credentialCodec, certificateCodec: certificateCodec}
 }
 
 type probeCommandRow struct {
-	bun.BaseModel           `bun:"table:probe_commands"`
-	CommandID               string `bun:"command_id,pk"`
-	HubID                   string `bun:"hub_id,nullzero"`
-	ProbeID                 string
-	StreamID                string `bun:"stream_id,nullzero"`
-	Kind                    string
-	SourceAlertID           *string
-	AssignmentGeneration    *int64
-	CreatedAt               time.Time
-	ExpiresAt               time.Time
-	PayloadSHA256           string `bun:"payload_sha256,nullzero"`
-	ProtectedPayload        []byte
-	Status                  string
-	RemoteConfirmed         bool
-	Attempts                int64
-	LastAttemptAt           *time.Time
-	NextAttemptAt           *time.Time
-	ResultAppliedAt         *time.Time
-	ResultCode              string
-	ResultMessage           string
-	ResultCredentialVersion int64 `bun:"result_credential_version,nullzero"`
-	RetainUntil             *time.Time
-	UpdatedAt               time.Time
+	bun.BaseModel                `bun:"table:probe_commands"`
+	CommandID                    string `bun:"command_id,pk"`
+	HubID                        string `bun:"hub_id,nullzero"`
+	ProbeID                      string
+	StreamID                     string `bun:"stream_id,nullzero"`
+	Kind                         string
+	SourceAlertID                *string
+	AssignmentGeneration         *int64
+	CreatedAt                    time.Time
+	ExpiresAt                    time.Time
+	PayloadSHA256                string `bun:"payload_sha256,nullzero"`
+	ProtectedPayload             []byte
+	Status                       string
+	RemoteConfirmed              bool
+	Attempts                     int64
+	LastAttemptAt                *time.Time
+	NextAttemptAt                *time.Time
+	ResultAppliedAt              *time.Time
+	ResultCode                   string
+	ResultMessage                string
+	ResultCredentialVersion      int64  `bun:"result_credential_version,nullzero"`
+	ResultCertificateVersion     int64  `bun:",nullzero"`
+	ResultCertificateFingerprint string `bun:",nullzero"`
+	ResultCertificateNotAfter    *time.Time
+	RetainUntil                  *time.Time
+	UpdatedAt                    time.Time
 }
 
 func (r probeCommandRow) metadata() domain.ProbeCommandMetadata {
@@ -72,7 +76,7 @@ func (r probeCommandRow) command() *domain.ProbeCommand {
 		c.NextAttemptAt = r.NextAttemptAt.UTC()
 	}
 	if r.RemoteConfirmed {
-		c.Outcome = &domain.ProbeCommandOutcome{CommandID: r.CommandID, Status: r.Status, AppliedAt: utcTimePtr(r.ResultAppliedAt), Code: r.ResultCode, Message: r.ResultMessage, CredentialVersion: r.ResultCredentialVersion}
+		c.Outcome = &domain.ProbeCommandOutcome{CommandID: r.CommandID, Status: r.Status, AppliedAt: utcTimePtr(r.ResultAppliedAt), Code: r.ResultCode, Message: r.ResultMessage, CredentialVersion: r.ResultCredentialVersion, CertificateVersion: r.ResultCertificateVersion, CertificateFingerprint: r.ResultCertificateFingerprint, CertificateNotAfter: utcTimePtr(r.ResultCertificateNotAfter)}
 	}
 	return c
 }
@@ -216,6 +220,9 @@ func (s *ProbeCommandStore) ClaimCommand(ctx context.Context, session domain.Pro
 	if capabilities.CredentialRotation {
 		kinds = append(kinds, "credential.prepare", "credential.activate")
 	}
+	if capabilities.CertificateRotation {
+		kinds = append(kinds, "certificate.prepare", "certificate.activate")
+	}
 	if len(kinds) == 0 {
 		return nil, nil
 	}
@@ -264,6 +271,10 @@ func (s *ProbeCommandStore) CompleteCommand(ctx context.Context, session domain.
 		at := result.AppliedAt.UTC().Truncate(time.Microsecond)
 		result.AppliedAt = &at
 	}
+	if result.CertificateNotAfter != nil {
+		expiry := result.CertificateNotAfter.UTC()
+		result.CertificateNotAfter = &expiry
+	}
 	return probeCommandError(ctx, runConfigAuthorityTx(ctx, s.db, func(ctx context.Context, tx bun.Tx) error {
 		authority, err := lockProbeSession(ctx, tx, session, s.protector.KeyHash(session.HubID))
 		if err != nil {
@@ -273,7 +284,7 @@ func (s *ProbeCommandStore) CompleteCommand(ctx context.Context, session domain.
 		if err := tx.NewSelect().Model(&row).Where("command_id = ? AND hub_id = ? AND probe_id = ? AND stream_id = ?", result.CommandID, session.HubID, session.ProbeID, session.StreamID).Scan(ctx); err != nil {
 			return err
 		}
-		if row.Attempts < 1 || (row.Kind != "alert.ack" && row.Kind != "credential.prepare" && row.Kind != "credential.activate") {
+		if row.Attempts < 1 || (row.Kind != "alert.ack" && row.Kind != "credential.prepare" && row.Kind != "credential.activate" && row.Kind != "certificate.prepare" && row.Kind != "certificate.activate") {
 			return ports.ErrConflict
 		}
 		if row.RemoteConfirmed {
@@ -285,8 +296,12 @@ func (s *ProbeCommandStore) CompleteCommand(ctx context.Context, session domain.
 				return ports.ErrConflict
 			}
 			if row.Kind == "alert.ack" {
-				if result.CredentialVersion != 0 {
+				if result.CredentialVersion != 0 || result.CertificateVersion != 0 || result.CertificateFingerprint != "" || result.CertificateNotAfter != nil {
 					return domain.ErrValidation
+				}
+			} else if row.Kind == "certificate.prepare" || row.Kind == "certificate.activate" {
+				if err := s.completeCertificateRotation(ctx, tx, row, result, authority.now); err != nil {
+					return err
 				}
 			} else if err := s.completeCredentialRotation(ctx, tx, row, result, authority.now); err != nil {
 				return err
@@ -295,7 +310,13 @@ func (s *ProbeCommandStore) CompleteCommand(ctx context.Context, session domain.
 			if result.CredentialVersion > 0 {
 				credentialVersion = &result.CredentialVersion
 			}
-			if _, err := tx.NewUpdate().Model(&row).Set("result_credential_version = ?", credentialVersion).Set("status = ?", result.Status).Set("remote_confirmed = ?", true).Set("result_applied_at = ?", result.AppliedAt).Set("result_code = ?", result.Code).Set("result_message = ?", result.Message).Set("updated_at = ?", authority.now).WherePK().Exec(ctx); err != nil {
+			var certificateVersion *int64
+			var fingerprint *string
+			if result.CertificateVersion > 0 {
+				certificateVersion = &result.CertificateVersion
+				fingerprint = &result.CertificateFingerprint
+			}
+			if _, err := tx.NewUpdate().Model(&row).Set("result_certificate_version = ?", certificateVersion).Set("result_certificate_fingerprint = ?", fingerprint).Set("result_certificate_not_after = ?", result.CertificateNotAfter).Set("result_credential_version = ?", credentialVersion).Set("status = ?", result.Status).Set("remote_confirmed = ?", true).Set("result_applied_at = ?", result.AppliedAt).Set("result_code = ?", result.Code).Set("result_message = ?", result.Message).Set("updated_at = ?", authority.now).WherePK().Exec(ctx); err != nil {
 				return err
 			}
 		}
@@ -327,9 +348,13 @@ func validCommandSession(s domain.ProbeReplaySession) bool {
 }
 
 func validCommandOutcome(r domain.ProbeCommandOutcome) bool {
-	// Certificate dispatch is not enabled until its separate hub journal is wired.
-	if r.CredentialVersion < 0 || r.CertificateVersion != 0 || r.CertificateFingerprint != "" || r.CertificateNotAfter != nil {
+	if r.CredentialVersion < 0 || r.CertificateVersion < 0 {
 		return false
+	}
+	if r.CertificateVersion != 0 || r.CertificateFingerprint != "" || r.CertificateNotAfter != nil {
+		if r.CertificateVersion <= 1 || r.CredentialVersion != 0 || !domain.ValidKeyHash(r.CertificateFingerprint) || r.CertificateNotAfter == nil || r.CertificateNotAfter.IsZero() || r.CertificateNotAfter.Nanosecond() != 0 || (r.Status != "applied" && r.Status != "already_applied") {
+			return false
+		}
 	}
 	if !domain.ValidHubID(r.CommandID) || len(r.Message) > 4096 || len(r.Code) > 128 {
 		return false
@@ -347,7 +372,7 @@ func validCommandOutcome(r domain.ProbeCommandOutcome) bool {
 }
 
 func sameCommandOutcome(a, b domain.ProbeCommandOutcome) bool {
-	return a.CommandID == b.CommandID && a.Status == b.Status && a.Code == b.Code && a.Message == b.Message && a.CredentialVersion == b.CredentialVersion && (a.AppliedAt == nil) == (b.AppliedAt == nil) && (a.AppliedAt == nil || a.AppliedAt.Equal(*b.AppliedAt))
+	return a.CommandID == b.CommandID && a.Status == b.Status && a.Code == b.Code && a.Message == b.Message && a.CredentialVersion == b.CredentialVersion && a.CertificateVersion == b.CertificateVersion && a.CertificateFingerprint == b.CertificateFingerprint && (a.CertificateNotAfter == nil) == (b.CertificateNotAfter == nil) && (a.CertificateNotAfter == nil || a.CertificateNotAfter.Equal(*b.CertificateNotAfter)) && (a.AppliedAt == nil) == (b.AppliedAt == nil) && (a.AppliedAt == nil || a.AppliedAt.Equal(*b.AppliedAt))
 }
 
 func probeCommandError(ctx context.Context, err error) error {

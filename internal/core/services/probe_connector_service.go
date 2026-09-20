@@ -25,6 +25,7 @@ type ProbeConnectorService struct {
 	configSync      ports.RemoteProbeConfigSyncRepository
 	replayIngest    ports.ProbeReplayService
 	rotations       ports.ProbeCredentialRotationRepository
+	certificates    ports.ProbeCertificateRotationRepository
 	watchdogFactory func(context.Context, domain.ProbeRuntimeLease) (*ProbeWatchdogRuntime, error)
 	hubID, ownerID  string
 	delay           func(int, time.Duration) time.Duration
@@ -58,6 +59,12 @@ func (s *ProbeConnectorService) SetReplayIngest(ingest ports.ProbeReplayService)
 // confirmation. Configure before Run; source receipts alone promote candidates.
 func (s *ProbeConnectorService) SetCredentialRotation(rotations ports.ProbeCredentialRotationRepository) {
 	s.rotations = rotations
+}
+
+// SetCertificateRotation wires fenced dial-pin selection separately from credential
+// encryption metadata. Configure before Run.
+func (s *ProbeConnectorService) SetCertificateRotation(certificates ports.ProbeCertificateRotationRepository) {
+	s.certificates = certificates
 }
 
 // NewProbeConnectorService requires verified installation authority and a unique
@@ -266,6 +273,16 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 			return 0, ports.ErrConflict
 		}
 	}
+	certificateSelection := domain.ProbeCertificateSelection{Current: selection.Current.ProbeCredentialMetadata}
+	if s.certificates != nil {
+		certificateSelection, err = s.certificates.SelectCertificateConnection(readCtx, replaySession)
+		if err != nil {
+			return 0, err
+		}
+		if certificateSelection.Current != selection.Current.ProbeCredentialMetadata || (certificateSelection.CandidateFingerprint != "" && selection.Candidate != nil) {
+			return 0, ports.ErrConflict
+		}
+	}
 	if s.configSync != nil {
 		if _, err := s.configSync.RefreshRemote(readCtx, domain.ProbeConfigTarget{HubID: s.hubID, ProbeID: probeID}, time.Now().UTC()); err != nil {
 			return 0, err
@@ -333,14 +350,14 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 			return aware.RunWithWatchdog(ctx, input, watchdog, established, applied, ingest)
 		}
 	}
-	connect := func(connection domain.ProbeConnection) error {
-		openCtx, cancel := context.WithTimeout(sessionCtx, 5*time.Second)
+	connect := func(connectCtx context.Context, connection domain.ProbeConnection, pin string) error {
+		openCtx, cancel := context.WithTimeout(connectCtx, 5*time.Second)
 		token, openErr := s.protector.OpenCredential(openCtx, connection.ProbeCredentialMetadata, connection.ProtectedCredential)
 		cancel()
 		if openErr != nil {
 			return openErr
 		}
-		return run(sessionCtx, domain.ProbeSessionInput{OwnerID: s.ownerID, Connection: connection.ProbeCredentialMetadata, Token: token, Generation: lease.Generation, CommittedSeq: cursor, ConfigDocument: document}, func(callbackCtx context.Context) error {
+		return run(connectCtx, domain.ProbeSessionInput{DialFingerprint: pin, OwnerID: s.ownerID, Connection: connection.ProbeCredentialMetadata, Token: token, Generation: lease.Generation, CommittedSeq: cursor, ConfigDocument: document}, func(callbackCtx context.Context) error {
 			if err := s.leases.SetConnectorConnected(callbackCtx, lease, true); err != nil {
 				return err
 			}
@@ -353,6 +370,11 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 			if confirmErr != nil {
 				return confirmErr
 			}
+			if s.certificates != nil {
+				if err := s.certificates.ConfirmCertificateConnection(callbackCtx, replaySession, connection.ProbeCredentialMetadata, pin); err != nil {
+					return err
+				}
+			}
 			if connectedAt.IsZero() {
 				connectedAt = time.Now()
 			}
@@ -364,16 +386,32 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 			return s.configSync.RecordRemoteApplied(callbackCtx, lease, receipt)
 		}, ingestFunc)
 	}
-	if selection.Candidate != nil {
-		err = connect(*selection.Candidate)
+	if certificateSelection.CandidateFingerprint != "" {
+		err = connect(sessionCtx, selection.Current, certificateSelection.CandidateFingerprint)
+		// TLS pin rejection happens before HTTP or a source generation exists.
+		// All other errors retain ordinary reconnect/backoff and never downgrade.
+		if certificateSelection.AllowCurrentFallback && errors.Is(err, domain.ErrProbeCertificateMismatch) && connectedAt.IsZero() && sessionCtx.Err() == nil {
+			fresh, selectionErr := s.certificates.SelectCertificateConnection(sessionCtx, replaySession)
+			if selectionErr != nil {
+				err = selectionErr
+			} else if fresh.Current != certificateSelection.Current || fresh.CandidateFingerprint != certificateSelection.CandidateFingerprint || !fresh.AllowCurrentFallback {
+				err = ports.ErrConflict
+			} else {
+				fallbackCtx, endFallback := context.WithDeadline(sessionCtx, fresh.FallbackUntil)
+				err = connect(fallbackCtx, selection.Current, selection.Current.Fingerprint)
+				endFallback()
+			}
+		}
+	} else if selection.Candidate != nil {
+		err = connect(sessionCtx, *selection.Candidate, selection.Candidate.Fingerprint)
 		// Only the pinned HTTP rejection guarantees no source generation was
 		// admitted. Reusing this lease after any other error could revive a
 		// stale session or conceal a storage/protocol failure.
 		if errors.Is(err, domain.ErrProbeCredentialRejected) && connectedAt.IsZero() && sessionCtx.Err() == nil {
-			err = connect(selection.Current)
+			err = connect(sessionCtx, selection.Current, selection.Current.Fingerprint)
 		}
 	} else {
-		err = connect(selection.Current)
+		err = connect(sessionCtx, selection.Current, selection.Current.Fingerprint)
 	}
 	stop()
 	<-renewed

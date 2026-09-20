@@ -130,7 +130,7 @@ func (s *ProbeCommandStore) completeCredentialRotation(ctx context.Context, tx b
 		return err
 	}
 	applied := result.Status == "applied" || result.Status == "already_applied"
-	if result.Status == "already_resolved" || result.CredentialVersion != 0 && !(command.Kind == "credential.prepare" && applied) {
+	if result.CertificateVersion != 0 || result.CertificateFingerprint != "" || result.CertificateNotAfter != nil || result.Status == "already_resolved" || result.CredentialVersion != 0 && !(command.Kind == "credential.prepare" && applied) {
 		return domain.ErrValidation
 	}
 	if applied && (result.AppliedAt == nil || result.AppliedAt.Before(row.CreatedAt.Add(-30*time.Second)) || !result.AppliedAt.Before(row.OverlapExpiresAt)) {

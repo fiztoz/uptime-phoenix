@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -405,6 +406,9 @@ func testProbeRegistryMigration(t *testing.T, f probeRegistryFixture) {
 	t.Helper()
 	ctx := context.Background()
 	commandColumns := probeTableColumns(t, f.db, "probe_commands")
+	// Other migration rehearsals can re-add columns in a different physical order.
+	// The contract is preserved names, not SELECT * ordinal position.
+	slices.Sort(commandColumns)
 	// Test 035 at its own schema boundary, not underneath later FK dependents.
 	// Restore the latest schema for the shared MariaDB test database afterward.
 	// Discover the complete migration suffix; a hand-maintained list silently
@@ -433,7 +437,9 @@ func testProbeRegistryMigration(t *testing.T, f probeRegistryFixture) {
 				return
 			}
 		}
-		if got := probeTableColumns(t, f.db, "probe_commands"); !reflect.DeepEqual(got, commandColumns) {
+		got := probeTableColumns(t, f.db, "probe_commands")
+		slices.Sort(got)
+		if !reflect.DeepEqual(got, commandColumns) {
 			t.Errorf("migration rehearsal changed command schema: before=%v after=%v", commandColumns, got)
 		}
 	})

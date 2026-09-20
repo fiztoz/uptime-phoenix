@@ -161,7 +161,7 @@ func TestProbeCommandReplay(t *testing.T) {
 }
 
 func testCommandService(t *testing.T, f commandFixture) {
-	s, err := services.NewProbeCommandService(f.commands, repository.NewProbeConnectorStore(f.f.db), f.protector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{})
+	s, err := services.NewProbeCommandService(f.commands, repository.NewProbeConnectorStore(f.f.db), f.protector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
 	if err != nil {
 		t.Fatal(err)
 	}

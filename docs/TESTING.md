@@ -1127,5 +1127,31 @@ Standalone codec tests retain optional top-level fields while rejecting duplicat
 keys and invalid UTF-8, and bind the digest to original wire bytes. Full backend
 race verification still requires the disposable MariaDB DSN to prove existing hub
 behavior did not regress. The compiled replay/credential process harness exercises
-the new TLS server, but does not prove unimplemented hub certificate rotation.
+the new TLS server. Hub certificate rotation has its separate acceptance below.
 See [source TLS acceptance](multi-region/M3_CERTIFICATE_RUNTIME_ACCEPTANCE.md).
+
+
+## M3 hub certificate rotation
+
+Run `TestProbeCertificateRotation` with `TEST_MARIADB_DSN` pointing to a disposable
+live MariaDB; a skipped engine is not evidence. The suite covers immutable issue/
+receipt identity, atomic pin promotion and token resealing, late write rollback,
+strict details, candidate selection/confirmation fencing, UTC+7 expiry round trips,
+credential exclusion in both directions, retained dependencies, irreversible
+retirement, pending capacity reservation, and guarded migration 063 up/down with
+existing ACK/credential state preserved.
+
+`TestProbeConnectorCertificateFallback` verifies typed pre-HTTP mismatch only,
+fresh selection before fallback, unchanged credential encryption scope and fixed
+deadline. `TestHubCertificateRuntimeLostResultAcrossBothStoresRestartAfterRetirement`
+uses actual TLS, source and hub databases, loses the activation result, reopens
+both stores and recovers after the original deadline. It initializes the immutable
+command near the end of its allowed window; no persisted deadline is rewritten.
+
+For compiled processes, run the existing smoke harness with `--verify-replay
+--verify-certificate-rotation`, all three binary paths, a new private output path,
+and a disposable MariaDB schema ending `_smoke`. Do not combine it with credential
+rotation, which would violate the real overlap exclusion. It checks the actual CLI,
+offline issuance/restart, activation receipts, promoted-pin restart and ordered
+telemetry continuity. This is separate from the complete fifteen-minute M3 gate.
+See [acceptance](multi-region/M3_HUB_CERTIFICATE_ACCEPTANCE.md).

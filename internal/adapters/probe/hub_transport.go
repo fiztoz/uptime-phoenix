@@ -57,6 +57,9 @@ func (t *HubTransport) dial(ctx context.Context, endpoint, pin, token string) (*
 		_ = response.Body.Close()
 	}
 	if err != nil {
+		if errors.Is(err, domain.ErrProbeCertificateMismatch) {
+			return nil, domain.ErrProbeCertificateMismatch
+		}
 		if response != nil && response.StatusCode == http.StatusUnauthorized {
 			return nil, domain.ErrUnauthorized
 		}
@@ -125,7 +128,14 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 		}
 		sort.Strings(required)
 	}
-	conn, err := t.dial(ctx, m.Endpoint, m.Fingerprint, input.Token)
+	pin := input.DialFingerprint
+	if pin == "" {
+		pin = m.Fingerprint
+	}
+	if !domain.ValidKeyHash(pin) {
+		return domain.ErrValidation
+	}
+	conn, err := t.dial(ctx, m.Endpoint, pin, input.Token)
 	if err != nil {
 		if errors.Is(err, domain.ErrUnauthorized) {
 			return domain.ErrProbeCredentialRejected
@@ -216,8 +226,8 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	}
 	receiver := hubStateReceiver{ingest: t.stateIngest, session: domain.ProbeReplaySession{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: input.Generation, OwnerID: input.OwnerID}}
 	defer receiver.discard()
-	commandCapabilities := domain.ProbeCommandCapabilities{AlertAcknowledgement: slices.Contains(handshake.Hello.Capabilities, AcknowledgementCapability), CredentialRotation: slices.Contains(handshake.Hello.Capabilities, CredentialRotationCapability)}
-	if t.commands != nil && (commandCapabilities.AlertAcknowledgement || commandCapabilities.CredentialRotation) {
+	commandCapabilities := domain.ProbeCommandCapabilities{AlertAcknowledgement: slices.Contains(handshake.Hello.Capabilities, AcknowledgementCapability), CredentialRotation: slices.Contains(handshake.Hello.Capabilities, CredentialRotationCapability), CertificateRotation: slices.Contains(handshake.Hello.Capabilities, CertificateRotationCapability)}
+	if t.commands != nil && (commandCapabilities.AlertAcknowledgement || commandCapabilities.CredentialRotation || commandCapabilities.CertificateRotation) {
 		senders.Add(1)
 		go func() {
 			defer senders.Done()

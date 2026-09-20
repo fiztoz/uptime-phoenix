@@ -15,23 +15,26 @@ import (
 var _ ports.ProbeConnectionRepository = (*ProbeConnectorStore)(nil)
 
 type probeConnectionRow struct {
-	bun.BaseModel       `bun:"table:probe_connections,alias:pc"`
-	ProbeID             string `bun:",pk"`
-	HubID               string
-	StreamID            string
-	EnrollmentID        string
-	CredentialVersion   int64
-	CredentialHighWater int64
-	Endpoint            string
-	Fingerprint         string
-	ProtectedCredential []byte
-	State               string
-	PreparedAt          time.Time
-	ActivatedAt         *time.Time
+	bun.BaseModel        `bun:"table:probe_connections,alias:pc"`
+	ProbeID              string `bun:",pk"`
+	HubID                string
+	StreamID             string
+	EnrollmentID         string
+	CredentialVersion    int64
+	CredentialHighWater  int64
+	CertificateVersion   int64 `bun:",nullzero,default:1"`
+	CertificateHighWater int64 `bun:",nullzero,default:1"`
+	CertificateNotAfter  *time.Time
+	Endpoint             string
+	Fingerprint          string
+	ProtectedCredential  []byte
+	State                string
+	PreparedAt           time.Time
+	ActivatedAt          *time.Time
 }
 
 func (r probeConnectionRow) connection() *domain.ProbeConnection {
-	return &domain.ProbeConnection{ProbeCredentialMetadata: domain.ProbeCredentialMetadata{HubID: r.HubID, ProbeID: r.ProbeID, StreamID: r.StreamID, EnrollmentID: r.EnrollmentID, CredentialVersion: r.CredentialVersion, Endpoint: r.Endpoint, Fingerprint: r.Fingerprint}, ProtectedCredential: r.ProtectedCredential, State: r.State, PreparedAt: r.PreparedAt.UTC(), ActivatedAt: utcTimePtr(r.ActivatedAt)}
+	return &domain.ProbeConnection{ProbeCredentialMetadata: domain.ProbeCredentialMetadata{HubID: r.HubID, ProbeID: r.ProbeID, StreamID: r.StreamID, EnrollmentID: r.EnrollmentID, CredentialVersion: r.CredentialVersion, Endpoint: r.Endpoint, Fingerprint: r.Fingerprint}, CertificateVersion: r.CertificateVersion, CertificateNotAfter: utcTimePtr(r.CertificateNotAfter), ProtectedCredential: r.ProtectedCredential, State: r.State, PreparedAt: r.PreparedAt.UTC(), ActivatedAt: utcTimePtr(r.ActivatedAt)}
 }
 
 // PrepareConnection commits recoverable credentials and trusted stream identity
@@ -77,7 +80,7 @@ func (s *ProbeConnectorStore) PrepareConnection(ctx context.Context, c domain.Pr
 		if count != 0 {
 			return ports.ErrConflict
 		}
-		row := probeConnectionRow{HubID: c.HubID, ProbeID: c.ProbeID, StreamID: c.StreamID, EnrollmentID: c.EnrollmentID, CredentialVersion: c.CredentialVersion, Endpoint: c.Endpoint, Fingerprint: c.Fingerprint, ProtectedCredential: c.ProtectedCredential, State: c.State, PreparedAt: c.PreparedAt.UTC().Truncate(time.Microsecond)}
+		row := probeConnectionRow{CertificateVersion: 1, CertificateHighWater: 1, HubID: c.HubID, ProbeID: c.ProbeID, StreamID: c.StreamID, EnrollmentID: c.EnrollmentID, CredentialVersion: c.CredentialVersion, Endpoint: c.Endpoint, Fingerprint: c.Fingerprint, ProtectedCredential: c.ProtectedCredential, State: c.State, PreparedAt: c.PreparedAt.UTC().Truncate(time.Microsecond)}
 		if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
 			return err
 		}

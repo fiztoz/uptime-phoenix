@@ -166,3 +166,16 @@ immutable retry, wrong-pin/wrong-key rejection, operation exclusion and retained
 high-water. Then run source and hub cold restart with an activation reply lost
 before the hub receipt commit, including recovery after overlap expiry. Existing
 compiled credential/replay acceptance is only a regression baseline for this step.
+
+
+## Hub implementation record
+
+The journal, protected dispatch, candidate/current TLS selection, receipt-driven
+pin/token promotion and operator CLI are now implemented. Hub connection metadata
+is canonical in `probe_connections`; no duplicate pin column exists in the probe
+registration table. The reserved activation row has no payload/digest and cannot
+dispatch until preparation commits. Both source and hub exclude overlapping
+credential/certificate operations. Consult
+[hub certificate acceptance](M3_HUB_CERTIFICATE_ACCEPTANCE.md) for the authoritative
+verification status; historical implementation directions above are not current
+missing-feature claims. Explicit stream reset and the full M3 partition remain.

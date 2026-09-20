@@ -95,6 +95,7 @@ def main():
     parser.add_argument("--verify-watchdog", action="store_true", help="verify real both-side watchdog paging across a network partition and restart")
     parser.add_argument("--verify-command", action="store_true", help="exercise queued original-incident ACK across a real link partition and restart")
     parser.add_argument("--verify-credential-rotation", action="store_true", help="verify durable queued credential rotation across hub and edge restart")
+    parser.add_argument("--verify-certificate-rotation", action="store_true", help="verify durable TLS certificate rotation across hub and edge restart")
     parser.add_argument("--command-partition-seconds", type=int, default=15)
     parser.add_argument("--mariadb-container")
     args = parser.parse_args()
@@ -103,6 +104,8 @@ def main():
         parser.error("DB_DSN must name a disposable localhost database ending in _smoke")
     if args.verify_credential_rotation and not args.verify_replay:
         parser.error("--verify-credential-rotation requires --verify-replay")
+    if args.verify_certificate_rotation and (not args.verify_replay or args.verify_credential_rotation):
+        parser.error("--verify-certificate-rotation requires --verify-replay and a separate run from credential rotation")
     if args.verify_history and not args.verify_replay:
         parser.error("--verify-history requires --verify-replay")
     if args.verify_watchdog and not args.verify_replay:
@@ -161,7 +164,7 @@ def main():
     threading.Thread(target=sink.serve_forever, daemon=True).start()
     sink_url = f"http://127.0.0.1:{args.port + 1}"
     relay = None
-    if args.verify_watchdog or args.verify_command or args.verify_credential_rotation:
+    if args.verify_watchdog or args.verify_command or args.verify_credential_rotation or args.verify_certificate_rotation:
         relay = PartitionRelay(("127.0.0.1", args.port + 4), ("127.0.0.1", args.port + 3))
         threading.Thread(target=relay.serve_forever, daemon=True).start()
 
@@ -655,13 +658,67 @@ def main():
                                  "hub_credential_version": 2, "source_credential_version": 2,
                                  "generation_before_restart": generation_before,
                                  "generation_after_restart": final["connection_generation"], "high_water": high_water}
+        certificate_evidence = None
+        if args.verify_certificate_rotation:
+            relay.partition(True)
+            rotation_id = str(uuid.uuid4())
+            rotation_args = ("rotate-certificate", "--probe-id", identity["probe_id"],
+                             "--rotation-id", rotation_id, "--certificate-version", "2", "--valid-for-days", "365")
+            issued = admin(*rotation_args)["certificate_rotation"]
+            assert issued["state"] == "preparing" and issued["prepared_at"] is None and issued["activated_at"] is None
+            assert admin(*rotation_args)["certificate_rotation"] == issued
+            assert not any(word in json.dumps(issued).lower() for word in ("token", "protected", "private", "pem"))
+            mark("offline certificate rotation persists one nonsecret operation before dispatch")
+            for name in ("worker-a", "worker-b", "edge"):
+                stop(name)
+            start("edge", args.probe_binary, edge_args, edge_env)
+            for worker in ("worker-a", "worker-b"):
+                start(worker, args.app_binary, [], dict(env, MODE="worker", WORKER_ID=worker, PROBES_ENABLED="true"))
+            wait_for("offline certificate restart preserves bootstrap identity", lambda:
+                     edge_http("/readyz") == 200 and edge_rows("SELECT active_version FROM edge_certificate_state") == [{"active_version": 1}])
+            assert admin("certificate-rotation-status", "--probe-id", identity["probe_id"], "--rotation-id", rotation_id)["certificate_rotation"] == issued
+            relay.partition(False)
+            wait_for("certificate rotation confirms both source effects after reconnect", lambda:
+                     admin("certificate-rotation-status", "--probe-id", identity["probe_id"], "--rotation-id", rotation_id)["certificate_rotation"]["state"] == "active", timeout=120)
+            active = admin("certificate-rotation-status", "--probe-id", identity["probe_id"], "--rotation-id", rotation_id)["certificate_rotation"]
+            for field in ("overlap_expires_at", "prepare_command_id", "activate_command_id"):
+                assert active[field] == issued[field]
+            assert active["prepared_at"] and active["activated_at"] and active["certificate_not_after"]
+            assert edge_rows("SELECT active_version FROM edge_certificate_state") == [{"active_version": 2}]
+            assert edge_rows("SELECT version FROM edge_credentials WHERE kind='runtime'") == [{"version": 1}]
+            assert hub_query("SELECT JSON_OBJECT('certificate_version',certificate_version,'credential_version',credential_version,'fingerprint',fingerprint) FROM probe_connections "
+                             f"WHERE probe_id='{identity['probe_id']}'") == [{"certificate_version": 2, "credential_version": 1, "fingerprint": active["fingerprint"]}]
+            for command_id in (active["prepare_command_id"], active["activate_command_id"]):
+                assert edge_rows(f"SELECT COUNT(*) AS count FROM edge_applied_commands WHERE command_id='{command_id}'") == [{"count": 1}]
+                assert admin("command-status", "--probe-id", identity["probe_id"], "--command-id", command_id)["command"]["remote_confirmed"] is True
+            assert admin(*rotation_args)["certificate_rotation"] == active
+            generation_before = edge_progress()["connection_generation"]
+            for name in ("worker-a", "worker-b", "edge"):
+                stop(name)
+            start("edge", args.probe_binary, edge_args, edge_env)
+            for worker in ("worker-a", "worker-b"):
+                start(worker, args.app_binary, [], dict(env, MODE="worker", WORKER_ID=worker, PROBES_ENABLED="true"))
+            wait_for("cold restart authenticates with the promoted certificate", lambda:
+                     edge_progress()["connection_generation"] > generation_before and hub_query(
+                         "SELECT JSON_OBJECT('connected',connected) FROM probe_sessions "
+                         f"WHERE probe_id='{identity['probe_id']}'") == [{"connected": 1}], timeout=90)
+            high_water = edge_progress()["last_created_seq"]
+            wait_for("certificate rotation preserves ordered telemetry progress", lambda:
+                     hub_cursor() >= high_water and edge_progress()["committed_seq"] >= high_water)
+            final = edge_progress()
+            assert final["probe_id"] == identity["probe_id"] and final["stream_id"] == identity["stream_id"]
+            certificate_evidence = {"operation": active, "source_receipts_per_command": 1,
+                                    "hub_certificate_version": 2, "source_certificate_version": 2,
+                                    "credential_version": 1, "generation_before_restart": generation_before,
+                                    "generation_after_restart": final["connection_generation"], "high_water": high_water}
         report = {"passed": passed, "identity": identity, "before_restart": before, "final": final,
                   "incident": incident, "provider_attempt_statuses": provider_attempts, "successful_webhook_statuses": [h["status"] for h in hooks],
                   "replay_verified": args.verify_replay, "replay": replay_evidence,
                   "history_verified": args.verify_history, "history": history_evidence, "runtime_ownership": runtime_evidence,
                   "watchdog_verified": args.verify_watchdog, "watchdog": watchdog_evidence,
                   "command_verified": args.verify_command, "command": command_evidence,
-                  "credential_rotation_verified": args.verify_credential_rotation, "credential_rotation": rotation_evidence}
+                  "credential_rotation_verified": args.verify_credential_rotation, "credential_rotation": rotation_evidence,
+                  "certificate_rotation_verified": args.verify_certificate_rotation, "certificate_rotation": certificate_evidence}
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print("Evidence:", output, flush=True)
     finally:

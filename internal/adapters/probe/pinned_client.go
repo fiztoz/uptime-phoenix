@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
 var (
@@ -241,12 +243,12 @@ func NewPinnedHTTPClient(endpoint, fingerprint string, policy EndpointPolicy) (*
 			if now.Before(leaf.NotBefore) {
 				return errors.New("peer certificate is not yet valid")
 			}
-			if now.After(leaf.NotAfter) {
+			if !now.Before(leaf.NotAfter) {
 				return errors.New("peer certificate has expired")
 			}
 			leafHash := sha256.Sum256(rawCerts[0])
 			if subtle.ConstantTimeCompare(leafHash[:], expectedFingerprintBytes) != 1 {
-				return errors.New("peer certificate fingerprint mismatch")
+				return domain.ErrProbeCertificateMismatch
 			}
 			return nil
 		},

@@ -41,6 +41,8 @@ func ValidProbeCredentialMetadata(m ProbeCredentialMetadata) bool {
 // Only protected credential bytes are recoverable in the hub database.
 type ProbeConnection struct {
 	ProbeCredentialMetadata
+	CertificateVersion  int64
+	CertificateNotAfter *time.Time
 	ProtectedCredential []byte
 	State               string // prepared or active
 	PreparedAt          time.Time
@@ -50,10 +52,13 @@ type ProbeConnection struct {
 // ProbeSessionInput is confidential runtime input for one fenced hub connection.
 // The token and decrypted document must never be logged or returned over HTTP.
 type ProbeSessionInput struct {
-	OwnerID        string
-	Connection     ProbeCredentialMetadata
-	Token          string
-	Generation     int64
-	CommittedSeq   int64
-	ConfigDocument []byte
+	// DialFingerprint is trusted network selection; Connection remains the
+	// immutable metadata used to decrypt the credential before dialing.
+	DialFingerprint string
+	OwnerID         string
+	Connection      ProbeCredentialMetadata
+	Token           string
+	Generation      int64
+	CommittedSeq    int64
+	ConfigDocument  []byte
 }

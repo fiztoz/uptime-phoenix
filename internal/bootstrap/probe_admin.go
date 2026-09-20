@@ -27,7 +27,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status|ack|command-status|rotate-credential|rotation-status> [options]
+const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status|ack|command-status|rotate-credential|rotation-status|rotate-certificate|certificate-rotation-status> [options]
 Uses hub DB_ENGINE, DB_DSN, PROBE_SECRET_KEY_FILE and optional PROBE_ENDPOINT_POLICY_FILE.
 register --probe-id UUID --stream-id UUID --key SLUG --name NAME [--location LOCATION] --endpoint wss://HOST/ws/probe/v1 --fingerprint SHA256
 enroll --probe-id UUID --token-file PATH
@@ -39,6 +39,9 @@ ack --probe-id UUID --command-id UUID --source-alert-id UUID --assignment-genera
 command-status --probe-id UUID --command-id UUID
 rotate-credential --probe-id UUID --rotation-id UUID --credential-version N
 rotation-status --probe-id UUID --rotation-id UUID
+rotate-certificate --probe-id UUID --rotation-id UUID --certificate-version N [--valid-for-days 365]
+certificate-rotation-status --probe-id UUID --rotation-id UUID
+Certificate rotation creates the key only at the probe; the old pin remains current until an activation receipt confirms promotion.
 Credential rotation retries reuse the rotation ID and version. The ten-minute overlap never extends on retry; active requires a durable source receipt.
 Token and complete snapshot files must be private regular files. Commands print metadata only.
 Registration persists the recoverable protected runtime credential before enrollment.
@@ -56,7 +59,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		_, _ = io.WriteString(out, probeAdminUsage)
 		return 0
 	}
-	if len(args) == 0 || !slices.Contains([]string{"register", "enroll", "assign", "prepare", "watchdog", "status", "ack", "command-status", "rotate-credential", "rotation-status"}, args[0]) {
+	if len(args) == 0 || !slices.Contains([]string{"register", "enroll", "assign", "prepare", "watchdog", "status", "ack", "command-status", "rotate-credential", "rotation-status", "rotate-certificate", "certificate-rotation-status"}, args[0]) {
 		_, _ = io.WriteString(stderr, probeAdminUsage)
 		return 2
 	}
@@ -65,7 +68,8 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	var enabled bool
 	var lostSeconds, recoverSeconds, resendMinutes int64
 	var commandID, sourceAlertID, actor, noteFile string
-	var assignmentGeneration, credentialVersion int64
+	var assignmentGeneration, credentialVersion, certificateVersion int64
+	var certificateDays int
 	var rotationID string
 	var commandTTL time.Duration
 	f := flag.NewFlagSet("phoenix-probe-admin", flag.ContinueOnError)
@@ -92,8 +96,10 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	f.StringVar(&actor, "actor", "", "operator display name")
 	f.StringVar(&noteFile, "note-file", "", "optional private ACK note file")
 	f.Int64Var(&assignmentGeneration, "assignment-generation", 0, "original incident assignment generation")
-	f.StringVar(&rotationID, "rotation-id", "", "immutable credential rotation UUID, retained for retries")
+	f.StringVar(&rotationID, "rotation-id", "", "immutable rotation UUID, retained for retries")
 	f.Int64Var(&credentialVersion, "credential-version", 0, "new monotonically increasing credential version")
+	f.Int64Var(&certificateVersion, "certificate-version", 0, "new monotonically increasing certificate version")
+	f.IntVar(&certificateDays, "valid-for-days", 365, "source certificate validity days, 1 through 3650")
 	f.DurationVar(&commandTTL, "ttl", 24*time.Hour, "ACK validity duration, at most 168h")
 	if f.Parse(args[1:]) != nil || f.NArg() != 0 || cfg.ProbeSecretKeyFile == "" || revision < 0 {
 		_, _ = io.WriteString(stderr, probeAdminUsage)
@@ -141,23 +147,43 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		Generation probe.Decimal `json:"generation"`
 	}
 	result := struct {
-		HubID           string                  `json:"hub_id"`
-		ProbeID         string                  `json:"probe_id,omitempty"`
-		State           string                  `json:"state"`
-		Revision        probe.Decimal           `json:"revision,omitempty"`
-		Assignments     []assignmentView        `json:"assignments,omitempty"`
-		AppliedRevision *probe.Decimal          `json:"applied_revision,omitempty"`
-		SyncPending     *bool                   `json:"sync_pending,omitempty"`
-		Watchdog        *probeAdminWatchdogView `json:"watchdog,omitempty"`
-		Command         *probeAdminCommandView  `json:"command,omitempty"`
-		Rotation        *probeAdminRotationView `json:"rotation,omitempty"`
+		HubID               string                             `json:"hub_id"`
+		ProbeID             string                             `json:"probe_id,omitempty"`
+		State               string                             `json:"state"`
+		Revision            probe.Decimal                      `json:"revision,omitempty"`
+		Assignments         []assignmentView                   `json:"assignments,omitempty"`
+		AppliedRevision     *probe.Decimal                     `json:"applied_revision,omitempty"`
+		SyncPending         *bool                              `json:"sync_pending,omitempty"`
+		Watchdog            *probeAdminWatchdogView            `json:"watchdog,omitempty"`
+		Command             *probeAdminCommandView             `json:"command,omitempty"`
+		Rotation            *probeAdminRotationView            `json:"rotation,omitempty"`
+		CertificateRotation *probeAdminCertificateRotationView `json:"certificate_rotation,omitempty"`
 	}{HubID: installation.HubID, ProbeID: probeID}
 	switch args[0] {
+	case "rotate-certificate", "certificate-rotation-status":
+		if !domain.ValidHubID(rotationID) {
+			return fail("A canonical rotation ID is required; retain it for retries")
+		}
+		commands := repository.NewProbeCommandStore(db, protector, probe.AcknowledgementCodec{}, protector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
+		var rotation *domain.ProbeCertificateRotation
+		if args[0] == "rotate-certificate" {
+			service, initErr := services.NewProbeCertificateRotationService(commands, connections, protector, probe.CertificateCommandCodec{})
+			if initErr != nil {
+				return fail("Certificate rotation service unavailable")
+			}
+			rotation, err = service.Issue(ctx, domain.ProbeCertificateRotationIssue{HubID: installation.HubID, ProbeID: probeID, RotationID: rotationID, CertificateVersion: certificateVersion, ValidForDays: certificateDays})
+		} else {
+			rotation, err = commands.GetCertificateRotation(ctx, installation.HubID, probeID, rotationID)
+		}
+		if err != nil {
+			return fail("Certificate rotation unavailable or conflicting; verify the original ID, version, validity and current connection")
+		}
+		result.State, result.CertificateRotation = rotation.State, probeAdminCertificateRotation(rotation)
 	case "rotate-credential", "rotation-status":
 		if !domain.ValidHubID(rotationID) {
 			return fail("A canonical rotation ID is required; retain it for retries")
 		}
-		commands := repository.NewProbeCommandStore(db, protector, probe.AcknowledgementCodec{}, protector, probe.CredentialCommandCodec{})
+		commands := repository.NewProbeCommandStore(db, protector, probe.AcknowledgementCodec{}, protector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
 		var rotation *domain.ProbeCredentialRotation
 		if args[0] == "rotate-credential" {
 			service, initErr := services.NewProbeCredentialRotationService(commands, connections, protector, protector, probe.CredentialCommandCodec{})
@@ -176,7 +202,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		if !domain.ValidHubID(commandID) {
 			return fail("A canonical command ID is required; retain it for retries")
 		}
-		commands := repository.NewProbeCommandStore(db, protector, probe.AcknowledgementCodec{}, protector, probe.CredentialCommandCodec{})
+		commands := repository.NewProbeCommandStore(db, protector, probe.AcknowledgementCodec{}, protector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
 		var command *domain.ProbeCommand
 		if args[0] == "ack" {
 			var note *string
@@ -189,7 +215,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 				clear(content)
 				note = &value
 			}
-			service, initErr := services.NewProbeCommandService(commands, connections, protector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{})
+			service, initErr := services.NewProbeCommandService(commands, connections, protector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
 			if initErr != nil {
 				return fail("Command service unavailable")
 			}

@@ -307,5 +307,44 @@ Use `scripts/probe_runtime_smoke.py --verify-replay --verify-credential-rotation
 with its required binaries, fresh private output directory and disposable MariaDB
 configuration to exercise queued rotation, both-side restart and subsequent
 telemetry. See [hub acceptance](M3_HUB_CREDENTIAL_ACCEPTANCE.md) and
-[the retrospective](M3_HUB_CREDENTIAL_RETROSPECTIVE.md). Certificate rotation and
-explicit stream-reset recovery are still unfinished M3 requirements.
+[the retrospective](M3_HUB_CREDENTIAL_RETROSPECTIVE.md). Certificate rotation is described below. Explicit stream-reset recovery remains
+an unfinished M3 requirement.
+
+
+## Certificate rotation
+
+With the established hub DB/key environment, issue a new stable operation:
+
+```sh
+rtk proxy ./phoenix-probe-admin rotate-certificate --probe-id <uuid> --rotation-id <uuid> --certificate-version 2 --valid-for-days 365
+rtk proxy ./phoenix-probe-admin certificate-rotation-status --probe-id <uuid> --rotation-id <uuid>
+```
+
+Choose an explicit UUID and a version greater than every attempted certificate
+version. Reuse the exact UUID/version/validity on retries. The result's
+`certificate_rotation` view includes public fingerprint/expiry, command IDs and
+`preparing`, `activating`, `active` or `failed` state. Private keys remain protected
+on the edge. Neither side generates a replacement identity on reconnect.
+
+The hub queues only preparation initially; activation has a reserved ID and
+capacity but no dispatchable payload until the prepared fingerprint is confirmed.
+Only a durable activation result promotes the current hub pin. The same runtime
+credential is resealed under it; credential version, stream and accepted config
+do not change. Use `command-status` with each saved command ID to inspect actual
+remote confirmation. A successful TLS handshake is not an activation receipt.
+
+The fixed ten-minute window begins at command creation. Credential and certificate
+rotations cannot overlap. After a lost activation result the hub tries the prepared
+pin, including after cold restart and overlap expiry. It may retry the old pin
+only after a pre-HTTP pin mismatch and while the original window remains open.
+A source that never activated before expiry can require explicit verified
+operator recovery; retries never extend trust or bypass pin/expiry checks.
+
+Preserve the hub key/database and edge identity/key/database together. Migration
+063 refuses downgrade while any certificate operation/command, expiry or version
+high-water would be lost. Run certificate acceptance separately from credential
+acceptance, because both respect the exclusion window:
+`scripts/probe_runtime_smoke.py --verify-replay --verify-certificate-rotation`,
+with all required binary paths and a fresh disposable MariaDB/output directory.
+See [acceptance](M3_HUB_CERTIFICATE_ACCEPTANCE.md) and
+[retrospective](M3_HUB_CERTIFICATE_RETROSPECTIVE.md).

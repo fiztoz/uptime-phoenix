@@ -164,7 +164,7 @@ func testRotationLateReceipt(t *testing.T, f rotationFixture) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	f.commands = repository.NewProbeCommandStore(f.f.db, f.protector, probe.AcknowledgementCodec{}, f.protector, probe.CredentialCommandCodec{})
+	f.commands = repository.NewProbeCommandStore(f.f.db, f.protector, probe.AcknowledgementCodec{}, f.protector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
 	selected, err := f.commands.SelectCredentialConnection(t.Context(), f.session)
 	if err != nil || selected.Candidate == nil || selected.Current.CredentialVersion != 1 {
 		t.Fatal("expired pending rotation discarded recovery candidate", err)
@@ -272,7 +272,7 @@ func testRotationCandidate(t *testing.T, f rotationFixture) {
 	f.prepareRotation(t, r)
 	// Construct a late retry through a fresh repository instance. Changing only
 	// retention metadata below must not remove the unresolved candidate.
-	f.commands = repository.NewProbeCommandStore(f.f.db, f.protector, probe.AcknowledgementCodec{}, f.protector, probe.CredentialCommandCodec{})
+	f.commands = repository.NewProbeCommandStore(f.f.db, f.protector, probe.AcknowledgementCodec{}, f.protector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
 	selected, err := f.commands.SelectCredentialConnection(t.Context(), f.session)
 	if err != nil || selected.Candidate == nil || selected.RotationID != rotationTestID {
 		t.Fatal("restart lost candidate", err)
