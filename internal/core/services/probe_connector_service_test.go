@@ -80,9 +80,13 @@ type connectorTransport struct {
 	run     func(context.Context, domain.ProbeSessionInput, func(context.Context) error) error
 	applied func(context.Context, func(context.Context, domain.ProbeActiveConfig) error) error
 	enroll  func(context.Context, domain.ProbeCredentialMetadata, string, string) error
+	ingest  func(context.Context, func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error
 }
 
-func (f connectorTransport) Run(ctx context.Context, in domain.ProbeSessionInput, ready func(context.Context) error, applied func(context.Context, domain.ProbeActiveConfig) error) error {
+func (f connectorTransport) Run(ctx context.Context, in domain.ProbeSessionInput, ready func(context.Context) error, applied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
+	if f.ingest != nil {
+		return f.ingest(ctx, ingest)
+	}
 	if f.applied != nil {
 		return f.applied(ctx, applied)
 	}
@@ -185,5 +189,89 @@ func TestProbeConnectorLeaseRenewalFailureCancelsSocket(t *testing.T) {
 	_, err := svc.connectOnce(ctx, connections.value.ProbeID)
 	if err == nil || ctx.Err() != nil || !canceled.Load() || time.Since(start) < 14*time.Second || leases.released.Load() != 7 || connections.activated != 1 {
 		t.Fatal("lease renewal did not revoke the live socket and join its owner")
+	}
+}
+
+type mockReplayService struct {
+	calledBatch   domain.ProbeReplayBatch
+	calledSession domain.ProbeReplaySession
+	result        *domain.ProbeReplayResult
+	err           error
+}
+
+func (m *mockReplayService) ProcessBatch(_ context.Context, session domain.ProbeReplaySession, batch domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error) {
+	m.calledSession = session
+	m.calledBatch = batch
+	return m.result, m.err
+}
+
+func TestProbeConnectorReplayIngestWiring(t *testing.T) {
+	connections, leases := &connectorConnections{}, &connectorLeases{}
+	mockReplay := &mockReplayService{
+		result: &domain.ProbeReplayResult{
+			StreamID:      "44444444-4444-4444-8444-444444444444",
+			CommittedSeq:  10,
+			AcceptedCount: 1,
+		},
+	}
+	var receivedIngest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)
+	transport := connectorTransport{
+		ingest: func(_ context.Context, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
+			receivedIngest = ingest
+			return nil
+		},
+	}
+	svc := newConnectorTestService(t, connections, leases, transport)
+	svc.SetReplayIngest(mockReplay)
+	prepareConnectorTest(t, svc)
+
+	_, err := svc.connectOnce(t.Context(), connections.value.ProbeID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedIngest == nil {
+		t.Fatal("expected ingest callback to be passed to transport.Run")
+	}
+
+	batch := domain.ProbeReplayBatch{
+		ProbeID:  connections.value.ProbeID,
+		StreamID: connections.value.StreamID,
+		FirstSeq: 1,
+		LastSeq:  1,
+	}
+	res, err := receivedIngest(t.Context(), batch)
+	if err != nil {
+		t.Fatalf("unexpected ingest error: %v", err)
+	}
+	if res.CommittedSeq != 10 {
+		t.Fatalf("expected committedSeq 10, got %d", res.CommittedSeq)
+	}
+	if mockReplay.calledSession.HubID != "11111111-1111-4111-8111-111111111111" ||
+		mockReplay.calledSession.ProbeID != connections.value.ProbeID ||
+		mockReplay.calledSession.StreamID != connections.value.StreamID ||
+		mockReplay.calledSession.ConnectionGeneration != 7 ||
+		mockReplay.calledSession.OwnerID != "22222222-2222-4222-8222-222222222222" {
+		t.Fatalf("unexpected session captured in replay: %+v", mockReplay.calledSession)
+	}
+}
+
+func TestProbeConnectorReplayIngestNilWhenUnconfigured(t *testing.T) {
+	connections, leases := &connectorConnections{}, &connectorLeases{}
+	var receivedIngest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)
+	transport := connectorTransport{
+		ingest: func(_ context.Context, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
+			receivedIngest = ingest
+			return nil
+		},
+	}
+	svc := newConnectorTestService(t, connections, leases, transport)
+	prepareConnectorTest(t, svc)
+
+	_, err := svc.connectOnce(t.Context(), connections.value.ProbeID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedIngest != nil {
+		t.Fatal("expected nil ingest callback when SetReplayIngest is not called")
 	}
 }

@@ -35,8 +35,8 @@ prepare --probe-id UUID --expected-revision N --file PATH
 status --probe-id UUID
 Token and complete snapshot files must be private regular files. Commands print metadata only.
 Registration persists the recoverable protected runtime credential before enrollment.
-Run compatible hub workers with PROBES_ENABLED=true after enrollment. Snapshot construction,
-telemetry replay and fleet UI remain separate milestones.
+Run compatible hub workers with PROBES_ENABLED=true after enrollment. Workers synchronize supported configurations and replay retained telemetry.
+Fleet UI and explicit gap/reset recovery remain later milestones.
 `
 
 // RunProbeAdmin is the explicit local-operator composition root for the M2

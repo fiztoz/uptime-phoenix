@@ -57,10 +57,11 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 			capabilities = append(capabilities, "notifier."+name+".v1")
 		}
 	}
-	runtime, err := probe.NewEdgeRuntime(state, store, configs, probe.EdgeRuntimeConfig{AgentVersion: "phoenix-m2", Capabilities: capabilities}, diagnostic)
+	runtime, err := probe.NewEdgeRuntime(state, store, configs, probe.EdgeRuntimeConfig{AgentVersion: "phoenix-m3", Capabilities: capabilities}, diagnostic)
 	if err != nil {
 		return err
 	}
+	runtime.SetReplayRepository(store)
 	defer func() { _ = runtime.Close() }()
 	handler, err := probe.NewEdgeHTTPHandler(identity, enrollment, runtime.Handle, func(ctx context.Context) probe.EdgeReadiness {
 		h, err := diagnostic(ctx)

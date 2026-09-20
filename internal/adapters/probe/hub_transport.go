@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -21,7 +22,7 @@ import (
 )
 
 // HubTransport implements the manual engineering connector over pinned TLS.
-// It transfers prepared configs but does not pretend to ingest M3 telemetry.
+// It transfers prepared configs and commits replay through trusted callbacks.
 type HubTransport struct {
 	policy         EndpointPolicy
 	receiptTimeout time.Duration
@@ -90,7 +91,7 @@ func (t *HubTransport) Enroll(ctx context.Context, m domain.ProbeCredentialMetad
 
 // Run validates the hello against trusted registration and the current lease,
 // then supervises health/config traffic until cancellation or a protocol failure.
-func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, established func(context.Context) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error) error {
+func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, established func(context.Context) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
 	m := input.Connection
 	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil {
 		return domain.ErrValidation
@@ -140,8 +141,11 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	var senders sync.WaitGroup
+	var ready atomic.Bool
+	var cursor atomic.Int64
+	cursor.Store(input.CommittedSeq)
 	senders.Add(1)
-	go func() { defer senders.Done(); t.sendHubHealth(runCtx, session, welcome) }()
+	go func() { defer senders.Done(); t.sendHubHealth(runCtx, session, welcome, &ready, &cursor) }()
 	var transferID ConfigTransferIdentity
 	var hash string
 	appliedDone := make(chan struct{})
@@ -180,20 +184,45 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 			}
 		}()
 	}
-	connected := false
 	err = session.Run(runCtx, func(frameCtx context.Context, envelope Envelope) error {
 		if envelope.Type == "health" {
-			if !connected {
-				if err := established(frameCtx); err != nil {
-					return errors.New("connector authority unavailable")
-				}
-				connected = true
+			// Refresh the DB lease/writability proof for each probe health.
+			if err := established(frameCtx); err != nil {
+				return errors.New("connector authority unavailable")
 			}
+			ready.Store(ingest != nil)
 			return nil
 		}
 		data, err := json.Marshal(envelope)
 		if err != nil {
 			return errors.New("invalid probe response")
+		}
+		if envelope.Type == "telemetry.batch" {
+			if ingest == nil {
+				return errors.New("ingest unavailable")
+			}
+			batch, err := decodeReplayBatch(data, m.ProbeID)
+			if err != nil || batch.StreamID != m.StreamID {
+				return errors.New("invalid telemetry batch")
+			}
+			result, err := ingest(frameCtx, batch)
+			if err != nil {
+				ready.Store(false)
+				return errors.New("telemetry commit unavailable")
+			}
+			if result == nil || result.StreamID != batch.StreamID || result.CommittedSeq != batch.LastSeq {
+				return errors.New("invalid telemetry receipt")
+			}
+			ack := replayACK(result)
+			response, err := encodeFrame("telemetry.ack", Decimal(input.Generation), ack)
+			if err != nil {
+				return err
+			}
+			if _, _, err := DecodeTelemetryACK(response); err != nil {
+				return errors.New("invalid telemetry receipt")
+			}
+			cursor.Store(max(cursor.Load(), result.CommittedSeq))
+			return session.SendControl(frameCtx, response)
 		}
 		if envelope.Type == "config.applied" {
 			_, applied, err := DecodeConfigApplied(data)
@@ -222,12 +251,16 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 	return nil
 }
 
-func (t *HubTransport) sendHubHealth(ctx context.Context, session *Session, w Welcome) {
+func (t *HubTransport) sendHubHealth(ctx context.Context, session *Session, w Welcome, ready *atomic.Bool, cursor *atomic.Int64) {
 	ticker := time.NewTicker(HeartbeatSeconds * time.Second)
 	defer ticker.Stop()
 	for {
-		// M2 keeps configuration connectivity separate from M3 ingestion health.
-		h := Health{Role: "hub", Ready: false, DBWritable: true, ConfigRevision: w.DesiredConfigRevision, CommittedSeq: w.CommittedSeq, ClockTime: Timestamp(time.Now().UTC()), Errors: []string{"ingest_unavailable"}}
+		available := ready.Load()
+		codes := []string{}
+		if !available {
+			codes = append(codes, "ingest_unavailable")
+		}
+		h := Health{Role: "hub", Ready: available, DBWritable: available, ConfigRevision: w.DesiredConfigRevision, CommittedSeq: Decimal(cursor.Load()), ClockTime: Timestamp(time.Now().UTC()), Errors: codes}
 		frame, err := encodeFrame("health", w.ConnectionGeneration, h)
 		if err == nil {
 			opCtx, cancel := context.WithTimeout(ctx, 10*time.Second)

@@ -27,8 +27,9 @@ type ProbeConnectionRepository interface {
 // ProbeConnectionTransport performs pinned enrollment and one runtime session.
 // established runs only after validated probe health confirms the new generation.
 // applied receives only a fully validated receipt matching the transferred bytes.
+// ingest receives replayed telemetry batches under the current unexpired lease fence.
 // The caller must hold and renew a hub DB lease until Run returns.
 type ProbeConnectionTransport interface {
 	Enroll(ctx context.Context, connection domain.ProbeCredentialMetadata, enrollmentToken, runtimeToken string) error
-	Run(ctx context.Context, input domain.ProbeSessionInput, established func(context.Context) error, applied func(context.Context, domain.ProbeActiveConfig) error) error
+	Run(ctx context.Context, input domain.ProbeSessionInput, established func(context.Context) error, applied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error
 }

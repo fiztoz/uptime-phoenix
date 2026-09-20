@@ -52,6 +52,7 @@ var (
 	_ ports.EdgeIdentityRepository   = (*Store)(nil)
 	_ ports.EdgeEnrollmentRepository = (*Store)(nil)
 	_ ports.EdgeConfigRepository     = (*Store)(nil)
+	_ ports.EdgeReplayRepository     = (*Store)(nil)
 	// ErrStorage is deliberately redacted; SQL diagnostics can contain input data.
 	ErrStorage = errors.New("edge storage operation failed")
 )

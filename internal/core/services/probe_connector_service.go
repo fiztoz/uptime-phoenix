@@ -21,6 +21,7 @@ type ProbeConnectorService struct {
 	configs        *ProbeConfigService
 	transport      ports.ProbeConnectionTransport
 	configSync     ports.RemoteProbeConfigSyncRepository
+	replayIngest   ports.ProbeReplayService
 	hubID, ownerID string
 	delay          func(int, time.Duration) time.Duration
 }
@@ -30,6 +31,11 @@ type ProbeConnectorService struct {
 // not require it.
 func (s *ProbeConnectorService) SetConfigSync(syncer ports.RemoteProbeConfigSyncRepository) {
 	s.configSync = syncer
+}
+
+// SetReplayIngest enables durable fenced telemetry batch replay. Configure it before Run.
+func (s *ProbeConnectorService) SetReplayIngest(ingest ports.ProbeReplayService) {
+	s.replayIngest = ingest
 }
 
 // NewProbeConnectorService requires verified installation authority and a unique
@@ -250,6 +256,19 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, probeID string)
 		}
 	}()
 	var connectedAt time.Time
+	var ingestFunc func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)
+	if s.replayIngest != nil {
+		replaySession := domain.ProbeReplaySession{
+			HubID:                s.hubID,
+			ProbeID:              probeID,
+			StreamID:             c.StreamID,
+			ConnectionGeneration: lease.Generation,
+			OwnerID:              s.ownerID,
+		}
+		ingestFunc = func(callbackCtx context.Context, batch domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error) {
+			return s.replayIngest.ProcessBatch(callbackCtx, replaySession, batch)
+		}
+	}
 	err = s.transport.Run(sessionCtx, domain.ProbeSessionInput{Connection: c.ProbeCredentialMetadata, Token: token, Generation: lease.Generation, CommittedSeq: cursor, ConfigDocument: document}, func(callbackCtx context.Context) error {
 		if err := s.leases.SetConnectorConnected(callbackCtx, lease, true); err != nil {
 			return err
@@ -257,14 +276,16 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, probeID string)
 		if err := s.connections.ActivateConnection(callbackCtx, probeID, c.EnrollmentID, c.CredentialVersion, time.Now().UTC()); err != nil {
 			return err
 		}
-		connectedAt = time.Now()
+		if connectedAt.IsZero() {
+			connectedAt = time.Now()
+		}
 		return nil
 	}, func(callbackCtx context.Context, receipt domain.ProbeActiveConfig) error {
 		if s.configSync == nil {
 			return nil
 		}
 		return s.configSync.RecordRemoteApplied(callbackCtx, lease, receipt)
-	})
+	}, ingestFunc)
 	stop()
 	<-renewed
 	if connectedAt.IsZero() {

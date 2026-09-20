@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"time"
@@ -32,11 +33,20 @@ type EdgeRuntime struct {
 	configs     *services.EdgeConfigService
 	cfg         EdgeRuntimeConfig
 	health      func(context.Context) (Health, error)
+	replayRepo  ports.EdgeReplayRepository
 	mu          sync.Mutex
 	closed      bool
 	active      *Session
 	connections map[*websocket.Conn]context.CancelFunc
 	handlers    sync.WaitGroup
+}
+
+// SetReplayRepository configures the edge replay repository before accepting sessions.
+// Setup-only before accepting sessions. Nil repo preserves existing health/config-only behavior.
+func (r *EdgeRuntime) SetReplayRepository(repo ports.EdgeReplayRepository) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.replayRepo = repo
 }
 
 // NewEdgeRuntime validates and copies the local capability inventory.
@@ -105,6 +115,9 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 	if _, err := ValidateHandshake(helloFrame, welcomeFrame, expect); err != nil {
 		return errors.New("hub handshake comparison failed")
 	}
+	if welcome.CommittedSeq < Decimal(i.CommittedSeq) {
+		return errors.New("hub welcome cursor precedes local committed sequence")
+	}
 	session, err := NewSession(conn, SessionConfig{Generation: welcome.ConnectionGeneration, PeerRole: "hub"})
 	if err != nil {
 		return err
@@ -142,6 +155,21 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 	defer end()
 	healthDone := make(chan struct{})
 	go func() { defer close(healthDone); r.sendHealth(establishedCtx, session, welcome.ConnectionGeneration) }()
+	var pump *edgeReplayPump
+	replayDone := make(chan struct{})
+	var pumpErr error
+	r.mu.Lock()
+	replayRepo := r.replayRepo
+	r.mu.Unlock()
+	if replayRepo != nil {
+		pump = newEdgeReplayPump(replayRepo, session, i.HubID, i.ProbeID, i.StreamID, welcome.ConnectionGeneration)
+		go func() {
+			defer close(replayDone)
+			pumpErr = pump.run(establishedCtx)
+		}()
+	} else {
+		close(replayDone)
+	}
 	var transfer *ConfigTransfer
 	var deadline time.Time
 	defer func() {
@@ -171,7 +199,29 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 		}
 		switch envelope.Type {
 		case "health":
+			var h Health
+			if err := json.Unmarshal(envelope.Payload, &h); err == nil && pump != nil {
+				pump.updateHubHealth(h)
+			}
 			return nil // Session validates exact role and payload.
+		case "telemetry.ack":
+			if pump == nil {
+				return errors.New("unsupported edge runtime operation")
+			}
+			_, ack, err := DecodeTelemetryACK(frame)
+			if err != nil {
+				return err
+			}
+			return pump.handleACK(frameCtx, envelope.ConnectionGeneration, ack)
+		case "telemetry.retry":
+			if pump == nil {
+				return errors.New("unsupported edge runtime operation")
+			}
+			_, retry, err := DecodeTelemetryRetry(frame)
+			if err != nil {
+				return err
+			}
+			return pump.handleRetry(frameCtx, envelope.ConnectionGeneration, retry)
 		case "config.begin":
 			_, begin, err := DecodeConfigBegin(frame)
 			if err != nil {
@@ -228,8 +278,12 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 	})
 	end()
 	<-healthDone
+	<-replayDone
 	if runCtx.Err() != nil {
 		return runCtx.Err()
+	}
+	if pumpErr != nil && !errors.Is(pumpErr, context.Canceled) {
+		return fmt.Errorf("edge replay pump failed: %w", pumpErr)
 	}
 	if err != nil {
 		return errors.New("edge runtime session ended")

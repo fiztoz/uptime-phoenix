@@ -1,8 +1,10 @@
-"""Exercise real M2/M3 configuration-sync binaries against a fresh disposable local MariaDB.
+"""Exercise real probe configuration and replay against disposable local MariaDB.
 
 DB_DSN must name a localhost database ending in _smoke. All check targets and
 provider recipients are local. Logs, private stores and a secret-free report are
 retained under --output. No service is left running after success or failure.
+Pass --verify-replay and --mariadb-container to additionally inspect committed
+hub mirrors/cursors through the container's MariaDB client. Queries are read-only.
 """
 
 import argparse
@@ -29,10 +31,14 @@ def main():
         parser.add_argument(f"--{name}-binary", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--port", type=int, default=38920)
+    parser.add_argument("--verify-replay", action="store_true")
+    parser.add_argument("--mariadb-container")
     args = parser.parse_args()
     dsn = os.environ.get("DB_DSN", "")
     if not re.fullmatch(r"[^@]+@tcp\(127\.0\.0\.1:\d+\)/[a-zA-Z0-9_]+_smoke\?.+", dsn):
         parser.error("DB_DSN must name a disposable localhost database ending in _smoke")
+    if args.verify_replay and not args.mariadb_container:
+        parser.error("--verify-replay requires --mariadb-container for independent hub evidence")
     output = args.output.resolve()
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     edge_dir = output / "edge"
@@ -148,7 +154,28 @@ def main():
             return [dict(row) for row in db.execute(query)]
 
     def edge_progress():
-        return edge_rows("SELECT probe_id, stream_id, last_created_seq, config_revision, connection_generation FROM edge_identity")[0]
+        return edge_rows("SELECT probe_id, stream_id, last_created_seq, committed_seq, config_revision, connection_generation FROM edge_identity")[0]
+
+    def hub_query(query):
+        # The harness permits only its disposable localhost _smoke database.
+        # Keep credentials out of argv, captured diagnostics and the report.
+        credentials, destination = dsn.split("@tcp(", 1)
+        username, _, db_password = credentials.partition(":")
+        database = destination.split(")/", 1)[1].split("?", 1)[0]
+        result = subprocess.run(
+            ["docker", "exec", "-i", "--env", "MYSQL_PWD", args.mariadb_container,
+             "mariadb", "--user", username, "--database", database,
+             "--batch", "--raw", "--skip-column-names"],
+            input=query + ";\n", env=dict(os.environ, MYSQL_PWD=db_password),
+            text=True, capture_output=True, timeout=5)
+        if result.returncode:
+            raise AssertionError("read-only hub evidence query failed")
+        return [json.loads(line) for line in result.stdout.splitlines() if line]
+
+    def hub_cursor():
+        rows = hub_query("SELECT JSON_OBJECT('cursor', committed_seq) FROM probe_streams "
+                         f"WHERE probe_id='{identity['probe_id']}' AND stream_id='{identity['stream_id']}'")
+        return rows[0]["cursor"] if rows else -1
 
     def edge_http(path):
         # Test client verifies the exact locally initialized certificate pin
@@ -214,6 +241,8 @@ def main():
         wait_for("saved API edit automatically reaches edge", lambda: edge_progress()["config_revision"] == 2)
         wait_for("new desired revision has durable applied receipt", lambda: admin("status", "--probe-id", identity["probe_id"])["applied_revision"] == "2")
         assert admin("status", "--probe-id", identity["probe_id"])["sync_pending"] is False
+        if args.verify_replay:
+            wait_for("live telemetry reaches a durable hub and edge cursor", lambda: edge_progress()["committed_seq"] > 0 and hub_cursor() >= edge_progress()["committed_seq"])
         first = edge_progress()
         time.sleep(16)  # Cross a real lease renewal with two competing workers.
         assert edge_progress()["connection_generation"] == first["connection_generation"]
@@ -244,16 +273,60 @@ def main():
         assert edge_rows("SELECT source_alert_id, status FROM edge_alerts") == [{"source_alert_id": incident, "status": "resolved"}]
         assert [h["status"] for h in hooks] == [0, 1]
         assert edge_http("/readyz") == 200
+        offline = edge_progress()
+        backlog = edge_rows("SELECT seq, kind FROM edge_telemetry_outbox ORDER BY seq")
+        if args.verify_replay:
+            assert offline["last_created_seq"] > offline["committed_seq"]
+            assert {row["kind"] for row in backlog} == {"observation", "alert.transition", "delivery.result"}
+            mark("offline mixed telemetry survives restart and provider recovery")
         for worker in ("worker-a", "worker-b"):
             start(worker, args.app_binary, [], dict(env, MODE="worker", WORKER_ID=worker, PROBES_ENABLED="true"))
         wait_for("reconnection advances fence without resetting source sequence", lambda: edge_progress()["connection_generation"] > first["connection_generation"])
+        replay_evidence = None
+        if args.verify_replay:
+            high_water = offline["last_created_seq"]
+            wait_for("reconnected workers commit the full offline telemetry prefix", lambda: edge_progress()["committed_seq"] >= high_water and hub_cursor() >= high_water)
+            assert not edge_rows(f"SELECT seq FROM edge_telemetry_outbox WHERE seq <= {high_water}")
+            observation_seqs = [row["seq"] for row in backlog if row["kind"] == "observation" and row["seq"] <= high_water]
+            sequence_sql = ",".join(map(str, observation_seqs))
+            mirrored = hub_query("SELECT JSON_OBJECT('seq', seq) FROM probe_observations "
+                                 f"WHERE stream_id='{identity['stream_id']}' AND seq IN ({sequence_sql}) ORDER BY seq")
+            assert [row["seq"] for row in mirrored] == observation_seqs
+            incidents = hub_query("SELECT JSON_OBJECT('id', source_alert_id, 'status', status) FROM probe_incidents "
+                                  f"WHERE probe_id='{identity['probe_id']}'")
+            assert incidents == [{"id": incident, "status": "resolved"}]
+            outcomes = hub_query("SELECT JSON_OBJECT('id', delivery_id, 'status', status) FROM probe_delivery_events "
+                                 f"WHERE probe_id='{identity['probe_id']}' ORDER BY delivery_id")
+            source_outcomes = edge_rows("SELECT delivery_id AS id, status FROM edge_delivery_outbox ORDER BY delivery_id")
+            assert outcomes == source_outcomes
+            send_work = hub_query("SELECT JSON_OBJECT('count', COUNT(*)) FROM probe_delivery_intents "
+                                  f"WHERE probe_id='{identity['probe_id']}'")[0]["count"]
+            assert send_work == 0
+            mark("replay mirrors observations and outcomes without hub provider work")
+            # Reopen the actual private store after ACK pruning, then reconnect
+            # two workers. This proves the ACK cursor survives process teardown.
+            for name in ("worker-a", "worker-b", "edge"):
+                stop(name)
+            persisted = command(args.probe_binary, ["inspect", "--data-dir", str(edge_dir)], edge_env)
+            assert persisted["stream_id"] == identity["stream_id"]
+            assert edge_progress()["committed_seq"] >= high_water
+            start("edge", args.probe_binary, edge_args, edge_env)
+            for worker in ("worker-a", "worker-b"):
+                start(worker, args.app_binary, [], dict(env, MODE="worker", WORKER_ID=worker, PROBES_ENABLED="true"))
+            wait_for("cold restart resumes beyond the acknowledged backlog", lambda: edge_progress()["committed_seq"] > high_water)
+            replay_evidence = {"offline_high_water": high_water, "offline_backlog_count": len(backlog),
+                               "mirrored_observation_sequences": observation_seqs,
+                               "mirrored_incidents": incidents, "mirrored_delivery_outcomes": outcomes,
+                               "hub_send_intents": send_work, "hub_cursor": hub_cursor(),
+                               "edge_cursor": edge_progress()["committed_seq"]}
         time.sleep(3)
         final = edge_progress()
         assert final["last_created_seq"] > before["last_created_seq"] and final["config_revision"] == 2
         assert len(hooks) == 2
         mark("reconnection preserves stream, accepted config and delivery history")
         report = {"passed": passed, "identity": identity, "before_restart": before, "final": final,
-                  "incident": incident, "provider_attempt_statuses": provider_attempts, "successful_webhook_statuses": [h["status"] for h in hooks]}
+                  "incident": incident, "provider_attempt_statuses": provider_attempts, "successful_webhook_statuses": [h["status"] for h in hooks],
+                  "replay_verified": args.verify_replay, "replay": replay_evidence}
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print("Evidence:", output, flush=True)
     finally:

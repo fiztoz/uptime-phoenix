@@ -424,6 +424,11 @@ func Run(cfg Config) error {
 		if err != nil {
 			return err
 		}
+		replay, err := services.NewProbeReplayService(repo.NewProbeReplayStore(db, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector), accessSvc)
+		if err != nil {
+			return err
+		}
+		connector.SetReplayIngest(replay)
 		connector.SetConfigSync(repo.NewRemoteProbeConfigSyncStore(db, probe.RemoteConfigEncoder{}, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector))
 		connectorDone = make(chan struct{})
 		go func() {
