@@ -201,6 +201,7 @@ func (s *MonitorHealthService) evaluate(ctx context.Context, monitorID int64, no
 			region.UnknownReason = "stale_generation"
 		default:
 			region.Status = state.Status
+			region.UnknownReason = state.UnknownReason
 			region.ObservedAt = state.ObservedAt.UTC()
 		}
 		evidence = append(evidence, region)

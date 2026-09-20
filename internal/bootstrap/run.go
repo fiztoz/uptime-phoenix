@@ -414,17 +414,24 @@ func Run(cfg Config) error {
 		if err != nil {
 			return fmt.Errorf("probe connector owner unavailable")
 		}
+		replayStore := repo.NewProbeReplayStore(db, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
+		stateIngest, err := services.NewProbeStateService(replayStore, accessSvc)
+		if err != nil {
+			return err
+		}
+		transport := probe.NewHubTransport(policy)
+		transport.SetStateIngest(stateIngest)
 		connections := repo.NewProbeConnectorStore(db)
 		connector, err := services.NewProbeConnectorService(connections, connections, credentialProtector,
 			services.NewProbeConfigService(repos.probeConfig, probe.ConfigInspector{}, protector),
-			probe.NewHubTransport(policy), installationHubID, owner.String(),
+			transport, installationHubID, owner.String(),
 			func(failures int, healthy time.Duration) time.Duration {
 				return probe.ReconnectDelay(failures, healthy, rand.Float64())
 			})
 		if err != nil {
 			return err
 		}
-		replay, err := services.NewProbeReplayService(repo.NewProbeReplayStore(db, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector), accessSvc)
+		replay, err := services.NewProbeReplayService(replayStore, accessSvc)
 		if err != nil {
 			return err
 		}

@@ -68,6 +68,7 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 		return err
 	}
 	runtime.SetReplayRepository(store)
+	runtime.SetStateRepository(store)
 	defer func() { _ = runtime.Close() }()
 	handler, err := probe.NewEdgeHTTPHandler(identity, enrollment, runtime.Handle, func(ctx context.Context) probe.EdgeReadiness {
 		h, err := diagnostic(ctx)

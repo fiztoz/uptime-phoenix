@@ -63,45 +63,11 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 		// SERIALIZABLE prevents stale assignment snapshots. Bounded MariaDB
 		// deadlock retries reuse the existing configuration authority policy.
 		result = &domain.ProbeReplayResult{StreamID: batch.StreamID, Rejected: []domain.ProbeReplayRejection{}}
-		if _, err := tx.ExecContext(ctx, "UPDATE probes SET id = id WHERE id = ?", session.ProbeID); err != nil {
-			return err
-		}
-		var registration probeRegistrationModel
-		if err := tx.NewSelect().Model(&registration).Where("id = ?", session.ProbeID).Scan(ctx); err != nil {
-			return err
-		}
-		if !registration.Enabled || registration.Kind != domain.ProbeKindRemote {
-			return ports.ErrConflict
-		}
-		now, err := replayDatabaseTime(ctx, tx)
+		authority, err := s.lockReplaySession(ctx, tx, session)
 		if err != nil {
 			return err
 		}
-		lease, err := readProbeSession(ctx, tx, session.ProbeID)
-		if err != nil {
-			return err
-		}
-		if lease.OwnerID != session.OwnerID || lease.Generation != session.ConnectionGeneration || lease.LeaseUntil <= now.Unix() {
-			return ports.ErrConflict
-		}
-		var connection probeConnectionRow
-		if err := tx.NewSelect().Model(&connection).Where("probe_id = ?", session.ProbeID).Scan(ctx); err != nil {
-			return err
-		}
-		if connection.HubID != session.HubID || connection.StreamID != session.StreamID {
-			return ports.ErrConflict
-		}
-		var installation probeInstallationModel
-		if err := tx.NewSelect().Model(&installation).Where("id = 1").Scan(ctx); err != nil {
-			return err
-		}
-		if installation.HubID != session.HubID || installation.KeyHash != s.protector.KeyHash(session.HubID) {
-			return domain.ErrProbeKeyMismatch
-		}
-		var stream probeStreamModel
-		if err := tx.NewSelect().Model(&stream).Where("probe_id = ? AND stream_id = ?", session.ProbeID, session.StreamID).Scan(ctx); err != nil {
-			return err
-		}
+		stream, lease, now := authority.stream, authority.lease, authority.now
 		if stream.RetiredAt != nil || batch.FirstSeq > stream.CommittedSeq && batch.FirstSeq-stream.CommittedSeq != 1 {
 			return ports.ErrConflict
 		}
@@ -356,35 +322,61 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 }
 
 func updateReplayState(ctx context.Context, tx bun.Tx, obs domain.RegionalObservation, now time.Time) error {
-	if obs.ObservedAt.After(now) {
+	state := domain.RegionalState{MonitorID: obs.MonitorID, ProbeID: obs.ProbeID, AssignmentGeneration: obs.AssignmentGeneration, StreamID: obs.StreamID, Seq: obs.Seq, ConfigRevision: obs.ConfigRevision, Status: obs.Status, DownCount: obs.DownCount, Ping: obs.Ping, Message: obs.Message, ObservedAt: obs.ObservedAt.UTC(), ReceivedAt: now}
+	return updateCurrentProbeState(ctx, tx, state, now, false)
+}
+
+func updateCurrentProbeState(ctx context.Context, tx bun.Tx, state domain.RegionalState, now time.Time, snapshot bool) error {
+	if state.ObservedAt.After(now) {
 		return nil
 	}
 	var assignment probeAssignmentModel
-	err := tx.NewSelect().Model(&assignment).Where("monitor_id = ? AND probe_id = ? AND active = ?", obs.MonitorID, obs.ProbeID, true).Scan(ctx)
+	err := tx.NewSelect().Model(&assignment).Where("monitor_id = ? AND probe_id = ? AND active = ?", state.MonitorID, state.ProbeID, true).Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if assignment.Generation != obs.AssignmentGeneration {
+	if assignment.Generation != state.AssignmentGeneration {
 		return nil
 	}
-	var existing monitorProbeStateModel
-	err = tx.NewSelect().Model(&existing).Where("monitor_id = ? AND probe_id = ?", obs.MonitorID, obs.ProbeID).Scan(ctx)
+	var missing probeMissingStateModel
+	err = tx.NewSelect().Model(&missing).Where("monitor_id = ? AND probe_id = ?", state.MonitorID, state.ProbeID).Scan(ctx)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if err == nil && (existing.AssignmentGeneration > obs.AssignmentGeneration || existing.StreamID == obs.StreamID && existing.Seq >= obs.Seq || existing.ObservedAt.After(obs.ObservedAt)) {
+	if err == nil && missing.AssignmentGeneration == state.AssignmentGeneration && missing.StreamID == state.StreamID && missing.SnapshotSeq >= state.Seq {
 		return nil
 	}
-	state := domain.RegionalState{MonitorID: obs.MonitorID, ProbeID: obs.ProbeID, AssignmentGeneration: obs.AssignmentGeneration, StreamID: obs.StreamID, Seq: obs.Seq, ConfigRevision: obs.ConfigRevision, Status: obs.Status, DownCount: obs.DownCount, ObservedAt: obs.ObservedAt.UTC(), ReceivedAt: now}
-	if existing.AssignmentGeneration == obs.AssignmentGeneration {
-		state.LastSuccessAt = utcTimePtr(existing.LastSuccessAt)
+	var existing monitorProbeStateModel
+	err = tx.NewSelect().Model(&existing).Where("monitor_id = ? AND probe_id = ?", state.MonitorID, state.ProbeID).Scan(ctx)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
 	}
-	if obs.Status == domain.StatusUp {
-		at := obs.ObservedAt.UTC()
+	// The source sequence is the ordering clock, including after an NTP step.
+	if err == nil && (existing.AssignmentGeneration > state.AssignmentGeneration || existing.StreamID == state.StreamID && (existing.Seq > state.Seq || existing.Seq == state.Seq && !snapshot)) {
+		return nil
+	}
+	if err == nil && existing.StreamID == state.StreamID && existing.Seq == state.Seq {
+		// Snapshot-only incident references may advance without a new check,
+		// but the immutable availability observation cannot change identity.
+		if existing.Status != int(state.Status) || existing.DownCount != state.DownCount || existing.Ping != state.Ping || existing.Message != state.Message || !existing.ObservedAt.UTC().Truncate(time.Microsecond).Equal(state.ObservedAt.UTC().Truncate(time.Microsecond)) {
+			return ports.ErrConflict
+		}
+	}
+	if existing.AssignmentGeneration == state.AssignmentGeneration {
+		state.LastSuccessAt = utcTimePtr(existing.LastSuccessAt)
+		if !snapshot {
+			state.ActiveSourceAlertID = existing.ActiveSourceAlertID
+		}
+	}
+	if state.Status == domain.StatusUp {
+		at := state.ObservedAt.UTC()
 		state.LastSuccessAt = &at
+	}
+	if _, err := tx.NewDelete().Model((*probeMissingStateModel)(nil)).Where("monitor_id = ? AND probe_id = ?", state.MonitorID, state.ProbeID).Exec(ctx); err != nil {
+		return err
 	}
 	return upsertRegionalState(ctx, tx, state)
 }

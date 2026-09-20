@@ -64,6 +64,10 @@ type RegionalState struct {
 	ObservedAt           time.Time
 	ReceivedAt           time.Time
 	LastSuccessAt        *time.Time
+	Ping                 int
+	Message              string
+	ActiveSourceAlertID  *string
+	UnknownReason        string
 }
 
 const (

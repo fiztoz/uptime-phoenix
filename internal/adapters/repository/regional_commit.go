@@ -46,6 +46,9 @@ type monitorProbeStateModel struct {
 	ObservedAt           time.Time  `bun:"observed_at"`
 	ReceivedAt           time.Time  `bun:"received_at"`
 	LastSuccessAt        *time.Time `bun:"last_success_at"`
+	Ping                 int
+	Message              string
+	ActiveSourceAlertID  *string `bun:"active_source_alert_id"`
 }
 
 type probeStreamModel struct {
@@ -72,7 +75,7 @@ func (m monitorProbeStateModel) state() domain.RegionalState {
 	out := domain.RegionalState{
 		MonitorID: m.MonitorID, ProbeID: m.ProbeID, AssignmentGeneration: m.AssignmentGeneration,
 		StreamID: m.StreamID, Seq: m.Seq, ConfigRevision: m.ConfigRevision,
-		Status: domain.Status(m.Status), DownCount: m.DownCount,
+		Status: domain.Status(m.Status), DownCount: m.DownCount, Ping: m.Ping, Message: m.Message, ActiveSourceAlertID: m.ActiveSourceAlertID,
 		ObservedAt: m.ObservedAt.UTC(), ReceivedAt: m.ReceivedAt.UTC(),
 	}
 	if m.LastSuccessAt != nil {
@@ -126,30 +129,24 @@ func (r *RegionalCommitStore) Commit(ctx context.Context, commit domain.Regional
 	return err
 }
 
-// GetState returns current evidence for one assignment, or ErrNotFound.
+// GetState returns current evidence or an explicit snapshot-omission marker.
 func (r *RegionalCommitStore) GetState(ctx context.Context, monitorID int64, probeID string) (*domain.RegionalState, error) {
-	m := new(monitorProbeStateModel)
-	if err := r.db.NewSelect().Model(m).Where("monitor_id = ? AND probe_id = ?", monitorID, probeID).Scan(ctx); err != nil {
-		return nil, fmt.Errorf("get regional state: %w", probeRegistryError(err))
+	if probeID == "" {
+		return nil, ports.ErrNotFound
 	}
-	state := m.state()
-	return &state, nil
+	states, err := r.readCurrentStates(ctx, monitorID, probeID)
+	if err != nil {
+		return nil, err
+	}
+	if len(states) == 0 {
+		return nil, ports.ErrNotFound
+	}
+	return &states[0], nil
 }
 
 // ListStates returns current evidence for one monitor, ordered by probe_id.
 func (r *RegionalCommitStore) ListStates(ctx context.Context, monitorID int64) ([]domain.RegionalState, error) {
-	var rows []monitorProbeStateModel
-	if err := r.db.NewSelect().Model(&rows).
-		Where("monitor_id = ?", monitorID).
-		OrderExpr("probe_id ASC").
-		Scan(ctx); err != nil {
-		return nil, fmt.Errorf("list regional states: %w", err)
-	}
-	out := make([]domain.RegionalState, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, row.state())
-	}
-	return out, nil
+	return r.readCurrentStates(ctx, monitorID, "")
 }
 
 // ListObservations returns ordered regional history in [from, to].
@@ -286,7 +283,7 @@ func upsertRegionalState(ctx context.Context, tx bun.Tx, state domain.RegionalSt
 	row := monitorProbeStateModel{
 		MonitorID: state.MonitorID, ProbeID: state.ProbeID, AssignmentGeneration: state.AssignmentGeneration,
 		StreamID: state.StreamID, Seq: state.Seq, ConfigRevision: state.ConfigRevision,
-		Status: int(state.Status), DownCount: state.DownCount,
+		Status: int(state.Status), DownCount: state.DownCount, Ping: state.Ping, Message: state.Message, ActiveSourceAlertID: state.ActiveSourceAlertID,
 		ObservedAt: state.ObservedAt.UTC(), ReceivedAt: state.ReceivedAt.UTC(), LastSuccessAt: state.LastSuccessAt,
 	}
 	existing := new(monitorProbeStateModel)

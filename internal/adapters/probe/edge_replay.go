@@ -64,6 +64,7 @@ type edgeReplayPump struct {
 	generation         Decimal
 	mu                 sync.Mutex
 	hubReady           bool
+	statePending       bool
 	readyCh            chan struct{}
 	eventCh            chan replayEvent
 	inflight           *inflightBatch
@@ -101,7 +102,17 @@ func (p *edgeReplayPump) updateHubHealth(h Health) {
 func (p *edgeReplayPump) isHubReady() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.hubReady
+	return p.hubReady && !p.statePending
+}
+
+func (p *edgeReplayPump) setStatePending(pending bool) {
+	p.mu.Lock()
+	p.statePending = pending
+	p.mu.Unlock()
+	select {
+	case p.readyCh <- struct{}{}:
+	default:
+	}
 }
 
 func (p *edgeReplayPump) isProvenDuplicateACK(ack TelemetryACK, gen Decimal) bool {

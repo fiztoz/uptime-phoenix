@@ -1,21 +1,20 @@
 # Multi-region implementation guide for continuing agents
 
-> **Current continuation, 2026-09-20:** M0/M1 corrections, M2 engineering
-> acceptance and the first M3 configuration-sync increment are committed through
-> `d3eea61`. Ordered telemetry replay is committed in `f1095f8` with the full
-> gate, live MariaDB contracts and offline/restart process smoke passing. Consult
-> [implementation status](IMPLEMENTATION_STATUS.md) and the
-> [acceptance record](M3_REPLAY_ACCEPTANCE.md) for evidence and remaining work.
-> Preserve newer work. Do not reset to an older commit or repeat completed steps.
+> **Current continuation, 2026-09-20:** preserve the existing local M0–M2 and
+> M3 config/replay/retention commits. The current-state recovery increment is
+> accepted; consult the latest [implementation status](IMPLEMENTATION_STATUS.md)
+> and [current-state acceptance](M3_CURRENT_STATE_ACCEPTANCE.md) for gates and
+> limitations. Next is [historical recomputation](M3_HISTORY_WORK_CONTRACT.md).
+> Verify Git HEAD and uncommitted work before editing; never reset to an older
+> baseline or repeat a completed increment.
 
 The detailed A–D material below is historical guidance from `4cc76f0`.
 Descriptions of missing M1/M2 features and proposed flags are not current status.
-Use [the operator guide](M2_OPERATOR_GUIDE.md) for the supported runtime, and
-[the replay retrospective](M3_REPLAY_RETROSPECTIVE.md) for verified coding lessons.
-Next work is retention/explicit gaps and current-state recovery, followed by
-watchdogs and commands under the M3 dependencies. Receipt and delivery-history
-cleanup and hub `telemetry.retry` emission remain explicit gaps. Finish and verify one bounded increment at a time;
-never infer whole-milestone completion from a helper or an agent handoff.
+Use [the operator guide](M2_OPERATOR_GUIDE.md), the latest status entry and the
+[full M3 work contract](M3_COMPLETION_WORK_CONTRACT.md). Watchdogs, commands,
+rotations/reset, cleanup, bounded shutdown flush and the real 15-minute partition
+acceptance remain required. Never infer whole-milestone completion from a helper
+or an agent handoff.
 
 Read [AGENTS.md](../../AGENTS.md), [ARCHITECTURE.md](ARCHITECTURE.md),
 [PROTOCOL.md](PROTOCOL.md) and [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).

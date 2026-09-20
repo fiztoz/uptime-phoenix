@@ -57,3 +57,17 @@ Antigravity reviewed the proposed state slice in conversation `d7182e03-c845-431
 - Frame dispatch is part of the implementation contract and will be tested through `HubTransport.Run`; its current absence is known baseline work, not a newly discovered flaw in the proposed design.
 
 - Retention checkpoint gates passed: CGO-free build, lint with zero issues, final full Go race suite (handler package 365.176s), complete live MariaDB/SQLite repository matrix (194.982s), and diff whitespace checks. The next state files are excluded from this checkpoint and are not accepted yet.
+
+## Current-state acceptance
+
+The state increment is accepted with evidence and retrospective in
+`M3_CURRENT_STATE_ACCEPTANCE.md`. Codex reproduced/fixed duplicate receipt
+consumption, delayed confirmed health and upgrade metadata loss. Antigravity's
+second audit was provisional after its command permission stopped broader search;
+Codex verified the finding and corrected its inaccurate initial-health excerpt.
+It received and acknowledged the resulting coding lessons without editing files.
+Current full Go race, final affected adapter suites, both DB engines, CGO-free
+build and zero-issue lint passed. No source ownership remains delegated.
+
+Next bounded contract: `M3_HISTORY_WORK_CONTRACT.md`. Current-state acceptance
+does not complete the remaining milestone checklist above.

@@ -7,6 +7,28 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 current-state recovery increment — 2026-09-20
+
+High-priority current state is wired through the real edge/runtime/hub storage
+path. Exact source evidence survives history pruning and restart. Initial state
+is committed before backlog replay; periodic state progresses while replay is
+stalled. Durable omission markers prevent old history from restoring missing
+assigned evidence. State receipts do not advance history or create provider work.
+Edge migration 004 and hub migration 056 preserve source bytes and current-state
+receipts; both hub engines backfill existing observation metadata on upgrade.
+
+The full Go race suite passed, with the final changed probe and repository suites
+rerun after late corrections. CGO-free build, zero-issue lint and the complete
+live MariaDB/SQLite matrix passed. See [acceptance and retrospective](M3_CURRENT_STATE_ACCEPTANCE.md)
+for exact tests, Antigravity's provisional review and the fixed receipt race,
+confirmation delay and upgrade mismatch. All Antigravity source ownership remains
+returned. It acknowledged verified lessons without editing project rules.
+
+**Next:** [historical recomputation](M3_HISTORY_WORK_CONTRACT.md), then the
+remaining [M3 requirements](M3_COMPLETION_WORK_CONTRACT.md). Gap coverage, both
+watchdogs, commands/rotations/reset, cleanup, graceful flushing and the real
+15-minute partition acceptance remain open. M3 is not complete.
+
 ## M3 retention and recovery increment — 2026-09-20
 
 The next increment adds durable edge retention gaps, ordered hub gap receipts,

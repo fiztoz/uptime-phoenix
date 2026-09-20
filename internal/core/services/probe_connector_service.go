@@ -269,7 +269,7 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, probeID string)
 			return s.replayIngest.ProcessBatch(callbackCtx, replaySession, batch)
 		}
 	}
-	err = s.transport.Run(sessionCtx, domain.ProbeSessionInput{Connection: c.ProbeCredentialMetadata, Token: token, Generation: lease.Generation, CommittedSeq: cursor, ConfigDocument: document}, func(callbackCtx context.Context) error {
+	err = s.transport.Run(sessionCtx, domain.ProbeSessionInput{OwnerID: s.ownerID, Connection: c.ProbeCredentialMetadata, Token: token, Generation: lease.Generation, CommittedSeq: cursor, ConfigDocument: document}, func(callbackCtx context.Context) error {
 		if err := s.leases.SetConnectorConnected(callbackCtx, lease, true); err != nil {
 			return err
 		}

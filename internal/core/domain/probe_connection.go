@@ -50,6 +50,7 @@ type ProbeConnection struct {
 // ProbeSessionInput is confidential runtime input for one fenced hub connection.
 // The token and decrypted document must never be logged or returned over HTTP.
 type ProbeSessionInput struct {
+	OwnerID        string
 	Connection     ProbeCredentialMetadata
 	Token          string
 	Generation     int64

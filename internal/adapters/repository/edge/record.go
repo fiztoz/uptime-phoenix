@@ -25,18 +25,19 @@ var ErrQueueFull = errors.New("edge telemetry queue is full")
 var _ ports.EdgeCheckRepository = (*Store)(nil)
 
 type edgeStateRow struct {
-	bun.BaseModel  `bun:"table:edge_regional_state"`
-	MonitorID      int64 `bun:",pk"`
-	Generation     int64 `bun:",pk"`
-	Seq            int64
-	ConfigRevision int64
-	Status         domain.Status
-	DownCount      int
-	ObservedAt     int64
-	ReceivedAt     int64
-	LastSuccessAt  *int64
-	SourceAlertID  *string
-	LastEnqueuedAt *int64
+	bun.BaseModel      `bun:"table:edge_regional_state"`
+	MonitorID          int64 `bun:",pk"`
+	Generation         int64 `bun:",pk"`
+	Seq                int64
+	ConfigRevision     int64
+	Status             domain.Status
+	DownCount          int
+	ObservedAt         int64
+	ReceivedAt         int64
+	LastSuccessAt      *int64
+	SourceAlertID      *string
+	LastEnqueuedAt     *int64
+	CurrentObservation []byte
 }
 
 type edgeIncidentRow struct {
@@ -173,7 +174,7 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 				return err
 			}
 		}
-		state := edgeStateRow{MonitorID: o.MonitorID, Generation: o.AssignmentGeneration, Seq: o.Seq, ConfigRevision: o.ConfigRevision, Status: o.Status, DownCount: o.DownCount, ObservedAt: o.ObservedAt.UnixMicro(), ReceivedAt: o.ReceivedAt.UnixMicro(), LastEnqueuedAt: microFromTime(before.LastEnqueuedAt)}
+		state := edgeStateRow{CurrentObservation: observationBytes, MonitorID: o.MonitorID, Generation: o.AssignmentGeneration, Seq: o.Seq, ConfigRevision: o.ConfigRevision, Status: o.Status, DownCount: o.DownCount, ObservedAt: o.ObservedAt.UnixMicro(), ReceivedAt: o.ReceivedAt.UnixMicro(), LastEnqueuedAt: microFromTime(before.LastEnqueuedAt)}
 		if before.State != nil {
 			state.LastSuccessAt = microFromTime(before.State.LastSuccessAt)
 		}
@@ -195,7 +196,7 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 			}
 			state.LastEnqueuedAt = microFromTime(&at)
 		}
-		if _, err := tx.NewInsert().Model(&state).On("CONFLICT (monitor_id, generation) DO UPDATE").Set("seq = EXCLUDED.seq").Set("config_revision = EXCLUDED.config_revision").Set("status = EXCLUDED.status").Set("down_count = EXCLUDED.down_count").Set("observed_at = EXCLUDED.observed_at").Set("received_at = EXCLUDED.received_at").Set("last_success_at = EXCLUDED.last_success_at").Set("source_alert_id = EXCLUDED.source_alert_id").Set("last_enqueued_at = EXCLUDED.last_enqueued_at").Exec(ctx); err != nil {
+		if _, err := tx.NewInsert().Model(&state).On("CONFLICT (monitor_id, generation) DO UPDATE").Set("seq = EXCLUDED.seq").Set("config_revision = EXCLUDED.config_revision").Set("status = EXCLUDED.status").Set("down_count = EXCLUDED.down_count").Set("observed_at = EXCLUDED.observed_at").Set("received_at = EXCLUDED.received_at").Set("last_success_at = EXCLUDED.last_success_at").Set("source_alert_id = EXCLUDED.source_alert_id").Set("last_enqueued_at = EXCLUDED.last_enqueued_at").Set("current_observation = EXCLUDED.current_observation").Exec(ctx); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE edge_identity SET last_created_seq = ? WHERE id = 1", i.LastCreatedSeq+eventCount); err != nil {

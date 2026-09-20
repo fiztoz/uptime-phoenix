@@ -26,6 +26,7 @@ import (
 type HubTransport struct {
 	policy         EndpointPolicy
 	receiptTimeout time.Duration
+	stateIngest    ports.ProbeStateService
 }
 
 var _ ports.ProbeConnectionTransport = (*HubTransport)(nil)
@@ -35,6 +36,9 @@ func NewHubTransport(policy EndpointPolicy) *HubTransport {
 	policy.AllowedCIDRs = slices.Clone(policy.AllowedCIDRs)
 	return &HubTransport{policy: policy, receiptTimeout: ConfigTransferTimeout}
 }
+
+// SetStateIngest enables transactional current snapshots. Configure it before Run.
+func (t *HubTransport) SetStateIngest(ingest ports.ProbeStateService) { t.stateIngest = ingest }
 
 func (t *HubTransport) dial(ctx context.Context, endpoint, pin, token string) (*websocket.Conn, error) {
 	client, err := NewPinnedHTTPClient(endpoint, pin, t.policy)
@@ -93,7 +97,7 @@ func (t *HubTransport) Enroll(ctx context.Context, m domain.ProbeCredentialMetad
 // then supervises health/config traffic until cancellation or a protocol failure.
 func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, established func(context.Context) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
 	m := input.Connection
-	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil {
+	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil || t.stateIngest != nil && !domain.ValidHubID(input.OwnerID) {
 		return domain.ErrValidation
 	}
 	var snapshot ConfigSnapshot
@@ -143,9 +147,20 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 	var senders sync.WaitGroup
 	var ready atomic.Bool
 	var cursor atomic.Int64
+	var appliedRevision atomic.Int64
+	healthChanged := make(chan struct{}, 1)
+	wakeHealth := func() {
+		select {
+		case healthChanged <- struct{}{}:
+		default:
+		}
+	}
 	cursor.Store(input.CommittedSeq)
 	senders.Add(1)
-	go func() { defer senders.Done(); t.sendHubHealth(runCtx, session, welcome, &ready, &cursor) }()
+	go func() {
+		defer senders.Done()
+		t.sendHubHealth(runCtx, session, welcome, &ready, &cursor, &appliedRevision, healthChanged)
+	}()
 	var transferID ConfigTransferIdentity
 	var hash string
 	appliedDone := make(chan struct{})
@@ -184,18 +199,28 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 			}
 		}()
 	}
+	receiver := hubStateReceiver{ingest: t.stateIngest, session: domain.ProbeReplaySession{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: input.Generation, OwnerID: input.OwnerID}}
+	defer receiver.discard()
 	err = session.Run(runCtx, func(frameCtx context.Context, envelope Envelope) error {
+		if receiver.transfer != nil && !time.Now().Before(receiver.transfer.deadline) {
+			receiver.discard()
+		}
 		if envelope.Type == "health" {
 			// Refresh the DB lease/writability proof for each probe health.
 			if err := established(frameCtx); err != nil {
 				return errors.New("connector authority unavailable")
 			}
-			ready.Store(ingest != nil)
+			if ready.Swap(ingest != nil) != (ingest != nil) {
+				wakeHealth()
+			}
 			return nil
 		}
 		data, err := json.Marshal(envelope)
 		if err != nil {
 			return errors.New("invalid probe response")
+		}
+		if strings.HasPrefix(envelope.Type, "state.") {
+			return receiver.handle(frameCtx, session, data)
 		}
 		if envelope.Type == "telemetry.batch" || envelope.Type == "telemetry.gap" {
 			if ingest == nil {
@@ -215,6 +240,7 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 			cancelCommit()
 			if err != nil {
 				ready.Store(false)
+				wakeHealth()
 				if errors.Is(err, domain.ErrReplayRetry) && result != nil && result.StreamID == batch.StreamID && result.CommittedSeq >= batch.FirstSeq-1 && result.CommittedSeq <= batch.LastSeq {
 					response, encodeErr := encodeFrame("telemetry.retry", Decimal(input.Generation), TelemetryRetry{StreamID: batch.StreamID, CommittedSeq: Decimal(result.CommittedSeq), RetryAfterMS: 1000})
 					if encodeErr != nil {
@@ -248,6 +274,8 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 			if err := recordApplied(frameCtx, domain.ProbeActiveConfig{ProbeConfigTarget: domain.ProbeConfigTarget{HubID: m.HubID, ProbeID: m.ProbeID}, Revision: int64(applied.Revision), SHA256: applied.SHA256, AppliedAt: time.Time(applied.AppliedAt).UTC(), AssignmentCount: applied.AssignmentCount}); err != nil {
 				return errors.New("configuration receipt storage unavailable")
 			}
+			appliedRevision.Store(int64(applied.Revision))
+			wakeHealth()
 			appliedOnce.Do(func() { close(appliedDone) })
 			return nil
 		}
@@ -267,7 +295,7 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 	return nil
 }
 
-func (t *HubTransport) sendHubHealth(ctx context.Context, session *Session, w Welcome, ready *atomic.Bool, cursor *atomic.Int64) {
+func (t *HubTransport) sendHubHealth(ctx context.Context, session *Session, w Welcome, ready *atomic.Bool, cursor *atomic.Int64, appliedRevision *atomic.Int64, changed <-chan struct{}) {
 	ticker := time.NewTicker(HeartbeatSeconds * time.Second)
 	defer ticker.Stop()
 	for {
@@ -276,7 +304,7 @@ func (t *HubTransport) sendHubHealth(ctx context.Context, session *Session, w We
 		if !available {
 			codes = append(codes, "ingest_unavailable")
 		}
-		h := Health{Role: "hub", Ready: available, DBWritable: available, ConfigRevision: w.DesiredConfigRevision, CommittedSeq: Decimal(cursor.Load()), ClockTime: Timestamp(time.Now().UTC()), Errors: codes}
+		h := Health{Role: "hub", Ready: available, DBWritable: available, ConfigRevision: Decimal(appliedRevision.Load()), CommittedSeq: Decimal(cursor.Load()), ClockTime: Timestamp(time.Now().UTC()), Errors: codes}
 		frame, err := encodeFrame("health", w.ConnectionGeneration, h)
 		if err == nil {
 			opCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -291,6 +319,7 @@ func (t *HubTransport) sendHubHealth(ctx context.Context, session *Session, w We
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-changed:
 		}
 	}
 }
