@@ -15,8 +15,12 @@
 > [watchdog acceptance](M3_WATCHDOG_ACCEPTANCE.md). Durable source ACK storage and
 > lifecycle handling are implemented; see [source ACK acceptance](M3_EDGE_ACK_ACCEPTANCE.md).
 > The hub/operator/transport ACK path is now integrated and verified; see
-> [command acceptance](M3_COMMAND_ACCEPTANCE.md). Continue credential/certificate
-> rotation and explicit reset under [the command contract](M3_COMMAND_WORK_CONTRACT.md), then bounded flushing and the
+> [command acceptance](M3_COMMAND_ACCEPTANCE.md). The source credential rotation
+> increment passed its final gate; see [source acceptance](M3_EDGE_CREDENTIAL_ACCEPTANCE.md).
+> Continue protected hub
+> credential issuance, candidate reconnect selection and automatic receipt recovery
+> under [the rotation contract](M3_CREDENTIAL_ROTATION_WORK_CONTRACT.md), then
+> certificate rotation and explicit reset under [the command contract](M3_COMMAND_WORK_CONTRACT.md), bounded flushing and the
 > complete fifteen-minute partition under [the M3 contract](M3_COMPLETION_WORK_CONTRACT.md).
 > Verify Git HEAD and uncommitted work before editing; never reset to an older baseline.
 

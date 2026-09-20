@@ -34,6 +34,14 @@ func (m *edgeEnrollmentMemory) ReadEnrollment(context.Context) (domain.EdgeEnrol
 	return m.binding, m.err
 }
 
+func (m *edgeEnrollmentMemory) ReadRuntimeCredentials(ctx context.Context) ([]domain.EdgeEnrollment, error) {
+	binding, err := m.ReadEnrollment(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return []domain.EdgeEnrollment{binding}, nil
+}
+
 func TestEdgeEnrollmentServiceHashesAndSeparatesCredentials(t *testing.T) {
 	m := &edgeEnrollmentMemory{}
 	s := NewEdgeEnrollmentService(m)

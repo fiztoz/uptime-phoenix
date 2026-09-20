@@ -83,6 +83,10 @@ func (s *Store) CommitEnrollment(ctx context.Context, hash [32]byte, binding dom
 
 // ReadEnrollment returns the only active binding without any plaintext credential.
 func (s *Store) ReadEnrollment(ctx context.Context) (domain.EdgeEnrollment, error) {
+	return readEnrollment(ctx, s.db)
+}
+
+func readEnrollment(ctx context.Context, db bun.IDB) (domain.EdgeEnrollment, error) {
 	var row struct {
 		ProbeID      string
 		HubID        string
@@ -91,7 +95,7 @@ func (s *Store) ReadEnrollment(ctx context.Context) (domain.EdgeEnrollment, erro
 		TokenHash    []byte
 		IssuedAt     int64
 	}
-	err := s.db.NewRaw(`SELECT i.probe_id, c.hub_id, c.enrollment_id, c.version, c.token_hash, c.issued_at
+	err := db.NewRaw(`SELECT i.probe_id, c.hub_id, c.enrollment_id, c.version, c.token_hash, c.issued_at
 	 FROM edge_credentials c JOIN edge_identity i ON i.id = 1 AND i.hub_id = c.hub_id WHERE c.kind = 'runtime'`).Scan(ctx, &row)
 	if err != nil {
 		return domain.EdgeEnrollment{}, storageError(ctx, err)

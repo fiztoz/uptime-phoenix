@@ -321,6 +321,10 @@ func validCommandSession(s domain.ProbeReplaySession) bool {
 }
 
 func validCommandOutcome(r domain.ProbeCommandOutcome) bool {
+	// This hub issuer currently supports ACK only; never discard rotation details.
+	if r.CredentialVersion != 0 {
+		return false
+	}
 	if !domain.ValidHubID(r.CommandID) || len(r.Message) > 4096 || len(r.Code) > 128 {
 		return false
 	}

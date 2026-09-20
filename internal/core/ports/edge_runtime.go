@@ -21,6 +21,15 @@ type EdgeEnrollmentRepository interface {
 	EnrollmentTokenValid(ctx context.Context, hash [32]byte, at time.Time) (bool, error)
 	CommitEnrollment(ctx context.Context, hash [32]byte, binding domain.EdgeEnrollment) error
 	ReadEnrollment(ctx context.Context) (domain.EdgeEnrollment, error)
+	ReadRuntimeCredentials(ctx context.Context) ([]domain.EdgeEnrollment, error)
+}
+
+// EdgeCredentialRepository persists rotation effects and their immutable receipts.
+// Admission atomically rechecks a credential and claims a newer session generation;
+// its returned binding carries the current fixed authorization deadline.
+type EdgeCredentialRepository interface {
+	ApplyCredentialCommand(context.Context, domain.EdgeCommandAuthority, domain.ProbeCredentialCommand) (domain.ProbeCommandOutcome, error)
+	AcceptCredentialConnection(context.Context, domain.EdgeEnrollment, int64) (domain.EdgeEnrollment, error)
 }
 
 // EdgeConfigRepository retains immutable encrypted configurations across restart.

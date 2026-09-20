@@ -8,7 +8,7 @@ commits retained availability observations, incident transitions and delivery
 outcomes to the hub. M3 also implements bounded retention/gaps, current-state
 recovery, historical recomputation and bidirectional connection-watchdog paging.
 Durable regional ACK commands are now available through the local admin CLI.
-Credential/certificate rotation, explicit stream-reset recovery and the final
+Operator credential/certificate rotation, explicit stream-reset recovery and the final
 fifteen-minute partition acceptance remain unfinished. Fleet UI is
 outside this engineering runtime; consult `IMPLEMENTATION_STATUS.md` for scope.
 
@@ -257,3 +257,14 @@ The runnable process harness is `scripts/probe_runtime_smoke.py --verify-replay
 and a fresh disposable localhost `_smoke` database. Its default command partition
 is 15 seconds. `--command-partition-seconds` changes that duration; a short run is
 not the complete fifteen-minute M3 acceptance.
+
+
+### Credential source capability
+
+The probe implements `command.credential_rotation.v1`: digest-only preparation,
+separate activation, bounded overlap, durable receipts and forced reauthentication.
+The hub CLI still issues only incident ACKs. No supported operator rotation command
+or automatic candidate-credential recovery is available yet. Do not replace stored
+credentials manually to emulate that missing workflow. See
+[the rotation contract](M3_CREDENTIAL_ROTATION_WORK_CONTRACT.md) and
+[the source retrospective](M3_EDGE_CREDENTIAL_RETROSPECTIVE.md).

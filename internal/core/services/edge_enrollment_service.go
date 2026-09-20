@@ -66,13 +66,13 @@ func (s *EdgeEnrollmentService) Accept(ctx context.Context, enrollmentToken, run
 	return s.repo.CommitEnrollment(ctx, sha256.Sum256([]byte(enrollmentToken)), binding)
 }
 
-// AuthenticateRuntime validates only the current credential and returns its
-// trusted binding. Missing, malformed and wrong tokens have the same outcome.
+// AuthenticateRuntime validates current or explicitly overlapping credentials
+// and returns the selected trusted binding. Missing, malformed and wrong tokens have the same outcome.
 func (s *EdgeEnrollmentService) AuthenticateRuntime(ctx context.Context, token string) (domain.EdgeEnrollment, bool, error) {
 	if strings.HasPrefix(token, "phx_probe_enroll_") || !validEdgeToken(token, "phx_probe_") {
 		return domain.EdgeEnrollment{}, false, nil
 	}
-	binding, err := s.repo.ReadEnrollment(ctx)
+	bindings, err := s.repo.ReadRuntimeCredentials(ctx)
 	if errors.Is(err, ports.ErrNotFound) {
 		return domain.EdgeEnrollment{}, false, nil
 	}
@@ -80,10 +80,13 @@ func (s *EdgeEnrollmentService) AuthenticateRuntime(ctx context.Context, token s
 		return domain.EdgeEnrollment{}, false, err
 	}
 	hash := sha256.Sum256([]byte(token))
-	if subtle.ConstantTimeCompare(hash[:], binding.TokenHash[:]) != 1 {
-		return domain.EdgeEnrollment{}, false, nil
+	var selected domain.EdgeEnrollment
+	for _, binding := range bindings {
+		if subtle.ConstantTimeCompare(hash[:], binding.TokenHash[:]) == 1 {
+			selected = binding
+		}
 	}
-	return binding, true, nil
+	return selected, selected.CredentialVersion > 0, nil
 }
 
 func validEdgeToken(token, prefix string) bool {

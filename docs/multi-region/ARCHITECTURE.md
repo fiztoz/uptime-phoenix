@@ -277,7 +277,14 @@ Only the durable source result sets remote confirmation. See
 [source ACK acceptance](M3_EDGE_ACK_ACCEPTANCE.md) and
 [command acceptance](M3_COMMAND_ACCEPTANCE.md).
 
-Credential/certificate rotation, explicit stream reset and the broader
+Edge migration 007 adds digest-only credential preparations, irreversible overlap
+retirement and a durable version high-water. Source prepare/activate effects share
+the command receipt transaction. Atomic credential/session admission returns the
+fixed overlap deadline, and successful commands force reauthentication. The probe
+advertises `command.credential_rotation.v1` with this source path wired. This does
+not supply protected hub issuance, candidate selection or automatic rotation recovery.
+
+Hub credential rotation, certificate rotation, explicit stream reset and the broader
 fifteen-minute M3 scenario remain unfinished. Watchdog ACK remains unsupported
 by the positive-assignment-generation regional command target.
 
@@ -395,7 +402,8 @@ Use a dedicated edge schema and migration runner under `internal/adapters/reposi
 | Table | Purpose |
 |---|---|
 | `edge_identity` | Probe/hub ID, current stream UUID, next sequence, pinned installation authority, activation marker |
-| `edge_credentials` | Hashed active/pending inbound tokens, versions, expiration metadata; TLS private key remains a protected file |
+| `edge_credentials` | Hashed current inbound token and enrollment authorization; TLS private key remains a protected file |
+| `edge_credential_rotations` / `edge_credential_state` | Bounded digest-only candidate/previous identities, fixed overlap expiry/retirement, activation time and retained version high-water |
 | `edge_config` | Desired staging snapshot and active snapshot revision/hash, immutable canonical snapshot bytes protected at rest |
 | `edge_assignments` | Materialized active assignment generation and scheduler data |
 | `edge_regional_state` | Last evaluated state, counts, certificate/condition state, source incident IDs |

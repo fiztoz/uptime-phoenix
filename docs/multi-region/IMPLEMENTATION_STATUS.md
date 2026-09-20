@@ -7,6 +7,33 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 source credential rotation — 2026-09-21
+
+Edge migration 007 persists digest-only credential prepare/activate state, fixed
+overlap deadlines, irreversible observed retirement and version high-water. Effects
+and immutable command receipts commit together. Atomic credential/session admission
+closes stale-header races; successful rotation commands force reauthentication, and
+old/prepared sessions expire at their persisted deadlines. Lost activation results
+recover with the new credential after restart without changing stream/configuration.
+The probe advertises `command.credential_rotation.v1` with these paths wired.
+
+Source verification and final gate status are recorded in
+[acceptance](M3_EDGE_CREDENTIAL_ACCEPTANCE.md),
+[evidence](M3_EDGE_CREDENTIAL_EVIDENCE.json) and
+[retrospective](M3_EDGE_CREDENTIAL_RETROSPECTIVE.md). The final build/race/lint gate
+passed: 22 test packages, 3,428 named passes, zero failures, 264 MariaDB-named
+passes and zero MariaDB skips. All 17 Go/SQL hashes remained unchanged. This work
+also reproduced and corrected the
+older migration rehearsal dropping 061 command columns from a reusable test schema;
+see [the rehearsal retrospective](M3_MIGRATION_REHEARSAL_RETROSPECTIVE.md).
+
+The hub still issues ACK only. Protected rotation issuance, capability-aware
+claiming, saved candidate selection and automatic activation-receipt recovery are
+next under [the rotation contract](M3_CREDENTIAL_ROTATION_WORK_CONTRACT.md).
+Certificate rotation, explicit stream reset, remaining pressure/shutdown acceptance
+and the full fifteen-minute partition remain required. M3 is incomplete. Antigravity
+completed read-only source review and received the coding feedback; it owns no files.
+
 ## M3 operational regional ACK commands — 2026-09-21
 
 Hub migration 061 persists immutable protected requests, bounded retry state and

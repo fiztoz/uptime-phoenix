@@ -77,7 +77,7 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 		d, err := store.ReadDiagnostics(ctx)
 		return d.Identity, d.FirstRetainedSeq, err
 	}
-	capabilities := []string{"snapshot.v1", "watchdog.v1", probe.AcknowledgementCapability, "checker.http.v1", "checker.tcp.v1", "checker.dns.v1"}
+	capabilities := []string{"snapshot.v1", "watchdog.v1", probe.AcknowledgementCapability, probe.CredentialRotationCapability, "checker.http.v1", "checker.tcp.v1", "checker.dns.v1"}
 	for _, name := range []string{"telegram", "discord", "slack", "smtp", "webhook", "teams", "mattermost", "gotify", "bark", "feishu", "line"} {
 		if _, ok := notifier.Get(name); ok {
 			capabilities = append(capabilities, "notifier."+name+".v1")
@@ -90,6 +90,7 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 	runtime.SetReplayRepository(store)
 	runtime.SetStateRepository(store)
 	runtime.SetCommands(store)
+	runtime.SetCredentialCommands(store)
 	runtime.SetWatchdog(watchdog)
 	defer func() { _ = runtime.Close() }()
 	handler, err := probe.NewEdgeHTTPHandler(identity, enrollment, runtime.Handle, func(ctx context.Context) probe.EdgeReadiness {

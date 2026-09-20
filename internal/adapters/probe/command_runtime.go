@@ -3,6 +3,7 @@ package probe
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"sync/atomic"
@@ -14,6 +15,9 @@ import (
 
 // AcknowledgementCapability advertises durable source ACK execution, not decoding.
 const AcknowledgementCapability = "command.alert_ack.v1"
+
+// CredentialRotationCapability advertises source rotation with bounded authentication.
+const CredentialRotationCapability = "command.credential_rotation.v1"
 
 func (t *HubTransport) sendCommands(ctx context.Context, session *Session, authority domain.ProbeReplaySession, ready *atomic.Bool) {
 	tick := time.NewTicker(250 * time.Millisecond)
@@ -64,20 +68,54 @@ func encodeCommandRequestFrame(generation Decimal, payload []byte) ([]byte, erro
 	return frame, nil
 }
 
-func applyEdgeCommand(ctx context.Context, repo ports.EdgeCommandRepository, authority domain.EdgeCommandAuthority, envelope Envelope) ([]byte, error) {
-	if repo == nil {
-		return nil, errors.New("command execution unavailable")
+func applyEdgeCommand(ctx context.Context, repo ports.EdgeCommandRepository, credentials ports.EdgeCredentialRepository, authority domain.EdgeCommandAuthority, envelope Envelope) ([]byte, bool, error) {
+	if len(envelope.Payload) == 0 || len(envelope.Payload) > domain.MaxProbeCommandBytes || !bytes.Equal(envelope.Payload, bytes.TrimSpace(envelope.Payload)) {
+		return nil, false, errors.New("invalid command request")
 	}
-	command, err := (AcknowledgementCodec{}).DecodeAcknowledgement(ctx, envelope.Payload)
+	fields, err := objectFields(envelope.Payload)
 	if err != nil {
-		return nil, errors.New("unsupported or invalid command request")
+		return nil, false, errors.New("invalid command request")
+	}
+	request, err := decodeCommandRequestFields(fields)
+	if err != nil {
+		return nil, false, errors.New("invalid command request")
 	}
 	opCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	result, err := repo.ApplyAlertAcknowledgement(opCtx, authority, command)
-	cancel()
-	if err != nil {
-		return nil, errors.New("command application unavailable")
+	defer cancel()
+	var result domain.ProbeCommandOutcome
+	reconnect := false
+	switch request.Kind {
+	case CommandAlertAck:
+		if repo == nil {
+			return nil, false, errors.New("command execution unavailable")
+		}
+		command, decodeErr := (AcknowledgementCodec{}).DecodeAcknowledgement(ctx, envelope.Payload)
+		if decodeErr != nil {
+			return nil, false, errors.New("invalid command request")
+		}
+		result, err = repo.ApplyAlertAcknowledgement(opCtx, authority, command)
+	case CommandCredentialPrepare, CommandCredentialActivate:
+		if credentials == nil {
+			return nil, false, errors.New("credential rotation unavailable")
+		}
+		c := domain.ProbeCredentialCommand{CommandID: request.CommandID, ProbeID: request.Target.ProbeID, Kind: request.Kind, CreatedAt: time.Time(request.CreatedAt).UTC(), ExpiresAt: time.Time(request.ExpiresAt).UTC(), PayloadHash: sha256.Sum256(envelope.Payload)}
+		switch data := request.Data.(type) {
+		case CredentialPrepareData:
+			c.RotationID, c.CredentialVersion, c.TokenHash, c.OverlapExpiresAt = data.RotationID, int64(data.CredentialVersion), sha256.Sum256([]byte(data.Token)), time.Time(data.OverlapExpiresAt).UTC()
+		case CredentialActivateData:
+			c.RotationID, c.CredentialVersion = data.RotationID, int64(data.CredentialVersion)
+		default:
+			return nil, false, errors.New("invalid credential rotation")
+		}
+		result, err = credentials.ApplyCredentialCommand(opCtx, authority, c)
+		reconnect = result.Status == "applied" || result.Status == "already_applied"
+	default:
+		return nil, false, errors.New("unsupported command request")
 	}
+	if err != nil {
+		return nil, false, errors.New("command application unavailable")
+	}
+
 	var at *Timestamp
 	if result.AppliedAt != nil {
 		v := Timestamp(result.AppliedAt.UTC())
@@ -87,14 +125,18 @@ func applyEdgeCommand(ctx context.Context, repo ports.EdgeCommandRepository, aut
 	if result.Code != "" {
 		code = &result.Code
 	}
-	frame, err := encodeFrame("command.result", envelope.ConnectionGeneration, CommandResult{CommandID: result.CommandID, Status: result.Status, AppliedAt: at, Code: code, Message: result.Message})
+	var details CommandResultDetails
+	if result.CredentialVersion > 0 {
+		details = CredentialPrepareDetails{CredentialVersion: Decimal(result.CredentialVersion)}
+	}
+	frame, err := encodeFrame("command.result", envelope.ConnectionGeneration, CommandResult{CommandID: result.CommandID, Status: result.Status, AppliedAt: at, Code: code, Message: result.Message, Details: details})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if _, _, err := DecodeCommandResult(frame); err != nil {
-		return nil, errors.New("invalid durable command result")
+		return nil, false, errors.New("invalid durable command result")
 	}
-	return frame, nil
+	return frame, reconnect, nil
 }
 
 func commandOutcome(result CommandResult) (domain.ProbeCommandOutcome, error) {

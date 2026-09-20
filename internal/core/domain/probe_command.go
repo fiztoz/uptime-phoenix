@@ -77,6 +77,24 @@ type ProbeCommandOutcome struct {
 	AppliedAt *time.Time
 	Code      string
 	Message   string
+	// CredentialVersion is present only for successful credential preparation.
+	CredentialVersion int64
+}
+
+// ProbeCredentialCommand binds one closed prepare/activate operation. TokenHash
+// and OverlapExpiresAt are present only for preparation. Plaintext tokens never
+// cross the source persistence boundary.
+type ProbeCredentialCommand struct {
+	CommandID         string
+	ProbeID           string
+	Kind              string
+	CreatedAt         time.Time
+	ExpiresAt         time.Time
+	PayloadHash       [32]byte
+	RotationID        string
+	CredentialVersion int64
+	TokenHash         [32]byte
+	OverlapExpiresAt  time.Time
 }
 
 // ProbeAcknowledgementIssue is trusted operator input. CommandID may be omitted

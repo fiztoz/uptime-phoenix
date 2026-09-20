@@ -36,6 +36,7 @@ type EdgeRuntime struct {
 	replayRepo  ports.EdgeReplayRepository
 	stateRepo   ports.EdgeStateRepository
 	commands    ports.EdgeCommandRepository
+	credentials ports.EdgeCredentialRepository
 	watchdog    *services.ProbeWatchdogRuntime
 	mu          sync.Mutex
 	closed      bool
@@ -73,6 +74,14 @@ func (r *EdgeRuntime) SetCommands(repo ports.EdgeCommandRepository) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.commands = repo
+}
+
+// SetCredentialCommands enables rotation and atomic credential admission. Configure
+// it before accepting connections; advertising the capability requires this port.
+func (r *EdgeRuntime) SetCredentialCommands(repo ports.EdgeCredentialRepository) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.credentials = repo
 }
 
 // NewEdgeRuntime validates and copies the local capability inventory.
@@ -156,7 +165,14 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 	}
 	// Storage atomically rejects equal generations too. This also fences a
 	// duplicate runtime object; a mutex alone would not protect persistent state.
-	err = r.identity.AcceptConnectionGeneration(handshakeCtx, i.HubID, int64(welcome.ConnectionGeneration))
+	credentials := r.credentials
+	if credentials != nil {
+		binding, err = credentials.AcceptCredentialConnection(handshakeCtx, binding, int64(welcome.ConnectionGeneration))
+	} else if slices.Contains(r.cfg.Capabilities, CredentialRotationCapability) {
+		err = errors.New("credential admission unavailable")
+	} else {
+		err = r.identity.AcceptConnectionGeneration(handshakeCtx, i.HubID, int64(welcome.ConnectionGeneration))
+	}
 	if err != nil {
 		r.mu.Unlock()
 		_ = session.Close()
@@ -186,7 +202,7 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 		}
 		r.mu.Unlock()
 	}()
-	establishedCtx, end := context.WithCancel(runCtx)
+	establishedCtx, end := credentialSessionContext(runCtx, binding)
 	defer end()
 	healthDone := make(chan struct{})
 	go func() { defer close(healthDone); r.sendHealth(establishedCtx, session, welcome.ConnectionGeneration) }()
@@ -255,11 +271,20 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 		}
 		switch envelope.Type {
 		case "command.request":
-			response, err := applyEdgeCommand(frameCtx, commands, domain.EdgeCommandAuthority{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID, ConnectionGeneration: int64(welcome.ConnectionGeneration)}, envelope)
+			response, reconnect, err := applyEdgeCommand(frameCtx, commands, credentials, domain.EdgeCommandAuthority{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID, ConnectionGeneration: int64(welcome.ConnectionGeneration)}, envelope)
 			if err != nil {
 				return err
 			}
-			return session.SendControl(frameCtx, response)
+			sendCtx, stopSend := context.WithTimeout(frameCtx, 5*time.Second)
+			err = session.SendControl(sendCtx, response)
+			stopSend()
+			if err != nil {
+				return err
+			}
+			if reconnect {
+				return errors.New("credential change requires reauthentication")
+			}
+			return nil
 		case "state.applied":
 			if statePump == nil {
 				return errors.New("unsupported current state receipt")
@@ -415,4 +440,12 @@ func (r *EdgeRuntime) Close() error {
 	}
 	r.handlers.Wait()
 	return nil
+}
+
+// A storage-supplied deadline cancels reader, writer, health and replay together.
+func credentialSessionContext(ctx context.Context, binding domain.EdgeEnrollment) (context.Context, context.CancelFunc) {
+	if binding.ValidUntil != nil {
+		return context.WithDeadline(ctx, *binding.ValidUntil)
+	}
+	return context.WithCancel(ctx)
 }

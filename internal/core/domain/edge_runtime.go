@@ -31,6 +31,9 @@ type EdgeEnrollment struct {
 	CredentialVersion int64
 	TokenHash         [32]byte
 	AppliedAt         time.Time
+	// ValidUntil bounds an authenticated overlap session; nil means current.
+	// It is supplied by storage and must be rechecked at socket admission.
+	ValidUntil *time.Time
 }
 
 // ValidEdgeEnrollment checks immutable binding and digest metadata.

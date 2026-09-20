@@ -27,19 +27,24 @@ const maxAppliedCommands = 16384
 var _ ports.EdgeCommandRepository = (*Store)(nil)
 
 type edgeCommandRow struct {
-	bun.BaseModel `bun:"table:edge_applied_commands"`
-	CommandID     string `bun:"command_id,pk"`
-	Kind          string
-	RequestHash   []byte
-	Status        string
-	AppliedAt     *int64
-	Code          string
-	Message       string
-	RetainUntil   int64
+	bun.BaseModel     `bun:"table:edge_applied_commands"`
+	CommandID         string `bun:"command_id,pk"`
+	Kind              string
+	RequestHash       []byte
+	Status            string
+	AppliedAt         *int64
+	Code              string
+	Message           string
+	RetainUntil       int64
+	CredentialVersion *int64
 }
 
 func (r edgeCommandRow) outcome() domain.ProbeCommandOutcome {
-	return domain.ProbeCommandOutcome{CommandID: r.CommandID, Status: r.Status, AppliedAt: timeFromMicro(r.AppliedAt), Code: r.Code, Message: r.Message}
+	out := domain.ProbeCommandOutcome{CommandID: r.CommandID, Status: r.Status, AppliedAt: timeFromMicro(r.AppliedAt), Code: r.Code, Message: r.Message}
+	if r.CredentialVersion != nil {
+		out.CredentialVersion = *r.CredentialVersion
+	}
+	return out
 }
 
 // ApplyAlertAcknowledgement binds the source effect, one transition and its
@@ -50,15 +55,28 @@ func (s *Store) ApplyAlertAcknowledgement(ctx context.Context, authority domain.
 		return domain.ProbeCommandOutcome{}, domain.ErrValidation
 	}
 	digest := acknowledgementHash(authority, command)
+	return s.applyCommand(ctx, authority, command.CommandID, command.ProbeID, "alert.ack", digest, command.CreatedAt, command.ExpiresAt,
+		func(ctx context.Context, tx bun.Tx, identity domain.EdgeIdentity, now time.Time, row *edgeCommandRow) error {
+			return s.acknowledgeIncident(ctx, tx, identity, command, now, row)
+		})
+}
+
+// applyCommand serializes source authority, exact duplicate recovery, bounded
+// receipt allocation and the effect. Errors roll back both the effect and receipt.
+func (s *Store) applyCommand(ctx context.Context, authority domain.EdgeCommandAuthority, commandID, probeID, kind string, digest [32]byte, createdAt, expiresAt time.Time, apply func(context.Context, bun.Tx, domain.EdgeIdentity, time.Time, *edgeCommandRow) error) (domain.ProbeCommandOutcome, error) {
 	var outcome domain.ProbeCommandOutcome
 	err := s.write(ctx, func(ctx context.Context, tx bun.Tx, identity domain.EdgeIdentity) error {
-		if authority.HubID != identity.HubID || authority.ProbeID != identity.ProbeID || authority.StreamID != identity.StreamID || authority.ConnectionGeneration != identity.ConnectionGeneration || command.ProbeID != identity.ProbeID {
+		if authority.HubID != identity.HubID || authority.ProbeID != identity.ProbeID || authority.StreamID != identity.StreamID || authority.ConnectionGeneration != identity.ConnectionGeneration || probeID != identity.ProbeID {
 			return ports.ErrConflict
 		}
+		now := s.commandNow().UTC().Truncate(time.Microsecond)
+		if err := expireCredentialOverlaps(ctx, tx, now); err != nil {
+			return err
+		}
 		var prior edgeCommandRow
-		err := tx.NewSelect().Model(&prior).Where("command_id = ?", command.CommandID).Scan(ctx)
+		err := tx.NewSelect().Model(&prior).Where("command_id = ?", commandID).Scan(ctx)
 		if err == nil {
-			if prior.Kind != "alert.ack" || !bytes.Equal(prior.RequestHash, digest[:]) {
+			if prior.Kind != kind || !bytes.Equal(prior.RequestHash, digest[:]) {
 				return ports.ErrConflict
 			}
 			outcome = prior.outcome()
@@ -67,7 +85,6 @@ func (s *Store) ApplyAlertAcknowledgement(ctx context.Context, authority domain.
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		now := s.commandNow().UTC().Truncate(time.Microsecond)
 		// Bound retained receipts independently of telemetry. Never evict a live
 		// receipt to make a new command look successful.
 		if _, err := tx.ExecContext(ctx, "DELETE FROM edge_applied_commands WHERE retain_until < ?", now.UnixMicro()); err != nil {
@@ -80,14 +97,14 @@ func (s *Store) ApplyAlertAcknowledgement(ctx context.Context, authority domain.
 		if count >= maxAppliedCommands {
 			return ErrQueueFull
 		}
-		row := edgeCommandRow{CommandID: command.CommandID, Kind: "alert.ack", RequestHash: digest[:], RetainUntil: command.ExpiresAt.Add(commandRetention).UTC().UnixMicro()}
+		row := edgeCommandRow{CommandID: commandID, Kind: kind, RequestHash: digest[:], RetainUntil: expiresAt.Add(commandRetention).UTC().UnixMicro()}
 		switch {
-		case !now.Before(command.ExpiresAt):
+		case !now.Before(expiresAt):
 			row.Status, row.Code, row.Message = "expired", "command_expired", "Command expired before application"
-		case command.CreatedAt.After(now.Add(30 * time.Second)):
+		case createdAt.After(now.Add(30 * time.Second)):
 			row.Status, row.Code, row.Message = "rejected", "command_from_future", "Command creation time is too far ahead"
 		default:
-			if err := s.acknowledgeIncident(ctx, tx, identity, command, now, &row); err != nil {
+			if err := apply(ctx, tx, identity, now, &row); err != nil {
 				return err
 			}
 		}
