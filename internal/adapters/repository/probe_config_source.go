@@ -70,22 +70,32 @@ func (r *LocalProbeConfigSourceStore) ReadLocal(ctx context.Context) (*domain.Lo
 }
 
 func readLocalConfigSource(ctx context.Context, tx bun.Tx) (*domain.LocalProbeConfigSource, error) {
+	return readProbeConfigSource(ctx, tx, domain.LocalProbeID)
+}
+
+func readProbeConfigSource(ctx context.Context, tx bun.Tx, probeID string) (*domain.LocalProbeConfigSource, error) {
 	registration := new(probeRegistrationModel)
-	if err := tx.NewSelect().Model(registration).Where("id = ?", domain.LocalProbeID).Scan(ctx); err != nil {
+	if err := tx.NewSelect().Model(registration).Where("id = ?", probeID).Scan(ctx); err != nil {
 		return nil, err
 	}
-	if !registration.Enabled || registration.Kind != domain.ProbeKindLocal {
+	kind := domain.ProbeKindRemote
+	if probeID == domain.LocalProbeID {
+		kind = domain.ProbeKindLocal
+	}
+	if !registration.Enabled || registration.Kind != kind {
 		return nil, domain.ErrValidation
 	}
-	legacy, err := tx.NewSelect().TableExpr("monitors AS m").
-		Where("NOT EXISTS (SELECT 1 FROM monitor_probe_assignment_sets s WHERE s.monitor_id = m.id)").Exists(ctx)
-	if err != nil {
-		return nil, err
+	if probeID == domain.LocalProbeID {
+		legacy, err := tx.NewSelect().TableExpr("monitors AS m").
+			Where("NOT EXISTS (SELECT 1 FROM monitor_probe_assignment_sets s WHERE s.monitor_id = m.id)").Exists(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if legacy {
+			return nil, domain.ErrValidation
+		}
 	}
-	if legacy {
-		return nil, domain.ErrValidation
-	}
-	rows, err := configSourceRows[probeAssignmentModel](ctx, tx.NewSelect().Where("probe_id = ? AND active = ?", domain.LocalProbeID, true).Order("monitor_id ASC"), configSourceAssignments)
+	rows, err := configSourceRows[probeAssignmentModel](ctx, tx.NewSelect().Where("probe_id = ? AND active = ?", probeID, true).Order("monitor_id ASC"), configSourceAssignments)
 	if err != nil {
 		return nil, err
 	}

@@ -20,8 +20,16 @@ type ProbeConnectorService struct {
 	protector      ports.ProbeCredentialProtector
 	configs        *ProbeConfigService
 	transport      ports.ProbeConnectionTransport
+	configSync     ports.RemoteProbeConfigSyncRepository
 	hubID, ownerID string
 	delay          func(int, time.Duration) time.Duration
+}
+
+// SetConfigSync enables automatic desired-state reconciliation and durable
+// application receipts. Configure it before Run; manual operator enrollment does
+// not require it.
+func (s *ProbeConnectorService) SetConfigSync(syncer ports.RemoteProbeConfigSyncRepository) {
+	s.configSync = syncer
 }
 
 // NewProbeConnectorService requires verified installation authority and a unique
@@ -193,6 +201,11 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, probeID string)
 	if err != nil {
 		return 0, err
 	}
+	if s.configSync != nil {
+		if _, err := s.configSync.RefreshRemote(readCtx, domain.ProbeConfigTarget{HubID: s.hubID, ProbeID: probeID}, time.Now().UTC()); err != nil {
+			return 0, err
+		}
+	}
 	document, metadata, err := s.configs.Read(readCtx, domain.ProbeConfigTarget{HubID: s.hubID, ProbeID: probeID}, 0)
 	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return 0, err
@@ -218,6 +231,9 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, probeID string)
 			}
 			checkCtx, cancel := context.WithTimeout(sessionCtx, 5*time.Second)
 			_, err := s.leases.RenewConnector(checkCtx, lease)
+			if err == nil && s.configSync != nil {
+				_, err = s.configSync.RefreshRemote(checkCtx, domain.ProbeConfigTarget{HubID: s.hubID, ProbeID: probeID}, time.Now().UTC())
+			}
 			if err == nil {
 				next, readErr := s.configs.LatestMetadata(checkCtx, domain.ProbeConfigTarget{HubID: s.hubID, ProbeID: probeID})
 				if readErr != nil && !errors.Is(readErr, ports.ErrNotFound) {
@@ -243,7 +259,12 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, probeID string)
 		}
 		connectedAt = time.Now()
 		return nil
-	}, func(context.Context, domain.ProbeActiveConfig) error { return nil })
+	}, func(callbackCtx context.Context, receipt domain.ProbeActiveConfig) error {
+		if s.configSync == nil {
+			return nil
+		}
+		return s.configSync.RecordRemoteApplied(callbackCtx, lease, receipt)
+	})
 	stop()
 	<-renewed
 	if connectedAt.IsZero() {

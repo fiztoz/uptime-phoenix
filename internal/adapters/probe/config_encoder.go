@@ -21,7 +21,11 @@ var _ ports.LocalProbeConfigEncoder = LocalConfigEncoder{}
 // EncodeLocal serializes a deterministic, bounded complete dependency closure.
 // The result contains credentials and must only enter the protected store.
 func (LocalConfigEncoder) EncodeLocal(d domain.LocalProbeConfigDefinition) ([]byte, error) {
-	if d.Target.ProbeID != domain.LocalProbeID || !domain.ValidProbeConfigTarget(d.Target) || d.Revision <= 0 || d.CreatedAt.IsZero() || d.EffectiveAt.IsZero() ||
+	return encodeProbeConfigDefinition(d, false)
+}
+
+func encodeProbeConfigDefinition(d domain.LocalProbeConfigDefinition, remote bool) ([]byte, error) {
+	if (d.Target.ProbeID == domain.LocalProbeID) == remote || !domain.ValidProbeConfigTarget(d.Target) || d.Revision <= 0 || d.CreatedAt.IsZero() || d.EffectiveAt.IsZero() ||
 		len(d.Assignments) > MaxConfigAssignments || len(d.Notifications) > MaxConfigDependencies || len(d.Templates) > MaxConfigDependencies || len(d.Policies) > MaxConfigDependencies || len(d.Proxies) > MaxConfigDependencies || len(d.Maintenance) > MaxConfigDependencies {
 		return nil, domain.ErrValidation
 	}
@@ -49,7 +53,7 @@ func (LocalConfigEncoder) EncodeLocal(d domain.LocalProbeConfigDefinition) ([]by
 		if err != nil {
 			return nil, err
 		}
-		s.NotificationChannels = append(s.NotificationChannels, ConfigChannel{ID: n.ID, Version: s.Revision, Type: n.Type, Name: n.Name, Active: n.Active, Config: config, TemplateID: n.TemplateID, IncludeAckURL: n.IncludeAckURL})
+		s.NotificationChannels = append(s.NotificationChannels, ConfigChannel{ID: n.ID, Version: s.Revision, Type: n.Type, Name: n.Name, Active: n.Active, Config: config, TemplateID: n.TemplateID, IncludeAckURL: n.IncludeAckURL && !remote})
 	}
 	for _, template := range d.Templates {
 		if template == nil {
@@ -98,8 +102,14 @@ func (LocalConfigEncoder) EncodeLocal(d domain.LocalProbeConfigDefinition) ([]by
 	if err != nil || len(document) > MaxConfigSnapshotBytes {
 		return nil, domain.ErrValidation
 	}
-	if _, err := DecodeLocalConfigSnapshot(document); err != nil {
-		// Do not forward decoder errors that could include confidential fields.
+	if remote {
+		if _, err := DecodeConfigSnapshot(document); err != nil {
+			return nil, fmt.Errorf("invalid complete remote configuration: %w", domain.ErrValidation)
+		}
+		if err := validateEdgeRuntimeSnapshot(s); err != nil {
+			return nil, err
+		}
+	} else if _, err := DecodeLocalConfigSnapshot(document); err != nil {
 		return nil, fmt.Errorf("invalid complete local configuration: %w", domain.ErrValidation)
 	}
 	return document, nil

@@ -76,10 +76,23 @@ func configBuildError(ctx context.Context, operation string, cause error) error 
 // ResolveLocalProbeConfig resolves source dependencies and policies into a complete
 // local probe configuration definition.
 func ResolveLocalProbeConfig(source *domain.LocalProbeConfigSource) (domain.LocalProbeConfigDefinition, error) {
-	var out domain.LocalProbeConfigDefinition
 	if source == nil || source.Probe.ID != domain.LocalProbeID || source.Probe.Kind != domain.ProbeKindLocal || !source.Probe.Enabled {
-		return out, domain.ErrValidation
+		return domain.LocalProbeConfigDefinition{}, domain.ErrValidation
 	}
+	return resolveProbeConfig(source)
+}
+
+// ResolveRemoteProbeConfig uses the same complete dependency closure as local
+// execution, while requiring an enabled canonical remote registration.
+func ResolveRemoteProbeConfig(source *domain.LocalProbeConfigSource) (domain.LocalProbeConfigDefinition, error) {
+	if source == nil || !domain.ValidHubID(source.Probe.ID) || source.Probe.Kind != domain.ProbeKindRemote || !source.Probe.Enabled {
+		return domain.LocalProbeConfigDefinition{}, domain.ErrValidation
+	}
+	return resolveProbeConfig(source)
+}
+
+func resolveProbeConfig(source *domain.LocalProbeConfigSource) (domain.LocalProbeConfigDefinition, error) {
+	var out domain.LocalProbeConfigDefinition
 	monitors := make(map[int64]bool, len(source.Assignments))
 	policies, channels, templates, proxies := map[int64]bool{}, map[int64]bool{}, map[int64]bool{}, map[int64]bool{}
 	out.Assignments = make([]domain.ProbeConfigAssignment, 0, len(source.Assignments))

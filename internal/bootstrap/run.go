@@ -424,6 +424,7 @@ func Run(cfg Config) error {
 		if err != nil {
 			return err
 		}
+		connector.SetConfigSync(repo.NewRemoteProbeConfigSyncStore(db, probe.RemoteConfigEncoder{}, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector))
 		connectorDone = make(chan struct{})
 		go func() {
 			defer close(connectorDone)
