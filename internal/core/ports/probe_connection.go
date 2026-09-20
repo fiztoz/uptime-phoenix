@@ -33,3 +33,10 @@ type ProbeConnectionTransport interface {
 	Enroll(ctx context.Context, connection domain.ProbeCredentialMetadata, enrollmentToken, runtimeToken string) error
 	Run(ctx context.Context, input domain.ProbeSessionInput, established func(context.Context) error, applied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error
 }
+
+// ProbeWatchdogConnectionTransport additionally admits application-health frames
+// through the runtime owner's monotonic ordering gate. The caller starts/ends
+// the source session only after adopting/releasing its durable generation fence.
+type ProbeWatchdogConnectionTransport interface {
+	RunWithWatchdog(ctx context.Context, input domain.ProbeSessionInput, admission ProbeHealthAdmission, established func(context.Context) error, applied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error
+}

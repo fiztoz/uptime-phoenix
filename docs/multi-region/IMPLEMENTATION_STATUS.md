@@ -7,6 +7,26 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 watchdog source runtime prerequisite — 2026-09-20
+
+Both composition roots now run a durable watchdog source controller with ordered
+application-health admission across sessions. Speculative timer updates publish
+only after commit; reconnect generation, ACK, restart and administrative disable
+retain source lifecycle guarantees. Completed storage work gates hub parent
+renewal. A cold hub reader loads the exact applied protected graph, never a newer
+prepared snapshot. Enabled configurations remain guarded until provider delivery
+and watchdog mirror replay authorization are complete.
+
+See [runtime verification and retrospective](M3_WATCHDOG_RUNTIME_ACCEPTANCE.md)
+and [evidence](M3_WATCHDOG_RUNTIME_EVIDENCE.json). The full race suite passed in
+22 tested packages, with no failures or MariaDB skips; build and zero-issue lint
+passed. All 25 real-process stages passed with two hub workers, enrollment,
+offline recovery/replay, probe restart and history recomputation. That process run
+used disabled watchdog settings, so it proves integration rather than watchdog
+paging. Antigravity withdrew its six audit findings after actual callee evidence
+and tests; it owned no files. Continue provider context/reconciliation and mirror
+authorization in `M3_WATCHDOG_WORK_CONTRACT.md`. M3 remains incomplete.
+
 ## M3 saved watchdog settings prerequisite — 2026-09-20
 
 Migration 060 persists complete per-probe settings and notification membership.

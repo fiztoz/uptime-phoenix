@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
 // SessionConfig configures an established runtime session between a hub and a probe.
@@ -83,6 +85,10 @@ func (s *Session) Run(ctx context.Context, handle func(context.Context, Envelope
 }
 
 func (s *Session) run(ctx context.Context, handle func(context.Context, Envelope, time.Time, *Health) error) error {
+	return s.runAdmission(ctx, handle, nil)
+}
+
+func (s *Session) runAdmission(ctx context.Context, handle func(context.Context, Envelope, time.Time, *Health) error, admission ports.ProbeHealthAdmission) error {
 	if !atomic.CompareAndSwapInt32(&s.runStarted, 0, 1) {
 		return errors.New("session Run is single-use and cannot be called concurrently or repeated")
 	}
@@ -110,7 +116,7 @@ func (s *Session) run(ctx context.Context, handle func(context.Context, Envelope
 		writerErrCh <- s.writerLoop(runCtx)
 	}()
 
-	readerErr := s.readerLoop(runCtx, handle)
+	readerErr := s.readerLoop(runCtx, handle, admission)
 
 	cancel()
 	writerErr := <-writerErrCh
@@ -261,7 +267,7 @@ func (s *Session) checkSendState(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func (s *Session) readerLoop(ctx context.Context, handle func(context.Context, Envelope, time.Time, *Health) error) error {
+func (s *Session) readerLoop(ctx context.Context, handle func(context.Context, Envelope, time.Time, *Health) error, admission ports.ProbeHealthAdmission) error {
 	for {
 		readTimeout := s.readTimeout
 		if readTimeout <= 0 {
@@ -280,39 +286,27 @@ func (s *Session) readerLoop(ctx context.Context, handle func(context.Context, E
 			return errors.New("websocket read failed")
 		}
 
-		if msgType != websocket.MessageText {
-			_ = s.Close()
-			return errors.New("binary frames are not allowed")
+		var envelope Envelope
+		var health *Health
+		decode := func(at time.Time) (*bool, error) {
+			receivedAt = at
+			envelope, health, err = s.decodeIncoming(msgType, data)
+			if err != nil || health == nil {
+				return nil, err
+			}
+			healthy := health.Ready && health.DBWritable && (health.Role == "hub" || health.SchedulerHealthy != nil && *health.SchedulerHealthy)
+			return &healthy, nil
 		}
-
-		envelope, err := DecodeEnvelope(data)
+		if admission != nil {
+			// Clock capture and the watchdog's tick reservation share this
+			// bounded validation gate. Close and all worker callbacks stay outside.
+			err = admission.Admit(int64(s.cfg.Generation), decode)
+		} else {
+			_, err = decode(receivedAt)
+		}
 		if err != nil {
 			_ = s.Close()
-			return errors.New("invalid incoming frame")
-		}
-
-		if envelope.ConnectionGeneration != s.cfg.Generation {
-			_ = s.Close()
-			return errors.New("incoming frame connection generation mismatch")
-		}
-
-		if isHandshakeOrEnrollment(envelope.Type) {
-			_ = s.Close()
-			return errors.New("handshake and enrollment frames are forbidden during established session")
-		}
-
-		var health *Health
-		if envelope.Type == "health" {
-			_, decoded, err := DecodeHealth(data)
-			if err != nil {
-				_ = s.Close()
-				return errors.New("invalid health frame payload")
-			}
-			if decoded.Role != s.cfg.PeerRole {
-				_ = s.Close()
-				return errors.New("health peer role mismatch")
-			}
-			health = &decoded
+			return err
 		}
 
 		handlerTimeout := s.handlerTimeout
@@ -328,6 +322,33 @@ func (s *Session) readerLoop(ctx context.Context, handle func(context.Context, E
 			return fmt.Errorf("handler failed: %w", err)
 		}
 	}
+}
+
+func (s *Session) decodeIncoming(msgType websocket.MessageType, data []byte) (Envelope, *Health, error) {
+	if msgType != websocket.MessageText {
+		return Envelope{}, nil, errors.New("binary frames are not allowed")
+	}
+	envelope, err := DecodeEnvelope(data)
+	if err != nil {
+		return Envelope{}, nil, errors.New("invalid incoming frame")
+	}
+	if envelope.ConnectionGeneration != s.cfg.Generation {
+		return Envelope{}, nil, errors.New("incoming frame connection generation mismatch")
+	}
+	if isHandshakeOrEnrollment(envelope.Type) {
+		return Envelope{}, nil, errors.New("handshake and enrollment frames are forbidden during established session")
+	}
+	if envelope.Type != "health" {
+		return envelope, nil, nil
+	}
+	_, health, err := DecodeHealth(data)
+	if err != nil {
+		return Envelope{}, nil, errors.New("invalid health frame payload")
+	}
+	if health.Role != s.cfg.PeerRole {
+		return Envelope{}, nil, errors.New("health peer role mismatch")
+	}
+	return envelope, &health, nil
 }
 
 func (s *Session) writerLoop(ctx context.Context) error {

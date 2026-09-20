@@ -444,6 +444,18 @@ func Run(cfg Config) error {
 		}
 		connector.SetReplayIngest(replay)
 		connector.SetConfigSync(repo.NewRemoteProbeConfigSyncStore(db, probe.RemoteConfigEncoder{}, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector))
+		watchdogStore := repo.NewProbeWatchdogStore(db, protector, probe.EdgeTelemetryEncoder{})
+		if err := connector.SetWatchdogFactory(func(ctx context.Context, owner domain.ProbeRuntimeLease) (*services.ProbeWatchdogRuntime, error) {
+			connection, err := connections.GetConnection(ctx, owner.ProbeID)
+			if err != nil {
+				return nil, err
+			}
+			authority := domain.ProbeWatchdogAuthority{HubID: installationHubID, ProbeID: owner.ProbeID, StreamID: connection.StreamID, RuntimeOwner: owner}
+			reader := repo.NewProbeWatchdogConfigReader(watchdogStore, authority, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get))
+			return services.NewProbeWatchdogRuntime(watchdogStore, reader, func(context.Context) (domain.ProbeWatchdogAuthority, error) { return authority, nil }, "probe")
+		}); err != nil {
+			return err
+		}
 		connectorDone = make(chan struct{})
 		go func() {
 			defer close(connectorDone)

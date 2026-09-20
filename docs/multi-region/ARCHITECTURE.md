@@ -264,7 +264,9 @@ no incident event; recovery preserves prior ACK metadata and creates send work
 only with a new resolution transition. A last resolved identity may remain while
 unarmed; incident status determines whether it is open. Existing regional data,
 telemetry bytes and leases survive the transactionally rebuilt edge tables.
-This storage is not wired to a running watchdog yet. The enabled-config guard
+The source controller and long-lived runtime are now wired in both composition
+roots; see `M3_WATCHDOG_RUNTIME_ACCEPTANCE.md`. Provider reconciliation and
+watchdog mirror authorization remain required. The enabled-config guard
 remains until hub mirroring, source ownership, settings and runtime/provider
 integration are complete; see [source acceptance](M3_WATCHDOG_SOURCE_ACCEPTANCE.md).
 
@@ -548,7 +550,7 @@ Require TLS 1.3 for the probe transport. Persist TLS keys and identity across co
 
 ### 9.3 Connection and credential fencing
 
-A hub worker acquires a runtime DB lease with a 60-second TTL and refreshes every 15 seconds. Migration 058 retains its epoch through reconnect attempts and backoff; each socket additionally gets an independent session generation. Child deadlines cannot exceed current parent authority. Parent release or takeover invalidates its child session atomically, and renewal cannot shorten an existing parent deadline after a backward DB clock step. Watchdog integration must keep the timer with this stable runtime owner and use process-monotonic elapsed time, not DB wall-time subtraction. Source watchdog checkpoint/incident/delivery integration is still required.
+A hub worker acquires a runtime DB lease with a 60-second TTL and refreshes every 15 seconds. Migration 058 retains its epoch through reconnect attempts and backoff; each socket additionally gets an independent session generation. Child deadlines cannot exceed current parent authority. Parent release or takeover invalidates its child session atomically, and renewal cannot shorten an existing parent deadline after a backward DB clock step. The watchdog runtime keeps its timer with this stable owner and uses process-monotonic elapsed time. Only a successful source checkpoint/incident/outbox commit publishes a timer proposal and advances durable progress; a successful unarmed read may advance startup progress before first config. Renewal stops when that progress is stale, and the owner joins its session/watchdog before release. Provider reconciliation and watchdog mirror authorization remain required before enabled config is accepted.
 
 First enrollment uses the separate one-use operator exchange after revalidating the immutable prepared credential and enabled registration. It must remain possible while runtime workers are waiting for that enrollment.
 

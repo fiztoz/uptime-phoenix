@@ -35,11 +35,20 @@ type EdgeRuntime struct {
 	health      func(context.Context) (Health, error)
 	replayRepo  ports.EdgeReplayRepository
 	stateRepo   ports.EdgeStateRepository
+	watchdog    *services.ProbeWatchdogRuntime
 	mu          sync.Mutex
 	closed      bool
 	active      *Session
 	connections map[*websocket.Conn]context.CancelFunc
 	handlers    sync.WaitGroup
+}
+
+// SetWatchdog attaches the long-lived source owner before accepting sessions.
+// The composition root runs it independently of individual socket lifetimes.
+func (r *EdgeRuntime) SetWatchdog(watchdog *services.ProbeWatchdogRuntime) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.watchdog = watchdog
 }
 
 // SetReplayRepository configures the edge replay repository before accepting sessions.
@@ -145,6 +154,15 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 		_ = session.Close()
 		return ErrHandshakeGeneration
 	}
+	watchdog := r.watchdog
+	if watchdog != nil {
+		if err := watchdog.Begin(int64(welcome.ConnectionGeneration)); err != nil {
+			r.mu.Unlock()
+			_ = session.Close()
+			return ErrHandshakeGeneration
+		}
+		defer watchdog.End(int64(welcome.ConnectionGeneration))
+	}
 	previous := r.active
 	r.active = session
 	r.mu.Unlock()
@@ -202,7 +220,11 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 			transfer.Discard()
 		}
 	}()
-	err = session.RunWithHealth(establishedCtx, func(frameCtx context.Context, envelope Envelope) error {
+	var admission ports.ProbeHealthAdmission
+	if watchdog != nil {
+		admission = watchdog
+	}
+	err = session.RunWithHealthAdmission(establishedCtx, func(frameCtx context.Context, envelope Envelope) error {
 		if transfer != nil && !time.Now().Before(deadline) {
 			transfer.Discard()
 			transfer = nil
@@ -311,7 +333,7 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 			pump.updateHubHealth(sample.Health)
 		}
 		return nil
-	})
+	}, admission)
 	end()
 	<-healthDone
 	<-replayDone

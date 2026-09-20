@@ -6,12 +6,13 @@ import (
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
+	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
 // withRuntime keeps stable ownership across all reconnect attempts and backoff.
 // It cancels and joins the action before releasing authority. Watchdog state will
 // belong to this scope, not to connectOnce or a connection-generation callback.
-func (s *ProbeConnectorService) withRuntime(ctx context.Context, probeID string, action func(context.Context, domain.ProbeRuntimeLease) error) error {
+func (s *ProbeConnectorService) withRuntime(ctx context.Context, probeID string, action func(context.Context, domain.ProbeRuntimeLease, *ProbeWatchdogRuntime) error) error {
 	acquireCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	lease, err := s.runtimes.AcquireRuntime(acquireCtx, probeID, s.ownerID)
 	cancel()
@@ -25,6 +26,25 @@ func (s *ProbeConnectorService) withRuntime(ctx context.Context, probeID string,
 	}()
 	ownedCtx, stop := context.WithCancel(ctx)
 	defer stop()
+	var watchdog *ProbeWatchdogRuntime
+	if s.watchdogFactory != nil {
+		setupCtx, cancel := context.WithTimeout(ownedCtx, 5*time.Second)
+		watchdog, err = s.watchdogFactory(setupCtx, lease)
+		cancel()
+		if err != nil {
+			return err
+		}
+		if watchdog == nil {
+			return domain.ErrValidation
+		}
+	}
+	watchdogDone := make(chan struct{})
+	var watchdogErr error
+	if watchdog != nil {
+		go func() { defer close(watchdogDone); watchdogErr = watchdog.Run(ownedCtx, nil); stop() }()
+	} else {
+		close(watchdogDone)
+	}
 	renewed := make(chan struct{})
 	var renewErr error // Read only after joining the renewal goroutine.
 	go func() {
@@ -36,6 +56,11 @@ func (s *ProbeConnectorService) withRuntime(ctx context.Context, probeID string,
 			case <-ownedCtx.Done():
 				return
 			case <-ticker.C:
+			}
+			if watchdog != nil && !watchdog.ProgressHealthy() {
+				renewErr = ports.ErrConflict
+				stop()
+				return
 			}
 			checkCtx, cancel := context.WithTimeout(ownedCtx, 5*time.Second)
 			_, err := s.runtimes.RenewRuntime(checkCtx, lease)
@@ -52,11 +77,15 @@ func (s *ProbeConnectorService) withRuntime(ctx context.Context, probeID string,
 			}
 		}
 	}()
-	err = action(ownedCtx, lease)
+	err = action(ownedCtx, lease, watchdog)
 	stop()
 	<-renewed
+	<-watchdogDone
 	if renewErr != nil {
 		return renewErr
+	}
+	if watchdogErr != nil && !errors.Is(watchdogErr, context.Canceled) {
+		return watchdogErr
 	}
 	return err
 }

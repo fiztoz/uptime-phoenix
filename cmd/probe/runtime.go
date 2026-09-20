@@ -16,6 +16,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/edge"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/scheduler"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
+	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
@@ -26,6 +27,19 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 	recording := services.NewEdgeRecordingService(store, store, cron)
 	schedule := scheduler.NewEdgeScheduler(configs, recording, checker.Get, cron)
 	delivery := services.NewEdgeDeliveryService(store, configs, store, cron, notifier.Get)
+	watchdog, err := services.NewProbeWatchdogRuntime(store, configs, func(ctx context.Context) (domain.ProbeWatchdogAuthority, error) {
+		i, err := store.ReadIdentity(ctx)
+		if err != nil {
+			return domain.ProbeWatchdogAuthority{}, err
+		}
+		if i.HubID == "" {
+			return domain.ProbeWatchdogAuthority{}, ports.ErrNotFound
+		}
+		return domain.ProbeWatchdogAuthority{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID}, nil
+	}, "hub")
+	if err != nil {
+		return err
+	}
 	diagnostic := func(ctx context.Context) (probe.Health, error) {
 		state, err := store.ReadDiagnostics(ctx)
 		if err != nil {
@@ -69,6 +83,7 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 	}
 	runtime.SetReplayRepository(store)
 	runtime.SetStateRepository(store)
+	runtime.SetWatchdog(watchdog)
 	defer func() { _ = runtime.Close() }()
 	handler, err := probe.NewEdgeHTTPHandler(identity, enrollment, runtime.Handle, func(ctx context.Context) probe.EdgeReadiness {
 		h, err := diagnostic(ctx)
@@ -86,11 +101,12 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 		return errors.New("probe listener unavailable")
 	}
 	var workers sync.WaitGroup
-	workers.Add(4)
-	failures := make(chan error, 2)
+	workers.Add(5)
+	failures := make(chan error, 3)
 	report := func(error) { slog.Warn("probe local operation failed; retry pending") }
 	go func() { defer workers.Done(); failures <- schedule.Run(runCtx, report) }()
 	go func() { defer workers.Done(); delivery.Run(runCtx, identity.ProbeID, report) }()
+	go func() { defer workers.Done(); failures <- watchdog.Run(runCtx, report) }()
 	go func() {
 		defer workers.Done()
 		ticker := time.NewTicker(time.Minute)

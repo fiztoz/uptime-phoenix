@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
 // HealthReceipt retains validated session identity and the local monotonic read
@@ -22,6 +24,13 @@ type HealthReceipt struct {
 // but each lane has one worker. Overload closes the session rather than silently
 // dropping or coalescing health samples. All callbacks are joined before return.
 func (s *Session) RunWithHealth(ctx context.Context, handle func(context.Context, Envelope) error, health func(context.Context, HealthReceipt) error) error {
+	return s.RunWithHealthAdmission(ctx, handle, health, nil)
+}
+
+// RunWithHealthAdmission additionally orders validated application-health receipt
+// with a long-lived watchdog owner. Admission performs no I/O; ordinary callbacks
+// retain the separate bounded worker lanes. Nil preserves transport-only behavior.
+func (s *Session) RunWithHealthAdmission(ctx context.Context, handle func(context.Context, Envelope) error, health func(context.Context, HealthReceipt) error, admission ports.ProbeHealthAdmission) error {
 	if handle == nil || health == nil {
 		return errors.New("frame and health handlers are required")
 	}
@@ -69,7 +78,7 @@ func (s *Session) RunWithHealth(ctx context.Context, handle func(context.Context
 			return s.callIncoming(ctx, func(ctx context.Context) error { return health(ctx, sample) })
 		}
 	})
-	err := s.run(runCtx, func(ctx context.Context, e Envelope, receivedAt time.Time, validated *Health) error {
+	err := s.runAdmission(runCtx, func(ctx context.Context, e Envelope, receivedAt time.Time, validated *Health) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -92,7 +101,7 @@ func (s *Session) RunWithHealth(ctx context.Context, handle func(context.Context
 		default:
 			return errors.New("incoming frame queue full")
 		}
-	})
+	}, admission)
 	cancel()
 	workers.Wait()
 	select {

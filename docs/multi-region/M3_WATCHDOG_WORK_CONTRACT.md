@@ -298,3 +298,56 @@ handler. Neither belongs inside an inbox gate: WebSocket close can perform netwo
 I/O, and external handlers can block. Keep the gate around adapter-owned bounded
 validation/queue operations only; close/revoke after releasing it. Preserve the
 legacy serial Run contract separately from the watchdog admission path.
+
+
+### Source runtime increment and next provider/replay boundary
+
+`ProbeWatchdogSource` and `ProbeWatchdogRuntime` now implement the ordered source
+controller and are wired in both composition roots. The source only adopts a
+proposed timer after a successful checkpoint/incident/outbox commit. The hub uses
+`ProbeWatchdogConfigReader` for its exact applied graph. See
+[M3_WATCHDOG_RUNTIME_ACCEPTANCE.md](M3_WATCHDOG_RUNTIME_ACCEPTANCE.md) for the
+current evidence and limits. Enabled config remains guarded; operational provider
+and mirror-replay work is not accepted by this runtime increment.
+
+Trace these concrete seams before continuing:
+
+- `EdgeDeliveryService.process` currently finds an active monitor assignment for
+  every claimed item. A watchdog has no monitor and would be superseded. Introduce
+  explicit watchdog reconciliation before that monitor path, with current applied
+  settings/channel membership/version, the source incident transition and claim
+  authority. Keep monitor behavior and maintenance semantics unchanged. Probe
+  watchdogs must not inherit arbitrary monitor maintenance suppression.
+- The hub's existing `DeliveryOutboxConsumer` is designed for local monitor work;
+  its assignment and `LocalAppliedConfigReader` checks cannot authorize remote
+  probe watchdogs. Wire source delivery with the same stable parent owner as the
+  hub watchdog. Claim authority alone does not establish runtime ownership.
+- A source owner must recheck delivery/config/incident authority immediately before
+  bounded provider I/O; hub DB authority must cover that I/O deadline. ACK, disable,
+  removed/rotated channels and a replaced owner must suppress stale DOWN work.
+  Recovery remains eligible after ACK, with the original source identity. Do not
+  claim exactly-once external sends across the provider-acceptance/crash window.
+- Extend `AlertContext` with explicit probe name/location/source ID and probe scope.
+  Preserve numeric monitor/group `alert.id`; use a UUID string for probe identity.
+  Implement the designed `alert.delivery_scope`, `alert.source_id`, `probe.id`,
+  `probe.name` and `probe.location` variables. The default webhook must carry a
+  probe object without a fabricated monitor, and all eleven built-in senders need
+  useful probe-connection titles/bodies. SMTP/Teams/Feishu have additional hardcoded
+  monitor labels beyond `alert_format.go`.
+- `ProbeReplayStore.replayFacts` currently exits for nonpositive MonitorID, and
+  delivery parent receipts require non-null monitor/generation. `AccessService`
+  currently recognizes only availability transitions and their delivery outcomes.
+  Extend facts and that single authorization service for watchdog events. Preserve
+  source/mirror ownership and validate historical authorized config, transition
+  identity/version and delivery channel membership without creating hub send work.
+- A watchdog resend may use a newer notification/config version while referencing
+  the original incident transition. Load its channel authority from the delivery's
+  `NotificationVersion`; do not incorrectly require it to equal the opening
+  transition's config revision. Keep the immutable transition parent identity.
+- Enabling a snapshot requires the real `watchdog.v1` capability and probe metadata;
+  capability inventory, config encoder, decoder, replay and both delivery owners
+  must agree before removing the current enabled-runtime guard.
+
+These are traced requirements for the next implementation, not completed behavior.
+Codex retains source ownership. Antigravity owns no files and its audits do not
+substitute for real engine, process or provider effect assertions.

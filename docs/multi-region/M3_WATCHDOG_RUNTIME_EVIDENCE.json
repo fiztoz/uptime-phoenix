@@ -1,0 +1,214 @@
+{
+  "base_commit": "e3757bdf933a90b8b254e69b86558dd1fcaaea5d",
+  "source_sha256": {
+    "cmd/probe/runtime.go": "819449e7c1bbcd497a47c8f81dce1fb2c1c05e4b88ef14b147dbb1d67879e3d0",
+    "internal/adapters/probe/hub_transport.go": "e089da1549e74115c0fe9b56b0a0401d697c29ec22f6ce21b6b5d44f0ee48d7a",
+    "internal/adapters/probe/runtime_session.go": "5675c186549269d16c52425917ee74791a394a615e61cb07637fb96608fd4530",
+    "internal/adapters/probe/session.go": "84502f337e19d1512f15f7ea2c3eb8fa1170243f4e8891f02703cd2a81808fc1",
+    "internal/adapters/probe/session_health.go": "36d10a95f4430d3b071180395f2ec359b496ab751ca716147d9e0afd2c01a52b",
+    "internal/adapters/probe/session_watchdog_test.go": "4caab167bcf124a33a5d4a8367588ece2dc4b8248ad4cf145ea2a87e5e003343",
+    "internal/adapters/repository/probe_watchdog_config.go": "8fc5e7aca2a29d8dcea2ea52b0388bb16cfb1eed4d8f92d223df308b4fe556a4",
+    "internal/adapters/repository/probe_watchdog_config_test.go": "7fb0be3b8f7b268222df536030637fa5b2229a8af6ed73e4a1f9b7058ac87ea9",
+    "internal/bootstrap/run.go": "d2f24053ec133e614adc584dcfe65f63a43584e5c70f067305446c3cd68f1225",
+    "internal/core/ports/probe_connection.go": "fa8c741293b101dfeb5ccbc71b978b4ebb71c414e5c66a54ef5e2359f07f3c2c",
+    "internal/core/ports/probe_watchdog.go": "05a7bd608f5364af9005a732a209a59ae821ee2677b4740d2934619e8499de6c",
+    "internal/core/services/probe_connector_runtime.go": "500dfadce315627d6bd2da62d69787bed438350f90a58c359ce03c0e2996dd4e",
+    "internal/core/services/probe_connector_service.go": "a6997cc83bb5f23a97a73d0efb718bb378e6a949c3ea6a402ebf48cffc4e9884",
+    "internal/core/services/probe_connector_service_test.go": "62cea13a373bf560a0398c4d2d96e878b847ad4213e4fa3db4c023b094705b60",
+    "internal/core/services/probe_watchdog_runtime.go": "1e14f315f5374e762c709199973a6e7c92405bef5fe214a2bb9e21029abefcac",
+    "internal/core/services/probe_watchdog_runtime_test.go": "dc783ce2560b00ac4c4797d0cbc891f6318283c46ce1d034ed0ed16db8355b4a",
+    "internal/core/services/probe_watchdog_source.go": "df48eda5b186bd2791906416f1e10b742f1fd65a6904f01943463485c627fffe",
+    "internal/core/services/probe_watchdog_source_test.go": "b75bb5e83f70a15b1397f663c0f747b617041400ff30d7ed32abefddd9a922f9"
+  },
+  "commands_executed": [
+    "GOTOOLCHAIN=go1.26.6 go test -race -count=1 -timeout=20m -json ./... (TEST_MARIADB_DSN supplied for disposable MariaDB)",
+    "CGO_ENABLED=0 go build ./...",
+    "golangci-lint run",
+    "scripts/probe_runtime_smoke.py --verify-replay --verify-history (current app/probe/admin binaries; distinct disposable MariaDB schema)",
+    "git diff --check"
+  ],
+  "counts": {
+    "package_skip": 13,
+    "test_pass": 3217,
+    "package_pass": 22,
+    "mariadb_named_pass": 235,
+    "mariadb_engine_subtest_pass": 198,
+    "test_skip": 2
+  },
+  "count_note": "Named pass events include parent tests and tests whose name mentions a MariaDB regression even when exercising SQLite. The slash-mariadb count separately records lowercase engine subtests. Neither is a count of independent scenarios. Named required config-reader MariaDB cases all passed.",
+  "named_skips": [
+    {
+      "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/checker",
+      "test": "TestDatabaseChecker_Check_MongoDB_RealServer"
+    },
+    {
+      "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier",
+      "test": "TestTelegramSender_Send_DownSeverity"
+    }
+  ],
+  "runtime_test_pass_events": [
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogRuntimeOrdersAdmissionAndTicks",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogRuntimeGenerationOverflowAndLateClose",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogRuntimeProgressRequiresCommitAndAdmissionDoesNotWaitForDB",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogRuntimeMissingConfigOnlyAllowsUnarmedStartup",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogRuntimeEnrollmentDoesNotBackdateArming",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeConnectorWatchdogStallCancelsAndJoinsBeforeRelease",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogSourceLifecycleAndACK",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogSourceRejectedHealthCannotRecover",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogSourceOpeningRetryAndConcurrentACK",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogSourceDisableRestartAndClockRollback",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogSourceRestartRetainsMeasuredLoss",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/probe:TestSessionWatchdogAdmitsValidatedHealthBeforeBlockedWorkers/hub",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/probe:TestSessionWatchdogAdmitsValidatedHealthBeforeBlockedWorkers/probe",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/probe:TestSessionWatchdogAdmitsValidatedHealthBeforeBlockedWorkers",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/probe:TestSessionWatchdogRejectsInvalidHealthBeforeAdmission/role",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/probe:TestSessionWatchdogRejectsInvalidHealthBeforeAdmission/generation",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/probe:TestSessionWatchdogRejectsInvalidHealthBeforeAdmission",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestHubWatchdogAppliedConfigReader/sqlite/ColdAppliedGraphBeforePreparedGraph",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestHubWatchdogAppliedConfigReader/sqlite/AuthorityAndHashFences",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestHubWatchdogAppliedConfigReader/sqlite/RegistrationAndExpiredOwner",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestHubWatchdogAppliedConfigReader/sqlite",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestHubWatchdogAppliedConfigReader/mariadb/ColdAppliedGraphBeforePreparedGraph",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestHubWatchdogAppliedConfigReader/mariadb/AuthorityAndHashFences",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestHubWatchdogAppliedConfigReader/mariadb/RegistrationAndExpiredOwner",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestHubWatchdogAppliedConfigReader/mariadb",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestHubWatchdogAppliedConfigReader"
+  ],
+  "full_race_log": "/private/tmp/phoenix-m3-watchdog-runtime-full.jsonl",
+  "full_race_sha256": "9cf417c56a3b5300e3b8642ad8271a429230fba5064c09a5746c5f6e053de79f",
+  "process_report": "/private/tmp/phoenix-m3-watchdog-runtime-process-acceptance/report.json",
+  "process_report_sha256": "6cb9a1f1a6fde326180f6575d5d76fe155f195b829b5d0a5bebb5929e837e104",
+  "process": {
+    "passed": [
+      "TLS-only edge starts without hub",
+      "duplicate data-directory owner rejected; hub routes absent",
+      "hub API ready",
+      "background worker owns the not-yet-enrolled runtime",
+      "operator enrollment succeeds with background connectors already running",
+      "real hub connector activates accepted config",
+      "edge records healthy checks",
+      "hub durably records exact applied receipt",
+      "saved API edit automatically reaches edge",
+      "new desired revision has durable applied receipt",
+      "live telemetry reaches a durable hub and edge cursor",
+      "closed edge session releases its connection fence",
+      "edge reconnect advances session within the same runtime owner",
+      "two hub workers preserve runtime ownership across an edge restart",
+      "two hub workers retain one fenced management session",
+      "offline DOWN and provider retry persist atomically",
+      "pending provider intent resumes after offline process restart",
+      "offline UP resolves the same incident and sends recovery",
+      "offline mixed telemetry survives restart and provider recovery",
+      "reconnection advances fence without resetting source sequence",
+      "reconnected workers commit the full offline telemetry prefix",
+      "replay mirrors observations and outcomes without hub provider work",
+      "cold restart resumes beyond the acknowledged backlog",
+      "production workers recompute closed regional and overall history after restart",
+      "reconnection preserves stream, accepted config and delivery history"
+    ],
+    "identity": {
+      "probe_id": "48e09359-6406-495e-a582-a7daed4e1354",
+      "stream_id": "eaac6625-7acf-42cf-a473-ee3ce35f6134",
+      "certificate_fingerprint": "9c38537df1933f677058efe141e87cd605d23cc45ddfdb881864141769abd932",
+      "last_created_seq": "0",
+      "config_revision": "0",
+      "expires_at": "2026-09-20T15:16:13.676322Z"
+    },
+    "before_restart": {
+      "probe_id": "48e09359-6406-495e-a582-a7daed4e1354",
+      "stream_id": "eaac6625-7acf-42cf-a473-ee3ce35f6134",
+      "last_created_seq": 31,
+      "committed_seq": 27,
+      "config_revision": 2,
+      "connection_generation": 4
+    },
+    "final": {
+      "probe_id": "48e09359-6406-495e-a582-a7daed4e1354",
+      "stream_id": "eaac6625-7acf-42cf-a473-ee3ce35f6134",
+      "last_created_seq": 51,
+      "committed_seq": 51,
+      "config_revision": 2,
+      "connection_generation": 6
+    },
+    "incident": "3c27e1eb-dd88-41c6-a2c7-23d963cd545a",
+    "provider_attempt_statuses": [
+      503,
+      200,
+      200
+    ],
+    "successful_webhook_statuses": [
+      0,
+      1
+    ],
+    "replay_verified": true,
+    "replay": {
+      "offline_high_water": 48,
+      "offline_backlog_count": 21,
+      "mirrored_observation_sequences": [
+        28,
+        29,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        46
+      ],
+      "mirrored_incidents": [
+        {
+          "id": "3c27e1eb-dd88-41c6-a2c7-23d963cd545a",
+          "status": "resolved"
+        }
+      ],
+      "mirrored_delivery_outcomes": [
+        {
+          "id": "69405c73-3962-4fab-a246-624b53c27969",
+          "status": "sent"
+        },
+        {
+          "id": "9b8b970d-e8e6-444a-b59f-78c5dcb1a5db",
+          "status": "sent"
+        }
+      ],
+      "hub_send_intents": 0,
+      "hub_cursor": 49,
+      "edge_cursor": 49
+    },
+    "history_verified": true,
+    "history": {
+      "total_checks": 32,
+      "known_us": 41302996,
+      "unknown_us": 3057382,
+      "managed": 1,
+      "bucket_utc_epoch": 1789916760,
+      "source_observations": 32,
+      "overall_coverage_us": 60000000,
+      "pending_minute_work": 0
+    },
+    "runtime_ownership": {
+      "epoch": 1,
+      "generation_before": 3,
+      "generation_after": 4,
+      "stable_across_backoff": true
+    }
+  },
+  "build_exit": 0,
+  "lint_issues": 0,
+  "audit_conversation": "f80be51b-d830-4ec7-84a9-c023909851f7",
+  "audit_note": "Read-only pasted-source review; all six initial findings withdrawn after adapter evidence and tests. No repository ownership. Review is not acceptance evidence.",
+  "limits": [
+    "Enabled watchdog guard retained",
+    "No enabled watchdog paging/provider/mirror replay acceptance",
+    "Short process partition, not final fifteen-minute acceptance",
+    "Commands/offline ACK, rotations/reset and bounded shutdown acceptance remain",
+    "No frontend/Helm changes; their final whole-M3 gate remains"
+  ]
+}

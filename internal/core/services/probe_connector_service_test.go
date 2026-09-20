@@ -78,8 +78,8 @@ func (f *connectorLeases) AcquireRuntimeConnector(ctx context.Context, lease dom
 }
 
 func connectorTestOnce(s *ProbeConnectorService, ctx context.Context, probeID string) error {
-	return s.withRuntime(ctx, probeID, func(ctx context.Context, lease domain.ProbeRuntimeLease) error {
-		_, err := s.connectOnce(ctx, lease)
+	return s.withRuntime(ctx, probeID, func(ctx context.Context, lease domain.ProbeRuntimeLease, watchdog *ProbeWatchdogRuntime) error {
+		_, err := s.connectOnce(ctx, lease, watchdog)
 		return err
 	})
 }
@@ -367,7 +367,7 @@ func TestProbeConnectorRuntimeCompletionDoesNotBecomeCanceled(t *testing.T) {
 	svc.renewInterval = time.Millisecond
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	err := svc.withRuntime(ctx, "33333333-3333-4333-8333-333333333333", func(ctx context.Context, _ domain.ProbeRuntimeLease) error {
+	err := svc.withRuntime(ctx, "33333333-3333-4333-8333-333333333333", func(ctx context.Context, _ domain.ProbeRuntimeLease, _ *ProbeWatchdogRuntime) error {
 		select {
 		case <-started:
 			return nil

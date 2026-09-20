@@ -15,17 +15,30 @@ import (
 // ProbeConnectorService owns hub DB leases and confidential transport inputs.
 // A network session is canceled immediately when renewal fails.
 type ProbeConnectorService struct {
-	connections    ports.ProbeConnectionRepository
-	leases         ports.ProbeConnectorLeaseRepository
-	runtimes       ports.ProbeRuntimeLeaseRepository
-	renewInterval  time.Duration
-	protector      ports.ProbeCredentialProtector
-	configs        *ProbeConfigService
-	transport      ports.ProbeConnectionTransport
-	configSync     ports.RemoteProbeConfigSyncRepository
-	replayIngest   ports.ProbeReplayService
-	hubID, ownerID string
-	delay          func(int, time.Duration) time.Duration
+	connections     ports.ProbeConnectionRepository
+	leases          ports.ProbeConnectorLeaseRepository
+	runtimes        ports.ProbeRuntimeLeaseRepository
+	renewInterval   time.Duration
+	protector       ports.ProbeCredentialProtector
+	configs         *ProbeConfigService
+	transport       ports.ProbeConnectionTransport
+	configSync      ports.RemoteProbeConfigSyncRepository
+	replayIngest    ports.ProbeReplayService
+	watchdogFactory func(context.Context, domain.ProbeRuntimeLease) (*ProbeWatchdogRuntime, error)
+	hubID, ownerID  string
+	delay           func(int, time.Duration) time.Duration
+}
+
+// SetWatchdogFactory wires one source owner for each acquired runtime lease.
+// Configure before Run. A transport without admission support is rejected.
+func (s *ProbeConnectorService) SetWatchdogFactory(factory func(context.Context, domain.ProbeRuntimeLease) (*ProbeWatchdogRuntime, error)) error {
+	if factory != nil {
+		if _, ok := s.transport.(ports.ProbeWatchdogConnectionTransport); !ok {
+			return domain.ErrValidation
+		}
+	}
+	s.watchdogFactory = factory
+	return nil
 }
 
 // SetConfigSync enables automatic desired-state reconciliation and durable
@@ -170,8 +183,8 @@ func (s *ProbeConnectorService) Run(ctx context.Context, report func(error)) {
 
 func (s *ProbeConnectorService) connectLoop(ctx context.Context, probeID string, report func(error)) {
 	for ctx.Err() == nil {
-		err := s.withRuntime(ctx, probeID, func(ownedCtx context.Context, runtime domain.ProbeRuntimeLease) error {
-			s.ownedConnectLoop(ownedCtx, runtime, report)
+		err := s.withRuntime(ctx, probeID, func(ownedCtx context.Context, runtime domain.ProbeRuntimeLease, watchdog *ProbeWatchdogRuntime) error {
+			s.ownedConnectLoop(ownedCtx, runtime, watchdog, report)
 			return ownedCtx.Err()
 		})
 		if ctx.Err() != nil {
@@ -186,10 +199,10 @@ func (s *ProbeConnectorService) connectLoop(ctx context.Context, probeID string,
 	}
 }
 
-func (s *ProbeConnectorService) ownedConnectLoop(ctx context.Context, runtime domain.ProbeRuntimeLease, report func(error)) {
+func (s *ProbeConnectorService) ownedConnectLoop(ctx context.Context, runtime domain.ProbeRuntimeLease, watchdog *ProbeWatchdogRuntime, report func(error)) {
 	failures := 0
 	for ctx.Err() == nil {
-		healthy, err := s.connectOnce(ctx, runtime)
+		healthy, err := s.connectOnce(ctx, runtime, watchdog)
 		if ctx.Err() != nil {
 			return
 		}
@@ -211,7 +224,7 @@ func (s *ProbeConnectorService) ownedConnectLoop(ctx context.Context, runtime do
 	}
 }
 
-func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.ProbeRuntimeLease) (time.Duration, error) {
+func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.ProbeRuntimeLease, watchdog *ProbeWatchdogRuntime) (time.Duration, error) {
 	probeID := runtime.ProbeID
 	opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	lease, err := s.runtimes.AcquireRuntimeConnector(opCtx, runtime)
@@ -220,6 +233,12 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 		return 0, err
 	}
 	defer s.release(lease)
+	if watchdog != nil {
+		if err := watchdog.Begin(lease.Generation); err != nil {
+			return 0, err
+		}
+		defer watchdog.End(lease.Generation)
+	}
 	readCtx, stopRead := context.WithTimeout(ctx, 5*time.Second)
 	defer stopRead()
 	c, err := s.connections.GetConnection(readCtx, probeID)
@@ -295,7 +314,19 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 			return s.replayIngest.ProcessBatch(callbackCtx, replaySession, batch)
 		}
 	}
-	err = s.transport.Run(sessionCtx, domain.ProbeSessionInput{OwnerID: s.ownerID, Connection: c.ProbeCredentialMetadata, Token: token, Generation: lease.Generation, CommittedSeq: cursor, ConfigDocument: document}, func(callbackCtx context.Context) error {
+	run := s.transport.Run
+	if watchdog != nil {
+		aware, ok := s.transport.(ports.ProbeWatchdogConnectionTransport)
+		if !ok {
+			stop()
+			<-renewed
+			return 0, domain.ErrValidation
+		}
+		run = func(ctx context.Context, input domain.ProbeSessionInput, established func(context.Context) error, applied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
+			return aware.RunWithWatchdog(ctx, input, watchdog, established, applied, ingest)
+		}
+	}
+	err = run(sessionCtx, domain.ProbeSessionInput{OwnerID: s.ownerID, Connection: c.ProbeCredentialMetadata, Token: token, Generation: lease.Generation, CommittedSeq: cursor, ConfigDocument: document}, func(callbackCtx context.Context) error {
 		if err := s.leases.SetConnectorConnected(callbackCtx, lease, true); err != nil {
 			return err
 		}

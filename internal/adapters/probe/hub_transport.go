@@ -96,6 +96,12 @@ func (t *HubTransport) Enroll(ctx context.Context, m domain.ProbeCredentialMetad
 // Run validates the hello against trusted registration and the current lease,
 // then supervises health/config traffic until cancellation or a protocol failure.
 func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, established func(context.Context) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
+	return t.RunWithWatchdog(ctx, input, nil, established, recordApplied, ingest)
+}
+
+// RunWithWatchdog uses the current runtime's admission gate before independent
+// DB-bound callbacks. Nil admission preserves health/config/replay-only operation.
+func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSessionInput, admission ports.ProbeHealthAdmission, established func(context.Context) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
 	m := input.Connection
 	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil || t.stateIngest != nil && !domain.ValidHubID(input.OwnerID) {
 		return domain.ErrValidation
@@ -201,7 +207,7 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 	}
 	receiver := hubStateReceiver{ingest: t.stateIngest, session: domain.ProbeReplaySession{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: input.Generation, OwnerID: input.OwnerID}}
 	defer receiver.discard()
-	err = session.RunWithHealth(runCtx, func(frameCtx context.Context, envelope Envelope) error {
+	err = session.RunWithHealthAdmission(runCtx, func(frameCtx context.Context, envelope Envelope) error {
 		if receiver.transfer != nil && !time.Now().Before(receiver.transfer.deadline) {
 			receiver.discard()
 		}
@@ -283,7 +289,7 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 			wakeHealth()
 		}
 		return nil
-	})
+	}, admission)
 	stop()
 	senders.Wait()
 	if ctx.Err() != nil {
