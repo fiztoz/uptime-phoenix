@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -35,6 +36,28 @@ type Store struct {
 	retention    RetentionPolicy
 	commandNow   func() time.Time
 	certificates ports.EdgeCertificateMaterial
+	dataDir      string
+	resetMode    bool
+	resetProof   ports.EdgeStreamResetProtector
+	resetConfig  ports.ProbeConfigProtector
+	archiveIO    resetArchiveIO
+	resetMu      sync.Mutex
+}
+
+// WithStreamResetProtection authenticates current epochs against the immutable
+// bootstrap anchor. A reset journal cannot be opened without its original key.
+func WithStreamResetProtection(protector interface {
+	ports.EdgeStreamResetProtector
+	ports.ProbeConfigProtector
+}) Option {
+	return func(s *Store) error {
+		if protector == nil {
+			return domain.ErrValidation
+		}
+		s.resetProof = protector
+		s.resetConfig = protector
+		return nil
+	}
 }
 
 // WithCertificateMaterial enables protected local certificate command effects.
@@ -76,6 +99,17 @@ var (
 // Open initializes or reopens the private edge database and checks file identity.
 // It never initializes TLS identity or substitutes a new stream on mismatch.
 func Open(ctx context.Context, dataDir string, identity domain.EdgeIdentity, options ...Option) (*Store, error) {
+	return openStore(ctx, dataDir, identity, false, options...)
+}
+
+// OpenForStreamReset opens an existing store exclusively for stopped-source
+// recovery. The caller must also hold the runtime's OS directory lock. Normal
+// runtime writes are disabled, and SQLite excludes other database connections.
+func OpenForStreamReset(ctx context.Context, dataDir string, identity domain.EdgeIdentity, options ...Option) (*Store, error) {
+	return openStore(ctx, dataDir, identity, true, options...)
+}
+
+func openStore(ctx context.Context, dataDir string, identity domain.EdgeIdentity, resetMode bool, options ...Option) (*Store, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -95,6 +129,11 @@ func Open(ctx context.Context, dataDir string, identity domain.EdgeIdentity, opt
 		return nil, ErrStorage
 	}
 	defer func() { _ = root.Close() }()
+	if resetMode {
+		if _, err := root.Lstat("edge.db"); err != nil {
+			return nil, ErrStorage
+		}
+	}
 	for _, name := range []string{"edge.db", "edge.db-wal", "edge.db-shm", "edge.db-journal"} {
 		info, err := root.Lstat(name)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -114,6 +153,9 @@ func Open(ctx context.Context, dataDir string, identity domain.EdgeIdentity, opt
 	}
 	u := url.URL{Scheme: "file", Path: filepath.Join(abs, "edge.db")}
 	q := u.Query()
+	if resetMode {
+		q.Add("_pragma", "locking_mode(EXCLUSIVE)")
+	}
 	for _, pragma := range []string{"foreign_keys(1)", "journal_mode(WAL)", "busy_timeout(5000)", "synchronous(FULL)"} {
 		q.Add("_pragma", pragma)
 	}
@@ -124,7 +166,7 @@ func Open(ctx context.Context, dataDir string, identity domain.EdgeIdentity, opt
 	}
 	sqldb.SetMaxOpenConns(1)
 	sqldb.SetMaxIdleConns(1)
-	s := &Store{db: bun.NewDB(sqldb, sqlitedialect.New()), commandNow: time.Now}
+	s := &Store{db: bun.NewDB(sqldb, sqlitedialect.New()), commandNow: time.Now, dataDir: abs, resetMode: resetMode}
 	for _, option := range options {
 		if option == nil {
 			_ = s.Close()
@@ -177,7 +219,7 @@ func (s *Store) initialize(ctx context.Context, identity domain.EdgeIdentity) er
 	if _, err := m.Migrate(ctx); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, "INSERT INTO edge_identity (id, probe_id, stream_id, fingerprint) VALUES (1, ?, ?, ?) ON CONFLICT (id) DO NOTHING", identity.ProbeID, identity.StreamID, identity.Fingerprint)
+	_, err := s.db.ExecContext(ctx, "INSERT INTO edge_identity (id, probe_id, stream_id, initial_stream_id, fingerprint) VALUES (1, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING", identity.ProbeID, identity.StreamID, identity.StreamID, identity.Fingerprint)
 	if err != nil {
 		return err
 	}
@@ -185,10 +227,10 @@ func (s *Store) initialize(ctx context.Context, identity domain.EdgeIdentity) er
 	if err != nil {
 		return err
 	}
-	if stored.ProbeID != identity.ProbeID || stored.StreamID != identity.StreamID || stored.Fingerprint != identity.Fingerprint {
+	if stored.ProbeID != identity.ProbeID || stored.Fingerprint != identity.Fingerprint {
 		return ports.ErrConflict
 	}
-	return nil
+	return s.verifyStreamResetChain(ctx, identity, stored)
 }
 
 // ReadIdentity returns durable counters without reconstructing them from history.
@@ -209,6 +251,13 @@ func readIdentity(ctx context.Context, db bun.IDB) (domain.EdgeIdentity, error) 
 }
 
 func (s *Store) write(ctx context.Context, fn func(context.Context, bun.Tx, domain.EdgeIdentity) error) error {
+	if s.resetMode {
+		return ports.ErrConflict
+	}
+	return s.writeRecovery(ctx, fn)
+}
+
+func (s *Store) writeRecovery(ctx context.Context, fn func(context.Context, bun.Tx, domain.EdgeIdentity) error) error {
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		// Acquire the SQLite writer before any eligibility read.
 		if _, err := tx.ExecContext(ctx, "UPDATE edge_identity SET id = id WHERE id = 1"); err != nil {

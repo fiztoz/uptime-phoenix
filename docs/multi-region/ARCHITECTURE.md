@@ -307,8 +307,14 @@ See [hub certificate acceptance](M3_HUB_CERTIFICATE_ACCEPTANCE.md),
 [source runtime acceptance](M3_CERTIFICATE_RUNTIME_ACCEPTANCE.md) and
 [the certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md).
 
-Explicit stream reset and the broader
-fifteen-minute M3 scenario remain unfinished. Watchdog ACK remains unsupported
+Edge migration 009 implements the source storage half of explicit stream reset.
+A durable authenticated reservation blocks normal restart before a bounded SQLite
+archive is published and synced. Reset selects a new epoch only after preserving
+old evidence, and reseals active TLS material without changing pin/key or bootstrap
+files. Current identity is authenticated through a chain from the initial stream.
+See [source reset checkpoint](M3_SOURCE_RESET_ACCEPTANCE.md) and the
+[remaining hub/CLI contract](M3_STREAM_RESET_WORK_CONTRACT.md). Whole reset and the
+broader fifteen-minute M3 scenario remain unfinished. Watchdog ACK remains unsupported
 by the positive-assignment-generation regional command target.
 
 Send control health every 15 seconds. A link is suspect after 45 seconds without valid application health and disconnected after 90 seconds. Require 30 seconds of continuous valid health before a watchdog recovery notification. These are defaults, not sub-second promises.

@@ -82,7 +82,7 @@ func (m *EdgeTLSManager) reload(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if state.ActiveVersion < 1 || state.HighestVersion < state.ActiveVersion {
+	if state.ActiveVersion < 1 || state.HighestVersion < state.ActiveVersion || state.ProbeID != m.anchor.ProbeID || state.InitialStreamID != m.anchor.StreamID || !domain.ValidHubID(state.StreamID) {
 		return domain.ErrValidation
 	}
 	selected := &edgeTLSSelection{version: state.ActiveVersion}
@@ -93,7 +93,7 @@ func (m *EdgeTLSManager) reload(ctx context.Context) error {
 		selected.certificate, selected.fingerprint = m.anchor.Certificate, m.anchor.Fingerprint
 	} else {
 		c := state.Certificate
-		if c == nil || c.Version != state.ActiveVersion || c.ProbeID != m.anchor.ProbeID || c.StreamID != m.anchor.StreamID {
+		if c == nil || c.Version != state.ActiveVersion || c.ProbeID != state.ProbeID || c.StreamID != state.StreamID {
 			return domain.ErrValidation
 		}
 		selected.certificate, err = OpenEdgeCertificate(ctx, m.protector, *c, time.Now().UTC())

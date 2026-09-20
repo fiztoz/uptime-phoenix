@@ -102,7 +102,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = io.WriteString(stderr, "Probe certificate protection is unavailable\n")
 		return 1
 	}
-	store, err := edge.Open(ctx, identity.DataDir, domain.EdgeIdentity{ProbeID: identity.ProbeID, StreamID: identity.StreamID, Fingerprint: identity.Fingerprint}, edge.WithCertificateMaterial(material), edge.WithTelemetryEncoder(probe.EdgeTelemetryEncoder{}), edge.WithRetentionPolicy(edge.RetentionPolicy{MaxBytes: cfg.TelemetryMaxBytes, MaxAge: time.Duration(cfg.TelemetryRetentionHours) * time.Hour}))
+	store, err := edge.Open(ctx, identity.DataDir, domain.EdgeIdentity{ProbeID: identity.ProbeID, StreamID: identity.StreamID, Fingerprint: identity.Fingerprint}, edge.WithStreamResetProtection(protector), edge.WithCertificateMaterial(material), edge.WithTelemetryEncoder(probe.EdgeTelemetryEncoder{}), edge.WithRetentionPolicy(edge.RetentionPolicy{MaxBytes: cfg.TelemetryMaxBytes, MaxAge: time.Duration(cfg.TelemetryRetentionHours) * time.Hour}))
 	if err != nil {
 		_, _ = io.WriteString(stderr, "Probe storage could not be opened\n")
 		return 1
@@ -148,7 +148,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		Revision        probe.Decimal `json:"config_revision"`
 		EnrollmentToken string        `json:"enrollment_token,omitempty"`
 		ExpiresAt       *time.Time    `json:"expires_at,omitempty"`
-	}{ProbeID: identity.ProbeID, StreamID: identity.StreamID, Fingerprint: fingerprint, HubID: progress.HubID, Sequence: probe.Decimal(progress.LastCreatedSeq), Revision: probe.Decimal(progress.ConfigRevision)}
+	}{ProbeID: progress.ProbeID, StreamID: progress.StreamID, Fingerprint: fingerprint, HubID: progress.HubID, Sequence: probe.Decimal(progress.LastCreatedSeq), Revision: probe.Decimal(progress.ConfigRevision)}
 	if args[0] == "init" || args[0] == "token" {
 		at := time.Now().UTC()
 		token, err := enrollment.Issue(ctx, at)

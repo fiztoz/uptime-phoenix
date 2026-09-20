@@ -122,3 +122,50 @@ archive-before-reset as the direction to prove. Correct its table-name typo,
 lease-renewal assumptions, premature completion language and omission of the TLS
 manager's bootstrap/current-stream comparison. Neither its prose nor this contract
 is evidence of working reset code. No project rules or settings were changed.
+
+## Source checkpoint and next hub integration
+
+The stopped-source implementation and targeted verification are recorded in
+[source reset acceptance](M3_SOURCE_RESET_ACCEPTANCE.md). Check its final gate
+ledger before treating that checkpoint as committed. Hub integration and both
+CLI adapters remain unfinished. Source migration 009 is occupied; inspect both hub
+migration directories before reserving 064.
+
+Implementation preserves a durable `prepared` source reservation before backup.
+This metadata write changes no epoch or evidence; normal startup refuses it.
+Recovery retries can therefore reuse an archive without intervening runtime writes.
+The archive database and authenticated manifest publish together as a directory.
+On reuse, integrity verification is followed by file/directory sync again; a prior
+failed sync cannot be inferred from visibility. See the reproduced
+[durability retrospective](M3_SOURCE_RESET_RETROSPECTIVE.md).
+
+The next hub step must follow the actual shared paths:
+
+- `probe_connections` permits only `prepared`/`active`. Keep reset phase in a
+  separate immutable operation record, rather than accidentally treating hub
+  reset preparation as unfinished enrollment.
+- Preparation must serialize with `runConfigAuthorityTx` and the existing
+  probe-before-dependent-row lock order. Revoke `probe_runtime_owners` and
+  `probe_sessions` authority; renewals do not compare stream IDs by themselves.
+  Gate `AcquireRuntime`, `AcquireRuntimeConnector`, legacy acquisition,
+  `ListConnections`, command issuance and `lockProbeSession` while prepared.
+- Activation must authenticate/reseal the original token, retain old
+  `probe_streams` and historical receipts, start the new cursor at zero, invalidate
+  stale current/auxiliary projection, and mark old pending commands locally
+  unconfirmed. The source's explicit public receipt is an operator-supplied
+  statement; only authenticated new-stream admission confirms peer recovery.
+- The connector's `established` callback runs after validated source health.
+  Trace both credential and certificate confirmation there before recording
+  reset completion. `SetConnectorConnected` alone is not operation completion.
+- Config AAD/receipts omit stream and can be retained, but their assignment and
+  session eligibility must be rechecked. `probe_missing_state` already supplies
+  a no-observation UNKNOWN barrier; do not invent a recovery event to clear UI.
+- The stopped-source CLI must authenticate current TLS/config even when a pending
+  reservation prevents normal startup. `ReadActiveCertificate` currently performs
+  overlap housekeeping through the runtime write helper, which is intentionally
+  disabled on recovery handles. Add a deliberate read-only recovery selection
+  path before wiring the CLI; do not weaken key, validity or bootstrap checks.
+
+Finish both-engine rollback/fencing tests, real hub/source TLS confirmation and
+compiled reset CLI interruption scenarios before accepting whole reset. The
+source checkpoint alone does not authorize marking M3 complete.

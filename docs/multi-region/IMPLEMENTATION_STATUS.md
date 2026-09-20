@@ -7,6 +7,34 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 source stream-reset checkpoint — 2026-09-21
+
+Edge migration 009 adds authenticated epoch provenance, a durable reservation that
+blocks normal restart, bounded private SQLite archives including WAL, and atomic
+epoch/counter/state changes. Active rotated TLS material is authenticated and
+resealed with the same pin/key. Normal startup verifies the chain from immutable
+bootstrap identity, and real TLS admission uses the current durable stream.
+
+The final CGO-free build, full race suite and zero-issue lint passed: 3,655 named
+passes in 22 packages, zero failures and two existing optional skips. All 305
+MariaDB-named cases passed, including 293 audited live-engine cases, with no
+engine skips. All 47 source-reset cases ran and 17 source hashes stayed unchanged.
+The compiled existing replay/certificate workflow passed 29 stages. See
+[checkpoint](M3_SOURCE_RESET_ACCEPTANCE.md), [evidence](M3_SOURCE_RESET_EVIDENCE.json)
+and [retrospective](M3_SOURCE_RESET_RETROSPECTIVE.md).
+
+Codex reproduced and fixed a retry path that verified a visible archive without
+reestablishing its directory durability. Antigravity's read-only review retracted
+three unsupported claims and acknowledged the actual fsync lesson. It owns no
+files. Existing AGENTS.md changes remain excluded.
+
+Whole reset is unfinished: continue hub preparation, activation, authenticated
+peer confirmation and both operator CLI adapters under
+[the reset contract](M3_STREAM_RESET_WORK_CONTRACT.md). Then finish pressure/
+bounded shutdown acceptance and the actual fifteen-minute partition. No reset
+endpoint or CLI is claimed by this checkpoint. M3 remains active/incomplete;
+no push or deployment occurred.
+
 ## M3 hub certificate rotation — 2026-09-21
 
 Hub migration 063 adds bounded certificate operations, reserved activation identity/

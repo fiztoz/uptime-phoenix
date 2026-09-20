@@ -24,7 +24,10 @@
 > Hub certificate issuance, candidate pin selection and receipt-driven promotion
 > are implemented; consult [hub certificate acceptance](M3_HUB_CERTIFICATE_ACCEPTANCE.md)
 > for its final gate status and [the certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md).
-> Continue explicit reset under [the reset contract](M3_STREAM_RESET_WORK_CONTRACT.md), bounded flushing and the
+> Source stream-reset storage and verified TLS startup have passed their full
+> checkpoint gate; see [source reset acceptance](M3_SOURCE_RESET_ACCEPTANCE.md).
+> Continue hub reset preparation/activation/peer confirmation and both CLI adapters
+> under [the reset contract](M3_STREAM_RESET_WORK_CONTRACT.md), bounded flushing and the
 > complete fifteen-minute partition under [the M3 contract](M3_COMPLETION_WORK_CONTRACT.md).
 > Verify Git HEAD and uncommitted work before editing; never reset to an older baseline.
 

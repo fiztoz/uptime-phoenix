@@ -192,8 +192,15 @@ func (s *Store) ReadActiveCertificate(ctx context.Context) (domain.EdgeCertifica
 		}
 		var err error
 		state, err = readCertificateState(ctx, tx)
-		if err != nil || state.ActiveVersion == 1 {
+		if err != nil {
 			return err
+		}
+		state.ProbeID, state.StreamID = identity.ProbeID, identity.StreamID
+		if err := tx.NewRaw("SELECT initial_stream_id FROM edge_identity WHERE id = 1").Scan(ctx, &state.InitialStreamID); err != nil {
+			return err
+		}
+		if state.ActiveVersion == 1 {
+			return nil
 		}
 		var row edgeCertificateRotation
 		if err := tx.NewSelect().Model(&row).Where("version = ?", state.ActiveVersion).Scan(ctx); err != nil {

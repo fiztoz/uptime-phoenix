@@ -160,7 +160,7 @@ func (f *certificateRuntimeFixture) openStore() {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	f.store, err = edge.Open(f.t.Context(), f.dir, domain.EdgeIdentity{ProbeID: f.id.ProbeID, StreamID: f.id.StreamID, Fingerprint: f.id.Fingerprint}, edge.WithCertificateMaterial(material))
+	f.store, err = edge.Open(f.t.Context(), f.dir, domain.EdgeIdentity{ProbeID: f.id.ProbeID, StreamID: f.id.StreamID, Fingerprint: f.id.Fingerprint}, edge.WithStreamResetProtection(f.protector), edge.WithCertificateMaterial(material))
 	if err != nil {
 		f.t.Fatal(err)
 	}

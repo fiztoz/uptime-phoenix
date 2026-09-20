@@ -23,6 +23,28 @@ type EdgeCertificateMaterial struct {
 }
 
 var _ ports.EdgeCertificateMaterial = (*EdgeCertificateMaterial)(nil)
+var _ ports.EdgeCertificateRebinder = (*EdgeCertificateMaterial)(nil)
+
+// RebindCertificate preserves the exact key and pin across an explicit reset.
+func (g *EdgeCertificateMaterial) RebindCertificate(ctx context.Context, c domain.ProtectedEdgeCertificate, streamID string, now time.Time) (domain.ProtectedEdgeCertificate, error) {
+	if g == nil || !domain.ValidHubID(streamID) || streamID == c.StreamID {
+		return domain.ProtectedEdgeCertificate{}, domain.ErrValidation
+	}
+	if _, err := OpenEdgeCertificate(ctx, g.protector, c, now); err != nil {
+		return domain.ProtectedEdgeCertificate{}, err
+	}
+	pem, err := g.protector.OpenCertificate(ctx, c.EdgeCertificateMetadata, c.ProtectedPEM)
+	if err != nil {
+		return domain.ProtectedEdgeCertificate{}, err
+	}
+	defer clear(pem)
+	c.StreamID = streamID
+	c.ProtectedPEM, err = g.protector.SealCertificate(ctx, c.EdgeCertificateMetadata, pem)
+	if err != nil {
+		return domain.ProtectedEdgeCertificate{}, err
+	}
+	return c, nil
+}
 
 // NewEdgeCertificateMaterial requires the already provisioned local key adapter.
 func NewEdgeCertificateMaterial(protector ports.EdgeCertificateProtector) (*EdgeCertificateMaterial, error) {

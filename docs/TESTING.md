@@ -936,6 +936,20 @@ acknowledgement, process restart and recovery. Its fixed five-second scheduler-r
 assertion can be timing-sensitive; record an initial failure and any fresh-database
 retry separately, rather than describing a retry as an uninterrupted pass.
 
+## M3 source stream-reset checkpoint
+
+Run `rtk proxy go test -race -count=1 ./internal/adapters/repository/edge ./internal/adapters/probe ./internal/adapters/auth -run 'TestEdgeStreamReset|TestStreamReset'`.
+These cases use real SQLite, protected certificate material and TLS/WebSocket
+connections. They cover WAL-only evidence, authenticated archives, sync/backup/
+late-transaction failure, exact retry, capacity, guarded downgrade, epoch chains,
+certificate resealing and restart with unchanged pin/token/bootstrap files.
+The publication retry regression keeps directory sync failing after an archive
+is already visible; reset must preserve the original live epoch. Tests do not
+claim to simulate an actual machine power cut. Hub reset and compiled reset CLI
+acceptance remain separate unfinished work; the existing compiled replay/
+certificate workflow is only a regression check for this checkpoint. See
+[source reset evidence](multi-region/M3_SOURCE_RESET_ACCEPTANCE.md).
+
 ## M3 ordered replay integration
 
 `TestProbeReplayAcceptance` in `internal/adapters/repository` runs the same mixed

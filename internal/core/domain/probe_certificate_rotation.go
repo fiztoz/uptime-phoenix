@@ -102,6 +102,7 @@ type ProtectedEdgeCertificate struct {
 // EdgeCertificateState selects durable active material. Certificate is nil only
 // for active version one, which uses the validated immutable bootstrap files.
 type EdgeCertificateState struct {
-	ActiveVersion, HighestVersion int64
-	Certificate                   *ProtectedEdgeCertificate
+	ProbeID, InitialStreamID, StreamID string
+	ActiveVersion, HighestVersion      int64
+	Certificate                        *ProtectedEdgeCertificate
 }
