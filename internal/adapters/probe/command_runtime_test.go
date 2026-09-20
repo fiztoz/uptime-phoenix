@@ -35,7 +35,7 @@ type commandTransportDispatcher struct {
 	results     chan domain.ProbeCommandOutcome
 }
 
-func (d *commandTransportDispatcher) NextCommand(_ context.Context, s domain.ProbeReplaySession, _ time.Duration) (*domain.ProbeCommandDispatch, error) {
+func (d *commandTransportDispatcher) NextCommand(_ context.Context, s domain.ProbeReplaySession, _ time.Duration, _ domain.ProbeCommandCapabilities) (*domain.ProbeCommandDispatch, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.claimed[s.ConnectionGeneration] {
@@ -45,14 +45,14 @@ func (d *commandTransportDispatcher) NextCommand(_ context.Context, s domain.Pro
 	return &domain.ProbeCommandDispatch{Payload: bytes.Clone(d.payload)}, nil
 }
 
-func (d *commandTransportDispatcher) RecordCommandResult(_ context.Context, _ domain.ProbeReplaySession, r domain.ProbeCommandOutcome) error {
+func (d *commandTransportDispatcher) RecordCommandResult(_ context.Context, _ domain.ProbeReplaySession, r domain.ProbeCommandOutcome) (bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.results <- r
 	if d.loseReceipt {
-		return errors.New("injected receipt commit loss")
+		return false, errors.New("injected receipt commit loss")
 	}
-	return nil
+	return false, nil
 }
 
 type interruptedEdgeCommand struct {

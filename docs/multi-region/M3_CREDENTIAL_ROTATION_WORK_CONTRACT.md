@@ -95,3 +95,15 @@ These are implementation requirements, not completed work:
    code, and persist protected bytes before dispatch. Use real SQLite and MariaDB
    for rollback/restart/competing-owner tests and the compiled process harness for
    the complete supported rotation workflow before declaring it operational.
+
+## Receipt/reconnect integration correction
+
+The real TLS and process tests reproduced receipt starvation: immediate source
+close after the result write cancelled the hub's independent callback before its
+transaction could commit. Successful source rotation now quiesces further
+non-health work and waits for the hub to close after durable confirmation, with
+a 12-second forced-close bound and the original credential deadline still in
+force. The hub closes only after its bounded 10-second receipt commit succeeds.
+Neither close nor timeout is an application receipt; lost results still retry
+the exact persisted bytes. Health remains independently serviced and all workers
+are joined. No new wire frame is introduced.

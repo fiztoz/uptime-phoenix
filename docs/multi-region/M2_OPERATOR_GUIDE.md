@@ -259,12 +259,53 @@ is 15 seconds. `--command-partition-seconds` changes that duration; a short run 
 not the complete fifteen-minute M3 acceptance.
 
 
-### Credential source capability
+## Rotate a remote runtime credential
 
-The probe implements `command.credential_rotation.v1`: digest-only preparation,
-separate activation, bounded overlap, durable receipts and forced reauthentication.
-The hub CLI still issues only incident ACKs. No supported operator rotation command
-or automatic candidate-credential recovery is available yet. Do not replace stored
-credentials manually to emulate that missing workflow. See
-[the rotation contract](M3_CREDENTIAL_ROTATION_WORK_CONTRACT.md) and
-[the source retrospective](M3_EDGE_CREDENTIAL_RETROSPECTIVE.md).
+Use the hub DB and protection key configuration above. Generate one rotation UUID,
+choose a version greater than every previously issued version, and retain both:
+
+```sh
+phoenix-probe-admin rotate-credential --probe-id "$PROBE_ID" \
+  --rotation-id "$ROTATION_ID" --credential-version "$NEXT_VERSION"
+phoenix-probe-admin rotation-status --probe-id "$PROBE_ID" \
+  --rotation-id "$ROTATION_ID"
+```
+
+The CLI generates and protects the token internally; it never accepts or returns
+a plaintext runtime token for rotation. Reuse exactly the same rotation ID and
+version after a lost response. Repeating issuance returns the existing operation,
+its original command IDs and its unchanged ten-minute overlap deadline. Another
+rotation cannot occupy that overlap, and a failed version cannot be reused.
+
+`rotation.state` progresses from `preparing` to `activating` to `active`, or to
+`failed` on a durable source rejection/expiry. Pending/healthy authentication alone
+does not mean active. Preparation makes the candidate usable during the fixed
+window; separate activation promotes it. After successful activation the new
+credential remains usable, while the previous one expires at the original deadline.
+If activation never commits, the original credential remains current. A request
+whose result was lost stays retryable after expiry to recover its original result;
+it is not automatically replaced or deemed failed by the hub clock.
+
+Both peers must include `command.credential_rotation.v1` execution support. The hub
+tries its protected candidate after confirmed preparation and can recover an
+activation result after restart. Only a pinned HTTP authentication rejection
+before websocket admission permits trying the saved current credential. Network,
+key, pin and storage failures do not weaken that rule. After the receipt write,
+the source quiesces further effects; the hub closes after durable confirmation,
+with a bounded source forced-close fallback. Neither close nor timeout confirms
+an operation.
+
+`command-status` accepts the rotation's prepare/activate command IDs. `blocked`
+means activation awaits preparation. `canceled` with `remote_confirmed: false`
+means it was canceled locally after preparation failed; the source did not report
+activation. Rotation tables and referenced command bodies are retained and bounded;
+migration 062 refuses downgrade while a rotation, credential command or unpromoted
+version high-water would be lost. Stop writers and preserve the hub key and edge
+identity/database together for any operator migration/recovery work.
+
+Use `scripts/probe_runtime_smoke.py --verify-replay --verify-credential-rotation`
+with its required binaries, fresh private output directory and disposable MariaDB
+configuration to exercise queued rotation, both-side restart and subsequent
+telemetry. See [hub acceptance](M3_HUB_CREDENTIAL_ACCEPTANCE.md) and
+[the retrospective](M3_HUB_CREDENTIAL_RETROSPECTIVE.md). Certificate rotation and
+explicit stream-reset recovery are still unfinished M3 requirements.

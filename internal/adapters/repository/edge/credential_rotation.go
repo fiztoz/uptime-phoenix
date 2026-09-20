@@ -250,17 +250,7 @@ func (s *Store) AcceptCredentialConnection(ctx context.Context, binding domain.E
 }
 
 func validCredentialCommand(a domain.EdgeCommandAuthority, c domain.ProbeCredentialCommand) bool {
-	if !domain.ValidHubID(a.HubID) || !domain.ValidHubID(a.ProbeID) || !domain.ValidHubID(a.StreamID) || a.ConnectionGeneration <= 0 || !domain.ValidHubID(c.CommandID) || !domain.ValidHubID(c.ProbeID) || !domain.ValidHubID(c.RotationID) || c.CredentialVersion <= 0 || c.PayloadHash == [32]byte{} || c.CreatedAt.IsZero() || !c.ExpiresAt.After(c.CreatedAt) || c.ExpiresAt.Sub(c.CreatedAt) > 7*24*time.Hour || c.CreatedAt.Nanosecond()%1000 != 0 || c.ExpiresAt.Nanosecond()%1000 != 0 {
-		return false
-	}
-	switch c.Kind {
-	case "credential.prepare":
-		return c.TokenHash != [32]byte{} && c.OverlapExpiresAt.After(c.CreatedAt) && !c.OverlapExpiresAt.After(c.CreatedAt.Add(10*time.Minute)) && c.OverlapExpiresAt.Nanosecond()%1000 == 0
-	case "credential.activate":
-		return c.TokenHash == [32]byte{} && c.OverlapExpiresAt.IsZero()
-	default:
-		return false
-	}
+	return domain.ValidHubID(a.HubID) && domain.ValidHubID(a.ProbeID) && domain.ValidHubID(a.StreamID) && a.ConnectionGeneration > 0 && domain.ValidProbeCredentialCommand(c)
 }
 
 func credentialCommandHash(a domain.EdgeCommandAuthority, c domain.ProbeCredentialCommand) [32]byte {

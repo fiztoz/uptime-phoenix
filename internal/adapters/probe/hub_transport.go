@@ -127,6 +127,9 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	}
 	conn, err := t.dial(ctx, m.Endpoint, m.Fingerprint, input.Token)
 	if err != nil {
+		if errors.Is(err, domain.ErrUnauthorized) {
+			return domain.ErrProbeCredentialRejected
+		}
 		return err
 	}
 	defer func() { _ = conn.CloseNow() }()
@@ -213,9 +216,13 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	}
 	receiver := hubStateReceiver{ingest: t.stateIngest, session: domain.ProbeReplaySession{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: input.Generation, OwnerID: input.OwnerID}}
 	defer receiver.discard()
-	if t.commands != nil && slices.Contains(handshake.Hello.Capabilities, AcknowledgementCapability) {
+	commandCapabilities := domain.ProbeCommandCapabilities{AlertAcknowledgement: slices.Contains(handshake.Hello.Capabilities, AcknowledgementCapability), CredentialRotation: slices.Contains(handshake.Hello.Capabilities, CredentialRotationCapability)}
+	if t.commands != nil && (commandCapabilities.AlertAcknowledgement || commandCapabilities.CredentialRotation) {
 		senders.Add(1)
-		go func() { defer senders.Done(); t.sendCommands(runCtx, session, receiver.session, &ready) }()
+		go func() {
+			defer senders.Done()
+			t.sendCommands(runCtx, session, receiver.session, &ready, commandCapabilities)
+		}()
 	}
 	err = session.RunWithHealthAdmission(runCtx, func(frameCtx context.Context, envelope Envelope) error {
 		if receiver.transfer != nil && !time.Now().Before(receiver.transfer.deadline) {
@@ -241,8 +248,11 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 				return err
 			}
 			commitCtx, cancelCommit := context.WithTimeout(frameCtx, 10*time.Second)
-			err = t.commands.RecordCommandResult(commitCtx, receiver.session, outcome)
+			reconnect, err := t.commands.RecordCommandResult(commitCtx, receiver.session, outcome)
 			cancelCommit()
+			if err == nil && reconnect {
+				return errors.New("credential receipt committed; reconnect required")
+			}
 			return err
 		}
 		if envelope.Type == "telemetry.batch" || envelope.Type == "telemetry.gap" {

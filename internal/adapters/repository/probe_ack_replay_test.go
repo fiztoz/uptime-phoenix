@@ -26,7 +26,7 @@ func TestProbeCommandReplay(t *testing.T) {
 					f := newCommandFixture(t, engine)
 					f.store.SetCommands(f.protector, probe.AcknowledgementCodec{})
 					f.issue(t)
-					if _, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second); err != nil {
+					if _, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true}); err != nil {
 						t.Fatal(err)
 					}
 					at := time.Now().UTC().Truncate(time.Microsecond)
@@ -104,7 +104,7 @@ func TestProbeCommandReplay(t *testing.T) {
 					if kind != "unissued" {
 						f.issue(t)
 						if kind != "unsent" {
-							if _, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second); err != nil {
+							if _, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true}); err != nil {
 								t.Fatal(err)
 							}
 						}
@@ -161,7 +161,7 @@ func TestProbeCommandReplay(t *testing.T) {
 }
 
 func testCommandService(t *testing.T, f commandFixture) {
-	s, err := services.NewProbeCommandService(f.commands, repository.NewProbeConnectorStore(f.f.db), f.protector, probe.AcknowledgementCodec{})
+	s, err := services.NewProbeCommandService(f.commands, repository.NewProbeConnectorStore(f.f.db), f.protector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func testCommandService(t *testing.T, f commandFixture) {
 	if _, err := s.IssueAcknowledgement(t.Context(), changed); !errors.Is(err, ports.ErrConflict) {
 		t.Fatal("changed actor reused UUID", err)
 	}
-	dispatch, err := s.NextCommand(t.Context(), f.session, time.Second)
+	dispatch, err := s.NextCommand(t.Context(), f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true})
 	if err != nil || dispatch == nil {
 		t.Fatal("durable dispatch absent", err)
 	}
@@ -203,7 +203,7 @@ func testCommandService(t *testing.T, f commandFixture) {
 	if err != nil || ack.CommandID != issue.CommandID || ack.ActorDisplayName != issue.ActorDisplayName {
 		t.Fatal("wrong request dispatched", err)
 	}
-	if err := s.RecordCommandResult(t.Context(), f.session, domain.ProbeCommandOutcome{CommandID: issue.CommandID, Status: "applied", AppliedAt: &original.CreatedAt}); err != nil {
+	if _, err := s.RecordCommandResult(t.Context(), f.session, domain.ProbeCommandOutcome{CommandID: issue.CommandID, Status: "applied", AppliedAt: &original.CreatedAt}); err != nil {
 		t.Fatal(err)
 	}
 	r, err := s.IssueAcknowledgement(t.Context(), issue)

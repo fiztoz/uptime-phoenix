@@ -290,7 +290,7 @@ Assembly and typed decoding establish only structural validity. They neither app
 | `assignment_generation` | Positive decimal string for `alert.ack` and `history.clear`; must equal `data.assignment_generation` for `history.clear`. Null for `probe.stop` and credential/certificate commands. |
 | `source_alert_id` | Canonical non-nil lowercase UUID for `alert.ack`; must equal `data.source_alert_id`. Null for every other kind. |
 
-`command.result.payload` has `command_id`, `status` (`applied`, `already_applied`, `already_resolved`, `rejected`, `expired`), `applied_at` (nullable), `code` (nullable), redacted `message`, and `details` (nullable object). `applied` / `already_applied` / `already_resolved` require `applied_at` and null `code`. `rejected` requires a machine `code` and null `applied_at`. `expired` has null `applied_at` and a nullable `code`. `details` is non-null only for `applied` / `already_applied` credential or certificate preparation: credential preparation contains only `credential_version`; certificate preparation contains exactly `certificate_version`, `tls_fingerprint`, and `not_after`. The probe persists result identity before acknowledging. Retain command IDs through at least the command expiry plus the maximum supported reconnect/retention window. A repeated command returns its recorded result. The edge ACK storage implementation bounds a request lifetime to seven days and retains results through expiry plus 365 days, independently of a shorter configured telemetry horizon. It checks the current authenticated session generation even for duplicates, while excluding that transient generation from immutable command identity. The regional `alert.ack` operator/transport/replay path is enabled for peers advertising `command.alert_ack.v1`; source credential preparation/activation is implemented for `command.credential_rotation.v1`, while hub rotation issuance/recovery and the other decoded kinds remain unimplemented.
+`command.result.payload` has `command_id`, `status` (`applied`, `already_applied`, `already_resolved`, `rejected`, `expired`), `applied_at` (nullable), `code` (nullable), redacted `message`, and `details` (nullable object). `applied` / `already_applied` / `already_resolved` require `applied_at` and null `code`. `rejected` requires a machine `code` and null `applied_at`. `expired` has null `applied_at` and a nullable `code`. `details` is non-null only for `applied` / `already_applied` credential or certificate preparation: credential preparation contains only `credential_version`; certificate preparation contains exactly `certificate_version`, `tls_fingerprint`, and `not_after`. The probe persists result identity before acknowledging. Retain command IDs through at least the command expiry plus the maximum supported reconnect/retention window. A repeated command returns its recorded result. The edge ACK storage implementation bounds a request lifetime to seven days and retains results through expiry plus 365 days, independently of a shorter configured telemetry horizon. It checks the current authenticated session generation even for duplicates, while excluding that transient generation from immutable command identity. The regional `alert.ack` operator/transport/replay path is enabled for peers advertising `command.alert_ack.v1`; credential preparation/activation and protected hub issuance/recovery are implemented for `command.credential_rotation.v1`. Certificate rotation and the other decoded kinds remain unimplemented.
 
 `alert.ack.data` is `source_alert_id`, `actor_display_name`, and `note` (`note` is required; use null when unused). It affects only that incident. `probe.stop` durably disables scheduling after accepted shutdown instructions. `history.clear` contains an explicit observation-time/sequence watermark and scope. Only defined fields are accepted; there is no shell execution command.
 
@@ -365,12 +365,20 @@ and wait until the prior overlap is closed or expired.
 Socket admission atomically rechecks credential eligibility and commits its new
 connection generation. Before activation, both admitted tokens carry the overlap
 session deadline; after activation only the previous token carries that deadline.
-Successful prepare/activate and recovered success receipts force that session to
-reconnect after the result write, preventing an older unlimited session from
-outliving rotation. Source migration 007 stores only token digests, at most 1,024
+Successful prepare/activate and recovered success receipts quiesce further
+non-health effects after the result write. The hub closes after committing the
+receipt; the source forces closure within 12 seconds if needed, still honoring
+its admitted credential deadline. This permits the hub's bounded receipt commit
+without treating socket close as success. Reconnection rechecks credential
+eligibility and generation authority. Source migration 007 stores only token digests, at most 1,024
 retained rotations, and the existing shared 16,384-entry command receipt bound.
-Hub prepare/activate orchestration and candidate reconnect selection are still
-pending; the source capability alone is not an operator rotation workflow.
+Hub migration 062 protects the candidate and both command requests before dispatch.
+Capability-aware claiming releases activation only after an exact prepare result.
+Candidate authentication alone never promotes the current credential; only the
+original durable activation result does. Pending candidate selection survives
+expiry/restart for lost-result recovery, with current-credential fallback limited
+to pinned HTTP 401 before websocket admission. See
+[hub rotation acceptance](M3_HUB_CREDENTIAL_ACCEPTANCE.md).
 
 
 Certificate preparation transfers/advertises the new certificate fingerprint through the currently authenticated pinned session; private keys remain on the probe. Refuse expired certificates. Reenrollment after full credential loss is an operator action with verified host identity.

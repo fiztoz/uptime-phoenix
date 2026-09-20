@@ -24,6 +24,7 @@ type ProbeConnectorService struct {
 	transport       ports.ProbeConnectionTransport
 	configSync      ports.RemoteProbeConfigSyncRepository
 	replayIngest    ports.ProbeReplayService
+	rotations       ports.ProbeCredentialRotationRepository
 	watchdogFactory func(context.Context, domain.ProbeRuntimeLease) (*ProbeWatchdogRuntime, error)
 	hubID, ownerID  string
 	delay           func(int, time.Duration) time.Duration
@@ -51,6 +52,12 @@ func (s *ProbeConnectorService) SetConfigSync(syncer ports.RemoteProbeConfigSync
 // SetReplayIngest enables durable fenced telemetry batch replay. Configure it before Run.
 func (s *ProbeConnectorService) SetReplayIngest(ingest ports.ProbeReplayService) {
 	s.replayIngest = ingest
+}
+
+// SetCredentialRotation enables fenced candidate selection and authentication
+// confirmation. Configure before Run; source receipts alone promote candidates.
+func (s *ProbeConnectorService) SetCredentialRotation(rotations ports.ProbeCredentialRotationRepository) {
+	s.rotations = rotations
 }
 
 // NewProbeConnectorService requires verified installation authority and a unique
@@ -248,9 +255,16 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 	if c.HubID != s.hubID {
 		return 0, ports.ErrConflict
 	}
-	token, err := s.protector.OpenCredential(readCtx, c.ProbeCredentialMetadata, c.ProtectedCredential)
-	if err != nil {
-		return 0, err
+	replaySession := domain.ProbeReplaySession{HubID: s.hubID, ProbeID: probeID, StreamID: c.StreamID, ConnectionGeneration: lease.Generation, OwnerID: s.ownerID}
+	selection := domain.ProbeCredentialSelection{Current: *c}
+	if s.rotations != nil {
+		selection, err = s.rotations.SelectCredentialConnection(readCtx, replaySession)
+		if err != nil {
+			return 0, err
+		}
+		if selection.Current.HubID != s.hubID || selection.Current.ProbeID != probeID || selection.Current.StreamID != c.StreamID {
+			return 0, ports.ErrConflict
+		}
 	}
 	if s.configSync != nil {
 		if _, err := s.configSync.RefreshRemote(readCtx, domain.ProbeConfigTarget{HubID: s.hubID, ProbeID: probeID}, time.Now().UTC()); err != nil {
@@ -303,13 +317,6 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 	var connectedAt time.Time
 	var ingestFunc func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)
 	if s.replayIngest != nil {
-		replaySession := domain.ProbeReplaySession{
-			HubID:                s.hubID,
-			ProbeID:              probeID,
-			StreamID:             c.StreamID,
-			ConnectionGeneration: lease.Generation,
-			OwnerID:              s.ownerID,
-		}
 		ingestFunc = func(callbackCtx context.Context, batch domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error) {
 			return s.replayIngest.ProcessBatch(callbackCtx, replaySession, batch)
 		}
@@ -326,23 +333,48 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 			return aware.RunWithWatchdog(ctx, input, watchdog, established, applied, ingest)
 		}
 	}
-	err = run(sessionCtx, domain.ProbeSessionInput{OwnerID: s.ownerID, Connection: c.ProbeCredentialMetadata, Token: token, Generation: lease.Generation, CommittedSeq: cursor, ConfigDocument: document}, func(callbackCtx context.Context) error {
-		if err := s.leases.SetConnectorConnected(callbackCtx, lease, true); err != nil {
-			return err
+	connect := func(connection domain.ProbeConnection) error {
+		openCtx, cancel := context.WithTimeout(sessionCtx, 5*time.Second)
+		token, openErr := s.protector.OpenCredential(openCtx, connection.ProbeCredentialMetadata, connection.ProtectedCredential)
+		cancel()
+		if openErr != nil {
+			return openErr
 		}
-		if err := s.connections.ActivateConnection(callbackCtx, probeID, c.EnrollmentID, c.CredentialVersion, time.Now().UTC()); err != nil {
-			return err
-		}
-		if connectedAt.IsZero() {
-			connectedAt = time.Now()
-		}
-		return nil
-	}, func(callbackCtx context.Context, receipt domain.ProbeActiveConfig) error {
-		if s.configSync == nil {
+		return run(sessionCtx, domain.ProbeSessionInput{OwnerID: s.ownerID, Connection: connection.ProbeCredentialMetadata, Token: token, Generation: lease.Generation, CommittedSeq: cursor, ConfigDocument: document}, func(callbackCtx context.Context) error {
+			if err := s.leases.SetConnectorConnected(callbackCtx, lease, true); err != nil {
+				return err
+			}
+			var confirmErr error
+			if s.rotations != nil {
+				confirmErr = s.rotations.ConfirmCredentialConnection(callbackCtx, replaySession, connection.ProbeCredentialMetadata)
+			} else {
+				confirmErr = s.connections.ActivateConnection(callbackCtx, probeID, connection.EnrollmentID, connection.CredentialVersion, time.Now().UTC())
+			}
+			if confirmErr != nil {
+				return confirmErr
+			}
+			if connectedAt.IsZero() {
+				connectedAt = time.Now()
+			}
 			return nil
+		}, func(callbackCtx context.Context, receipt domain.ProbeActiveConfig) error {
+			if s.configSync == nil {
+				return nil
+			}
+			return s.configSync.RecordRemoteApplied(callbackCtx, lease, receipt)
+		}, ingestFunc)
+	}
+	if selection.Candidate != nil {
+		err = connect(*selection.Candidate)
+		// Only the pinned HTTP rejection guarantees no source generation was
+		// admitted. Reusing this lease after any other error could revive a
+		// stale session or conceal a storage/protocol failure.
+		if errors.Is(err, domain.ErrProbeCredentialRejected) && connectedAt.IsZero() && sessionCtx.Err() == nil {
+			err = connect(selection.Current)
 		}
-		return s.configSync.RecordRemoteApplied(callbackCtx, lease, receipt)
-	}, ingestFunc)
+	} else {
+		err = connect(selection.Current)
+	}
 	stop()
 	<-renewed
 	if connectedAt.IsZero() {

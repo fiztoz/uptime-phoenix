@@ -240,7 +240,11 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 
 	var transfer *ConfigTransfer
 	var deadline time.Time
+	var rotationClose *time.Timer
 	defer func() {
+		if rotationClose != nil {
+			rotationClose.Stop()
+		}
 		if transfer != nil {
 			transfer.Discard()
 		}
@@ -250,6 +254,12 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 		admission = watchdog
 	}
 	err = session.RunWithHealthAdmission(establishedCtx, func(frameCtx context.Context, envelope Envelope) error {
+		if rotationClose != nil {
+			// The result is on the wire. Quiesce mutation until the hub commits
+			// its receipt and closes, or the bounded reauthentication timer fires.
+			// Queued config/telemetry acknowledgements are safely replayable.
+			return nil
+		}
 		if transfer != nil && !time.Now().Before(deadline) {
 			transfer.Discard()
 			transfer = nil
@@ -282,7 +292,10 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 				return err
 			}
 			if reconnect {
-				return errors.New("credential change requires reauthentication")
+				// Immediate close cancels the hub's asynchronous result callback.
+				// Give its bounded ten-second commit an opportunity to finish;
+				// neither the timer nor socket close is interpreted as success.
+				rotationClose = time.AfterFunc(12*time.Second, func() { _ = session.Close() })
 			}
 			return nil
 		case "state.applied":

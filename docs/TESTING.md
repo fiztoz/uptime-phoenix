@@ -1068,3 +1068,27 @@ and case-alias metadata; `TestProbeWatchdogCustomTimingPreservesPositiveWireInte
 keeps the V1 positive timing range with a lower suspect threshold only when a
 custom loss interval is 45 seconds or shorter. These prerequisites do not prove
 running watchdogs, provider delivery, commands or full partition recovery.
+
+## M3 hub credential rotation
+
+Run `go test -race -count=2 ./internal/adapters/repository -run 'TestProbeCredentialRotation|TestProbeCommandStorage|TestProbeRegistryContract'`
+with `TEST_MARIADB_DSN` naming a disposable database, and verify actual named
+MariaDB passes with no engine skips. The repeated run checks that migration
+rehearsals leave the shared schema intact. Rotation cases assert protected
+issuance, candidate authentication without activation, rollback, fences,
+capabilities, retained dependencies and lost activation receipt recovery after
+the original deadline.
+
+Run the real transport cases with
+`go test -race -count=1 ./internal/adapters/probe ./internal/core/services -run 'TestHubCredentialRuntime|TestCredentialRuntime|TestProbeConnectorCredential|TestCommandRuntime'`.
+They require local sockets and test both-store restart, lost receipts, unchanged
+ACK behavior, source quiescence and bounded forced closure. A successful result
+write is not evidence that a hub callback committed before cancellation.
+
+For independent processes, use the existing harness with `--verify-replay
+--verify-credential-rotation`, all three binary paths, a fresh output directory
+and a new disposable localhost `_smoke` MariaDB schema. It tests operator-issued
+rotation through two workers, offline restarts, source receipts, cold reauthentication
+and unchanged telemetry identity. The complete M3 fifteen-minute partition is a
+separate acceptance requirement. See
+[hub rotation acceptance](multi-region/M3_HUB_CREDENTIAL_ACCEPTANCE.md).

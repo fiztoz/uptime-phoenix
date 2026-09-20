@@ -27,7 +27,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status|ack|command-status> [options]
+const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status|ack|command-status|rotate-credential|rotation-status> [options]
 Uses hub DB_ENGINE, DB_DSN, PROBE_SECRET_KEY_FILE and optional PROBE_ENDPOINT_POLICY_FILE.
 register --probe-id UUID --stream-id UUID --key SLUG --name NAME [--location LOCATION] --endpoint wss://HOST/ws/probe/v1 --fingerprint SHA256
 enroll --probe-id UUID --token-file PATH
@@ -37,6 +37,9 @@ watchdog --probe-id UUID --expected-revision N --enabled=true|false [--notificat
 status --probe-id UUID
 ack --probe-id UUID --command-id UUID --source-alert-id UUID --assignment-generation N --actor NAME [--note-file PATH] [--ttl 24h]
 command-status --probe-id UUID --command-id UUID
+rotate-credential --probe-id UUID --rotation-id UUID --credential-version N
+rotation-status --probe-id UUID --rotation-id UUID
+Credential rotation retries reuse the rotation ID and version. The ten-minute overlap never extends on retry; active requires a durable source receipt.
 Token and complete snapshot files must be private regular files. Commands print metadata only.
 Registration persists the recoverable protected runtime credential before enrollment.
 Watchdog replaces saved settings; expected-revision is the settings revision reported by status, initially zero. Saving is not an applied-config receipt.
@@ -53,7 +56,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		_, _ = io.WriteString(out, probeAdminUsage)
 		return 0
 	}
-	if len(args) == 0 || !slices.Contains([]string{"register", "enroll", "assign", "prepare", "watchdog", "status", "ack", "command-status"}, args[0]) {
+	if len(args) == 0 || !slices.Contains([]string{"register", "enroll", "assign", "prepare", "watchdog", "status", "ack", "command-status", "rotate-credential", "rotation-status"}, args[0]) {
 		_, _ = io.WriteString(stderr, probeAdminUsage)
 		return 2
 	}
@@ -62,7 +65,8 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	var enabled bool
 	var lostSeconds, recoverSeconds, resendMinutes int64
 	var commandID, sourceAlertID, actor, noteFile string
-	var assignmentGeneration int64
+	var assignmentGeneration, credentialVersion int64
+	var rotationID string
 	var commandTTL time.Duration
 	f := flag.NewFlagSet("phoenix-probe-admin", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
@@ -88,6 +92,8 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	f.StringVar(&actor, "actor", "", "operator display name")
 	f.StringVar(&noteFile, "note-file", "", "optional private ACK note file")
 	f.Int64Var(&assignmentGeneration, "assignment-generation", 0, "original incident assignment generation")
+	f.StringVar(&rotationID, "rotation-id", "", "immutable credential rotation UUID, retained for retries")
+	f.Int64Var(&credentialVersion, "credential-version", 0, "new monotonically increasing credential version")
 	f.DurationVar(&commandTTL, "ttl", 24*time.Hour, "ACK validity duration, at most 168h")
 	if f.Parse(args[1:]) != nil || f.NArg() != 0 || cfg.ProbeSecretKeyFile == "" || revision < 0 {
 		_, _ = io.WriteString(stderr, probeAdminUsage)
@@ -144,13 +150,33 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		SyncPending     *bool                   `json:"sync_pending,omitempty"`
 		Watchdog        *probeAdminWatchdogView `json:"watchdog,omitempty"`
 		Command         *probeAdminCommandView  `json:"command,omitempty"`
+		Rotation        *probeAdminRotationView `json:"rotation,omitempty"`
 	}{HubID: installation.HubID, ProbeID: probeID}
 	switch args[0] {
+	case "rotate-credential", "rotation-status":
+		if !domain.ValidHubID(rotationID) {
+			return fail("A canonical rotation ID is required; retain it for retries")
+		}
+		commands := repository.NewProbeCommandStore(db, protector, probe.AcknowledgementCodec{}, protector, probe.CredentialCommandCodec{})
+		var rotation *domain.ProbeCredentialRotation
+		if args[0] == "rotate-credential" {
+			service, initErr := services.NewProbeCredentialRotationService(commands, connections, protector, protector, probe.CredentialCommandCodec{})
+			if initErr != nil {
+				return fail("Credential rotation service unavailable")
+			}
+			rotation, err = service.Issue(ctx, domain.ProbeCredentialRotationIssue{HubID: installation.HubID, ProbeID: probeID, RotationID: rotationID, CredentialVersion: credentialVersion})
+		} else {
+			rotation, err = commands.GetCredentialRotation(ctx, installation.HubID, probeID, rotationID)
+		}
+		if err != nil {
+			return fail("Rotation unavailable or conflicting; verify the original ID, version and current connection")
+		}
+		result.State, result.Rotation = rotation.State, probeAdminRotation(rotation)
 	case "ack", "command-status":
 		if !domain.ValidHubID(commandID) {
 			return fail("A canonical command ID is required; retain it for retries")
 		}
-		commands := repository.NewProbeCommandStore(db, protector, probe.AcknowledgementCodec{})
+		commands := repository.NewProbeCommandStore(db, protector, probe.AcknowledgementCodec{}, protector, probe.CredentialCommandCodec{})
 		var command *domain.ProbeCommand
 		if args[0] == "ack" {
 			var note *string
@@ -163,7 +189,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 				clear(content)
 				note = &value
 			}
-			service, initErr := services.NewProbeCommandService(commands, connections, protector, probe.AcknowledgementCodec{})
+			service, initErr := services.NewProbeCommandService(commands, connections, protector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{})
 			if initErr != nil {
 				return fail("Command service unavailable")
 			}

@@ -38,6 +38,16 @@ func probeAdminCommand(c *domain.ProbeCommand) *probeAdminCommandView {
 	}
 	if !c.RemoteConfirmed {
 		v.PendingMessage = "Remote alerts may continue until the probe confirms. Expiry does not prove whether a previous attempt applied."
+		if c.Kind == "credential.prepare" || c.Kind == "credential.activate" {
+			switch c.Status {
+			case "blocked":
+				v.PendingMessage = "Waiting for durable source preparation before activation can be sent."
+			case "canceled":
+				v.PendingMessage = "Activation was canceled locally because preparation failed. No source activation is confirmed."
+			default:
+				v.PendingMessage = "Waiting for the source's durable rotation result. Expiry or a successful connection does not prove activation."
+			}
+		}
 	}
 	return v
 }

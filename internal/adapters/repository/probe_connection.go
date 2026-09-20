@@ -21,6 +21,7 @@ type probeConnectionRow struct {
 	StreamID            string
 	EnrollmentID        string
 	CredentialVersion   int64
+	CredentialHighWater int64
 	Endpoint            string
 	Fingerprint         string
 	ProtectedCredential []byte

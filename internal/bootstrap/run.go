@@ -432,7 +432,8 @@ func Run(cfg Config) error {
 		transport := probe.NewHubTransport(policy)
 		transport.SetStateIngest(stateIngest)
 		connections := repo.NewProbeConnectorStore(db)
-		commands, err := services.NewProbeCommandService(repo.NewProbeCommandStore(db, commandProtector, probe.AcknowledgementCodec{}), connections, commandProtector, probe.AcknowledgementCodec{})
+		commandStore := repo.NewProbeCommandStore(db, commandProtector, probe.AcknowledgementCodec{}, credentialProtector, probe.CredentialCommandCodec{})
+		commands, err := services.NewProbeCommandService(commandStore, connections, commandProtector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{})
 		if err != nil {
 			return err
 		}
@@ -451,6 +452,7 @@ func Run(cfg Config) error {
 			return err
 		}
 		connector.SetReplayIngest(replay)
+		connector.SetCredentialRotation(commandStore)
 		connector.SetConfigSync(repo.NewRemoteProbeConfigSyncStore(db, probe.RemoteConfigEncoder{}, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector))
 		watchdogStore := repo.NewProbeWatchdogStore(db, protector, probe.EdgeTelemetryEncoder{})
 		if err := connector.SetWatchdogFactory(func(ctx context.Context, owner domain.ProbeRuntimeLease) (*services.ProbeWatchdogRuntime, error) {

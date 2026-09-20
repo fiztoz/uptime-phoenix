@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -23,41 +22,44 @@ const probeCommandRetention = 365 * 24 * time.Hour
 // ProbeCommandStore persists exact protected requests and source confirmation on
 // either hub engine. It performs no socket I/O and never logs command plaintext.
 type ProbeCommandStore struct {
-	db        *bun.DB
-	protector ports.ProbeCommandProtector
-	codec     ports.ProbeAcknowledgementCodec
+	db              *bun.DB
+	protector       ports.ProbeCommandProtector
+	codec           ports.ProbeAcknowledgementCodec
+	credentials     ports.ProbeCredentialProtector
+	credentialCodec ports.ProbeCredentialCommandCodec
 }
 
 var _ ports.ProbeCommandRepository = (*ProbeCommandStore)(nil)
 
 // NewProbeCommandStore shares the verified installation key and closed wire codec.
-func NewProbeCommandStore(db *bun.DB, protector ports.ProbeCommandProtector, codec ports.ProbeAcknowledgementCodec) *ProbeCommandStore {
-	return &ProbeCommandStore{db: db, protector: protector, codec: codec}
+func NewProbeCommandStore(db *bun.DB, protector ports.ProbeCommandProtector, codec ports.ProbeAcknowledgementCodec, credentials ports.ProbeCredentialProtector, credentialCodec ports.ProbeCredentialCommandCodec) *ProbeCommandStore {
+	return &ProbeCommandStore{db: db, protector: protector, codec: codec, credentials: credentials, credentialCodec: credentialCodec}
 }
 
 type probeCommandRow struct {
-	bun.BaseModel        `bun:"table:probe_commands"`
-	CommandID            string `bun:"command_id,pk"`
-	HubID                string `bun:"hub_id,nullzero"`
-	ProbeID              string
-	StreamID             string `bun:"stream_id,nullzero"`
-	Kind                 string
-	SourceAlertID        *string
-	AssignmentGeneration *int64
-	CreatedAt            time.Time
-	ExpiresAt            time.Time
-	PayloadSHA256        string `bun:"payload_sha256,nullzero"`
-	ProtectedPayload     []byte
-	Status               string
-	RemoteConfirmed      bool
-	Attempts             int64
-	LastAttemptAt        *time.Time
-	NextAttemptAt        *time.Time
-	ResultAppliedAt      *time.Time
-	ResultCode           string
-	ResultMessage        string
-	RetainUntil          *time.Time
-	UpdatedAt            time.Time
+	bun.BaseModel           `bun:"table:probe_commands"`
+	CommandID               string `bun:"command_id,pk"`
+	HubID                   string `bun:"hub_id,nullzero"`
+	ProbeID                 string
+	StreamID                string `bun:"stream_id,nullzero"`
+	Kind                    string
+	SourceAlertID           *string
+	AssignmentGeneration    *int64
+	CreatedAt               time.Time
+	ExpiresAt               time.Time
+	PayloadSHA256           string `bun:"payload_sha256,nullzero"`
+	ProtectedPayload        []byte
+	Status                  string
+	RemoteConfirmed         bool
+	Attempts                int64
+	LastAttemptAt           *time.Time
+	NextAttemptAt           *time.Time
+	ResultAppliedAt         *time.Time
+	ResultCode              string
+	ResultMessage           string
+	ResultCredentialVersion int64 `bun:"result_credential_version,nullzero"`
+	RetainUntil             *time.Time
+	UpdatedAt               time.Time
 }
 
 func (r probeCommandRow) metadata() domain.ProbeCommandMetadata {
@@ -70,7 +72,7 @@ func (r probeCommandRow) command() *domain.ProbeCommand {
 		c.NextAttemptAt = r.NextAttemptAt.UTC()
 	}
 	if r.RemoteConfirmed {
-		c.Outcome = &domain.ProbeCommandOutcome{CommandID: r.CommandID, Status: r.Status, AppliedAt: utcTimePtr(r.ResultAppliedAt), Code: r.ResultCode, Message: r.ResultMessage}
+		c.Outcome = &domain.ProbeCommandOutcome{CommandID: r.CommandID, Status: r.Status, AppliedAt: utcTimePtr(r.ResultAppliedAt), Code: r.ResultCode, Message: r.ResultMessage, CredentialVersion: r.ResultCredentialVersion}
 	}
 	return c
 }
@@ -123,30 +125,10 @@ func (s *ProbeCommandStore) CreateCommand(ctx context.Context, c domain.Protecte
 		if err := tx.NewSelect().Model(&incident).Where("source_alert_id = ? AND probe_id = ? AND assignment_generation = ? AND scope = ? AND subject_kind = ?", *c.SourceAlertID, c.ProbeID, *c.AssignmentGeneration, domain.IncidentScopeRegional, domain.IncidentSubjectAvailability).Scan(ctx); err != nil {
 			return err
 		}
-		if _, err := tx.NewDelete().Model((*probeCommandRow)(nil)).Where("probe_id = ? AND remote_confirmed = ? AND retain_until < ?", c.ProbeID, true, now).Exec(ctx); err != nil {
+		if err := reserveCommandCapacity(ctx, tx, c.ProbeID, now, 1, len(c.ProtectedPayload)); err != nil {
 			return err
 		}
-		count, err := tx.NewSelect().Model((*probeCommandRow)(nil)).Where("probe_id = ?", c.ProbeID).Count(ctx)
-		if err != nil {
-			return err
-		}
-		pending, err := tx.NewSelect().Model((*probeCommandRow)(nil)).Where("probe_id = ? AND remote_confirmed = ?", c.ProbeID, false).Count(ctx)
-		if err != nil {
-			return err
-		}
-		length := "length(protected_payload)"
-		if tx.Dialect().Name() == dialect.MySQL {
-			length = "OCTET_LENGTH(protected_payload)"
-		}
-		var size int64
-		if err := tx.NewRaw("SELECT COALESCE(SUM("+length+"),0) FROM probe_commands WHERE probe_id = ?", c.ProbeID).Scan(ctx, &size); err != nil {
-			return err
-		}
-		if count >= maxProbeCommands || pending >= maxPendingProbeCommands || size > maxProbeCommandStorageBytes-int64(len(c.ProtectedPayload)) {
-			return ports.ErrConflict
-		}
-		retain := c.ExpiresAt.UTC().Add(probeCommandRetention)
-		row := probeCommandRow{CommandID: c.CommandID, HubID: c.HubID, ProbeID: c.ProbeID, StreamID: c.StreamID, Kind: c.Kind, SourceAlertID: c.SourceAlertID, AssignmentGeneration: c.AssignmentGeneration, CreatedAt: c.CreatedAt.UTC(), ExpiresAt: c.ExpiresAt.UTC(), PayloadSHA256: c.PayloadSHA256, ProtectedPayload: c.ProtectedPayload, Status: "pending", NextAttemptAt: &now, RetainUntil: &retain, UpdatedAt: now}
+		row := newPendingCommandRow(c, now)
 		if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
 			return err
 		}
@@ -223,9 +205,19 @@ func (s *ProbeCommandStore) readCommand(ctx context.Context, hubID, probeID, com
 
 // ClaimCommand reserves one due retry under the current connector authority.
 // Expired requests are still sent to recover an already-applied source result.
-func (s *ProbeCommandStore) ClaimCommand(ctx context.Context, session domain.ProbeReplaySession, budget time.Duration) (*domain.ProtectedProbeCommand, error) {
+func (s *ProbeCommandStore) ClaimCommand(ctx context.Context, session domain.ProbeReplaySession, budget time.Duration, capabilities domain.ProbeCommandCapabilities) (*domain.ProtectedProbeCommand, error) {
 	if !validCommandSession(session) || budget <= 0 || budget > 10*time.Second {
 		return nil, domain.ErrValidation
+	}
+	var kinds []string
+	if capabilities.AlertAcknowledgement {
+		kinds = append(kinds, "alert.ack")
+	}
+	if capabilities.CredentialRotation {
+		kinds = append(kinds, "credential.prepare", "credential.activate")
+	}
+	if len(kinds) == 0 {
+		return nil, nil
 	}
 	var out *domain.ProtectedProbeCommand
 	err := runConfigAuthorityTx(ctx, s.db, func(ctx context.Context, tx bun.Tx) error {
@@ -235,7 +227,7 @@ func (s *ProbeCommandStore) ClaimCommand(ctx context.Context, session domain.Pro
 			return err
 		}
 		var row probeCommandRow
-		err = tx.NewSelect().Model(&row).Where("hub_id = ? AND probe_id = ? AND stream_id = ? AND kind = ? AND remote_confirmed = ? AND status = ? AND next_attempt_at <= ? AND protected_payload IS NOT NULL", session.HubID, session.ProbeID, session.StreamID, "alert.ack", false, "pending", authority.now).OrderExpr("next_attempt_at ASC, created_at ASC, command_id ASC").Limit(1).Scan(ctx)
+		err = tx.NewSelect().Model(&row).Where("hub_id = ? AND probe_id = ? AND stream_id = ? AND kind IN (?) AND remote_confirmed = ? AND status = ? AND next_attempt_at <= ? AND protected_payload IS NOT NULL", session.HubID, session.ProbeID, session.StreamID, bun.List(kinds), false, "pending", authority.now).OrderExpr("next_attempt_at ASC, created_at ASC, command_id ASC").Limit(1).Scan(ctx)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
@@ -281,7 +273,7 @@ func (s *ProbeCommandStore) CompleteCommand(ctx context.Context, session domain.
 		if err := tx.NewSelect().Model(&row).Where("command_id = ? AND hub_id = ? AND probe_id = ? AND stream_id = ?", result.CommandID, session.HubID, session.ProbeID, session.StreamID).Scan(ctx); err != nil {
 			return err
 		}
-		if row.Attempts < 1 || row.Kind != "alert.ack" {
+		if row.Attempts < 1 || (row.Kind != "alert.ack" && row.Kind != "credential.prepare" && row.Kind != "credential.activate") {
 			return ports.ErrConflict
 		}
 		if row.RemoteConfirmed {
@@ -289,7 +281,21 @@ func (s *ProbeCommandStore) CompleteCommand(ctx context.Context, session domain.
 				return ports.ErrConflict
 			}
 		} else {
-			if _, err := tx.NewUpdate().Model(&row).Set("status = ?", result.Status).Set("remote_confirmed = ?", true).Set("result_applied_at = ?", result.AppliedAt).Set("result_code = ?", result.Code).Set("result_message = ?", result.Message).Set("updated_at = ?", authority.now).WherePK().Exec(ctx); err != nil {
+			if row.Status != "pending" {
+				return ports.ErrConflict
+			}
+			if row.Kind == "alert.ack" {
+				if result.CredentialVersion != 0 {
+					return domain.ErrValidation
+				}
+			} else if err := s.completeCredentialRotation(ctx, tx, row, result, authority.now); err != nil {
+				return err
+			}
+			var credentialVersion *int64
+			if result.CredentialVersion > 0 {
+				credentialVersion = &result.CredentialVersion
+			}
+			if _, err := tx.NewUpdate().Model(&row).Set("result_credential_version = ?", credentialVersion).Set("status = ?", result.Status).Set("remote_confirmed = ?", true).Set("result_applied_at = ?", result.AppliedAt).Set("result_code = ?", result.Code).Set("result_message = ?", result.Message).Set("updated_at = ?", authority.now).WherePK().Exec(ctx); err != nil {
 				return err
 			}
 		}
@@ -321,8 +327,7 @@ func validCommandSession(s domain.ProbeReplaySession) bool {
 }
 
 func validCommandOutcome(r domain.ProbeCommandOutcome) bool {
-	// This hub issuer currently supports ACK only; never discard rotation details.
-	if r.CredentialVersion != 0 {
+	if r.CredentialVersion < 0 {
 		return false
 	}
 	if !domain.ValidHubID(r.CommandID) || len(r.Message) > 4096 || len(r.Code) > 128 {
@@ -341,7 +346,7 @@ func validCommandOutcome(r domain.ProbeCommandOutcome) bool {
 }
 
 func sameCommandOutcome(a, b domain.ProbeCommandOutcome) bool {
-	return a.CommandID == b.CommandID && a.Status == b.Status && a.Code == b.Code && a.Message == b.Message && (a.AppliedAt == nil) == (b.AppliedAt == nil) && (a.AppliedAt == nil || a.AppliedAt.Equal(*b.AppliedAt))
+	return a.CommandID == b.CommandID && a.Status == b.Status && a.Code == b.Code && a.Message == b.Message && a.CredentialVersion == b.CredentialVersion && (a.AppliedAt == nil) == (b.AppliedAt == nil) && (a.AppliedAt == nil || a.AppliedAt.Equal(*b.AppliedAt))
 }
 
 func probeCommandError(ctx context.Context, err error) error {

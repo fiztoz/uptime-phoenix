@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -111,6 +112,16 @@ func (f *credentialRuntimeFixture) start() {
 		f.t.Fatal(err)
 	}
 	f.server = httptest.NewUnstartedServer(handler)
+	if f.endpoint != "" {
+		// A durable candidate binds the endpoint as well as its certificate.
+		// Reopen the same listener for restart tests instead of changing trust.
+		_ = f.server.Listener.Close()
+		address := strings.TrimSuffix(strings.TrimPrefix(f.endpoint, "wss://"), "/ws/probe/v1")
+		f.server.Listener, err = net.Listen("tcp", address)
+		if err != nil {
+			f.t.Fatal(err)
+		}
+	}
 	f.server.TLS = &tls.Config{MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13, Certificates: []tls.Certificate{f.id.Certificate}}
 	f.server.StartTLS()
 	f.endpoint = "wss" + strings.TrimPrefix(f.server.URL, "https") + "/ws/probe/v1"
@@ -211,6 +222,8 @@ func (f *credentialRuntimeFixture) result(conn *websocket.Conn) CommandResult {
 	if err != nil {
 		f.t.Fatal(err)
 	}
+	// The test peer has accepted the result; a real hub closes after its receipt commits.
+	_ = conn.CloseNow()
 	return result
 }
 
@@ -233,7 +246,6 @@ func TestCredentialRuntimeLostActivationReplyRecoversWithNewIdentity(t *testing.
 	if prepared.Status != "applied" || prepared.Details != (CredentialPrepareDetails{CredentialVersion: 2}) {
 		t.Fatal("wrong preparation receipt", prepared.Status)
 	}
-	f.closed(first, time.Second)
 	// Prepared identity works before activation; it is not activation proof.
 	second := f.dial(f.newToken, 2)
 	data := prepare.Data.(CredentialPrepareData)
@@ -265,7 +277,6 @@ func TestCredentialRuntimeLostActivationReplyRecoversWithNewIdentity(t *testing.
 	if err != nil || !reflect.DeepEqual(out, original) {
 		t.Fatal("lost activation receipt changed after restart", err)
 	}
-	f.closed(third, time.Second)
 	// A successful receipt recovery still forces a fresh authenticated session.
 	_ = f.dial(f.newToken, 4)
 	binding, err := f.store.ReadEnrollment(t.Context())
@@ -286,7 +297,6 @@ func TestCredentialRuntimePreparedSessionExpiresAndOriginalRecovers(t *testing.T
 	if result := f.result(first); result.Status != "applied" {
 		t.Fatal(result.Status)
 	}
-	f.closed(first, time.Second)
 	pending := f.dial(f.newToken, 2)
 	f.closed(pending, 4*time.Second)
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
@@ -310,7 +320,6 @@ func TestCredentialRuntimePreviousSessionExpiresAfterActivation(t *testing.T) {
 	payload, c := f.prepare(3 * time.Second)
 	f.send(first, 1, payload)
 	_ = f.result(first)
-	f.closed(first, time.Second)
 	second := f.dial(f.newToken, 2)
 	data := c.Data.(CredentialPrepareData)
 	c.CommandID, c.Kind, c.Data = uuid.NewString(), CommandCredentialActivate, CredentialActivateData{RotationID: data.RotationID, CredentialVersion: 2}
@@ -322,7 +331,6 @@ func TestCredentialRuntimePreviousSessionExpiresAfterActivation(t *testing.T) {
 	if result := f.result(second); result.Status != "applied" {
 		t.Fatal(result.Status)
 	}
-	f.closed(second, time.Second)
 	previous := f.dial(f.oldToken, 3)
 	f.closed(previous, 5*time.Second)
 	_, valid, err := services.NewEdgeEnrollmentService(f.store).AuthenticateRuntime(t.Context(), f.oldToken)
@@ -330,4 +338,44 @@ func TestCredentialRuntimePreviousSessionExpiresAfterActivation(t *testing.T) {
 		t.Fatal("old credential survived fixed overlap", err)
 	}
 	_ = f.dial(f.newToken, 4)
+}
+
+func TestCredentialRuntimeUnconfirmedResultQuiescesAndCloses(t *testing.T) {
+	f := newCredentialRuntimeFixture(t)
+	connection := f.dial(f.oldToken, 1)
+	payload, c := f.prepare(time.Minute)
+	f.send(connection, 1, payload)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, frame, err := connection.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, result, err := DecodeCommandResult(frame)
+	if err != nil || result.Status != "applied" {
+		t.Fatal("prepare receipt missing", err)
+	}
+	// Unlike a cooperating hub, leave the socket open and send another effect.
+	// It must not execute while the source awaits receipt confirmation/reconnect.
+	data := c.Data.(CredentialPrepareData)
+	c.CommandID, c.Kind, c.Data = uuid.NewString(), CommandCredentialActivate, CredentialActivateData{RotationID: data.RotationID, CredentialVersion: 2}
+	payload, err = json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.send(connection, 1, payload)
+	start := time.Now()
+	f.closed(connection, 15*time.Second)
+	if time.Since(start) < 10*time.Second {
+		t.Fatal("source did not allow the hub's bounded receipt commit")
+	}
+	binding, err := f.store.ReadEnrollment(t.Context())
+	if err != nil || binding.CredentialVersion != 1 {
+		t.Fatal("quiescent connection executed activation", err)
+	}
+	fresh := f.dial(f.newToken, 2)
+	f.send(fresh, 2, payload)
+	if result := f.result(fresh); result.Status != "applied" {
+		t.Fatal("fresh authenticated generation could not activate", result.Status)
+	}
 }

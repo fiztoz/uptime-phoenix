@@ -7,6 +7,35 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 hub credential rotation — 2026-09-21
+
+Hub migration 062 persists protected candidate credentials and immutable prepare/
+activate requests. Activation remains blocked until preparation is confirmed;
+only a source activation receipt promotes the current credential. Capability-aware
+claims, lease-fenced candidate/current selection and bounded pinned-authentication
+fallback are wired into the connector. The operator CLI supplies explicit rotation
+identity/version and returns metadata only. Cleanup keeps the original requests
+for unresolved operations.
+
+Real integration testing reproduced receipt starvation caused by source closure
+canceling the hub's async commit. The source now quiesces after writing a result
+and waits for hub closure after commit, with a 12-second forced-close bound.
+The two-store pinned-TLS regression and the separate compiled process workflow
+passed, including restart and continued ordered telemetry. Final gate status is
+recorded in [acceptance](M3_HUB_CREDENTIAL_ACCEPTANCE.md); root causes and corrected
+Antigravity feedback are in [the retrospective](M3_HUB_CREDENTIAL_RETROSPECTIVE.md).
+
+The final full race gate passed in 22 tested packages with 3,477 named passes,
+283 MariaDB-named passes, zero failures and two existing optional skips (none
+for MariaDB). CGO-free build, zero-issue lint and all 29 final process stages
+passed; [evidence](M3_HUB_CREDENTIAL_EVIDENCE.json) fixes the verified source and
+binary hashes. Antigravity's code review returned service-error status and is
+provisional. Its separate final teaching response succeeded and acknowledged
+the reproduced lifecycle and retention lessons; it owns no files.
+Certificate rotation, explicit stream reset,
+remaining pressure/shutdown work and the complete fifteen-minute partition are
+still required. M3 remains incomplete.
+
 ## M3 source credential rotation — 2026-09-21
 
 Edge migration 007 persists digest-only credential prepare/activate state, fixed

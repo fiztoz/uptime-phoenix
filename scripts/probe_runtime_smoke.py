@@ -94,12 +94,15 @@ def main():
     parser.add_argument("--verify-history", action="store_true", help="verify the production history worker after replay and restart")
     parser.add_argument("--verify-watchdog", action="store_true", help="verify real both-side watchdog paging across a network partition and restart")
     parser.add_argument("--verify-command", action="store_true", help="exercise queued original-incident ACK across a real link partition and restart")
+    parser.add_argument("--verify-credential-rotation", action="store_true", help="verify durable queued credential rotation across hub and edge restart")
     parser.add_argument("--command-partition-seconds", type=int, default=15)
     parser.add_argument("--mariadb-container")
     args = parser.parse_args()
     dsn = os.environ.get("DB_DSN", "")
     if not re.fullmatch(r"[^@]+@tcp\(127\.0\.0\.1:\d+\)/[a-zA-Z0-9_]+_smoke\?.+", dsn):
         parser.error("DB_DSN must name a disposable localhost database ending in _smoke")
+    if args.verify_credential_rotation and not args.verify_replay:
+        parser.error("--verify-credential-rotation requires --verify-replay")
     if args.verify_history and not args.verify_replay:
         parser.error("--verify-history requires --verify-replay")
     if args.verify_watchdog and not args.verify_replay:
@@ -158,7 +161,7 @@ def main():
     threading.Thread(target=sink.serve_forever, daemon=True).start()
     sink_url = f"http://127.0.0.1:{args.port + 1}"
     relay = None
-    if args.verify_watchdog or args.verify_command:
+    if args.verify_watchdog or args.verify_command or args.verify_credential_rotation:
         relay = PartitionRelay(("127.0.0.1", args.port + 4), ("127.0.0.1", args.port + 3))
         threading.Thread(target=relay.serve_forever, daemon=True).start()
 
@@ -600,12 +603,65 @@ def main():
                                 "partition_seconds": partition_elapsed, "source_receipt_count": 1, "confirmed": confirmed,
                                 "ack_transition_receipt_count": 1, "hub_send_intents": 0, "high_water": high_water}
             final = edge_progress()
+        rotation_evidence = None
+        if args.verify_credential_rotation:
+            relay.partition(True)
+            rotation_id = str(uuid.uuid4())
+            rotation_args = ("rotate-credential", "--probe-id", identity["probe_id"],
+                             "--rotation-id", rotation_id, "--credential-version", "2")
+            issued = admin(*rotation_args)["rotation"]
+            assert issued["state"] == "preparing" and issued["prepared_at"] is None and issued["activated_at"] is None
+            assert admin(*rotation_args)["rotation"] == issued
+            assert "token" not in json.dumps(issued).lower() and "protected" not in json.dumps(issued).lower()
+            mark("offline rotation persists one nonsecret operation before dispatch")
+            for name in ("worker-a", "worker-b", "edge"):
+                stop(name)
+            start("edge", args.probe_binary, edge_args, edge_env)
+            for worker in ("worker-a", "worker-b"):
+                start(worker, args.app_binary, [], dict(env, MODE="worker", WORKER_ID=worker, PROBES_ENABLED="true"))
+            wait_for("offline credential restart preserves original active identity", lambda:
+                     edge_http("/readyz") == 200 and edge_rows("SELECT version AS credential_version FROM edge_credentials WHERE kind='runtime'") == [{"credential_version": 1}])
+            assert admin("rotation-status", "--probe-id", identity["probe_id"], "--rotation-id", rotation_id)["rotation"] == issued
+            relay.partition(False)
+            wait_for("credential rotation confirms both source effects after reconnect", lambda:
+                     admin("rotation-status", "--probe-id", identity["probe_id"], "--rotation-id", rotation_id)["rotation"]["state"] == "active", timeout=120)
+            active = admin("rotation-status", "--probe-id", identity["probe_id"], "--rotation-id", rotation_id)["rotation"]
+            assert active["overlap_expires_at"] == issued["overlap_expires_at"]
+            assert active["prepare_command_id"] == issued["prepare_command_id"] and active["activate_command_id"] == issued["activate_command_id"]
+            assert active["prepared_at"] and active["activated_at"]
+            assert edge_rows("SELECT version AS credential_version FROM edge_credentials WHERE kind='runtime'") == [{"credential_version": 2}]
+            assert hub_query("SELECT JSON_OBJECT('version',credential_version) FROM probe_connections "
+                             f"WHERE probe_id='{identity['probe_id']}'") == [{"version": 2}]
+            for command_id in (active["prepare_command_id"], active["activate_command_id"]):
+                assert edge_rows(f"SELECT COUNT(*) AS count FROM edge_applied_commands WHERE command_id='{command_id}'") == [{"count": 1}]
+                assert admin("command-status", "--probe-id", identity["probe_id"], "--command-id", command_id)["command"]["remote_confirmed"] is True
+            assert admin(*rotation_args)["rotation"] == active
+            generation_before = edge_progress()["connection_generation"]
+            for name in ("worker-a", "worker-b", "edge"):
+                stop(name)
+            start("edge", args.probe_binary, edge_args, edge_env)
+            for worker in ("worker-a", "worker-b"):
+                start(worker, args.app_binary, [], dict(env, MODE="worker", WORKER_ID=worker, PROBES_ENABLED="true"))
+            wait_for("cold restart authenticates with the promoted credential", lambda:
+                     edge_progress()["connection_generation"] > generation_before and hub_query(
+                         "SELECT JSON_OBJECT('connected',connected) FROM probe_sessions "
+                         f"WHERE probe_id='{identity['probe_id']}'") == [{"connected": 1}], timeout=90)
+            high_water = edge_progress()["last_created_seq"]
+            wait_for("credential rotation preserves ordered telemetry progress", lambda:
+                     hub_cursor() >= high_water and edge_progress()["committed_seq"] >= high_water)
+            final = edge_progress()
+            assert final["probe_id"] == identity["probe_id"] and final["stream_id"] == identity["stream_id"]
+            rotation_evidence = {"operation": active, "source_receipts_per_command": 1,
+                                 "hub_credential_version": 2, "source_credential_version": 2,
+                                 "generation_before_restart": generation_before,
+                                 "generation_after_restart": final["connection_generation"], "high_water": high_water}
         report = {"passed": passed, "identity": identity, "before_restart": before, "final": final,
                   "incident": incident, "provider_attempt_statuses": provider_attempts, "successful_webhook_statuses": [h["status"] for h in hooks],
                   "replay_verified": args.verify_replay, "replay": replay_evidence,
                   "history_verified": args.verify_history, "history": history_evidence, "runtime_ownership": runtime_evidence,
                   "watchdog_verified": args.verify_watchdog, "watchdog": watchdog_evidence,
-                  "command_verified": args.verify_command, "command": command_evidence}
+                  "command_verified": args.verify_command, "command": command_evidence,
+                  "credential_rotation_verified": args.verify_credential_rotation, "credential_rotation": rotation_evidence}
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print("Evidence:", output, flush=True)
     finally:

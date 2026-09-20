@@ -52,7 +52,7 @@ func newCommandFixture(t *testing.T, engine string) commandFixture {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	note := "Private operator context"
 	ack := domain.ProbeAlertAcknowledgement{CommandID: "99999999-9999-4999-8999-999999999999", ProbeID: r.session.ProbeID, SourceAlertID: r.incident(1, 1).Incident.SourceAlertID, AssignmentGeneration: 1, CreatedAt: now, ExpiresAt: now.Add(time.Hour), ActorDisplayName: "Operator", Note: &note}
-	f := commandFixture{replayFixture: r, commands: repository.NewProbeCommandStore(r.f.db, p, probe.AcknowledgementCodec{}), protector: p, ack: ack}
+	f := commandFixture{replayFixture: r, commands: repository.NewProbeCommandStore(r.f.db, p, probe.AcknowledgementCodec{}, p, probe.CredentialCommandCodec{}), protector: p, ack: ack}
 	f.request = f.protect(t, ack)
 	return f
 }
@@ -125,11 +125,11 @@ func testCommandIdentity(t *testing.T, f commandFixture) {
 	if err := f.commands.CompleteCommand(t.Context(), f.session, result); !errors.Is(err, ports.ErrConflict) {
 		t.Fatal("unsent command was confirmed", err)
 	}
-	claimed, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second)
+	claimed, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true})
 	if err != nil || claimed == nil || !bytes.Equal(claimed.ProtectedPayload, f.request.ProtectedPayload) {
 		t.Fatal("claim lost exact request", err)
 	}
-	if next, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second); err != nil || next != nil {
+	if next, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true}); err != nil || next != nil {
 		t.Fatal("backoff was ignored", err)
 	}
 	if err := f.commands.CompleteCommand(t.Context(), f.session, result); err != nil {
@@ -146,7 +146,7 @@ func testCommandIdentity(t *testing.T, f commandFixture) {
 	if err := f.commands.CompleteCommand(t.Context(), f.session, result); !errors.Is(err, ports.ErrConflict) {
 		t.Fatal("contradictory result replaced history", err)
 	}
-	if next, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second); err != nil || next != nil {
+	if next, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true}); err != nil || next != nil {
 		t.Fatal("confirmed request retried", err)
 	}
 }
@@ -162,7 +162,7 @@ func testCommandFences(t *testing.T, f commandFixture) {
 		t.Run(name, func(t *testing.T) {
 			bad := f.session
 			change(&bad)
-			if _, err := f.commands.ClaimCommand(t.Context(), bad, time.Second); err == nil {
+			if _, err := f.commands.ClaimCommand(t.Context(), bad, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true}); err == nil {
 				t.Fatal("foreign session dispatched")
 			}
 		})
@@ -170,7 +170,7 @@ func testCommandFences(t *testing.T, f commandFixture) {
 	if _, err := f.f.db.ExecContext(t.Context(), "UPDATE probe_sessions SET lease_until = ? WHERE probe_id = ?", time.Now().Unix()+2, f.session.ProbeID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.commands.ClaimCommand(t.Context(), f.session, 10*time.Second); !errors.Is(err, ports.ErrConflict) {
+	if _, err := f.commands.ClaimCommand(t.Context(), f.session, 10*time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true}); !errors.Is(err, ports.ErrConflict) {
 		t.Fatal("insufficient lease dispatched", err)
 	}
 	status, err := f.commands.GetCommand(t.Context(), f.session.HubID, f.session.ProbeID, f.ack.CommandID)
@@ -180,7 +180,7 @@ func testCommandFences(t *testing.T, f commandFixture) {
 	if _, err := f.f.db.ExecContext(t.Context(), "UPDATE probe_sessions SET lease_until = 0 WHERE probe_id = ?", f.session.ProbeID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second); !errors.Is(err, ports.ErrConflict) {
+	if _, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true}); !errors.Is(err, ports.ErrConflict) {
 		t.Fatal("expired owner dispatched", err)
 	}
 	connections := repository.NewProbeConnectorStore(f.f.db)
@@ -190,7 +190,7 @@ func testCommandFences(t *testing.T, f commandFixture) {
 	}
 	fresh := f.session
 	fresh.OwnerID, fresh.ConnectionGeneration = lease.OwnerID, lease.Generation
-	if got, err := f.commands.ClaimCommand(t.Context(), fresh, time.Second); err != nil || got == nil {
+	if got, err := f.commands.ClaimCommand(t.Context(), fresh, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true}); err != nil || got == nil {
 		t.Fatal("new owner did not recover", err)
 	}
 	result := domain.ProbeCommandOutcome{CommandID: f.ack.CommandID, Status: "applied", AppliedAt: &f.ack.CreatedAt, Message: "Incident acknowledged"}
@@ -213,7 +213,7 @@ func testCommandRollback(t *testing.T, f commandFixture) {
 	}
 	f.issue(t)
 	cleanup = injectOutboxFailure(t, f.f, "probe_commands", "UPDATE")
-	if out, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second); err == nil || out != nil {
+	if out, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true}); err == nil || out != nil {
 		t.Fatal("failed claim authorized send")
 	}
 	cleanup()
@@ -221,7 +221,7 @@ func testCommandRollback(t *testing.T, f commandFixture) {
 	if err != nil || status.Attempts != 0 {
 		t.Fatal("failed claim advanced attempts", err)
 	}
-	if _, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second); err != nil {
+	if _, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true}); err != nil {
 		t.Fatal(err)
 	}
 	cleanup = injectOutboxFailure(t, f.f, "probe_commands", "UPDATE")
@@ -248,7 +248,7 @@ func testCommandConcurrent(t *testing.T, f commandFixture) {
 		t.Fatal(err)
 	}
 	defer func() { _ = peerDB.Close() }()
-	peer := repository.NewProbeCommandStore(peerDB, f.protector, probe.AcknowledgementCodec{})
+	peer := repository.NewProbeCommandStore(peerDB, f.protector, probe.AcknowledgementCodec{}, f.protector, probe.CredentialCommandCodec{})
 	var wg sync.WaitGroup
 	results := make(chan error, 2)
 	for _, s := range []*repository.ProbeCommandStore{f.commands, peer} {
@@ -262,7 +262,11 @@ func testCommandConcurrent(t *testing.T, f commandFixture) {
 	}
 	claims := make(chan *domain.ProtectedProbeCommand, 2)
 	for _, s := range []*repository.ProbeCommandStore{f.commands, peer} {
-		wg.Go(func() { out, err := s.ClaimCommand(t.Context(), f.session, time.Second); claims <- out; results <- err })
+		wg.Go(func() {
+			out, err := s.ClaimCommand(t.Context(), f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true})
+			claims <- out
+			results <- err
+		})
 	}
 	wg.Wait()
 	n := 0
@@ -288,7 +292,7 @@ func testCommandExpiry(t *testing.T, f commandFixture) {
 	f.ack.CreatedAt, f.ack.ExpiresAt = now, now.Add(3*time.Second)
 	f.request = f.protect(t, f.ack)
 	f.issue(t)
-	if _, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second); err != nil {
+	if _, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true}); err != nil {
 		t.Fatal(err)
 	}
 	timer := time.NewTimer(time.Until(f.ack.ExpiresAt.Add(20 * time.Millisecond)))
@@ -298,7 +302,7 @@ func testCommandExpiry(t *testing.T, f commandFixture) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	claimed, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second)
+	claimed, err := f.commands.ClaimCommand(t.Context(), f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true})
 	if err != nil || claimed == nil || !bytes.Equal(claimed.ProtectedPayload, f.request.ProtectedPayload) {
 		t.Fatal("expiry discarded an unconfirmed receipt", err)
 	}

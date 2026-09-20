@@ -29,7 +29,7 @@ type ProbeCommandRepository interface {
 	CreateCommand(context.Context, domain.ProtectedProbeCommand) (*domain.ProbeCommand, error)
 	GetCommand(context.Context, string, string, string) (*domain.ProbeCommand, error)
 	GetProtectedCommand(context.Context, string, string, string) (*domain.ProtectedProbeCommand, error)
-	ClaimCommand(context.Context, domain.ProbeReplaySession, time.Duration) (*domain.ProtectedProbeCommand, error)
+	ClaimCommand(context.Context, domain.ProbeReplaySession, time.Duration, domain.ProbeCommandCapabilities) (*domain.ProtectedProbeCommand, error)
 	CompleteCommand(context.Context, domain.ProbeReplaySession, domain.ProbeCommandOutcome) error
 }
 
@@ -41,7 +41,9 @@ type ProbeAcknowledgementCodec interface {
 }
 
 // ProbeCommandDispatcher is the control transport's fenced persistence boundary.
+// RecordCommandResult returns true only after a credential receipt commits, so
+// the hub can close that socket and force reauthentication without losing it.
 type ProbeCommandDispatcher interface {
-	NextCommand(context.Context, domain.ProbeReplaySession, time.Duration) (*domain.ProbeCommandDispatch, error)
-	RecordCommandResult(context.Context, domain.ProbeReplaySession, domain.ProbeCommandOutcome) error
+	NextCommand(context.Context, domain.ProbeReplaySession, time.Duration, domain.ProbeCommandCapabilities) (*domain.ProbeCommandDispatch, error)
+	RecordCommandResult(context.Context, domain.ProbeReplaySession, domain.ProbeCommandOutcome) (bool, error)
 }

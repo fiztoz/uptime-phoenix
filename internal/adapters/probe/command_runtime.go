@@ -3,7 +3,6 @@ package probe
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"sync/atomic"
@@ -19,13 +18,13 @@ const AcknowledgementCapability = "command.alert_ack.v1"
 // CredentialRotationCapability advertises source rotation with bounded authentication.
 const CredentialRotationCapability = "command.credential_rotation.v1"
 
-func (t *HubTransport) sendCommands(ctx context.Context, session *Session, authority domain.ProbeReplaySession, ready *atomic.Bool) {
+func (t *HubTransport) sendCommands(ctx context.Context, session *Session, authority domain.ProbeReplaySession, ready *atomic.Bool, capabilities domain.ProbeCommandCapabilities) {
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		if ready.Load() {
 			opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			command, err := t.commands.NextCommand(opCtx, authority, 5*time.Second)
+			command, err := t.commands.NextCommand(opCtx, authority, 5*time.Second, capabilities)
 			if err == nil && command != nil {
 				frame, encodeErr := encodeCommandRequestFrame(Decimal(authority.ConnectionGeneration), command.Payload)
 				clear(command.Payload)
@@ -98,13 +97,8 @@ func applyEdgeCommand(ctx context.Context, repo ports.EdgeCommandRepository, cre
 		if credentials == nil {
 			return nil, false, errors.New("credential rotation unavailable")
 		}
-		c := domain.ProbeCredentialCommand{CommandID: request.CommandID, ProbeID: request.Target.ProbeID, Kind: request.Kind, CreatedAt: time.Time(request.CreatedAt).UTC(), ExpiresAt: time.Time(request.ExpiresAt).UTC(), PayloadHash: sha256.Sum256(envelope.Payload)}
-		switch data := request.Data.(type) {
-		case CredentialPrepareData:
-			c.RotationID, c.CredentialVersion, c.TokenHash, c.OverlapExpiresAt = data.RotationID, int64(data.CredentialVersion), sha256.Sum256([]byte(data.Token)), time.Time(data.OverlapExpiresAt).UTC()
-		case CredentialActivateData:
-			c.RotationID, c.CredentialVersion = data.RotationID, int64(data.CredentialVersion)
-		default:
+		c, decodeErr := (CredentialCommandCodec{}).DecodeCredentialCommand(ctx, envelope.Payload)
+		if decodeErr != nil {
 			return nil, false, errors.New("invalid credential rotation")
 		}
 		result, err = credentials.ApplyCredentialCommand(opCtx, authority, c)
@@ -140,10 +134,14 @@ func applyEdgeCommand(ctx context.Context, repo ports.EdgeCommandRepository, cre
 }
 
 func commandOutcome(result CommandResult) (domain.ProbeCommandOutcome, error) {
-	if result.Details != nil {
-		return domain.ProbeCommandOutcome{}, errors.New("unexpected ACK result details")
-	}
 	out := domain.ProbeCommandOutcome{CommandID: result.CommandID, Status: result.Status, Message: result.Message}
+	if result.Details != nil {
+		details, ok := result.Details.(CredentialPrepareDetails)
+		if !ok {
+			return domain.ProbeCommandOutcome{}, errors.New("unsupported command result details")
+		}
+		out.CredentialVersion = int64(details.CredentialVersion)
+	}
 	if result.AppliedAt != nil {
 		at := time.Time(*result.AppliedAt).UTC()
 		out.AppliedAt = &at
