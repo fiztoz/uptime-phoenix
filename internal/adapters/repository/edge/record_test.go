@@ -74,6 +74,7 @@ func TestEdgeCheckAtomicRecordingAndRestart(t *testing.T) {
 	// A subsequent recovery advances the same stream beyond both previous events.
 	up := checkRecord()
 	up.ExpectedStateSeq = 1
+	up.ExpectedIncidentVersion = 1
 	up.Observation.Status, up.Observation.RawStatus, up.Observation.DownCount = domain.StatusUp, domain.StatusUp, 0
 	up.Incident = evidence.Incident
 	resolvedAt := up.Observation.ObservedAt
@@ -103,6 +104,7 @@ func TestEdgeCheckAtomicRecordingAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	up.ExpectedStateSeq, up.Incident, up.DeliveryIntents = 3, nil, nil
+	up.ExpectedIncidentVersion = 2
 	up.Observation.Important = false
 	got, err = reopened.CommitEdgeCheck(ctx, up)
 	if err != nil || got.Seq != 5 {

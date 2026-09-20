@@ -12,8 +12,10 @@
 > see [settings acceptance](M3_WATCHDOG_SETTINGS_ACCEPTANCE.md). Source timing,
 > provider delivery and mirror authorization are now integrated. Enabled both-side
 > paging passed real partition/restart acceptance; see
-> [watchdog acceptance](M3_WATCHDOG_ACCEPTANCE.md). The next work is durable commands
-> and offline incident-specific ACK, rotations/reset, bounded flushing and the
+> [watchdog acceptance](M3_WATCHDOG_ACCEPTANCE.md). Durable source ACK storage and
+> lifecycle handling are implemented; see [source ACK acceptance](M3_EDGE_ACK_ACCEPTANCE.md).
+> Continue hub command persistence, transport and authorized mirror replay under
+> [the command contract](M3_COMMAND_WORK_CONTRACT.md), then rotations/reset, bounded flushing and the
 > complete fifteen-minute partition under [the M3 contract](M3_COMPLETION_WORK_CONTRACT.md).
 > Verify Git HEAD and uncommitted work before editing; never reset to an older baseline.
 

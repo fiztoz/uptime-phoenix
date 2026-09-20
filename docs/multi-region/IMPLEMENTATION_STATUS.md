@@ -7,6 +7,31 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 source ACK transaction and lifecycle — 2026-09-20
+
+Edge migration 006 adds durable immutable command receipts. The source ACK port
+fences the authenticated current session, targets the original incident/generation,
+commits effect/transition/result atomically, and recovers the same result across
+restart, reconnect and expiry. Receipt capacity and retention are bounded; unsafe
+downgrade refuses. An independent incident-version CAS protects in-flight checks;
+recovery preserves ACK metadata and subsequent outages get new identities.
+Regional provider delivery now atomically rechecks source/config/claim authority
+at the final I/O boundary, sharing its deadline with the send.
+
+See [acceptance and retrospective](M3_EDGE_ACK_ACCEPTANCE.md) and
+[evidence](M3_EDGE_ACK_EVIDENCE.json). The full race gate passed in 22 test packages
+with 3,326 named pass events, zero failures and zero MariaDB skips. CGO-free build
+and zero-issue lint passed. The edge tests use real SQLite; MariaDB coverage is
+existing hub regression, not proof of unimplemented hub command behavior.
+Antigravity's bounded review assumptions were corrected, then its implementation
+audit returned no actionable findings; Codex executed the verification.
+
+The ACK source API is not yet wired to network commands. Continue hub protected
+request/result persistence, fenced dispatch, authorized mirror replay and the
+operator issue/read path in [the command contract](M3_COMMAND_WORK_CONTRACT.md).
+Rotation/reset, bounded shutdown and the real fifteen-minute partition remain.
+M3 is still incomplete; no push or deployment was performed.
+
 ## M3 enabled watchdogs and mirror replay — 2026-09-20
 
 Both sides now page from durable watchdog incidents, and edge history mirrors to

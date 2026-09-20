@@ -31,7 +31,7 @@ func (EdgeTelemetryEncoder) EncodeIncident(seq int64, at time.Time, i domain.Reg
 	var generation *Decimal
 	switch {
 	case i.SubjectKind == domain.IncidentSubjectAvailability && i.Scope == domain.IncidentScopeRegional:
-		if i.MonitorID <= 0 || i.AssignmentGeneration <= 0 || i.AckedAt != nil {
+		if i.MonitorID <= 0 || i.AssignmentGeneration <= 0 {
 			return nil, domain.ErrValidation
 		}
 		id, gen := i.MonitorID, Decimal(i.AssignmentGeneration)

@@ -97,6 +97,9 @@ func (s *EdgeRecordingService) Record(ctx context.Context, config *domain.EdgeRe
 		}
 		record := domain.EdgeCheckRecord{ExpectedStateSeq: expectedSeq, Observation: o}
 		incident := before.Incident
+		if incident != nil {
+			record.ExpectedIncidentVersion = incident.TransitionVersion
+		}
 		enqueue := false
 		if o.Status == domain.StatusDown {
 			if incident == nil || incident.Status == domain.AlertStatusResolved {
@@ -109,7 +112,7 @@ func (s *EdgeRecordingService) Record(ctx context.Context, config *domain.EdgeRe
 			} else if incident.Status == domain.AlertStatusFiring && m.ResendInterval > 0 {
 				enqueue = before.LastEnqueuedAt == nil || at.Sub(*before.LastEnqueuedAt) >= time.Duration(m.ResendInterval)*time.Minute
 			}
-		} else if o.Status == domain.StatusUp && incident != nil && incident.Status == domain.AlertStatusFiring {
+		} else if o.Status == domain.StatusUp && incident != nil && (incident.Status == domain.AlertStatusFiring || incident.Status == domain.AlertStatusAcked) {
 			if incident.TransitionVersion == math.MaxInt64 {
 				return domain.RegionalObservation{}, ports.ErrConflict
 			}

@@ -80,6 +80,7 @@ func TestEdgeCurrentSnapshotRollsBackWithSourceCounter(t *testing.T) {
 	}
 	r := checkRecord()
 	r.ExpectedStateSeq = original.Seq
+	r.ExpectedIncidentVersion = 1
 	r.Incident = nil
 	r.DeliveryIntents = nil
 	r.Observation.Message = "must roll back"

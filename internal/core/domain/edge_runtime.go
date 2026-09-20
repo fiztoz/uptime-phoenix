@@ -108,9 +108,11 @@ type EdgeMonitorEvidence struct {
 // Sequence numbers are allocated by the store inside the same transaction.
 type EdgeCheckRecord struct {
 	ExpectedStateSeq int64
-	Observation      RegionalObservation
-	Incident         *RegionalIncident
-	DeliveryIntents  []DeliveryIntent
+	// ACK changes incident state without inventing an observation sequence.
+	ExpectedIncidentVersion int64
+	Observation             RegionalObservation
+	Incident                *RegionalIncident
+	DeliveryIntents         []DeliveryIntent
 }
 
 // EdgeTelemetryRecord retains exact bounded event bytes for later hub replay.

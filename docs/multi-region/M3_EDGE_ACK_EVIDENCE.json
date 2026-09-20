@@ -1,0 +1,103 @@
+{
+  "scope": "Durable edge regional ACK storage and source lifecycle; command transport remains unwired",
+  "baseline_commit": "168a0e02a9a7323649639b497015c6b2dc7b1f71",
+  "gate_started_at": "2026-09-20T16:29:44.197428+00:00",
+  "gate_completed_at": "2026-09-20T16:36:59.257911+00:00",
+  "commands": [
+    {
+      "command": [
+        "go",
+        "build",
+        "./..."
+      ],
+      "exit_code": 0,
+      "log": "/private/tmp/phoenix-m3-edge-ack-build.log"
+    },
+    {
+      "command": [
+        "go",
+        "test",
+        "-race",
+        "-count=1",
+        "-timeout=20m",
+        "-json",
+        "./..."
+      ],
+      "exit_code": 0,
+      "log": "/private/tmp/phoenix-m3-edge-ack-full.jsonl"
+    },
+    {
+      "command": [
+        "/Users/fizto/go/bin/golangci-lint",
+        "run"
+      ],
+      "exit_code": 0,
+      "log": "/private/tmp/phoenix-m3-edge-ack-lint.log"
+    }
+  ],
+  "build_environment": {
+    "GOTOOLCHAIN": "go1.26.6",
+    "CGO_ENABLED": "0 for build"
+  },
+  "engines": {
+    "source_command_store": "SQLite private edge database",
+    "hub_regression": "SQLite and explicitly configured disposable MariaDB; no new hub command implementation yet"
+  },
+  "counts": {
+    "named_pass_events": 3326,
+    "tested_packages": 22,
+    "mariadb_named_pass_events": 241,
+    "mariadb_subtest_pass_events": 204,
+    "failed_events": 0,
+    "named_skips": 2,
+    "packages_without_tests": 13
+  },
+  "count_caveat": "Named events include parent tests and subtests; counts are not independent scenarios. MariaDB-named includes historical test names; lowercase /mariadb identifies engine subtests.",
+  "named_skips": [
+    "TestDatabaseChecker_Check_MongoDB_RealServer",
+    "TestTelegramSender_Send_DownSeverity"
+  ],
+  "focused": {
+    "log": "/private/tmp/phoenix-m3-edge-ack-final-focused.jsonl",
+    "named_pass_events": 89,
+    "failures": 0,
+    "skips": 0
+  },
+  "source_sha256": {
+    "internal/adapters/probe/edge_telemetry.go": "f5218418bcda2f7f1e8c9eb6aa7c8084c3ec5a282611a0ef737d913035e78262",
+    "internal/adapters/repository/edge/command.go": "2a985ca32dd8433363072257ad4820e29b0d6f96e865aa9e91e03fc0c7aeaa02",
+    "internal/adapters/repository/edge/command_test.go": "4f9c87f3d496ef240a423115d7d9db758a73e26de5b7689bdb952be595968f08",
+    "internal/adapters/repository/edge/current_snapshot_test.go": "d87efc98e6d38bb36d8ae9895afb80afcc589f1dbd9f24a5c6e9de21c2ef5d25",
+    "internal/adapters/repository/edge/delivery_authority.go": "17d267099ec92d67c814b5d37a1672a07544ca04d87fb05a4b2e69d7f6cace91",
+    "internal/adapters/repository/edge/migrations/006_applied_commands.tx.down.sql": "5c6dc5c1e9f76a2270fd1fed4409910d8d939c80ccac384644e844c8f1385c6f",
+    "internal/adapters/repository/edge/migrations/006_applied_commands.tx.up.sql": "612b3754fc6f2bdd26dd9489b3aa2cfbb9dcc0bc681fa8151cdccfd655a72bd2",
+    "internal/adapters/repository/edge/queue_pressure_test.go": "a978abed45657224c7c829bf168a46b424cb98cd8a0e78e9191e466aac429583",
+    "internal/adapters/repository/edge/record.go": "31f3c0e4af6b83c423aede7931baf3134dc0656833442bdc45b208e8355eeba7",
+    "internal/adapters/repository/edge/record_test.go": "bb76179782fadbcd226940807476faaa56fd77544d9f54bf172e629f018b916d",
+    "internal/adapters/repository/edge/store.go": "e80ace9bc195fdf2089f3c62d06e296d6d8e44c110f277ce9a82296b734ed804",
+    "internal/core/domain/edge_runtime.go": "f59708b1a414638046347a4f6a5bfa40117324b10b24f7863adbfe4ea443cfe0",
+    "internal/core/domain/probe_command.go": "d20669ea008b2855ebb0fee39f4587401e6ac6c965aec111421e062775ecfba9",
+    "internal/core/ports/edge_delivery.go": "0c64ed1c5f530d3c5b74949ad51080174273d25c3f9390b073b5e5de385bf01c",
+    "internal/core/ports/probe_command.go": "febe99509d8d9d53df29809cf4fdc527adfb88e955956ca881917fdbef62e830",
+    "internal/core/services/edge_delivery_service.go": "63da9f76f2a1cd37cc4c4cacea0f3b0f9615e24cc08e24a62d15db0521dac059",
+    "internal/core/services/edge_delivery_service_test.go": "91e16a350dc58406225d2bfe73e3f4180d4bed793e82b574aa927e2f12c7dbe0",
+    "internal/core/services/edge_recording_service.go": "1104fc60ccab3564855893a48017382ac21a9efe381b1d457d86f140854f70e6"
+  },
+  "source_unchanged_through_gate": true,
+  "review": {
+    "agent": "Antigravity",
+    "conversation_id": "7d49f837-3a7c-4bbc-9eb3-a8e8fbb6d034",
+    "mode": "read-only; no file ownership or tool execution",
+    "result": "No actionable implementation findings; earlier control-frame and session-identity assumptions corrected and acknowledged",
+    "audit_log": "/private/tmp/phoenix-m3-edge-ack-implementation.jsonl",
+    "feedback_log": "/private/tmp/phoenix-m3-command-ack-feedback.jsonl"
+  },
+  "unverified": [
+    "Hub protected command request/result storage, bounded dispatch and receipt handling",
+    "Edge control command execution and lost-request/result transport acceptance",
+    "Authorized ACK mirror replay, including control receipt arriving after telemetry",
+    "Operator ACK issue/read workflow",
+    "Credential/certificate rotation, explicit stream reset, bounded shutdown flush",
+    "Final real fifteen-minute partition with pending offline ACK"
+  ]
+}

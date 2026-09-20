@@ -264,6 +264,15 @@ durable both-side delivery and edge-to-hub watchdog mirroring are verified by
 [the real partition/restart acceptance](M3_WATCHDOG_ACCEPTANCE.md). The storage
 prerequisite descriptions below record earlier implementation stages; their
 activation guards have now been removed for complete metadata/capability graphs.
+Edge migration 006 now persists immutable ACK receipts with source effect and
+transition in one transaction. An independent incident-version CAS protects
+in-flight checks; recovery retains ACK metadata, and final regional delivery
+authorization suppresses DOWN if ACK committed first. Receipt storage is bounded
+at 16,384 rows, with expiry plus the maximum 365-day telemetry horizon retained.
+This source API remains unwired to the command transport while hub command
+persistence, result handling and replay correlation are completed. See
+[source ACK acceptance](M3_EDGE_ACK_ACCEPTANCE.md).
+
 Remote ACK commands and the broader fifteen-minute M3 scenario remain unfinished.
 
 Send control health every 15 seconds. A link is suspect after 45 seconds without valid application health and disconnected after 90 seconds. Require 30 seconds of continuous valid health before a watchdog recovery notification. These are defaults, not sub-second promises.

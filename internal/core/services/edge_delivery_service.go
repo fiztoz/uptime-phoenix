@@ -12,7 +12,7 @@ import (
 // accepted graph. It has no hub repository or hub-reachability dependency.
 type EdgeDeliveryService struct {
 	watchdog *ProbeWatchdogDeliveryService
-	outbox   ports.DeliveryOutboxRepository
+	outbox   ports.EdgeDeliveryRepository
 	configs  ports.EdgeConfigReader
 	checks   ports.EdgeCheckRepository
 	cron     ports.CronEvaluator
@@ -21,7 +21,7 @@ type EdgeDeliveryService struct {
 }
 
 // NewEdgeDeliveryService wires immutable config reads and actual provider lookup.
-func NewEdgeDeliveryService(outbox ports.DeliveryOutboxRepository, configs ports.EdgeConfigReader, checks ports.EdgeCheckRepository, cron ports.CronEvaluator, sender func(string) (ports.NotificationSender, bool)) *EdgeDeliveryService {
+func NewEdgeDeliveryService(outbox ports.EdgeDeliveryRepository, configs ports.EdgeConfigReader, checks ports.EdgeCheckRepository, cron ports.CronEvaluator, sender func(string) (ports.NotificationSender, bool)) *EdgeDeliveryService {
 	return &EdgeDeliveryService{outbox: outbox, configs: configs, checks: checks, cron: cron, sender: sender, now: time.Now}
 }
 
@@ -92,17 +92,18 @@ func (s *EdgeDeliveryService) process(ctx context.Context, item domain.QueuedDel
 	if !ok || provider == nil {
 		return finish(domain.DeliveryStatusFailed, domain.ErrCodeUnknownSenderType, time.Time{})
 	}
-	alert := edgeAlertContext(item, *assignment, config, channel.Notification, includeTarget, s.now().UTC())
-	// Re-read the persisted claim at the external-I/O boundary. A recovered or
-	// superseded attempt cannot send with another worker's authority.
-	stored, err := s.outbox.GetDeliveryIntent(ctx, item.ProbeID, item.DeliveryID)
+	// Authorization and provider I/O share one deadline; storage delay cannot
+	// consume the lease budget and then start a fresh ten-second send window.
+	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	stored, err := s.outbox.AuthorizeEdgeDelivery(sendCtx, claim, config.Metadata, 10*time.Second)
 	if err != nil {
 		return err
 	}
-	if stored.Status != domain.DeliveryStatusLeased || stored.LeaseToken != item.LeaseToken || stored.Attempt != item.Attempt || stored.LeaseUntil == nil || !s.now().UTC().Add(10*time.Second).Before(*stored.LeaseUntil) {
-		return ports.ErrConflict
+	if stored == nil {
+		return finish(domain.DeliveryStatusSuperseded, "", time.Time{})
 	}
-	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	alert := edgeAlertContext(*stored, *assignment, config, channel.Notification, includeTarget, s.now().UTC())
 	err = provider.Send(sendCtx, channel.Notification.Config, alert)
 	cancel()
 	if ctx.Err() != nil {

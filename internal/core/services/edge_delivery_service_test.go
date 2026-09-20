@@ -11,11 +11,12 @@ import (
 )
 
 type edgeDeliveryFake struct {
-	item   domain.QueuedDelivery
-	config *domain.EdgeResolvedConfig
-	result domain.DeliveryResult
-	sent   []domain.AlertContext
-	fail   error
+	item                      domain.QueuedDelivery
+	config                    *domain.EdgeResolvedConfig
+	result                    domain.DeliveryResult
+	sent                      []domain.AlertContext
+	fail                      error
+	supersededAtAuthorization bool
 }
 
 func (f *edgeDeliveryFake) ClaimDeliveries(context.Context, string, time.Time, time.Duration, int) ([]domain.QueuedDelivery, error) {
@@ -24,6 +25,17 @@ func (f *edgeDeliveryFake) ClaimDeliveries(context.Context, string, time.Time, t
 func (f *edgeDeliveryFake) GetDeliveryIntent(context.Context, string, string) (*domain.QueuedDelivery, error) {
 	copy := f.item
 	return &copy, nil
+}
+func (f *edgeDeliveryFake) AuthorizeEdgeDelivery(ctx context.Context, claim domain.DeliveryClaim, _ domain.ProbeConfigMetadata, budget time.Duration) (*domain.QueuedDelivery, error) {
+	deadline, ok := ctx.Deadline()
+	if !ok || time.Until(deadline) > budget || f.item.LeaseUntil == nil || !time.Now().Add(budget).Before(*f.item.LeaseUntil) || f.item.LeaseToken != claim.LeaseToken || f.item.Attempt != claim.Attempt {
+		return nil, ports.ErrConflict
+	}
+	if f.supersededAtAuthorization {
+		return nil, nil
+	}
+	item := f.item
+	return &item, nil
 }
 func (f *edgeDeliveryFake) FinishDelivery(_ context.Context, _ domain.DeliveryClaim, r domain.DeliveryResult) error {
 	f.result = r
@@ -43,7 +55,7 @@ func (f *edgeDeliveryFake) Send(ctx context.Context, _ map[string]any, a domain.
 }
 
 func TestEdgeDeliveryServiceReconcilesAcceptedGraphAndRedactsErrors(t *testing.T) {
-	for _, scenario := range []string{"sent", "retry", "removed", "maintenance", "recovered", "stale lease", "template"} {
+	for _, scenario := range []string{"sent", "retry", "removed", "maintenance", "recovered", "stale lease", "template", "ACK before authorization"} {
 		t.Run(scenario, func(t *testing.T) {
 			source, config, a := edgeServiceFixture()
 			at := time.Now().UTC()
@@ -59,6 +71,8 @@ func TestEdgeDeliveryServiceReconcilesAcceptedGraphAndRedactsErrors(t *testing.T
 			svc := NewEdgeDeliveryService(f, f, source, nil, func(string) (ports.NotificationSender, bool) { return f, true })
 			svc.now = func() time.Time { return at }
 			switch scenario {
+			case "ACK before authorization":
+				f.supersededAtAuthorization = true
 			case "retry":
 				f.fail = errors.New("dial secret-token@example: connection refused")
 			case "removed":
@@ -86,7 +100,7 @@ func TestEdgeDeliveryServiceReconcilesAcceptedGraphAndRedactsErrors(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			if scenario == "removed" || scenario == "maintenance" || scenario == "recovered" {
+			if scenario == "removed" || scenario == "maintenance" || scenario == "recovered" || scenario == "ACK before authorization" {
 				if len(f.sent) != 0 || f.result.Status != domain.DeliveryStatusSuperseded {
 					t.Fatal("ineligible intent sent")
 				}

@@ -123,7 +123,7 @@ func (s *Store) ReadEdgeEvidence(ctx context.Context, monitorID, generation int6
 // Provider I/O is impossible here; only the injected pure encoder is invoked.
 func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckRecord) (domain.RegionalObservation, error) {
 	o := record.Observation
-	if s.telemetry == nil || record.ExpectedStateSeq < 0 || o.MonitorID <= 0 || o.AssignmentGeneration <= 0 || o.ConfigRevision <= 0 || o.Seq != 0 || o.ObservedAt.IsZero() || o.ReceivedAt.IsZero() || o.Status < domain.StatusDown || o.Status > domain.StatusMaintenance || o.RawStatus != domain.StatusUp && o.RawStatus != domain.StatusDown || len(record.DeliveryIntents) > 1000 {
+	if s.telemetry == nil || record.ExpectedStateSeq < 0 || record.ExpectedIncidentVersion < 0 || o.MonitorID <= 0 || o.AssignmentGeneration <= 0 || o.ConfigRevision <= 0 || o.Seq != 0 || o.ObservedAt.IsZero() || o.ReceivedAt.IsZero() || o.Status < domain.StatusDown || o.Status > domain.StatusMaintenance || o.RawStatus != domain.StatusUp && o.RawStatus != domain.StatusDown || len(record.DeliveryIntents) > 1000 {
 		return domain.RegionalObservation{}, domain.ErrValidation
 	}
 	o.ObservedAt, o.ReceivedAt = o.ObservedAt.UTC(), o.ReceivedAt.UTC()
@@ -147,7 +147,11 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 		if before.State != nil {
 			previousSeq = before.State.Seq
 		}
-		if previousSeq != record.ExpectedStateSeq {
+		var incidentVersion int64
+		if before.Incident != nil {
+			incidentVersion = before.Incident.TransitionVersion
+		}
+		if previousSeq != record.ExpectedStateSeq || incidentVersion != record.ExpectedIncidentVersion {
 			return ports.ErrStaleLocalState
 		}
 		eventCount := int64(1)
@@ -248,18 +252,18 @@ func (s *Store) appendTelemetry(ctx context.Context, tx bun.Tx, seq int64, kind 
 }
 
 func saveEdgeIncident(ctx context.Context, tx bun.Tx, o domain.RegionalObservation, prior *domain.RegionalIncident, inc domain.RegionalIncident) error {
-	if !domain.ValidHubID(inc.SourceAlertID) || inc.ProbeID != o.ProbeID || inc.MonitorID != o.MonitorID || inc.AssignmentGeneration != o.AssignmentGeneration || inc.ConfigRevision != o.ConfigRevision || inc.Scope != domain.IncidentScopeRegional || inc.SubjectKind != domain.IncidentSubjectAvailability || inc.StartedAt.IsZero() || inc.AckedAt != nil || inc.EscalationPolicyID != 0 {
+	if !domain.ValidHubID(inc.SourceAlertID) || inc.ProbeID != o.ProbeID || inc.MonitorID != o.MonitorID || inc.AssignmentGeneration != o.AssignmentGeneration || inc.ConfigRevision != o.ConfigRevision || inc.Scope != domain.IncidentScopeRegional || inc.SubjectKind != domain.IncidentSubjectAvailability || inc.StartedAt.IsZero() || inc.EscalationPolicyID != 0 {
 		return domain.ErrValidation
 	}
 	row := newEdgeIncidentRow(inc)
 	if prior == nil || prior.Status == domain.AlertStatusResolved {
-		if inc.Status != domain.AlertStatusFiring || inc.TransitionVersion != 1 || inc.ResolvedAt != nil || o.Status != domain.StatusDown {
+		if inc.Status != domain.AlertStatusFiring || inc.TransitionVersion != 1 || inc.ResolvedAt != nil || inc.AckedAt != nil || inc.AckCommandID != "" || inc.AckActorDisplayName != "" || inc.AckNote != nil || o.Status != domain.StatusDown {
 			return domain.ErrValidation
 		}
 		_, err := tx.NewInsert().Model(&row).Exec(ctx)
 		return err
 	}
-	if inc.SourceAlertID != prior.SourceAlertID || inc.StartedAt.UTC().UnixMicro() != prior.StartedAt.UTC().UnixMicro() || prior.TransitionVersion == math.MaxInt64 || inc.TransitionVersion != prior.TransitionVersion+1 || inc.Status != domain.AlertStatusResolved || inc.ResolvedAt == nil || o.Status != domain.StatusUp {
+	if !sameIncidentAcknowledgement(inc, *prior) || (prior.Status != domain.AlertStatusFiring && prior.Status != domain.AlertStatusAcked) || inc.SourceAlertID != prior.SourceAlertID || inc.StartedAt.UTC().UnixMicro() != prior.StartedAt.UTC().UnixMicro() || prior.TransitionVersion == math.MaxInt64 || inc.TransitionVersion != prior.TransitionVersion+1 || inc.Status != domain.AlertStatusResolved || inc.ResolvedAt == nil || o.Status != domain.StatusUp {
 		return domain.ErrValidation
 	}
 	_, err := tx.NewUpdate().Model(&row).WherePK().Exec(ctx)
@@ -281,4 +285,15 @@ func insertEdgeIntent(ctx context.Context, tx bun.Tx, o domain.RegionalObservati
 
 func newEdgeIncidentRow(inc domain.RegionalIncident) edgeIncidentRow {
 	return edgeIncidentRow{SourceAlertID: inc.SourceAlertID, MonitorID: inc.MonitorID, Generation: inc.AssignmentGeneration, Scope: string(inc.Scope), SubjectKind: inc.SubjectKind, Status: inc.Status, TransitionVersion: inc.TransitionVersion, StartedAt: inc.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(inc.ResolvedAt), AckedAt: microFromTime(inc.AckedAt), AckCommandID: inc.AckCommandID, AckActorDisplayName: inc.AckActorDisplayName, AckNote: inc.AckNote, Reason: inc.Reason, ConfigRevision: inc.ConfigRevision}
+}
+
+// Source checks may preserve a committed acknowledgement, never create or edit it.
+func sameIncidentAcknowledgement(a, b domain.RegionalIncident) bool {
+	if a.AckCommandID != b.AckCommandID || a.AckActorDisplayName != b.AckActorDisplayName || (a.AckedAt == nil) != (b.AckedAt == nil) || (a.AckNote == nil) != (b.AckNote == nil) {
+		return false
+	}
+	if a.AckedAt != nil && a.AckedAt.UTC().UnixMicro() != b.AckedAt.UTC().UnixMicro() {
+		return false
+	}
+	return a.AckNote == nil || *a.AckNote == *b.AckNote
 }

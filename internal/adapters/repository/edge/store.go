@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
@@ -29,9 +30,10 @@ var migrations embed.FS
 // Store holds one SQLite connection. The composition root must hold the runtime
 // identity's exclusive directory lock from before Open until after Close.
 type Store struct {
-	db        *bun.DB
-	telemetry ports.EdgeTelemetryEncoder
-	retention RetentionPolicy
+	db         *bun.DB
+	telemetry  ports.EdgeTelemetryEncoder
+	retention  RetentionPolicy
+	commandNow func() time.Time
 }
 
 // Option supplies an optional execution dependency before the store is published.
@@ -109,7 +111,7 @@ func Open(ctx context.Context, dataDir string, identity domain.EdgeIdentity, opt
 	}
 	sqldb.SetMaxOpenConns(1)
 	sqldb.SetMaxIdleConns(1)
-	s := &Store{db: bun.NewDB(sqldb, sqlitedialect.New())}
+	s := &Store{db: bun.NewDB(sqldb, sqlitedialect.New()), commandNow: time.Now}
 	for _, option := range options {
 		if option == nil {
 			_ = s.Close()

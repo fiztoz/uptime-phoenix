@@ -23,6 +23,7 @@ func TestEdgeDeliveryPressureRollsBackSourceRecording(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.ExpectedStateSeq = 1
+	r.ExpectedIncidentVersion = 1
 	r.Incident = nil
 	r.DeliveryIntents[0].DeliveryID = "13eae8a2-7740-4c18-b09b-32cce4f1c4e9"
 	if _, err := s.CommitEdgeCheck(t.Context(), r); !errors.Is(err, ErrQueueFull) {
@@ -96,6 +97,7 @@ func TestEdgeDeliveryReservesOutcomeSpaceBeforeProviderIO(t *testing.T) {
 		t.Fatalf("outcome reservation failed: %v", err)
 	}
 	r.ExpectedStateSeq, r.Incident, r.DeliveryIntents = 1, nil, nil
+	r.ExpectedIncidentVersion = 1
 	if _, err := s.CommitEdgeCheck(t.Context(), r); !errors.Is(err, ErrQueueFull) {
 		t.Fatalf("observation consumed reserved outcome bytes: %v", err)
 	}
