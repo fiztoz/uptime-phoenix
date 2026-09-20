@@ -129,6 +129,14 @@ The snapshot is confidential and must not be logged. Resolve secrets server-side
 
 ### 3.3 Bounded decoding and reference rules
 
+The optional root `probe` display extension contains exact `name` and `location`
+string members. Name is nonblank and at most 200 Unicode code points; location is
+at most 255. Both come from the authoritative registration, never a monitor or
+endpoint. Unknown members cannot overwrite canonical names through case aliases.
+Older documents may omit the extension. Enabled watchdog runtime support will
+require this metadata and its negotiated capability; the current build still
+rejects enabled watchdog activation.
+
 Every member listed in section 3.2 is required, including empty arrays and explicit nullable references. Snapshot revision and assignment generations are positive. All dependency versions equal the enclosing revision. Bound the snapshot to 16 MiB, each collection entry to 256 KiB, assignments to 10,000, and each dependency collection to 1,000. IDs are unique and positive within their collection; binding keys follow the hello key grammar. Per-assignment link/maintenance lists and per-step/watchdog notification lists are unique positive IDs bounded to 1,000. Assignment notification IDs exactly match its link IDs. Each channel/template, assignment/proxy/policy, and policy/watchdog/channel reference resolves in this snapshot, including disabled entries. Template and channel providers must match.
 
 Maintenance `monitor_ids` is the explicit set of assignments in this snapshot to which that window applies, clipped from persisted monitor links to this probe. Existing Phoenix windows with no links suppress nothing; never infer global applicability from an empty link set. Any future global-window feature requires an explicit authoritative representation before expansion. Its edges must exactly match assignment `maintenance_ids` in both directions. Single windows require non-null ordered start/end instants; cron windows require null dates, a nonempty cron expression, and positive duration. The builder resolves an empty legacy timezone to `UTC`; cron parsing, timezone availability, and actual schedule evaluation remain activation/runtime validation.

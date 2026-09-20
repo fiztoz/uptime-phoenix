@@ -1046,3 +1046,25 @@ role rejection. `TestHubHealthConfirmsConfigImmediatelyAfterDurableReceipt` must
 observe fresh health authority while its config receipt callback remains blocked,
 and must still withhold the applied revision until commit. This is transport
 acceptance; the complete watchdog runtime/provider and M3 partition checks remain.
+
+
+### M3 saved watchdog settings and real operator command
+
+Run `go test -race -count=1 ./internal/adapters/repository -run '^TestProbeWatchdogSettingsContract$'`
+with `TEST_MARIADB_DSN` naming a disposable local DB. Both engine branches must
+execute: complete watchdog-only dependencies, zero-assignment snapshots,
+concurrent CAS, restart/no-op, disabled registration reads, missing references,
+late link-write rollback, notification deletion and migration constraints.
+The legacy 035 boundary fixture must downgrade/reapply 060 before its parent.
+
+Run `go test -race -count=1 ./cmd/phoenix-probe-admin` for the actual command in
+separate processes over a fresh SQLite DB. It checks single-JSON stdout during
+initial migrations, durable settings across restart, explicit enable selection,
+revision conflict, numeric overflow and no invented applied receipt. Migration
+diagnostics belong to slog/stderr, not the command's result stream.
+
+`TestConfigProbeMetadataUsesExactBoundedFields` rejects null, missing, overlong
+and case-alias metadata; `TestProbeWatchdogCustomTimingPreservesPositiveWireIntervals`
+keeps the V1 positive timing range with a lower suspect threshold only when a
+custom loss interval is 45 seconds or shorter. These prerequisites do not prove
+running watchdogs, provider delivery, commands or full partition recovery.

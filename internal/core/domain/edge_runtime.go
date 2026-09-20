@@ -86,6 +86,8 @@ type EdgeResolvedChannel struct {
 // EdgeResolvedConfig is decrypted, validated runtime input. It must never be
 // logged, marshaled as a domain object or retained as plaintext in SQLite.
 type EdgeResolvedConfig struct {
+	Probe       ProbeDisplay
+	Watchdog    ProbeWatchdogSettings
 	Metadata    ProbeConfigMetadata
 	Assignments []EdgeResolvedAssignment
 	Channels    map[int64]EdgeResolvedChannel

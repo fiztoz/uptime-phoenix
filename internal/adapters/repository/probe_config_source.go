@@ -106,6 +106,13 @@ func readProbeConfigSource(ctx context.Context, tx bun.Tx, probeID string) (*dom
 		Templates: map[int64]*domain.NotificationTemplate{}, Proxies: map[int64]*domain.Proxy{},
 		Assignments: make([]domain.ProbeConfigAssignment, 0, len(rows)),
 	}
+	if kind == domain.ProbeKindRemote {
+		settings, err := readProbeWatchdogSettings(ctx, tx, probeID)
+		if err != nil {
+			return nil, err
+		}
+		out.Watchdog = &settings
+	}
 	ids := make([]int64, 0, len(rows))
 	generation := make(map[int64]int64, len(rows))
 	for _, row := range rows {
@@ -241,6 +248,11 @@ func readConfigDependencies(ctx context.Context, tx bun.Tx, monitorIDs []int64, 
 		return err
 	}
 	channelIDs := map[int64]bool{}
+	if out.Watchdog != nil {
+		for _, id := range out.Watchdog.NotificationIDs {
+			channelIDs[id] = true
+		}
+	}
 	byMonitor := map[int64][]domain.MonitorNotification{}
 	for _, link := range links {
 		channelIDs[link.NotificationID] = true

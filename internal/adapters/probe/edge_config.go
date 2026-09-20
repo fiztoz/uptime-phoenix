@@ -45,6 +45,10 @@ func (d *EdgeConfigDecoder) DecodeEdge(ctx context.Context, document []byte, tar
 		return nil, err
 	}
 	out := &domain.EdgeResolvedConfig{Metadata: metadata, Assignments: make([]domain.EdgeResolvedAssignment, 0, len(s.Assignments)), Channels: make(map[int64]domain.EdgeResolvedChannel), Templates: make(map[int64]*domain.NotificationTemplate), Maintenance: make(map[int64]*domain.MaintenanceWindow), Policies: make(map[int64]*domain.EscalationPolicy)}
+	out.Watchdog = resolvedConfigWatchdog(s.Watchdog)
+	if s.Probe != nil {
+		out.Probe = domain.ProbeDisplay{Name: s.Probe.Name, Location: s.Probe.Location}
+	}
 	proxies := make(map[string]*domain.Proxy)
 	for _, p := range s.ProxyBindings {
 		proxies[p.BindingKey] = &domain.Proxy{Protocol: p.Protocol, Host: p.Host, Port: int(p.Port), Auth: p.Auth, Username: p.Username, Password: p.Password, Active: p.Active}

@@ -32,6 +32,7 @@ type ProbeConfigMaintenance struct {
 // may include overridden dependencies; resolution removes those before encoding.
 type LocalProbeConfigSource struct {
 	Probe           Probe
+	Watchdog        *ProbeWatchdogSettings
 	Assignments     []ProbeConfigAssignment
 	Groups          map[int64]*MonitorGroup
 	MonitorPolicies map[int64]int64
@@ -47,6 +48,8 @@ type LocalProbeConfigSource struct {
 // activated revision. The transport adapter supplies explicit JSON DTOs.
 type LocalProbeConfigDefinition struct {
 	Target        ProbeConfigTarget
+	Probe         ProbeDisplay
+	Watchdog      ProbeWatchdogSettings
 	Revision      int64
 	CreatedAt     time.Time
 	EffectiveAt   time.Time

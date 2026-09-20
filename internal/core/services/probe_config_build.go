@@ -93,8 +93,21 @@ func ResolveRemoteProbeConfig(source *domain.LocalProbeConfigSource) (domain.Loc
 
 func resolveProbeConfig(source *domain.LocalProbeConfigSource) (domain.LocalProbeConfigDefinition, error) {
 	var out domain.LocalProbeConfigDefinition
+	out.Probe = domain.ProbeDisplay{Name: source.Probe.Name, Location: source.Probe.Location}
+	out.Watchdog = domain.DefaultProbeWatchdogSettings()
+	if source.Watchdog != nil {
+		if source.Probe.Kind != domain.ProbeKindRemote || domain.ValidateProbeWatchdogSettings(*source.Watchdog) != nil {
+			return out, domain.ErrValidation
+		}
+		out.Watchdog = *source.Watchdog
+		out.Watchdog.NotificationIDs = slices.Clone(source.Watchdog.NotificationIDs)
+		slices.Sort(out.Watchdog.NotificationIDs)
+	}
 	monitors := make(map[int64]bool, len(source.Assignments))
 	policies, channels, templates, proxies := map[int64]bool{}, map[int64]bool{}, map[int64]bool{}, map[int64]bool{}
+	for _, id := range out.Watchdog.NotificationIDs {
+		channels[id] = true
+	}
 	out.Assignments = make([]domain.ProbeConfigAssignment, 0, len(source.Assignments))
 	for _, assignment := range source.Assignments {
 		m := assignment.Monitor

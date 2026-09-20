@@ -38,6 +38,21 @@ func encodeProbeConfigDefinition(d domain.LocalProbeConfigDefinition, remote boo
 		// their own authoritative configuration before a remote builder is enabled.
 		Watchdog: ConfigWatchdog{LostAfterSeconds: 90, RecoverAfterSeconds: 30, NotificationIDs: []int64{}},
 	}
+	if remote {
+		w := d.Watchdog
+		// Hand-authored legacy definitions have no settings. Resolved source
+		// definitions always supply validated defaults or saved complete intent.
+		if w.LostAfterSeconds == 0 && w.RecoverAfterSeconds == 0 && !w.Enabled && w.ResendInterval == 0 && len(w.NotificationIDs) == 0 {
+			w = domain.DefaultProbeWatchdogSettings()
+		}
+		if domain.ValidateProbeWatchdogSettings(w) != nil {
+			return nil, domain.ErrValidation
+		}
+		s.Watchdog = ConfigWatchdog{Enabled: w.Enabled, LostAfterSeconds: w.LostAfterSeconds, RecoverAfterSeconds: w.RecoverAfterSeconds, ResendInterval: w.ResendInterval, NotificationIDs: sortedConfigList(w.NotificationIDs)}
+		if d.Probe.Name != "" || d.Probe.Location != "" {
+			s.Probe = &ConfigProbeDisplay{Name: d.Probe.Name, Location: d.Probe.Location}
+		}
+	}
 	for _, assignment := range d.Assignments {
 		a, err := encodeLocalAssignment(assignment)
 		if err != nil {

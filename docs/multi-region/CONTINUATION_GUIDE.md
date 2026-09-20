@@ -8,7 +8,10 @@
 > [runtime acceptance](M3_RUNTIME_ACCEPTANCE.md). Edge source persistence is also
 > implemented; see [source acceptance](M3_WATCHDOG_SOURCE_ACCEPTANCE.md). Hub source
 > persistence is also implemented; see [hub acceptance](M3_HUB_WATCHDOG_ACCEPTANCE.md).
-> Next complete config, mirror authorization and runtime/provider integration per
+> Saved watchdog settings and explicit probe display metadata are implemented;
+> see [settings acceptance](M3_WATCHDOG_SETTINGS_ACCEPTANCE.md). The enabled config
+> guard still rejects activation. Next complete source timing, health admission,
+> mirror authorization and runtime/provider integration per
 > [both watchdogs](M3_WATCHDOG_WORK_CONTRACT.md).
 > Verify Git HEAD and uncommitted work before editing; never reset to an older baseline.
 

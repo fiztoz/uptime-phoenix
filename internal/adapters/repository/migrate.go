@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"path"
 	"sort"
 	"strings"
@@ -112,7 +113,7 @@ func RunMigrations(db *sql.DB, engine string) error {
 
 		// SQLite table rebuilds and their tracking record must commit together.
 		// In particular, rebuilding a parent must not strand its copied children.
-		fmt.Printf("Applying migration: %s\n", filename)
+		slog.Info("Applying database migration", "migration", filename)
 		if err := applyMigration(ctx, db, engine, filename, string(sqlBytes)); err != nil {
 			return err
 		}

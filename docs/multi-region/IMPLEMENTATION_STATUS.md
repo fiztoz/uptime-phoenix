@@ -7,6 +7,24 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 saved watchdog settings prerequisite — 2026-09-20
+
+Migration 060 persists complete per-probe settings and notification membership.
+The real operator CLI exposes revision-fenced replacement and metadata status;
+complete source snapshots retain watchdog-only channels/templates and explicit
+probe display metadata even with no monitors. Disabled registrations remain
+readable. Enabled configuration remains rejected until the runtime/provider work
+is integrated, so this is not an operational-watchdog claim.
+
+See [settings verification and retrospective](M3_WATCHDOG_SETTINGS_ACCEPTANCE.md)
+and [evidence](M3_WATCHDOG_SETTINGS_EVIDENCE.json). The CLI process regression also
+fixes migration progress contaminating machine-readable stdout. Antigravity's
+read-only audit claims were independently tested and corrected, with feedback
+acknowledged. Continue source runtime/timer/provider/replay integration; the
+whole-M3 completion goal remains active. The final full race gate passed in
+22 tested packages with 231 MariaDB-named pass events and no MariaDB skips (two unrelated optional/legacy
+tests skipped). CGO-free build and zero-issue lint passed. No frontend files changed.
+
 ## M3 independent health ingress — 2026-09-20
 
 `Session.RunWithHealth` separates ordered health callbacks from ordered replay,

@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,15 +27,17 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|status> [options]
+const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status> [options]
 Uses hub DB_ENGINE, DB_DSN, PROBE_SECRET_KEY_FILE and optional PROBE_ENDPOINT_POLICY_FILE.
-register --probe-id UUID --stream-id UUID --key SLUG --name NAME --endpoint wss://HOST/ws/probe/v1 --fingerprint SHA256
+register --probe-id UUID --stream-id UUID --key SLUG --name NAME [--location LOCATION] --endpoint wss://HOST/ws/probe/v1 --fingerprint SHA256
 enroll --probe-id UUID --token-file PATH
 assign --monitor-id ID --expected-revision N --probes UUID[,local]
 prepare --probe-id UUID --expected-revision N --file PATH
+watchdog --probe-id UUID --expected-revision N --enabled=true|false [--notifications ID,ID] [--lost-after-seconds 90] [--recover-after-seconds 30] [--resend-interval 0]
 status --probe-id UUID
 Token and complete snapshot files must be private regular files. Commands print metadata only.
 Registration persists the recoverable protected runtime credential before enrollment.
+Watchdog replaces saved settings; expected-revision is the settings revision reported by status, initially zero. Saving is not an applied-config receipt.
 Run compatible hub workers with PROBES_ENABLED=true after enrollment. Workers synchronize supported configurations and replay retained telemetry.
 Fleet UI and explicit gap/reset recovery remain later milestones.
 `
@@ -47,18 +50,26 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		_, _ = io.WriteString(out, probeAdminUsage)
 		return 0
 	}
-	if len(args) == 0 || !slices.Contains([]string{"register", "enroll", "assign", "prepare", "status"}, args[0]) {
+	if len(args) == 0 || !slices.Contains([]string{"register", "enroll", "assign", "prepare", "watchdog", "status"}, args[0]) {
 		_, _ = io.WriteString(stderr, probeAdminUsage)
 		return 2
 	}
-	var probeID, streamID, key, name, endpoint, pin, tokenFile, documentFile, members string
+	var probeID, streamID, key, name, location, endpoint, pin, tokenFile, documentFile, members, channelIDs string
 	var monitorID, revision int64
+	var enabled bool
+	var lostSeconds, recoverSeconds, resendMinutes int64
 	f := flag.NewFlagSet("phoenix-probe-admin", flag.ContinueOnError)
 	f.SetOutput(io.Discard)
 	f.StringVar(&probeID, "probe-id", "", "trusted local probe ID")
 	f.StringVar(&streamID, "stream-id", "", "trusted local stream ID")
 	f.StringVar(&key, "key", "", "stable registration slug")
 	f.StringVar(&name, "name", "", "display name")
+	f.StringVar(&location, "location", "", "display location")
+	f.StringVar(&channelIDs, "notifications", "", "complete watchdog channel set")
+	f.BoolVar(&enabled, "enabled", false, "enable connection watchdog")
+	f.Int64Var(&lostSeconds, "lost-after-seconds", 90, "application health loss interval")
+	f.Int64Var(&recoverSeconds, "recover-after-seconds", 30, "stable recovery interval")
+	f.Int64Var(&resendMinutes, "resend-interval", 0, "reminder interval in minutes")
 	f.StringVar(&endpoint, "endpoint", "", "pinned runtime endpoint")
 	f.StringVar(&pin, "fingerprint", "", "verified local certificate fingerprint")
 	f.StringVar(&tokenFile, "token-file", "", "private enrollment token file")
@@ -112,13 +123,14 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		Generation probe.Decimal `json:"generation"`
 	}
 	result := struct {
-		HubID           string           `json:"hub_id"`
-		ProbeID         string           `json:"probe_id,omitempty"`
-		State           string           `json:"state"`
-		Revision        probe.Decimal    `json:"revision,omitempty"`
-		Assignments     []assignmentView `json:"assignments,omitempty"`
-		AppliedRevision *probe.Decimal   `json:"applied_revision,omitempty"`
-		SyncPending     *bool            `json:"sync_pending,omitempty"`
+		HubID           string                  `json:"hub_id"`
+		ProbeID         string                  `json:"probe_id,omitempty"`
+		State           string                  `json:"state"`
+		Revision        probe.Decimal           `json:"revision,omitempty"`
+		Assignments     []assignmentView        `json:"assignments,omitempty"`
+		AppliedRevision *probe.Decimal          `json:"applied_revision,omitempty"`
+		SyncPending     *bool                   `json:"sync_pending,omitempty"`
+		Watchdog        *probeAdminWatchdogView `json:"watchdog,omitempty"`
 	}{HubID: installation.HubID, ProbeID: probeID}
 	switch args[0] {
 	case "register":
@@ -128,10 +140,10 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		}
 		p, err := registry.GetByID(ctx, probeID)
 		if errors.Is(err, ports.ErrNotFound) {
-			p = &domain.Probe{ID: probeID, Key: key, Name: name, Kind: domain.ProbeKindRemote, Enabled: true}
+			p = &domain.Probe{ID: probeID, Key: key, Name: name, Location: location, Kind: domain.ProbeKindRemote, Enabled: true}
 			err = registry.Create(ctx, p)
 		}
-		if err != nil || p.Key != key || p.Name != name || !p.Enabled {
+		if err != nil || p.Key != key || p.Name != name || p.Location != location || !p.Enabled {
 			return fail("Registration conflict or invalid registration")
 		}
 		c, err := connector.Prepare(ctx, probeID, streamID, endpoint, pin)
@@ -199,6 +211,18 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 			return fail("Snapshot preparation failed; check expected revision and immutable revision bytes")
 		}
 		result.State, result.Revision = "prepared", probe.Decimal(metadata.Revision)
+	case "watchdog":
+		explicitEnabled := false
+		f.Visit(func(option *flag.Flag) { explicitEnabled = explicitEnabled || option.Name == "enabled" })
+		settings, err := probeAdminWatchdogSettings(enabled, lostSeconds, recoverSeconds, resendMinutes, channelIDs)
+		if err != nil || !explicitEnabled {
+			return fail("Complete watchdog settings require explicit --enabled=true|false, bounded positive seconds and unique notification IDs")
+		}
+		saved, err := repository.NewProbeWatchdogSettingsStore(db).Replace(ctx, probeID, revision, settings)
+		if err != nil {
+			return fail("Watchdog settings failed; check current settings revision, enabled registration and notification IDs")
+		}
+		result.State, result.Watchdog = "watchdog_saved", probeAdminWatchdog(saved)
 	case "status":
 		c, err := connections.GetConnection(ctx, probeID)
 		if err != nil {
@@ -219,11 +243,47 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		}
 		pending := result.Revision > appliedRevision
 		result.AppliedRevision, result.SyncPending = &appliedRevision, &pending
+		settings, err := repository.NewProbeWatchdogSettingsStore(db).Get(ctx, probeID)
+		if err != nil {
+			return fail("Watchdog settings are unavailable")
+		}
+		result.Watchdog = probeAdminWatchdog(settings)
 	}
 	if json.NewEncoder(out).Encode(result) != nil {
 		return fail("Result output failed")
 	}
 	return 0
+}
+
+type probeAdminWatchdogView struct {
+	Revision            probe.Decimal `json:"revision"`
+	Enabled             bool          `json:"enabled"`
+	LostAfterSeconds    int32         `json:"lost_after_seconds"`
+	RecoverAfterSeconds int32         `json:"recover_after_seconds"`
+	ResendInterval      int32         `json:"resend_interval"`
+	NotificationIDs     []int64       `json:"notification_ids"`
+}
+
+func probeAdminWatchdog(s domain.ProbeWatchdogSettings) *probeAdminWatchdogView {
+	return &probeAdminWatchdogView{Revision: probe.Decimal(s.Revision), Enabled: s.Enabled, LostAfterSeconds: s.LostAfterSeconds, RecoverAfterSeconds: s.RecoverAfterSeconds, ResendInterval: s.ResendInterval, NotificationIDs: append([]int64{}, s.NotificationIDs...)}
+}
+
+func probeAdminWatchdogSettings(enabled bool, lost, recoverAfter, resend int64, channels string) (domain.ProbeWatchdogSettings, error) {
+	var s domain.ProbeWatchdogSettings
+	if lost < 1 || lost > 1<<31-1 || recoverAfter < 1 || recoverAfter > 1<<31-1 || resend < 0 || resend > 1<<31-1 {
+		return s, domain.ErrValidation
+	}
+	s = domain.ProbeWatchdogSettings{Enabled: enabled, LostAfterSeconds: int32(lost), RecoverAfterSeconds: int32(recoverAfter), ResendInterval: int32(resend), NotificationIDs: []int64{}}
+	if channels != "" {
+		for _, text := range strings.Split(channels, ",") {
+			id, err := strconv.ParseInt(text, 10, 64)
+			if err != nil || strconv.FormatInt(id, 10) != text {
+				return s, domain.ErrValidation
+			}
+			s.NotificationIDs = append(s.NotificationIDs, id)
+		}
+	}
+	return s, domain.ValidateProbeWatchdogSettings(s)
 }
 
 func readPrivateProbeInput(path string, limit int) ([]byte, error) {

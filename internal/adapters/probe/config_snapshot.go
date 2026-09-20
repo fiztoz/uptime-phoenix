@@ -37,6 +37,7 @@ type ConfigSnapshot struct {
 	SchemaVersion         int                 `json:"schema_version"`
 	HubID                 string              `json:"hub_id"`
 	ProbeID               string              `json:"probe_id"`
+	Probe                 *ConfigProbeDisplay `json:"probe,omitempty"`
 	Revision              Decimal             `json:"revision"`
 	CreatedAt             Timestamp           `json:"created_at"`
 	EffectiveAt           Timestamp           `json:"effective_at"`
@@ -47,6 +48,13 @@ type ConfigSnapshot struct {
 	ProxyBindings         []ConfigProxy       `json:"proxy_bindings"`
 	EscalationPolicies    []ConfigEscalation  `json:"escalation_policies"`
 	Watchdog              ConfigWatchdog      `json:"watchdog"`
+}
+
+// ConfigProbeDisplay carries authoritative display metadata without credentials.
+// Older disabled snapshots may omit it; enabled runtime support requires it.
+type ConfigProbeDisplay struct {
+	Name     string `json:"name"`
+	Location string `json:"location"`
 }
 
 // ConfigAssignment resolves one monitor's dependencies and execution generation.
@@ -218,6 +226,19 @@ func decodeConfigSnapshotForTarget(data []byte, local bool) (ConfigSnapshot, err
 	}
 	if snapshot.SchemaVersion != 1 || snapshot.Revision <= 0 {
 		return snapshot, errors.New("unsupported config schema or nonpositive revision")
+	}
+	if raw, ok := fields["probe"]; ok {
+		var display ConfigProbeDisplay
+		if len(raw) > MaxConfigEntryBytes {
+			return snapshot, errors.New("probe metadata exceeds byte limit")
+		}
+		if _, err := decodeConfigFields(raw, &display, "name location", ""); err != nil {
+			return snapshot, err
+		}
+		if !validProbeDisplay(display) {
+			return snapshot, errors.New("invalid probe display metadata")
+		}
+		snapshot.Probe = &display
 	}
 	if snapshot.Assignments, err = decodeConfigList(fields["assignments"], MaxConfigAssignments, func(data []byte) (ConfigAssignment, error) { return decodeConfigAssignmentForTarget(data, local) }); err != nil {
 		return snapshot, fmt.Errorf("assignments: %w", err)

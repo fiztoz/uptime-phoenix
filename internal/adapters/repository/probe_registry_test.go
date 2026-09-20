@@ -406,7 +406,7 @@ func testProbeRegistryMigration(t *testing.T, f probeRegistryFixture) {
 	ctx := context.Background()
 	// Test 035 at its own schema boundary, not underneath later FK dependents.
 	// Restore the latest schema for the shared MariaDB test database afterward.
-	later := []string{"036_probe_regional", "037_probe_heartbeat", "038_probe_incidents", "039_probe_health_projection", "040_probe_assignment_history", "041_probe_auxiliary_state", "042_local_stream_sequence", "043_notification_throttles", "045_probe_delivery_outbox", "047_probe_config_snapshots", "048_probe_installation", "049_probe_activation", "050_delivery_cancellation", "051_escalation_delivery_context", "052_probe_connector_leases", "053_probe_connections", "054_probe_telemetry_receipts", "055_probe_telemetry_gaps", "056_probe_current_state", "057_probe_history_coverage", "058_probe_runtime_owners", "059_probe_watchdog_source"}
+	later := []string{"036_probe_regional", "037_probe_heartbeat", "038_probe_incidents", "039_probe_health_projection", "040_probe_assignment_history", "041_probe_auxiliary_state", "042_local_stream_sequence", "043_notification_throttles", "045_probe_delivery_outbox", "047_probe_config_snapshots", "048_probe_installation", "049_probe_activation", "050_delivery_cancellation", "051_escalation_delivery_context", "052_probe_connector_leases", "053_probe_connections", "054_probe_telemetry_receipts", "055_probe_telemetry_gaps", "056_probe_current_state", "057_probe_history_coverage", "058_probe_runtime_owners", "059_probe_watchdog_source", "060_probe_watchdog_settings"}
 	for i := len(later) - 1; i >= 0; i-- {
 		if err := runEngineMigration(t, f.db, f.engine, later[i], "down"); err != nil {
 			t.Fatalf("downgrade dependency %s: %v", later[i], err)

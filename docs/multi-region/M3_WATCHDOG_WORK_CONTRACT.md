@@ -258,3 +258,43 @@ authorization and probe provider context remain the next integration work.
 
 These are traced integration seams, not implemented settings or provider behavior.
 Complete them together with the timer/source service and real composition roots.
+
+
+### Saved settings prerequisite
+
+Migration 060 now stores watchdog settings and channel membership; source readers,
+resolution and the real operator CLI use it. Exact optional `probe` metadata is
+carried in remote snapshots. See [settings acceptance](M3_WATCHDOG_SETTINGS_ACCEPTANCE.md).
+The enabled-runtime guard remains. Current fixtures explicitly assert that guard;
+replace those assertions with real runtime acceptance when enabling support.
+
+Settings CAS revision is separate from complete snapshot revision. Virtual
+revision zero means disabled defaults and a same-value save is a no-op. Foreign-key
+channel deletion changes the next snapshot even if no settings edit occurs.
+Saving intent is not preparation or a durable applied receipt.
+
+Do not accept a drain-before-tick loop as sufficient receipt ordering. The original
+monotonic receipt can be captured before a tick and admitted after its drain. The
+single runtime owner must define admission ordering or correct late-sample
+handling while retaining unhealthy samples, original receipt age and generation.
+Actual DB checkpoint progress, not timer evaluation, still gates parent renewal.
+
+
+The subsequent no-tools design review (`86a2b92a-ff91-40ff-9ed2-256d9d2be834`)
+examined a possible shared per-runtime inbox gate: capture the local monotonic
+admission time immediately after Read, validate/enqueue bounded frames and reserve
+tick times under that same short critical section. No DB work or arbitrary
+callbacks may run inside it. This is a proposed total-order mechanism, not code
+or acceptance. It must be tested against real stalled storage and old readers
+resuming after reconnect. In-memory generation checks supplement rather than
+replace DB fencing. A rejected source commit must discard speculative timer
+changes before any offline tick can use them. Bounded memory work does not imply
+strict wall-time jitter bounds under OS scheduling; do not make that claim.
+
+
+When refactoring admission, note the actual `Session.readerLoop` error branches
+currently call `s.Close()`, and legacy `Run` may invoke an arbitrary synchronous
+handler. Neither belongs inside an inbox gate: WebSocket close can perform network
+I/O, and external handlers can block. Keep the gate around adapter-owned bounded
+validation/queue operations only; close/revoke after releasing it. Preserve the
+legacy serial Run contract separately from the watchdog admission path.

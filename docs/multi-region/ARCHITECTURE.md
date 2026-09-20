@@ -278,6 +278,18 @@ The generic mirror APIs cannot overwrite hub source lifecycle or outcomes. Runti
 config, wire watchdog replay and provider integration remain guarded; see
 [hub source acceptance](M3_HUB_WATCHDOG_ACCEPTANCE.md).
 
+**Saved source settings (migration 060):** settings use an independent CAS
+revision; absence is revision-zero disabled defaults and same-value saves retain
+the revision. The operator CLI replaces complete intent and returns settings
+metadata, never an applied receipt. Channel links are foreign-keyed and deleted
+with their channels. The existing complete source graph includes watchdog-only
+channels/templates even with zero assignments. Optional `probe` metadata carries
+the authoritative display name/location through an explicit wire DTO. Positive
+V1 custom loss intervals retain 45-second suspect timing unless loss is at most
+45 seconds, when suspect is half loss. Enabled-runtime activation remains guarded
+until source timing, health admission, replay and provider delivery are integrated.
+See [settings acceptance](M3_WATCHDOG_SETTINGS_ACCEPTANCE.md).
+
 Global maintenance pause and revocation cannot be delivered magically through a partition. Use last accepted schedules, prominently expose stale configuration, and require provider-side credential revocation for an emergency stop against an unreachable or compromised VM.
 
 ## 7. Persistence and migration design
@@ -486,8 +498,9 @@ This is a consistent committed source view, not a guarantee that it is still cur
 when saved or later used. It does not turn multi-statement configuration edits into a
 single transaction. Next, wire the provisioned key and activate atomically with
 current configuration, registration and assignment fences bound to the validated
-revision/hash. Remote construction and validation additionally need durable resource
-mappings, watchdog settings and session authority; they remain unimplemented.
+revision/hash. Subsequent increments implemented remote session authority and
+saved watchdog settings; see the current status and migration 060 above. Durable
+resource mappings and operational watchdog delivery remain separate work.
 Recording must then use the applied revision instead of local revision one.
 Delivery must reconcile an intent against applied configuration and current
 lifecycle/assignment immediately before I/O; merely reading a prepared document

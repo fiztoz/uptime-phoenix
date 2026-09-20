@@ -160,3 +160,39 @@ incident/delivery mirrors, zero hub send intents and a second cold restart. The
 container option runs read-only queries against the same disposable database.
 The report contains safe IDs, sequence/fence progress and
 outcomes; private keys and stores remain in the private output directory.
+
+
+## Saved connection-watchdog settings (M3 preparation)
+
+Migration 060 adds saved per-probe watchdog settings. This is operator intent:
+**the current build still rejects enabled watchdog activation** until both source
+runtimes and provider reconciliation are integrated. Saving reports
+`watchdog_saved`; it never reports an applied receipt or a healthy connection.
+
+`phoenix-probe-admin status --probe-id UUID` includes a `watchdog` metadata object
+with its own decimal-string `revision`. A new registration starts at revision
+`"0"`, disabled, with 90-second loss, 30-second recovery, zero reminders and no
+channels. Read this revision before replacing the whole settings object:
+
+```sh
+phoenix-probe-admin watchdog --probe-id UUID --expected-revision 0 \
+  --enabled=false --notifications 12,34 --lost-after-seconds 90 \
+  --recover-after-seconds 30 --resend-interval 5
+```
+
+`--enabled=true|false` must be explicit. Omitted `--notifications` clears the saved
+channel set; omitted timing arguments use the defaults above. Resend intervals
+are minutes. Unchanged complete settings retain their revision, including
+revision zero when saving untouched defaults. A stale revision fails. Enabled
+registration is required for writes; disabled registrations retain readable
+settings. Registration also accepts `--location` alongside `--name`.
+
+Channel deletion removes its saved reference and changes the next complete
+snapshot without requiring a settings edit. Disabled channels and watchdog-only
+templates remain in the complete dependency graph, even with zero assigned
+monitors. Settings revisions are separate from complete config revisions and
+applied receipts. Do not infer one from the other.
+
+Migration downgrade removes this saved intent, so stop config/runtime writers and
+export the settings before rolling back 060. Both up/down migrations leave the
+existing incident, source journal, telemetry and delivery tables intact.
