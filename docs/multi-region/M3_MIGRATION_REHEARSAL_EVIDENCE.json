@@ -1,0 +1,33 @@
+{
+  "baseline": "2a4e198",
+  "scope": "Test migration rehearsal restores the latest complete schema; no production SQL change",
+  "command": [
+    "go",
+    "test",
+    "-race",
+    "-count=2",
+    "-json",
+    "./internal/adapters/repository",
+    "-run",
+    "^TestProbe(CommandStorage|CommandReplay|RegistryContract)$"
+  ],
+  "engines": [
+    "SQLite temporary files",
+    "MariaDB disposable phoenix_m3_credential_ci"
+  ],
+  "log": "/private/tmp/phoenix-m3-migration-command-rerun.jsonl",
+  "log_sha256": "c71e4fe89ecf1c1379220b7ce016d75c37629127c0cbf5b9ddc39da2be9488f0",
+  "named_pass_events": 126,
+  "mariadb_named_pass_events": 60,
+  "fail_events": 0,
+  "skip_events": 0,
+  "source": {
+    "internal/adapters/repository/probe_registry_test.go": "421d2d7370112d51244d6931b022512b081f96b7fdccad7bbb2f1d5f294916a4"
+  },
+  "original_reproduction_log": "/private/tmp/phoenix-m3-migration-schema-repro.jsonl",
+  "fixed_sqlite_log": "/private/tmp/phoenix-m3-migration-schema-fixed.jsonl",
+  "limits": [
+    "Disposable test schemas only",
+    "Full-gate evidence is attached to the subsequent source credential increment"
+  ]
+}
