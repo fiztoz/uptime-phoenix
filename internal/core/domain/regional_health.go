@@ -122,10 +122,24 @@ type OverallHistoryInput struct {
 	Paused       bool
 	Assignments  []AssignmentInterval
 	Observations []RegionalObservation
+	Gaps         []RegionalHistoryGap
+}
+
+// RegionalHistoryGap identifies declared source loss affecting this monitor.
+// Through is inclusive source time; sequence ranges distinguish newer retained
+// evidence from an earlier sample whose apparent freshness spans missing checks.
+type RegionalHistoryGap struct {
+	ProbeID    string
+	StreamID   string
+	FromSeq    int64
+	ThroughSeq int64
+	From       time.Time
+	Through    time.Time
 }
 
 // DirtyBucket is durable late-data recomputation work.
 type DirtyBucket struct {
+	Revision   string
 	MonitorID  int64
 	ProbeID    string
 	Resolution string

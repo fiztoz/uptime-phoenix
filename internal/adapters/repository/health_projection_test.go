@@ -43,7 +43,7 @@ func TestRegionalCommitMarksDirtyBucketsAndProjectsOverallHistory(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(dirty) != 2 {
+			if len(dirty) != 1 {
 				t.Fatalf("overall dirty coalescing: %+v", dirty)
 			}
 			for _, bucket := range dirty {

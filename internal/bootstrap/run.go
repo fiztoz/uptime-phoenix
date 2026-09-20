@@ -404,6 +404,13 @@ func Run(cfg Config) error {
 
 	isAPI := cfg.Mode == "all" || cfg.Mode == "api"
 	isWorker := cfg.Mode == "all" || cfg.Mode == "worker"
+	var historyDone chan struct{}
+	if isWorker {
+		historyDone = make(chan struct{})
+		historyService := services.NewProbeHistoryService(repo.NewRegionalCommitStore(db))
+		go func() { defer close(historyDone); probeHistoryLoop(ctx, historyService, log) }()
+		defer func() { cancelRuntime(); <-historyDone }()
+	}
 	var connectorDone chan struct{}
 	if cfg.ProbesEnabled && isWorker {
 		policy, err := probe.LoadEndpointPolicy(cfg.ProbeEndpointPolicyFile)
@@ -661,6 +668,9 @@ func Run(cfg Config) error {
 	<-sigCtx.Done()
 	log.Info("shutdown signal received")
 	cancelRuntime()
+	if historyDone != nil {
+		<-historyDone
+	}
 	if connectorDone != nil {
 		<-connectorDone
 	}

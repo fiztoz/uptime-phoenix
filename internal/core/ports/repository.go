@@ -49,6 +49,7 @@ type MonitorFilter struct {
 
 // Aggregate1m is a 1-minute aggregation bucket.
 type Aggregate1m struct {
+	Durations    domain.HealthDurations
 	MonitorID    int64
 	ProbeID      string
 	Bucket       time.Time
@@ -69,6 +70,7 @@ type Aggregate1m struct {
 
 // Aggregate1h is a 1-hour aggregation bucket.
 type Aggregate1h struct {
+	Durations    domain.HealthDurations
 	MonitorID    int64
 	ProbeID      string
 	Bucket       time.Time
@@ -86,6 +88,7 @@ type Aggregate1h struct {
 
 // Aggregate1d is a 1-day aggregation bucket.
 type Aggregate1d struct {
+	Durations    domain.HealthDurations
 	MonitorID    int64
 	ProbeID      string
 	Bucket       time.Time

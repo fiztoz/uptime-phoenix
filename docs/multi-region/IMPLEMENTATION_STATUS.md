@@ -7,6 +7,29 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 historical recomputation increment — 2026-09-20
+
+Historical replay now corrects regional 1m/1h/1d rollups and overall intervals at
+original UTC times, including declared gaps and backward clocks beyond freshness.
+The production worker resumes durable bounded range work, fences source revisions
+and parent dependencies, and preserves legacy sample/latency statistics. Both
+background and on-demand history use coherent sequence-aware evidence. Migration
+057 carries coverage, random dirty revisions and resumable clock-repair ranges.
+
+The full Go race suite passed; after final read/legacy corrections, the complete
+real database matrix and core race suite passed again. The final matrix executed
+193 MariaDB-named cases with zero MariaDB skips. CGO-free build and zero-issue lint
+passed. A real two-worker/probe restart test replayed 21 offline events, created
+zero hub send intents and proved production history consumption. See
+[acceptance](M3_HISTORY_ACCEPTANCE.md), [evidence](M3_HISTORY_DB_EVIDENCE.json) and
+[retrospective](M3_HISTORY_RETROSPECTIVE.md). Antigravity supplied a bounded design
+review and acknowledged verified lessons; it owns no files.
+
+**Next:** [both watchdogs](M3_WATCHDOG_WORK_CONTRACT.md), followed by the remaining
+[M3 contract](M3_COMPLETION_WORK_CONTRACT.md). Commands/offline ACK, rotations/reset,
+cleanup, bounded flush and the real 15-minute partition acceptance remain open.
+M3 is not complete. Do not restart accepted earlier increments from older entries.
+
 ## M3 current-state recovery increment — 2026-09-20
 
 **Verification correction resolved:** earlier commands used the wrong MariaDB

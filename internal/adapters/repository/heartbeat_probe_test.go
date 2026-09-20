@@ -23,6 +23,10 @@ func TestHeartbeatProbeIDAndRollupUniqueKey(t *testing.T) {
 			ctx := context.Background()
 			monitorID := f.monitor(t)
 			bucket := time.Date(2026, 9, 15, 10, 0, 0, 0, time.UTC)
+			// Restore the real schema sequence: SQLite 037 rebuilds aggregate tables.
+			if err := runEngineMigration(t, f.db, f.engine, "057_probe_history_coverage", "down"); err != nil {
+				t.Fatal(err)
+			}
 			if err := runEngineMigration(t, f.db, f.engine, "037_probe_heartbeat", "down"); err != nil {
 				t.Fatalf("empty 037 downgrade: %v", err)
 			}
@@ -45,6 +49,9 @@ func TestHeartbeatProbeIDAndRollupUniqueKey(t *testing.T) {
 			}
 			if err := runEngineMigration(t, f.db, f.engine, "037_probe_heartbeat", "up"); err != nil {
 				t.Fatalf("037 upgrade: %v", err)
+			}
+			if err := runEngineMigration(t, f.db, f.engine, "057_probe_history_coverage", "up"); err != nil {
+				t.Fatal(err)
 			}
 			assertLocalBackfill(t, f, monitorID, legacyHeartbeatID, legacyRollupID)
 			if f.engine == "mariadb" {
@@ -118,11 +125,18 @@ func TestHeartbeatProbeIDAndRollupUniqueKey(t *testing.T) {
 			if _, err := f.db.ExecContext(ctx, "DELETE FROM heartbeat_1m WHERE probe_id <> ?", domain.LocalProbeID); err != nil {
 				t.Fatal(err)
 			}
+			// Restore the real schema sequence: SQLite 037 rebuilds aggregate tables.
+			if err := runEngineMigration(t, f.db, f.engine, "057_probe_history_coverage", "down"); err != nil {
+				t.Fatal(err)
+			}
 			if err := runEngineMigration(t, f.db, f.engine, "037_probe_heartbeat", "down"); err != nil {
 				t.Fatalf("local-only 037 downgrade: %v", err)
 			}
 			if err := runEngineMigration(t, f.db, f.engine, "037_probe_heartbeat", "up"); err != nil {
 				t.Fatalf("restore 037: %v", err)
+			}
+			if err := runEngineMigration(t, f.db, f.engine, "057_probe_history_coverage", "up"); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}

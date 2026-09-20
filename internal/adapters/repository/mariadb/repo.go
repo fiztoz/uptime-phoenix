@@ -670,16 +670,16 @@ func (r *HeartbeatRepo) SaveAggregate1m(ctx context.Context, agg *ports.Aggregat
 	_, err := r.db.NewInsert().Model(m).
 		ModelTableExpr("heartbeat_1m").
 		On("DUPLICATE KEY UPDATE").
-		Set("up_count = VALUES(up_count)").
-		Set("down_count = VALUES(down_count)").
-		Set("pending_count = VALUES(pending_count)").
-		Set("maint_count = VALUES(maint_count)").
-		Set("unknown_count = VALUES(unknown_count)").
-		Set("avg_ping = VALUES(avg_ping)").
-		Set("min_ping = VALUES(min_ping)").
-		Set("max_ping = VALUES(max_ping)").
-		Set("ping_count = VALUES(ping_count)").
-		Set("total_checks = VALUES(total_checks)").
+		Set("up_count = IF(history_managed, up_count, VALUES(up_count))").
+		Set("down_count = IF(history_managed, down_count, VALUES(down_count))").
+		Set("pending_count = IF(history_managed, pending_count, VALUES(pending_count))").
+		Set("maint_count = IF(history_managed, maint_count, VALUES(maint_count))").
+		Set("unknown_count = IF(history_managed, unknown_count, VALUES(unknown_count))").
+		Set("avg_ping = IF(history_managed, avg_ping, VALUES(avg_ping))").
+		Set("min_ping = IF(history_managed, min_ping, VALUES(min_ping))").
+		Set("max_ping = IF(history_managed, max_ping, VALUES(max_ping))").
+		Set("ping_count = IF(history_managed, ping_count, VALUES(ping_count))").
+		Set("total_checks = IF(history_managed, total_checks, VALUES(total_checks))").
 		Exec(ctx)
 	return translateError(err)
 }
@@ -689,16 +689,16 @@ func (r *HeartbeatRepo) SaveAggregate1h(ctx context.Context, agg *ports.Aggregat
 	_, err := r.db.NewInsert().Model(m).
 		ModelTableExpr("heartbeat_1h").
 		On("DUPLICATE KEY UPDATE").
-		Set("up_count = VALUES(up_count)").
-		Set("down_count = VALUES(down_count)").
-		Set("pending_count = VALUES(pending_count)").
-		Set("maint_count = VALUES(maint_count)").
-		Set("unknown_count = VALUES(unknown_count)").
-		Set("avg_ping = VALUES(avg_ping)").
-		Set("min_ping = VALUES(min_ping)").
-		Set("max_ping = VALUES(max_ping)").
-		Set("ping_count = VALUES(ping_count)").
-		Set("total_checks = VALUES(total_checks)").
+		Set("up_count = IF(history_managed, up_count, VALUES(up_count))").
+		Set("down_count = IF(history_managed, down_count, VALUES(down_count))").
+		Set("pending_count = IF(history_managed, pending_count, VALUES(pending_count))").
+		Set("maint_count = IF(history_managed, maint_count, VALUES(maint_count))").
+		Set("unknown_count = IF(history_managed, unknown_count, VALUES(unknown_count))").
+		Set("avg_ping = IF(history_managed, avg_ping, VALUES(avg_ping))").
+		Set("min_ping = IF(history_managed, min_ping, VALUES(min_ping))").
+		Set("max_ping = IF(history_managed, max_ping, VALUES(max_ping))").
+		Set("ping_count = IF(history_managed, ping_count, VALUES(ping_count))").
+		Set("total_checks = IF(history_managed, total_checks, VALUES(total_checks))").
 		Exec(ctx)
 	return translateError(err)
 }
@@ -708,16 +708,16 @@ func (r *HeartbeatRepo) SaveAggregate1d(ctx context.Context, agg *ports.Aggregat
 	_, err := r.db.NewInsert().Model(m).
 		ModelTableExpr("heartbeat_1d").
 		On("DUPLICATE KEY UPDATE").
-		Set("up_count = VALUES(up_count)").
-		Set("down_count = VALUES(down_count)").
-		Set("pending_count = VALUES(pending_count)").
-		Set("maint_count = VALUES(maint_count)").
-		Set("unknown_count = VALUES(unknown_count)").
-		Set("avg_ping = VALUES(avg_ping)").
-		Set("min_ping = VALUES(min_ping)").
-		Set("max_ping = VALUES(max_ping)").
-		Set("ping_count = VALUES(ping_count)").
-		Set("total_checks = VALUES(total_checks)").
+		Set("up_count = IF(history_managed, up_count, VALUES(up_count))").
+		Set("down_count = IF(history_managed, down_count, VALUES(down_count))").
+		Set("pending_count = IF(history_managed, pending_count, VALUES(pending_count))").
+		Set("maint_count = IF(history_managed, maint_count, VALUES(maint_count))").
+		Set("unknown_count = IF(history_managed, unknown_count, VALUES(unknown_count))").
+		Set("avg_ping = IF(history_managed, avg_ping, VALUES(avg_ping))").
+		Set("min_ping = IF(history_managed, min_ping, VALUES(min_ping))").
+		Set("max_ping = IF(history_managed, max_ping, VALUES(max_ping))").
+		Set("ping_count = IF(history_managed, ping_count, VALUES(ping_count))").
+		Set("total_checks = IF(history_managed, total_checks, VALUES(total_checks))").
 		Exec(ctx)
 	return translateError(err)
 }

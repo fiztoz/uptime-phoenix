@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -54,6 +57,7 @@ type monitorHealthHistoryModel struct {
 }
 
 type probeDirtyBucketModel struct {
+	Revision      string `bun:"revision"`
 	bun.BaseModel `bun:"table:probe_dirty_buckets,alias:dirty"`
 	MonitorID     int64     `bun:"monitor_id,pk"`
 	ProbeID       string    `bun:"probe_id,pk"`
@@ -118,7 +122,7 @@ func healthHistoryModel(monitorID, version int64, interval domain.MonitorHealthI
 }
 
 func (m probeDirtyBucketModel) bucket() domain.DirtyBucket {
-	return domain.DirtyBucket{MonitorID: m.MonitorID, ProbeID: m.ProbeID, Resolution: m.Resolution, Bucket: m.Bucket.UTC()}
+	return domain.DirtyBucket{Revision: m.Revision, MonitorID: m.MonitorID, ProbeID: m.ProbeID, Resolution: m.Resolution, Bucket: m.Bucket.UTC()}
 }
 
 // PutHealthState replaces the materialized current overall snapshot.
@@ -159,37 +163,22 @@ func (r *RegionalCommitStore) ReplaceHealthHistory(ctx context.Context, monitorI
 		return fmt.Errorf("health history window: %w", domain.ErrValidation)
 	}
 	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if _, err := tx.NewUpdate().Table("monitor_health_history").
-			Set("ended_at = ?", from).
-			Where("monitor_id = ? AND started_at < ? AND (ended_at IS NULL OR ended_at > ?)", monitorID, from, from).
-			Exec(ctx); err != nil {
-			return err
-		}
-		if _, err := tx.NewDelete().Table("monitor_health_history").
-			Where("monitor_id = ? AND started_at >= ? AND started_at < ?", monitorID, from, to).
-			Exec(ctx); err != nil {
-			return err
-		}
+		clipped := make([]domain.MonitorHealthInterval, 0, len(intervals))
 		for _, interval := range intervals {
-			clipped := interval
-			if clipped.From.Before(from) {
-				clipped.From = from
+			if interval.From.Before(from) {
+				interval.From = from
 			}
-			if clipped.To.IsZero() || clipped.To.After(to) {
-				clipped.To = to
+			if interval.To.IsZero() || interval.To.After(to) {
+				interval.To = to
 			}
-			if !clipped.From.Before(clipped.To) {
-				continue
-			}
-			if clipped.Cause == "" {
-				clipped.Cause = domain.HealthHistoryCauseAdministrative
-			}
-			row := healthHistoryModel(monitorID, 0, clipped)
-			if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
-				return err
+			if interval.From.Before(interval.To) {
+				if interval.Cause == "" {
+					interval.Cause = domain.HealthHistoryCauseAdministrative
+				}
+				clipped = append(clipped, interval)
 			}
 		}
-		return nil
+		return replaceHistoryWindowTx(ctx, tx, monitorID, from, to, clipped)
 	})
 }
 
@@ -221,7 +210,8 @@ func (r *RegionalCommitStore) ListHealthHistory(ctx context.Context, monitorID i
 	return out, nil
 }
 
-// MarkDirty records late-data recomputation work. Duplicate keys are no-ops.
+// MarkDirty records work with a fresh identity whenever source evidence changes.
+// A random revision prevents ABA when a consumed key is reinserted.
 func (r *RegionalCommitStore) MarkDirty(ctx context.Context, buckets []domain.DirtyBucket) error {
 	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		return markDirtyTx(ctx, tx, buckets)
@@ -253,9 +243,13 @@ func (r *RegionalCommitStore) ListDirty(ctx context.Context, resolution string, 
 // ClearDirty removes processed dirty-bucket markers.
 func (r *RegionalCommitStore) ClearDirty(ctx context.Context, buckets []domain.DirtyBucket) error {
 	for _, bucket := range buckets {
+		if bucket.Revision == "" {
+			return domain.ErrValidation
+		}
 		if _, err := r.db.NewDelete().Model((*probeDirtyBucketModel)(nil)).
 			Where("monitor_id = ? AND probe_id = ? AND resolution = ? AND bucket = ?",
 				bucket.MonitorID, bucket.ProbeID, bucket.Resolution, bucket.Bucket.UTC()).
+			Where("revision = ?", bucket.Revision).
 			Exec(ctx); err != nil {
 			return fmt.Errorf("clear dirty bucket: %w", err)
 		}
@@ -268,24 +262,26 @@ func markDirtyTx(ctx context.Context, tx bun.Tx, buckets []domain.DirtyBucket) e
 		if bucket.MonitorID <= 0 || bucket.ProbeID == "" || bucket.Resolution == "" || bucket.Bucket.IsZero() {
 			return fmt.Errorf("dirty bucket: %w", domain.ErrValidation)
 		}
-		row := probeDirtyBucketModel{
-			MonitorID: bucket.MonitorID, ProbeID: bucket.ProbeID,
-			Resolution: bucket.Resolution, Bucket: bucket.Bucket.UTC(),
+		if bucket.Resolution == domain.DirtyResolutionOverall {
+			bucket.ProbeID = domain.LocalProbeID
 		}
-		exists, err := tx.NewSelect().Model((*probeDirtyBucketModel)(nil)).
-			Where("monitor_id = ? AND probe_id = ? AND resolution = ? AND bucket = ?",
-				row.MonitorID, row.ProbeID, row.Resolution, row.Bucket).
-			Exists(ctx)
+		token, err := uuid.NewRandom()
 		if err != nil {
 			return err
 		}
-		if exists {
-			continue
+		revision := token.String()
+		row := probeDirtyBucketModel{
+			Revision:  revision,
+			MonitorID: bucket.MonitorID, ProbeID: bucket.ProbeID,
+			Resolution: bucket.Resolution, Bucket: bucket.Bucket.UTC(),
 		}
-		if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
-			if errors.Is(probeRegistryError(err), ports.ErrConflict) {
-				continue
-			}
+		query := tx.NewInsert().Model(&row)
+		if tx.Dialect().Name() == dialect.MySQL {
+			query = query.On("DUPLICATE KEY UPDATE").Set("revision = VALUES(revision)")
+		} else {
+			query = query.On("CONFLICT(monitor_id,probe_id,resolution,bucket) DO UPDATE").Set("revision = EXCLUDED.revision")
+		}
+		if _, err := query.Exec(ctx); err != nil {
 			return err
 		}
 	}

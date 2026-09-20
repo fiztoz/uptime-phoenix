@@ -679,6 +679,7 @@ func (r *HeartbeatRepo) SaveAggregate1m(ctx context.Context, agg *ports.Aggregat
 		Set("max_ping = EXCLUDED.max_ping").
 		Set("ping_count = EXCLUDED.ping_count").
 		Set("total_checks = EXCLUDED.total_checks").
+		Where("history_managed = FALSE").
 		Exec(ctx)
 	return translateError(err)
 }
@@ -698,6 +699,7 @@ func (r *HeartbeatRepo) SaveAggregate1h(ctx context.Context, agg *ports.Aggregat
 		Set("max_ping = EXCLUDED.max_ping").
 		Set("ping_count = EXCLUDED.ping_count").
 		Set("total_checks = EXCLUDED.total_checks").
+		Where("history_managed = FALSE").
 		Exec(ctx)
 	return translateError(err)
 }
@@ -717,6 +719,7 @@ func (r *HeartbeatRepo) SaveAggregate1d(ctx context.Context, agg *ports.Aggregat
 		Set("max_ping = EXCLUDED.max_ping").
 		Set("ping_count = EXCLUDED.ping_count").
 		Set("total_checks = EXCLUDED.total_checks").
+		Where("history_managed = FALSE").
 		Exec(ctx)
 	return translateError(err)
 }

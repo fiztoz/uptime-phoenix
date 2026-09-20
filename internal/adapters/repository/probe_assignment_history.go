@@ -53,6 +53,10 @@ func (r *ProbeAssignmentStore) ListHistory(ctx context.Context, monitorID int64,
 // Assignment writes hold the set lock. Every revision closes the previous whole
 // snapshot and opens another at one common boundary, including policy-only edits.
 func writeAssignmentHistory(ctx context.Context, tx bun.Tx, monitorID, revision int64, policy domain.HealthPolicy, at time.Time) error {
+	var previous []probeAssignmentHistoryModel
+	if err := tx.NewSelect().Model(&previous).Where("monitor_id = ? AND ended_at IS NULL", monitorID).Order("probe_id ASC").Scan(ctx); err != nil {
+		return err
+	}
 	if _, err := tx.NewUpdate().Table("monitor_probe_assignment_history").
 		Set("ended_at = ?", at).Where("monitor_id = ? AND ended_at IS NULL", monitorID).Exec(ctx); err != nil {
 		return fmt.Errorf("close assignment history: %w", err)
@@ -75,11 +79,20 @@ func writeAssignmentHistory(ctx context.Context, tx bun.Tx, monitorID, revision 
 	if _, err := tx.NewInsert().Model(&rows).Exec(ctx); err != nil {
 		return fmt.Errorf("open assignment history: %w", err)
 	}
-	// A membership/policy change changes the overall minute even with no check.
-	return markDirtyTx(ctx, tx, []domain.DirtyBucket{{
-		MonitorID: monitorID, ProbeID: rows[0].ProbeID,
-		Resolution: domain.DirtyResolutionOverall, Bucket: at.Truncate(time.Minute),
-	}})
+	// Membership changes affect regional denominators even if a removed probe
+	// never produces another check. Mark the old and new members atomically.
+	seen := make(map[string]bool, len(previous)+len(rows))
+	var dirty []domain.DirtyBucket
+	for _, assignment := range append(previous, rows...) {
+		if seen[assignment.ProbeID] {
+			continue
+		}
+		seen[assignment.ProbeID] = true
+		dirty = append(dirty, domain.DirtyBucketsForObservation(domain.RegionalObservation{
+			MonitorID: monitorID, ProbeID: assignment.ProbeID, ObservedAt: at.UTC(),
+		})...)
+	}
+	return markDirtyTx(ctx, tx, dirty)
 }
 
 // Both engines persist microseconds here. Strictly increasing boundaries keep

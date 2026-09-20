@@ -134,7 +134,7 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		if err := upsertRegionalState(ctx, tx, state); err != nil {
 			return err
 		}
-		if err := markDirtyTx(ctx, tx, domain.DirtyBucketsForObservation(observation)); err != nil {
+		if err := markObservationHistoryTx(ctx, tx, observation); err != nil {
 			return err
 		}
 		return commitLifecycleAndDeliveriesTx(ctx, tx, observation, &commit)

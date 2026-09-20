@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -39,7 +40,10 @@ func ReconstructOverallHistory(in domain.OverallHistoryInput) (domain.MonitorHea
 			addTime(assignment.To)
 		}
 	}
+	observationTimes, freshnessTimes := make(map[int64]bool), make(map[int64]bool)
 	for _, obs := range in.Observations {
+		observationTimes[obs.ObservedAt.UnixNano()] = true
+		freshnessTimes[obs.ObservedAt.Add(in.FreshFor).UnixNano()] = in.FreshFor > 0
 		if obs.ProbeID == "" {
 			return domain.MonitorHealthHistory{}, fmt.Errorf("observation identity: %w", ErrInvalidHealthEvidence)
 		}
@@ -47,6 +51,12 @@ func ReconstructOverallHistory(in domain.OverallHistoryInput) (domain.MonitorHea
 		if in.FreshFor > 0 {
 			addTime(obs.ObservedAt.UTC().Add(in.FreshFor))
 		}
+	}
+	for _, gap := range in.Gaps {
+		if gap.ProbeID == "" || gap.StreamID == "" || gap.FromSeq <= 0 || gap.ThroughSeq < gap.FromSeq || gap.From.IsZero() || gap.Through.Before(gap.From) {
+			return domain.MonitorHealthHistory{}, fmt.Errorf("history gap: %w", ErrInvalidHealthEvidence)
+		}
+		addTime(gap.From)
 	}
 	ordered := make([]time.Time, 0, len(times)+1)
 	for _, t := range times {
@@ -59,6 +69,21 @@ func ReconstructOverallHistory(in domain.OverallHistoryInput) (domain.MonitorHea
 	var havePrev bool
 	var prevIDs []string
 	var prevRev int64
+	observations := slices.Clone(in.Observations)
+	slices.SortFunc(observations, func(a, b domain.RegionalObservation) int {
+		if order := a.ObservedAt.Compare(b.ObservedAt); order != 0 {
+			return order
+		}
+		if a.ID < b.ID {
+			return -1
+		}
+		if a.ID > b.ID {
+			return 1
+		}
+		return 0
+	})
+	latest := make(map[observationKey]domain.RegionalObservation)
+	observationIndex := 0
 	for i := 0; i < len(ordered)-1; i++ {
 		start, end := ordered[i], ordered[i+1]
 		if !start.Before(end) {
@@ -88,7 +113,14 @@ func ReconstructOverallHistory(in domain.OverallHistoryInput) (domain.MonitorHea
 			return domain.MonitorHealthHistory{}, err
 		}
 		evidence := make([]domain.RegionalHealthEvidence, 0, len(active))
-		latest := latestObservations(in.Observations, start)
+		for observationIndex < len(observations) && !observations[observationIndex].ObservedAt.After(start) {
+			obs := observations[observationIndex]
+			key := observationKey{probeID: obs.ProbeID, generation: obs.AssignmentGeneration}
+			if previous, ok := latest[key]; !ok || laterHistoricalEvidence(previous, obs) {
+				latest[key] = obs
+			}
+			observationIndex++
+		}
 		for _, assignment := range active {
 			region := domain.RegionalHealthEvidence{
 				ProbeID:  assignment.ProbeID,
@@ -103,6 +135,9 @@ func ReconstructOverallHistory(in domain.OverallHistoryInput) (domain.MonitorHea
 			} else {
 				region.Status = sample.Status
 				region.ObservedAt = sample.ObservedAt.UTC()
+				if observationHiddenByGap(sample, start, in.Gaps) {
+					region.UnknownReason = "history_gap"
+				}
 			}
 			evidence = append(evidence, region)
 		}
@@ -113,7 +148,7 @@ func ReconstructOverallHistory(in domain.OverallHistoryInput) (domain.MonitorHea
 		ids := assignmentIDs(active)
 		interval := domain.MonitorHealthInterval{
 			From: start, To: end, Status: health.Status, Reason: health.Reason,
-			Cause:  historyCause(start, active, prevIDs, prevRev, revision, in.Observations, in.FreshFor, havePrev),
+			Cause:  historyCause(start, active, prevIDs, prevRev, revision, observationTimes, freshnessTimes, havePrev),
 			Policy: policy, PolicyRevision: revision, Counts: health.Counts,
 		}
 		if havePrev && prev.Status == interval.Status && prev.Reason == interval.Reason &&
@@ -176,20 +211,31 @@ func activePolicy(active []domain.AssignmentInterval) (domain.HealthPolicy, int6
 	return policy, revision, nil
 }
 
-func latestObservations(observations []domain.RegionalObservation, at time.Time) map[observationKey]domain.RegionalObservation {
-	out := make(map[observationKey]domain.RegionalObservation, len(observations))
-	for _, obs := range observations {
-		observed := obs.ObservedAt.UTC()
-		if observed.After(at) {
+func laterHistoricalEvidence(previous, next domain.RegionalObservation) bool {
+	if next.StreamID != "" && next.StreamID == previous.StreamID && next.Seq > 0 && previous.Seq > 0 {
+		return next.Seq > previous.Seq || next.Seq == previous.Seq && next.ID > previous.ID
+	}
+	return next.ObservedAt.After(previous.ObservedAt) || next.ObservedAt.Equal(previous.ObservedAt) && next.ID > previous.ID
+}
+
+// Declared loss interrupts carry-forward until retained evidence is newer than
+// the lost source range. A zero-length time range still represents lost events.
+func observationHiddenByGap(sample domain.RegionalObservation, at time.Time, gaps []domain.RegionalHistoryGap) bool {
+	for _, gap := range gaps {
+		if gap.ProbeID != sample.ProbeID || at.Before(gap.From) {
 			continue
 		}
-		key := observationKey{probeID: obs.ProbeID, generation: obs.AssignmentGeneration}
-		prev, ok := out[key]
-		if !ok || observed.After(prev.ObservedAt.UTC()) || (observed.Equal(prev.ObservedAt.UTC()) && obs.ID > prev.ID) {
-			out[key] = obs
+		if gap.StreamID == sample.StreamID {
+			if sample.Seq <= gap.ThroughSeq {
+				return true
+			}
+		} else if !sample.ObservedAt.After(gap.Through) {
+			// A loss range in another stream cannot establish continuity from
+			// older evidence. New-stream observations restore it in source time.
+			return true
 		}
 	}
-	return out
+	return false
 }
 
 func assignmentIDs(active []domain.AssignmentInterval) []string {
@@ -206,8 +252,7 @@ func historyCause(
 	active []domain.AssignmentInterval,
 	prevIDs []string,
 	prevRev, revision int64,
-	observations []domain.RegionalObservation,
-	freshFor time.Duration,
+	observationTimes, freshnessTimes map[int64]bool,
 	havePrev bool,
 ) string {
 	ids := assignmentIDs(active)
@@ -217,15 +262,11 @@ func historyCause(
 	if havePrev && prevRev != revision {
 		return domain.HealthHistoryCausePolicy
 	}
-	for _, obs := range observations {
-		if freshFor > 0 && obs.ObservedAt.UTC().Add(freshFor).Equal(at) {
-			return domain.HealthHistoryCauseFreshness
-		}
+	if freshnessTimes[at.UnixNano()] {
+		return domain.HealthHistoryCauseFreshness
 	}
-	for _, obs := range observations {
-		if obs.ObservedAt.UTC().Equal(at) {
-			return domain.HealthHistoryCauseRegional
-		}
+	if observationTimes[at.UnixNano()] {
+		return domain.HealthHistoryCauseRegional
 	}
 	for _, assignment := range active {
 		if assignment.From.UTC().Equal(at) {

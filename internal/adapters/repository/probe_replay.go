@@ -131,7 +131,7 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 					if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
 						return err
 					}
-					if err := markDirtyTx(ctx, tx, domain.DirtyBucketsForObservation(obs)); err != nil {
+					if err := markObservationHistoryTx(ctx, tx, obs); err != nil {
 						return err
 					}
 					if err := updateReplayState(ctx, tx, obs, now); err != nil {

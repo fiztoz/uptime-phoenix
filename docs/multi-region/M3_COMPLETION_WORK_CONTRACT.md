@@ -81,3 +81,13 @@ events, zero MariaDB skips and no failures; `M3_CURRENT_STATE_DB_EVIDENCE.json`
 records critical cases. A test-process guard rejects the known incorrect name.
 Check selected test events as well as exit status; `[no tests to run]` is not
 acceptance. This verification failure belongs to Codex's integration work.
+
+
+## Historical recomputation acceptance
+
+The history increment is accepted with exact checks and remaining limits in
+`M3_HISTORY_ACCEPTANCE.md`, source/log hashes in `M3_HISTORY_DB_EVIDENCE.json`,
+and verified mechanisms/Antigravity feedback in `M3_HISTORY_RETROSPECTIVE.md`.
+The final real database matrix executed 193 MariaDB-named cases with no engine
+skips. The production process test proves history consumption after restart.
+Continue `M3_WATCHDOG_WORK_CONTRACT.md`; the whole-M3 checklist above remains open.

@@ -1,12 +1,11 @@
 # Multi-region implementation guide for continuing agents
 
-> **Current continuation, 2026-09-20:** preserve the existing local M0–M2 and
-> M3 config/replay/retention commits. The current-state recovery increment is
-> accepted; consult the latest [implementation status](IMPLEMENTATION_STATUS.md)
-> and [current-state acceptance](M3_CURRENT_STATE_ACCEPTANCE.md) for gates and
-> limitations. Next is [historical recomputation](M3_HISTORY_WORK_CONTRACT.md).
-> Verify Git HEAD and uncommitted work before editing; never reset to an older
-> baseline or repeat a completed increment.
+> **Current continuation, 2026-09-20:** preserve existing local M0–M2 and M3
+> config/replay/retention/current-state work. Historical recomputation is accepted;
+> consult [implementation status](IMPLEMENTATION_STATUS.md) and
+> [history acceptance](M3_HISTORY_ACCEPTANCE.md) for exact evidence and limitations.
+> Next is [both watchdogs](M3_WATCHDOG_WORK_CONTRACT.md). Verify Git HEAD and
+> uncommitted work before editing; never reset to an older baseline.
 
 The detailed A–D material below is historical guidance from `4cc76f0`.
 Descriptions of missing M1/M2 features and proposed flags are not current status.

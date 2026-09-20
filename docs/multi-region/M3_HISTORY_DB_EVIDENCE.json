@@ -1,0 +1,94 @@
+{
+  "base_commit": "a1adb016ce7aadec15a741cc6fd16995a30f0635",
+  "source_files_sha256": {
+    "internal/adapters/repository/health_projection.go": "ba0f0bce7e64f1f62bf2666a95bed7e042480d9e33e7cd1422b087bb55c480c3",
+    "internal/adapters/repository/health_projection_test.go": "e645ba4ee5bb7d1d9b5e49f943fc124e311c0d2e9c7ddaa488a9d6e356790ac5",
+    "internal/adapters/repository/heartbeat_model.go": "7056496f67af4fcdd14d6715eb5dd54bb2c4f89a80820ba3aaa5c791b9d90ed8",
+    "internal/adapters/repository/heartbeat_probe_test.go": "b22666a4167803122c7af7ddc0a013c6902faaefb2785fbd95bff187094097f9",
+    "internal/adapters/repository/local_heartbeat.go": "ac6d623d67024932dc94728e17de4f81cc75d93c8cb8ec75d9ed33ad019d19c9",
+    "internal/adapters/repository/mariadb/migrations/057_probe_history_coverage.down.sql": "6f42ea44a286ed6a651053f5c4024591f9a9714fdc8d61a7c98e0a153db75bac",
+    "internal/adapters/repository/mariadb/migrations/057_probe_history_coverage.up.sql": "e0db7360558134cd3813a8da850350e416a7a770604c7cda83f29cfc2687205f",
+    "internal/adapters/repository/mariadb/repo.go": "07dcfb11a81555dea6764efeb4aa4c243f1686cf9e5420fbd05647be975f0efb",
+    "internal/adapters/repository/probe_assignment_history.go": "37ad745d6dd7859e3d45170e4eaa3dcf46c2357fece92675722225c28c509cb0",
+    "internal/adapters/repository/probe_history.go": "8adb1c887e71ed9e07c788c904d7bc8a8443bb6009b2228e1ae087d95c007ea4",
+    "internal/adapters/repository/probe_history_range.go": "1c8afab82a0e48a4b8d2fcc63fce2307ac28b1cdcbb5c174d92dd4bd11deb1aa",
+    "internal/adapters/repository/probe_history_test.go": "70f0f55d77f33e0e5736cfcbaaa760ae60f33446ee4bd04f7c4904d727034987",
+    "internal/adapters/repository/probe_registry_test.go": "18c5c6d4c47e3cafe0280de8f4845d92d89f318191b1c13225eb6b95d17760cf",
+    "internal/adapters/repository/probe_replay.go": "9b430f91d2c76d42b4ee61c057900fe66a5c1b3042bccae5a07e1f4b1d1823b4",
+    "internal/adapters/repository/probe_replay_acceptance_test.go": "17ed2b01f6f819d57ae20c4cad0003beeba7f4cd8c1b97bcd1f35f13a64e35e2",
+    "internal/adapters/repository/regional_commit.go": "37e0343a71377d4d9bf3d3ef2959d31f0df89e42296ee78dacdaeef84cba43cf",
+    "internal/adapters/repository/sqlite/migrations/057_probe_history_coverage.down.sql": "3a9e609dd0c005bc6865a2a3abc021970708fddf07b161a6c68b0273b419408a",
+    "internal/adapters/repository/sqlite/migrations/057_probe_history_coverage.up.sql": "167195f5cc9ad7bb3fde67f3c99c5db5d35bc34f8b9be4ad57007216afe0ebd6",
+    "internal/adapters/repository/sqlite/repo.go": "f1c409f725619688b59d9232c07340db990a3fa6c6892b45f78e9813060d855d",
+    "internal/bootstrap/probe_history_loop.go": "7128ee4781a6d36874ca6f4aeedf1bf21288d4379db01f0b2333a9fda7119995",
+    "internal/bootstrap/run.go": "8663fa568ee1fff1377706ab43b476a5b8975a690b16a8992d269879c6b08a07",
+    "internal/core/domain/probe_history.go": "96f69db5da248753e7124b91c7f83afa0f10f917a467532f75f110ce015531c0",
+    "internal/core/domain/regional_health.go": "66091847aab940b1eb464174f1192f0eb06560c01a6bd3d4b00aee58480766c8",
+    "internal/core/ports/probe_history.go": "1a8649f7a50b19f2773ed4d073aaded01156fcbb386c69c61a8956ce94a848ea",
+    "internal/core/ports/repository.go": "d09f3254a9b6d35c4e9042e3821f16ad59d1e4fcc1b2a02db6cea1bd7e24861e",
+    "internal/core/services/monitor_health.go": "87cd6258ae44abf3e916fed3b2b0799af358f87e43496d88a226facb71afd09d",
+    "internal/core/services/overall_history.go": "38d7fb2169324fa9269a07f31cf21c03452ef86e6c8bc24bebc71c47744d0c54",
+    "internal/core/services/probe_history_service.go": "ba8a9f8de06529f303bb492f179cf061c2bb6ca644b4434a4b972f188ff4e769",
+    "internal/core/services/probe_history_service_test.go": "8d2961d2f3bc3c09329cfa016559b9f33544b420e9ac036814daba522c7acf79",
+    "scripts/probe_runtime_smoke.py": "93e8cec9905744393e658aa6b6cf5b935175ea07cbeefc58ed5e9ec958befb37"
+  },
+  "database_command": "GOTOOLCHAIN=go1.26.6 TEST_MARIADB_DSN=<disposable-local-DSN> go test -race -count=1 -timeout=20m -json ./internal/adapters/repository/...",
+  "database_log": "/private/tmp/phoenix-m3-history-matrix-accepted.jsonl",
+  "database_log_sha256": "05134c951dbf13f594f99b84a89655101199444d14b36afb77aee19b182fd3a9",
+  "database_packages": [
+    {
+      "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb",
+      "elapsed_seconds": 1.465
+    },
+    {
+      "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/edge",
+      "elapsed_seconds": 7.761
+    },
+    {
+      "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/sqlite",
+      "elapsed_seconds": 63.377
+    },
+    {
+      "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository",
+      "elapsed_seconds": 326.296
+    }
+  ],
+  "mariadb_named_pass_events": 193,
+  "mariadb_skips": [],
+  "critical_cases": [
+    "TestProbeHistoryAcceptance/mariadb/ReplayAndGapBeyondRollupLookback",
+    "TestProbeHistoryAcceptance/mariadb/LastWriteRollbackAndRestart",
+    "TestProbeHistoryAcceptance/mariadb/RevisionSurvivesConsumeReinsertABA",
+    "TestProbeHistoryConcurrentRemarkDoesNotPublishStaleSnapshot",
+    "TestProbeHistoryParentRechecksChildrenAfterQueueSelection/1h",
+    "TestProbeHistoryParentRechecksChildrenAfterQueueSelection/1d",
+    "TestProbeHistoryAssignmentRemovalClosesRegionalDenominator/mariadb",
+    "TestProbeHistoryLateClockRegressionRepairsBeyondFreshness/mariadb",
+    "TestProbeHistoryParentsPreserveLegacySampleStatistics/mariadb",
+    "TestProbeHistorySQLiteSerializesSourceRemark"
+  ],
+  "full_go_race_log": "/private/tmp/phoenix-m3-history-full-final.jsonl",
+  "full_go_race_sha256": "7bef9dc90cab7558d02eac0690df552c54a11c2734e12bd6419ba25705cb5379",
+  "full_go_race_note": "Full suite passed before final shared-reader and legacy-statistics corrections. Final complete database matrix, core race suite, CGO-free build and lint then passed. One test blank line was removed for lint after the matrix started; behavior was unchanged.",
+  "core_log": "/private/tmp/phoenix-m3-history-core-final.log",
+  "lint_log": "/private/tmp/phoenix-m3-history-lint-clean.log",
+  "build_log": "/private/tmp/phoenix-m3-history-build-accepted.log",
+  "process_report": "/private/tmp/phoenix-m3-history-process-acceptance/report.json",
+  "process_report_sha256": "7167760251e03777f6f50ee2ef52baded8e6a044b33942d5a53849646cbcc60e",
+  "process_note": "Production wiring/restart acceptance preceded the final read/legacy-statistics correction; those paths have final both-engine regression coverage. Short partition, not final 15-minute M3 acceptance.",
+  "process": {
+    "checks_passed": 20,
+    "offline_backlog_count": 21,
+    "hub_send_intents": 0,
+    "history": {
+      "total_checks": 1,
+      "known_us": 820145,
+      "unknown_us": 2845575,
+      "managed": 1,
+      "bucket_utc_epoch": 1789903560,
+      "source_observations": 1,
+      "overall_coverage_us": 60000000,
+      "pending_minute_work": 0
+    }
+  }
+}

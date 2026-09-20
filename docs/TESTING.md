@@ -958,3 +958,26 @@ three binary paths, a new private output directory, and `--mariadb-container`.
 hub workers, offline DOWN/provider retry, edge restart, UP recovery, exact backlog
 mirrors and durable cursors, zero hub send intents, then a second cold restart.
 It stops its child processes. See [replay acceptance](multi-region/M3_REPLAY_ACCEPTANCE.md).
+
+## M3 historical recomputation
+
+`TestProbeHistory*` in `internal/adapters/repository` exercises the transactional
+history worker, bounded gap/backward-clock range expansion, parent dependencies,
+last-write rollback, restart, assignment boundaries, legacy statistics and
+on-demand read consistency. Supply `TEST_MARIADB_DSN` to run the real MariaDB
+cases, including the deterministic source/parent transaction barriers. SQLite
+separately verifies serialization through independent connections. Use `-json`
+and inspect actual engine pass/skip events; a package PASS or an unmatched `-run`
+expression is not proof of execution.
+
+The core `TestProbeHistory*` tests exercise gap/freshness/sequence rules, per-region
+sample weighting and independent overall policy. Migration 057 guards downgrade
+when duration coverage or pending repair ranges would be lost. Migration fixture
+restore lists must include 057; a 037 SQLite table rebuild removes later columns.
+
+Add `--verify-history` to the process command above (it requires `--verify-replay`).
+It waits for a closed minute and checks source sample count, persisted duration,
+complete overall coverage and consumed work through real restarted hub workers.
+This smoke is shorter than the final required M3 15-minute partition acceptance.
+See [history acceptance](multi-region/M3_HISTORY_ACCEPTANCE.md) and its linked
+retrospective for exact validation evidence and remaining milestone work.

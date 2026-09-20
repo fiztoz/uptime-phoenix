@@ -101,6 +101,15 @@ func (s *MonitorHealthService) ProcessDirty(ctx context.Context, now time.Time, 
 	if s.projections == nil {
 		return 0, nil
 	}
+	if atomic, ok := s.projections.(ports.ProbeHistoryWorkRepository); ok {
+		if limit <= 0 {
+			limit = 100
+		}
+		if now.IsZero() {
+			now = time.Now().UTC()
+		}
+		return NewProbeHistoryService(atomic).ProcessBatch(ctx, now, min(limit, 1000))
+	}
 	now = now.UTC()
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -130,7 +139,7 @@ func (s *MonitorHealthService) ProcessDirty(ctx context.Context, now time.Time, 
 			}
 			groups[key] = append(groups[key], domain.DirtyBucket{
 				MonitorID: row.MonitorID, ProbeID: row.ProbeID,
-				Resolution: row.Resolution, Bucket: bucket,
+				Resolution: row.Resolution, Bucket: bucket, Revision: row.Revision,
 			})
 		}
 	}
@@ -229,6 +238,14 @@ func (s *MonitorHealthService) reconstruct(ctx context.Context, monitorID int64,
 	}
 	if !from.Before(to) {
 		return &domain.MonitorHealthHistory{MonitorID: monitorID, From: from, To: to}, nil
+	}
+	if reader, ok := s.regional.(ports.ProbeHistoryReadRepository); ok && set.Revision != 0 {
+		evidence, err := reader.ReadHistoryEvidence(ctx, monitorID, from, to, NewProbeHistoryService(nil))
+		if err != nil {
+			return nil, fmt.Errorf("load coherent regional history: %w", err)
+		}
+		history, err := ReconstructOverallHistory(evidence)
+		return &history, err
 	}
 	var assignments []domain.AssignmentInterval
 	if set.Revision == 0 {

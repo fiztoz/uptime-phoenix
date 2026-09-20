@@ -115,7 +115,7 @@ func (r *RegionalCommitStore) Commit(ctx context.Context, commit domain.Regional
 		if _, err := tx.NewInsert().Model(&obs).Exec(ctx); err != nil {
 			return fmt.Errorf("insert observation: %w", probeRegistryError(err))
 		}
-		if err := markDirtyTx(ctx, tx, domain.DirtyBucketsForObservation(commit.Observation)); err != nil {
+		if err := markObservationHistoryTx(ctx, tx, commit.Observation); err != nil {
 			return err
 		}
 		if err := upsertRegionalState(ctx, tx, commit.State); err != nil {
@@ -225,7 +225,7 @@ func (r *RegionalCommitStore) Ingest(ctx context.Context, batch domain.ProbeInge
 			if _, err := tx.NewInsert().Model(&obs).Exec(ctx); err != nil {
 				return probeRegistryError(err)
 			}
-			if err := markDirtyTx(ctx, tx, domain.DirtyBucketsForObservation(event)); err != nil {
+			if err := markObservationHistoryTx(ctx, tx, event); err != nil {
 				return err
 			}
 			state := domain.RegionalState{

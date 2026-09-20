@@ -62,3 +62,45 @@ by recomputation. Run the worker through production wiring, then full gates.
 
 Reserve migration 057 only after checking both migration directories again.
 The final M3 15-minute process acceptance remains a separate required gate.
+
+## In-progress implementation and validation
+
+Migration 057 was unoccupied and is reserved by the current uncommitted history
+increment. The draft has a pure gap-aware duration projector, source-sequence
+history ordering, duration fields, guarded legacy aggregate writes, a worker
+with coherent reads and atomic revision-checked publish/consume, bounded gap
+range expansion and composition-root startup/shutdown wiring. This is not accepted.
+
+Dirty revisions are fresh random tokens, not counters that reset on insertion:
+otherwise a consume/reinsert ABA can make an old snapshot appear current again.
+Overall work is canonicalized to the reserved local key per monitor/minute, so
+updates from different probes invalidate the same overall computation.
+
+Initial service and SQLite smoke tests passed. The first expanded test draft
+had an interface/concrete fixture compile error, followed by an aggregate SELECT
+alias error; both were corrected. While investigating, Codex found its matrix
+commands used the wrong MariaDB environment name. `TEST_MARIADB_DSN` is required.
+MariaDB claims from the earlier wrong-variable commands are withdrawn. First
+verify the immutable current-state commit, then run this draft's real-engine
+contracts. No history acceptance or commit is authorized by a skipped test.
+
+
+## Final integration findings
+
+The original parent queue priority was insufficient: a concurrent source could
+commit after selection but before the coherent read. The parent now checks dirty
+children within its token snapshot before publish/consume. Late backward clocks
+also need durable range invalidation beyond freshness; migration 057 now includes
+one merged repair range per monitor/probe, advanced in bounded minutes. Source
+commits and gap/range expansion mark all resolutions atomically.
+
+The on-demand service now uses the same coherent sequence-leading seed reader as
+the background worker. Hour/day projections retain legacy child sample statistics
+without inventing known duration. Assignment removal independently invalidates
+old/new member denominators. Focused reproductions pass; final gate evidence and
+remaining scope are in `M3_HISTORY_ACCEPTANCE.md`, with mechanisms and Antigravity
+feedback in `M3_HISTORY_RETROSPECTIVE.md`.
+
+After this increment is accepted and committed, continue with
+`M3_WATCHDOG_WORK_CONTRACT.md`. Whole-M3 completion still requires the remaining
+items in `M3_COMPLETION_WORK_CONTRACT.md`.

@@ -30,9 +30,13 @@ type replayFixture struct {
 
 func newReplayFixture(t *testing.T, engine string) replayFixture {
 	t.Helper()
+	return newReplayFixtureAt(t, engine, time.Now().UTC().Truncate(time.Microsecond).Add(-5*time.Second))
+}
+
+func newReplayFixtureAt(t *testing.T, engine string, at time.Time) replayFixture {
+	t.Helper()
 	f := newProbeRegistryFixture(t, engine)
 	syncer, protector, monitor, channel := remoteSyncFixture(t, f)
-	at := time.Now().UTC().Truncate(time.Microsecond).Add(-5 * time.Second)
 	if _, err := f.db.ExecContext(t.Context(), "UPDATE monitor_probe_assignment_history SET started_at = ?", at.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}

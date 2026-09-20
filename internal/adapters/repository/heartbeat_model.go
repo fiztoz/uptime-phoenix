@@ -112,20 +112,27 @@ func HeartbeatModelFromDomain(h *domain.Heartbeat) *HeartbeatModel {
 type AggregateModel struct {
 	bun.BaseModel `bun:"table:heartbeat_1m"`
 
-	ID           int64     `bun:"id,pk,autoincrement"`
-	MonitorID    int64     `bun:"monitor_id,notnull"`
-	ProbeID      string    `bun:"probe_id,notnull,default:'local'"`
-	Bucket       time.Time `bun:"bucket,notnull"`
-	UpCount      int       `bun:"up_count,notnull,default:0"`
-	DownCount    int       `bun:"down_count,notnull,default:0"`
-	PendingCount int       `bun:"pending_count,notnull,default:0"`
-	MaintCount   int       `bun:"maint_count,notnull,default:0"`
-	UnknownCount int       `bun:"unknown_count,notnull,default:0"`
-	AvgPing      float64   `bun:"avg_ping"`
-	MinPing      *int      `bun:"min_ping"`
-	MaxPing      *int      `bun:"max_ping"`
-	PingCount    int       `bun:"ping_count,notnull,default:0"`
-	TotalChecks  int       `bun:"total_checks,notnull,default:0"`
+	ID             int64     `bun:"id,pk,autoincrement"`
+	MonitorID      int64     `bun:"monitor_id,notnull"`
+	ProbeID        string    `bun:"probe_id,notnull,default:'local'"`
+	Bucket         time.Time `bun:"bucket,notnull"`
+	UpCount        int       `bun:"up_count,notnull,default:0"`
+	DownCount      int       `bun:"down_count,notnull,default:0"`
+	PendingCount   int       `bun:"pending_count,notnull,default:0"`
+	MaintCount     int       `bun:"maint_count,notnull,default:0"`
+	UnknownCount   int       `bun:"unknown_count,notnull,default:0"`
+	AvgPing        float64   `bun:"avg_ping"`
+	MinPing        *int      `bun:"min_ping"`
+	MaxPing        *int      `bun:"max_ping"`
+	PingCount      int       `bun:"ping_count,notnull,default:0"`
+	TotalChecks    int       `bun:"total_checks,notnull,default:0"`
+	HistoryManaged bool      `bun:"history_managed"`
+	UpUS           int64     `bun:"up_us"`
+	DownUS         int64     `bun:"down_us"`
+	PendingUS      int64     `bun:"pending_us"`
+	UnknownUS      int64     `bun:"unknown_us"`
+	MaintenanceUS  int64     `bun:"maintenance_us"`
+	PausedUS       int64     `bun:"paused_us"`
 }
 
 // Aggregate1mFromDomain converts a ports.Aggregate1m to an AggregateModel.
@@ -188,6 +195,7 @@ func Aggregate1dFromDomain(a *ports.Aggregate1d) *AggregateModel {
 // ToAggregate1m converts an AggregateModel to a ports.Aggregate1m.
 func (m *AggregateModel) ToAggregate1m() *ports.Aggregate1m {
 	return &ports.Aggregate1m{
+		Durations:    m.durations(),
 		MonitorID:    m.MonitorID,
 		ProbeID:      domain.NormalizeProbeID(m.ProbeID),
 		Bucket:       m.Bucket,
@@ -207,6 +215,7 @@ func (m *AggregateModel) ToAggregate1m() *ports.Aggregate1m {
 // ToAggregate1h converts an AggregateModel to a ports.Aggregate1h.
 func (m *AggregateModel) ToAggregate1h() *ports.Aggregate1h {
 	return &ports.Aggregate1h{
+		Durations:    m.durations(),
 		MonitorID:    m.MonitorID,
 		ProbeID:      domain.NormalizeProbeID(m.ProbeID),
 		Bucket:       m.Bucket,
@@ -226,6 +235,7 @@ func (m *AggregateModel) ToAggregate1h() *ports.Aggregate1h {
 // ToAggregate1d converts an AggregateModel to a ports.Aggregate1d.
 func (m *AggregateModel) ToAggregate1d() *ports.Aggregate1d {
 	return &ports.Aggregate1d{
+		Durations:    m.durations(),
 		MonitorID:    m.MonitorID,
 		ProbeID:      domain.NormalizeProbeID(m.ProbeID),
 		Bucket:       m.Bucket,
@@ -252,4 +262,8 @@ func derefInt(p *int) int {
 		return 0
 	}
 	return *p
+}
+
+func (m *AggregateModel) durations() domain.HealthDurations {
+	return domain.HealthDurations{Up: time.Duration(m.UpUS) * time.Microsecond, Down: time.Duration(m.DownUS) * time.Microsecond, Pending: time.Duration(m.PendingUS) * time.Microsecond, Unknown: time.Duration(m.UnknownUS) * time.Microsecond, Maintenance: time.Duration(m.MaintenanceUS) * time.Microsecond, Paused: time.Duration(m.PausedUS) * time.Microsecond}
 }

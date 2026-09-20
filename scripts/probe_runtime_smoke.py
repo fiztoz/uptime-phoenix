@@ -32,11 +32,14 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--port", type=int, default=38920)
     parser.add_argument("--verify-replay", action="store_true")
+    parser.add_argument("--verify-history", action="store_true", help="verify the production history worker after replay and restart")
     parser.add_argument("--mariadb-container")
     args = parser.parse_args()
     dsn = os.environ.get("DB_DSN", "")
     if not re.fullmatch(r"[^@]+@tcp\(127\.0\.0\.1:\d+\)/[a-zA-Z0-9_]+_smoke\?.+", dsn):
         parser.error("DB_DSN must name a disposable localhost database ending in _smoke")
+    if args.verify_history and not args.verify_replay:
+        parser.error("--verify-history requires --verify-replay")
     if args.verify_replay and not args.mariadb_container:
         parser.error("--verify-replay requires --mariadb-container for independent hub evidence")
     output = args.output.resolve()
@@ -319,6 +322,39 @@ def main():
                                "mirrored_incidents": incidents, "mirrored_delivery_outcomes": outcomes,
                                "hub_send_intents": send_work, "hub_cursor": hub_cursor(),
                                "edge_cursor": edge_progress()["committed_seq"]}
+        history_evidence = None
+        if args.verify_history:
+            first_bucket = hub_query("SELECT JSON_OBJECT('bucket', FLOOR(UNIX_TIMESTAMP(MIN(observed_at))/60)*60) "
+                                     f"FROM probe_observations WHERE probe_id='{identity['probe_id']}' AND monitor_id={monitor}")[0]["bucket"]
+            assert first_bucket is not None
+            bucket = int(first_bucket)
+
+            def history_ready():
+                nonlocal history_evidence
+                if time.time() < bucket + 60:
+                    return False
+                rows = hub_query("SELECT JSON_OBJECT('total_checks', total_checks, 'known_us', up_us+down_us+pending_us+maintenance_us, "
+                                 "'unknown_us', unknown_us, 'managed', history_managed) FROM heartbeat_1m "
+                                 f"WHERE monitor_id={monitor} AND probe_id='{identity['probe_id']}' AND bucket=FROM_UNIXTIME({bucket})")
+                if not rows or not rows[0]["managed"]:
+                    return False
+                source_count = hub_query("SELECT JSON_OBJECT('count',COUNT(*)) FROM probe_observations "
+                                         f"WHERE monitor_id={monitor} AND probe_id='{identity['probe_id']}' "
+                                         f"AND observed_at>=FROM_UNIXTIME({bucket}) AND observed_at<FROM_UNIXTIME({bucket+60})")[0]["count"]
+                pending = hub_query("SELECT JSON_OBJECT('count', COUNT(*)) FROM probe_dirty_buckets "
+                                    f"WHERE monitor_id={monitor} AND bucket=FROM_UNIXTIME({bucket}) AND resolution IN ('1m','overall')")[0]["count"]
+                overall = hub_query("SELECT JSON_OBJECT('coverage_us', COALESCE(SUM(TIMESTAMPDIFF(MICROSECOND, "
+                                    f"GREATEST(started_at,FROM_UNIXTIME({bucket})), LEAST(ended_at,FROM_UNIXTIME({bucket+60})))),0)) "
+                                    f"FROM monitor_health_history WHERE monitor_id={monitor} "
+                                    f"AND started_at<FROM_UNIXTIME({bucket+60}) AND ended_at>FROM_UNIXTIME({bucket})")[0]["coverage_us"]
+                if pending or rows[0]["total_checks"] != source_count or overall != 60000000:
+                    return False
+                assert source_count > 0 and rows[0]["known_us"] > 0
+                history_evidence = dict(rows[0], bucket_utc_epoch=bucket, source_observations=source_count,
+                                        overall_coverage_us=overall, pending_minute_work=pending)
+                return True
+
+            wait_for("production workers recompute closed regional and overall history after restart", history_ready, timeout=100)
         time.sleep(3)
         final = edge_progress()
         assert final["last_created_seq"] > before["last_created_seq"] and final["config_revision"] == 2
@@ -326,7 +362,8 @@ def main():
         mark("reconnection preserves stream, accepted config and delivery history")
         report = {"passed": passed, "identity": identity, "before_restart": before, "final": final,
                   "incident": incident, "provider_attempt_statuses": provider_attempts, "successful_webhook_statuses": [h["status"] for h in hooks],
-                  "replay_verified": args.verify_replay, "replay": replay_evidence}
+                  "replay_verified": args.verify_replay, "replay": replay_evidence,
+                  "history_verified": args.verify_history, "history": history_evidence}
         (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         print("Evidence:", output, flush=True)
     finally:
