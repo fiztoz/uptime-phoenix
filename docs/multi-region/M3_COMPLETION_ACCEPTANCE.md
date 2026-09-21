@@ -57,7 +57,7 @@ checks. Those surfaces and dependencies are unchanged by this final increment.
 The first full-duration run completed its partition but failed a later harness assertion that counted legitimate hub watchdog sends as mirrored work. The corrected full-duration rerun is the accepted result above.
 
 The first two short rehearsals exposed an API-setup mistake and a real assignment
-deadlock; both are retained in [the retrospective](M3_ASSIGNMENT_LOCK_RETROSPECTIVE.md).
+deadlock; both are retained in [the retrospective](../postmortems/2026-09-21-m3-integration.md#assignment-and-authority).
 The third passed 42 stages over 30 seconds and was explicitly a rehearsal, not the
 900-second acceptance. After correcting the combined watchdog ownership assertion, a further 30-second run passed all 51 combined stages before the final long run completed. The initial full-gate clock-fixture failure is also retained.
 Antigravity's incorrect findings were checked against source and effects, corrected

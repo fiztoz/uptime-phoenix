@@ -1,5 +1,9 @@
 # M3 saved watchdog settings and CLI verification
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Base commit: `5072e42`. This increment prepares saved source settings; it does
 not enable either watchdog or complete M3. Codex owns source and verification.
 Antigravity owns no files and performed only a pasted-source, no-tools audit.

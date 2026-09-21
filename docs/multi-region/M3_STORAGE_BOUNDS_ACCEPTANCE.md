@@ -1,10 +1,13 @@
 # M3 source storage bounds acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Date: 2026-09-21. Baseline `728aefd`. This checkpoint is accepted. The actual
 900-second partition and final audit are accepted in the [whole-M3 record](M3_COMPLETION_ACCEPTANCE.md). Codex owns verification.
 See [hashed evidence](M3_STORAGE_BOUNDS_EVIDENCE.json),
-[retrospective](M3_STORAGE_BOUNDS_RETROSPECTIVE.md) and
-[contract](M3_STORAGE_BOUNDS_WORK_CONTRACT.md).
+[retrospective](../postmortems/2026-09-21-m3-integration.md#storage-and-shutdown).
 
 Migration 010 adds a separate 64 MiB metadata quota and transactional bounded
 retirement. Current configuration/state, unresolved incidents and pending/leased
@@ -35,7 +38,7 @@ Final CGO-free build, full race suite and lint passed with unchanged source hash
 MariaDB-named passes and 303 audited live MariaDB cases. No engine tests skipped.
 The initial gate's reset-test clock failure and the separate assignment deadlock
 found by the process rehearsal are retained in
-[the verification retrospective](M3_ASSIGNMENT_LOCK_RETROSPECTIVE.md).
+[the verification retrospective](../postmortems/2026-09-21-m3-integration.md#assignment-and-authority).
 
 ```text
 Commands executed: CGO_ENABLED=0 go build ./...; go test -race -count=1 -timeout=20m -json ./...; golangci-lint run; focused real-engine regressions.

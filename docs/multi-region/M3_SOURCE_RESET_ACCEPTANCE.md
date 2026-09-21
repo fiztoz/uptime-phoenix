@@ -1,7 +1,11 @@
 # M3 source stream-reset checkpoint
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Date: 2026-09-21. Baseline: `b112f07`. This checkpoint implements the stopped
-source storage/runtime half of [explicit reset](M3_STREAM_RESET_WORK_CONTRACT.md).
+source storage/runtime half of [subsequent acceptance](M3_HUB_RESET_ACCEPTANCE.md).
 It does **not** complete reset or M3: hub preparation/activation/peer confirmation
 and both operator CLI commands remain to be integrated. There is no deployed reset
 endpoint and no new CLI command in this checkpoint. Codex owns all files.
@@ -66,5 +70,5 @@ not compiled reset CLI acceptance. Exact commands, source/binary/log hashes,
 engine inventory and advisory statuses are in
 [the evidence ledger](M3_SOURCE_RESET_EVIDENCE.json). No push or deployment occurred.
 
-See [retrospective](M3_SOURCE_RESET_RETROSPECTIVE.md) for the reproduced durability
+See [retrospective](../postmortems/2026-09-21-m3-integration.md#reset-and-archive-durability) for the reproduced durability
 defect and the disposition of Antigravity's advisory review.

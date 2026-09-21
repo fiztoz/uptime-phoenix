@@ -1,5 +1,9 @@
 # M3 watchdog source runtime verification
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Base commit: `e3757bd`. This increment joins the source timer to durable storage
 and application-health admission. Enabled-watchdog configuration remains guarded:
 provider reconciliation and mirror replay authorization are still required before

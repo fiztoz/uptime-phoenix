@@ -163,7 +163,7 @@ followed by a crash before outcome commit can cause a duplicate after lease expi
 ## Follow-up and guidance for the next implementation
 
 The remaining work is tracked in the
-[corrected implementation status](../multi-region/IMPLEMENTATION_STATUS.md#review-correction-local-runtime-and-m1-status--2026-09-20).
+[corrected implementation status](../multi-region/IMPLEMENTATION_STATUS.md).
 No owner or external ticket was assigned during this correction.
 
 Before enabling the consumer, implement and test first activation plus refresh,

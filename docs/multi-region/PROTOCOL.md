@@ -1,6 +1,6 @@
 # Multi-region probes — protocol and API contract
 
-Status: proposed V1 contract with a bounded executable foundation. See [implementation status](IMPLEMENTATION_STATUS.md) for implemented decoders and unresolved schemas; the complete V1 protocol is not yet frozen. This file specifies new behavior; none of these probe endpoints or messages is claimed to exist in the baseline. Read [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and persistence guarantees.
+Status: V1 contract covering implemented M0–M3 runtime messages and later compatibility/fleet surfaces. See [implementation status](IMPLEMENTATION_STATUS.md) for accepted scope; a documented HTTP/browser shape does not imply its M5 route or UI is implemented. Read [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and persistence guarantees.
 
 ## 1. General encoding rules
 
@@ -497,11 +497,11 @@ M0 must check in valid and invalid JSON fixtures for every tabled message, enum,
 Use those fixtures in Go transport DTO tests and frontend response validation/type tests. The current source verifies condition values in `internal/core/domain/monitor_condition.go`, maintenance minutes in `internal/core/domain/maintenance.go`, template fields in `internal/core/domain/notification_template.go`, and monitor-visibility acknowledgement authority in `internal/adapters/http/handlers/alert.go`. Preserve existing `alert.scope` (`monitor`/`group`) and add separate delivery-scope/probe variables as specified in the architecture. Any later correction updates this document in the same commit before independent agents consume it. No agent should infer field names from UI labels or domain struct names.
 
 
-## 10. Implemented foundation limits and remaining freeze work
+## 10. Wire-helper boundaries and implemented runtime
 
 The implementation validates common envelope framing and mixed telemetry batches containing all five V1 kinds: `observation`, `alert.transition`, `watchdog.transition`, `delivery.result`, and `condition.transition`, plus ACK/retry/gap payload structure. It also decodes complete current-state snapshots and all four state transfer frames, with bounded in-memory assembly as specified in section 5.1. Recognizing another message name in an envelope does not validate that message's payload. Unknown event kinds return an explicit unsupported error. There is no listener, ingest transaction, authentication claim, provider send, or cursor advancement in these decoders.
 
-Structural limits for this slice: JSON nesting 64; canonical lowercase UUIDs 36 characters; observation/condition messages 4096 UTF-8 bytes; condition metadata 256 bytes; at most two unique condition kinds per observation; at most 256 unique positive affected monitor IDs per gap; machine error codes at most 128 ASCII lowercase letters/digits/underscores. Existing 1 MiB frame, 512 KiB batch, 64 KiB event, and 256-event limits still apply. Transport DTO tests enforce required zero/false/null fields, duplicate object keys, canonical decimal values, status/count coherence, and positive entity IDs. Durable ordering against a stored cursor and assignment/config authorization belong to the later transactional ingest service.
+Structural limits for this slice: JSON nesting 64; canonical lowercase UUIDs 36 characters; observation/condition messages 4096 UTF-8 bytes; condition metadata 256 bytes; at most two unique condition kinds per observation; at most 256 unique positive affected monitor IDs per gap; machine error codes at most 128 ASCII lowercase letters/digits/underscores. Existing 1 MiB frame, 512 KiB batch, 64 KiB event, and 256-event limits still apply. Transport DTO tests enforce required zero/false/null fields, duplicate object keys, canonical decimal values, status/count coherence, and positive entity IDs. Durable ordering against a stored cursor and assignment/config authorization belong to the separate transactional ingest service, not the decoders.
 
 Hello/welcome/health DTOs and trusted transcript comparison are also implemented, with 53 additional fixtures (165 total). The comparison checks installation/probe/stream identity, the caller's lease generation, compatible V1 limits, exact capability requirements, source high-water bounds, and config revision direction. Health decoding checks role-specific nullability/readiness and bounded codes. These helpers perform no authentication, lease operation, durable mutation, watchdog scheduling, or queue acknowledgement.
 
@@ -518,10 +518,10 @@ lifecycle storage checks also exist. Outside these wire helpers, local complete
 snapshot construction, exact prepared-revision semantic validation, and explicit
 key-file provisioning/loading are implemented. They do not activate configuration.
 
-Trusted installation/key startup wiring, current-source fencing, atomic local
-activation and live lifecycle/outbox integration remain open. Remote construction
-and environment validation, authenticated session/deadline/lease integration,
-state snapshot authorization, missing-assignment reconciliation, durable application
-receipts, and remote snapshot projection transactions remain M2/M3 work. See the
-[continuation guide](CONTINUATION_GUIDE.md) and [implementation status](IMPLEMENTATION_STATUS.md)
-before claiming complete protocol compatibility or enabling a remote capability.
+Outside these pure helpers, M1–M3 implement trusted installation/key startup,
+source fencing, atomic activation, authenticated sessions/leases, authorized
+current state, missing-assignment reconciliation, durable application receipts,
+ordered ingest and recovery for the supported runtime. See
+[M3 acceptance](M3_COMPLETION_ACCEPTANCE.md). Broader checker/auxiliary compatibility
+and the administrative HTTP/browser feature surface remain M4/M5; do not enable
+a capability merely because its wire shape decodes.

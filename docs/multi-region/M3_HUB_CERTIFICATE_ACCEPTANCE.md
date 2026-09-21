@@ -1,5 +1,9 @@
 # M3 hub certificate rotation acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Date: 2026-09-21. Baseline: `34e3048`. Codex owns source and verification;
 Antigravity review is advisory. This increment does not complete M3.
 
@@ -63,8 +67,8 @@ ordered telemetry under production connector services.
 No new dependencies, frontend, checker/provider types or HTTP fleet APIs were
 added. No push/deployment occurred. Existing `AGENTS.md` user changes are excluded.
 Antigravity's audit/follow-up returned service errors; its useful findings were
-independently tested. See [the retrospective](M3_HUB_CERTIFICATE_RETROSPECTIVE.md).
+independently tested. See [the retrospective](../postmortems/2026-09-21-m3-integration.md#credentials-and-certificates).
 
-[Explicit stream reset](M3_STREAM_RESET_WORK_CONTRACT.md), remaining pressure/flush acceptance and the complete
+[subsequent acceptance](M3_HUB_RESET_ACCEPTANCE.md), remaining pressure/flush acceptance and the complete
 fifteen-minute partition are unfinished M3 requirements. Existing short process
 runs and near-expiry recovery tests do not substitute for that long partition.

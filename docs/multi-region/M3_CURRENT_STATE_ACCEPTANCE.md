@@ -1,5 +1,9 @@
 # M3 current-state recovery increment
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 > Verification correction: earlier matrix commands supplied `MARIADB_TEST_DSN`,
 > but this repository reads `TEST_MARIADB_DSN`. Those runs skipped MariaDB; their
 > MariaDB claims are withdrawn. An immutable export of commit `a40f80b` then passed
@@ -130,7 +134,7 @@ Antigravity's later command denial was respected. Its follow-up used only existi
 conversation evidence; no permission settings were changed or denial bypassed.
 Verified fixes and these lessons were sent back with explicit no-edit ownership.
 
-Required follow-up remains tracked in `M3_COMPLETION_WORK_CONTRACT.md`: historical
+The subsequent [M3 completion record](M3_COMPLETION_ACCEPTANCE.md) accepts historical
 gap coverage and 1m/1h/1d/overall recomputation, both watchdogs, commands and offline
 ACKs, rotations/reset, cleanup, bounded shutdown flush and full process acceptance.
 

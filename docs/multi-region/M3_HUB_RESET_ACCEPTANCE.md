@@ -1,5 +1,9 @@
 # M3 hub stream reset and operator recovery
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Date: 2026-09-21. Baseline: `ba997db`. Codex owns implementation, verification
 and commits. Antigravity supplied a read-only advisory review and owns no files.
 No push or deployment. This checkpoint does not complete M3.
@@ -88,7 +92,7 @@ After its immutable-read correction, the third fresh-database compiled run passe
 all 30 stages: source-before-hub and hub-before-source restart recovery, retained
 archive, unchanged bootstrap/key/pin and independent old/new sequence one. The
 migration-rehearsal repair also passed focused both-engine tests and this final
-full gate. See [retrospective](M3_HUB_RESET_RETROSPECTIVE.md).
+full gate. See [retrospective](../postmortems/2026-09-21-m3-integration.md#reset-and-archive-durability).
 
 ```text
 Commands executed: CGO_ENABLED=0 go build ./...; go test -race -count=1 -timeout=20m -json ./...; golangci-lint run; compiled probe_runtime_smoke.py --verify-replay --verify-stream-reset.
@@ -99,4 +103,4 @@ Acceptance criteria still unverified: bounded shutdown/pressure completion, actu
 
 Remaining M3 work: pressure diagnostics and bounded shutdown flushing, the actual
 15-minute partition acceptance, then a complete requirement audit and repository
-gate under [the M3 contract](M3_COMPLETION_WORK_CONTRACT.md).
+gate under [subsequent acceptance](M3_COMPLETION_ACCEPTANCE.md).

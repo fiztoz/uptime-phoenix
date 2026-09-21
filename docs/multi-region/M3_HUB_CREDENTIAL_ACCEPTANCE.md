@@ -1,5 +1,9 @@
 # M3 hub credential rotation acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Baseline: `e23d7e0`. This increment completes the operator-to-source credential
 rotation path. Certificate rotation, explicit stream reset and whole-M3 acceptance
 remain separate work. No push or deployment is included.
@@ -32,7 +36,7 @@ allows up to 12 seconds for the hub's bounded receipt commit and disconnect. The
 existing credential session deadline still applies. The hub closes only after
 receipt commit; timeout/close never substitutes for a durable result. The source
 forces closure when the hub does not cooperate. See the
-[retrospective](M3_HUB_CREDENTIAL_RETROSPECTIVE.md) for the reproduced cancellation
+[retrospective](../postmortems/2026-09-21-m3-integration.md#credentials-and-certificates) for the reproduced cancellation
 bug that required this handshake ordering.
 
 ## Executed effect checks

@@ -1,5 +1,9 @@
 # M3 hub watchdog source persistence acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 This increment follows edge persistence commit `c736383`. It adds the hub source
 counterpart, protected against stale runtime/session authority and edge identity
 adoption. It does not complete or enable either running watchdog. M3 is incomplete.
@@ -60,7 +64,7 @@ The committed Go/SQL files match the 15 source hashes frozen before that gate.
 Exact full-gate results and source hashes are recorded in
 [M3_HUB_WATCHDOG_EVIDENCE.json](M3_HUB_WATCHDOG_EVIDENCE.json). The independently
 verified failures and review disposition are in
-[the retrospective](M3_HUB_WATCHDOG_RETROSPECTIVE.md). No new dependency, monitor,
+[the retrospective](../postmortems/2026-09-21-m3-integration.md#watchdogs-and-clocks). No new dependency, monitor,
 provider, frontend or Helm change is included. No process watchdog acceptance or
 actual external provider delivery is claimed here.
 

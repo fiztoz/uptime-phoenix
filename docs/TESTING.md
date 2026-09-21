@@ -1098,7 +1098,7 @@ The runtime process smoke with `--verify-replay` now starts both workers before
 operator enrollment and proves that an edge restart advances connection generation
 without changing runtime ownership. It continues the offline delivery/replay and
 history assertions above. See [runtime acceptance](multi-region/M3_RUNTIME_ACCEPTANCE.md)
-and [the retrospective](multi-region/M3_RUNTIME_RETROSPECTIVE.md). Both watchdogs,
+and [the retrospective](postmortems/2026-09-21-m3-integration.md#assignment-and-authority). Both watchdogs,
 commands/offline ACK and the fifteen-minute partition remain separate M3 gates.
 
 ## M3 edge watchdog source transaction
@@ -1115,9 +1115,9 @@ source effects, not just status-code checks.
 This gate supplements the full Go race suite with `TEST_MARIADB_DSN` set to a
 disposable test DB, CGO-free build and lint. See
 [source acceptance](multi-region/M3_WATCHDOG_SOURCE_ACCEPTANCE.md) and its evidence.
-It does not prove a running watchdog: enabled-watchdog config remains guarded,
-and hub ownership/replay, health callbacks and actual provider reconciliation
-must be integrated before real both-side process acceptance.
+It does not by itself prove a running watchdog. Exercise the integrated hub
+ownership/replay, health callbacks and provider reconciliation through the enabled
+both-side process acceptance above.
 
 ## M3 hub watchdog source transaction
 
@@ -1132,7 +1132,7 @@ SQLite rollback and MariaDB interrupted copy/atomic rename.
 Legacy outbox migration tests must restore 059 after reconstructing 045/050/051;
 otherwise the shared MariaDB schema no longer matches `_migrations`. See
 [hub watchdog acceptance](multi-region/M3_HUB_WATCHDOG_ACCEPTANCE.md) for the full
-gate and remaining config/runtime/provider requirements. Storage tests do not
+gate and its checkpoint-specific config/runtime/provider boundaries. Storage tests do not
 constitute both-side watchdog process acceptance.
 
 ### M3 independent incoming health
@@ -1182,7 +1182,7 @@ validation: certificate-only details must not be accepted on credential commands
 This is a storage foundation; passing it does not prove live TLS switching,
 bootstrap-expiry recovery or hub certificate rotation. See
 [certificate storage acceptance](multi-region/M3_CERTIFICATE_STORAGE_ACCEPTANCE.md)
-and [the remaining contract](multi-region/M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md).
+and [subsequent acceptance](multi-region/M3_HUB_CERTIFICATE_ACCEPTANCE.md).
 
 ## M3 hub credential rotation
 

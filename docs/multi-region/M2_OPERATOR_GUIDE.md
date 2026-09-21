@@ -8,9 +8,10 @@ commits retained availability observations, incident transitions and delivery
 outcomes to the hub. M3 also implements bounded retention/gaps, current-state
 recovery, historical recomputation and bidirectional connection-watchdog paging.
 Durable regional ACK commands are now available through the local admin CLI.
-Operator credential/certificate rotation, explicit stream-reset recovery and the final
-fifteen-minute partition acceptance remain unfinished. Fleet UI is
-outside this engineering runtime; consult `IMPLEMENTATION_STATUS.md` for scope.
+Operator credential/certificate rotation, explicit stream-reset recovery and the
+actual fifteen-minute partition are accepted. Fleet UI and broader checker/auxiliary
+compatibility remain outside this runtime; consult [current status](IMPLEMENTATION_STATUS.md).
+For recovery commands and preservation requirements, see [explicit stream reset](M3_HUB_RESET_ACCEPTANCE.md).
 
 ## Initialize the probe
 
@@ -103,8 +104,8 @@ The edge currently supports HTTP/TCP/DNS and direct delivery. Unsupported monito
 types, certificate paging and active escalation fail publication visibly; the
 last accepted edge configuration continues until a valid replacement arrives.
 Remote ACK links are forced false without changing the saved local preference.
-Watchdogs remain disabled. Removing an assignment publishes an empty replacement
-when it was the probe's last assignment.
+Watchdogs are opt-in through the settings below. Removing an assignment publishes
+an empty replacement when it was the probe's last assignment.
 
 `config.applied` is emitted after edge commit. The hub validates its exact revision,
 hash and assignment count and commits the receipt under the current connector
@@ -133,14 +134,18 @@ On reconnect the edge replays exact retained event bytes from its local durable
 ACK cursor. Only a validated ACK for the sent batch atomically advances that cursor
 and prunes those telemetry rows. Welcome and health never delete evidence. Lost
 ACKs cause duplicate replay, which reads durable hub receipts without rewriting
-history or triggering provider sends. A stale generation cannot prune the outbox. Storage failures close the session
-for reconnect; hub `telemetry.retry` emission remains unfinished.
+history or triggering provider sends. A stale generation cannot prune the outbox.
+Retryable ingestion failures use `telemetry.retry` with durable progress; authority
+failures close the session. Neither path claims an uncommitted ACK.
 
-Telemetry and delivery queues retain their existing 64 MiB bounds. Delivery
-history is not pruned by telemetry ACKs. A provider attempt reserves outcome space
-before external I/O. At capacity, recording fails visibly and scheduler readiness
-becomes unhealthy; evidence is not silently dropped. Configurable retention,
-explicit gaps and delivery-history cleanup remain necessary for long-running fleets.
+The runtime defaults to 512 MiB of telemetry and 168 hours of retention, configured
+with `PROBE_TELEMETRY_MAX_BYTES` and `PROBE_TELEMETRY_RETENTION_HOURS`. Eviction records
+explicit durable gaps. Delivery reservation and metadata have separate 64 MiB
+budgets. A provider attempt reserves outcome space before external I/O. Periodic
+cleanup retires eligible terminal history and old unreferenced metadata while
+preserving unresolved/pending work and generation tombstones. At admission limits,
+persistence pressure is visible rather than reported as success. Physical page/WAL
+admission also bounds growth; see [storage bounds](M3_STORAGE_BOUNDS_ACCEPTANCE.md).
 
 The hub authorizes exact retained configuration and assignment membership at the
 observation time, within a seven-day history horizon. Accepted old-generation
@@ -307,8 +312,8 @@ Use `scripts/probe_runtime_smoke.py --verify-replay --verify-credential-rotation
 with its required binaries, fresh private output directory and disposable MariaDB
 configuration to exercise queued rotation, both-side restart and subsequent
 telemetry. See [hub acceptance](M3_HUB_CREDENTIAL_ACCEPTANCE.md) and
-[the retrospective](M3_HUB_CREDENTIAL_RETROSPECTIVE.md). Certificate rotation is described below. Explicit stream-reset recovery remains
-an unfinished M3 requirement.
+[the retrospective](../postmortems/2026-09-21-m3-integration.md#credentials-and-certificates). Certificate rotation is described below; the implemented
+[explicit reset workflow](M3_HUB_RESET_ACCEPTANCE.md) covers stream recovery.
 
 
 ## Certificate rotation
@@ -347,4 +352,4 @@ acceptance, because both respect the exclusion window:
 `scripts/probe_runtime_smoke.py --verify-replay --verify-certificate-rotation`,
 with all required binary paths and a fresh disposable MariaDB/output directory.
 See [acceptance](M3_HUB_CERTIFICATE_ACCEPTANCE.md) and
-[retrospective](M3_HUB_CERTIFICATE_RETROSPECTIVE.md).
+[retrospective](../postmortems/2026-09-21-m3-integration.md#credentials-and-certificates).

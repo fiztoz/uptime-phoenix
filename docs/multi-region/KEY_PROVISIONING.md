@@ -2,8 +2,9 @@
 
 The foundation can now create and load the installation key used to protect
 prepared configuration snapshots. This tool does not enable probes, activate
-snapshots, rotate keys, or connect to a database. The ordinary application still
-boots without a probe key. Runtime wiring and atomic activation remain open.
+snapshots, rotate keys, or connect to a database. The ordinary local-only application still
+boots without a probe key. Optional hub/worker startup now verifies the installation
+and retained snapshots and activates configuration; see [the operator guide](M2_OPERATOR_GUIDE.md).
 
 ## Create once
 
@@ -19,8 +20,8 @@ mkdir -m 700 /persistent/private-probe-key
 ```
 
 Both commands also accept `PROBE_SECRET_KEY_FILE`; `--file` overrides it. This
-environment variable is currently consumed by this tool only. It is not yet a
-hub/worker startup option. The tool is built explicitly; release images and
+environment variable also configures hub/worker startup; `PROBES_ENABLED=true`
+requires it. The tool is built explicitly; release images and
 archives do not yet package it.
 
 `init` obtains 32 random bytes from Go's cryptographic random source. It writes a
@@ -28,7 +29,7 @@ new `0600` staging file in the same directory, syncs and closes it, publishes th
 complete file with an atomic hard link that refuses replacement, removes the
 staging link, and syncs the directory. Success is reported only after those steps
 complete. Use a persistent filesystem supporting hard links and file/directory
-sync. Finish provisioning before starting any future snapshot writer.
+sync. Finish provisioning before starting any snapshot writer.
 
 Existing destinations always cause a nonzero exit, including an empty file,
 malformed key, directory, or dangling symlink. Concurrent creators produce one
@@ -64,15 +65,15 @@ still holds the cryptographic key schedule needed to decrypt snapshots.
 
 `check` proves only that the file can construct the protector. It cannot establish
 entropy, match a key to a database, or establish execution readiness. A different
-valid 32-byte key passes `check` but fails snapshot authentication. The future
-startup path must authenticate retained snapshots before using this key for new
+valid 32-byte key passes `check` but fails snapshot authentication. The
+startup path authenticates retained snapshots before using this key for new
 configuration. Loading never creates a missing key or falls back to a different
 key after an error.
 
 ## Backup, interruption, and recovery
 
 Back up the exact binary key separately from the encrypted database, with access
-controls at least as restrictive as the original. All future processes sharing
+controls at least as restrictive as the original. All processes sharing
 one installation's encrypted snapshots must use the same key. Keep the key for
 as long as any retained database backup needs it. Verify recovery by restoring
 the key and database to an isolated environment and authenticating a retained

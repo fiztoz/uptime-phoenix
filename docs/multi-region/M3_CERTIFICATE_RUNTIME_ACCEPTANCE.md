@@ -1,5 +1,9 @@
 # M3 certificate source TLS runtime acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Baseline: `18a1e82`. This increment connects protected source certificate storage
 to the actual TLS server, session admission and command execution. It advertises
 `command.certificate_rotation.v1`. Hub certificate issuance, candidate pin selection
@@ -69,7 +73,7 @@ The final focused source run passed 29 named cases/subtests, with zero failures 
 skips. Controlled removal of the cache fix produced 32 durable reads instead of
 one; removing strict codec parsing made all three command-codec duplicate tests
 fail. Earlier deadline and historical-receipt regressions also failed before their
-respective fixes. See [the retrospective](M3_CERTIFICATE_RUNTIME_RETROSPECTIVE.md).
+respective fixes. See [the retrospective](../postmortems/2026-09-21-m3-integration.md#credentials-and-certificates).
 
 The separate compiled process regression passed all 29 stages: two hub workers,
 real edge runtime, enrollment, configuration refresh, offline DOWN/UP and provider
@@ -82,7 +86,7 @@ Acceptance criteria still unverified: protected hub certificate issuance, exact
 receipt-dependent activation, candidate pin selection and promotion with credential
 resealing, both-side certificate process recovery after overlap expiry, explicit
 stream reset, remaining pressure/bounded flush and the full real fifteen-minute
-partition scenario. Continue [the certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md).
+partition scenario. Subsequent work is accepted in [the later record](M3_HUB_CERTIFICATE_ACCEPTANCE.md).
 
 ## Review
 

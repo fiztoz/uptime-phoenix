@@ -1,5 +1,9 @@
 # M3 increment: ordered telemetry replay
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 2026-09-20, branch `codex/multi-region-probe-plan`, baseline `d3eea61`, implementation commit `f1095f8`.
 This increment connects the existing autonomous availability runtime to durable
 hub history and mirrors. M3 as a whole remains in progress. Nothing is pushed
@@ -100,8 +104,8 @@ container for independent read-only mirror/cursor queries.
 
 ## Review disposition and remaining work
 
-The [work contract](M3_REPLAY_WORK_CONTRACT.md) and
-[retrospective](M3_REPLAY_RETROSPECTIVE.md) record supervision and concrete fixes.
+The [consolidated retrospective](../postmortems/2026-09-21-m3-integration.md#replay-and-history)
+records supervision and concrete fixes.
 The initial broad Antigravity run was interrupted; neither its handoff nor its
 `GOAL_COMPLETE` marker was treated as acceptance. All source ownership returned
 to Codex before integration. No delayed agent source writer remains authorized.

@@ -1,5 +1,9 @@
 # M2 integrator acceptance — 2026-09-20
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 **Result: M2 engineering acceptance passed.** M0 contract regressions and M1 local
 parity corrections also passed. The validated changes after `a2551f8` were committed
 as `18762e7` (M1 corrections) and `32c26a8` (M2 runtime) on
@@ -66,15 +70,16 @@ as successful evidence.
 Antigravity, on Gemini 3.8 Flash High, implemented bounded pinned-client, identity,
 session and edge-delivery persistence slices. Codex specified disjoint ownership,
 reviewed source, reproduced defects, integrated the actual runtime and independently
-verified all gates above. See the slice review files and
+verified all gates above. See the consolidated review lessons and
 [the retrospective](../postmortems/2026-09-20-m1-integration-followup.md).
 
 The quota expired during the runtime assignment. Codex explicitly took over those
 files and sent a replacement read-only audit contract after reset; no model switch
 or overages were used. Antigravity read that contract, source and retrospective and
-completed the additional [read-only audit](M2_RUNTIME_SESSION_REVIEW.md). Codex
-checked its concerns against source and independently reran focused race tests;
-see [the integrator disposition](M2_RUNTIME_SESSION_INTEGRATOR_REVIEW.md).
+completed the additional read-only audit. Codex checked its concerns against source
+and independently reran focused race tests; the
+[consolidated review disposition](../postmortems/2026-09-21-m3-integration.md#review-practice-and-follow-up)
+preserves the result after removing the superseded draft reports.
 The earlier one-time log-read blocker is resolved. The audit did not replace
 the independent integration acceptance above.
 

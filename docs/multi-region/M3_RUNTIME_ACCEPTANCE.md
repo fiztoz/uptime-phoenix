@@ -1,5 +1,9 @@
 # M3 connector ownership and watchdog timing acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 This increment follows `97a0df7` on `codex/multi-region-probe-plan`. It retains
 one hub worker across reconnect attempts and adds the pure watchdog timing
 contract. It does **not** enable watchdog incidents or complete M3.
@@ -92,8 +96,8 @@ increment with a uniform worker version: old binaries predate the parent lease
 and cannot honor its fence. Downgrade refuses to discard any persisted runtime
 epoch, including a released one. No deployment or push was performed.
 
-Continue [the watchdog work contract](M3_WATCHDOG_WORK_CONTRACT.md): source
+Subsequent work is accepted in [the watchdog record](M3_WATCHDOG_ACCEPTANCE.md): source
 checkpoint/incident/delivery transactions, complete settings, application-health
-callbacks, side-specific ownership and delivery reconciliation. Then complete
-commands/offline ACK, rotations/reset, cleanup, bounded flushing, the real
-15-minute partition and final product acceptance. M3 remains incomplete.
+callbacks, side-specific ownership and delivery reconciliation. Commands/offline
+ACK, rotations/reset, cleanup, bounded flushing and the real 15-minute partition
+are accepted in [the final M3 record](M3_COMPLETION_ACCEPTANCE.md).

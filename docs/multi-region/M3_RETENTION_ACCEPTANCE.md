@@ -1,5 +1,9 @@
 # M3 retention and replay recovery increment
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 > Verification correction: matrix commands later found to use
 > `MARIADB_TEST_DSN` cannot establish MariaDB acceptance because the suite reads
 > `TEST_MARIADB_DSN`. The complete immutable `a40f80b` repository matrix has now

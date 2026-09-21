@@ -1,11 +1,11 @@
 # Multi-region probes — implementation plan
 
-Status: M0 and M1 are in progress; later milestones are planned. See [implementation status](IMPLEMENTATION_STATUS.md) for the tested subset and remaining work. Checkboxes describe whole work items, not partial progress. Application baseline, decisions, and reading order are in [README.md](README.md). Implement [ARCHITECTURE.md](ARCHITECTURE.md) and [PROTOCOL.md](PROTOCOL.md) as one contract.
-
-The 2026-09-20 review withdrew the completion claim in `8d83cf6`. Default runtime
-cutover is disabled pending startup/refresh integration and full local notification
-parity. See [the corrected status](IMPLEMENTATION_STATUS.md#review-correction-local-runtime-and-m1-status--2026-09-20).
-
+Status: M0–M3 engineering acceptance is complete for the supported HTTP/TCP/DNS
+runtime. M4–M6 remain required for the broader V1 release. See
+[current status](IMPLEMENTATION_STATUS.md) and [M3 acceptance](M3_COMPLETION_ACCEPTANCE.md).
+Implement [ARCHITECTURE.md](ARCHITECTURE.md) and [PROTOCOL.md](PROTOCOL.md) as one contract.
+The original M1 completion claim was withdrawn and later corrected; its mechanism
+and verification remain in [the M1 retrospective](../postmortems/2026-09-20-m1-integration-followup.md).
 
 ## 1. Outcome and scope
 
@@ -283,16 +283,9 @@ Stop rollout on lost acknowledged data, cross-probe state interference, incorrec
 
 ## 17. Start instruction for the next agent
 
-Start with [CONTINUATION_GUIDE.md](CONTINUATION_GUIDE.md) and the newest entries in
-[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) on the shared branch. The guide
-provides a bounded first assignment, verified code references, transaction hazards,
-and acceptance tests. At baseline `4cc76f0`, the next step is protected-config
-bootstrap with trusted installation identity and key verification; source fencing,
-atomic local activation, and execution/delivery integration follow in that order.
-
-Read the relevant design documents and project instructions, confirm HEAD and the
-next migration number, and extend the existing foundation without enabling remote
-execution prematurely. Do not recreate completed types, fixtures, key provisioning,
-or migrations. Keep each milestone reviewable and commit its contract, code, tests
-and status update together. SSH provisioning and the public push gateway remain
-after the V1 monitoring/replay path passes M6.
+Follow [CONTINUATION_GUIDE.md](CONTINUATION_GUIDE.md) and
+[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md), verifying HEAD before choosing
+a bounded M4/M5 requirement. Preserve completed M0–M3 behavior and current local
+defaults. Freeze exact wire/API contracts and file ownership before parallel work;
+the integrator verifies all reported effects and commits coherent changes.
+SSH provisioning and the public push gateway remain after the M6 V1 gate.

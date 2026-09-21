@@ -1,6 +1,6 @@
 # Multi-region probes — architecture
 
-Status: proposed. Baseline and precedence are defined in [the handoff index](README.md). The concrete wire contract is in [PROTOCOL.md](PROTOCOL.md), and delivery gates are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+Status: design contract spanning implemented M0–M3 and later M4–M9 work. [Current status](IMPLEMENTATION_STATUS.md) defines accepted scope; baseline and precedence are in [the index](README.md). The concrete wire contract is in [PROTOCOL.md](PROTOCOL.md), and delivery gates are in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
 ## 1. Requirements and guarantees
 
@@ -303,9 +303,8 @@ a durable activation receipt promotes the pin and reseals the same credential
 under that pin in one fenced transaction. Candidate network trust is separate
 from credential authenticated metadata until promotion. Fallback is limited to
 a typed pre-HTTP pin mismatch and a freshly checked original overlap deadline.
-See [hub certificate acceptance](M3_HUB_CERTIFICATE_ACCEPTANCE.md),
-[source runtime acceptance](M3_CERTIFICATE_RUNTIME_ACCEPTANCE.md) and
-[the certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md).
+See [hub certificate acceptance](M3_HUB_CERTIFICATE_ACCEPTANCE.md) and
+[source runtime acceptance](M3_CERTIFICATE_RUNTIME_ACCEPTANCE.md).
 
 Edge migration 009 implements the source storage half of explicit stream reset.
 A durable authenticated reservation blocks normal restart before a bounded SQLite
@@ -319,12 +318,11 @@ with an explicit UNKNOWN marker, and cancels old pending commands locally withou
 claiming remote application. Only authenticated new-stream health confirms the
 peer. Operator recovery uses `prepare-reset`, stopped-source `reset-stream`,
 `activate-reset` and `reset-status`; no fleet HTTP/UI reset is introduced.
-See [source checkpoint](M3_SOURCE_RESET_ACCEPTANCE.md),
-[hub/CLI acceptance](M3_HUB_RESET_ACCEPTANCE.md) and
-[the contract](M3_STREAM_RESET_WORK_CONTRACT.md). Bounded shutdown is implemented;
+See [source checkpoint](M3_SOURCE_RESET_ACCEPTANCE.md) and
+[hub/CLI acceptance](M3_HUB_RESET_ACCEPTANCE.md). Bounded shutdown is implemented;
 consult [its acceptance ledger](M3_SHUTDOWN_ACCEPTANCE.md) for final gate status.
-Source metadata cleanup and the broader fifteen-minute M3 scenario remain
-unfinished. Watchdog ACK remains unsupported
+Source metadata cleanup and the actual fifteen-minute partition are accepted in
+[the final M3 record](M3_COMPLETION_ACCEPTANCE.md). Watchdog ACK remains unsupported
 by the positive-assignment-generation regional command target.
 
 Send control health every 15 seconds. A link is suspect after 45 seconds without valid application health and disconnected after 90 seconds. Require 30 seconds of continuous valid health before a watchdog recovery notification. These are defaults, not sub-second promises.
@@ -526,9 +524,10 @@ exactly 32 raw bytes from a regular owner/root file with mode 0400 or 0600 and a
 trusted parent. Relative links confined to that parent support projected mounts.
 Loading never generates or replaces a key. The tool's `check` command validates
 the file only, not database authentication or readiness. See
-[key provisioning and recovery](KEY_PROVISIONING.md). Runtime wiring, retained
-snapshot authentication at startup and rotation remain open. No new dependency
-or default boot requirement is introduced.
+[key provisioning and recovery](KEY_PROVISIONING.md). Startup key verification,
+retained-snapshot validation and activation are wired into the optional runtime.
+Installation-key replacement/re-encryption is not credential or TLS rotation and
+remains unsupported. No new dependency or default boot requirement is introduced.
 
 Preparation serializes on the probe registration and compares the latest retained
 revision before insertion. A higher revision requires the caller's expected
@@ -683,28 +682,28 @@ cancelable socket and installs its deadline before TLS/greeting; no transport
 retry can extend the durable dispatcher's deadline. External acceptance before a
 lost local outcome remains a documented possible duplicate window. See
 [shutdown acceptance](M3_SHUTDOWN_ACCEPTANCE.md) and
-[remaining metadata bounds](M3_STORAGE_BOUNDS_WORK_CONTRACT.md).
+[storage bounds](M3_STORAGE_BOUNDS_ACCEPTANCE.md).
 
-### 11.1 Proposed runtime configuration
+### 11.1 Runtime configuration and proposed extensions
 
-These names are planned runtime configuration. `PROBE_SECRET_KEY_FILE` is already
-parsed through `caarlos0/env` by the standalone key tool; hub/worker startup does
-not consume it yet. Implement runtime settings through `caarlos0/env` and validate
-them before opening network listeners.
+Hub/worker startup consumes `PROBE_SECRET_KEY_FILE` and requires it when
+`PROBES_ENABLED=true`. Settings marked proposed below are design targets, not
+accepted environment variables. Implement runtime settings through `caarlos0/env`
+and validate them before opening network listeners.
 
 | Setting | Default / requirement |
 |---|---|
-| `PROBES_ENABLED` | `false` on hub; enables fleet/connector features only after migration compatibility gate |
+| `PROBES_ENABLED` | `false` on hub; enables compatible connector workers, not an implemented fleet UI |
 | Dedicated `probe run` | Implemented M2 entry point; never invokes hub DB/auth bootstrap; `MODE=probe` is not dispatched by the hub executable |
 | `PROBE_LISTEN_ADDR` | `:8443` in probe mode; configurable port/bind address |
 | `PROBE_DATA_DIR` | `/var/lib/uptime-phoenix/probe`; persistent local filesystem, exclusive owner, never a shared network WAL directory |
-| `PROBE_SECRET_KEY_FILE` | Implemented for standalone `phoenix-probe-key init/check`; planned runtime input for the protected 32-byte installation key |
-| `PROBE_TLS_CERT_FILE`, `PROBE_TLS_KEY_FILE` | Default inside persistent probe data directory; explicit existing files allowed |
+| `PROBE_SECRET_KEY_FILE` | Implemented installation-key input for hub/worker and key tool; the standalone edge has its own protected local identity |
+| `PROBE_TLS_CERT_FILE`, `PROBE_TLS_KEY_FILE` | Proposed overrides; current identity TLS material lives in the persistent probe data directory |
 | `PROBE_TELEMETRY_MAX_BYTES` | `536870912` bytes |
 | `PROBE_TELEMETRY_RETENTION_HOURS` | `168` hours |
-| `PROBE_DELIVERY_MAX_BYTES` | `67108864` bytes |
+| `PROBE_DELIVERY_MAX_BYTES` | Proposed override; current delivery budget is fixed at `67108864` bytes |
 | `PROBE_ENDPOINT_POLICY_FILE` | Optional stricter allow-list policy; built-in metadata/link-local protection always applies to management connections |
-| `PROBE_RESOURCE_BINDINGS_FILE` | Optional operator-supplied local JSON mapping stable binding keys to Docker socket/API resources; accepted kinds and safe path/endpoint validation are fixed by the adapter |
+| `PROBE_RESOURCE_BINDINGS_FILE` | Proposed for later checker compatibility: local JSON mapping stable binding keys to Docker socket/API resources, with adapter-defined kinds and safe endpoint validation |
 
 Watchdog timing and assignment freshness derive from the versioned accepted configuration so the hub and edge agree. Expose advanced timeout overrides only if both sides validate compatible bounds. Container deployment mounts the data directory and key material persistently and read-only where appropriate; do not bake tokens into image layers. Existing single-pod Helm values remain unchanged until the feature is explicitly enabled.
 

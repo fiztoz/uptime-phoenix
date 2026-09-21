@@ -1,9 +1,13 @@
 # M3 certificate storage foundation acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Baseline: `a525ca0`. This increment supplies local certificate storage and
 cryptography. It does not advertise certificate execution, change the live TLS
 certificate, or enable operator certificate issuance. Those integrations follow
-the [certificate contract](M3_CERTIFICATE_ROTATION_WORK_CONTRACT.md).
+the [subsequent acceptance](M3_HUB_CERTIFICATE_ACCEPTANCE.md).
 
 ## Implemented effects
 
@@ -65,7 +69,7 @@ reproduction subsequently exposed a real nil-leaf panic; the fixed direct-compil
 run passed. The first added identity regression failed on its fixture directory's
 permissions, which were corrected. The initial full run is superseded because
 source changed for the compatibility fix. See
-[the retrospective](M3_CERTIFICATE_STORAGE_RETROSPECTIVE.md) for that failure ledger.
+[the retrospective](../postmortems/2026-09-21-m3-integration.md#storage-and-shutdown) for that failure ledger.
 
 Acceptance criteria still unverified: live TLS switching and stale-handshake
 admission, bootstrap-expiry recovery, hub certificate issuance/promotion/recovery,

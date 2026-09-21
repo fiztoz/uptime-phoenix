@@ -130,10 +130,10 @@ issues (`/private/tmp/phoenix-m2-final-lint.log`).
 ## Lessons and next actions
 
 Codex owns integration and independently runs production bootstrap acceptance.
-Antigravity completed its assigned M2 slices and the final audit. The slice review
-files record the required corrections and independent verification. Current M3
-ownership is defined in `docs/multi-region/M3_CONFIG_SYNC_WORK_CONTRACT.md`;
-Codex owns implementation, and any delayed Antigravity response is read-only.
+Antigravity completed its assigned M2 slices and the final audit. The retained acceptance and
+consolidated [M3 retrospective](2026-09-21-m3-integration.md) record the corrections
+and independent verification. M3 is now complete; old delegation assignments are
+inactive. Future ownership must be assigned explicitly.
 
 For every completion claim, identify the actual entry point, delivery owner,
 transaction boundary and cold-restart behavior. A green helper test is supporting
@@ -172,7 +172,7 @@ when needed; do not repeatedly dispatch an unchanged blocked task.
 
 Antigravity completed its final M2 audit. Codex independently reran its focused
 runtime/session/connector coverage and traced each concern; see
-`docs/multi-region/M2_RUNTIME_SESSION_INTEGRATOR_REVIEW.md`. A suspected issue
+`docs/postmortems/2026-09-21-m3-integration.md`. A suspected issue
 must be checked against the actual cancellation and authority boundary before
 changing code. A send returning an uncertain result is not evidence that the
 writer ignores cancellation; application-level idempotency resolves that boundary.

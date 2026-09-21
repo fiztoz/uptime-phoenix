@@ -1,5 +1,9 @@
 # M3 health ingress verification and retrospective
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 ## Summary
 
 The runtime reader used to execute replay, current-state and configuration callbacks

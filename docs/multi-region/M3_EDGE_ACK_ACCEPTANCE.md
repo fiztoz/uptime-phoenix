@@ -1,9 +1,13 @@
 # M3 source ACK storage and lifecycle acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 This increment adds durable incident-specific acknowledgement at the edge storage
 boundary. It does **not** enable the operator-to-edge command workflow or complete
 M3. The next integration work is documented in
-[M3_COMMAND_WORK_CONTRACT.md](M3_COMMAND_WORK_CONTRACT.md).
+[subsequent acceptance](M3_COMMAND_ACCEPTANCE.md).
 
 ## Implemented behavior
 

@@ -1,5 +1,9 @@
 # M3 edge watchdog source persistence acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 This increment follows runtime ownership commit `1396ebf`. It adds the edge
 source transaction needed by a connection watchdog. It does not enable a
 watchdog, and M3 remains incomplete.
@@ -57,7 +61,7 @@ Antigravity performed a bounded no-tools audit in conversation
 suggestions were added and verified by Codex. Its proposed data/identity concerns
 were not reproducible defects under the actual transaction and foreign-key
 invariants. Codex independently reproduced and fixed two lifecycle validation
-bugs. See [the retrospective](M3_WATCHDOG_SOURCE_RETROSPECTIVE.md).
+bugs. See [the retrospective](../postmortems/2026-09-21-m3-integration.md#watchdogs-and-clocks).
 
 The enabled-watchdog decoder guard remains. Source storage is not a running
 watchdog: hub source ownership/storage, mirrored watchdog authorization, complete

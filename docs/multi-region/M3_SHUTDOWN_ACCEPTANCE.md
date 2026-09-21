@@ -1,5 +1,9 @@
 # M3 bounded shutdown and pressure diagnostics
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Date: 2026-09-21. Baseline `98f136a`. This shutdown checkpoint is accepted with
 the evidence below. It does not complete M3. Codex owns code and verification;
 Antigravity supplied advisory review only. No push or deployment.
@@ -82,4 +86,5 @@ Acceptance criteria still unverified: metadata/history bounds and cleanup, compl
 Remaining whole-M3 requirements include source metadata/history storage bounds,
 the actual 900-second partition with DOWN/UP, restart, current state ahead of
 backlog and original-incident ACK, followed by the full requirement audit and
-verification of any subsequent changes. See [work contract](M3_SHUTDOWN_WORK_CONTRACT.md).
+verification of any subsequent changes. The [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md)
+records the completed storage and partition gates.

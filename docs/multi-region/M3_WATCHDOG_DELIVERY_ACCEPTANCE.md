@@ -1,5 +1,9 @@
 # Watchdog source delivery verification
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Base commit: `32dc35e`. This increment implements source delivery reconciliation,
 probe notification context and both composition roots. It does not enable watchdog
 configuration or declare M3 complete. Mirror authorization and enabled both-side
@@ -35,7 +39,7 @@ priority have direct payload assertions.
 Hub watchdog claims, reclaim eligibility and finish-time lease validation now use
 database time, matching send authorization. Outcome time remains source history.
 The original real-MariaDB mixed-clock failure and provider defects are documented
-in [the retrospective](M3_WATCHDOG_DELIVERY_RETROSPECTIVE.md).
+in [the retrospective](../postmortems/2026-09-21-m3-integration.md#watchdogs-and-clocks).
 
 ## Evidence
 

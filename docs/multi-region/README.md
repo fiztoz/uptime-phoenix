@@ -1,6 +1,6 @@
-# Multi-region probes — implementation handoff
+# Multi-region probes
 
-Status: implementation started with M0 contracts and a bounded M1 persistence/health foundation. No distributed-probe runtime is enabled. See [implementation status](IMPLEMENTATION_STATUS.md) for completed work and the next steps.
+Status: M0–M3 engineering acceptance is complete for the HTTP/TCP/DNS remote runtime. M4 compatibility, M5 fleet UI and M6 release validation remain. See [current status](IMPLEMENTATION_STATUS.md) and [M3 acceptance](M3_COMPLETION_ACCEPTANCE.md). No production rollout is implied.
 
 Prepared: 2026-09-13. Application baseline: `main` at `5183093c5c218675bab89fe9d6c7056de2d711eb`. Research baseline: Gemini's `research_multi_region_deployment` at `f4ef4a4677120264cb513158df813479ee5dd644`.
 
@@ -67,10 +67,9 @@ The default single-pod installation must continue to work without probes, Redis,
 | D28 | Local snapshot construction reads one committed database view, preserves exact maintenance links, and filters to the selected dependency graph | MariaDB uses explicit repeatable-read isolation; SQLite keeps one read transaction. Unlinked maintenance suppresses nothing, matching the live service. Prepared source content is not a current-configuration fence or an activation receipt |
 | D29 | Provision installation keys explicitly with atomic no-replace publication; loading never creates or repairs a key | Missing keys must not silently orphan retained ciphertext. File-only validation grants no database readiness or activation authority; runtime wiring must authenticate retained snapshots |
 
-## Handoff state
+## Current continuation
 
-- Implementation is in progress. M0 and M1 remain incomplete until all acceptance criteria pass; the status document identifies the executable subset.
-- The branch is intended to be checked out in the ordinary repository directory, not a new linked worktree.
-- Start with the next unfinished step in the continuation guide, checking newer status entries before implementing it. At the guide's baseline, this is protected-config bootstrap with trusted installation identity and key verification, followed by source fencing and local activation. Do not copy the research's Go snippets or SQL directly into production files.
-- Commit each coherent implementation milestone with its tests. Keep defaults compatible until the explicit activation gate passes.
-- Multiple agents may implement disjoint milestones after shared contracts land; the ownership table assigns every shared integration surface to one integrator.
+Use [the continuation guide](CONTINUATION_GUIDE.md) for the current implementation
+map and next milestone boundaries. The original research and decision log remain
+design context; old agent assignments are not active. [Documentation maintenance](DOCUMENTATION.md)
+explains retained acceptance evidence, the local archive and deleted drafts.

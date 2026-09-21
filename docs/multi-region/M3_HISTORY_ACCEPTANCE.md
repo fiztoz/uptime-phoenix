@@ -1,5 +1,9 @@
 # M3 historical replay and coverage acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Status: historical recomputation increment accepted after independent integration.
 Branch: `codex/multi-region-probe-plan`, following `a1adb01`.
 Codex owns implementation and validation. Nothing is pushed or deployed.
@@ -106,5 +110,5 @@ disk cleanup remain separate M3 work.
 
 Both watchdogs, durable commands and offline ACK, rotations/reset, cleanup, bounded
 shutdown flush and the real 15-minute partition acceptance remain open. M3 is not
-complete. See [retrospective](M3_HISTORY_RETROSPECTIVE.md) for verified failures,
+complete. See [retrospective](../postmortems/2026-09-21-m3-integration.md#replay-and-history) for verified failures,
 Antigravity's contribution and the integration lessons.

@@ -1,5 +1,9 @@
 # M3 durable regional ACK command acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 This increment connects the source ACK transaction from `7fee89e` to protected
 hub persistence, the operator CLI, the authenticated transport and authorized
 incident replay. It implements `alert.ack`; it does not complete rotations,
@@ -83,7 +87,7 @@ Passed / failed / skipped: focused storage rerun 23 named passes; focused replay
 rerun 25 named passes, zero skips/failures. These counts include suite parents and
 subtests. The actual TLS regression passed under the race detector. Initial
 migration, trigger-cleanup and invalid-handshake-fixture failures are documented
-with their fixes in [the retrospective](M3_COMMAND_RETROSPECTIVE.md).
+with their fixes in [the retrospective](../postmortems/2026-09-21-m3-integration.md#migrations-and-fixtures).
 
 The compiled-process run passed all 35 stages. Its command link partition lasted
 15.007 seconds. The queued ACK stayed pending while offline, survived both hub

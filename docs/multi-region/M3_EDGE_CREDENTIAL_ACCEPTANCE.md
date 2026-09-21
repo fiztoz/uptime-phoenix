@@ -1,5 +1,9 @@
 # M3 source credential rotation acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Baseline: `2a4e198`. This increment implements the source half of credential
 rotation. Hub rotation issuance, candidate selection and automatic recovery remain
 open; M3 is incomplete. No push or deployment is part of this increment.
@@ -58,13 +62,13 @@ details. The wire/source capability does not supply an operator workflow.
 The transport tests use a small client harness and a source-result fault wrapper;
 they do not use a durable hub rotation issuer. Existing ACK transport recovery was
 rerun alongside them. The independently reproduced clock defect and Antigravity
-review disposition are recorded in [the retrospective](M3_EDGE_CREDENTIAL_RETROSPECTIVE.md).
+review disposition are recorded in [the retrospective](../postmortems/2026-09-21-m3-integration.md#credentials-and-certificates).
 
 ## Full gate evidence
 
 Final results are recorded in [the evidence manifest](M3_EDGE_CREDENTIAL_EVIDENCE.json).
 Only source hashes stable throughout the gate may be accepted. The first full
-run exposed [the older migration-rehearsal defect](M3_MIGRATION_REHEARSAL_RETROSPECTIVE.md).
+run exposed [the older migration-rehearsal defect](../postmortems/2026-09-21-m3-integration.md#migrations-and-fixtures).
 Its corrective twice-run SQLite/MariaDB matrix passed; the final gate uses a fresh
 disposable schema and includes the corrected rehearsal.
 

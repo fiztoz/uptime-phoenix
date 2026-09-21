@@ -1,5 +1,9 @@
 # M3 increment: automatic configuration synchronization
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 2026-09-20, configuration-sync commit `311e50a` on `codex/multi-region-probe-plan`.
 **Result: configuration-sync increment passed independent acceptance.**
 This is the first M3 increment, not completion of telemetry replay or the milestone.
@@ -85,7 +89,7 @@ verify the intermediate commit boundaries; they do not replace the full gate.
 ## Ownership, review and remaining work
 
 Antigravity's completed M2 audit was checked independently; see
-[the disposition](M2_RUNTIME_SESSION_INTEGRATOR_REVIEW.md). Native computer control
+[the disposition](../postmortems/2026-09-21-m3-integration.md#review-practice-and-follow-up). Native computer control
 could not deliver a new M3 assignment. Codex updated the ownership contract before
 taking over all implementation files. No M3 implementation is attributed to
 Antigravity. A delayed response may edit only its separate review document.

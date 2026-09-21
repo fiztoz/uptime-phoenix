@@ -1,5 +1,9 @@
 # Enabled connection watchdog acceptance
 
+> Historical checkpoint: implementation limits and remaining work below describe
+> that checkpoint. Use [current status](IMPLEMENTATION_STATUS.md) and
+> [final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) for today's scope.
+
 Base commit: `8e7b85b`. This increment completes watchdog mirror authorization and
 enables the already-integrated source timer and provider paths. Both hub and edge
 watchdogs now operate from saved settings and exact applied configurations. The
@@ -85,7 +89,7 @@ verify those nulls. Review confidence remains bounded by its supplied files.
 The coding lessons are to read the actual version contract, distinguish current
 send eligibility from historical mirror authorization, correlate operator actions,
 and preserve source ordering without manufacturing monitor context. See the
-[delivery retrospective](M3_WATCHDOG_DELIVERY_RETROSPECTIVE.md) for the separately
+[delivery retrospective](../postmortems/2026-09-21-m3-integration.md#watchdogs-and-clocks) for the separately
 reproduced lease-clock and provider defects fixed in the preceding commit.
 
 ## Final gate
@@ -122,6 +126,6 @@ Acceptance criteria still unverified: durable commands/offline incident ACK,
   real fifteen-minute partition; final whole-M3 frontend/process gate.
 ```
 
-Continue [the durable command contract](M3_COMMAND_WORK_CONTRACT.md), then the
-remaining [M3 completion requirements](M3_COMPLETION_WORK_CONTRACT.md). This is
-watchdog acceptance, not whole-milestone completion.
+Subsequent work is accepted in [the command record](M3_COMMAND_ACCEPTANCE.md) and
+[final M3 acceptance](M3_COMPLETION_ACCEPTANCE.md). This checkpoint records
+watchdog acceptance; the final record covers the whole milestone.
