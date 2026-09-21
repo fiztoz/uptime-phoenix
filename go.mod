@@ -20,7 +20,7 @@ require (
 	github.com/pquerna/otp v1.5.0
 	github.com/prometheus-community/pro-bing v0.9.1
 	github.com/prometheus/client_golang v1.24.1
-	github.com/rabbitmq/amqp091-go v1.14.0
+	github.com/rabbitmq/amqp091-go v1.15.0
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/tidwall/gjson v1.19.0
@@ -35,10 +35,10 @@ require (
 	golang.org/x/net v0.59.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/time v0.16.0
-	google.golang.org/grpc v1.83.2
+	google.golang.org/grpc v1.84.0
 	gopkg.in/mail.v2 v2.3.1
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.58.0
+	modernc.org/sqlite v1.59.0
 )
 
 require (
@@ -117,7 +117,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
-	modernc.org/libc v1.75.6 // indirect
+	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
