@@ -124,6 +124,33 @@ cmd/ ──▶ adapters/ ──▶ core/services/ ──▶ core/ports/ ──�
   expression illegal. MariaDB also **truncates** sub-second values rather than rounding, so ties are
   the only symptom — ordering determinism fixes it completely.
 
+### 9. Verify Contracts Before Writing Callers
+- Inspect the actual port interfaces, struct definitions, and request/response DTOs before writing callers, mocks, or tests.
+- Trace production call sites before declaring behavior incorrect. A method’s intended lifecycle matters as much as its implementation.
+
+### 10. Lease Authority Must Be Enforced in the Database
+- In-memory lease snapshots and queue priority do not prove current ownership or establish transaction dependencies.
+- Every lease-authorized write must atomically validate the applicable stored owner, epoch, and expiry within its transaction, using the fencing protocol defined for that operation.
+- Expiry rules are operation-specific: a matching release may remain valid after expiry, but it must never invalidate a replacement owner.
+- Dependent work must verify its prerequisites are committed; queue ordering alone is insufficient.
+- Where parent authority must cover existing child deadlines, renewal must preserve that invariant even when the clock moves backward.
+
+### 11. Test Production Lifecycles, Not Just Isolated Methods
+- Keep focused unit tests with mocked ports, and supplement them with integration tests through the relevant production entry points.
+- For affected distributed paths, cover worker-before-enrollment ordering, cold starts, reconnects, stale ownership, and concurrent readers/writers as applicable.
+- Assert externally meaningful effects and persisted state—not only return codes or intermediate mock calls.
+
+### 12. Verify Storage Semantics Against the Actual Schema and Engine
+- Extend Rules 6 and 8: timestamp comparisons must respect UTC, the persisted field’s precision, and the operation’s identity contract. Do not assume one precision across all tables or engines.
+- Normalize replay identity timestamps according to their documented storage contract; do not prescribe `.UnixMicro()` universally.
+- Changes involving locking, transaction isolation, fencing, or engine-specific SQL require real MariaDB verification as well as applicable SQLite tests. SQLite success does not establish InnoDB correctness.
+
+### 13. Report Verification Evidence, Not Assumptions
+- Distinguish tests authored, executed, passed, and skipped. Inspection is not execution.
+- Report the commands executed, engines exercised, and any unverified acceptance criteria.
+- A passing suite does not establish MariaDB coverage if its tests were skipped. Dedicated MariaDB acceptance gates must fail when required configuration is missing or expected coverage does not execute.
+- For committed multi-region and distributed verification workflows, see [docs/TESTING.md](docs/TESTING.md). Local agent skills may supplement that guide but are not required to use a fresh checkout.
+
 ## Minimal-Dependency Principle (Non-Negotiable)
 
 The **default deployment** must work with **zero external dependencies**:
