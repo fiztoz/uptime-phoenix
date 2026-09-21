@@ -196,7 +196,9 @@ func testStreamResetLifecycle(t *testing.T, f streamResetFixture) {
 	// New sequence one is independent of retained old sequence one.
 	r := f.replayFixture
 	r.session = newSession
-	r.at = time.Now().UTC().Truncate(time.Microsecond)
+	// The database clock authorizes live state. Host/VM clock skew must not turn
+	// this lifecycle test into the separately tested future-observation case.
+	r.at = complete.ConfirmedAt.UTC()
 	if out := r.ingest(t, r.batch(r.observation(1))); out.AcceptedCount != 1 || out.CommittedSeq != 1 {
 		t.Fatalf("new sequence collided: %+v", out)
 	}
