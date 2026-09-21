@@ -991,6 +991,45 @@ bytes and monotonic progress rather than assuming no new final result commits.
 See [shutdown acceptance](multi-region/M3_SHUTDOWN_ACCEPTANCE.md). This does not
 prove metadata cleanup or the complete fifteen-minute M3 partition.
 
+## M3 source metadata and physical storage bounds
+
+Run `rtk proxy go test -race -count=1 -v ./internal/adapters/repository/edge -run 'TestEdgeMetadata|TestEdgeStorage'`.
+Use real encrypted payloads to exhaust the separate 64 MiB metadata quota. Assert
+the selected revision and counter roll back, old eligible history frees capacity,
+active references and pending/leased deliveries survive, and queued telemetry
+stays byte-for-byte unchanged. Exercise populated migration 010 down/up and refusal
+after old config retirement, including an existing oversized store.
+
+The physical tests log actual DB/WAL sizes over repeated cycles. An independent
+SQLite reader pins a snapshot across writes: once the WAL admission threshold is
+reached, `CheckWritable` and new writes must fail without growing the file, then
+recover after the reader releases. The 16 MiB admission threshold allows one
+transaction's additional frames; `journal_size_limit` alone is not a hard quota.
+See [storage acceptance](multi-region/M3_STORAGE_BOUNDS_ACCEPTANCE.md).
+
+## M3 complete partition process acceptance
+
+Use fresh app/probe/admin binaries and a new disposable `_smoke` MariaDB schema
+with `scripts/probe_runtime_smoke.py`. Combine `--verify-replay --verify-history
+--verify-watchdog --verify-command --verify-partition --verify-shutdown
+--command-partition-seconds 900`, plus the existing binary/output/container flags.
+The transparent relay interrupts the management link while retaining end-to-end
+TLS. A second target fails during the partition, survives an edge restart and
+recovers before reconnection. The first target keeps its original pending ACK.
+
+The report must show at least 900 measured monotonic seconds, exact retained
+payload digests and original observation microseconds, one receipt per source
+sequence, no remote provider work at the hub, and initial fresh state applied
+before the retained prefix's first replay receipt. The original ACK must have one
+source receipt and one accepted transition, and cannot silence a later incident.
+Check every enabled verification flag and process exit, not only a printed PASS.
+A 30-second rehearsal is useful but its `milestone_duration_met` is false.
+
+Keep the workers active during assignment setup. The real MariaDB
+`TestProbeAssignmentReplacementUsesConfigurationLockOrder` regression covers the
+publication/replacement deadlock discovered by this scenario. Do not hide that
+failure with an unconditional retry in the harness or by stopping workers.
+
 ## M3 ordered replay integration
 
 `TestProbeReplayAcceptance` in `internal/adapters/repository` runs the same mixed

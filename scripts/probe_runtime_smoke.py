@@ -96,6 +96,7 @@ def main():
     parser.add_argument("--verify-history", action="store_true", help="verify the production history worker after replay and restart")
     parser.add_argument("--verify-watchdog", action="store_true", help="verify real both-side watchdog paging across a network partition and restart")
     parser.add_argument("--verify-command", action="store_true", help="exercise queued original-incident ACK across a real link partition and restart")
+    parser.add_argument("--verify-partition", action="store_true", help="also fail/recover an independent target inside the command partition and verify exact replay and current-state priority")
     parser.add_argument("--verify-credential-rotation", action="store_true", help="verify durable queued credential rotation across hub and edge restart")
     parser.add_argument("--verify-certificate-rotation", action="store_true", help="verify durable TLS certificate rotation across hub and edge restart")
     parser.add_argument("--verify-stream-reset", action="store_true", help="verify explicit source archive and hub reset through compiled CLIs and real admission")
@@ -119,6 +120,8 @@ def main():
         parser.error("--verify-watchdog requires --verify-replay")
     if args.verify_command and (not args.verify_replay or not 1 <= args.command_partition_seconds <= 3600):
         parser.error("--verify-command requires --verify-replay and a partition duration between 1 and 3600 seconds")
+    if args.verify_partition and (not args.verify_command or args.command_partition_seconds < 30):
+        parser.error("--verify-partition requires --verify-command and at least 30 seconds; milestone acceptance requires 900 seconds")
     if args.verify_replay and not args.mariadb_container:
         parser.error("--verify-replay requires --mariadb-container for independent hub evidence")
     output = args.output.resolve()
@@ -140,7 +143,7 @@ def main():
     edge_env = dict(env, PROBE_SECRET_KEY_FILE="")
     processes, logs, passed = {}, [], []
     shutdown_evidence = []
-    target_status, provider_status = 200, 200
+    target_status, partition_target_status, provider_status = 200, 200, 200
     request_count, hooks, provider_attempts = 0, [], []
     lock = threading.Lock()
     token = None
@@ -150,7 +153,7 @@ def main():
             nonlocal request_count
             with lock:
                 request_count += 1
-                status = target_status
+                status = partition_target_status if self.path == "/partition-target" else target_status
             self.send_response(status)
             self.end_headers()
             self.wfile.write(b"controlled M2 target")
@@ -569,7 +572,19 @@ def main():
                                  "high_water": high_water}
             final = edge_progress()
         command_evidence = None
+        partition_evidence = None
         if args.verify_command:
+            if args.verify_partition:
+                start("api", args.app_binary, [], dict(env, PORT=str(args.port)))
+                wait_for("hub API restarts for partition target setup", api_ready)
+                partition_monitor = api("POST", "/api/monitors", {"name": "partition-target", "type": "http", "active": True,
+                    "interval": 1, "retry_interval": 1, "max_retries": 1, "timeout": 2,
+                    "resend_interval": 0, "config": {"url": sink_url + "/partition-target"}})["id"]
+                admin("assign", "--monitor-id", str(partition_monitor), "--expected-revision", "1", "--probes", identity["probe_id"])
+                api("POST", f"/api/notifications/{notification}/monitor/{partition_monitor}", {"include_target": False})
+                wait_for("independent partition target is active on the edge", lambda: bool(edge_rows(
+                    f"SELECT seq FROM edge_regional_state WHERE monitor_id={partition_monitor} AND status=1")))
+                stop("api")
             with lock:
                 target_status = 503
             wait_for("new regional incident fires before ACK partition", lambda: bool(edge_rows(
@@ -589,6 +604,13 @@ def main():
             repeated = admin(*ack_args)["command"]
             assert repeated["created_at"] == receipt["created_at"] and repeated["expires_at"] == receipt["expires_at"]
             assert edge_rows(f"SELECT status FROM edge_alerts WHERE source_alert_id='{original_id}'") == [{"status": "firing"}]
+            if args.verify_partition:
+                with lock:
+                    partition_target_status = 503
+                wait_for("independent target fails during the link partition", lambda: bool(edge_rows(
+                    f"SELECT source_alert_id FROM edge_alerts WHERE monitor_id={partition_monitor} AND status='firing'")))
+                partition_incident = edge_rows(f"SELECT source_alert_id FROM edge_alerts WHERE monitor_id={partition_monitor} AND status='firing'")[0]["source_alert_id"]
+                retained_before_restart = edge_rows("SELECT seq,hex(payload) AS payload FROM edge_telemetry_outbox ORDER BY seq")
             for name in ("worker-a", "worker-b", "edge"):
                 stop(name)
             start("edge", args.probe_binary, edge_args, edge_env)
@@ -598,11 +620,37 @@ def main():
                      edge_http("/readyz") == 200 and edge_rows(
                          f"SELECT status, transition_version FROM edge_alerts WHERE source_alert_id='{original_id}'") ==
                      [{"status": "firing", "transition_version": 1}])
+            if args.verify_partition:
+                retained_after_restart = {row["seq"]: row["payload"] for row in edge_rows("SELECT seq,hex(payload) AS payload FROM edge_telemetry_outbox")}
+                assert all(retained_after_restart.get(row["seq"]) == row["payload"] for row in retained_before_restart)
+                with lock:
+                    partition_target_status = 200
+                wait_for("independent target recovers before the partition ends", lambda: edge_rows(
+                    f"SELECT status FROM edge_alerts WHERE source_alert_id='{partition_incident}'") == [{"status": "resolved"}])
             while time.monotonic() - partition_started < args.command_partition_seconds:
                 assert admin("command-status", "--probe-id", identity["probe_id"], "--command-id", command_id)["command"]["remote_confirmed"] is False
                 time.sleep(max(0.01, min(5, args.command_partition_seconds - (time.monotonic() - partition_started))))
             partition_elapsed = time.monotonic() - partition_started
+            if args.verify_partition:
+                retained = edge_rows("SELECT seq,kind,observed_at,hex(payload) AS payload FROM edge_telemetry_outbox ORDER BY seq")
+                prefix_end = retained[-1]["seq"]
+                current_seq = edge_rows(f"SELECT seq FROM edge_regional_state WHERE monitor_id={partition_monitor} AND status=1")[0]["seq"]
+                assert partition_elapsed >= args.command_partition_seconds
             relay.partition(False)
+            if args.verify_partition:
+                first_state = []
+
+                def capture_first_state():
+                    rows = hub_query("SELECT JSON_OBJECT('watermark',r.last_created_seq,'applied_us',CAST(UNIX_TIMESTAMP(r.applied_at)*1000000 AS SIGNED),"
+                        "'seq',s.seq,'status',s.status) FROM probe_state_receipts r JOIN monitor_probe_state s ON s.probe_id=r.probe_id AND s.stream_id=r.stream_id "
+                        f"WHERE r.probe_id='{identity['probe_id']}' AND r.stream_id='{identity['stream_id']}' AND s.monitor_id={partition_monitor} AND r.last_created_seq>={prefix_end}")
+                    if rows:
+                        first_state.extend(rows)
+                        return True
+                    return False
+
+                wait_for("fresh UP state arrives while partition history replays", capture_first_state, timeout=100)
+                assert len(first_state) == 1 and first_state[0]["status"] == 1 and first_state[0]["seq"] >= current_seq
             wait_for("pending ACK receives durable source confirmation after reconnect", lambda:
                      admin("command-status", "--probe-id", identity["probe_id"], "--command-id", command_id)["command"]["remote_confirmed"], timeout=100)
             confirmed = admin("command-status", "--probe-id", identity["probe_id"], "--command-id", command_id)["command"]
@@ -643,6 +691,27 @@ def main():
                              f"WHERE probe_id='{identity['probe_id']}' AND rejection_code<>''") == [{"count": 0}]
             assert hub_query("SELECT JSON_OBJECT('count',COUNT(*)) FROM probe_delivery_intents "
                              f"WHERE probe_id='{identity['probe_id']}'") == [{"count": 0}]
+            if args.verify_partition:
+                seqs = ",".join(str(row["seq"]) for row in retained)
+                receipts = hub_query("SELECT JSON_OBJECT('seq',seq,'digest',digest,'kind',kind,'rejection',rejection_code,"
+                    "'received_us',CAST(UNIX_TIMESTAMP(received_at)*1000000 AS SIGNED)) FROM probe_telemetry_receipts "
+                    f"WHERE probe_id='{identity['probe_id']}' AND stream_id='{identity['stream_id']}' AND seq IN ({seqs}) ORDER BY seq")
+                expected = [{"seq": row["seq"], "digest": hashlib.sha256(bytes.fromhex(row["payload"])).hexdigest(), "kind": row["kind"], "rejection": ""} for row in retained]
+                assert [{k: row[k] for k in ("seq", "digest", "kind", "rejection")} for row in receipts] == expected
+                assert first_state[0]["applied_us"] <= min(row["received_us"] for row in receipts), "backlog overtook initial current state"
+                observations = hub_query("SELECT JSON_OBJECT('seq',seq,'observed_us',CAST(UNIX_TIMESTAMP(observed_at)*1000000 AS SIGNED)) FROM probe_observations "
+                    f"WHERE probe_id='{identity['probe_id']}' AND stream_id='{identity['stream_id']}' AND seq IN ({seqs}) ORDER BY seq")
+                assert observations == [{"seq": row["seq"], "observed_us": row["observed_at"]} for row in retained if row["kind"] == "observation"]
+                mirrored = hub_query("SELECT JSON_OBJECT('status',status,'version',transition_version) FROM probe_incidents "
+                    f"WHERE source_alert_id='{partition_incident}'")
+                assert mirrored == [{"status": "resolved", "version": 2}]
+                partition_evidence = {"duration_seconds": partition_elapsed, "milestone_duration_met": partition_elapsed >= 900,
+                    "monitor_id": partition_monitor, "source_alert_id": partition_incident, "restart_preserved_rows": len(retained_before_restart),
+                    "replayed_rows": len(retained), "observations_with_original_times": len(observations), "prefix_end": prefix_end,
+                    "first_current_state": first_state[0], "first_replay_received_us": min(row["received_us"] for row in receipts),
+                    "last_replay_received_us": max(row["received_us"] for row in receipts), "hub_send_intents": 0,
+                    "receipt_digest_sha256": hashlib.sha256(json.dumps(expected, separators=(",", ":")).encode()).hexdigest()}
+                mark("partition DOWN/UP and restart replay exactly once with original times and current state first")
             mark("queued ACK applies once to its original incident and cannot silence a later outage")
             command_evidence = {"command_id": command_id, "original_source_id": original_id, "later_source_id": later_id,
                                 "partition_seconds": partition_elapsed, "source_receipt_count": 1, "confirmed": confirmed,
@@ -839,6 +908,7 @@ def main():
                   "history_verified": args.verify_history, "history": history_evidence, "runtime_ownership": runtime_evidence,
                   "watchdog_verified": args.verify_watchdog, "watchdog": watchdog_evidence,
                   "command_verified": args.verify_command, "command": command_evidence,
+                  "partition_verified": args.verify_partition, "partition": partition_evidence,
                   "credential_rotation_verified": args.verify_credential_rotation, "credential_rotation": rotation_evidence,
                   "certificate_rotation_verified": args.verify_certificate_rotation, "certificate_rotation": certificate_evidence,
                   "stream_reset_verified": args.verify_stream_reset, "stream_reset": reset_evidence}
