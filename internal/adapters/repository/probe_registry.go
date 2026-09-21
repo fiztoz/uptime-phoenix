@@ -322,8 +322,30 @@ func (r *ProbeAssignmentStore) Replace(ctx context.Context, monitorID, expectedR
 	if err != nil {
 		return nil, err
 	}
+	// Discover the previous members without holding an assignment lock. The
+	// transaction rechecks this revision before using them. Configuration
+	// publication locks a registration before reading assignments; removed
+	// members also need that order because their foreign keys lock probes.
+	current, err := r.GetByMonitorID(ctx, monitorID)
+	if err != nil {
+		return nil, err
+	}
+	if current.Revision != expectedRevision {
+		return nil, ports.ErrConflict
+	}
+	lockIDs := append(slices.Clone(ids), domain.LocalProbeID)
+	for _, member := range current.Assignments {
+		lockIDs = append(lockIDs, member.ProbeID)
+	}
+	slices.Sort(lockIDs)
+	lockIDs = slices.Compact(lockIDs)
 	var out *domain.MonitorProbeAssignments
-	err = r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	err = runConfigAuthorityTx(ctx, r.db, func(ctx context.Context, tx bun.Tx) error {
+		for _, id := range lockIDs {
+			if _, err := tx.NewUpdate().Table("probes").Set("revision = revision").Where("id = ?", id).Exec(ctx); err != nil {
+				return err
+			}
+		}
 		// A no-op UPDATE is a write/row lock on both supported engines. Do not
 		// inspect RowsAffected: MariaDB may report zero for unchanged values.
 		if _, err := tx.NewUpdate().Table("monitor_probe_assignment_sets").Set("revision = revision").
