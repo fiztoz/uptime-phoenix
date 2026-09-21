@@ -1,6 +1,11 @@
 # Multi-region implementation guide for continuing agents
 
-> **Current continuation, 2026-09-21:** preserve existing local M0–M2 and M3
+> **M3 completed, 2026-09-21:** [completion acceptance](M3_COMPLETION_ACCEPTANCE.md)
+> and [evidence](M3_COMPLETION_EVIDENCE.json) supersede the older checkpoint
+> continuation below. Preserve the verified local commits and unrelated AGENTS.md
+> diff. M4 requires its own scoped continuation; no push/deployment was performed.
+
+> **Earlier continuation, 2026-09-21 (superseded):** preserve existing local M0–M2 and M3
 > config/replay/retention/current-state work. Historical recomputation is accepted;
 > consult [implementation status](IMPLEMENTATION_STATUS.md) and
 > [history acceptance](M3_HISTORY_ACCEPTANCE.md) for exact evidence and limitations.

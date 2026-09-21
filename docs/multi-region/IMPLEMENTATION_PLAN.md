@@ -98,16 +98,18 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 
 - [x] Build complete per-probe snapshots from authorized assignments and dependencies for the supported HTTP/TCP/DNS edge runtime. Persisted saved source drives reconciliation across API splits, lost hints and restarts; serializable publication retains encrypted desired revisions as durable sync work. Unchanged source retains its revision/ciphertext. Unsupported edge features fail explicitly.
 - [x] Implement chunked staging/hash validation, all-or-nothing activation, capabilities, generation handling, rejection reporting, and config acknowledgement after commit. The first M3 increment adds fenced durable hub receipts, a 60-second receipt deadline and automatic retry/reconciliation. See `M3_CONFIG_SYNC_ACCEPTANCE.md` for evidence and limits.
-- [ ] Implement ordered telemetry batches, transactional cursor advancement, permanent rejection receipts, retryable failures, declared retention gaps, and bounded queues.
+- [x] Implement ordered telemetry batches, transactional cursor advancement, permanent rejection receipts, retryable failures, declared retention gaps, and bounded queues.
 - [x] Implement high-priority current-state snapshots without altering the historical cursor or emitting regional notifications. Availability state, durable omissions, restart/pruning recovery and independent periodic transfer passed transport and both-engine contracts; see `M3_CURRENT_STATE_ACCEPTANCE.md`. Auxiliary condition/TLS state remains outside the currently supported edge runtime and is explicitly rejected.
 - [x] Implement per-assignment timestamp/sequence guards and dirty historical bucket recomputation. Migration 057 and the production bounded worker recompute 1m/1h/1d and overall history with gap/clock repair, transactional dependency checks and coherent on-demand reads; see `M3_HISTORY_ACCEPTANCE.md`.
-- [ ] Implement both connection watchdogs, application-level hub-ingest health, startup arming, 90-second loss threshold, and 30-second recovery stabilization.
-- [ ] Implement command persistence/idempotency, offline acknowledgement receipts, credential rotation, certificate rotation, and explicit stream-reset recovery.
-- [ ] Implement queue pressure diagnostics and graceful shutdown with bounded flushing.
+- [x] Implement both connection watchdogs, application-level hub-ingest health, startup arming, 90-second loss threshold, and 30-second recovery stabilization.
+- [x] Implement command persistence/idempotency, offline acknowledgement receipts, credential rotation, certificate rotation, and explicit stream-reset recovery.
+- [x] Implement queue pressure diagnostics and graceful shutdown with bounded flushing.
 
 **Acceptance:** block the hub/probe link for 15 minutes, fail and recover a target during the partition, restart the probe, reconnect, and prove all retained history is ingested once with original times. Regional notifications come only from their owner, history replay emits none, current health recovers before the backlog fully drains, and a pending acknowledgement applies to the correct incident exactly once.
 
 **Suggested commits:** `feat(core): synchronize versioned probe configuration`; `feat(db): ingest replayable probe telemetry`; `feat(core): persist probe watchdog and command state`.
+
+**Accepted 2026-09-21:** [final requirements and actual 900-second evidence](M3_COMPLETION_ACCEPTANCE.md). M4/M5 scope is unchanged.
 
 ## 7. M4 — existing-feature and operational compatibility
 

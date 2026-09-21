@@ -7,6 +7,27 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 complete — 2026-09-21
+
+All M3 requirements for the supported HTTP/TCP/DNS runtime are accepted in the
+[completion audit](M3_COMPLETION_ACCEPTANCE.md) and
+[hashed evidence](M3_COMPLETION_EVIDENCE.json). The final real partition lasted
+900.005 seconds, replayed 1,440 retained
+events with original times, applied fresh state first and applied the original
+ACK exactly once. 51 compiled process stages passed.
+
+Final verification: 3,719 named race passes in 22
+packages, zero failures, 2 optional skips, live SQLite/MariaDB,
+CGO-free build and zero-issue lint. Source metadata cleanup, quota rollback and
+physical admission bounds are covered by [storage acceptance](M3_STORAGE_BOUNDS_ACCEPTANCE.md).
+The process rehearsal also exposed and fixed assignment/publication lock inversion;
+its deterministic regression and the clock-fixture correction are documented in
+[the retrospective](M3_ASSIGNMENT_LOCK_RETROSPECTIVE.md).
+
+This supersedes the remaining-work notes in older checkpoint entries below.
+M4 compatibility and M5 fleet UI remain separate. No push/deployment; preserve
+the existing unrelated AGENTS.md change. Antigravity owns no files.
+
 ## M3 source metadata and physical admission bounds — 2026-09-21
 
 The [storage checkpoint](M3_STORAGE_BOUNDS_ACCEPTANCE.md) is accepted: separate

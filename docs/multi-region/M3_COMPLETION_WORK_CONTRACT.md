@@ -1,5 +1,7 @@
 # M3 completion work contract
 
+> Completed 2026-09-21. See [final acceptance](M3_COMPLETION_ACCEPTANCE.md) and [evidence](M3_COMPLETION_EVIDENCE.json). The ledger below preserves implementation history.
+
 Baseline: `eb5c59e`, 2026-09-20. User objective: continue until M3 is complete.
 The complete milestone in `IMPLEMENTATION_PLAN.md` section 6 remains the goal.
 No push or deployment is authorized. Preserve the existing local commits.

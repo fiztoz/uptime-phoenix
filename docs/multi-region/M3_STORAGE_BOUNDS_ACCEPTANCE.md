@@ -1,7 +1,7 @@
 # M3 source storage bounds acceptance
 
-Date: 2026-09-21. Baseline `728aefd`. This checkpoint is accepted; the actual
-900-second partition and final M3 audit are still running. Codex owns verification.
+Date: 2026-09-21. Baseline `728aefd`. This checkpoint is accepted. The actual
+900-second partition and final audit are accepted in the [whole-M3 record](M3_COMPLETION_ACCEPTANCE.md). Codex owns verification.
 See [hashed evidence](M3_STORAGE_BOUNDS_EVIDENCE.json),
 [retrospective](M3_STORAGE_BOUNDS_RETROSPECTIVE.md) and
 [contract](M3_STORAGE_BOUNDS_WORK_CONTRACT.md).
@@ -41,7 +41,7 @@ found by the process rehearsal are retained in
 Commands executed: CGO_ENABLED=0 go build ./...; go test -race -count=1 -timeout=20m -json ./...; golangci-lint run; focused real-engine regressions.
 Engines and named tests exercised: real SQLite and disposable MariaDB; TestEdgeMetadata*, TestEdgeStorage*, complete repository gate.
 Passed / failed / skipped: 3,719 final named passes; zero final failures; two optional skips; earlier failed reproduction/gate retained separately.
-Acceptance criteria still unverified: none for storage. Whole-M3 900-second process acceptance and final audit remain separate.
+Acceptance criteria still unverified: none for storage. Whole-M3 acceptance is linked above.
 ```
 
 No dependencies, monitor/provider types, frontend or Helm changes were added.

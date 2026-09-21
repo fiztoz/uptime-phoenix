@@ -1,0 +1,356 @@
+{
+  "recorded_at": "2026-09-21T01:22:45.836495+00:00",
+  "verification_baseline": "728aefdc370a94e62fcff777137a59d0532c10e6",
+  "source_hashes": {
+    "cmd/probe/runtime_health.go": "19d1874ed7397dd3c952929d450d813b5a0b13c51075e883af2dffd01e1a1dca",
+    "internal/adapters/repository/config_lock_order_test.go": "1634da54d0425eceaf4d766f517964942fda9d5dfad4525801218b11a618ee1b",
+    "internal/adapters/repository/edge/diagnostics.go": "1ba1dd2af21bb12fc22bdf57c6ea45c6ed7b57495ffcbd4cc7a7d4562c5040d4",
+    "internal/adapters/repository/edge/metadata_retention.go": "de8878cb9347d94d3c22a0c9d8f65cfaf7c3f62002443aef0ee7c137666567d4",
+    "internal/adapters/repository/edge/metadata_retention_test.go": "18b560f5910201fb3c07ed6cf521e42cfae6de601b298fcf43a736ef4f8fe217",
+    "internal/adapters/repository/edge/migrations/010_metadata_retention.tx.down.sql": "b591ac507edb8d31f96f7d95d5bbc66bf8e48bf7e8c16a72a8a728fd3c9948b3",
+    "internal/adapters/repository/edge/migrations/010_metadata_retention.tx.up.sql": "23636204efb049bd53dc407e282f087e5d3fe1ba001c6ca690bf07f87bbc0d87",
+    "internal/adapters/repository/edge/retention.go": "c758433a04e7b11dc3cc3d792d94f671fc1e03612ed39522235d07fbd980d1ec",
+    "internal/adapters/repository/edge/storage_bounds.go": "a96a9f6df8af217cc99e72b2d9b8f4c132ae5db171e654041330e56352e18e6c",
+    "internal/adapters/repository/edge/storage_bounds_test.go": "55b547acea18364c04a5f46d0e1ccc410afe16e6f7774f721ed5513b8b515b59",
+    "internal/adapters/repository/edge/store.go": "fa3120fbf00506781582b3a44bffe3e83f890190c1db97776dcfe35ed513c27e",
+    "internal/adapters/repository/probe_registry.go": "6502e652e479f18cd167959902dc98270f343eb5f1615cca4b349a9b8a647122",
+    "internal/adapters/repository/probe_stream_reset_test.go": "7e57f27bb7bfd3d9bcdd7d9b673028d79e6df2e11d2089cdd32cbbca8b7eee5e"
+  },
+  "harness_sha256": "6ae21430aa23117ca297fa206afed7f08cedd94924be251720d5bd26de1a9b55",
+  "process_report_sha256": "4b44f1daca297174c2064f3087ba440fead2f57b6d1e2d0c66a50bbf98d77592",
+  "partition_prefix_sha256": "e0d9a30a88751716a61ab77c025e592a41ef1cc7f989e1573050a5bf4b7f9fde",
+  "initial_long_run_failure": {
+    "log": "/private/tmp/phoenix-m3-partition-final-process.log",
+    "reason": "Harness counted three legitimate hub-owned watchdog sends as mirrored work; scope corrected using the durable hub watchdog ownership table"
+  },
+  "process_log_sha256": "d177994273b59ff558d248e97b3c61c4aacd463b9ef1d1c20df699ba47905125",
+  "binary_sha256": {
+    "app": "f6bd640851f28f89a1b04f1a34a70c32e745411bfef78d88eceff49cd2a068a3",
+    "probe": "30351a65f6a98660ea2b1f011564d86d50207e7697cf881e2113792ed327d387",
+    "admin": "fe87f8b085850db3e49e528cbe463de3dd69b17f89eb6e407431904aaa6bcd4a"
+  },
+  "required_current_cases_passed": [
+    "TestRemoteConfigSyncContract",
+    "TestProbeReplayAcceptance",
+    "TestProbeReplayGapAcceptance",
+    "TestProbeCurrentStateAcceptance",
+    "TestEdgeRuntimeCurrentStatePrecedesAndRefreshesDuringBacklog",
+    "TestProbeHistoryAcceptance",
+    "TestHubWatchdogSourceContract",
+    "TestProbeWatchdogSettingsContract",
+    "TestWatchdogReplayStorage",
+    "TestProbeCommandStorage",
+    "TestProbeCommandReplay",
+    "TestCommandRuntimeExactBytesReceiptLossAndRestart",
+    "TestProbeCredentialRotation",
+    "TestProbeCertificateRotation",
+    "TestProbeStreamResetStorage",
+    "TestEdgeHealthPressureGapAndAcknowledgedDrain",
+    "TestEdgeRuntimeQuiescenceJoinsAdmittedMutation",
+    "TestEdgeMetadataQuotaRollsBackAndCleanupRestoresAdmission",
+    "TestEdgeStorageLongReaderStopsWALGrowthAndRecovers",
+    "TestProbeAssignmentReplacementUsesConfigurationLockOrder"
+  ],
+  "process": {
+    "passed": [
+      "TLS-only edge starts without hub",
+      "duplicate data-directory owner rejected; hub routes absent",
+      "hub API ready",
+      "background worker owns the not-yet-enrolled runtime",
+      "operator enrollment succeeds with background connectors already running",
+      "real hub connector activates accepted config",
+      "edge records healthy checks",
+      "hub durably records exact applied receipt",
+      "saved API edit automatically reaches edge",
+      "new desired revision has durable applied receipt",
+      "live telemetry reaches a durable hub and edge cursor",
+      "closed edge session releases its connection fence",
+      "edge reconnect advances session within the same runtime owner",
+      "two hub workers preserve runtime ownership across an edge restart",
+      "two hub workers retain one fenced management session",
+      "offline DOWN and provider retry persist atomically",
+      "pending provider intent resumes after offline process restart",
+      "offline UP resolves the same incident and sends recovery",
+      "offline mixed telemetry survives restart and provider recovery",
+      "reconnection advances fence without resetting source sequence",
+      "reconnected workers commit the full offline telemetry prefix",
+      "replay mirrors observations and outcomes without hub provider work",
+      "cold restart resumes beyond the acknowledged backlog",
+      "production workers recompute closed regional and overall history after restart",
+      "reconnection preserves stream, accepted config and delivery history",
+      "enabled watchdog config durably applied on both sides",
+      "both watchdogs observe healthy application frames",
+      "both live owners send watchdog DOWN during network partition",
+      "offline edge restart retains the original watchdog",
+      "watchdog restart does not duplicate the initial notification",
+      "both watchdogs send stable recovery after reconnect",
+      "edge watchdog lifecycle and provider outcomes replay durably",
+      "mirrored edge watchdog causes no hub redelivery or rejection",
+      "hub API restarts for partition target setup",
+      "independent partition target is active on the edge",
+      "new regional incident fires before ACK partition",
+      "original ACK target is mirrored before partition",
+      "independent target fails during the link partition",
+      "offline process restart preserves unacknowledged original incident",
+      "independent target recovers before the partition ends",
+      "fresh UP state arrives while partition history replays",
+      "pending ACK receives durable source confirmation after reconnect",
+      "ACK telemetry is correlated with the issued command",
+      "ACKed source recovers while preserving original actor and command",
+      "later outage gets an independent source incident",
+      "new ACK of resolved original returns already_resolved",
+      "later outage recovers independently",
+      "all command-era history is durably replayed",
+      "partition DOWN/UP and restart replay exactly once with original times and current state first",
+      "queued ACK applies once to its original incident and cannot silence a later outage",
+      "compiled shutdown flushes healthy prefixes and preserves offline bytes within its bound"
+    ],
+    "identity": {
+      "probe_id": "8368166d-c19b-401d-a6b9-02e0e7a225c5",
+      "stream_id": "2f6cc3fc-ad17-470e-9290-72b5222c2abe",
+      "certificate_fingerprint": "9379a0c13d7068377727277d4fbc1bd01eda33a657f5a166d1db4ad1790b203c",
+      "last_created_seq": "0",
+      "config_revision": "0",
+      "expires_at": "2026-09-21T01:12:42.516319Z"
+    },
+    "before_restart": {
+      "probe_id": "8368166d-c19b-401d-a6b9-02e0e7a225c5",
+      "stream_id": "2f6cc3fc-ad17-470e-9290-72b5222c2abe",
+      "last_created_seq": 30,
+      "committed_seq": 26,
+      "config_revision": 2,
+      "connection_generation": 4
+    },
+    "final": {
+      "probe_id": "8368166d-c19b-401d-a6b9-02e0e7a225c5",
+      "stream_id": "2f6cc3fc-ad17-470e-9290-72b5222c2abe",
+      "last_created_seq": 1699,
+      "committed_seq": 1699,
+      "config_revision": 4,
+      "connection_generation": 54
+    },
+    "shutdown_verified": true,
+    "shutdown": [
+      {
+        "seconds": 0.003286166989710182,
+        "flushed": true,
+        "target_seq": 13,
+        "committed_seq": 13,
+        "retained_rows": 0,
+        "exact_unacknowledged_bytes_preserved": true
+      },
+      {
+        "seconds": 5.0548492910165805,
+        "flushed": false,
+        "target_seq": 30,
+        "committed_seq": 26,
+        "retained_rows": 4,
+        "exact_unacknowledged_bytes_preserved": true
+      },
+      {
+        "seconds": 0.003783416992519051,
+        "flushed": true,
+        "target_seq": 43,
+        "committed_seq": 43,
+        "retained_rows": 0,
+        "exact_unacknowledged_bytes_preserved": true
+      },
+      {
+        "seconds": 5.014657666994026,
+        "flushed": false,
+        "target_seq": 132,
+        "committed_seq": 56,
+        "retained_rows": 76,
+        "exact_unacknowledged_bytes_preserved": true
+      },
+      {
+        "seconds": 5.036880166997435,
+        "flushed": false,
+        "target_seq": 219,
+        "committed_seq": 214,
+        "retained_rows": 5,
+        "exact_unacknowledged_bytes_preserved": true
+      }
+    ],
+    "incident": "2be5f674-d4ce-4318-97b3-394b9fe5a7b3",
+    "provider_attempt_statuses": [
+      503,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200
+    ],
+    "successful_webhook_statuses": [
+      0,
+      1,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      1
+    ],
+    "replay_verified": true,
+    "replay": {
+      "offline_high_water": 43,
+      "offline_backlog_count": 17,
+      "mirrored_observation_sequences": [
+        27,
+        28,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        41
+      ],
+      "mirrored_incidents": [
+        {
+          "id": "2be5f674-d4ce-4318-97b3-394b9fe5a7b3",
+          "status": "resolved"
+        }
+      ],
+      "mirrored_delivery_outcomes": [
+        {
+          "id": "30c59ef1-4e6c-410d-996f-94a41661167f",
+          "status": "sent"
+        },
+        {
+          "id": "a2475150-0b74-49b0-872b-c9e97d5739f6",
+          "status": "sent"
+        }
+      ],
+      "hub_send_intents": 0,
+      "hub_cursor": 44,
+      "edge_cursor": 44
+    },
+    "history_verified": true,
+    "history": {
+      "total_checks": 10,
+      "known_us": 12461271,
+      "unknown_us": 2959307,
+      "managed": 1,
+      "bucket_utc_epoch": 1789952520,
+      "source_observations": 10,
+      "overall_coverage_us": 60000000,
+      "pending_minute_work": 0
+    },
+    "runtime_ownership": {
+      "epoch": 1,
+      "generation_before": 3,
+      "generation_after": 4,
+      "stable_across_backoff": true
+    },
+    "watchdog_verified": true,
+    "watchdog": {
+      "edge_source_id": "444d3df3-26a0-41cf-b6d0-ee6c4af35c09",
+      "hub_source_id": "a5a23e56-f0ec-447a-939d-0ddd942d2c74",
+      "down_after_seconds": 94.36977929098066,
+      "recovery_after_reconnect_seconds": 67.17705258299247,
+      "edge_mirror": [
+        {
+          "id": "444d3df3-26a0-41cf-b6d0-ee6c4af35c09",
+          "status": "resolved",
+          "version": 2
+        }
+      ],
+      "edge_delivery_outcomes": [
+        {
+          "status": "sent",
+          "count": 2
+        }
+      ],
+      "hook_statuses": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "hub_edge_send_intents": 0,
+      "high_water": 193
+    },
+    "command_verified": true,
+    "command": {
+      "command_id": "45232013-bfe9-4744-a377-82631892f9ca",
+      "original_source_id": "1c65d6c5-4cfd-419d-9402-8ccad761e035",
+      "later_source_id": "c067176e-7982-49ba-8032-c85fab13a6ac",
+      "partition_seconds": 900.0050987919967,
+      "source_receipt_count": 1,
+      "confirmed": {
+        "command_id": "45232013-bfe9-4744-a377-82631892f9ca",
+        "status": "applied",
+        "remote_confirmed": true,
+        "source_alert_id": "1c65d6c5-4cfd-419d-9402-8ccad761e035",
+        "assignment_generation": "1",
+        "created_at": "2026-09-21T01:07:13.310534Z",
+        "expires_at": "2026-09-22T01:07:13.310534Z",
+        "attempts": "1",
+        "applied_at": "2026-09-21T01:22:29.156659Z",
+        "code": null
+      },
+      "ack_transition_receipt_count": 1,
+      "hub_send_intents": 0,
+      "high_water": 1699
+    },
+    "partition_verified": true,
+    "partition": {
+      "duration_seconds": 900.0050987919967,
+      "milestone_duration_met": true,
+      "monitor_id": 2,
+      "source_alert_id": "b0baa195-8a20-492b-8ada-605ec8b49ca9",
+      "restart_preserved_rows": 5,
+      "replayed_rows": 1440,
+      "observations_with_original_times": 1434,
+      "prefix_end": 1654,
+      "first_current_state": {
+        "watermark": 1678,
+        "applied_us": 1789953748429843,
+        "seq": 1678,
+        "status": 1
+      },
+      "prior_hub_cursor": 214,
+      "first_replay_received_us": 1789953748473222,
+      "last_replay_received_us": 1789953752062641,
+      "hub_send_intents": 0,
+      "hub_send_intents_scope": "mirrored remote incidents, excluding durable hub watchdog owners",
+      "receipt_digest_sha256": "dde80467ed8b03fed388b9d9c739d7a1902eb97ee346c7658b66bef182252fed"
+    },
+    "credential_rotation_verified": false,
+    "credential_rotation": null,
+    "certificate_rotation_verified": false,
+    "certificate_rotation": null,
+    "stream_reset_verified": false,
+    "stream_reset": null
+  },
+  "full_gate_evidence": "M3_STORAGE_BOUNDS_EVIDENCE.json",
+  "scope": "M3 supported HTTP/TCP/DNS edge runtime; M4 compatibility and M5 fleet UI remain separate",
+  "unverified_m3_requirements": [],
+  "not_claimed": [
+    "Exactly-once external provider acceptance",
+    "Hard filesystem quota at the WAL admission threshold",
+    "Production deployment or populated operator-installation rollout",
+    "M4 or M5 completion"
+  ],
+  "accepted_implementation_commit": "a12a3fa8d8066eb42b7f5ec097d1f5acf9485ab5",
+  "process_scope_note": "This combined partition run covers replay, history, watchdogs, commands and shutdown. Credential rotation, certificate rotation and stream reset have separate linked process acceptances and are rechecked by the current full race suite; their flags in this process report intentionally remain false."
+}
