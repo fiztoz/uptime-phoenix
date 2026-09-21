@@ -1,8 +1,8 @@
 # M3 source metadata bounds and cleanup contract
 
-Date: 2026-09-21. Pending work after the shutdown checkpoint. This is a verified
-source inventory and implementation contract, not a claim that cleanup exists.
-Codex owns all files. Antigravity's attempted storage audit returned no report.
+Date: 2026-09-21. Implemented after the shutdown checkpoint; final acceptance
+is recorded separately in M3_STORAGE_BOUNDS_ACCEPTANCE.md. Codex owns all files.
+Antigravity provided an advisory source review and acknowledged corrections.
 
 ## Existing bounds and missing paths
 
@@ -43,6 +43,34 @@ WAL and long-lived readers. Avoid claiming a logical SUM is a hard filesystem
 quota, or that read-only inspection cannot create WAL sidecars. Any checkpoint or
 vacuum must be bounded and must preserve active storage ownership and durability.
 
+## Implementation decisions
+
+Use bounded transactional pruning with a horizon of at least seven days, extended
+to the configured telemetry horizon when longer. Retire only old terminal
+deliveries, obsolete generation state, and resolved incidents with no current
+state/provider references. Keep unresolved incidents, current state and active
+configuration. Serialized queued telemetry remains untouched by metadata cleanup;
+its own retention/ACK rules continue to apply. Old source command receipts retain
+their existing expiry-plus-365-day rule. A newly issued command targeting a source
+incident beyond retained history may be rejected as unknown; it must never affect
+a newer incident or manufacture `already_resolved` evidence.
+
+Retain assignment generation tombstones, but separate their revision number from
+the protected-config foreign key in a new paired migration. This preserves the
+old-generation rejection rule without forcing every removed monitor to pin a
+whole obsolete encrypted snapshot forever. Downgrade must refuse if a tombstone's
+old revision no longer has the config row required by the old schema.
+
+Use a transactionally maintained 64 MiB budget for config/state/incident metadata,
+separate from the existing 64 MiB provider-delivery cap and telemetry budget.
+Account protected blobs, current observation bytes, incident text and conservative
+row overhead. Triggers keep the counter atomic for every source path and roll back
+growth beyond capacity; deletion and non-growing updates still work if an upgraded
+store already exceeds the limit. Surface metadata pressure and exhausted storage
+honestly. Do not scan the entire metadata history on every heartbeat. This logical
+quota is not, by itself, a hard bound on SQLite/WAL file sizes; verify physical
+behavior and add a separate explicit bound where needed.
+
 ## Acceptance
 
 Real SQLite: repeated config changes, assignment-generation changes and unnotified
@@ -77,3 +105,25 @@ The runner is `/private/tmp/phoenix_m3_metadata_repro.py`, test additions are
 tests when implementing cleanup, preserving active references and command
 idempotency. These expected reproduction failures do not belong to the passing
 shutdown regression gate and must not be hidden or counted as fixed.
+
+## Physical admission decisions
+
+Before each source write, reserve the sole Bun/SQLite connection across the
+capacity check and transaction. Set SQLite max_page_count to the greater of its
+existing size and the configured page budget: max(1 GiB, twice the telemetry
+allocation plus 512 MiB). A pre-existing larger database may reuse/delete pages;
+this change does not erase it or shrink it automatically. Reapply the page limit
+on every acquired connection so a driver reconnect cannot remove enforcement.
+
+At a 16 MiB WAL threshold, require a TRUNCATE checkpoint before admitting another
+write. An external reader that keeps it busy causes a redacted storage failure,
+including in CheckWritable; admission resumes after the reader releases. The
+threshold can be exceeded by one admitted transaction and is not a filesystem
+quota. journal_size_limit only helps reclaim a reset WAL; it is not the guard.
+No VACUUM, loss of pending evidence, or forced reader termination is used. The
+existing stream-reset archive limits remain unchanged; a configuration allowing
+a database larger than the 1 GiB per-archive limit can require operator cleanup
+before explicit reset.
+
+SQLite behavior: [page limits and checkpoint pragmas](https://www.sqlite.org/pragma.html),
+[WAL checkpointing and long readers](https://www.sqlite.org/wal.html).

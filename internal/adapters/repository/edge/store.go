@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -188,6 +189,9 @@ func openStore(ctx context.Context, dataDir string, identity domain.EdgeIdentity
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) initialize(ctx context.Context, identity domain.EdgeIdentity) error {
+	if err := s.prepareStorageWrite(ctx, s.db); err != nil {
+		return err
+	}
 	var appID int
 	if err := s.db.NewRaw("PRAGMA application_id").Scan(ctx, &appID); err != nil {
 		return err
@@ -258,7 +262,17 @@ func (s *Store) write(ctx context.Context, fn func(context.Context, bun.Tx, doma
 }
 
 func (s *Store) writeRecovery(ctx context.Context, fn func(context.Context, bun.Tx, domain.EdgeIdentity) error) error {
-	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	// Reserve the sole connection across capacity checks and the transaction.
+	// Another source writer cannot slip past the WAL threshold while we check it.
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return storageError(ctx, err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := s.prepareStorageWrite(ctx, conn); err != nil {
+		return storageError(ctx, err)
+	}
+	err = conn.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		// Acquire the SQLite writer before any eligibility read.
 		if _, err := tx.ExecContext(ctx, "UPDATE edge_identity SET id = id WHERE id = 1"); err != nil {
 			return err
@@ -295,6 +309,9 @@ func storageError(ctx context.Context, err error) error {
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return ports.ErrNotFound
+	}
+	if strings.Contains(err.Error(), "edge metadata capacity exceeded") {
+		return ErrQueueFull
 	}
 	for _, sentinel := range []error{ports.ErrNotFound, ports.ErrConflict, ports.ErrStaleLocalState, domain.ErrValidation, ErrQueueFull} {
 		if errors.Is(err, sentinel) {

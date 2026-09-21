@@ -19,6 +19,8 @@ type Diagnostics struct {
 	FailedDeliveries  int64
 	GapRanges         int64
 	QueuePressure     bool
+	MetadataBytes     int64
+	MetadataPressure  bool
 }
 
 // ReadDiagnostics reads stream progress and retained telemetry in one transaction.
@@ -30,6 +32,10 @@ func (s *Store) ReadDiagnostics(ctx context.Context) (Diagnostics, error) {
 		if err != nil {
 			return err
 		}
+		if err := tx.NewRaw("SELECT used_bytes FROM edge_metadata_budget WHERE id=1").Scan(ctx, &out.MetadataBytes); err != nil {
+			return err
+		}
+		out.MetadataPressure = out.MetadataBytes >= maxMetadataBytes*8/10
 		var row struct {
 			First  int64
 			Bytes  int64

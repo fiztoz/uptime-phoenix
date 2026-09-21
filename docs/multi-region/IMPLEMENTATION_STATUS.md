@@ -7,6 +7,22 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 source metadata and physical admission bounds — 2026-09-21
+
+The [storage checkpoint](M3_STORAGE_BOUNDS_ACCEPTANCE.md) is accepted: separate
+64 MiB metadata quota, reference-aware bounded retirement, retained generation
+tombstones, guarded migration 010, diagnostics, database page limits and WAL
+checkpoint admission. Real SQLite tests cover rollback, pending work, oversized
+upgrades and a reader that blocks checkpointing. Final build, 3,719 named race
+passes (22 packages, two optional skips, live MariaDB/SQLite) and zero-issue lint
+passed with unchanged source hashes; see [evidence](M3_STORAGE_BOUNDS_EVIDENCE.json).
+
+The compiled rehearsal exposed an assignment/publication deadlock, fixed and
+verified by a deterministic MariaDB regression. A reset fixture now uses the
+database confirmation clock. [The retrospective](M3_ASSIGNMENT_LOCK_RETROSPECTIVE.md)
+retains failures and Antigravity review corrections. The complete actual
+900-second partition is running; M3 is not yet declared complete. No push/deploy.
+
 ## M3 bounded shutdown and pressure — 2026-09-21
 
 Producer admission now stops before a ten-second completion grace, followed by a

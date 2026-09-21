@@ -66,7 +66,10 @@ func (s *Store) SweepRetention(ctx context.Context, now time.Time) error {
 	if now.IsZero() {
 		return domain.ErrValidation
 	}
-	return s.write(ctx, func(ctx context.Context, tx bun.Tx, _ domain.EdgeIdentity) error {
+	return s.write(ctx, func(ctx context.Context, tx bun.Tx, i domain.EdgeIdentity) error {
+		if err := s.retainMetadata(ctx, tx, i, now); err != nil {
+			return err
+		}
 		err := s.retainTelemetry(ctx, tx, now.UTC(), "", 0, 0)
 		if errors.Is(err, ErrQueueFull) {
 			// Keep this bounded sweep's durable progress. Source writes still

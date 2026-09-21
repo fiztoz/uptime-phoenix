@@ -18,6 +18,9 @@ func edgeHealth(state edge.Diagnostics, writable, healthy bool, revision int64, 
 	if state.QueuePressure {
 		codes = append(codes, "queue_pressure")
 	}
+	if state.MetadataPressure {
+		codes = append(codes, "state_pressure")
+	}
 	if state.GapRanges > 0 {
 		codes = append(codes, "telemetry_gap")
 	}
