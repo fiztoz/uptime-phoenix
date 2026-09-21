@@ -7,6 +7,32 @@ for the next bounded assignment, current code map, failure scenarios and accepta
 tests. Check newer commits and the latest entries below before following its
 `4cc76f0` baseline. Earlier dated “next” instructions are historical.
 
+## M3 bounded shutdown and pressure — 2026-09-21
+
+Producer admission now stops before a ten-second completion grace, followed by a
+five-second ACK-based flush of a fixed durable prefix. Management and hijacked
+HTTP callbacks join before storage closes. Exact unacknowledged bytes survive
+offline restart. SMTP cancellation now closes the actual socket before a silent
+greeting or DATA receipt can block shutdown. Pressure crosses the configured 80%
+threshold and gap diagnostics clear only after committed acknowledgement.
+
+The full race suite passed 3,708 named cases in 22 packages, zero failures and two
+optional skips. All 315 MariaDB-named cases passed, including 302 audited live
+cases, with no engine skips. Final lint found two redundant SMTP type declarations;
+their semantics-preserving correction was followed by successful build, notifier
+race tests and zero-issue lint. The other 13 Go hashes are unchanged. Compiled
+shutdown/replay passed 25 stages; frontend 251 tests, 12 Chromium journeys, type
+check/build/lint, Helm gate and vulnerability scan passed. See
+[acceptance](M3_SHUTDOWN_ACCEPTANCE.md), [evidence](M3_SHUTDOWN_EVIDENCE.json) and
+[retrospective](M3_SHUTDOWN_RETROSPECTIVE.md).
+
+Continue [metadata bounds and cleanup](M3_STORAGE_BOUNDS_WORK_CONTRACT.md).
+An isolated real-SQLite reproduction leaves all 64 unreferenced historical config
+revisions and 32 resolved unnotified incidents after retention; those defects
+remain unfixed and were not part of the passing shutdown gate. Then finish the
+actual fifteen-minute partition and final M3 requirement audit. No Antigravity
+file ownership, push or deployment. Existing AGENTS.md changes remain excluded.
+
 ## M3 hub stream reset and operator recovery — 2026-09-21
 
 Hub migration 064 and the stopped-source/hub CLI flow are implemented. Reset

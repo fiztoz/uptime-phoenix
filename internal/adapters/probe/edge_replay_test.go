@@ -783,6 +783,35 @@ func TestEdgeRuntime_RealTLS_ReplayBatchAndACK(t *testing.T) {
 	if !bytes.Contains(replayed, sampleObs1) || !bytes.Contains(replayed, sampleObs2) {
 		t.Fatal("reconnect changed exact stored bytes")
 	}
+	// Quiescing keeps the authenticated pump alive, but an absent ACK cannot
+	// report a flush or remove the durable prefix.
+	runtime.Quiesce()
+	shortCtx, stopWait := context.WithTimeout(ctx, 75*time.Millisecond)
+	drained, drainErr := runtime.WaitForReplay(shortCtx)
+	stopWait()
+	if drainErr == nil || drained.Flushed || drained.TargetSeq != 2 || drained.CommittedSeq != 0 {
+		t.Fatal("withheld ACK became a successful flush", drained, drainErr)
+	}
+	if retained, err := store.ReadReplayBatch(ctx, 0, 100, MaxBatchBytes); err != nil || len(retained.Items) != 2 || !bytes.Equal(retained.Items[0].Payload, sampleObs1) {
+		t.Fatal("deadline changed durable evidence", err)
+	}
+	newcomer, _, err := websocket.Dial(ctx, endpoint, &websocket.DialOptions{HTTPClient: client, HTTPHeader: http.Header{"Authorization": {"Bearer " + runtimeToken}}, Subprotocols: []string{"phoenix.probe.v1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := newcomer.Read(ctx); err == nil {
+		t.Fatal("new session admitted after quiescence")
+	}
+	_ = newcomer.CloseNow()
+	// Management frames are left unacknowledged for retry, not executed or
+	// allowed to close the incumbent that is still consuming telemetry ACKs.
+	deferredCommand, err := encodeFrame("command.request", 2, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, deferredCommand); err != nil {
+		t.Fatal(err)
+	}
 
 	// 6. A durable duplicate receipt is the only authority to prune.
 	ack := TelemetryACK{
@@ -800,8 +829,12 @@ func TestEdgeRuntime_RealTLS_ReplayBatchAndACK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Wait briefly for edge to commit ACK
-	time.Sleep(200 * time.Millisecond)
+	drainCtx, stopDrain := context.WithTimeout(ctx, 2*time.Second)
+	drained, err = runtime.WaitForReplay(drainCtx)
+	stopDrain()
+	if err != nil || !drained.Flushed || drained.TargetSeq != 2 || drained.CommittedSeq != 2 {
+		t.Fatal("authenticated ACK failed to complete shutdown prefix", drained, err)
+	}
 
 	// Verify store committed_seq was advanced to 2
 	identity, err := store.ReadIdentity(t.Context())

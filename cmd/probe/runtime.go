@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
@@ -20,8 +21,16 @@ import (
 )
 
 func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIdentity, store *edge.Store, configs *services.EdgeConfigService, enrollment *services.EdgeEnrollmentService, tlsManager *probe.EdgeTLSManager) error {
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	// Termination first quiesces producers; established transport must remain
+	// alive long enough to receive ACKs for their last durable prefix.
+	sessionCtx, stopSessions := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopSessions()
+	producerCtx, stopProducers := context.WithCancel(sessionCtx)
+	defer stopProducers()
+	backgroundCtx, stopBackground := context.WithCancel(sessionCtx)
+	defer stopBackground()
+	quiesce := make(chan struct{})
+	var stopping atomic.Bool
 	cron := scheduler.CronEvaluator{}
 	recording := services.NewEdgeRecordingService(store, store, cron)
 	schedule := scheduler.NewEdgeScheduler(configs, recording, checker.Get, cron)
@@ -52,25 +61,7 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 		}
 		writable := store.CheckWritable(ctx) == nil
 		healthy, revision := schedule.Diagnostics()
-		codes := []string{}
-		if !writable {
-			codes = append(codes, "storage_unavailable")
-		}
-		if !healthy {
-			codes = append(codes, "scheduler_unavailable")
-		}
-		if state.QueuePressure {
-			codes = append(codes, "queue_pressure")
-		}
-		if state.GapRanges > 0 {
-			codes = append(codes, "telemetry_gap")
-		}
-		var oldest *probe.Timestamp
-		if state.OldestQueuedAt != nil {
-			at := probe.Timestamp(*state.OldestQueuedAt)
-			oldest = &at
-		}
-		return probe.Health{Role: "probe", Ready: writable && healthy && revision > 0, DBWritable: writable, SchedulerHealthy: &healthy, ConfigRevision: probe.Decimal(revision), CommittedSeq: probe.Decimal(state.Identity.CommittedSeq), QueueBytes: &state.QueueBytes, OldestQueuedAt: oldest, ClockTime: probe.Timestamp(time.Now().UTC()), Errors: codes}, nil
+		return edgeHealth(state, writable, healthy, revision, stopping.Load()), nil
 	}
 	state := func(ctx context.Context) (domain.EdgeIdentity, int64, error) {
 		d, err := store.ReadDiagnostics(ctx)
@@ -103,50 +94,96 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 	if err != nil {
 		return err
 	}
-	server := &http.Server{Addr: cfg.Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10, TLSConfig: tlsManager.TLSConfig(), ConnContext: tlsManager.ConnContext, BaseContext: func(net.Listener) context.Context { return runCtx }}
+	// Track hijacked enrollment requests too: http.Server.Shutdown does not join
+	// WebSocket handlers, and they must release storage before serveEdge returns.
+	var admission sync.Mutex
+	var requests sync.WaitGroup
+	admitted := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		admission.Lock()
+		if stopping.Load() {
+			admission.Unlock()
+			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		requests.Add(1)
+		admission.Unlock()
+		defer requests.Done()
+		if req.URL.Path != "/ws/probe/v1" {
+			requestCtx, cancel := context.WithCancel(req.Context())
+			stop := context.AfterFunc(backgroundCtx, cancel)
+			defer func() { stop(); cancel() }()
+			req = req.WithContext(requestCtx)
+		}
+		handler.ServeHTTP(w, req)
+	})
+	server := &http.Server{Addr: cfg.Listen, Handler: admitted, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10, TLSConfig: tlsManager.TLSConfig(), ConnContext: tlsManager.ConnContext, BaseContext: func(net.Listener) context.Context { return sessionCtx }}
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return errors.New("probe listener unavailable")
 	}
 	var workers sync.WaitGroup
-	workers.Add(5)
+	workers.Add(4)
+	serverDone := make(chan struct{})
 	failures := make(chan error, 3)
 	report := func(error) { slog.Warn("probe local operation failed; retry pending") }
-	go func() { defer workers.Done(); failures <- schedule.Run(runCtx, report) }()
-	go func() { defer workers.Done(); delivery.Run(runCtx, identity.ProbeID, report) }()
-	go func() { defer workers.Done(); failures <- watchdog.Run(runCtx, report) }()
+	go func() { defer workers.Done(); failures <- schedule.RunUntilQuiesced(producerCtx, quiesce, report) }()
+	go func() {
+		defer workers.Done()
+		delivery.RunUntilQuiesced(producerCtx, quiesce, identity.ProbeID, report)
+	}()
+	go func() { defer workers.Done(); failures <- watchdog.Run(backgroundCtx, report) }()
 	go func() {
 		defer workers.Done()
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 		for {
-			opCtx, done := context.WithTimeout(runCtx, 10*time.Second)
-			if sweepErr := store.SweepRetention(opCtx, time.Now().UTC()); sweepErr != nil && runCtx.Err() == nil {
+			opCtx, done := context.WithTimeout(backgroundCtx, 10*time.Second)
+			if sweepErr := store.SweepRetention(opCtx, time.Now().UTC()); sweepErr != nil && backgroundCtx.Err() == nil {
 				report(sweepErr)
 			}
 			done()
 			select {
-			case <-runCtx.Done():
+			case <-backgroundCtx.Done():
 				return
 			case <-ticker.C:
 			}
 		}
 	}()
-	go func() { defer workers.Done(); failures <- server.ServeTLS(listener, "", "") }()
+	go func() { defer close(serverDone); failures <- server.ServeTLS(listener, "", "") }()
 	slog.Info("probe runtime listening", "probe_id", identity.ProbeID, "address", listener.Addr().String())
 	select {
 	case <-ctx.Done():
 		err = ctx.Err()
 	case err = <-failures:
 	}
-	cancel()
+	admission.Lock()
+	stopping.Store(true)
+	admission.Unlock()
+	close(quiesce)
+	stopBackground()
+	_ = listener.Close()
+	grace := time.AfterFunc(10*time.Second, stopProducers)
+	runtime.Quiesce()
+	workers.Wait()
+	grace.Stop()
+	stopProducers()
+	drainCtx, stopDrain := context.WithTimeout(context.Background(), 5*time.Second)
+	drain, drainErr := runtime.WaitForReplay(drainCtx)
+	stopDrain()
+	if drainErr != nil {
+		slog.Warn("probe shutdown retains unacknowledged telemetry", "target_seq", drain.TargetSeq, "committed_seq", drain.CommittedSeq)
+	} else {
+		slog.Info("probe shutdown telemetry flushed", "target_seq", drain.TargetSeq, "committed_seq", drain.CommittedSeq)
+	}
+	stopSessions()
 	_ = runtime.Close()
 	shutdownCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stop()
 	if shutdownErr := server.Shutdown(shutdownCtx); shutdownErr != nil {
 		_ = server.Close()
 	}
-	workers.Wait()
+	<-serverDone
+	requests.Wait()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

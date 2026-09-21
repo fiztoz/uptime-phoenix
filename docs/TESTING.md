@@ -971,6 +971,26 @@ Diagnostic SQLite readers must close explicitly; read a published archive with
 `mode=ro&immutable=1` so verification cannot create sidecars. See
 [hub reset acceptance](multi-region/M3_HUB_RESET_ACCEPTANCE.md).
 
+## M3 bounded shutdown and pressure
+
+Run `rtk proxy go test -race -count=1 ./cmd/probe ./internal/adapters/probe ./internal/adapters/scheduler ./internal/core/services ./internal/adapters/notifier -run 'EdgeHealthPressure|EdgeRuntime_RealTLS_ReplayBatchAndACK|EdgeRuntimeQuiescence|EdgeDrainRejects|EdgeSchedulerAndProviderQuiescence|SourceDeliveryQuiescence|SMTP'`.
+The real SQLite/TLS cases test withheld versus committed ACKs, rejected new
+sessions, joined management callbacks and a fixed source prefix. Real HTTP checks
+and provider calls must finish and commit during quiescence, or honor cancellation
+when their grace ends. A canceled check must not invent a DOWN observation.
+Pressure crosses the exact 80% threshold; declared gaps clear only after ACK.
+SMTP cases cover cancellation before a greeting, during DATA receipt and before
+connecting, plus existing MIME/recipient/template behavior and TLS refusal.
+
+Add `--verify-shutdown` to the compiled `--verify-replay` process smoke. Each edge
+termination must finish within 25 seconds; the report captures actual latency,
+durable target/cursor, flushed versus retained state and exact remaining bytes.
+Both healthy flush and offline retention must occur. Completed in-flight checks
+may legitimately advance the high-water mark during shutdown; compare retained
+bytes and monotonic progress rather than assuming no new final result commits.
+See [shutdown acceptance](multi-region/M3_SHUTDOWN_ACCEPTANCE.md). This does not
+prove metadata cleanup or the complete fifteen-minute M3 partition.
+
 ## M3 ordered replay integration
 
 `TestProbeReplayAcceptance` in `internal/adapters/repository` runs the same mixed

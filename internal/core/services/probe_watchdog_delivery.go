@@ -121,7 +121,16 @@ func (s *ProbeWatchdogDeliveryService) Run(ctx context.Context, probeID string, 
 }
 
 func runSourceDeliveries(ctx context.Context, process func(context.Context) (bool, error), report func(error)) {
+	runSourceDeliveriesUntilQuiesced(ctx, nil, process, report)
+}
+
+func runSourceDeliveriesUntilQuiesced(ctx context.Context, quiesce <-chan struct{}, process func(context.Context) (bool, error), report func(error)) {
 	for ctx.Err() == nil {
+		select {
+		case <-quiesce:
+			return
+		default:
+		}
 		worked, err := process(ctx)
 		if err != nil && !errors.Is(err, context.Canceled) && report != nil {
 			report(err)
@@ -131,6 +140,9 @@ func runSourceDeliveries(ctx context.Context, process func(context.Context) (boo
 		}
 		timer := time.NewTimer(time.Second)
 		select {
+		case <-quiesce:
+			timer.Stop()
+			return
 		case <-ctx.Done():
 			timer.Stop()
 			return

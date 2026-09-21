@@ -2,7 +2,14 @@ package notifier
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/smtp"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +41,9 @@ func (SMTPSender) Validate(config map[string]any) error {
 }
 
 func (SMTPSender) Send(ctx context.Context, config map[string]any, alert domain.AlertContext) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	templateConfig, err := domain.ParseSMTPTemplateConfig(alert.TemplateConfig)
 	if err != nil {
 		return fmt.Errorf("smtp: invalid template configuration: %w", err)
@@ -126,18 +136,124 @@ func (SMTPSender) Send(ctx context.Context, config map[string]any, alert domain.
 		m.AddAlternative("text/html", htmlBody)
 	}
 
-	d := mail.NewDialer(host, port, username, password)
-	d.Timeout = 10 * time.Second
-	if useTLS {
-		d.StartTLSPolicy = mail.MandatoryStartTLS
-	} else {
-		d.StartTLSPolicy = mail.NoStartTLS
-	}
-
-	// Use context? mail.v2 dialer doesn't take ctx directly, but we timeout via dialer.
-	// For simplicity, send with timeout via goroutine + ctx (but to keep simple, rely on dialer timeout)
-	if err := d.DialAndSend(m); err != nil {
+	// Keep mail.v2's envelope/MIME formatting, but own the socket lifetime. Its
+	// Dialer waits for the greeting before installing a deadline, ignores ctx,
+	// and can recursively reconnect; durable delivery owns retries instead.
+	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	transport := smtpTransportConfig{host: host, port: port, username: username, password: password, useTLS: useTLS}
+	err = mail.Send(mail.SendFunc(func(from string, to []string, message io.WriterTo) error {
+		return transport.send(sendCtx, from, to, message)
+	}), m)
+	if err != nil {
+		if sendCtx.Err() != nil {
+			err = sendCtx.Err()
+		}
 		return fmt.Errorf("smtp: sending email: %w", err)
 	}
 	return nil
+}
+
+type smtpTransportConfig struct {
+	host, username, password string
+	port                     int
+	useTLS                   bool
+}
+
+func (c smtpTransportConfig) send(ctx context.Context, from string, to []string, message io.WriterTo) error {
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(c.host, strconv.Itoa(c.port)))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := conn.SetDeadline(deadline); err != nil {
+			return err
+		}
+	}
+	tlsConfig := &tls.Config{ServerName: c.host, MinVersion: tls.VersionTLS12}
+	transport := conn
+	if c.port == 465 {
+		secure := tls.Client(conn, tlsConfig)
+		if err := secure.HandshakeContext(ctx); err != nil {
+			return err
+		}
+		transport = secure
+	}
+	client, err := smtp.NewClient(transport, c.host)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+	if c.port != 465 && c.useTLS {
+		if supported, _ := client.Extension("STARTTLS"); !supported {
+			return errors.New("smtp: mandatory STARTTLS unavailable")
+		}
+		if err := client.StartTLS(tlsConfig); err != nil {
+			return err
+		}
+	}
+	if c.username != "" {
+		if ok, mechanisms := client.Extension("AUTH"); ok {
+			auth := smtp.PlainAuth("", c.username, c.password, c.host)
+			advertised := strings.Fields(mechanisms)
+			if slices.Contains(advertised, "CRAM-MD5") {
+				auth = smtp.CRAMMD5Auth(c.username, c.password)
+			} else if slices.Contains(advertised, "LOGIN") && !slices.Contains(advertised, "PLAIN") {
+				auth = smtpLoginAuth{host: c.host, username: c.username, password: c.password}
+			}
+			if err := client.Auth(auth); err != nil {
+				return err
+			}
+		}
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	for _, recipient := range to {
+		if err := client.Rcpt(recipient); err != nil {
+			return err
+		}
+	}
+	writer, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := message.WriteTo(writer); err != nil {
+		// Closing the socket aborts this transaction. Do not send a final DATA
+		// terminator for a partially serialized message or retry implicitly.
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+	// DATA acknowledgement is the provider result; QUIT is bounded cleanup.
+	_ = client.Quit()
+	return nil
+}
+
+// Preserve mail.v2's advertised LOGIN-only server compatibility.
+type smtpLoginAuth struct{ host, username, password string }
+
+func (a smtpLoginAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	if server.Name != a.host || !server.TLS && !slices.Contains(server.Auth, "LOGIN") {
+		return "", nil, errors.New("smtp: LOGIN server identity mismatch")
+	}
+	return "LOGIN", nil, nil
+}
+
+func (a smtpLoginAuth) Next(challenge []byte, more bool) ([]byte, error) {
+	if !more {
+		return nil, nil
+	}
+	switch string(challenge) {
+	case "Username:":
+		return []byte(a.username), nil
+	case "Password:":
+		return []byte(a.password), nil
+	default:
+		return nil, errors.New("smtp: unsupported LOGIN challenge")
+	}
 }

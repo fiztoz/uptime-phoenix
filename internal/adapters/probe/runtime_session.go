@@ -41,6 +41,8 @@ type EdgeRuntime struct {
 	watchdog     *services.ProbeWatchdogRuntime
 	mu           sync.Mutex
 	closed       bool
+	draining     bool
+	mutations    sync.WaitGroup
 	active       *Session
 	connections  map[*websocket.Conn]context.CancelFunc
 	handlers     sync.WaitGroup
@@ -110,7 +112,7 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	r.mu.Lock()
-	if r.closed {
+	if r.closed || r.draining {
 		r.mu.Unlock()
 		cancel()
 		return errors.New("edge runtime closed")
@@ -167,7 +169,7 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 		return err
 	}
 	r.mu.Lock()
-	if r.closed {
+	if r.closed || r.draining {
 		r.mu.Unlock()
 		_ = session.Close()
 		return errors.New("edge runtime closed")
@@ -269,6 +271,15 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 		admission = watchdog
 	}
 	err = session.RunWithHealthAdmission(establishedCtx, func(frameCtx context.Context, envelope Envelope) error {
+		switch envelope.Type {
+		case "command.request", "config.begin", "config.chunk", "config.commit":
+			if !r.admitMutation() {
+				// No success receipt: the hub retains durable work for reconnect.
+				// Keep state/replay receipts and health alive during bounded drain.
+				return nil
+			}
+			defer r.mutations.Done()
+		}
 		if rotationClose != nil {
 			// The result is on the wire. Quiesce mutation until the hub commits
 			// its receipt and closes, or the bounded reauthentication timer fires.

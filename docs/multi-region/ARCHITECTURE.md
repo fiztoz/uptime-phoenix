@@ -321,8 +321,10 @@ peer. Operator recovery uses `prepare-reset`, stopped-source `reset-stream`,
 `activate-reset` and `reset-status`; no fleet HTTP/UI reset is introduced.
 See [source checkpoint](M3_SOURCE_RESET_ACCEPTANCE.md),
 [hub/CLI acceptance](M3_HUB_RESET_ACCEPTANCE.md) and
-[the contract](M3_STREAM_RESET_WORK_CONTRACT.md). Bounded shutdown and the broader
-fifteen-minute M3 scenario remain unfinished. Watchdog ACK remains unsupported
+[the contract](M3_STREAM_RESET_WORK_CONTRACT.md). Bounded shutdown is implemented;
+consult [its acceptance ledger](M3_SHUTDOWN_ACCEPTANCE.md) for final gate status.
+Source metadata cleanup and the broader fifteen-minute M3 scenario remain
+unfinished. Watchdog ACK remains unsupported
 by the positive-assignment-generation regional command target.
 
 Send control health every 15 seconds. A link is suspect after 45 seconds without valid application health and disconnected after 90 seconds. Require 30 seconds of continuous valid health before a watchdog recovery notification. These are defaults, not sub-second promises.
@@ -671,6 +673,17 @@ Expose bounded-cardinality metrics for connected probes, reconnects, control age
 Liveness means the process can serve its local control loop. Readiness means identity/config/persistence are ready for assigned execution. Hub connection loss alone does not make an autonomous probe fail readiness and restart continuously. Expose an authenticated diagnostic view explaining degraded components.
 
 Support graceful shutdown: stop scheduling, bound in-flight check completion, commit results, cancel send loops, close the session, checkpoint SQLite as appropriate, and release ownership. Never wait indefinitely for notification providers or the hub before stopping.
+
+The standalone edge now stops admissions and joins already-admitted management
+callbacks, gives existing checks/provider attempts a ten-second completion grace,
+then observes a fixed durable prefix through the existing replay pump for at most
+five seconds. Unacknowledged bytes survive. HTTP shutdown is bounded separately
+and hijacked enrollment/session handlers join before storage closes. SMTP owns a
+cancelable socket and installs its deadline before TLS/greeting; no transport
+retry can extend the durable dispatcher's deadline. External acceptance before a
+lost local outcome remains a documented possible duplicate window. See
+[shutdown acceptance](M3_SHUTDOWN_ACCEPTANCE.md) and
+[remaining metadata bounds](M3_STORAGE_BOUNDS_WORK_CONTRACT.md).
 
 ### 11.1 Proposed runtime configuration
 

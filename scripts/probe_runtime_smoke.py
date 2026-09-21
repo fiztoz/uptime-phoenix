@@ -92,6 +92,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--port", type=int, default=38920)
     parser.add_argument("--verify-replay", action="store_true")
+    parser.add_argument("--verify-shutdown", action="store_true", help="verify bounded compiled termination and exact unacknowledged bytes across restart")
     parser.add_argument("--verify-history", action="store_true", help="verify the production history worker after replay and restart")
     parser.add_argument("--verify-watchdog", action="store_true", help="verify real both-side watchdog paging across a network partition and restart")
     parser.add_argument("--verify-command", action="store_true", help="exercise queued original-incident ACK across a real link partition and restart")
@@ -112,6 +113,8 @@ def main():
         parser.error("--verify-stream-reset requires --verify-replay and a separate run from rotations")
     if args.verify_history and not args.verify_replay:
         parser.error("--verify-history requires --verify-replay")
+    if args.verify_shutdown and not args.verify_replay:
+        parser.error("--verify-shutdown requires --verify-replay")
     if args.verify_watchdog and not args.verify_replay:
         parser.error("--verify-watchdog requires --verify-replay")
     if args.verify_command and (not args.verify_replay or not 1 <= args.command_partition_seconds <= 3600):
@@ -136,6 +139,7 @@ def main():
                HEARTBEAT_RETENTION_DAYS="0", SHARD_POLL_EVERY="1")
     edge_env = dict(env, PROBE_SECRET_KEY_FILE="")
     processes, logs, passed = {}, [], []
+    shutdown_evidence = []
     target_status, provider_status = 200, 200
     request_count, hooks, provider_attempts = 0, [], []
     lock = threading.Lock()
@@ -206,14 +210,48 @@ def main():
 
     def stop(name):
         process = processes.pop(name)
+        inspect_shutdown = args.verify_shutdown and name == "edge"
+        if inspect_shutdown:
+            prior_progress = edge_progress()
+            prior_rows = edge_rows("SELECT seq,hex(payload) AS payload FROM edge_telemetry_outbox ORDER BY seq")
+            log_offset = (output / "edge.log").stat().st_size
+        started = time.monotonic()
         process.terminate()
         try:
-            process.wait(timeout=15)
+            process.wait(timeout=25 if name == "edge" else 15)
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
             raise AssertionError(name + " did not shut down gracefully")
         assert process.returncode == 0, f"{name} failed shutdown"
+        if inspect_shutdown:
+            elapsed = time.monotonic() - started
+            progress = edge_progress()
+            assert progress["stream_id"] == prior_progress["stream_id"]
+            assert progress["config_revision"] >= prior_progress["config_revision"]
+            assert progress["last_created_seq"] >= prior_progress["last_created_seq"]
+            assert progress["committed_seq"] >= prior_progress["committed_seq"]
+            remaining = {row["seq"]: row["payload"] for row in edge_rows("SELECT seq,hex(payload) AS payload FROM edge_telemetry_outbox")}
+            for row in prior_rows:
+                if row["seq"] > progress["committed_seq"]:
+                    assert remaining.get(row["seq"]) == row["payload"], "shutdown changed unacknowledged bytes"
+            entries = []
+            for line in (output / "edge.log").read_bytes()[log_offset:].decode().splitlines():
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+            drains = [entry for entry in entries if entry.get("msg", "").startswith("probe shutdown ")]
+            assert len(drains) == 1, "missing or duplicate shutdown outcome"
+            drain = drains[0]
+            assert drain["target_seq"] == progress["last_created_seq"]
+            assert drain["committed_seq"] <= progress["committed_seq"]
+            flushed = drain["msg"] == "probe shutdown telemetry flushed"
+            if flushed:
+                assert progress["committed_seq"] == progress["last_created_seq"] and not remaining
+            shutdown_evidence.append({"seconds": elapsed, "flushed": flushed,
+                                      "target_seq": drain["target_seq"], "committed_seq": progress["committed_seq"],
+                                      "retained_rows": len(remaining), "exact_unacknowledged_bytes_preserved": True})
 
     def api(method, path, body=None):
         req = urllib.request.Request(f"http://127.0.0.1:{args.port}" + path, method=method,
@@ -368,7 +406,7 @@ def main():
         before = edge_progress()
         stop("edge")
         inspected = command(args.probe_binary, ["inspect", "--data-dir", str(edge_dir)], edge_env)
-        assert inspected["stream_id"] == identity["stream_id"] and int(inspected["last_created_seq"]) == before["last_created_seq"]
+        assert inspected["stream_id"] == identity["stream_id"] and int(inspected["last_created_seq"]) >= before["last_created_seq"]
         with lock:
             provider_status = 200
         start("edge", args.probe_binary, edge_args, edge_env)
@@ -790,7 +828,12 @@ def main():
             reset_evidence = {"operation": complete, "old_history": old_history,
                               "source_before_reset": original, "bootstrap_files_unchanged": True,
                               "source_only_restart_verified": True, "hub_only_restart_verified": True}
+        if args.verify_shutdown:
+            assert any(row["flushed"] for row in shutdown_evidence)
+            assert any(not row["flushed"] and row["retained_rows"] > 0 for row in shutdown_evidence)
+            mark("compiled shutdown flushes healthy prefixes and preserves offline bytes within its bound")
         report = {"passed": passed, "identity": identity, "before_restart": before, "final": final,
+                  "shutdown_verified": args.verify_shutdown, "shutdown": shutdown_evidence,
                   "incident": incident, "provider_attempt_statuses": provider_attempts, "successful_webhook_statuses": [h["status"] for h in hooks],
                   "replay_verified": args.verify_replay, "replay": replay_evidence,
                   "history_verified": args.verify_history, "history": history_evidence, "runtime_ownership": runtime_evidence,

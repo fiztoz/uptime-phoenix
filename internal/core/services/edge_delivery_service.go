@@ -145,3 +145,9 @@ func edgeAlertContext(item domain.QueuedDelivery, a domain.EdgeResolvedAssignmen
 func (s *EdgeDeliveryService) Run(ctx context.Context, probeID string, report func(error)) {
 	runSourceDeliveries(ctx, func(ctx context.Context) (bool, error) { return s.ProcessNext(ctx, probeID) }, report)
 }
+
+// RunUntilQuiesced stops new claims when quiesce closes and lets an admitted
+// attempt finish under ctx. Cancel ctx to bound the completion grace.
+func (s *EdgeDeliveryService) RunUntilQuiesced(ctx context.Context, quiesce <-chan struct{}, probeID string, report func(error)) {
+	runSourceDeliveriesUntilQuiesced(ctx, quiesce, func(ctx context.Context) (bool, error) { return s.ProcessNext(ctx, probeID) }, report)
+}

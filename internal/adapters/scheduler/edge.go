@@ -45,6 +45,12 @@ type edgeCompletedCheck struct {
 // Run polls the durable accepted graph and waits for all canceled checks before
 // returning. Repeated/concurrent Run calls fail rather than creating duplicate owners.
 func (s *EdgeScheduler) Run(ctx context.Context, report func(error)) error {
+	return s.RunUntilQuiesced(ctx, nil, report)
+}
+
+// RunUntilQuiesced stops admitting checks when quiesce closes, then joins and
+// records in-flight work. The caller bounds that grace by canceling ctx.
+func (s *EdgeScheduler) RunUntilQuiesced(ctx context.Context, quiesce <-chan struct{}, report func(error)) error {
 	if !s.running.CompareAndSwap(false, true) {
 		return errors.New("edge scheduler already started")
 	}
@@ -57,11 +63,22 @@ func (s *EdgeScheduler) Run(ctx context.Context, report func(error)) error {
 	failed := make(map[int64]bool)
 	var config *domain.EdgeResolvedConfig
 	var nextLoad time.Time
+	quiescing := false
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
+		select {
+		case <-quiesce:
+			quiescing = true
+			quiesce = nil
+			s.healthy.Store(false)
+		default:
+		}
+		if quiescing && len(inFlight) == 0 {
+			return nil
+		}
 		now := time.Now().UTC()
-		if !now.Before(nextLoad) {
+		if !quiescing && !now.Before(nextLoad) {
 			loaded, err := s.configs.Load(runCtx)
 			nextLoad = now.Add(5 * time.Second)
 			if err != nil || loaded == nil {
@@ -86,8 +103,16 @@ func (s *EdgeScheduler) Run(ctx context.Context, report func(error)) error {
 				s.healthy.Store(len(failed) == 0)
 			}
 		}
-		if config != nil {
+		if !quiescing && config != nil {
 			for _, a := range config.Assignments {
+				select {
+				case <-quiesce:
+					quiescing = true
+				default:
+				}
+				if quiescing || runCtx.Err() != nil {
+					break
+				}
 				if len(inFlight) >= 32 {
 					break
 				}
@@ -113,6 +138,10 @@ func (s *EdgeScheduler) Run(ctx context.Context, report func(error)) error {
 			}
 		}
 		select {
+		case <-quiesce:
+			quiescing = true
+			quiesce = nil
+			s.healthy.Store(false)
 		case <-ctx.Done():
 			return ctx.Err()
 		case done := <-completed:
@@ -124,7 +153,7 @@ func (s *EdgeScheduler) Run(ctx context.Context, report func(error)) error {
 				} else if !errors.Is(done.err, context.Canceled) && !errors.Is(done.err, ports.ErrConflict) {
 					failed[done.id] = true
 				}
-				s.healthy.Store(len(failed) == 0)
+				s.healthy.Store(!quiescing && len(failed) == 0)
 			}
 			if done.err != nil && !errors.Is(done.err, context.Canceled) && !errors.Is(done.err, ports.ErrConflict) {
 				if report != nil {
