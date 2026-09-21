@@ -1019,8 +1019,12 @@ recovers before reconnection. The first target keeps its original pending ACK.
 
 The report must show at least 900 measured monotonic seconds, exact retained
 payload digests and original observation microseconds, one receipt per source
-sequence, no remote provider work at the hub, and initial fresh state applied
-before the retained prefix's first replay receipt. The original ACK must have one
+sequence, no hub sends for mirrored edge incidents, and initial fresh state applied
+before newly received history beyond the pre-reconnect hub cursor. Legitimate hub
+watchdog sends are identified by the durable hub incident-ownership table. A lost
+ACK may leave already-received events on the edge; their earlier receipt times
+must remain unchanged. The private `partition-prefix.json` preserves input digests
+and timestamps before ACK pruning. The original ACK must have one
 source receipt and one accepted transition, and cannot silence a later incident.
 Check every enabled verification flag and process exit, not only a printed PASS.
 A 30-second rehearsal is useful but its `milestone_duration_met` is false.

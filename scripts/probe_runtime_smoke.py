@@ -636,6 +636,16 @@ def main():
                 prefix_end = retained[-1]["seq"]
                 current_seq = edge_rows(f"SELECT seq FROM edge_regional_state WHERE monitor_id={partition_monitor} AND status=1")[0]["seq"]
                 assert partition_elapsed >= args.command_partition_seconds
+                prior_hub_cursor = hub_cursor()
+                # Keep the proof even if a later assertion fails after ACK pruning.
+                # An ACK lost at the partition boundary may leave already-received
+                # rows on the edge; their original receipt time must not change.
+                prefix_evidence = {"duration_seconds": partition_elapsed, "prior_hub_cursor": prior_hub_cursor,
+                    "prefix_end": prefix_end, "rows": [{"seq": row["seq"], "kind": row["kind"],
+                        "observed_at": row["observed_at"], "digest": hashlib.sha256(bytes.fromhex(row["payload"])).hexdigest()} for row in retained]}
+                prefix_file = output / "partition-prefix.json"
+                prefix_file.write_text(json.dumps(prefix_evidence, indent=2) + "\n")
+                prefix_file.chmod(0o600)
             relay.partition(False)
             if args.verify_partition:
                 first_state = []
@@ -689,8 +699,9 @@ def main():
                              f"WHERE source_alert_id='{original_id}' AND transition_version=2 AND rejection_code=''") == [{"count": 1}]
             assert hub_query("SELECT JSON_OBJECT('count',COUNT(*)) FROM probe_telemetry_receipts "
                              f"WHERE probe_id='{identity['probe_id']}' AND rejection_code<>''") == [{"count": 0}]
-            assert hub_query("SELECT JSON_OBJECT('count',COUNT(*)) FROM probe_delivery_intents "
-                             f"WHERE probe_id='{identity['probe_id']}'") == [{"count": 0}]
+            assert hub_query("SELECT JSON_OBJECT('count',COUNT(*)) FROM probe_delivery_intents d "
+                             f"WHERE d.probe_id='{identity['probe_id']}' AND NOT EXISTS "
+                             "(SELECT 1 FROM probe_hub_watchdog_incidents h WHERE h.source_alert_id=d.source_alert_id)") == [{"count": 0}]
             if args.verify_partition:
                 seqs = ",".join(str(row["seq"]) for row in retained)
                 receipts = hub_query("SELECT JSON_OBJECT('seq',seq,'digest',digest,'kind',kind,'rejection',rejection_code,"
@@ -698,7 +709,9 @@ def main():
                     f"WHERE probe_id='{identity['probe_id']}' AND stream_id='{identity['stream_id']}' AND seq IN ({seqs}) ORDER BY seq")
                 expected = [{"seq": row["seq"], "digest": hashlib.sha256(bytes.fromhex(row["payload"])).hexdigest(), "kind": row["kind"], "rejection": ""} for row in retained]
                 assert [{k: row[k] for k in ("seq", "digest", "kind", "rejection")} for row in receipts] == expected
-                assert first_state[0]["applied_us"] <= min(row["received_us"] for row in receipts), "backlog overtook initial current state"
+                new_receipts = [row for row in receipts if row["seq"] > prior_hub_cursor]
+                assert new_receipts, "partition produced no new retained history"
+                assert first_state[0]["applied_us"] <= min(row["received_us"] for row in new_receipts), "backlog overtook initial current state"
                 observations = hub_query("SELECT JSON_OBJECT('seq',seq,'observed_us',CAST(UNIX_TIMESTAMP(observed_at)*1000000 AS SIGNED)) FROM probe_observations "
                     f"WHERE probe_id='{identity['probe_id']}' AND stream_id='{identity['stream_id']}' AND seq IN ({seqs}) ORDER BY seq")
                 assert observations == [{"seq": row["seq"], "observed_us": row["observed_at"]} for row in retained if row["kind"] == "observation"]
@@ -708,8 +721,10 @@ def main():
                 partition_evidence = {"duration_seconds": partition_elapsed, "milestone_duration_met": partition_elapsed >= 900,
                     "monitor_id": partition_monitor, "source_alert_id": partition_incident, "restart_preserved_rows": len(retained_before_restart),
                     "replayed_rows": len(retained), "observations_with_original_times": len(observations), "prefix_end": prefix_end,
-                    "first_current_state": first_state[0], "first_replay_received_us": min(row["received_us"] for row in receipts),
+                    "first_current_state": first_state[0], "prior_hub_cursor": prior_hub_cursor,
+                    "first_replay_received_us": min(row["received_us"] for row in new_receipts),
                     "last_replay_received_us": max(row["received_us"] for row in receipts), "hub_send_intents": 0,
+                    "hub_send_intents_scope": "mirrored remote incidents, excluding durable hub watchdog owners",
                     "receipt_digest_sha256": hashlib.sha256(json.dumps(expected, separators=(",", ":")).encode()).hexdigest()}
                 mark("partition DOWN/UP and restart replay exactly once with original times and current state first")
             mark("queued ACK applies once to its original incident and cannot silence a later outage")

@@ -56,3 +56,20 @@ and narrowed its earlier test claim: the deterministic regression proves this
 interleaving is fixed, not universal deadlock immunity. Review and correction are
 retained in `/private/tmp/phoenix-m3-assignment-teaching.jsonl` and
 `/private/tmp/phoenix-m3-assignment-correction.jsonl`.
+
+The first combined 900-second run completed its timed outage, fresh-state transfer
+and original ACK, then failed a harness assertion that required zero delivery
+intents for the remote probe ID. That predicate was valid before watchdogs were
+enabled; combined flags also create legitimate hub-owned watchdog intents under
+that probe ID. Read-only inspection found three sends, all `probe_connection`
+events whose incidents belong to `probe_hub_watchdog_incidents`. The corrected
+assertion excludes only those durable hub owners and still forbids sends for
+every mirrored edge incident. Production code did not change.
+
+The harness now also saves retained sequence/kind/digest/time proof before ACK
+pruning, so later failures cannot erase the comparison input. State-priority timing
+compares newly received history beyond the pre-reconnect hub cursor; a receipt
+whose ACK was lost before partition must retain its earlier timestamp. All retained
+rows, including those retries, still require exactly one matching receipt and
+original observation time. The failed run remains at
+`/private/tmp/phoenix-m3-partition-final-process.log`; it is not counted as accepted.
