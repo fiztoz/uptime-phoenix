@@ -18,8 +18,9 @@ import (
 
 // EdgeRuntimeConfig advertises only execution capabilities implemented by this build.
 type EdgeRuntimeConfig struct {
-	AgentVersion string
-	Capabilities []string
+	AgentVersion     string
+	Capabilities     []string
+	ResourceBindings []ResourceBinding
 }
 
 // EdgeRuntimeState reads one coherent durable identity/retained-sequence snapshot.
@@ -101,6 +102,7 @@ func NewEdgeRuntime(state EdgeRuntimeState, identity ports.EdgeIdentityRepositor
 		return nil, domain.ErrValidation
 	}
 	cfg.Capabilities = slices.Clone(cfg.Capabilities)
+	cfg.ResourceBindings = append([]ResourceBinding{}, cfg.ResourceBindings...)
 	return &EdgeRuntime{state: state, identity: identity, configs: configs, cfg: cfg, health: health, connections: make(map[*websocket.Conn]context.CancelFunc)}, nil
 }
 
@@ -138,7 +140,7 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 	if i.HubID != binding.HubID || i.ProbeID != binding.ProbeID || !domain.ValidEdgeIdentity(i) || !domain.ValidEdgeEnrollment(binding) {
 		return ErrHandshakeIdentity
 	}
-	hello := Hello{SessionIdentity: SessionIdentity{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID}, AgentVersion: r.cfg.AgentVersion, ProtocolMin: 1, ProtocolMax: 1, ConfigRevision: Decimal(i.ConfigRevision), FirstRetainedSeq: Decimal(first), LastCreatedSeq: Decimal(i.LastCreatedSeq), Capabilities: r.cfg.Capabilities, ResourceBindings: []ResourceBinding{}}
+	hello := Hello{SessionIdentity: SessionIdentity{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID}, AgentVersion: r.cfg.AgentVersion, ProtocolMin: 1, ProtocolMax: 1, ConfigRevision: Decimal(i.ConfigRevision), FirstRetainedSeq: Decimal(first), LastCreatedSeq: Decimal(i.LastCreatedSeq), Capabilities: r.cfg.Capabilities, ResourceBindings: r.cfg.ResourceBindings}
 	helloFrame, err := encodeFrame("hello", 0, hello)
 	if err != nil {
 		return err
@@ -359,7 +361,7 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 			if transfer != nil {
 				transfer.Discard()
 			}
-			transfer, err = NewConfigTransfer(frame, time.Now(), ConfigTarget{HubID: i.HubID, ProbeID: i.ProbeID, ConnectionGeneration: welcome.ConnectionGeneration, Capabilities: r.cfg.Capabilities})
+			transfer, err = NewConfigTransfer(frame, time.Now(), ConfigTarget{HubID: i.HubID, ProbeID: i.ProbeID, ConnectionGeneration: welcome.ConnectionGeneration, Capabilities: r.cfg.Capabilities, ResourceBindings: r.cfg.ResourceBindings})
 			if err != nil {
 				return reject(begin.ConfigTransferIdentity)
 			}

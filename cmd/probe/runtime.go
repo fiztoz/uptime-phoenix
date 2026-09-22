@@ -20,7 +20,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIdentity, store *edge.Store, configs *services.EdgeConfigService, enrollment *services.EdgeEnrollmentService, tlsManager *probe.EdgeTLSManager) error {
+func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIdentity, store *edge.Store, configs *services.EdgeConfigService, enrollment *services.EdgeEnrollmentService, tlsManager *probe.EdgeTLSManager, resources *probe.LocalResourceBindings) error {
 	// Termination first quiesces producers; established transport must remain
 	// alive long enough to receive ACKs for their last durable prefix.
 	sessionCtx, stopSessions := context.WithCancel(context.WithoutCancel(ctx))
@@ -69,15 +69,14 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 	}
 	capabilities := []string{"snapshot.v1", "watchdog.v1", probe.AcknowledgementCapability, probe.CredentialRotationCapability, probe.CertificateRotationCapability}
 	// Advertise only checkers this build actually runs. Ping additionally
-	// requires the unprivileged ICMP socket; docker is withheld until
-	// resource-binding publication exists.
-	capabilities = append(capabilities, probe.PullCheckerCapabilities(checker.RegisteredPullTypes(), checker.Get, checker.ICMPAvailable())...)
+	// requires the unprivileged ICMP socket; Docker requires local bindings.
+	capabilities = append(capabilities, probe.PullCheckerCapabilities(checker.RegisteredPullTypes(), checker.Get, checker.ICMPAvailable(), resources)...)
 	for _, name := range []string{"telegram", "discord", "slack", "smtp", "webhook", "teams", "mattermost", "gotify", "bark", "feishu", "line"} {
 		if _, ok := notifier.Get(name); ok {
 			capabilities = append(capabilities, "notifier."+name+".v1")
 		}
 	}
-	runtime, err := probe.NewEdgeRuntime(state, store, configs, probe.EdgeRuntimeConfig{AgentVersion: "phoenix-m3", Capabilities: capabilities}, diagnostic)
+	runtime, err := probe.NewEdgeRuntime(state, store, configs, probe.EdgeRuntimeConfig{AgentVersion: "phoenix-m4", Capabilities: capabilities, ResourceBindings: resources.Inventory()}, diagnostic)
 	if err != nil {
 		return err
 	}

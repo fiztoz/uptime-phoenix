@@ -115,9 +115,13 @@ func readProbeConfigSource(ctx context.Context, tx bun.Tx, probeID string) (*dom
 	}
 	ids := make([]int64, 0, len(rows))
 	generation := make(map[int64]int64, len(rows))
+	bindings := make(map[int64]*domain.ProbeResourceBinding, len(rows))
 	for _, row := range rows {
 		ids = append(ids, row.MonitorID)
 		generation[row.MonitorID] = row.Generation
+		if row.ResourceBindingKey != "" {
+			bindings[row.MonitorID] = &domain.ProbeResourceBinding{BindingKey: row.ResourceBindingKey, Kind: row.ResourceBindingKind}
+		}
 	}
 	monitors, err := configSourceRows[MonitorModel](ctx, tx.NewSelect().Where("id IN (?)", bun.List(ids)).Order("id ASC"), configSourceAssignments)
 	if err != nil {
@@ -127,7 +131,7 @@ func readProbeConfigSource(ctx context.Context, tx bun.Tx, probeID string) (*dom
 		return nil, domain.ErrValidation
 	}
 	for i := range monitors {
-		out.Assignments = append(out.Assignments, domain.ProbeConfigAssignment{Monitor: monitors[i].ToDomain(), Generation: generation[monitors[i].ID]})
+		out.Assignments = append(out.Assignments, domain.ProbeConfigAssignment{Monitor: monitors[i].ToDomain(), Generation: generation[monitors[i].ID], ResourceBinding: bindings[monitors[i].ID]})
 	}
 	if err := readConfigGroups(ctx, tx, out); err != nil {
 		return nil, err

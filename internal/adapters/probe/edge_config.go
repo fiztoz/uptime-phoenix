@@ -11,15 +11,30 @@ import (
 )
 
 // EdgeConfigDecoder validates the M4 pull-checker runtime. Features without
-// an execution owner (Docker resource bindings, certificate paging, remote
+// an execution owner (certificate paging, remote
 // escalation) fail explicitly until they have one.
-type EdgeConfigDecoder struct{ validators *LocalConfigValidator }
+type EdgeConfigDecoder struct {
+	validators    *LocalConfigValidator
+	resources     *LocalResourceBindings
+	referenceOnly bool
+}
 
 var _ ports.EdgeConfigDecoder = (*EdgeConfigDecoder)(nil)
 
 // NewEdgeConfigDecoder accepts the actual installed checker and sender lookups.
-func NewEdgeConfigDecoder(checker func(string) (ports.Checker, bool), sender func(string) (ports.NotificationSender, bool)) *EdgeConfigDecoder {
-	return &EdgeConfigDecoder{validators: NewLocalConfigValidator(checker, sender)}
+func NewEdgeConfigDecoder(checker func(string) (ports.Checker, bool), sender func(string) (ports.NotificationSender, bool), resources ...*LocalResourceBindings) *EdgeConfigDecoder {
+	d := &EdgeConfigDecoder{validators: NewLocalConfigValidator(checker, sender)}
+	if len(resources) == 1 {
+		d.resources = resources[0]
+	}
+	return d
+}
+
+// NewHubConfigDecoder validates remote snapshot references for publication,
+// receipts and replay. It never resolves probe-local endpoints and must not be
+// used to activate or execute an edge configuration.
+func NewHubConfigDecoder(checker func(string) (ports.Checker, bool), sender func(string) (ports.NotificationSender, bool)) *EdgeConfigDecoder {
+	return &EdgeConfigDecoder{validators: NewLocalConfigValidator(checker, sender), referenceOnly: true}
 }
 
 // DecodeEdge validates both graph references and extension semantics, then maps
@@ -37,6 +52,15 @@ func (d *EdgeConfigDecoder) DecodeEdge(ctx context.Context, document []byte, tar
 	}
 	if err := validateEdgeRuntimeSnapshot(s); err != nil {
 		return nil, err
+	}
+	if !d.referenceOnly {
+		for _, a := range s.Assignments {
+			for _, binding := range a.ResourceBindings {
+				if _, err := d.resources.resolve(binding); err != nil {
+					return nil, err
+				}
+			}
+		}
 	}
 	if err := d.validators.validateSnapshot(ctx, s); err != nil {
 		return nil, err
@@ -58,6 +82,13 @@ func (d *EdgeConfigDecoder) DecodeEdge(ctx context.Context, document []byte, tar
 		config, err := configExtensionObject(a.Monitor.Config)
 		if err != nil {
 			return nil, domain.ErrValidation
+		}
+		if a.Monitor.Type == "docker" && !d.referenceOnly {
+			endpoint, err := d.resources.resolve(a.ResourceBindings[0])
+			if err != nil {
+				return nil, err
+			}
+			config["docker_daemon"] = endpoint
 		}
 		m := a.Monitor
 		resolved := domain.EdgeResolvedAssignment{Monitor: &domain.Monitor{ID: a.MonitorID, Name: m.Name, Description: m.Description, Owner: m.Owner, Type: m.Type, Active: a.Active, Interval: int(m.Interval), RetryInterval: int(m.RetryInterval), MaxRetries: int(m.MaxRetries), Timeout: m.Timeout, Config: config, AcceptedStatusCodes: slices.Clone(m.AcceptedStatusCodes), UpsideDown: m.UpsideDown, ResendInterval: int(m.ResendInterval), TLSIgnore: m.TLSIgnore}, Generation: int64(a.Generation), EffectiveOwner: m.EffectiveOwner, MaintenanceIDs: slices.Clone(a.MaintenanceIDs), EscalationPolicyID: a.EscalationPolicyID}
@@ -111,12 +142,18 @@ func validateEdgeRuntimeSnapshot(s ConfigSnapshot) error {
 		return fmt.Errorf("enabled connection watchdog requires probe metadata: %w", domain.ErrValidation)
 	}
 	for _, a := range s.Assignments {
-		// Pull checkers without probe-local resources execute directly; docker
-		// resolves through an advertised resource binding, which publication
-		// cannot yet carry, so it fails instead of pretending the hub socket
-		// exists on the VM.
-		if a.Monitor.Type == "docker" || len(a.ResourceBindings) != 0 {
-			return fmt.Errorf("remote docker execution requires an advertised resource binding: %w", ErrUnsupportedCapability)
+		if a.Monitor.Type == "docker" {
+			config, err := configExtensionObject(a.Monitor.Config)
+			if err != nil {
+				return err
+			}
+			// Only container identity travels from hub to edge. The daemon is
+			// exclusively selected by the local binding, with no fallback.
+			for key := range config {
+				if key != "container" {
+					return domain.ErrValidation
+				}
+			}
 		}
 		if a.Monitor.CertExpiryNotify {
 			return fmt.Errorf("certificate paging is unavailable in this build: %w", ErrUnsupportedCapability)

@@ -100,10 +100,11 @@ unchanged content retains its revision and ciphertext. A changed revision causes
 a reconnect and bounded complete transfer. Concurrent edits may require the next
 reconciliation; pending work is retained across a hub restart.
 
-The edge executes every pull monitor type except docker — http, tcp, ping, dns,
-websocket, mqtt, rabbitmq, grpc, snmp, database and s3 — and direct delivery.
-Docker assignments, certificate paging and active escalation fail publication
-visibly; the last accepted edge configuration continues until a valid replacement
+The edge executes all pull monitor types — http, tcp, ping, dns, websocket,
+docker, mqtt, rabbitmq, grpc, snmp, database and s3 — and direct delivery. Docker
+requires [probe-local resource bindings](M4_DOCKER_BINDINGS.md); its hub daemon
+address is never copied into remote configuration. Missing Docker references,
+certificate paging and active escalation fail publication visibly; the last accepted edge configuration continues until a valid replacement
 arrives. Each probe advertises only the checkers its build actually contains, and
 ping is advertised only when the host permits unprivileged ICMP (Linux requires
 `net.ipv4.ping_group_range` to cover the probe user; default macOS and Windows

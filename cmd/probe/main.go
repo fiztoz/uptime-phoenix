@@ -29,6 +29,7 @@ type edgeOptions struct {
 	DataDir                 string `env:"PROBE_DATA_DIR" envDefault:"/var/lib/uptime-phoenix/probe"`
 	Listen                  string `env:"PROBE_LISTEN_ADDR" envDefault:":8443"`
 	KeyFile                 string `env:"PROBE_SECRET_KEY_FILE"`
+	ResourceBindingsFile    string `env:"PROBE_RESOURCE_BINDINGS_FILE"`
 	TelemetryMaxBytes       int64  `env:"PROBE_TELEMETRY_MAX_BYTES" envDefault:"536870912"`
 	TelemetryRetentionHours int    `env:"PROBE_TELEMETRY_RETENTION_HOURS" envDefault:"168"`
 }
@@ -62,6 +63,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&cfg.DataDir, "data-dir", cfg.DataDir, "private local data directory")
 	flags.StringVar(&cfg.KeyFile, "key-file", cfg.KeyFile, "protected configuration key")
 	flags.StringVar(&cfg.Listen, "listen", cfg.Listen, "TLS listen address")
+	flags.StringVar(&cfg.ResourceBindingsFile, "resource-bindings-file", cfg.ResourceBindingsFile, "private local Docker resource map")
 	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 || cfg.DataDir == "" || cfg.TelemetryMaxBytes < 1<<20 || cfg.TelemetryMaxBytes > 1<<40 || cfg.TelemetryRetentionHours < 1 || cfg.TelemetryRetentionHours > 365*24 {
 		_, _ = io.WriteString(stderr, usage)
 		return 2
@@ -119,7 +121,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = io.WriteString(stderr, "Active probe certificate could not be authenticated or validated\n")
 		return 1
 	}
-	configs := services.NewEdgeConfigService(store, store, probe.NewEdgeConfigDecoder(checker.Get, notifier.Get), protector)
+	resources, err := probe.LoadResourceBindings(ctx, cfg.ResourceBindingsFile)
+	if err != nil {
+		_, _ = io.WriteString(stderr, "Probe resource bindings are invalid; use a private regular file with supported endpoints\n")
+		return 1
+	}
+	configs := services.NewEdgeConfigService(store, store, probe.NewEdgeConfigDecoder(checker.Get, notifier.Get, resources), protector)
 	progress, err := store.ReadIdentity(ctx)
 	if err != nil {
 		_, _ = io.WriteString(stderr, "Probe identity storage is invalid\n")
@@ -136,7 +143,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	enrollment := services.NewEdgeEnrollmentService(store)
 	if args[0] == "run" {
-		if err := serveEdge(ctx, cfg, identity, store, configs, enrollment, tlsManager); err != nil && !errors.Is(err, context.Canceled) {
+		if err := serveEdge(ctx, cfg, identity, store, configs, enrollment, tlsManager, resources); err != nil && !errors.Is(err, context.Canceled) {
 			_, _ = io.WriteString(stderr, "Probe runtime stopped with an error\n")
 			return 1
 		}

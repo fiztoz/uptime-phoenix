@@ -93,6 +93,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--port", type=int, default=38920)
     parser.add_argument("--verify-replay", action="store_true")
+    parser.add_argument("--verify-docker", action="store_true", help="exercise probe-local Docker API bindings through assignment, transfer, execution and replay")
     parser.add_argument("--verify-shutdown", action="store_true", help="verify bounded compiled termination and exact unacknowledged bytes across restart")
     parser.add_argument("--verify-history", action="store_true", help="verify the production history worker after replay and restart")
     parser.add_argument("--verify-watchdog", action="store_true", help="verify real both-side watchdog paging across a network partition and restart")
@@ -142,6 +143,12 @@ def main():
                PROBE_ENDPOINT_POLICY_FILE=str(policy), PROBE_HUB_ID="",
                HEARTBEAT_RETENTION_DAYS="0", SHARD_POLL_EVERY="1")
     edge_env = dict(env, PROBE_SECRET_KEY_FILE="")
+    if args.verify_docker:
+        resources = output / "resources.json"
+        resources.write_text(json.dumps([{"binding_key": "smoke-docker", "kind": "docker_api",
+                                         "endpoint": f"tcp://127.0.0.1:{args.port + 1}"}]))
+        resources.chmod(0o600)
+        edge_env["PROBE_RESOURCE_BINDINGS_FILE"] = str(resources)
     processes, logs, passed = {}, [], []
     shutdown_evidence = []
     target_status, partition_target_status, provider_status = 200, 200, 200
@@ -150,8 +157,25 @@ def main():
     token = None
 
     class TargetAndSink(BaseHTTPRequestHandler):
+        def do_HEAD(self):
+            if self.path == "/_ping":
+                self.send_response(200)
+                self.send_header("API-Version", "1.55")
+                self.end_headers()
+            else:
+                self.send_error(404)
+
         def do_GET(self):
             nonlocal request_count
+            if self.path == "/_ping":
+                self.do_HEAD()
+                return
+            if re.fullmatch(r"/v[0-9.]+/containers/phoenix/json", self.path):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"Id":"phoenix","State":{"Status":"running"}}')
+                return
             if self.headers.get("Upgrade", "").lower() == "websocket":
                 # Minimal RFC 6455 server handshake for the extended pull-checker
                 # monitor. The checker only needs the upgrade to succeed and then
@@ -376,6 +400,16 @@ def main():
         generation = next(member["generation"] for member in assignment["assignments"] if member["probe_id"] == identity["probe_id"])
         api("POST", f"/api/notifications/{notification}/monitor/{monitor}", {"include_target": False})
         socket_assignment = admin("assign", "--monitor-id", str(socket_monitor), "--expected-revision", "1", "--probes", identity["probe_id"])
+        if args.verify_docker:
+            docker_monitor = api("POST", "/api/monitors", {"name": "edge-docker", "type": "docker", "active": True,
+                          "interval": 1, "retry_interval": 1, "max_retries": 1, "timeout": 2,
+                          "resend_interval": 0, "config": {"container": "phoenix", "docker_daemon": "unix:///must-not-use-hub.sock"}})["id"]
+            binding_file = output / "assignment-bindings.json"
+            binding_file.write_text(json.dumps([{"probe_id": identity["probe_id"], "binding_key": "smoke-docker", "kind": "docker_api"}]))
+            binding_file.chmod(0o600)
+            bound = admin("assign", "--monitor-id", str(docker_monitor), "--expected-revision", "1",
+                          "--probes", identity["probe_id"], "--bindings-file", str(binding_file))
+            assert bound["assignments"][0]["resource_bindings"] == [{"binding_key": "smoke-docker", "kind": "docker_api"}]
         assert int(next(member["generation"] for member in socket_assignment["assignments"]
                         if member["probe_id"] == identity["probe_id"])) > 0
         assert int(generation) > 0
@@ -390,11 +424,15 @@ def main():
         mark("operator enrollment succeeds with background connectors already running")
         wait_for("real hub connector activates accepted config", lambda: edge_progress()["config_revision"] == 1)
         wait_for("edge records healthy checks", lambda: edge_rows(
-            "SELECT status FROM edge_regional_state ORDER BY monitor_id") == [{"status": 1}, {"status": 1}])
+            "SELECT status FROM edge_regional_state ORDER BY monitor_id") == [{"status": 1}] * (3 if args.verify_docker else 2))
         if args.mariadb_container:
             wait_for("extended pull checker telemetry reaches the hub", lambda: bool(hub_query(
                 "SELECT monitor_id FROM probe_observations "
                 f"WHERE probe_id='{identity['probe_id']}' AND monitor_id={socket_monitor}")))
+            if args.verify_docker:
+                wait_for("bound Docker telemetry reaches the hub", lambda: bool(hub_query(
+                    "SELECT monitor_id FROM probe_observations "
+                    f"WHERE probe_id='{identity['probe_id']}' AND monitor_id={docker_monitor} AND status=1")))
         assert admin("status", "--probe-id", identity["probe_id"])["state"] == "active"
         wait_for("hub durably records exact applied receipt", lambda: admin("status", "--probe-id", identity["probe_id"])["applied_revision"] == "1")
         api("PUT", f"/api/monitors/{monitor}", {"name": "edge-target-edited"})
@@ -951,6 +989,7 @@ def main():
                   "shutdown_verified": args.verify_shutdown, "shutdown": shutdown_evidence,
                   "incident": incident, "provider_attempt_statuses": provider_attempts, "successful_webhook_statuses": [h["status"] for h in hooks],
                   "replay_verified": args.verify_replay, "replay": replay_evidence,
+                  "docker_verified": args.verify_docker,
                   "history_verified": args.verify_history, "history": history_evidence, "runtime_ownership": runtime_evidence,
                   "watchdog_verified": args.verify_watchdog, "watchdog": watchdog_evidence,
                   "command_verified": args.verify_command, "command": command_evidence,

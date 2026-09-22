@@ -115,13 +115,13 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 
 **Goal:** make distributed execution safe across Phoenix's actual feature surface.
 
-**Partial 2026-09-22:** [pull-checker coverage slice](M4_PULL_CHECKER_ACCEPTANCE.md)
-accepted — every pull type except docker executes remotely, and the probe hello
-advertises real build/runtime capabilities (ICMP-gated ping, docker withheld).
-Docker still needs the advertised resource-binding flow; the remaining bullets
-below are unchanged.
+**Partial 2026-09-22:** the [initial pull-checker slice](M4_PULL_CHECKER_ACCEPTANCE.md)
+and subsequent [Docker binding slice](M4_DOCKER_BINDINGS.md) implement every pull
+type. Hello reflects installed checkers, ICMP availability and configured Docker
+resources. Missing or mismatched resources reject activation; unreachable targets
+still produce DOWN observations. The remaining compatibility work is listed below.
 
-- [ ] Cover all existing pull monitor types: `http`, `tcp`, `ping`, `dns`, `websocket`, `docker`, `mqtt`, `rabbitmq`, `grpc`, `snmp`, `database`, `s3`. Keep push local-only until M9.
+- [x] Cover all existing pull monitor types: `http`, `tcp`, `ping`, `dns`, `websocket`, `docker`, `mqtt`, `rabbitmq`, `grpc`, `snmp`, `database`, `s3`. Keep push local-only until M9.
 - [ ] Advertise real runtime capability constraints, including ICMP privileges, Docker socket/API availability, engine support, and network/proxy bindings. Reject impossible assignments before activation.
 - [ ] Synchronize maintenance schedules/timezones, direct monitor notification links, provider/template configuration, target visibility flags, tags/owner context, and effective escalation policies.
 - [ ] Preserve direct-monitor and group-notification semantics: group channel attachments page on group incidents and are not automatically copied to every regional monitor.

@@ -31,7 +31,7 @@ const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prep
 Uses hub DB_ENGINE, DB_DSN, PROBE_SECRET_KEY_FILE and optional PROBE_ENDPOINT_POLICY_FILE.
 register --probe-id UUID --stream-id UUID --key SLUG --name NAME [--location LOCATION] --endpoint wss://HOST/ws/probe/v1 --fingerprint SHA256
 enroll --probe-id UUID --token-file PATH
-assign --monitor-id ID --expected-revision N --probes UUID[,local]
+assign --monitor-id ID --expected-revision N --probes UUID[,local] [--bindings-file PATH]
 prepare --probe-id UUID --expected-revision N --file PATH
 watchdog --probe-id UUID --expected-revision N --enabled=true|false [--notifications ID,ID] [--lost-after-seconds 90] [--recover-after-seconds 30] [--resend-interval 0]
 status --probe-id UUID
@@ -53,6 +53,7 @@ Watchdog replaces saved settings; expected-revision is the settings revision rep
 ACK retries must reuse the command ID and all original options. Pending means remote alerts may continue until the probe confirms. ACK targets only the named incident, including after reassignment.
 Run compatible hub workers with PROBES_ENABLED=true after enrollment. Workers synchronize supported configurations and replay retained telemetry.
 Fleet UI remains a later milestone.
+Bindings file is a JSON array of probe_id, binding_key and kind; omission preserves retained bindings, [] clears them. Remote Docker assignments require a binding. Verify keys against the operator-owned probe resource file; live hello inventory is checked before activation.
 `
 
 // RunProbeAdmin is the explicit local-operator composition root for the M2
@@ -69,6 +70,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	}
 	var probeID, streamID, key, name, location, endpoint, pin, tokenFile, documentFile, members, channelIDs string
 	var monitorID, revision int64
+	var bindingsFile string
 	var enabled bool
 	var lostSeconds, recoverSeconds, resendMinutes int64
 	var commandID, sourceAlertID, actor, noteFile string
@@ -97,6 +99,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	f.StringVar(&tokenFile, "token-file", "", "private enrollment token file")
 	f.StringVar(&documentFile, "file", "", "private complete snapshot file")
 	f.StringVar(&members, "probes", "", "complete desired assignment set")
+	f.StringVar(&bindingsFile, "bindings-file", "", "private assignment resource references")
 	f.Int64Var(&monitorID, "monitor-id", 0, "hub monitor ID")
 	f.Int64Var(&revision, "expected-revision", 0, "current revision")
 	f.StringVar(&commandID, "command-id", "", "immutable command UUID, retained for retries")
@@ -154,8 +157,9 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	}
 	registry := repository.NewProbeRegistryStore(db)
 	type assignmentView struct {
-		ProbeID    string        `json:"probe_id"`
-		Generation probe.Decimal `json:"generation"`
+		ProbeID          string                  `json:"probe_id"`
+		Generation       probe.Decimal           `json:"generation"`
+		ResourceBindings []probe.ResourceBinding `json:"resource_bindings"`
 	}
 	result := struct {
 		HubID               string                             `json:"hub_id"`
@@ -274,13 +278,21 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		if err != nil {
 			return fail("Monitor assignment state is unavailable")
 		}
-		set, err := repos.probeAssignments.Replace(ctx, monitorID, revision, strings.Split(members, ","), current.HealthPolicy)
+		bindings, err := readProbeAssignmentBindings(ctx, bindingsFile)
+		if err != nil {
+			return fail("Assignment binding file must be a private bounded JSON array of probe_id, binding_key and kind")
+		}
+		set, err := repository.NewProbeAssignmentStore(db).ReplaceWithBindings(ctx, monitorID, revision, strings.Split(members, ","), current.HealthPolicy, bindings)
 		if err != nil {
 			return fail("Assignment replacement failed; check the current revision and enabled registrations")
 		}
 		result.State, result.Revision = "assigned", probe.Decimal(set.Revision)
 		for _, member := range set.Assignments {
-			result.Assignments = append(result.Assignments, assignmentView{ProbeID: member.ProbeID, Generation: probe.Decimal(member.Generation)})
+			view := assignmentView{ProbeID: member.ProbeID, Generation: probe.Decimal(member.Generation), ResourceBindings: []probe.ResourceBinding{}}
+			if member.ResourceBinding != nil {
+				view.ResourceBindings = append(view.ResourceBindings, probe.ResourceBinding(*member.ResourceBinding))
+			}
+			result.Assignments = append(result.Assignments, view)
 		}
 	case "prepare":
 		if _, err := connections.GetConnection(ctx, probeID); err != nil {
@@ -292,7 +304,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		}
 		defer clear(document)
 		target := domain.ProbeConfigTarget{HubID: installation.HubID, ProbeID: probeID}
-		resolved, err := probe.NewEdgeConfigDecoder(checker.Get, notifier.Get).DecodeEdge(ctx, document, target)
+		resolved, err := probe.NewHubConfigDecoder(checker.Get, notifier.Get).DecodeEdge(ctx, document, target)
 		if err != nil {
 			return fail("Snapshot is invalid or requires unsupported edge features")
 		}

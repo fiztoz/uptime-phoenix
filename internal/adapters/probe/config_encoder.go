@@ -58,6 +58,20 @@ func encodeProbeConfigDefinition(d domain.LocalProbeConfigDefinition, remote boo
 		if err != nil {
 			return nil, err
 		}
+		if remote && assignment.Monitor.Type == "docker" {
+			if assignment.ResourceBinding == nil || !domain.ValidProbeResourceBinding(*assignment.ResourceBinding) {
+				return nil, ErrUnsupportedCapability
+			}
+			// Preserve local monitor configuration for local execution. Remote
+			// snapshots export only the container, never a hub daemon address.
+			a.Monitor.Config, err = encodeConfigObject(map[string]any{"container": assignment.Monitor.Config["container"]}, MaxConfigObjectBytes)
+			if err != nil {
+				return nil, err
+			}
+			a.ResourceBindings = []ResourceBinding{ResourceBinding(*assignment.ResourceBinding)}
+		} else if assignment.ResourceBinding != nil {
+			return nil, domain.ErrValidation
+		}
 		s.Assignments = append(s.Assignments, a)
 	}
 	for _, n := range d.Notifications {

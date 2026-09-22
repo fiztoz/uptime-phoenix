@@ -703,7 +703,7 @@ and validate them before opening network listeners.
 | `PROBE_TELEMETRY_RETENTION_HOURS` | `168` hours |
 | `PROBE_DELIVERY_MAX_BYTES` | Proposed override; current delivery budget is fixed at `67108864` bytes |
 | `PROBE_ENDPOINT_POLICY_FILE` | Optional stricter allow-list policy; built-in metadata/link-local protection always applies to management connections |
-| `PROBE_RESOURCE_BINDINGS_FILE` | Proposed for later checker compatibility: local JSON mapping stable binding keys to Docker socket/API resources, with adapter-defined kinds and safe endpoint validation |
+| `PROBE_RESOURCE_BINDINGS_FILE` | Private local JSON array mapping binding keys/kinds to absolute Unix sockets or plain TCP Docker API endpoints; see [M4 Docker bindings](M4_DOCKER_BINDINGS.md). Read once at startup; endpoints stay out of snapshots/hello |
 
 Watchdog timing and assignment freshness derive from the versioned accepted configuration so the hub and edge agree. Expose advanced timeout overrides only if both sides validate compatible bounds. Container deployment mounts the data directory and key material persistently and read-only where appropriate; do not bake tokens into image layers. Existing single-pod Helm values remain unchanged until the feature is explicitly enabled.
 

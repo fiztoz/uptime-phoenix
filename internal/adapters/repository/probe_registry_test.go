@@ -462,9 +462,12 @@ func testProbeRegistryMigration(t *testing.T, f probeRegistryFixture) {
 			t.Fatal(err)
 		}
 	}
-	set, err := f.assignments.GetByMonitorID(ctx, monitorID)
-	if err != nil || set.Revision != 1 || set.HealthPolicy != domain.HealthPolicyAnyDown || len(set.Assignments) != 1 || set.Assignments[0].Generation != 1 {
-		t.Fatalf("legacy backfill: %+v, %v", set, err)
+	// Read the 035 contract directly: current repositories also require later columns.
+	var backfill int
+	if err := f.db.NewSelect().TableExpr("monitor_probe_assignment_sets s").
+		Join("JOIN monitor_probe_assignments a ON a.monitor_id = s.monitor_id").
+		ColumnExpr("COUNT(*)").Where("s.monitor_id = ? AND s.revision = 1 AND s.health_policy = ? AND a.probe_id = 'local' AND a.generation = 1 AND a.active = ?", monitorID, domain.HealthPolicyAnyDown, true).Scan(ctx, &backfill); err != nil || backfill != 1 {
+		t.Fatalf("legacy backfill: count=%d, %v", backfill, err)
 	}
 	if err := runProbeRegistryMigration(t, f.db, f.engine, "down"); err != nil {
 		t.Fatalf("safe local-only downgrade: %v", err)
@@ -483,8 +486,8 @@ func testProbeRegistryMigration(t *testing.T, f probeRegistryFixture) {
 	if _, err := f.registry.GetByID(ctx, probeRegistryID1); err != nil {
 		t.Fatalf("guard did not preserve registration: %v", err)
 	}
-	if _, err := f.assignments.GetByMonitorID(ctx, monitorID); err != nil {
-		t.Fatalf("guard did not preserve assignment tables: %v", err)
+	if count, err := f.db.NewSelect().Table("monitor_probe_assignments").Where("monitor_id = ?", monitorID).Count(ctx); err != nil || count != 1 {
+		t.Fatalf("guard did not preserve assignment tables: count=%d, %v", count, err)
 	}
 }
 

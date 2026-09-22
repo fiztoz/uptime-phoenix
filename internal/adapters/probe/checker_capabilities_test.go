@@ -25,8 +25,8 @@ var allPullCandidates = []string{
 func fullStubLookup(kind string) (ports.Checker, bool) { return stubLookupChecker{kind}, true }
 
 func TestPullCheckerCapabilitiesDerivesFromRegistry(t *testing.T) {
-	// Full registry plus verified ICMP: every pull type except docker, which
-	// needs an advertised resource binding publication does not carry yet.
+	// Without a configured resource map, Docker remains withheld even when
+	// the checker is compiled in.
 	got := PullCheckerCapabilities(allPullCandidates, fullStubLookup, true)
 	want := []string{
 		"checker.database.v1", "checker.dns.v1", "checker.grpc.v1", "checker.http.v1",

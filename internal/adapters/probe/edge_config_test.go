@@ -54,6 +54,7 @@ func TestEdgeConfigDecoderRejectsUnsupportedWithoutIO(t *testing.T) {
 		"certificate": func(s *ConfigSnapshot) { s.Assignments[0].Monitor.CertExpiryNotify = true },
 		"docker resource binding": func(s *ConfigSnapshot) {
 			s.Assignments[0].Monitor.Type = "docker"
+			s.Assignments[0].Monitor.Config = json.RawMessage(`{"container":"phoenix"}`)
 			s.Assignments[0].RequiredCapabilities = []string{"checker.docker.v1"}
 			s.Assignments[0].ResourceBindings = []ResourceBinding{{BindingKey: "docker", Kind: "docker_socket"}}
 		},
@@ -85,7 +86,7 @@ func TestEdgeConfigDecoderRejectsUnsupportedWithoutIO(t *testing.T) {
 // TestEdgeConfigDecoderAcceptsEveryPullCheckerType proves edge activation
 // accepts each pull checker the build installs, through the same installed
 // validators the edge runtime uses. Docker requires an advertised resource
-// binding and stays rejected.
+// binding and is exercised by the separate resource binding tests.
 func TestEdgeConfigDecoderAcceptsEveryPullCheckerType(t *testing.T) {
 	decoder := NewEdgeConfigDecoder(checker.Get, notifier.Get)
 	for kind, config := range remotePullCheckerConfigs {
@@ -111,7 +112,25 @@ func TestEdgeConfigDecoderAcceptsEveryPullCheckerType(t *testing.T) {
 }
 
 func TestEdgeConfigActivationRetainsExactBytesAndColdValidation(t *testing.T) {
+	for _, kind := range []string{"http", "docker"} {
+		t.Run(kind, func(t *testing.T) { testEdgeConfigColdValidation(t, kind) })
+	}
+}
+
+func testEdgeConfigColdValidation(t *testing.T, kind string) {
 	snapshot := m2Config(t)
+	var resources *LocalResourceBindings
+	if kind == "docker" {
+		var err error
+		resources, err = LoadResourceBindings(t.Context(), resourceFile(t, `[{"binding_key":"docker","kind":"docker_socket","endpoint":"unix:///tmp/probe.sock"}]`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot.Assignments[0].Monitor.Type = "docker"
+		snapshot.Assignments[0].Monitor.Config = json.RawMessage(`{"container":"phoenix"}`)
+		snapshot.Assignments[0].RequiredCapabilities = []string{"checker.docker.v1"}
+		snapshot.Assignments[0].ResourceBindings = resources.Inventory()
+	}
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -137,7 +156,7 @@ func TestEdgeConfigActivationRetainsExactBytesAndColdValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := services.NewEdgeConfigService(store, store, NewEdgeConfigDecoder(checker.Get, notifier.Get), protector)
+	svc := services.NewEdgeConfigService(store, store, NewEdgeConfigDecoder(checker.Get, notifier.Get, resources), protector)
 	document := configBytes(t, snapshot)
 	wantHash := sha256.Sum256(document)
 	if _, err := svc.Apply(t.Context(), document, 6, at); !errors.Is(err, ports.ErrConflict) {
@@ -155,10 +174,37 @@ func TestEdgeConfigActivationRetainsExactBytesAndColdValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = reopened.Close() }()
-	cold := services.NewEdgeConfigService(reopened, reopened, NewEdgeConfigDecoder(checker.Get, notifier.Get), protector)
+	cold := services.NewEdgeConfigService(reopened, reopened, NewEdgeConfigDecoder(checker.Get, notifier.Get, resources), protector)
 	loaded, err := cold.Load(t.Context())
 	if err != nil || !domain.SameProbeConfigMetadata(loaded.Metadata, applied.Metadata) || loaded.Assignments[0].Monitor.ID != 42 {
 		t.Fatalf("cold read changed config: %+v %v", loaded, err)
+	}
+	if kind == "docker" {
+		missing := services.NewEdgeConfigService(reopened, reopened, NewEdgeConfigDecoder(checker.Get, notifier.Get), protector)
+		if _, err := missing.Load(t.Context()); !errors.Is(err, ErrUnsupportedCapability) {
+			t.Fatal("cold load accepted missing binding", err)
+		}
+		rejected := snapshot
+		rejected.Revision++
+		for i := range rejected.NotificationChannels {
+			rejected.NotificationChannels[i].Version = rejected.Revision
+		}
+		for i := range rejected.NotificationTemplates {
+			rejected.NotificationTemplates[i].Version = rejected.Revision
+		}
+		for i := range rejected.ProxyBindings {
+			rejected.ProxyBindings[i].Version = rejected.Revision
+		}
+		for i := range rejected.EscalationPolicies {
+			rejected.EscalationPolicies[i].Version = rejected.Revision
+		}
+		rejected.Assignments[0].ResourceBindings = []ResourceBinding{{BindingKey: "missing", Kind: "docker_socket"}}
+		if _, err := cold.Apply(t.Context(), configBytes(t, rejected), 7, at); !errors.Is(err, ErrUnsupportedCapability) {
+			t.Fatal("unresolved replacement applied", err)
+		}
+		if still, err := reopened.ReadActiveConfig(t.Context()); err != nil || still.Snapshot.Revision != int64(snapshot.Revision) {
+			t.Fatal("rejection changed durable config", err)
+		}
 	}
 	active, err := reopened.ReadActiveConfig(t.Context())
 	if err != nil {
@@ -172,7 +218,7 @@ func TestEdgeConfigActivationRetainsExactBytesAndColdValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := services.NewEdgeConfigService(reopened, reopened, NewEdgeConfigDecoder(checker.Get, notifier.Get), wrongKey).Load(t.Context()); err == nil {
+	if _, err := services.NewEdgeConfigService(reopened, reopened, NewEdgeConfigDecoder(checker.Get, notifier.Get, resources), wrongKey).Load(t.Context()); err == nil {
 		t.Fatal("cold load accepted foreign protection key")
 	}
 }

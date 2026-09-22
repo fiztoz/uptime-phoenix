@@ -160,13 +160,15 @@ type probeAssignmentSetModel struct {
 }
 
 type probeAssignmentModel struct {
-	bun.BaseModel `bun:"table:monitor_probe_assignments"`
-	MonitorID     int64     `bun:"monitor_id,pk"`
-	ProbeID       string    `bun:"probe_id,pk"`
-	Generation    int64     `bun:"generation"`
-	Active        bool      `bun:"active"`
-	CreatedAt     time.Time `bun:"created_at"`
-	UpdatedAt     time.Time `bun:"updated_at"`
+	bun.BaseModel       `bun:"table:monitor_probe_assignments"`
+	MonitorID           int64     `bun:"monitor_id,pk"`
+	ProbeID             string    `bun:"probe_id,pk"`
+	Generation          int64     `bun:"generation"`
+	Active              bool      `bun:"active"`
+	CreatedAt           time.Time `bun:"created_at"`
+	UpdatedAt           time.Time `bun:"updated_at"`
+	ResourceBindingKey  string    `bun:"resource_binding_key"`
+	ResourceBindingKind string    `bun:"resource_binding_kind"`
 }
 
 // ProbeAssignmentStore provides atomic desired-set replacement. Its transaction
@@ -318,6 +320,14 @@ func (r *ProbeAssignmentStore) GetByMonitorID(ctx context.Context, monitorID int
 // Replace validates and commits a full desired set with optimistic revision
 // control. Removed rows are tombstoned; their generations cannot be reused.
 func (r *ProbeAssignmentStore) Replace(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy) (*domain.MonitorProbeAssignments, error) {
+	return r.ReplaceWithBindings(ctx, monitorID, expectedRevision, probeIDs, policy, nil)
+}
+
+// ReplaceWithBindings atomically replaces membership and resource references.
+// Nil preserves bindings on retained members; an explicit list replaces all
+// bindings. New/recreated Docker assignments always require an explicit binding.
+// Live inventory is checked by the authenticated transport before activation.
+func (r *ProbeAssignmentStore) ReplaceWithBindings(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
 	ids, err := validateProbeReplacement(monitorID, expectedRevision, probeIDs, policy)
 	if err != nil {
 		return nil, err
@@ -370,7 +380,11 @@ func (r *ProbeAssignmentStore) Replace(ctx context.Context, monitorID, expectedR
 		if err := tx.NewSelect().Model(&previous).Where("monitor_id = ?", monitorID).Order("probe_id ASC").Scan(ctx); err != nil {
 			return err
 		}
-		if sameProbeAssignmentSet(previous, ids) && set.HealthPolicy == policy {
+		resources, changed, err := replacementResourceBindings(ctx, tx, monitorID, ids, previous, bindings)
+		if err != nil {
+			return err
+		}
+		if sameProbeAssignmentSet(previous, ids) && set.HealthPolicy == policy && !changed {
 			out, err = readProbeAssignments(ctx, tx, monitorID)
 			return err
 		}
@@ -380,6 +394,14 @@ func (r *ProbeAssignmentStore) Replace(ctx context.Context, monitorID, expectedR
 		now := assignmentChangeTime(set.UpdatedAt)
 		if err := replaceProbeAssignmentRows(ctx, tx, monitorID, previous, ids, now); err != nil {
 			return err
+		}
+		for _, id := range ids {
+			binding := resources[id]
+			if _, err := tx.NewUpdate().Table("monitor_probe_assignments").
+				Set("resource_binding_key = ?", binding.BindingKey).Set("resource_binding_kind = ?", binding.Kind).
+				Set("updated_at = ?", now).Where("monitor_id = ? AND probe_id = ?", monitorID, id).Exec(ctx); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.NewUpdate().Model(set).Set("revision = revision + 1").Set("health_policy = ?", policy).
 			Set("updated_at = ?", now).WherePK().Exec(ctx); err != nil {
@@ -472,19 +494,21 @@ func replaceProbeAssignmentRows(ctx context.Context, tx bun.Tx, monitorID int64,
 }
 
 type probeAssignmentReadModel struct {
-	MonitorID    int64
-	Revision     int64
-	HealthPolicy domain.HealthPolicy
-	ProbeID      string
-	Generation   int64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	MonitorID           int64
+	Revision            int64
+	HealthPolicy        domain.HealthPolicy
+	ProbeID             string
+	Generation          int64
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	ResourceBindingKey  string
+	ResourceBindingKind string
 }
 
 func readProbeAssignments(ctx context.Context, db bun.IDB, monitorID int64) (*domain.MonitorProbeAssignments, error) {
 	var rows []probeAssignmentReadModel
 	err := db.NewSelect().TableExpr("monitor_probe_assignment_sets AS s").
-		ColumnExpr("s.monitor_id, s.revision, s.health_policy, a.probe_id, a.generation, a.created_at, a.updated_at").
+		ColumnExpr("s.monitor_id, s.revision, s.health_policy, a.probe_id, a.generation, a.created_at, a.updated_at, a.resource_binding_key, a.resource_binding_kind").
 		Join("JOIN monitor_probe_assignments AS a ON a.monitor_id = s.monitor_id AND a.active = ?", true).
 		Where("s.monitor_id = ?", monitorID).OrderExpr("a.probe_id ASC").Scan(ctx, &rows)
 	if err != nil {
@@ -498,6 +522,9 @@ func readProbeAssignments(ctx context.Context, db bun.IDB, monitorID int64) (*do
 	for i, row := range rows {
 		out.Assignments[i] = domain.ProbeAssignment{MonitorID: monitorID, ProbeID: row.ProbeID,
 			Generation: row.Generation, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()}
+		if row.ResourceBindingKey != "" {
+			out.Assignments[i].ResourceBinding = &domain.ProbeResourceBinding{BindingKey: row.ResourceBindingKey, Kind: row.ResourceBindingKind}
+		}
 	}
 	return out, nil
 }

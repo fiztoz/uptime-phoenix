@@ -45,17 +45,17 @@ type Probe struct {
 // Generation begins at one and increases when a removed assignment is recreated.
 // Removing an assignment retains its generation in a repository tombstone.
 type ProbeAssignment struct {
-	MonitorID  int64
-	ProbeID    string
-	Generation int64
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ResourceBinding *ProbeResourceBinding
+	MonitorID       int64
+	ProbeID         string
+	Generation      int64
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // MonitorProbeAssignments is one atomically replaceable desired assignment set.
 // Assignments contains active members only, ordered by ProbeID. Revision starts
-// at one and changes only when the member set or HealthPolicy changes.
-// This foundation is not connected to scheduler or remote-runtime activation.
+// at one and changes when the member set, bindings or HealthPolicy changes.
 type MonitorProbeAssignments struct {
 	MonitorID    int64
 	Revision     int64

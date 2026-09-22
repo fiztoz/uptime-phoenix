@@ -10,12 +10,10 @@ import (
 // from the composition root, so advertisement reflects the real build, not a
 // hardcoded inventory.
 //
-// Docker is withheld: a docker check executes through a probe-local resource
-// binding, and assignments cannot yet carry an advertised binding key, so no
-// edge can honestly claim docker execution. Ping requires the unprivileged
+// Docker requires a validated probe-local resource map. Ping requires the unprivileged
 // ICMP socket the ping checker actually opens. Every other pull checker is
 // compiled into the build and has no environmental constraint to probe.
-func PullCheckerCapabilities(candidates []string, lookup func(string) (ports.Checker, bool), icmpAvailable bool) []string {
+func PullCheckerCapabilities(candidates []string, lookup func(string) (ports.Checker, bool), icmpAvailable bool, resources ...*LocalResourceBindings) []string {
 	if lookup == nil {
 		return nil
 	}
@@ -23,8 +21,9 @@ func PullCheckerCapabilities(candidates []string, lookup func(string) (ports.Che
 	for _, kind := range candidates {
 		switch kind {
 		case "docker":
-			// Withheld until resource-binding publication exists (M4 follow-up).
-			continue
+			if len(resources) != 1 || len(resources[0].Inventory()) == 0 {
+				continue
+			}
 		case "ping":
 			if !icmpAvailable {
 				continue

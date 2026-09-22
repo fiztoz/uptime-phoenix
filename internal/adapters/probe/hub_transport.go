@@ -117,6 +117,7 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	var snapshot ConfigSnapshot
 	var err error
 	required := []string{"snapshot.v1"}
+	var requiredBindings []ResourceBinding
 	if len(input.ConfigDocument) > 0 {
 		snapshot, err = DecodeConfigSnapshot(input.ConfigDocument)
 		if err != nil || snapshot.HubID != m.HubID || snapshot.ProbeID != m.ProbeID {
@@ -127,6 +128,9 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 			required = append(required, capability)
 		}
 		sort.Strings(required)
+		for _, assignment := range snapshot.Assignments {
+			requiredBindings = append(requiredBindings, assignment.ResourceBindings...)
+		}
 	}
 	pin := input.DialFingerprint
 	if pin == "" {
@@ -154,7 +158,7 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	if err != nil {
 		return err
 	}
-	handshake, err := ValidateHandshake(hello, frame, HandshakeExpectation{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: Decimal(input.Generation), RequiredCapabilities: required})
+	handshake, err := ValidateHandshake(hello, frame, HandshakeExpectation{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: Decimal(input.Generation), RequiredCapabilities: required, RequiredResourceBindings: requiredBindings})
 	if err != nil {
 		return errors.New("probe handshake rejected")
 	}

@@ -522,6 +522,7 @@ Outside these pure helpers, M1–M3 implement trusted installation/key startup,
 source fencing, atomic activation, authenticated sessions/leases, authorized
 current state, missing-assignment reconciliation, durable application receipts,
 ordered ingest and recovery for the supported runtime. See
-[M3 acceptance](M3_COMPLETION_ACCEPTANCE.md). Broader checker/auxiliary compatibility
+[M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) and the subsequent
+[M4 Docker binding slice](M4_DOCKER_BINDINGS.md). Auxiliary/lifecycle compatibility
 and the administrative HTTP/browser feature surface remain M4/M5; do not enable
 a capability merely because its wire shape decodes.

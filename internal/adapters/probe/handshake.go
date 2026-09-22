@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
 const (
@@ -162,11 +164,12 @@ func DecodeWelcome(data []byte) (Envelope, Welcome, error) {
 // Its stream and generation come from durable registration/current lease state;
 // required capabilities come from the caller's supported configuration contract.
 type HandshakeExpectation struct {
-	HubID                string
-	ProbeID              string
-	StreamID             string
-	ConnectionGeneration Decimal
-	RequiredCapabilities []string
+	HubID                    string
+	ProbeID                  string
+	StreamID                 string
+	ConnectionGeneration     Decimal
+	RequiredCapabilities     []string
+	RequiredResourceBindings []ResourceBinding
 }
 
 // Handshake is a validated transcript, not an authenticated or activated session.
@@ -211,6 +214,18 @@ func ValidateHandshake(helloFrame, welcomeFrame []byte, expected HandshakeExpect
 	}
 	for _, capability := range expected.RequiredCapabilities {
 		if _, exists := available[capability]; !exists {
+			return Handshake{}, ErrUnsupportedCapability
+		}
+	}
+	for _, required := range expected.RequiredResourceBindings {
+		if !domain.ValidProbeResourceBinding(domain.ProbeResourceBinding(required)) {
+			return Handshake{}, ErrUnsupportedCapability
+		}
+		found := false
+		for _, available := range hello.ResourceBindings {
+			found = found || required == available
+		}
+		if !found {
 			return Handshake{}, ErrUnsupportedCapability
 		}
 	}

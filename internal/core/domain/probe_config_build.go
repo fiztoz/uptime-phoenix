@@ -5,6 +5,7 @@ import "time"
 // ProbeConfigAssignment is confidential resolved input to the snapshot encoder.
 // Monitor carries execution settings; only the encoder's whitelist may leave it.
 type ProbeConfigAssignment struct {
+	ResourceBinding    *ProbeResourceBinding
 	Monitor            *Monitor
 	Generation         int64
 	EffectiveOwner     string

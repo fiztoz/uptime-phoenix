@@ -1253,3 +1253,22 @@ rotation, which would violate the real overlap exclusion. It checks the actual C
 offline issuance/restart, activation receipts, promoted-pin restart and ordered
 telemetry continuity. This is separate from the complete fifteen-minute M3 gate.
 See [acceptance](multi-region/M3_HUB_CERTIFICATE_ACCEPTANCE.md).
+
+## M4 Docker binding acceptance
+
+Run `TestProbeResourceBindingContract` on SQLite and a disposable MariaDB schema
+with `TEST_MARIADB_DSN` configured, and inspect the named MariaDB pass (a skip
+is not acceptance). The contract covers revisioned atomic replacement, concurrent
+publication, retained/tombstoned bindings and populated migration 065 down/up.
+Probe tests `TestResourceBindingsRejectInvalidFiles`,
+`TestDockerResourceBindingExecution`, `TestDockerRemoteEncodingStripsHubEndpoint`,
+`TestHandshakeRequiresResourceBindings`, and the Docker subtest of
+`TestEdgeConfigActivationRetainsExactBytesAndColdValidation` cover transport and
+local resource boundaries.
+
+For compiled verification, add `--verify-docker --verify-replay` to the existing
+`scripts/probe_runtime_smoke.py` invocation with fresh app/probe/admin binaries,
+a fresh disposable `_smoke` schema and `--mariadb-container`. The report must show
+`docker_verified: true`, healthy bound Docker telemetry at the hub, successful
+source restarts, and exact offline replay without hub provider sends. All targets
+are local fixtures. See [operator details](multi-region/M4_DOCKER_BINDINGS.md).

@@ -90,8 +90,7 @@ var remotePullCheckerConfigs = map[string]map[string]any{
 
 // TestRemoteConfigEncoderPublishesEveryPullCheckerType proves the hub can
 // publish each pull type without a probe-local resource binding. Docker is
-// covered by the unsupported-work test until assignments can carry binding
-// keys.
+// covered separately by the resource binding publication tests.
 func TestRemoteConfigEncoderPublishesEveryPullCheckerType(t *testing.T) {
 	for kind, config := range remotePullCheckerConfigs {
 		t.Run(kind, func(t *testing.T) {

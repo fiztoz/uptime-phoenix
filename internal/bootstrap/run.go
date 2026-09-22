@@ -423,7 +423,7 @@ func Run(cfg Config) error {
 		if err != nil {
 			return fmt.Errorf("probe connector owner unavailable")
 		}
-		replayStore := repo.NewProbeReplayStore(db, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
+		replayStore := repo.NewProbeReplayStore(db, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
 		replayStore.SetCommands(commandProtector, probe.AcknowledgementCodec{})
 		stateIngest, err := services.NewProbeStateService(replayStore, accessSvc)
 		if err != nil {
@@ -455,7 +455,7 @@ func Run(cfg Config) error {
 		connector.SetCredentialRotation(commandStore)
 		connector.SetCertificateRotation(commandStore)
 		connector.SetStreamReset(repo.NewProbeStreamResetStore(db, protector, credentialProtector, probe.StreamResetCodec{}))
-		connector.SetConfigSync(repo.NewRemoteProbeConfigSyncStore(db, probe.RemoteConfigEncoder{}, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector))
+		connector.SetConfigSync(repo.NewRemoteProbeConfigSyncStore(db, probe.RemoteConfigEncoder{}, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector))
 		watchdogStore := repo.NewProbeWatchdogStore(db, protector, probe.EdgeTelemetryEncoder{})
 		if err := connector.SetWatchdogFactory(func(ctx context.Context, owner domain.ProbeRuntimeLease) (*services.ProbeWatchdogRuntime, error) {
 			connection, err := connections.GetConnection(ctx, owner.ProbeID)
@@ -463,7 +463,7 @@ func Run(cfg Config) error {
 				return nil, err
 			}
 			authority := domain.ProbeWatchdogAuthority{HubID: installationHubID, ProbeID: owner.ProbeID, StreamID: connection.StreamID, RuntimeOwner: owner}
-			reader := repo.NewProbeWatchdogConfigReader(watchdogStore, authority, probe.NewEdgeConfigDecoder(checkeradapter.Get, notifieradapter.Get))
+			reader := repo.NewProbeWatchdogConfigReader(watchdogStore, authority, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get))
 			readAuthority := func(context.Context) (domain.ProbeWatchdogAuthority, error) { return authority, nil }
 			runtime, err := services.NewProbeWatchdogRuntime(watchdogStore, reader, readAuthority, "probe")
 			if err != nil {
