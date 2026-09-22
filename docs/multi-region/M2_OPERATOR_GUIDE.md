@@ -9,8 +9,10 @@ outcomes to the hub. M3 also implements bounded retention/gaps, current-state
 recovery, historical recomputation and bidirectional connection-watchdog paging.
 Durable regional ACK commands are now available through the local admin CLI.
 Operator credential/certificate rotation, explicit stream-reset recovery and the
-actual fifteen-minute partition are accepted. Fleet UI and broader checker/auxiliary
-compatibility remain outside this runtime; consult [current status](IMPLEMENTATION_STATUS.md).
+actual fifteen-minute partition are accepted. M4 adds all pull checker types
+([Docker resource configuration](M4_DOCKER_BINDINGS.md)) and
+[remote TLS metadata](M4_TLS_EVIDENCE.md). Fleet UI, certificate paging and capacity
+state remain open; consult [current status](IMPLEMENTATION_STATUS.md).
 For recovery commands and preservation requirements, see [explicit stream reset](M3_HUB_RESET_ACCEPTANCE.md).
 
 ## Initialize the probe

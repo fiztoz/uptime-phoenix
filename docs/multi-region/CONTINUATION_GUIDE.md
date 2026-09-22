@@ -4,7 +4,10 @@ M3 is complete at implementation `a12a3fa`, recorded in `8b455d4`; the first
 M4 pull-checker slice is recorded in
 [initial M4 acceptance](M4_PULL_CHECKER_ACCEPTANCE.md). The subsequent
 [Docker binding slice](M4_DOCKER_BINDINGS.md) adds probe-local socket/API resources,
-revisioned assignment references and runtime resolution.
+revisioned assignment references and runtime resolution. The next
+[TLS evidence slice](M4_TLS_EVIDENCE.md) retains remote certificate metadata in
+source telemetry, hub history and current state; certificate paging and capacity
+state remain open.
 Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.

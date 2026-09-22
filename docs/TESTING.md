@@ -1272,3 +1272,31 @@ a fresh disposable `_smoke` schema and `--mariadb-container`. The report must sh
 `docker_verified: true`, healthy bound Docker telemetry at the hub, successful
 source restarts, and exact offline replay without hub provider sends. All targets
 are local fixtures. See [operator details](multi-region/M4_DOCKER_BINDINGS.md).
+
+
+## M4 remote TLS evidence acceptance
+
+Run the focused source, protocol and storage tests with the documented disposable
+`TEST_MARIADB_DSN` (including `parseTime=true&loc=UTC&multiStatements=true`):
+
+```sh
+rtk proxy go test -race -count=1 ./internal/core/services ./internal/adapters/probe ./internal/adapters/repository/edge ./internal/adapters/repository -run 'TestEdgeRecordingTLSMetadata|TestTLSObservationReplayAndSnapshotWire|TestEdgeTLSCheckSurvivesRestartAndPruning|TestProbeTLSEvidenceAcceptance'
+```
+
+Audit the exact `TestProbeTLSEvidenceAcceptance/mariadb` result and every child;
+a skipped MariaDB parent is not acceptance. Cases cover expiry precision, source
+HTTPS execution, source restart/pruning, duplicate replay, current snapshots ahead
+of history, explicit null/omission, immutable same-sequence TLS, stale authority,
+historical assignment isolation, concurrent snapshot/replay transactions, late
+rollback and populated migration 066 down/up with evidence-preserving refusal.
+
+For compiled-process acceptance, add `--verify-tls --verify-replay` to
+`scripts/probe_runtime_smoke.py` with fresh app/probe/admin binaries, a fresh
+private output directory, a fresh disposable `_smoke` schema and the existing
+MariaDB container flag. This makes the main HTTP target a local HTTPS fixture and
+compares source TLS bytes with the hub's history, current state and `tls_info`
+projection across offline checks, process restarts and ACK pruning. It can be
+combined with `--verify-docker`. The fixture's per-monitor `tls_ignore` setting
+does not alter probe-management pin validation or production trust defaults.
+See [the slice acceptance](multi-region/M4_TLS_EVIDENCE.md) for executed evidence
+and the remaining certificate-alert/capacity work.

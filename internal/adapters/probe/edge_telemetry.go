@@ -17,7 +17,7 @@ var _ ports.EdgeTelemetryEncoder = EdgeTelemetryEncoder{}
 // EncodeObservation preserves raw/effective retry evidence with explicit DTOs.
 func (EdgeTelemetryEncoder) EncodeObservation(o domain.RegionalObservation) ([]byte, error) {
 	status, raw := edgeWireStatus(o.Status), edgeWireStatus(o.RawStatus)
-	return encodeEdgeEvent(TelemetryEvent{Seq: Decimal(o.Seq), Kind: "observation", ObservedAt: Timestamp(o.ObservedAt.UTC()), Data: Observation{MonitorID: o.MonitorID, AssignmentGeneration: Decimal(o.AssignmentGeneration), ConfigRevision: Decimal(o.ConfigRevision), Status: status, RawStatus: raw, DownCount: int64(o.DownCount), Ping: int64(o.Ping), DurationMS: int64(o.DurationMS), Message: o.Message, Important: o.Important, Conditions: []ConditionObservation{}}})
+	return encodeEdgeEvent(TelemetryEvent{Seq: Decimal(o.Seq), Kind: "observation", ObservedAt: Timestamp(o.ObservedAt.UTC()), Data: Observation{MonitorID: o.MonitorID, AssignmentGeneration: Decimal(o.AssignmentGeneration), ConfigRevision: Decimal(o.ConfigRevision), Status: status, RawStatus: raw, DownCount: int64(o.DownCount), Ping: int64(o.Ping), DurationMS: int64(o.DurationMS), Message: o.Message, Important: o.Important, Conditions: []ConditionObservation{}, TLS: wireTLS(o.TLS)}})
 }
 
 // EncodeIncident records supported source transitions with explicit entity scope.

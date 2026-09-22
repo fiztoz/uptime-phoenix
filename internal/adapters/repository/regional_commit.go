@@ -14,6 +14,7 @@ import (
 )
 
 type probeObservationModel struct {
+	TLSJSON              *tlsEvidenceModel `bun:"tls_json,type:json"`
 	bun.BaseModel        `bun:"table:probe_observations,alias:obs"`
 	ID                   int64     `bun:"id,pk,autoincrement"`
 	MonitorID            int64     `bun:"monitor_id"`
@@ -34,6 +35,7 @@ type probeObservationModel struct {
 }
 
 type monitorProbeStateModel struct {
+	TLSJSON              *tlsEvidenceModel `bun:"tls_json,type:json"`
 	bun.BaseModel        `bun:"table:monitor_probe_state,alias:state"`
 	MonitorID            int64      `bun:"monitor_id,pk"`
 	ProbeID              string     `bun:"probe_id,pk"`
@@ -63,7 +65,7 @@ type probeStreamModel struct {
 
 func (m probeObservationModel) observation() domain.RegionalObservation {
 	return domain.RegionalObservation{
-		ID: m.ID, MonitorID: m.MonitorID, ProbeID: m.ProbeID, AssignmentGeneration: m.AssignmentGeneration,
+		TLS: m.TLSJSON.evidence(), ID: m.ID, MonitorID: m.MonitorID, ProbeID: m.ProbeID, AssignmentGeneration: m.AssignmentGeneration,
 		StreamID: m.StreamID, Seq: m.Seq, ConfigRevision: m.ConfigRevision,
 		Status: domain.Status(m.Status), RawStatus: domain.Status(m.RawStatus),
 		DownCount: m.DownCount, Ping: m.Ping, DurationMS: m.DurationMS, Message: m.Message,
@@ -73,6 +75,7 @@ func (m probeObservationModel) observation() domain.RegionalObservation {
 
 func (m monitorProbeStateModel) state() domain.RegionalState {
 	out := domain.RegionalState{
+		TLS:       m.TLSJSON.evidence(),
 		MonitorID: m.MonitorID, ProbeID: m.ProbeID, AssignmentGeneration: m.AssignmentGeneration,
 		StreamID: m.StreamID, Seq: m.Seq, ConfigRevision: m.ConfigRevision,
 		Status: domain.Status(m.Status), DownCount: m.DownCount, Ping: m.Ping, Message: m.Message, ActiveSourceAlertID: m.ActiveSourceAlertID,
@@ -271,6 +274,7 @@ func (r *RegionalCommitStore) GetCursor(ctx context.Context, probeID, streamID s
 
 func observationModel(obs domain.RegionalObservation) probeObservationModel {
 	return probeObservationModel{
+		TLSJSON:   tlsModel(obs.TLS),
 		MonitorID: obs.MonitorID, ProbeID: obs.ProbeID, AssignmentGeneration: obs.AssignmentGeneration,
 		StreamID: obs.StreamID, Seq: obs.Seq, ConfigRevision: obs.ConfigRevision,
 		Status: int(obs.Status), RawStatus: int(obs.RawStatus), DownCount: obs.DownCount,
@@ -281,6 +285,7 @@ func observationModel(obs domain.RegionalObservation) probeObservationModel {
 
 func upsertRegionalState(ctx context.Context, tx bun.Tx, state domain.RegionalState) error {
 	row := monitorProbeStateModel{
+		TLSJSON:   tlsModel(state.TLS),
 		MonitorID: state.MonitorID, ProbeID: state.ProbeID, AssignmentGeneration: state.AssignmentGeneration,
 		StreamID: state.StreamID, Seq: state.Seq, ConfigRevision: state.ConfigRevision,
 		Status: int(state.Status), DownCount: state.DownCount, Ping: state.Ping, Message: state.Message, ActiveSourceAlertID: state.ActiveSourceAlertID,

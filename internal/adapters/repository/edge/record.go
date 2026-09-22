@@ -123,7 +123,7 @@ func (s *Store) ReadEdgeEvidence(ctx context.Context, monitorID, generation int6
 // Provider I/O is impossible here; only the injected pure encoder is invoked.
 func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckRecord) (domain.RegionalObservation, error) {
 	o := record.Observation
-	if s.telemetry == nil || record.ExpectedStateSeq < 0 || record.ExpectedIncidentVersion < 0 || o.MonitorID <= 0 || o.AssignmentGeneration <= 0 || o.ConfigRevision <= 0 || o.Seq != 0 || o.ObservedAt.IsZero() || o.ReceivedAt.IsZero() || o.Status < domain.StatusDown || o.Status > domain.StatusMaintenance || o.RawStatus != domain.StatusUp && o.RawStatus != domain.StatusDown || len(record.DeliveryIntents) > 1000 {
+	if s.telemetry == nil || !domain.ValidTLSObservation(o.TLS) || record.ExpectedStateSeq < 0 || record.ExpectedIncidentVersion < 0 || o.MonitorID <= 0 || o.AssignmentGeneration <= 0 || o.ConfigRevision <= 0 || o.Seq != 0 || o.ObservedAt.IsZero() || o.ReceivedAt.IsZero() || o.Status < domain.StatusDown || o.Status > domain.StatusMaintenance || o.RawStatus != domain.StatusUp && o.RawStatus != domain.StatusDown || len(record.DeliveryIntents) > 1000 {
 		return domain.RegionalObservation{}, domain.ErrValidation
 	}
 	o.ObservedAt, o.ReceivedAt = o.ObservedAt.UTC(), o.ReceivedAt.UTC()

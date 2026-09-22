@@ -40,6 +40,9 @@ func (s *AccessService) AuthorizeEvent(_ context.Context, f domain.ProbeReplayAu
 		}
 	case domain.ReplayKindObservation:
 		o := e.Observation
+		if o != nil && !domain.ValidTLSObservation(o.TLS) {
+			return reject("event_invalid")
+		}
 		if o == nil || e.Incident != nil || e.Delivery != nil || o.ProbeID != f.ProbeID || o.StreamID != f.StreamID || o.Seq != e.Seq || !o.ObservedAt.Equal(e.ObservedAt) {
 			return reject("event_invalid")
 		}

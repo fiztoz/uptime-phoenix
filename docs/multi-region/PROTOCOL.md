@@ -259,6 +259,17 @@ Each state has `monitor_id`, `assignment_generation`, `last_observation_seq`, `o
 
 The hub validates assignment and config generations and atomically applies entries newer than their current per-assignment sequence. A state snapshot does not advance the historical telemetry cursor, create a raw heartbeat, infer missing transitions, or trigger regional provider delivery. Fresh snapshots can drive overall displayed health. Optional aggregate paging must use its own current-evidence reconciliation rules.
 
+The implemented M4 TLS evidence path carries the exact sanitized `tls` object
+from the source observation into snapshots and hub history. Current TLS uses the
+same source-sequence ordering, assignment and session fences as availability.
+A newer explicit null clears current certificate evidence; an omitted assignment
+also clears its current TLS projection. Neither operation deletes retained history.
+Repeated snapshots of the same observation cannot change its TLS fields. Expiry
+is preserved at its wire precision, separately from microsecond observation
+identity. These writes never infer certificate incidents or notification cursors.
+Capacity observations/current state and certificate alert transitions still need
+their M4 runtime owners; see [TLS acceptance](M4_TLS_EVIDENCE.md).
+
 ### 5.1 Exact state transfer frames
 
 Every payload below includes `snapshot_id` (canonical non-nil UUID), `stream_id` (canonical non-nil UUID), and positive `config_revision` (decimal string). They also use the ordinary envelope and its positive `connection_generation`.

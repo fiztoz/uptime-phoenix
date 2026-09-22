@@ -389,7 +389,7 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 }
 
 func updateReplayState(ctx context.Context, tx bun.Tx, obs domain.RegionalObservation, now time.Time) error {
-	state := domain.RegionalState{MonitorID: obs.MonitorID, ProbeID: obs.ProbeID, AssignmentGeneration: obs.AssignmentGeneration, StreamID: obs.StreamID, Seq: obs.Seq, ConfigRevision: obs.ConfigRevision, Status: obs.Status, DownCount: obs.DownCount, Ping: obs.Ping, Message: obs.Message, ObservedAt: obs.ObservedAt.UTC(), ReceivedAt: now}
+	state := domain.RegionalState{TLS: obs.TLS, MonitorID: obs.MonitorID, ProbeID: obs.ProbeID, AssignmentGeneration: obs.AssignmentGeneration, StreamID: obs.StreamID, Seq: obs.Seq, ConfigRevision: obs.ConfigRevision, Status: obs.Status, DownCount: obs.DownCount, Ping: obs.Ping, Message: obs.Message, ObservedAt: obs.ObservedAt.UTC(), ReceivedAt: now}
 	return updateCurrentProbeState(ctx, tx, state, now, false)
 }
 
@@ -428,7 +428,7 @@ func updateCurrentProbeState(ctx context.Context, tx bun.Tx, state domain.Region
 	if err == nil && existing.StreamID == state.StreamID && existing.Seq == state.Seq {
 		// Snapshot-only incident references may advance without a new check,
 		// but the immutable availability observation cannot change identity.
-		if existing.Status != int(state.Status) || existing.DownCount != state.DownCount || existing.Ping != state.Ping || existing.Message != state.Message || !existing.ObservedAt.UTC().Truncate(time.Microsecond).Equal(state.ObservedAt.UTC().Truncate(time.Microsecond)) {
+		if !domain.SameTLSObservation(existing.TLSJSON.evidence(), state.TLS) || existing.Status != int(state.Status) || existing.DownCount != state.DownCount || existing.Ping != state.Ping || existing.Message != state.Message || !existing.ObservedAt.UTC().Truncate(time.Microsecond).Equal(state.ObservedAt.UTC().Truncate(time.Microsecond)) {
 			return ports.ErrConflict
 		}
 	}
@@ -445,5 +445,8 @@ func updateCurrentProbeState(ctx context.Context, tx bun.Tx, state domain.Region
 	if _, err := tx.NewDelete().Model((*probeMissingStateModel)(nil)).Where("monitor_id = ? AND probe_id = ?", state.MonitorID, state.ProbeID).Exec(ctx); err != nil {
 		return err
 	}
-	return upsertRegionalState(ctx, tx, state)
+	if err := upsertRegionalState(ctx, tx, state); err != nil {
+		return err
+	}
+	return replaceRemoteTLSInfo(ctx, tx, state)
 }

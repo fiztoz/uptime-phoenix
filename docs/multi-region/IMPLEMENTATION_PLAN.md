@@ -119,7 +119,10 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 and subsequent [Docker binding slice](M4_DOCKER_BINDINGS.md) implement every pull
 type. Hello reflects installed checkers, ICMP availability and configured Docker
 resources. Missing or mismatched resources reject activation; unreachable targets
-still produce DOWN observations. The remaining compatibility work is listed below.
+still produce DOWN observations. The [TLS evidence slice](M4_TLS_EVIDENCE.md)
+adds exact certificate metadata to source telemetry, hub history and current state.
+Certificate notifications and capacity promotion remain open, so the combined
+auxiliary requirement below is not marked complete.
 
 - [x] Cover all existing pull monitor types: `http`, `tcp`, `ping`, `dns`, `websocket`, `docker`, `mqtt`, `rabbitmq`, `grpc`, `snmp`, `database`, `s3`. Keep push local-only until M9.
 - [ ] Advertise real runtime capability constraints, including ICMP privileges, Docker socket/API availability, engine support, and network/proxy bindings. Reject impossible assignments before activation.

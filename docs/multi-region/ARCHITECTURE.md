@@ -665,6 +665,16 @@ Runtime credential rotation keeps pending and active versions during a bounded 1
 | JSON backup/restore | Version format; include logical metadata/assignments but exclude runtime session credentials and edge queues. Restore remote identities disabled pending reenrollment; never silently reroute them to local |
 | Delete history | Target explicit regional/overall scope; coordinate with stream cursors so replay cannot resurrect cleared history. Retain a clear-history watermark and acknowledge intentional drops |
 
+The implemented [M4 TLS evidence slice](M4_TLS_EVIDENCE.md) uses the existing
+source observation transaction and retained current-event bytes. Hub migration
+`066_probe_tls_evidence` adds nullable explicit JSON DTOs to `probe_observations`
+and `monitor_probe_state`, preserving certificate expiry independently of SQL
+timestamp precision. Accepted current writes refresh the assignment-scoped
+`tls_info` view in the same fenced transaction. Older replay and historical
+assignments cannot replace that view; explicit null and snapshot omission clear
+it. No certificate incident or sent-threshold cursor is inferred. Certificate
+paging and capacity promotion/lifecycle remain unimplemented on remote probes.
+
 ## 11. Operations and observability
 
 Expose bounded-cardinality metrics for connected probes, reconnects, control age, ingest lag, queue bytes/oldest age, dropped/gap events, config desired/applied revision, rejected assignments, duplicate batches, clock skew, check-slot saturation, notification retries/failures, and connector lease ownership. Put high-cardinality stream IDs, event IDs, and detailed monitor identifiers in protected structured logs rather than unbounded metric labels.

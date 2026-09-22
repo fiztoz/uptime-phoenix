@@ -92,6 +92,7 @@ func (s *EdgeRecordingService) Record(ctx context.Context, config *domain.EdgeRe
 		}
 		eval := EvaluateObservation(previous, result.Status, maintenance, m.MaxRetries)
 		o := domain.RegionalObservation{ProbeID: i.ProbeID, StreamID: i.StreamID, MonitorID: m.ID, AssignmentGeneration: assignment.Generation, ConfigRevision: config.Metadata.Revision, Status: eval.State.Status, RawStatus: result.Status, DownCount: eval.State.DownCount, Ping: int(result.LatencyMs), DurationMS: int(result.DurationMs), Message: result.Message, Important: eval.Important, ObservedAt: at, ReceivedAt: at}
+		o.TLS = edgeTLSObservation(result.Metadata, at)
 		if maintenance {
 			o.Message = "Maintenance window active"
 		}

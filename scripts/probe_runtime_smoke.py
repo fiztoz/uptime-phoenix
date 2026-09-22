@@ -93,6 +93,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--port", type=int, default=38920)
     parser.add_argument("--verify-replay", action="store_true")
+    parser.add_argument("--verify-tls", action="store_true", help="verify remote HTTPS certificate evidence through restart, current state and replay")
     parser.add_argument("--verify-docker", action="store_true", help="exercise probe-local Docker API bindings through assignment, transfer, execution and replay")
     parser.add_argument("--verify-shutdown", action="store_true", help="verify bounded compiled termination and exact unacknowledged bytes across restart")
     parser.add_argument("--verify-history", action="store_true", help="verify the production history worker after replay and restart")
@@ -114,6 +115,8 @@ def main():
         parser.error("--verify-certificate-rotation requires --verify-replay and a separate run from credential rotation")
     if args.verify_stream_reset and (not args.verify_replay or args.verify_certificate_rotation or args.verify_credential_rotation):
         parser.error("--verify-stream-reset requires --verify-replay and a separate run from rotations")
+    if args.verify_tls and not args.verify_replay:
+        parser.error("--verify-tls requires --verify-replay")
     if args.verify_history and not args.verify_replay:
         parser.error("--verify-history requires --verify-replay")
     if args.verify_shutdown and not args.verify_replay:
@@ -215,6 +218,8 @@ def main():
     sink = ThreadingHTTPServer(("127.0.0.1", args.port + 1), TargetAndSink)
     threading.Thread(target=sink.serve_forever, daemon=True).start()
     sink_url = f"http://127.0.0.1:{args.port + 1}"
+    tls_target = None
+    tls_evidence = {}
     relay = None
     if args.verify_watchdog or args.verify_command or args.verify_credential_rotation or args.verify_certificate_rotation or args.verify_stream_reset:
         relay = PartitionRelay(("127.0.0.1", args.port + 4), ("127.0.0.1", args.port + 3))
@@ -365,6 +370,14 @@ def main():
     edge_args = ["run", "--data-dir", str(edge_dir), "--listen", f"127.0.0.1:{args.port + 3}"]
     try:
         identity = command(args.probe_binary, ["init", "--data-dir", str(edge_dir)], edge_env)
+        if args.verify_tls:
+            # Reuse the disposable fixture certificate; only this test monitor
+            # opts out of trust verification. No production trust defaults change.
+            tls_target = ThreadingHTTPServer(("127.0.0.1", args.port + 5), TargetAndSink)
+            tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            tls_context.load_cert_chain(edge_dir / "tls.pem")
+            tls_target.socket = tls_context.wrap_socket(tls_target.socket, server_side=True)
+            threading.Thread(target=tls_target.serve_forever, daemon=True).start()
         enrollment_file = output / "enrollment.token"
         enrollment_file.write_text(identity.pop("enrollment_token"))
         enrollment_file.chmod(0o600)
@@ -386,7 +399,7 @@ def main():
                                                            "config": {"url": sink_url + "/hook"}})["id"]
         monitor = api("POST", "/api/monitors", {"name": "edge-target", "type": "http", "active": True,
                       "interval": 1, "retry_interval": 1, "max_retries": 1, "timeout": 2,
-                      "resend_interval": 0, "config": {"url": sink_url + "/target"}})["id"]
+                      "resend_interval": 0, "config": {"url": f"https://127.0.0.1:{args.port + 5}/target" if args.verify_tls else sink_url + "/target", "tls_ignore": args.verify_tls}})["id"]
         # M4: an extended pull-checker type (websocket was rejected by the M2
         # runtime) must flow through the same API/assignment/encode/transfer/
         # decode/execute pipeline and its telemetry must reach the hub.
@@ -462,6 +475,24 @@ def main():
             runtime_evidence = {"epoch": owner_before["epoch"], "generation_before": generation_before,
                                 "generation_after": edge_progress()["connection_generation"], "stable_across_backoff": True}
             mark("two hub workers preserve runtime ownership across an edge restart")
+        def current_tls_matches():
+            rows = hub_query("SELECT JSON_OBJECT('seq',s.seq,'tls',JSON_EXTRACT(s.tls_json,'$'),"
+                "'history_tls',JSON_EXTRACT(o.tls_json,'$'),'cached_tls',JSON_EXTRACT(t.info_json,'$')) "
+                "FROM monitor_probe_state s JOIN probe_observations o ON o.probe_id=s.probe_id "
+                "AND o.stream_id=s.stream_id AND o.seq=s.seq JOIN tls_info t ON t.monitor_id=s.monitor_id "
+                "AND t.probe_id=s.probe_id AND t.assignment_generation=s.assignment_generation "
+                f"WHERE s.probe_id='{identity['probe_id']}' AND s.monitor_id={monitor}")
+            if not rows:
+                return False
+            row = rows[0]
+            assert row["tls"] == row["history_tls"] == row["cached_tls"]
+            assert set(row["tls"]) == {"not_after", "days_remaining", "issuer"}
+            assert row["tls"]["not_after"] and row["tls"]["issuer"]
+            tls_evidence["current"] = row
+            return True
+
+        if args.verify_tls:
+            wait_for("HTTPS TLS evidence reaches history and current certificate projection", current_tls_matches)
         first = edge_progress()
         time.sleep(16)  # Cross a real lease renewal with two competing workers.
         assert edge_progress()["connection_generation"] == first["connection_generation"]
@@ -494,6 +525,14 @@ def main():
         assert edge_http("/readyz") == 200
         offline = edge_progress()
         backlog = edge_rows("SELECT seq, kind FROM edge_telemetry_outbox ORDER BY seq")
+        tls_backlog = []
+        if args.verify_tls:
+            for row in edge_rows("SELECT seq,payload FROM edge_telemetry_outbox WHERE kind='observation' ORDER BY seq"):
+                event = json.loads(row["payload"])
+                if event["data"]["monitor_id"] == monitor:
+                    assert event["data"]["tls"] is not None
+                    tls_backlog.append({"seq": row["seq"], "tls": event["data"]["tls"]})
+            assert tls_backlog
         if args.verify_replay:
             assert offline["last_created_seq"] > offline["committed_seq"]
             assert {row["kind"] for row in backlog} == {"observation", "alert.transition", "delivery.result"}
@@ -538,6 +577,14 @@ def main():
                                "mirrored_incidents": incidents, "mirrored_delivery_outcomes": outcomes,
                                "hub_send_intents": send_work, "hub_cursor": hub_cursor(),
                                "edge_cursor": edge_progress()["committed_seq"]}
+        if args.verify_tls:
+            seqs = ",".join(str(row["seq"]) for row in tls_backlog)
+            mirrored_tls = hub_query("SELECT JSON_OBJECT('seq',seq,'tls',JSON_EXTRACT(tls_json,'$')) "
+                f"FROM probe_observations WHERE stream_id='{identity['stream_id']}' AND seq IN ({seqs}) ORDER BY seq")
+            assert mirrored_tls == tls_backlog
+            tls_evidence["offline_replayed"] = mirrored_tls
+            mark("offline TLS history replays exactly after process restart")
+            wait_for("TLS current evidence survives acknowledged-history pruning and cold restart", current_tls_matches)
         history_evidence = None
         if args.verify_history:
             first_bucket = hub_query("SELECT JSON_OBJECT('bucket', FLOOR(UNIX_TIMESTAMP(MIN(observed_at))/60)*60) "
@@ -989,7 +1036,7 @@ def main():
                   "shutdown_verified": args.verify_shutdown, "shutdown": shutdown_evidence,
                   "incident": incident, "provider_attempt_statuses": provider_attempts, "successful_webhook_statuses": [h["status"] for h in hooks],
                   "replay_verified": args.verify_replay, "replay": replay_evidence,
-                  "docker_verified": args.verify_docker,
+                  "docker_verified": args.verify_docker, "tls_verified": args.verify_tls, "tls": tls_evidence,
                   "history_verified": args.verify_history, "history": history_evidence, "runtime_ownership": runtime_evidence,
                   "watchdog_verified": args.verify_watchdog, "watchdog": watchdog_evidence,
                   "command_verified": args.verify_command, "command": command_evidence,
@@ -1006,6 +1053,9 @@ def main():
                 stop(name)
             except AssertionError as error:
                 shutdown_errors.append(str(error))
+        if tls_target:
+            tls_target.shutdown()
+            tls_target.server_close()
         sink.shutdown()
         sink.server_close()
         if relay:

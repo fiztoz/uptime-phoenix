@@ -34,8 +34,8 @@ func decodeReplayBatch(data []byte, probeID string) (domain.ProbeReplayBatch, er
 		e := domain.ProbeReplayEvent{Seq: int64(event.Seq), Digest: hex.EncodeToString(digest[:]), Kind: event.Kind, ObservedAt: time.Time(event.ObservedAt).UTC()}
 		switch value := event.Data.(type) {
 		case Observation:
-			if len(value.Conditions) == 0 && value.TLS == nil {
-				e.Observation = &domain.RegionalObservation{MonitorID: value.MonitorID, ProbeID: probeID, AssignmentGeneration: int64(value.AssignmentGeneration), StreamID: wire.StreamID, Seq: e.Seq, ConfigRevision: int64(value.ConfigRevision), Status: replayDomainStatus(value.Status), RawStatus: replayDomainStatus(value.RawStatus), DownCount: int(value.DownCount), Ping: int(value.Ping), DurationMS: int(value.DurationMS), Message: value.Message, Important: value.Important, ObservedAt: e.ObservedAt}
+			if len(value.Conditions) == 0 {
+				e.Observation = &domain.RegionalObservation{MonitorID: value.MonitorID, ProbeID: probeID, AssignmentGeneration: int64(value.AssignmentGeneration), StreamID: wire.StreamID, Seq: e.Seq, ConfigRevision: int64(value.ConfigRevision), Status: replayDomainStatus(value.Status), RawStatus: replayDomainStatus(value.RawStatus), DownCount: int(value.DownCount), Ping: int(value.Ping), DurationMS: int(value.DurationMS), Message: value.Message, Important: value.Important, ObservedAt: e.ObservedAt, TLS: sourceTLS(value.TLS)}
 			}
 		case IncidentTransition:
 			availability := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectAvailability && value.Escalation == nil && value.MonitorID != nil && value.AssignmentGeneration != nil
