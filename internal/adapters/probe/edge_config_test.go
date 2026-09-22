@@ -52,9 +52,10 @@ func TestEdgeConfigDecoderRejectsUnsupportedWithoutIO(t *testing.T) {
 	}
 	for name, mutate := range map[string]func(*ConfigSnapshot){
 		"certificate": func(s *ConfigSnapshot) { s.Assignments[0].Monitor.CertExpiryNotify = true },
-		"unsupported checker": func(s *ConfigSnapshot) {
-			s.Assignments[0].Monitor.Type = "ping"
-			s.Assignments[0].RequiredCapabilities = []string{"checker.ping.v1"}
+		"docker resource binding": func(s *ConfigSnapshot) {
+			s.Assignments[0].Monitor.Type = "docker"
+			s.Assignments[0].RequiredCapabilities = []string{"checker.docker.v1"}
+			s.Assignments[0].ResourceBindings = []ResourceBinding{{BindingKey: "docker", Kind: "docker_socket"}}
 		},
 		"enabled escalation": func(s *ConfigSnapshot) {
 			s.EscalationPolicies[0].Enabled = true
@@ -78,6 +79,34 @@ func TestEdgeConfigDecoderRejectsUnsupportedWithoutIO(t *testing.T) {
 	ack.NotificationChannels[0].IncludeAckURL = true
 	if got, err := decoder.DecodeEdge(t.Context(), configBytes(t, ack), target); got != nil || !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("protocol-invalid remote ACK link accepted: %v", err)
+	}
+}
+
+// TestEdgeConfigDecoderAcceptsEveryPullCheckerType proves edge activation
+// accepts each pull checker the build installs, through the same installed
+// validators the edge runtime uses. Docker requires an advertised resource
+// binding and stays rejected.
+func TestEdgeConfigDecoderAcceptsEveryPullCheckerType(t *testing.T) {
+	decoder := NewEdgeConfigDecoder(checker.Get, notifier.Get)
+	for kind, config := range remotePullCheckerConfigs {
+		t.Run(kind, func(t *testing.T) {
+			s := m2Config(t)
+			s.Assignments[0].Monitor.Type = kind
+			s.Assignments[0].RequiredCapabilities = []string{"checker." + kind + ".v1"}
+			raw, err := json.Marshal(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.Assignments[0].Monitor.Config = raw
+			target := domain.ProbeConfigTarget{HubID: s.HubID, ProbeID: s.ProbeID}
+			resolved, err := decoder.DecodeEdge(t.Context(), configBytes(t, s), target)
+			if err != nil || len(resolved.Assignments) != 1 {
+				t.Fatalf("pull checker assignment rejected: %+v %v", resolved, err)
+			}
+			if resolved.Assignments[0].Monitor.Type != kind || len(resolved.Assignments[0].Monitor.Config) != len(config) {
+				t.Fatalf("execution settings lost: %s %+v", resolved.Assignments[0].Monitor.Type, resolved.Assignments[0].Monitor.Config)
+			}
+		})
 	}
 }
 

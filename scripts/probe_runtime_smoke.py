@@ -9,6 +9,7 @@ hub mirrors/cursors through the container's MariaDB client. Queries are read-onl
 
 import argparse
 from contextlib import closing
+import base64
 import hashlib
 import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -151,6 +152,22 @@ def main():
     class TargetAndSink(BaseHTTPRequestHandler):
         def do_GET(self):
             nonlocal request_count
+            if self.headers.get("Upgrade", "").lower() == "websocket":
+                # Minimal RFC 6455 server handshake for the extended pull-checker
+                # monitor. The checker only needs the upgrade to succeed and then
+                # closes, so no frames are exchanged. It deliberately stays UP
+                # regardless of target_status: the outage phases below assert exact
+                # single-incident counts for the HTTP monitor.
+                key = self.headers.get("Sec-WebSocket-Key", "")
+                accept = base64.b64encode(hashlib.sha1(
+                    (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
+                self.send_response(101)
+                self.send_header("Upgrade", "websocket")
+                self.send_header("Connection", "Upgrade")
+                self.send_header("Sec-WebSocket-Accept", accept)
+                self.end_headers()
+                self.close_connection = True
+                return
             with lock:
                 request_count += 1
                 status = partition_target_status if self.path == "/partition-target" else target_status
@@ -346,12 +363,21 @@ def main():
         monitor = api("POST", "/api/monitors", {"name": "edge-target", "type": "http", "active": True,
                       "interval": 1, "retry_interval": 1, "max_retries": 1, "timeout": 2,
                       "resend_interval": 0, "config": {"url": sink_url + "/target"}})["id"]
+        # M4: an extended pull-checker type (websocket was rejected by the M2
+        # runtime) must flow through the same API/assignment/encode/transfer/
+        # decode/execute pipeline and its telemetry must reach the hub.
+        socket_monitor = api("POST", "/api/monitors", {"name": "edge-socket", "type": "websocket", "active": True,
+                      "interval": 1, "retry_interval": 1, "max_retries": 1, "timeout": 2,
+                      "resend_interval": 0, "config": {"url": f"ws://127.0.0.1:{args.port + 1}/ws"}})["id"]
         registered = admin("register", "--probe-id", identity["probe_id"], "--stream-id", identity["stream_id"],
                            "--key", "edge-smoke", "--name", "Edge smoke", "--endpoint",
                            f"wss://127.0.0.1:{args.port + (4 if relay else 3)}/ws/probe/v1", "--fingerprint", identity["certificate_fingerprint"], "--location", "Local verification")
         assignment = admin("assign", "--monitor-id", str(monitor), "--expected-revision", "1", "--probes", identity["probe_id"])
         generation = next(member["generation"] for member in assignment["assignments"] if member["probe_id"] == identity["probe_id"])
         api("POST", f"/api/notifications/{notification}/monitor/{monitor}", {"include_target": False})
+        socket_assignment = admin("assign", "--monitor-id", str(socket_monitor), "--expected-revision", "1", "--probes", identity["probe_id"])
+        assert int(next(member["generation"] for member in socket_assignment["assignments"]
+                        if member["probe_id"] == identity["probe_id"])) > 0
         assert int(generation) > 0
         assert admin("status", "--probe-id", identity["probe_id"])["applied_revision"] == "0"
         for worker in ("worker-a", "worker-b"):
@@ -363,7 +389,12 @@ def main():
         admin("enroll", "--probe-id", identity["probe_id"], "--token-file", str(enrollment_file))
         mark("operator enrollment succeeds with background connectors already running")
         wait_for("real hub connector activates accepted config", lambda: edge_progress()["config_revision"] == 1)
-        wait_for("edge records healthy checks", lambda: edge_rows("SELECT status FROM edge_regional_state") == [{"status": 1}])
+        wait_for("edge records healthy checks", lambda: edge_rows(
+            "SELECT status FROM edge_regional_state ORDER BY monitor_id") == [{"status": 1}, {"status": 1}])
+        if args.mariadb_container:
+            wait_for("extended pull checker telemetry reaches the hub", lambda: bool(hub_query(
+                "SELECT monitor_id FROM probe_observations "
+                f"WHERE probe_id='{identity['probe_id']}' AND monitor_id={socket_monitor}")))
         assert admin("status", "--probe-id", identity["probe_id"])["state"] == "active"
         wait_for("hub durably records exact applied receipt", lambda: admin("status", "--probe-id", identity["probe_id"])["applied_revision"] == "1")
         api("PUT", f"/api/monitors/{monitor}", {"name": "edge-target-edited"})

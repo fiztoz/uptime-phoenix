@@ -10,8 +10,9 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
-// EdgeConfigDecoder validates the M2 HTTP/TCP/DNS engineering runtime. Features
-// assigned to M3/M4 fail explicitly until they have an execution owner.
+// EdgeConfigDecoder validates the M4 pull-checker runtime. Features without
+// an execution owner (Docker resource bindings, certificate paging, remote
+// escalation) fail explicitly until they have one.
 type EdgeConfigDecoder struct{ validators *LocalConfigValidator }
 
 var _ ports.EdgeConfigDecoder = (*EdgeConfigDecoder)(nil)
@@ -110,8 +111,12 @@ func validateEdgeRuntimeSnapshot(s ConfigSnapshot) error {
 		return fmt.Errorf("enabled connection watchdog requires probe metadata: %w", domain.ErrValidation)
 	}
 	for _, a := range s.Assignments {
-		if a.Monitor.Type != "http" && a.Monitor.Type != "tcp" && a.Monitor.Type != "dns" || len(a.ResourceBindings) != 0 {
-			return fmt.Errorf("assignment requires an unavailable edge checker: %w", ErrUnsupportedCapability)
+		// Pull checkers without probe-local resources execute directly; docker
+		// resolves through an advertised resource binding, which publication
+		// cannot yet carry, so it fails instead of pretending the hub socket
+		// exists on the VM.
+		if a.Monitor.Type == "docker" || len(a.ResourceBindings) != 0 {
+			return fmt.Errorf("remote docker execution requires an advertised resource binding: %w", ErrUnsupportedCapability)
 		}
 		if a.Monitor.CertExpiryNotify {
 			return fmt.Errorf("certificate paging is unavailable in this build: %w", ErrUnsupportedCapability)

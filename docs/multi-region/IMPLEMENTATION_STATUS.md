@@ -1,6 +1,8 @@
 # Multi-region implementation status
 
-Updated 2026-09-21. Accepted implementation: `a12a3fa`; completion evidence: `8b455d4`.
+Updated 2026-09-22 after the M4 pull-checker coverage slice; see
+[M4 first-slice acceptance](M4_PULL_CHECKER_ACCEPTANCE.md). Accepted M3
+implementation: `a12a3fa`; completion evidence: `8b455d4`.
 This is the current status. Check HEAD and newer acceptance records before starting work.
 
 | Milestone | Status | Evidence / next boundary |
@@ -9,7 +11,7 @@ This is the current status. Check HEAD and newer acceptance records before start
 | M1 regional persistence and local parity | Accepted after integration corrections | [M1 retrospective](../postmortems/2026-09-20-m1-integration-followup.md), [M2 gate](M2_ACCEPTANCE_REPORT.md) |
 | M2 autonomous runtime and enrollment | Accepted for HTTP/TCP/DNS | [M2 acceptance](M2_ACCEPTANCE_REPORT.md), [operator guide](M2_OPERATOR_GUIDE.md) |
 | M3 synchronization and recovery | Complete for the supported runtime | [Final acceptance](M3_COMPLETION_ACCEPTANCE.md), [hashed evidence](M3_COMPLETION_EVIDENCE.json) |
-| M4 compatibility | Not complete | Full pull-checker coverage, lifecycle/auxiliary state, backup and deployment compatibility |
+| M4 compatibility | First slice accepted | [Pull-checker coverage](M4_PULL_CHECKER_ACCEPTANCE.md): all pull types except docker, honest capability advertisement. Open: docker resource bindings, lifecycle/auxiliary state, backup and deployment compatibility |
 | M5 fleet UI and API | Not complete | Administrative workflows, scoped regional views and browser integration |
 | M6 release validation | Not complete | Cross-feature failure tests and controlled V1 activation |
 | M7–M9 | Future work | Optional aggregate paging, SSH provisioning and push gateway |
@@ -33,7 +35,8 @@ results, not a claim that checks reran during documentation cleanup.
 
 ## Remaining scope
 
-HTTP/TCP/DNS are the accepted remote runtime subset. Auxiliary edge TLS/capacity
+Every pull monitor type except docker is the accepted remote runtime subset;
+docker needs the probe-local resource-binding flow. Auxiliary edge TLS/capacity
 state, broader feature compatibility and fleet UI remain M4/M5. Watchdog ACK is
 not supported by the regional positive-assignment-generation command target.
 Provider delivery retains its documented external-acceptance ambiguity. A WAL

@@ -115,6 +115,12 @@ M4 and M5 may proceed concurrently only after the protocol/HTTP contract and bac
 
 **Goal:** make distributed execution safe across Phoenix's actual feature surface.
 
+**Partial 2026-09-22:** [pull-checker coverage slice](M4_PULL_CHECKER_ACCEPTANCE.md)
+accepted — every pull type except docker executes remotely, and the probe hello
+advertises real build/runtime capabilities (ICMP-gated ping, docker withheld).
+Docker still needs the advertised resource-binding flow; the remaining bullets
+below are unchanged.
+
 - [ ] Cover all existing pull monitor types: `http`, `tcp`, `ping`, `dns`, `websocket`, `docker`, `mqtt`, `rabbitmq`, `grpc`, `snmp`, `database`, `s3`. Keep push local-only until M9.
 - [ ] Advertise real runtime capability constraints, including ICMP privileges, Docker socket/API availability, engine support, and network/proxy bindings. Reject impossible assignments before activation.
 - [ ] Synchronize maintenance schedules/timezones, direct monitor notification links, provider/template configuration, target visibility flags, tags/owner context, and effective escalation policies.

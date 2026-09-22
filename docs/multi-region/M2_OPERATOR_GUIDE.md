@@ -100,9 +100,17 @@ unchanged content retains its revision and ciphertext. A changed revision causes
 a reconnect and bounded complete transfer. Concurrent edits may require the next
 reconciliation; pending work is retained across a hub restart.
 
-The edge currently supports HTTP/TCP/DNS and direct delivery. Unsupported monitor
-types, certificate paging and active escalation fail publication visibly; the
-last accepted edge configuration continues until a valid replacement arrives.
+The edge executes every pull monitor type except docker — http, tcp, ping, dns,
+websocket, mqtt, rabbitmq, grpc, snmp, database and s3 — and direct delivery.
+Docker assignments, certificate paging and active escalation fail publication
+visibly; the last accepted edge configuration continues until a valid replacement
+arrives. Each probe advertises only the checkers its build actually contains, and
+ping is advertised only when the host permits unprivileged ICMP (Linux requires
+`net.ipv4.ping_group_range` to cover the probe user; default macOS and Windows
+hosts cannot). A snapshot requiring an unadvertised checker blocks the session
+handshake, so one impossible assignment (for example ping on a probe without
+ICMP) keeps that probe on its last accepted configuration until the assignment
+is removed or the host is fixed — check the connector log for handshake rejection.
 Remote ACK links are forced false without changing the saved local preference.
 Watchdogs are opt-in through the settings below. Removing an assignment publishes
 an empty replacement when it was the probe's last assignment.

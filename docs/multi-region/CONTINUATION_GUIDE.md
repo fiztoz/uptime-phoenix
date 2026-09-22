@@ -1,7 +1,11 @@
 # Multi-region continuation guide
 
-M3 is complete for HTTP/TCP/DNS at implementation `a12a3fa`, recorded in `8b455d4`.
-Read [current status](IMPLEMENTATION_STATUS.md) and [final acceptance](M3_COMPLETION_ACCEPTANCE.md)
+M3 is complete at implementation `a12a3fa`, recorded in `8b455d4`; the first
+M4 pull-checker slice (all pull types except docker, honest capability
+advertisement) is recorded in
+[M4 acceptance](M4_PULL_CHECKER_ACCEPTANCE.md).
+Read [current status](IMPLEMENTATION_STATUS.md) and
+[M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.
 
 ## Start here
