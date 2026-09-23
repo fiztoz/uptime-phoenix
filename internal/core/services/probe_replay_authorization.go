@@ -88,6 +88,14 @@ func (s *AccessService) AuthorizeEvent(_ context.Context, f domain.ProbeReplayAu
 			}
 			break
 		}
+		// A capacity incident keeps one condition kind across state changes and
+		// recovery, and is never acknowledged remotely.
+		if e.Incident != nil && e.Incident.SubjectKind == domain.IncidentSubjectCapacity {
+			if code := authorizeCapacityReplay(f, e); code != "" {
+				return reject(code)
+			}
+			break
+		}
 		if code := authorizeAvailabilityReplay(f, e); code != "" {
 			return reject(code)
 		}
@@ -127,6 +135,10 @@ func (s *AccessService) AuthorizeEvent(_ context.Context, f domain.ProbeReplayAu
 			switch parent.SubjectKind {
 			case domain.IncidentSubjectAvailability:
 				if d.EventKind != domain.DeliveryEventStatusChange {
+					return reject("event_invalid")
+				}
+			case domain.IncidentSubjectCapacity:
+				if d.EventKind != domain.DeliveryEventCapacityCondition {
 					return reject("event_invalid")
 				}
 			case domain.IncidentSubjectCertificate:

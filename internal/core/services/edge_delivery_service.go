@@ -109,6 +109,9 @@ func (s *EdgeDeliveryService) process(ctx context.Context, item domain.QueuedDel
 		// of sending a zero-threshold alert or silently marking it delivered.
 		return fmt.Errorf("certificate delivery %s has no renderable snapshot", stored.DeliveryID)
 	}
+	if stored.EventKind == domain.DeliveryEventCapacityCondition && !domain.ValidEdgeConditionAlertContent(stored.Condition) {
+		return fmt.Errorf("capacity delivery %s has no renderable snapshot", stored.DeliveryID)
+	}
 	alert := edgeAlertContext(*stored, *assignment, config, channel.Notification, includeTarget, s.now().UTC())
 	err = provider.Send(sendCtx, channel.Notification.Config, alert)
 	cancel()
@@ -160,6 +163,29 @@ func edgeAlertContext(item domain.QueuedDelivery, a domain.EdgeResolvedAssignmen
 			// A certificate alert is not an availability transition. Pin both sides of
 			// the status pair to the monitor's live state so no renderer can turn a
 			// paging alert into a false "recovered" or "is DOWN" headline.
+			alert.Status, alert.PreviousStatus = domain.StatusUp, domain.StatusUp
+		}
+	}
+	if item.EventKind == domain.DeliveryEventCapacityCondition {
+		// Render from the committed snapshot under the same rules: a retried
+		// capacity page reports the state it was raised for, and the status pair is
+		// pinned so no renderer fakes an outage or a recovery headline.
+		if content := item.Condition; domain.ValidEdgeConditionAlertContent(content) {
+			alert.EventKind = domain.AlertEventCapacityCondition
+			alert.Message = content.Message
+			alert.ConditionKind = content.Kind
+			alert.ConditionState = content.State
+			alert.ConditionPreviousState = content.PreviousState
+			alert.ConditionUsed = content.Used
+			alert.ConditionLimit = content.Limit
+			alert.ConditionPercent = content.Percent
+			alert.ConditionThreshold = content.Threshold
+			alert.ConditionUnit = content.Unit
+			alert.ConditionResource = content.Resource
+			alert.ConditionScope = content.Scope
+			alert.ConditionSource = content.Source
+			observedAt := content.ObservedAt.UTC()
+			alert.ConditionObservedAt = &observedAt
 			alert.Status, alert.PreviousStatus = domain.StatusUp, domain.StatusUp
 		}
 	}

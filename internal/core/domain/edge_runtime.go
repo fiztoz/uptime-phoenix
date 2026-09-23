@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // EdgeIdentity binds the protected local files to one durable telemetry stream.
 // HubID is empty until a single-use enrollment is durably accepted.
@@ -177,21 +180,78 @@ type EdgeMonitorEvidence struct {
 // analog of a regional monitor_conditions row: raw measurement, promotion
 // candidate and promoted state, with no delivery cursor. Version fences every
 // write so a concurrent recording forces re-evaluation instead of losing or
-// duplicating a promotion.
+// duplicating a promotion. DeliveredState is the coarse paging cursor: the
+// promoted state the operator has already been told about (empty means none).
+// AlertSourceID points at the single open capacity incident for this kind.
 type EdgeConditionState struct {
 	ConditionEvidence
-	Version int64
+	AlertSourceID  string
+	DeliveredState ConditionState
+	Alert          *RegionalIncident
+	Version        int64
 }
 
 // EdgeConditionWork is one evaluated condition's durable state change plus its
-// optional promoted transition. The transition is emitted as an ordered
-// condition.transition event; it never changes primary availability. Remove
-// retires a stored kind whose check was disabled in the accepted configuration.
+// optional promoted transition and paging lifecycle. The transition is emitted
+// as an ordered condition.transition event; it never changes primary
+// availability. Remove retires a stored kind whose check was disabled in the
+// accepted configuration.
 type EdgeConditionWork struct {
 	State           ConditionEvidence
 	ExpectedVersion int64
 	Remove          bool
 	Transition      *ConditionTransition
+	Alert           *EdgeConditionAlertWork
+}
+
+// EdgeConditionAlertWork is the capacity paging lifecycle produced by one
+// evaluation: at most one incident transition (open, restate, or resolve), its
+// delivery intents with an immutable rendered snapshot, and the cursor to store
+// after applying them.
+type EdgeConditionAlertWork struct {
+	Incident       *RegionalIncident
+	Intents        []DeliveryIntent
+	Content        *EdgeConditionAlertContent
+	OpenAlertID    string
+	DeliveredState ConditionState
+}
+
+// EdgeConditionAlertContent is the immutable provider-facing snapshot of one
+// committed capacity page. It travels with the durable delivery intent so a
+// retry after a restart renders the state it was committed for instead of
+// re-deriving values from a later clock or a pruned observation.
+type EdgeConditionAlertContent struct {
+	Kind          string
+	State         ConditionState
+	PreviousState ConditionState
+	Used          *float64
+	Limit         *float64
+	Percent       *float64
+	Threshold     *float64
+	Unit          string
+	Resource      string
+	Scope         string
+	Source        string
+	Message       string
+	ObservedAt    time.Time
+}
+
+// ValidEdgeConditionAlertContent requires a renderable, bounded snapshot of one
+// confirmed condition page. A page always names the state being reported and
+// the prior state the operator knows, which may repeat for a delayed page.
+func ValidEdgeConditionAlertContent(content *EdgeConditionAlertContent) bool {
+	if content == nil || content.Kind != MonitorConditionSessionPool && content.Kind != MonitorConditionStorage ||
+		!content.State.IsValid() || !content.PreviousState.IsValid() || content.ObservedAt.IsZero() ||
+		len(content.Message) == 0 || len(content.Message) > 4096 ||
+		len(content.Unit) > 256 || len(content.Resource) > 256 || len(content.Scope) > 256 || len(content.Source) > 256 {
+		return false
+	}
+	for _, value := range []*float64{content.Used, content.Limit, content.Percent, content.Threshold} {
+		if value != nil && (*value < 0 || *value != *value || *value > math.MaxFloat64) {
+			return false
+		}
+	}
+	return true
 }
 
 // EdgeCertAlertWork is the certificate paging lifecycle produced by one

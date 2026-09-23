@@ -60,7 +60,7 @@ func (s *Store) ReadCurrentSnapshot(ctx context.Context, fence domain.EdgeReplay
 			if row.Seq <= 0 || row.Seq > i.LastCreatedSeq {
 				return ports.ErrConflict
 			}
-			conditions, err := readEdgeConditionStates(ctx, tx, row.MonitorID, row.Generation)
+			conditions, err := readEdgeConditionStates(ctx, tx, i.ProbeID, row.MonitorID, row.Generation)
 			if err != nil {
 				return err
 			}

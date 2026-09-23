@@ -47,8 +47,9 @@ type edgeIncidentRow struct {
 	Generation           int64  `bun:"generation,nullzero"`
 	Scope                string
 	SubjectKind          string
-	AckCommandID         string `bun:"ack_command_id,nullzero"`
-	AckActorDisplayName  string `bun:"ack_actor_display_name,nullzero"`
+	ConditionKind        *string `bun:"condition_kind"`
+	AckCommandID         string  `bun:"ack_command_id,nullzero"`
+	AckActorDisplayName  string  `bun:"ack_actor_display_name,nullzero"`
 	AckNote              *string
 	Status               string
 	TransitionVersion    int64
@@ -78,7 +79,7 @@ func microFromTime(value *time.Time) *int64 {
 }
 
 func (row edgeIncidentRow) incident(probeID string) *domain.RegionalIncident {
-	return &domain.RegionalIncident{SourceAlertID: row.SourceAlertID, ProbeID: probeID, MonitorID: row.MonitorID, AssignmentGeneration: row.Generation, Scope: domain.IncidentScope(row.Scope), SubjectKind: row.SubjectKind, AckCommandID: row.AckCommandID, AckActorDisplayName: row.AckActorDisplayName, AckNote: row.AckNote, Status: row.Status, TransitionVersion: row.TransitionVersion, StartedAt: time.UnixMicro(row.StartedAt).UTC(), ResolvedAt: timeFromMicro(row.ResolvedAt), AckedAt: timeFromMicro(row.AckedAt), Reason: row.Reason, ConfigRevision: row.ConfigRevision, CertificateThreshold: row.CertificateThreshold, CertificateNotAfter: timeFromMicro(row.CertificateNotAfter)}
+	return &domain.RegionalIncident{SourceAlertID: row.SourceAlertID, ProbeID: probeID, MonitorID: row.MonitorID, AssignmentGeneration: row.Generation, Scope: domain.IncidentScope(row.Scope), SubjectKind: row.SubjectKind, ConditionKind: edgeStringOrEmpty(row.ConditionKind), AckCommandID: row.AckCommandID, AckActorDisplayName: row.AckActorDisplayName, AckNote: row.AckNote, Status: row.Status, TransitionVersion: row.TransitionVersion, StartedAt: time.UnixMicro(row.StartedAt).UTC(), ResolvedAt: timeFromMicro(row.ResolvedAt), AckedAt: timeFromMicro(row.AckedAt), Reason: row.Reason, ConfigRevision: row.ConfigRevision, CertificateThreshold: row.CertificateThreshold, CertificateNotAfter: timeFromMicro(row.CertificateNotAfter)}
 }
 
 func readEdgeEvidence(ctx context.Context, db bun.IDB, i domain.EdgeIdentity, monitorID, generation int64) (domain.EdgeMonitorEvidence, error) {
@@ -103,7 +104,7 @@ func readEdgeEvidence(ctx context.Context, db bun.IDB, i domain.EdgeIdentity, mo
 		return domain.EdgeMonitorEvidence{}, err
 	}
 	evidence.Certificate, evidence.CertificateIncident = certificate, certificateIncident
-	conditions, err := readEdgeConditionStates(ctx, db, monitorID, generation)
+	conditions, err := readEdgeConditionStates(ctx, db, i.ProbeID, monitorID, generation)
 	if err != nil {
 		return domain.EdgeMonitorEvidence{}, err
 	}
@@ -192,6 +193,9 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 		}
 		for _, work := range record.Conditions {
 			if !work.Remove && work.Transition != nil {
+				eventCount++
+			}
+			if work.Alert != nil && work.Alert.Incident != nil {
 				eventCount++
 			}
 		}
@@ -356,7 +360,11 @@ func insertEdgeIntent(ctx context.Context, tx bun.Tx, o domain.RegionalObservati
 }
 
 func newEdgeIncidentRow(inc domain.RegionalIncident) edgeIncidentRow {
-	return edgeIncidentRow{SourceAlertID: inc.SourceAlertID, MonitorID: inc.MonitorID, Generation: inc.AssignmentGeneration, Scope: string(inc.Scope), SubjectKind: inc.SubjectKind, Status: inc.Status, TransitionVersion: inc.TransitionVersion, StartedAt: inc.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(inc.ResolvedAt), AckedAt: microFromTime(inc.AckedAt), AckCommandID: inc.AckCommandID, AckActorDisplayName: inc.AckActorDisplayName, AckNote: inc.AckNote, Reason: inc.Reason, ConfigRevision: inc.ConfigRevision, CertificateThreshold: inc.CertificateThreshold, CertificateNotAfter: microFromTime(inc.CertificateNotAfter)}
+	row := edgeIncidentRow{SourceAlertID: inc.SourceAlertID, MonitorID: inc.MonitorID, Generation: inc.AssignmentGeneration, Scope: string(inc.Scope), SubjectKind: inc.SubjectKind, Status: inc.Status, TransitionVersion: inc.TransitionVersion, StartedAt: inc.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(inc.ResolvedAt), AckedAt: microFromTime(inc.AckedAt), AckCommandID: inc.AckCommandID, AckActorDisplayName: inc.AckActorDisplayName, AckNote: inc.AckNote, Reason: inc.Reason, ConfigRevision: inc.ConfigRevision, CertificateThreshold: inc.CertificateThreshold, CertificateNotAfter: microFromTime(inc.CertificateNotAfter)}
+	if inc.ConditionKind != "" {
+		row.ConditionKind = edgeOptionalString(inc.ConditionKind)
+	}
+	return row
 }
 
 // Source checks may preserve a committed acknowledgement, never create or edit it.

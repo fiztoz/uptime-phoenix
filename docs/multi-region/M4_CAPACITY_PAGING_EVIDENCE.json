@@ -1,0 +1,82 @@
+{
+  "date": "2026-09-23",
+  "baseline": "bc2a643",
+  "scope": "M4 per-probe capacity paging slice; escalation, recovery policy, backup/deployment compatibility and fleet UI remain open",
+  "toolchain": "go1.27.1 (local default; go.mod declares 1.26.6)",
+  "mariadb": "11.8.9-MariaDB-ubu2404 (disposable phoenix-m04-checker-coverage, schema phoenix_ci)",
+  "commands": [
+    "go build ./...",
+    "TEST_MARIADB_DSN=<disposable,parseTime=true,loc=UTC,multiStatements=true> go test -json -race -count=1 -timeout 2400s -p 4 ./...",
+    "go vet ./internal/... ; gofmt -l internal/"
+  ],
+  "race": {
+    "named_passes": 3885,
+    "packages_passed": 22,
+    "failures": 0,
+    "mariadb_live_matrix_passes": 327,
+    "mariadb_skips": 0,
+    "skipped": [
+      "TestDatabaseChecker_Check_MongoDB_RealServer",
+      "TestTelegramSender_Send_DownSeverity",
+      "TestDNSChecker_Check_A",
+      "TestDNSChecker_Check_DefaultServer",
+      "TestDNSChecker_Check_ExpectedValue_Fail",
+      "TestDNSChecker_Check_ExpectedValue_Pass",
+      "TestDNSChecker_Check_MX",
+      "TestDNSChecker_Check_NonexistentDomain",
+      "TestDNSChecker_Check_TXT",
+      "TestTCPChecker_Check_GoogleDNS"
+    ]
+  },
+  "capacity_paging_outcomes": {
+    "named_passes": 15,
+    "both_engines": true,
+    "suites": {
+      "TestEvaluateCapacityPagingLifecycle": 7,
+      "TestEdgeCapacityPagingLifecycle": 1,
+      "TestProbeCapacityPagingAcceptance": 4
+    }
+  },
+  "first_run_failures_fixed": [
+    "edge migration 013 initially created the global-name index edge_alerts_certificate_identity while 011's same-named index still existed; index creation now happens after the rebuild drop/rename",
+    "cert_alert_wire_test pinned capacity subjects as unemittable; it now pins the real invariant (a kind-less capacity subject is unemittable) and capacity encodes through ValidCapacityIncident",
+    "TestEdgeWatchdogMigrationPreservesExistingWork: the 005 round-trip drops newer columns, so 013 now steps out and back around it exactly like 011",
+    "the paging lifecycle test initially fed one error/recovery sample where the two-sample contract requires two"
+  ],
+  "development_checks": {
+    "gofmt": "clean",
+    "go_vet": "clean",
+    "golangci_lint": "aborts before analysis in this environment (go1.26-built binary cannot typecheck go1.27 files); documented gofmt+go vet fallback used"
+  },
+  "source_hashes": {
+    "internal/adapters/probe/cert_alert_wire_test.go": "0e37f565ccbc78110410d59e1d2f5555b3490565d7572c194fdcb901a05d0f91",
+    "internal/adapters/probe/edge_telemetry.go": "b44eafd6e184dad7e10637c173d8c7cfc5fee9b9c2d7dcd22778a6fd6a4669d2",
+    "internal/adapters/probe/replay.go": "e7438a40f277594fabf260908a62c58d6a2ce27bf931edddf043e010e17f8923",
+    "internal/adapters/repository/edge/capacity_paging_test.go": "3df8013100852f11e61d6e0deb0f6cf4d874e4d8cb101ea7743d6084ec969ac5",
+    "internal/adapters/repository/edge/condition_state.go": "0e156e1ba1479931c0e26e92b5448eab1beb2f1160313aa17d56efd1c94e67cc",
+    "internal/adapters/repository/edge/current_snapshot.go": "47fdca98abbe4a567b1715ee61bd82637978be231aadfe7104fbcfd82e95ffeb",
+    "internal/adapters/repository/edge/delivery.go": "02aa8df4a0df2c4fcb920a4dfdd2e5c482246d5d2941781f627068a48e18ea3b",
+    "internal/adapters/repository/edge/delivery_authority.go": "a2e5d9e9b718f0db1b196b29478d2bfa1a835d14d4bc058eb773639b569b427d",
+    "internal/adapters/repository/edge/metadata_retention.go": "a98d339303e8a7e67e23357cacac7d79541c0f0233a0cee49a68289bf0e79ac1",
+    "internal/adapters/repository/edge/migrations/013_condition_paging.tx.down.sql": "71ea7054bfd31841b38fadaa6b9351d5dbbf20455e0154c3c103fe761212dc44",
+    "internal/adapters/repository/edge/migrations/013_condition_paging.tx.up.sql": "8b65929a5f1aae881c8e1f5e6b68e19055dc7a680873d175080eb495b16d98a5",
+    "internal/adapters/repository/edge/record.go": "d809623b12ad78c6c83e269c22e6d615a34c9e77a9247a6df3699894ba8aaaeb",
+    "internal/adapters/repository/edge/watchdog_test.go": "19695cf42927b120a06863660d5625485c8f6887b225d608a4e83756f9390697",
+    "internal/adapters/repository/probe_capacity_paging_test.go": "b906e2eac3f35712404373c5b07ef9a296782507d65c1db15e3f3e1259484775",
+    "internal/core/domain/delivery_outbox.go": "31711cb95f4d110f61b372ce7a4811c00c78a506a370641e0969590bb53c3c90",
+    "internal/core/domain/edge_runtime.go": "f0a8dd77d0dbde17aa48511b121c7a75ad93bf3ba16c0dbaf1ccb7cd82be6d0a",
+    "internal/core/domain/probe_regional.go": "3647a51eb1ee5320a964c1fc4d8e2f78aff24bc90c9ae591abe59f6bfaddff48",
+    "internal/core/services/capacity_alert_paging.go": "44c2c607664ba1020663804b26400567670cacbc41464d04578397f30104c793",
+    "internal/core/services/capacity_alert_paging_test.go": "369a1413d69d9ae9eb69ad29e01f5a45bb6bde2d01fc292afa0e295f5dc65de8",
+    "internal/core/services/edge_delivery_service.go": "74dc6641415daa160f4d4f2e2b021361115a674f98d61c4474951ef6ff5d4751",
+    "internal/core/services/edge_recording_service.go": "fb8c93e39a6f195d93bf21d90c2a445788300177fed825777a6863fddc83859b",
+    "internal/core/services/probe_ack_replay.go": "bd7e9ccb0c8e079c8e738c8f15849781fd55628721baa19a86842a934088a7b3",
+    "internal/core/services/probe_replay_authorization.go": "0131f35fdf11eb7129036c6c4c4e0c0cd5ef014805cd7ebd4a3ff43000ca451c"
+  },
+  "unverified": [
+    "process-level capacity paging (scripts/probe_runtime_smoke.py has no capacity assertions and was not run)",
+    "provider-side rendering of condition.* template fields through real provider APIs beyond existing sender tests",
+    "mixed-version upgrade rehearsal (older hub permanently rejects capacity subjects per sequence)",
+    "GOTOOLCHAIN=go1.26.6 contract pin was not used; runs used the local go1.27.1 toolchain"
+  ]
+}

@@ -74,7 +74,23 @@ func (s *Store) AuthorizeEdgeDelivery(ctx context.Context, claim domain.Delivery
 			out = &item
 			return nil
 		}
-		if inc.SubjectKind != domain.IncidentSubjectAvailability || item.Certificate != nil {
+		if item.EventKind == domain.DeliveryEventCapacityCondition {
+			// A capacity intent is authorized by its capacity incident: the condition
+			// kind must still be the one this snapshot was committed for. A restate
+			// supersedes pages for older states instead of sending them late.
+			content := item.Condition
+			if inc.SubjectKind != domain.IncidentSubjectCapacity || !domain.ValidEdgeConditionAlertContent(content) ||
+				content.Kind != inc.ConditionKind || inc.Status != domain.AlertStatusFiring && inc.Status != domain.AlertStatusResolved {
+				return nil
+			}
+			if inc.Status == domain.AlertStatusFiring && item.IncidentStatus != domain.AlertStatusFiring ||
+				inc.Status == domain.AlertStatusResolved && item.IncidentStatus != domain.AlertStatusResolved {
+				return nil
+			}
+			out = &item
+			return nil
+		}
+		if inc.SubjectKind != domain.IncidentSubjectAvailability || item.Certificate != nil || item.Condition != nil {
 			return nil
 		}
 		switch item.CheckStatus {

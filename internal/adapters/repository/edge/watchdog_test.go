@@ -253,10 +253,20 @@ func runWatchdogMigration(t *testing.T, s *Store, direction string, failAfter bo
 // runCertificatePagingMigration applies the 011 rebuild that later touches the
 // same three tables. The 005 round-trip below is only meaningful with the schema
 // it owns, so 011 must step out of the way first and back in afterwards, or the
-// Go row models would read columns the rebuilt tables no longer have.
+// Go row models would read columns the rebuilt tables no longer have. The 013
+// capacity rebuild sits on top of 011 and steps out and back the same way.
 func runCertificatePagingMigration(t *testing.T, s *Store, direction string) error {
 	t.Helper()
 	sql, err := migrations.ReadFile("migrations/011_certificate_paging.tx." + direction + ".sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.db.RunInTx(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error { _, err := tx.ExecContext(ctx, string(sql)); return err })
+}
+
+func runConditionPagingMigration(t *testing.T, s *Store, direction string) error {
+	t.Helper()
+	sql, err := migrations.ReadFile("migrations/013_condition_paging.tx." + direction + ".sql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,6 +287,9 @@ func TestEdgeWatchdogMigrationPreservesExistingWork(t *testing.T) {
 	if err := s.db.NewRaw("SELECT payload FROM edge_telemetry_outbox WHERE seq=2").Scan(ctx, &original); err != nil {
 		t.Fatal(err)
 	}
+	if err := runConditionPagingMigration(t, s, "down"); err != nil {
+		t.Fatalf("013 down: %v", err)
+	}
 	if err := runCertificatePagingMigration(t, s, "down"); err != nil {
 		t.Fatalf("011 down: %v", err)
 	}
@@ -295,6 +308,9 @@ func TestEdgeWatchdogMigrationPreservesExistingWork(t *testing.T) {
 	}
 	if err := runCertificatePagingMigration(t, s, "up"); err != nil {
 		t.Fatalf("011 up after 005 round-trip: %v", err)
+	}
+	if err := runConditionPagingMigration(t, s, "up"); err != nil {
+		t.Fatalf("013 up after 005 round-trip: %v", err)
 	}
 	after, err := s.GetDeliveryIntent(ctx, testIdentity().ProbeID, before[0].DeliveryID)
 	if err != nil || !reflect.DeepEqual(*after, before[0]) {

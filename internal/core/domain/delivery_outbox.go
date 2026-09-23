@@ -52,16 +52,19 @@ type QueuedDelivery struct {
 	// later retry renders the threshold it was committed for rather than
 	// re-deriving one from a newer clock or a pruned observation.
 	Certificate *EdgeCertAlertContent
-	StartedAt   time.Time
-	ResolvedAt  *time.Time
-	Status      string
-	Attempt     int64
-	LeaseToken  string
-	LeasedAt    *time.Time
-	LeaseUntil  *time.Time
-	ErrorCode   string
-	OutcomeAt   *time.Time
-	CreatedAt   time.Time
+	// Condition carries the immutable alert snapshot for a capacity_condition
+	// row under the same exactly-when rule.
+	Condition  *EdgeConditionAlertContent
+	StartedAt  time.Time
+	ResolvedAt *time.Time
+	Status     string
+	Attempt    int64
+	LeaseToken string
+	LeasedAt   *time.Time
+	LeaseUntil *time.Time
+	ErrorCode  string
+	OutcomeAt  *time.Time
+	CreatedAt  time.Time
 }
 
 // DeliveryClaim is the persisted attempt fence. Copy these fields from a claim;

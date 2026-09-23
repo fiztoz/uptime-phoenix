@@ -48,6 +48,8 @@ type edgeDeliveryRow struct {
 	CertDaysRemaining *int64 `bun:"cert_days_remaining"`
 	CertIssuer        string `bun:"cert_issuer"`
 	CertNotAfter      *int64 `bun:"cert_not_after"`
+	// Capacity snapshot under the same exactly-when rule as the certificate one.
+	ConditionJSON *string `bun:"condition_json"`
 }
 
 func (row *edgeDeliveryRow) queued(probeID, streamID string) domain.QueuedDelivery {
@@ -84,7 +86,18 @@ func (row *edgeDeliveryRow) queued(probeID, streamID string) domain.QueuedDelive
 		OutcomeAt:            timeFromMicro(row.OutcomeAt),
 		CreatedAt:            time.UnixMicro(row.CreatedAt).UTC(),
 		Certificate:          row.certificateContent(),
+		Condition:            row.conditionContent(),
 	}
+}
+
+// conditionContent rebuilds the immutable capacity snapshot from its stored
+// JSON. A row without the snapshot yields nil rather than a zero-valued alert,
+// so an availability send can never render stale capacity fields.
+func (row *edgeDeliveryRow) conditionContent() *domain.EdgeConditionAlertContent {
+	if row.ConditionJSON == nil {
+		return nil
+	}
+	return unmarshalConditionContent(*row.ConditionJSON)
 }
 
 // certificateContent rebuilds the immutable alert snapshot from stored columns.
@@ -407,8 +420,17 @@ func insertEdgeQueuedDelivery(ctx context.Context, tx bun.Tx, item domain.Queued
 	if item.Certificate != nil {
 		issuerBytes = int64(len(item.Certificate.Issuer))
 	}
+	var conditionJSON *string
+	if item.Condition != nil {
+		encoded, err := marshalConditionContent(item.Condition)
+		if err != nil {
+			return err
+		}
+		conditionJSON = &encoded
+		issuerBytes += int64(len(encoded))
+	}
 	var retainedBytes int64
-	if err := tx.NewRaw("SELECT COALESCE(SUM(length(CAST(check_output AS BLOB)) + length(COALESCE(cert_issuer, '')) + 1024), 0) FROM edge_delivery_outbox").Scan(ctx, &retainedBytes); err != nil {
+	if err := tx.NewRaw("SELECT COALESCE(SUM(length(CAST(check_output AS BLOB)) + length(COALESCE(cert_issuer, '')) + length(COALESCE(condition_json, '')) + 1024), 0) FROM edge_delivery_outbox").Scan(ctx, &retainedBytes); err != nil {
 		return err
 	}
 	if retainedBytes > maxDeliveryQueueBytes-int64(len(item.CheckOutput))-issuerBytes-1024 {
@@ -419,6 +441,7 @@ func insertEdgeQueuedDelivery(ctx context.Context, tx bun.Tx, item domain.Queued
 		threshold, days := int64(item.Certificate.Threshold), int64(item.Certificate.DaysRemaining)
 		row.CertThreshold, row.CertDaysRemaining, row.CertIssuer, row.CertNotAfter = &threshold, &days, item.Certificate.Issuer, microFromTime(&item.Certificate.NotAfter)
 	}
+	row.ConditionJSON = conditionJSON
 	_, err := tx.NewInsert().Model(&row).Exec(ctx)
 	return err
 }

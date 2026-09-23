@@ -39,14 +39,23 @@ func decodeReplayBatch(data []byte, probeID string) (domain.ProbeReplayBatch, er
 			monitor := value.MonitorID != nil && value.AssignmentGeneration != nil && *value.MonitorID > 0 && *value.AssignmentGeneration > 0
 			availability := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectAvailability && value.Escalation == nil && monitor
 			watchdog := event.Kind == domain.ReplayKindWatchdogTransition && value.Subject.Kind == domain.IncidentSubjectWatchdog && value.Escalation == nil && value.MonitorID == nil && value.AssignmentGeneration == nil
+			// A capacity transition keeps its condition kind through state changes
+			// and recovery; a missing kind cannot re-derive the subject.
+			capacity := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectCapacity && value.Escalation == nil && monitor && value.Subject.ConditionKind != nil
 			// A certificate transition is only meaningful with its immutable subject.
 			// A missing threshold or expiry cannot be re-derived, so it is not mapped.
 			certificate := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectCertificate && value.Escalation == nil && monitor &&
 				value.Subject.CertificateThreshold != nil && value.Subject.CertificateNotAfter != nil
-			if availability || certificate || watchdog {
+			if availability || capacity || certificate || watchdog {
 				i := &domain.RegionalIncident{SourceAlertID: value.SourceAlertID, Scope: domain.IncidentScope(value.Scope), ProbeID: probeID, Status: value.Status, TransitionVersion: int64(value.TransitionVersion), StartedAt: time.Time(value.StartedAt).UTC(), Reason: value.Reason, ConfigRevision: int64(value.ConfigRevision), SubjectKind: value.Subject.Kind}
-				if availability || certificate {
+				if availability || capacity || certificate {
 					i.MonitorID, i.AssignmentGeneration = *value.MonitorID, int64(*value.AssignmentGeneration)
+				}
+				if capacity {
+					i.ConditionKind = *value.Subject.ConditionKind
+					if !domain.ValidCapacityIncident(i) {
+						return domain.ProbeReplayBatch{}, domain.ErrValidation
+					}
 				}
 				if certificate {
 					i.CertificateThreshold = *value.Subject.CertificateThreshold

@@ -142,6 +142,23 @@ func ValidCertificateIncident(incident *RegionalIncident) bool {
 		ValidCertificateSubjectIdentity(incident.CertificateThreshold, incident.CertificateNotAfter)
 }
 
+// ValidCapacityIncident enforces the immutable V1 capacity incident subject: a
+// regional incident bound to one monitor assignment and one condition kind. The
+// kind survives warning/error changes and recovery; certificate identity and
+// escalation never belong to a capacity incident.
+func ValidCapacityIncident(incident *RegionalIncident) bool {
+	if incident == nil || incident.Scope != IncidentScopeRegional || incident.SubjectKind != IncidentSubjectCapacity {
+		return false
+	}
+	if incident.MonitorID <= 0 || incident.AssignmentGeneration <= 0 ||
+		incident.ConditionKind != MonitorConditionSessionPool && incident.ConditionKind != MonitorConditionStorage {
+		return false
+	}
+	return incident.CertificateThreshold == 0 && incident.CertificateNotAfter == nil &&
+		incident.EscalationPolicyID == 0 && incident.EscalationPolicyVersion == 0 && incident.EscalationStatus == "" &&
+		incident.EscalationNextStep == nil && incident.EscalationNextRunAt == nil
+}
+
 // RegionalDelivery is a source outbox outcome. It is not a provider send request.
 type RegionalDelivery struct {
 	DeliveryID              string

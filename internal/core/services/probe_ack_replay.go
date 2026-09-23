@@ -124,6 +124,52 @@ func authorizeCertificateReplay(f domain.ProbeReplayAuthorityFacts, e domain.Pro
 	return ""
 }
 
+// authorizeCapacityReplay admits capacity incident transitions. The subject is
+// one immutable monitor/generation/condition kind: a warning/error change keeps
+// the identity and restates the open firing incident, recovery is the single
+// terminal advance, and nothing follows it. Acknowledgements belong to
+// availability incidents only.
+func authorizeCapacityReplay(f domain.ProbeReplayAuthorityFacts, e domain.ProbeReplayEvent) string {
+	i := e.Incident
+	if i == nil || e.Observation != nil || e.Delivery != nil || e.Condition != nil || i.ProbeID != f.ProbeID || !domain.ValidHubID(i.SourceAlertID) ||
+		i.TransitionVersion <= 0 || i.StartedAt.IsZero() || len(i.Reason) > 4096 || !domain.ValidCapacityIncident(i) {
+		return "event_invalid"
+	}
+	if hasReplayAcknowledgement(i) || i.Status != domain.AlertStatusFiring && i.Status != domain.AlertStatusResolved {
+		return "event_invalid"
+	}
+	switch {
+	case i.Status == domain.AlertStatusFiring && i.ResolvedAt != nil:
+		return "event_invalid"
+	case i.Status == domain.AlertStatusResolved && (i.ResolvedAt == nil || i.ResolvedAt.IsZero()):
+		return "event_invalid"
+	}
+	prior := f.PriorIncident
+	if prior == nil {
+		if i.TransitionVersion != 1 || i.Status != domain.AlertStatusFiring {
+			return "transition_version_invalid"
+		}
+		if i.StartedAt.After(e.ObservedAt) {
+			return "event_invalid"
+		}
+		return authorizeReplayAssignment(f, i.MonitorID, i.AssignmentGeneration, i.ConfigRevision, e.ObservedAt)
+	}
+	if prior.SourceAlertID != i.SourceAlertID || prior.ProbeID != f.ProbeID || prior.MonitorID != i.MonitorID ||
+		prior.AssignmentGeneration != i.AssignmentGeneration || prior.SubjectKind != i.SubjectKind || prior.Scope != i.Scope ||
+		prior.ConditionKind != i.ConditionKind || !prior.StartedAt.Equal(i.StartedAt) || prior.Status != domain.AlertStatusFiring ||
+		prior.TransitionVersion == 0 || i.TransitionVersion-prior.TransitionVersion != 1 {
+		return "transition_identity_conflict"
+	}
+	if !f.MonitorExists || f.MonitorID != i.MonitorID {
+		return "monitor_not_found"
+	}
+	a := f.ConfigAssignment
+	if a == nil || !a.Active || a.MonitorID != i.MonitorID || a.Generation != i.AssignmentGeneration || f.ConfigRevision != i.ConfigRevision {
+		return "config_revision_mismatch"
+	}
+	return ""
+}
+
 // sameOptionalReplayTime compares an immutable subject instant at the precision
 // both hub engines persist, so a duplicate receipt cannot be mistaken for a
 // conflicting identity.

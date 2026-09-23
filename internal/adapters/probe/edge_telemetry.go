@@ -35,7 +35,7 @@ func (EdgeTelemetryEncoder) EncodeConditionTransition(seq int64, at time.Time, t
 // A watchdog has no monitor/generation; acknowledgement metadata is preserved.
 // Certificate subjects carry their immutable threshold and exact expiry identity.
 func (EdgeTelemetryEncoder) EncodeIncident(seq int64, at time.Time, i domain.RegionalIncident) ([]byte, error) {
-	if i.EscalationPolicyID != 0 || i.EscalationPolicyVersion != 0 || i.EscalationStatus != "" || i.EscalationNextStep != nil || i.EscalationNextRunAt != nil || i.ConditionKind != "" {
+	if i.EscalationPolicyID != 0 || i.EscalationPolicyVersion != 0 || i.EscalationStatus != "" || i.EscalationNextStep != nil || i.EscalationNextRunAt != nil {
 		return nil, domain.ErrValidation
 	}
 	if at.IsZero() {
@@ -47,7 +47,7 @@ func (EdgeTelemetryEncoder) EncodeIncident(seq int64, at time.Time, i domain.Reg
 	subject := IncidentSubject{Kind: i.SubjectKind}
 	switch {
 	case i.SubjectKind == domain.IncidentSubjectAvailability && i.Scope == domain.IncidentScopeRegional:
-		if i.MonitorID <= 0 || i.AssignmentGeneration <= 0 || i.CertificateThreshold != 0 || i.CertificateNotAfter != nil {
+		if i.MonitorID <= 0 || i.AssignmentGeneration <= 0 || i.ConditionKind != "" || i.CertificateThreshold != 0 || i.CertificateNotAfter != nil {
 			return nil, domain.ErrValidation
 		}
 		id, gen := i.MonitorID, Decimal(i.AssignmentGeneration)
@@ -62,8 +62,16 @@ func (EdgeTelemetryEncoder) EncodeIncident(seq int64, at time.Time, i domain.Reg
 		monitorID, generation, subject.CertificateThreshold = &id, &gen, &threshold
 		expiry := Timestamp(i.CertificateNotAfter.UTC())
 		subject.CertificateNotAfter = &expiry
+	case i.SubjectKind == domain.IncidentSubjectCapacity && i.Scope == domain.IncidentScopeRegional:
+		// The subject is the identity: one monitor assignment and one condition
+		// kind that survives state changes and recovery.
+		if !domain.ValidCapacityIncident(&i) {
+			return nil, domain.ErrValidation
+		}
+		id, gen, conditionKind := i.MonitorID, Decimal(i.AssignmentGeneration), i.ConditionKind
+		monitorID, generation, subject.ConditionKind = &id, &gen, &conditionKind
 	case i.SubjectKind == domain.IncidentSubjectWatchdog && i.Scope == domain.IncidentScopeProbeConnection:
-		if i.MonitorID != 0 || i.AssignmentGeneration != 0 || i.CertificateThreshold != 0 || i.CertificateNotAfter != nil {
+		if i.MonitorID != 0 || i.AssignmentGeneration != 0 || i.ConditionKind != "" || i.CertificateThreshold != 0 || i.CertificateNotAfter != nil {
 			return nil, domain.ErrValidation
 		}
 		kind = "watchdog.transition"

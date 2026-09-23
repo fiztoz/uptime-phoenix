@@ -33,16 +33,19 @@ func (s *Store) retainMetadata(ctx context.Context, tx bun.Tx, i domain.EdgeIden
  AND (c.source_alert_id IS NULL OR EXISTS (SELECT 1 FROM edge_alerts a WHERE a.source_alert_id=c.source_alert_id AND a.status='resolved' AND a.resolved_at < ?))
  ORDER BY c.updated_at,c.monitor_id,c.generation LIMIT 512)`,
 		// Evaluated condition state is bounded by live assignments exactly like the
-		// certificate cursor and is pruned with them.
+		// certificate cursor and is pruned with them. A row still pointing at an
+		// incident keeps it alive through the alert guard above.
 		`DELETE FROM edge_condition_state WHERE (monitor_id,generation) IN (
  SELECT c.monitor_id,c.generation FROM edge_condition_state c WHERE c.observed_at < ?
  AND NOT EXISTS (SELECT 1 FROM edge_assignments a WHERE a.monitor_id=c.monitor_id AND a.generation=c.generation AND a.revision=? AND a.active=1)
+ AND (c.alert_source_id = '' OR EXISTS (SELECT 1 FROM edge_alerts a WHERE a.source_alert_id=c.alert_source_id AND a.status='resolved'))
  ORDER BY c.observed_at,c.monitor_id,c.generation LIMIT 512)`,
 		`DELETE FROM edge_alerts WHERE source_alert_id IN (
  SELECT a.source_alert_id FROM edge_alerts a WHERE a.status='resolved' AND a.resolved_at < ?
  AND NOT EXISTS (SELECT 1 FROM edge_delivery_outbox d WHERE d.source_alert_id=a.source_alert_id)
  AND NOT EXISTS (SELECT 1 FROM edge_regional_state s WHERE s.source_alert_id=a.source_alert_id)
  AND NOT EXISTS (SELECT 1 FROM edge_cert_alert_state c WHERE c.source_alert_id=a.source_alert_id)
+ AND NOT EXISTS (SELECT 1 FROM edge_condition_state c WHERE c.alert_source_id=a.source_alert_id)
  AND NOT EXISTS (SELECT 1 FROM edge_watchdog_state w WHERE w.source_alert_id=a.source_alert_id)
  ORDER BY a.resolved_at,a.source_alert_id LIMIT 512)`,
 		`DELETE FROM edge_config WHERE revision IN (

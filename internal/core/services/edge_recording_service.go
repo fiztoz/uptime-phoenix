@@ -98,17 +98,44 @@ func (s *EdgeRecordingService) Record(ctx context.Context, config *domain.EdgeRe
 		// every other source-owned state, and a disabled check retires its row.
 		priors := ConditionStatePriors(before.Conditions)
 		versions := ConditionStateVersions(before.Conditions)
+		storedStates := make(map[string]*domain.EdgeConditionState, len(before.Conditions))
+		for index := range before.Conditions {
+			storedStates[before.Conditions[index].Kind] = &before.Conditions[index]
+		}
 		conditionWorks := make([]domain.EdgeConditionWork, 0, len(result.Conditions)+len(before.Conditions))
 		for _, raw := range result.Conditions {
 			evaluation := EvaluateCondition(priors[raw.Kind], raw, m.ID, m.Interval, at)
 			if !domain.ValidConditionEvidence(&evaluation.State) {
 				return domain.RegionalObservation{}, domain.ErrValidation
 			}
-			work := domain.EdgeConditionWork{State: evaluation.State, ExpectedVersion: versions[raw.Kind]}
+			prior := storedStates[raw.Kind]
+			var open *domain.RegionalIncident
+			if prior != nil {
+				open = prior.Alert
+			}
+			alert, err := EvaluateCapacityPaging(CapacityPagingInput{
+				Config: config, Monitor: m, ProbeID: i.ProbeID, Assignment: assignment,
+				Evidence: evaluation.State, Previous: priors[raw.Kind], Prior: prior,
+				Incident: open, Maintenance: maintenance, Now: at, NewID: newUUIDv4,
+			})
+			if err != nil {
+				return domain.RegionalObservation{}, err
+			}
+			work := domain.EdgeConditionWork{State: evaluation.State, ExpectedVersion: versions[raw.Kind], Alert: alert}
 			if evaluation.Transition != nil {
 				transition := *evaluation.Transition
 				transition.AssignmentGeneration = assignment.Generation
 				transition.ConfigRevision = config.Metadata.Revision
+				openID := ""
+				if alert != nil {
+					openID = alert.OpenAlertID
+				} else if prior != nil {
+					openID = prior.AlertSourceID
+				}
+				if openID != "" {
+					incident := openID
+					transition.SourceAlertID = &incident
+				}
 				work.Transition = &transition
 			}
 			conditionWorks = append(conditionWorks, work)
@@ -116,7 +143,12 @@ func (s *EdgeRecordingService) Record(ctx context.Context, config *domain.EdgeRe
 		}
 		for _, stored := range before.Conditions {
 			if !ConditionKindEnabled(m.Config, stored.Kind) {
-				conditionWorks = append(conditionWorks, domain.EdgeConditionWork{State: domain.ConditionEvidence{ConditionObservation: domain.ConditionObservation{Kind: stored.Kind}}, ExpectedVersion: stored.Version, Remove: true})
+				retired := domain.EdgeConditionState{ConditionEvidence: stored.ConditionEvidence, AlertSourceID: stored.AlertSourceID, DeliveredState: stored.DeliveredState, Alert: stored.Alert, Version: stored.Version}
+				conditionWorks = append(conditionWorks, domain.EdgeConditionWork{
+					State:           domain.ConditionEvidence{ConditionObservation: domain.ConditionObservation{Kind: stored.Kind}},
+					ExpectedVersion: stored.Version, Remove: true,
+					Alert: CloseCapacityAlertForRemoval(&retired, i.ProbeID, assignment.Generation, config.Metadata.Revision, at),
+				})
 			}
 		}
 		if maintenance {

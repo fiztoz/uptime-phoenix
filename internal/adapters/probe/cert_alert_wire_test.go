@@ -93,7 +93,7 @@ func TestCertificateIncidentWireRoundTrip(t *testing.T) {
 }
 
 // TestCertificateIncidentEncoderRejectsMalformedSubjects pins the encoder to the
-// V1 certificate identity, and keeps unimplemented subjects unemittable.
+// V1 certificate identity and keeps malformed auxiliary subjects unemittable.
 func TestCertificateIncidentEncoderRejectsMalformedSubjects(t *testing.T) {
 	expiry := time.Now().UTC().AddDate(0, 0, 13)
 	for name, mutate := range map[string]func(*domain.RegionalIncident){
@@ -105,8 +105,8 @@ func TestCertificateIncidentEncoderRejectsMalformedSubjects(t *testing.T) {
 			i.SubjectKind, i.Scope = domain.IncidentSubjectWatchdog, domain.IncidentScopeProbeConnection
 			i.MonitorID, i.AssignmentGeneration = 0, 0
 		},
-		"capacity subject": func(i *domain.RegionalIncident) {
-			i.SubjectKind, i.ConditionKind = domain.IncidentSubjectCapacity, "storage"
+		"capacity subject without a kind": func(i *domain.RegionalIncident) {
+			i.SubjectKind, i.ConditionKind = domain.IncidentSubjectCapacity, ""
 			i.CertificateThreshold, i.CertificateNotAfter = 0, nil
 		},
 		"escalation on certificate": func(i *domain.RegionalIncident) {
