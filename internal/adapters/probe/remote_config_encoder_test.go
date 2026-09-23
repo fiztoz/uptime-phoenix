@@ -59,7 +59,6 @@ func TestRemoteConfigEncoderRejectsUnsupportedWork(t *testing.T) {
 		"invalid identity":         func(d *domain.LocalProbeConfigDefinition) { d.Target.ProbeID = "edge" },
 		"push":                     func(d *domain.LocalProbeConfigDefinition) { d.Assignments[0].Monitor.Type = "push" },
 		"docker resource bindings": func(d *domain.LocalProbeConfigDefinition) { d.Assignments[0].Monitor.Type = "docker" },
-		"certificate paging":       func(d *domain.LocalProbeConfigDefinition) { d.Assignments[1].Monitor.CertExpiryNotify = true },
 		"active escalation":        func(d *domain.LocalProbeConfigDefinition) { d.Policies[0].Enabled = true },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -69,6 +68,30 @@ func TestRemoteConfigEncoderRejectsUnsupportedWork(t *testing.T) {
 				t.Fatal("unsupported work silently omitted or published")
 			}
 		})
+	}
+}
+
+// TestRemoteConfigEncoderPublishesCertificatePaging proves the hub keeps the
+// monitor's opt-in flag in the remote dialect, so the source that owns the
+// assignment is the one that decides when a threshold has been reached.
+func TestRemoteConfigEncoderPublishesCertificatePaging(t *testing.T) {
+	d := remoteDefinitionFixture()
+	d.Assignments[1].Monitor.CertExpiryNotify = true
+	document, err := (RemoteConfigEncoder{}).EncodeRemote(d)
+	if err != nil || document == nil {
+		t.Fatalf("certificate paging rejected: %v", err)
+	}
+	snapshot, err := DecodeConfigSnapshot(document)
+	if err != nil {
+		t.Fatalf("decode published certificate paging graph: %v", err)
+	}
+	for _, a := range snapshot.Assignments {
+		if a.MonitorID == d.Assignments[1].Monitor.ID && !a.Monitor.CertExpiryNotify {
+			t.Fatal("certificate paging opt-in lost through the remote dialect")
+		}
+	}
+	if err := validateEdgeRuntimeSnapshot(snapshot); err != nil {
+		t.Fatalf("published certificate paging graph rejected by the edge: %v", err)
 	}
 }
 

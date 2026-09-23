@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -103,6 +104,11 @@ func (s *EdgeDeliveryService) process(ctx context.Context, item domain.QueuedDel
 	if stored == nil {
 		return finish(domain.DeliveryStatusSuperseded, "", time.Time{})
 	}
+	if stored.EventKind == domain.DeliveryEventCertificateExpiry && !domain.ValidEdgeCertAlertContent(stored.Certificate) {
+		// Storage handed out certificate work it cannot render. Fail loudly instead
+		// of sending a zero-threshold alert or silently marking it delivered.
+		return fmt.Errorf("certificate delivery %s has no renderable snapshot", stored.DeliveryID)
+	}
 	alert := edgeAlertContext(*stored, *assignment, config, channel.Notification, includeTarget, s.now().UTC())
 	err = provider.Send(sendCtx, channel.Notification.Config, alert)
 	cancel()
@@ -135,6 +141,26 @@ func edgeAlertContext(item domain.QueuedDelivery, a domain.EdgeResolvedAssignmen
 	if channel.TemplateID != nil {
 		if template := config.Templates[*channel.TemplateID]; template != nil && template.Provider == channel.Type {
 			alert.TemplateTitle, alert.TemplateBody, alert.TemplateConfig = template.TitleTemplate, template.BodyTemplate, template.Config
+		}
+	}
+	if item.EventKind == domain.DeliveryEventCertificateExpiry {
+		// Render from the snapshot committed with the intent, never from a value
+		// re-derived at send time: a retried alert must report the threshold it was
+		// actually raised for, and a later clock or renewed certificate must not
+		// silently rewrite history. AuthorizeEdgeDelivery already rejected a row
+		// without its snapshot, so certificate rendering never sees zero fields.
+		if content := item.Certificate; domain.ValidEdgeCertAlertContent(content) {
+			expiry := content.NotAfter.UTC()
+			alert.EventKind = domain.AlertEventCertificateExpiry
+			alert.Message = content.Message
+			alert.CertThreshold = content.Threshold
+			alert.CertDaysRemaining = content.DaysRemaining
+			alert.CertIssuer = content.Issuer
+			alert.CertNotAfter = &expiry
+			// A certificate alert is not an availability transition. Pin both sides of
+			// the status pair to the monitor's live state so no renderer can turn a
+			// paging alert into a false "recovered" or "is DOWN" headline.
+			alert.Status, alert.PreviousStatus = domain.StatusUp, domain.StatusUp
 		}
 	}
 	return applyTargetPolicy(includeTarget, alert)

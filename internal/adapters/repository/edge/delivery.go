@@ -42,6 +42,12 @@ type edgeDeliveryRow struct {
 	ErrorCode               string `bun:"error_code"`
 	OutcomeAt               *int64 `bun:"outcome_at"`
 	CreatedAt               int64  `bun:"created_at"`
+	// Certificate snapshot. Present exactly when EventKind is certificate_expiry;
+	// the storage CHECK enforces the pairing.
+	CertThreshold     *int64 `bun:"cert_threshold"`
+	CertDaysRemaining *int64 `bun:"cert_days_remaining"`
+	CertIssuer        string `bun:"cert_issuer"`
+	CertNotAfter      *int64 `bun:"cert_not_after"`
 }
 
 func (row *edgeDeliveryRow) queued(probeID, streamID string) domain.QueuedDelivery {
@@ -77,6 +83,23 @@ func (row *edgeDeliveryRow) queued(probeID, streamID string) domain.QueuedDelive
 		ErrorCode:            row.ErrorCode,
 		OutcomeAt:            timeFromMicro(row.OutcomeAt),
 		CreatedAt:            time.UnixMicro(row.CreatedAt).UTC(),
+		Certificate:          row.certificateContent(),
+	}
+}
+
+// certificateContent rebuilds the immutable alert snapshot from stored columns.
+// A row without certificate columns yields nil rather than a zero-valued alert,
+// so an availability send can never render stale certificate fields.
+func (row *edgeDeliveryRow) certificateContent() *domain.EdgeCertAlertContent {
+	if row.CertThreshold == nil || row.CertDaysRemaining == nil || row.CertNotAfter == nil {
+		return nil
+	}
+	return &domain.EdgeCertAlertContent{
+		Threshold:     int(*row.CertThreshold),
+		DaysRemaining: int(*row.CertDaysRemaining),
+		Issuer:        row.CertIssuer,
+		NotAfter:      time.UnixMicro(*row.CertNotAfter).UTC(),
+		Message:       row.CheckOutput,
 	}
 }
 
@@ -380,14 +403,22 @@ func sameEdgeDeliveryResult(row *edgeDeliveryRow, result domain.DeliveryResult, 
 // Source recorders validate scope/lifecycle before sharing this bounded insert.
 // NULL monitor/generation represent a probe entity, never a fabricated monitor.
 func insertEdgeQueuedDelivery(ctx context.Context, tx bun.Tx, item domain.QueuedDelivery) error {
+	issuerBytes := int64(0)
+	if item.Certificate != nil {
+		issuerBytes = int64(len(item.Certificate.Issuer))
+	}
 	var retainedBytes int64
-	if err := tx.NewRaw("SELECT COALESCE(SUM(length(CAST(check_output AS BLOB)) + 1024), 0) FROM edge_delivery_outbox").Scan(ctx, &retainedBytes); err != nil {
+	if err := tx.NewRaw("SELECT COALESCE(SUM(length(CAST(check_output AS BLOB)) + length(COALESCE(cert_issuer, '')) + 1024), 0) FROM edge_delivery_outbox").Scan(ctx, &retainedBytes); err != nil {
 		return err
 	}
-	if retainedBytes > maxDeliveryQueueBytes-int64(len(item.CheckOutput))-1024 {
+	if retainedBytes > maxDeliveryQueueBytes-int64(len(item.CheckOutput))-issuerBytes-1024 {
 		return ErrQueueFull
 	}
 	row := edgeDeliveryRow{DeliveryID: item.DeliveryID, SourceAlertID: item.SourceAlertID, SourceTransitionVersion: item.SourceTransitionVersion, NotificationID: item.NotificationID, NotificationVersion: item.NotificationVersion, EventKind: item.EventKind, MonitorID: item.MonitorID, Generation: item.AssignmentGeneration, SourceSeq: item.SourceSeq, ConfigRevision: item.ConfigRevision, CheckStatus: int(item.CheckStatus), CheckOutput: item.CheckOutput, ObservedAt: item.ObservedAt.UTC().UnixMicro(), IncidentStatus: item.IncidentStatus, StartedAt: item.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(item.ResolvedAt), AvailableAt: item.AvailableAt.UTC().UnixMicro(), Status: domain.DeliveryStatusPending, CreatedAt: item.CreatedAt.UTC().UnixMicro()}
+	if item.Certificate != nil {
+		threshold, days := int64(item.Certificate.Threshold), int64(item.Certificate.DaysRemaining)
+		row.CertThreshold, row.CertDaysRemaining, row.CertIssuer, row.CertNotAfter = &threshold, &days, item.Certificate.Issuer, microFromTime(&item.Certificate.NotAfter)
+	}
 	_, err := tx.NewInsert().Model(&row).Exec(ctx)
 	return err
 }

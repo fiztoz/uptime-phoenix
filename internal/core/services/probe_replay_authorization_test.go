@@ -45,7 +45,9 @@ func TestAccessReplayRequiresExactConfigAndHistoricalMembership(t *testing.T) {
 
 func TestAccessReplayDeliveryUsesExactAcceptedParentAndLinkedChannel(t *testing.T) {
 	now := time.Now().UTC()
-	parent := domain.RegionalIncident{SourceAlertID: "11111111-1111-4111-8111-111111111111", ProbeID: "probe", MonitorID: 1, AssignmentGeneration: 2, TransitionVersion: 3, ConfigRevision: 9, StartedAt: now.Add(-time.Hour)}
+	// The store always labels a parent transition with its scope and subject kind
+	// (probe_replay.go), so the fixture does too: an unlabeled parent must fail closed.
+	parent := domain.RegionalIncident{SourceAlertID: "11111111-1111-4111-8111-111111111111", ProbeID: "probe", Scope: domain.IncidentScopeRegional, SubjectKind: domain.IncidentSubjectAvailability, MonitorID: 1, AssignmentGeneration: 2, TransitionVersion: 3, ConfigRevision: 9, StartedAt: now.Add(-time.Hour)}
 	f := domain.ProbeReplayAuthorityFacts{ProbeID: "probe", MonitorID: 1, MonitorExists: true, ConfigRevision: 9, ConfigAssignment: &domain.EdgeAssignmentIdentity{MonitorID: 1, Generation: 2, Active: true}, ParentTransition: &parent, Channels: map[int64]int64{7: 4}}
 	d := domain.RegionalDelivery{DeliveryID: "22222222-2222-4222-8222-222222222222", SourceAlertID: parent.SourceAlertID, SourceTransitionVersion: 3, ProbeID: "probe", NotificationID: 7, NotificationVersion: 4, EventKind: domain.DeliveryEventStatusChange, Attempt: 1, Status: domain.DeliveryStatusSent, ObservedAt: now}
 	for _, test := range []struct {
@@ -57,6 +59,14 @@ func TestAccessReplayDeliveryUsesExactAcceptedParentAndLinkedChannel(t *testing.
 		{"not merely below latest", func(d *domain.RegionalDelivery, _ *domain.ProbeReplayAuthorityFacts) { d.SourceTransitionVersion = 2 }, "delivery_parent_not_found"},
 		{"unlinked channel", func(d *domain.RegionalDelivery, _ *domain.ProbeReplayAuthorityFacts) { d.NotificationID = 8 }, "channel_unauthorized"},
 		{"wrong channel version below config", func(d *domain.RegionalDelivery, _ *domain.ProbeReplayAuthorityFacts) { d.NotificationVersion = 3 }, "channel_unauthorized"},
+		{"unlabeled parent fails closed", func(_ *domain.RegionalDelivery, f *domain.ProbeReplayAuthorityFacts) {
+			unlabeled := parent
+			unlabeled.SubjectKind, unlabeled.Scope = "", ""
+			f.ParentTransition = &unlabeled
+		}, "event_invalid"},
+		{"certificate outcome on availability parent", func(d *domain.RegionalDelivery, _ *domain.ProbeReplayAuthorityFacts) {
+			d.EventKind = domain.DeliveryEventCertificateExpiry
+		}, "event_invalid"},
 		{"hub intent collision", func(_ *domain.RegionalDelivery, f *domain.ProbeReplayAuthorityFacts) { f.DeliveryIntentExists = true }, "delivery_identity_conflict"},
 		{"terminal regression", func(d *domain.RegionalDelivery, f *domain.ProbeReplayAuthorityFacts) {
 			prior := *d

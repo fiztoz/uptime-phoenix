@@ -22,22 +22,37 @@ func (EdgeTelemetryEncoder) EncodeObservation(o domain.RegionalObservation) ([]b
 
 // EncodeIncident records supported source transitions with explicit entity scope.
 // A watchdog has no monitor/generation; acknowledgement metadata is preserved.
+// Certificate subjects carry their immutable threshold and exact expiry identity.
 func (EdgeTelemetryEncoder) EncodeIncident(seq int64, at time.Time, i domain.RegionalIncident) ([]byte, error) {
-	if i.EscalationPolicyID != 0 || i.EscalationPolicyVersion != 0 || i.EscalationStatus != "" || i.EscalationNextStep != nil || i.EscalationNextRunAt != nil || i.ConditionKind != "" || i.CertificateThreshold != 0 {
+	if i.EscalationPolicyID != 0 || i.EscalationPolicyVersion != 0 || i.EscalationStatus != "" || i.EscalationNextStep != nil || i.EscalationNextRunAt != nil || i.ConditionKind != "" {
+		return nil, domain.ErrValidation
+	}
+	if at.IsZero() {
 		return nil, domain.ErrValidation
 	}
 	kind := "alert.transition"
 	var monitorID *int64
 	var generation *Decimal
+	subject := IncidentSubject{Kind: i.SubjectKind}
 	switch {
 	case i.SubjectKind == domain.IncidentSubjectAvailability && i.Scope == domain.IncidentScopeRegional:
-		if i.MonitorID <= 0 || i.AssignmentGeneration <= 0 {
+		if i.MonitorID <= 0 || i.AssignmentGeneration <= 0 || i.CertificateThreshold != 0 || i.CertificateNotAfter != nil {
 			return nil, domain.ErrValidation
 		}
 		id, gen := i.MonitorID, Decimal(i.AssignmentGeneration)
 		monitorID, generation = &id, &gen
+	case i.SubjectKind == domain.IncidentSubjectCertificate && i.Scope == domain.IncidentScopeRegional:
+		// The subject is the identity: threshold plus exact expiry. An incident that
+		// lost either one cannot be re-derived later, so it never reaches the wire.
+		if !domain.ValidCertificateIncident(&i) {
+			return nil, domain.ErrValidation
+		}
+		id, gen, threshold := i.MonitorID, Decimal(i.AssignmentGeneration), i.CertificateThreshold
+		monitorID, generation, subject.CertificateThreshold = &id, &gen, &threshold
+		expiry := Timestamp(i.CertificateNotAfter.UTC())
+		subject.CertificateNotAfter = &expiry
 	case i.SubjectKind == domain.IncidentSubjectWatchdog && i.Scope == domain.IncidentScopeProbeConnection:
-		if i.MonitorID != 0 || i.AssignmentGeneration != 0 {
+		if i.MonitorID != 0 || i.AssignmentGeneration != 0 || i.CertificateThreshold != 0 || i.CertificateNotAfter != nil {
 			return nil, domain.ErrValidation
 		}
 		kind = "watchdog.transition"
@@ -57,7 +72,7 @@ func (EdgeTelemetryEncoder) EncodeIncident(seq int64, at time.Time, i domain.Reg
 	} else if i.AckCommandID != "" || i.AckActorDisplayName != "" || i.AckNote != nil {
 		return nil, domain.ErrValidation
 	}
-	return encodeEdgeEvent(TelemetryEvent{Seq: Decimal(seq), Kind: kind, ObservedAt: Timestamp(at.UTC()), Data: IncidentTransition{SourceAlertID: i.SourceAlertID, Scope: string(i.Scope), MonitorID: monitorID, AssignmentGeneration: generation, Status: i.Status, TransitionVersion: Decimal(i.TransitionVersion), StartedAt: Timestamp(i.StartedAt.UTC()), ResolvedAt: resolvedAt, Reason: i.Reason, ConfigRevision: Decimal(i.ConfigRevision), Subject: IncidentSubject{Kind: i.SubjectKind}, AckedAt: ackedAt, Acknowledgement: ack}})
+	return encodeEdgeEvent(TelemetryEvent{Seq: Decimal(seq), Kind: kind, ObservedAt: Timestamp(at.UTC()), Data: IncidentTransition{SourceAlertID: i.SourceAlertID, Scope: string(i.Scope), MonitorID: monitorID, AssignmentGeneration: generation, Status: i.Status, TransitionVersion: Decimal(i.TransitionVersion), StartedAt: Timestamp(i.StartedAt.UTC()), ResolvedAt: resolvedAt, Reason: i.Reason, ConfigRevision: Decimal(i.ConfigRevision), Subject: subject, AckedAt: ackedAt, Acknowledgement: ack}})
 }
 
 // EncodeDelivery stores a redacted provider outcome under a new stream sequence.

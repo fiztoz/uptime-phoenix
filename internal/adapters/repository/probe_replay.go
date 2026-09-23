@@ -125,6 +125,12 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 					at := incident.AckedAt.UTC().Truncate(time.Microsecond)
 					incident.AckedAt = &at
 				}
+				if incident.CertificateNotAfter != nil {
+					// The certificate subject is compared against stored rows, so it is
+					// normalised to the same precision both hub engines persist it at.
+					at := incident.CertificateNotAfter.UTC().Truncate(time.Microsecond)
+					incident.CertificateNotAfter = &at
+				}
 				event.Incident = &incident
 			}
 			facts, err := s.replayFacts(ctx, tx, session, event, configs)
@@ -262,7 +268,15 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 				}
 				f.MonitorID = *parent.MonitorID
 				f.ParentTransition.MonitorID, f.ParentTransition.AssignmentGeneration = *parent.MonitorID, *parent.AssignmentGeneration
-				f.ParentTransition.Scope, f.ParentTransition.SubjectKind = domain.IncidentScopeRegional, domain.IncidentSubjectAvailability
+				f.ParentTransition.Scope = domain.IncidentScopeRegional
+				// The subject decides which delivery kinds may follow, so it is read back
+				// from the accepted mirror instead of being assumed. Subject kind is
+				// immutable for an incident ID, so the stored row is authoritative.
+				var subjectKind string
+				if err := tx.NewRaw("SELECT subject_kind FROM probe_incidents WHERE source_alert_id = ?", d.SourceAlertID).Scan(ctx, &subjectKind); err != nil {
+					return f, err
+				}
+				f.ParentTransition.SubjectKind = subjectKind
 			default:
 				return f, domain.ErrInternal
 			}

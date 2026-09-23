@@ -104,12 +104,83 @@ type EdgeResolvedConfig struct {
 	Policies    map[int64]*EscalationPolicy
 }
 
+// EdgeCertAlertState is the durable, source-owned certificate paging cursor
+// for one immutable assignment generation. It is the edge analog of the hub
+// `tls_info` alert columns: AlertThreshold records the most urgent threshold
+// already committed for AlertNotAfter, and SourceAlertID points at the single
+// open certificate incident for that pair. An empty SourceAlertID always pairs
+// with a zero threshold and a nil AlertNotAfter, so a renewed certificate can
+// never inherit another certificate's delivered history. Version fences every
+// cursor write. The cursor itself never crosses the wire: the hub mirrors source
+// incidents and delivery outcomes rather than inferring a source cursor.
+type EdgeCertAlertState struct {
+	MonitorID            int64
+	AssignmentGeneration int64
+	ConfigRevision       int64
+	AlertNotAfter        *time.Time
+	UpdatedAt            time.Time
+	SourceAlertID        string
+	AlertThreshold       int
+	Version              int64
+}
+
+// ValidEdgeCertAlertState enforces the cursor's pairing invariant. A threshold
+// without the exact certificate expiry it was delivered for is unusable, and a
+// dangling open-incident pointer is never allowed.
+func ValidEdgeCertAlertState(state *EdgeCertAlertState) bool {
+	if state == nil || state.MonitorID <= 0 || state.AssignmentGeneration <= 0 || state.ConfigRevision <= 0 || state.Version < 0 || state.UpdatedAt.IsZero() {
+		return false
+	}
+	switch {
+	case state.AlertThreshold == 0:
+		return state.AlertNotAfter == nil && state.SourceAlertID == ""
+	case state.SourceAlertID == "":
+		return false
+	default:
+		return ValidCertificateSubjectIdentity(int64(state.AlertThreshold), state.AlertNotAfter)
+	}
+}
+
+// EdgeCertAlertContent is the immutable provider-facing snapshot of one
+// committed certificate threshold alert. It travels with the durable delivery
+// intent so a retry after a restart renders the same message and never re-derives
+// a rounded value from a later clock.
+type EdgeCertAlertContent struct {
+	NotAfter      time.Time
+	Issuer        string
+	Message       string
+	DaysRemaining int
+	Threshold     int
+}
+
+// ValidEdgeCertAlertContent requires the exact expiry and bounded text.
+func ValidEdgeCertAlertContent(content *EdgeCertAlertContent) bool {
+	if content == nil || content.DaysRemaining < 0 || len(content.Message) == 0 || len(content.Message) > 4096 || len(content.Issuer) > 256 {
+		return false
+	}
+	return ValidCertificateSubjectIdentity(int64(content.Threshold), &content.NotAfter)
+}
+
 // EdgeMonitorEvidence is source state for one immutable assignment generation.
 // LastEnqueuedAt throttles intent creation, independently of provider completion.
 type EdgeMonitorEvidence struct {
-	State          *RegionalState
-	Incident       *RegionalIncident
-	LastEnqueuedAt *time.Time
+	State               *RegionalState
+	Incident            *RegionalIncident
+	LastEnqueuedAt      *time.Time
+	Certificate         *EdgeCertAlertState
+	CertificateIncident *RegionalIncident
+}
+
+// EdgeCertAlertWork is the certificate paging lifecycle produced by one
+// evaluation. Transitions are stored and emitted in order, so an administrative
+// retirement of a superseded threshold always precedes the new firing incident,
+// and every intent references the final transition. Cursor is the durable state
+// to store after applying them.
+type EdgeCertAlertWork struct {
+	Transitions []RegionalIncident
+	Cursor      EdgeCertAlertState
+	Certificate *EdgeCertAlertContent
+	Intents     []DeliveryIntent
 }
 
 // EdgeCheckRecord commits evaluated source evidence and optional lifecycle/work.
@@ -118,9 +189,14 @@ type EdgeCheckRecord struct {
 	ExpectedStateSeq int64
 	// ACK changes incident state without inventing an observation sequence.
 	ExpectedIncidentVersion int64
-	Observation             RegionalObservation
-	Incident                *RegionalIncident
-	DeliveryIntents         []DeliveryIntent
+	// ExpectedCertificateVersion fences the certificate cursor the same way the
+	// state sequence fences retry state: a concurrent writer that advanced it
+	// forces re-evaluation instead of a lost or duplicated threshold alert.
+	ExpectedCertificateVersion int64
+	Observation                RegionalObservation
+	Incident                   *RegionalIncident
+	DeliveryIntents            []DeliveryIntent
+	Certificate                *EdgeCertAlertWork
 }
 
 // EdgeTelemetryRecord retains exact bounded event bytes for later hub replay.

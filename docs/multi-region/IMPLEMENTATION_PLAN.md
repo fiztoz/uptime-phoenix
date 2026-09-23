@@ -121,7 +121,12 @@ type. Hello reflects installed checkers, ICMP availability and configured Docker
 resources. Missing or mismatched resources reject activation; unreachable targets
 still produce DOWN observations. The [TLS evidence slice](M4_TLS_EVIDENCE.md)
 adds exact certificate metadata to source telemetry, hub history and current state.
-Certificate notifications and capacity promotion remain open, so the combined
+
+**Partial 2026-09-23:** the [certificate paging slice](M4_CERT_PAGING.md) lets a
+remote HTTPS monitor page its certificate expiry: the source evaluates the accepted
+assignment, keeps the delivered-threshold cursor and open incident per generation,
+and sends through its own durable outbox, while the hub mirrors incidents and
+outcomes without inferring a cursor or doing provider work. Capacity promotion remains open, so the combined
 auxiliary requirement below is not marked complete.
 
 - [x] Cover all existing pull monitor types: `http`, `tcp`, `ping`, `dns`, `websocket`, `docker`, `mqtt`, `rabbitmq`, `grpc`, `snmp`, `database`, `s3`. Keep push local-only until M9.
@@ -129,7 +134,7 @@ auxiliary requirement below is not marked complete.
 - [ ] Synchronize maintenance schedules/timezones, direct monitor notification links, provider/template configuration, target visibility flags, tags/owner context, and effective escalation policies.
 - [ ] Preserve direct-monitor and group-notification semantics: group channel attachments page on group incidents and are not automatically copied to every regional monitor.
 - [ ] Preserve escalation precedence (direct monitor policy, then nearest ancestor group); a disabled assigned policy stops inheritance. Persist edge escalation steps and acknowledgement effect.
-- [ ] Add per-probe TLS expiry and capacity history/state. Preserve `ok`, `warning`, `error`, derived `stale`, and two-sample promotion. Capacity warnings/errors keep availability UP.
+- [ ] Add per-probe TLS expiry and capacity history/state. Preserve `ok`, `warning`, `error`, derived `stale`, and two-sample promotion. Capacity warnings/errors keep availability UP. **Partial 2026-09-23:** per-probe TLS expiry history, current state and certificate paging are accepted ([certificate paging](M4_CERT_PAGING.md)); capacity state and two-sample promotion on remote probes remain open.
 - [ ] Update group/status-page recovery to use overall policy and fresh evidence. Preserve UNKNOWN through all readers, badges, incident automation, and chart models.
 - [ ] Update Insights and navigation cache invalidation with projection versions; retain the current batched SQL/index paths and benchmark coverage.
 - [ ] Extend config-as-code and backup/restore with stable probe keys and assignments. Keep secret references/write-only secrets out of ordinary exports. Restored remote identities remain disabled pending reenrollment.

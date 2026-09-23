@@ -139,6 +139,18 @@ func (s *EdgeRecordingService) Record(ctx context.Context, config *domain.EdgeRe
 				record.DeliveryIntents = append(record.DeliveryIntents, domain.DeliveryIntent{DeliveryID: id, SourceAlertID: incident.SourceAlertID, SourceTransitionVersion: incident.TransitionVersion, ProbeID: i.ProbeID, NotificationID: link.NotificationID, NotificationVersion: channel.Version, EventKind: domain.DeliveryEventStatusChange, AvailableAt: at})
 			}
 		}
+		if before.Certificate != nil {
+			record.ExpectedCertificateVersion = before.Certificate.Version
+		}
+		// Certificate paging is independent of availability lifecycle: a healthy
+		// monitor still has to page its expiring certificate, and a down monitor
+		// still has to retire a renewed one. Maintenance suppression is decided
+		// inside the evaluator from the same window set the check used.
+		certificate, err := EvaluateCertAlertPaging(CertAlertPagingInput{Config: config, Monitor: m, Assignment: assignment, Observation: o, Prior: before.Certificate, PriorCursor: before.CertificateIncident, Maintenance: maintenance, Now: at, NewID: newUUIDv4})
+		if err != nil {
+			return domain.RegionalObservation{}, err
+		}
+		record.Certificate = certificate
 		committed, err := s.checks.CommitEdgeCheck(ctx, record)
 		if !errors.Is(err, ports.ErrStaleLocalState) {
 			return committed, err

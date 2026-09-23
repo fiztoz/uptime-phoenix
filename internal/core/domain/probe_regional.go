@@ -113,6 +113,7 @@ type RegionalIncident struct {
 	SubjectKind             string
 	ConditionKind           string
 	CertificateThreshold    int64
+	CertificateNotAfter     *time.Time
 	AckCommandID            string
 	AckActorDisplayName     string
 	AckNote                 *string
@@ -121,6 +122,22 @@ type RegionalIncident struct {
 	EscalationStatus        string
 	EscalationNextStep      *int64
 	EscalationNextRunAt     *time.Time
+}
+
+// ValidCertificateIncident enforces the immutable V1 certificate incident
+// subject: a regional incident bound to one monitor assignment, one fixed
+// threshold and the exact expiry that threshold was crossed for. Capacity and
+// escalation identity never belong to a certificate incident.
+func ValidCertificateIncident(incident *RegionalIncident) bool {
+	if incident == nil || incident.Scope != IncidentScopeRegional || incident.SubjectKind != IncidentSubjectCertificate {
+		return false
+	}
+	if incident.MonitorID <= 0 || incident.AssignmentGeneration <= 0 || incident.ConditionKind != "" {
+		return false
+	}
+	return incident.EscalationPolicyID == 0 && incident.EscalationPolicyVersion == 0 && incident.EscalationStatus == "" &&
+		incident.EscalationNextStep == nil && incident.EscalationNextRunAt == nil &&
+		ValidCertificateSubjectIdentity(incident.CertificateThreshold, incident.CertificateNotAfter)
 }
 
 // RegionalDelivery is a source outbox outcome. It is not a provider send request.

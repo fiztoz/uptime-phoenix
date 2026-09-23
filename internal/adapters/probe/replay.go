@@ -38,12 +38,25 @@ func decodeReplayBatch(data []byte, probeID string) (domain.ProbeReplayBatch, er
 				e.Observation = &domain.RegionalObservation{MonitorID: value.MonitorID, ProbeID: probeID, AssignmentGeneration: int64(value.AssignmentGeneration), StreamID: wire.StreamID, Seq: e.Seq, ConfigRevision: int64(value.ConfigRevision), Status: replayDomainStatus(value.Status), RawStatus: replayDomainStatus(value.RawStatus), DownCount: int(value.DownCount), Ping: int(value.Ping), DurationMS: int(value.DurationMS), Message: value.Message, Important: value.Important, ObservedAt: e.ObservedAt, TLS: sourceTLS(value.TLS)}
 			}
 		case IncidentTransition:
-			availability := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectAvailability && value.Escalation == nil && value.MonitorID != nil && value.AssignmentGeneration != nil
+			monitor := value.MonitorID != nil && value.AssignmentGeneration != nil && *value.MonitorID > 0 && *value.AssignmentGeneration > 0
+			availability := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectAvailability && value.Escalation == nil && monitor
 			watchdog := event.Kind == domain.ReplayKindWatchdogTransition && value.Subject.Kind == domain.IncidentSubjectWatchdog && value.Escalation == nil && value.MonitorID == nil && value.AssignmentGeneration == nil
-			if availability || watchdog {
+			// A certificate transition is only meaningful with its immutable subject.
+			// A missing threshold or expiry cannot be re-derived, so it is not mapped.
+			certificate := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectCertificate && value.Escalation == nil && monitor &&
+				value.Subject.CertificateThreshold != nil && value.Subject.CertificateNotAfter != nil
+			if availability || certificate || watchdog {
 				i := &domain.RegionalIncident{SourceAlertID: value.SourceAlertID, Scope: domain.IncidentScope(value.Scope), ProbeID: probeID, Status: value.Status, TransitionVersion: int64(value.TransitionVersion), StartedAt: time.Time(value.StartedAt).UTC(), Reason: value.Reason, ConfigRevision: int64(value.ConfigRevision), SubjectKind: value.Subject.Kind}
-				if availability {
+				if availability || certificate {
 					i.MonitorID, i.AssignmentGeneration = *value.MonitorID, int64(*value.AssignmentGeneration)
+				}
+				if certificate {
+					i.CertificateThreshold = *value.Subject.CertificateThreshold
+					expiry := time.Time(*value.Subject.CertificateNotAfter).UTC()
+					i.CertificateNotAfter = &expiry
+					if !domain.ValidCertificateIncident(i) {
+						return domain.ProbeReplayBatch{}, domain.ErrValidation
+					}
 				}
 				if value.ResolvedAt != nil {
 					at := time.Time(*value.ResolvedAt).UTC()

@@ -41,22 +41,24 @@ type edgeStateRow struct {
 }
 
 type edgeIncidentRow struct {
-	bun.BaseModel       `bun:"table:edge_alerts"`
-	SourceAlertID       string `bun:",pk"`
-	MonitorID           int64  `bun:"monitor_id,nullzero"`
-	Generation          int64  `bun:"generation,nullzero"`
-	Scope               string
-	SubjectKind         string
-	AckCommandID        string `bun:"ack_command_id,nullzero"`
-	AckActorDisplayName string `bun:"ack_actor_display_name,nullzero"`
-	AckNote             *string
-	Status              string
-	TransitionVersion   int64
-	StartedAt           int64
-	ResolvedAt          *int64
-	AckedAt             *int64
-	Reason              string
-	ConfigRevision      int64
+	bun.BaseModel        `bun:"table:edge_alerts"`
+	SourceAlertID        string `bun:",pk"`
+	MonitorID            int64  `bun:"monitor_id,nullzero"`
+	Generation           int64  `bun:"generation,nullzero"`
+	Scope                string
+	SubjectKind          string
+	AckCommandID         string `bun:"ack_command_id,nullzero"`
+	AckActorDisplayName  string `bun:"ack_actor_display_name,nullzero"`
+	AckNote              *string
+	Status               string
+	TransitionVersion    int64
+	StartedAt            int64
+	ResolvedAt           *int64
+	AckedAt              *int64
+	Reason               string
+	ConfigRevision       int64
+	CertificateThreshold int64  `bun:"certificate_threshold,nullzero"`
+	CertificateNotAfter  *int64 `bun:"certificate_not_after"`
 }
 
 func timeFromMicro(value *int64) *time.Time {
@@ -76,7 +78,7 @@ func microFromTime(value *time.Time) *int64 {
 }
 
 func (row edgeIncidentRow) incident(probeID string) *domain.RegionalIncident {
-	return &domain.RegionalIncident{SourceAlertID: row.SourceAlertID, ProbeID: probeID, MonitorID: row.MonitorID, AssignmentGeneration: row.Generation, Scope: domain.IncidentScope(row.Scope), SubjectKind: row.SubjectKind, AckCommandID: row.AckCommandID, AckActorDisplayName: row.AckActorDisplayName, AckNote: row.AckNote, Status: row.Status, TransitionVersion: row.TransitionVersion, StartedAt: time.UnixMicro(row.StartedAt).UTC(), ResolvedAt: timeFromMicro(row.ResolvedAt), AckedAt: timeFromMicro(row.AckedAt), Reason: row.Reason, ConfigRevision: row.ConfigRevision}
+	return &domain.RegionalIncident{SourceAlertID: row.SourceAlertID, ProbeID: probeID, MonitorID: row.MonitorID, AssignmentGeneration: row.Generation, Scope: domain.IncidentScope(row.Scope), SubjectKind: row.SubjectKind, AckCommandID: row.AckCommandID, AckActorDisplayName: row.AckActorDisplayName, AckNote: row.AckNote, Status: row.Status, TransitionVersion: row.TransitionVersion, StartedAt: time.UnixMicro(row.StartedAt).UTC(), ResolvedAt: timeFromMicro(row.ResolvedAt), AckedAt: timeFromMicro(row.AckedAt), Reason: row.Reason, ConfigRevision: row.ConfigRevision, CertificateThreshold: row.CertificateThreshold, CertificateNotAfter: timeFromMicro(row.CertificateNotAfter)}
 }
 
 func readEdgeEvidence(ctx context.Context, db bun.IDB, i domain.EdgeIdentity, monitorID, generation int64) (domain.EdgeMonitorEvidence, error) {
@@ -96,6 +98,11 @@ func readEdgeEvidence(ctx context.Context, db bun.IDB, i domain.EdgeIdentity, mo
 		}
 		evidence.Incident = incident.incident(i.ProbeID)
 	}
+	certificate, certificateIncident, err := readEdgeCertState(ctx, db, monitorID, generation, i.ProbeID)
+	if err != nil {
+		return domain.EdgeMonitorEvidence{}, err
+	}
+	evidence.Certificate, evidence.CertificateIncident = certificate, certificateIncident
 	return evidence, nil
 }
 
@@ -123,7 +130,7 @@ func (s *Store) ReadEdgeEvidence(ctx context.Context, monitorID, generation int6
 // Provider I/O is impossible here; only the injected pure encoder is invoked.
 func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckRecord) (domain.RegionalObservation, error) {
 	o := record.Observation
-	if s.telemetry == nil || !domain.ValidTLSObservation(o.TLS) || record.ExpectedStateSeq < 0 || record.ExpectedIncidentVersion < 0 || o.MonitorID <= 0 || o.AssignmentGeneration <= 0 || o.ConfigRevision <= 0 || o.Seq != 0 || o.ObservedAt.IsZero() || o.ReceivedAt.IsZero() || o.Status < domain.StatusDown || o.Status > domain.StatusMaintenance || o.RawStatus != domain.StatusUp && o.RawStatus != domain.StatusDown || len(record.DeliveryIntents) > 1000 {
+	if s.telemetry == nil || !domain.ValidTLSObservation(o.TLS) || record.ExpectedStateSeq < 0 || record.ExpectedIncidentVersion < 0 || record.ExpectedCertificateVersion < 0 || o.MonitorID <= 0 || o.AssignmentGeneration <= 0 || o.ConfigRevision <= 0 || o.Seq != 0 || o.ObservedAt.IsZero() || o.ReceivedAt.IsZero() || o.Status < domain.StatusDown || o.Status > domain.StatusMaintenance || o.RawStatus != domain.StatusUp && o.RawStatus != domain.StatusDown || len(record.DeliveryIntents) > 1000 {
 		return domain.RegionalObservation{}, domain.ErrValidation
 	}
 	o.ObservedAt, o.ReceivedAt = o.ObservedAt.UTC(), o.ReceivedAt.UTC()
@@ -154,9 +161,24 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 		if previousSeq != record.ExpectedStateSeq || incidentVersion != record.ExpectedIncidentVersion {
 			return ports.ErrStaleLocalState
 		}
+		var certificateVersion int64
+		if before.Certificate != nil {
+			certificateVersion = before.Certificate.Version
+		}
+		if certificateVersion != record.ExpectedCertificateVersion {
+			return ports.ErrStaleLocalState
+		}
 		eventCount := int64(1)
 		if record.Incident != nil {
 			eventCount++
+		}
+		if record.Certificate != nil {
+			// One evaluation can retire at most one superseded threshold incident and
+			// open at most one replacement. Anything larger is a caller defect.
+			if len(record.Certificate.Transitions) == 0 || len(record.Certificate.Transitions) > 2 {
+				return domain.ErrValidation
+			}
+			eventCount += int64(len(record.Certificate.Transitions))
 		}
 		if i.LastCreatedSeq > math.MaxInt64-eventCount {
 			return ports.ErrConflict
@@ -182,6 +204,13 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 			if err := s.appendTelemetry(ctx, tx, o.Seq+1, "alert.transition", o.ObservedAt, payload); err != nil {
 				return err
 			}
+		}
+		nextSeq := o.Seq + 1
+		if record.Incident != nil {
+			nextSeq++
+		}
+		if _, err := s.applyEdgeCertAlertWork(ctx, tx, o, before, record.Certificate, nextSeq); err != nil {
+			return err
 		}
 		state := edgeStateRow{CurrentObservation: observationBytes, MonitorID: o.MonitorID, Generation: o.AssignmentGeneration, Seq: o.Seq, ConfigRevision: o.ConfigRevision, Status: o.Status, DownCount: o.DownCount, ObservedAt: o.ObservedAt.UnixMicro(), ReceivedAt: o.ReceivedAt.UnixMicro(), LastEnqueuedAt: microFromTime(before.LastEnqueuedAt)}
 		if before.State != nil {
@@ -284,7 +313,7 @@ func insertEdgeIntent(ctx context.Context, tx bun.Tx, o domain.RegionalObservati
 }
 
 func newEdgeIncidentRow(inc domain.RegionalIncident) edgeIncidentRow {
-	return edgeIncidentRow{SourceAlertID: inc.SourceAlertID, MonitorID: inc.MonitorID, Generation: inc.AssignmentGeneration, Scope: string(inc.Scope), SubjectKind: inc.SubjectKind, Status: inc.Status, TransitionVersion: inc.TransitionVersion, StartedAt: inc.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(inc.ResolvedAt), AckedAt: microFromTime(inc.AckedAt), AckCommandID: inc.AckCommandID, AckActorDisplayName: inc.AckActorDisplayName, AckNote: inc.AckNote, Reason: inc.Reason, ConfigRevision: inc.ConfigRevision}
+	return edgeIncidentRow{SourceAlertID: inc.SourceAlertID, MonitorID: inc.MonitorID, Generation: inc.AssignmentGeneration, Scope: string(inc.Scope), SubjectKind: inc.SubjectKind, Status: inc.Status, TransitionVersion: inc.TransitionVersion, StartedAt: inc.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(inc.ResolvedAt), AckedAt: microFromTime(inc.AckedAt), AckCommandID: inc.AckCommandID, AckActorDisplayName: inc.AckActorDisplayName, AckNote: inc.AckNote, Reason: inc.Reason, ConfigRevision: inc.ConfigRevision, CertificateThreshold: inc.CertificateThreshold, CertificateNotAfter: microFromTime(inc.CertificateNotAfter)}
 }
 
 // Source checks may preserve a committed acknowledgement, never create or edit it.

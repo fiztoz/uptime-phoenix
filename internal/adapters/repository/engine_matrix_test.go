@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/uptrace/bun"
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb"
@@ -66,8 +67,39 @@ func mariadbFactory(t *testing.T) repositorySet {
 	if err := repository.RunMigrations(db.DB, "mariadb"); err != nil {
 		t.Fatalf("run MariaDB migrations: %v", err)
 	}
+	healMariaDBTail(t, db)
 	resetMariaDB(t, db.DB)
 	return mariadbRepositorySet(mariadb.NewRepository(db))
+}
+
+// mariadbTailHeals lists migrations whose up script is idempotent and whose
+// post-condition a shared-schema rehearsal can remove temporarily.
+var mariadbTailHeals = []struct{ migration, table, column string }{
+	{"067_probe_certificate_paging", "probe_incidents", "certificate_not_after"},
+}
+
+// healMariaDBTail re-applies idempotent tail migrations after RunMigrations.
+// The registry migration rehearsal walks the shared schema down to its own
+// boundary and restores it afterwards, and MariaDB cannot roll DDL back, so a
+// sibling test can otherwise start inside that window and fail on a column only
+// the rehearsal had removed. _migrations still records the migration as applied,
+// so RunMigrations alone can never heal the drift.
+func healMariaDBTail(t *testing.T, db *bun.DB) {
+	t.Helper()
+	for _, tail := range mariadbTailHeals {
+		var present int
+		if err := db.NewRaw(`SELECT COUNT(*) FROM information_schema.columns
+			WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`, tail.table, tail.column).
+			Scan(t.Context(), &present); err != nil {
+			t.Fatalf("inspect %s.%s: %v", tail.table, tail.column, err)
+		}
+		if present == 1 {
+			continue
+		}
+		if err := runEngineMigration(t, db, "mariadb", tail.migration, "up"); err != nil {
+			t.Fatalf("heal %s after shared-schema drift: %v", tail.migration, err)
+		}
+	}
 }
 
 func sqliteRepositorySet(repo *sqlite.Repository) repositorySet {

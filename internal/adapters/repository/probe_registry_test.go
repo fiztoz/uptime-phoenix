@@ -66,6 +66,7 @@ func newProbeRegistryFixture(t *testing.T, engine string) probeRegistryFixture {
 		t.Fatal(err)
 	}
 	if engine == "mariadb" {
+		healMariaDBTail(t, db)
 		resetMariaDB(t, db.DB)
 	}
 	f := probeRegistryFixture{db: db, engine: engine, dsn: dsn}
@@ -432,9 +433,12 @@ func testProbeRegistryMigration(t *testing.T, f probeRegistryFixture) {
 	var downgraded []string
 	t.Cleanup(func() {
 		for i := len(downgraded) - 1; i >= 0; i-- {
+			// Restore every dependency even after one fails. Returning early stranded the
+			// shared MariaDB schema at an older shape, and every later reader in the
+			// package then failed on a column that only this rehearsal had removed.
 			if err := runEngineMigration(t, f.db, f.engine, downgraded[i], "up"); err != nil {
 				t.Errorf("restore dependency %s: %v", downgraded[i], err)
-				return
+				continue
 			}
 		}
 		got := probeTableColumns(t, f.db, "probe_commands")

@@ -33,6 +33,7 @@ type probeIncidentModel struct {
 	SubjectKind             string     `bun:"subject_kind,notnull"`
 	ConditionKind           *string    `bun:"condition_kind"`
 	CertificateThreshold    *int       `bun:"certificate_threshold"`
+	CertificateNotAfter     *time.Time `bun:"certificate_not_after"`
 	AckCommandID            *string    `bun:"ack_command_id"`
 	AckActorDisplayName     *string    `bun:"ack_actor_display_name"`
 	AckNote                 *string    `bun:"ack_note"`
@@ -325,15 +326,20 @@ func validateIncident(incident *domain.RegionalIncident) error {
 	}
 	switch incident.SubjectKind {
 	case domain.IncidentSubjectAvailability:
-		if incident.ConditionKind != "" || incident.CertificateThreshold != 0 {
+		if incident.ConditionKind != "" || incident.CertificateThreshold != 0 || incident.CertificateNotAfter != nil {
 			return fmt.Errorf("availability subject: %w", domain.ErrValidation)
 		}
 	case domain.IncidentSubjectCapacity:
-		if incident.ConditionKind != "session_pool" && incident.ConditionKind != "storage" {
+		if incident.ConditionKind != "session_pool" && incident.ConditionKind != "storage" ||
+			incident.CertificateThreshold != 0 || incident.CertificateNotAfter != nil {
 			return fmt.Errorf("capacity subject: %w", domain.ErrValidation)
 		}
 	case domain.IncidentSubjectCertificate:
-		if incident.CertificateThreshold != 30 && incident.CertificateThreshold != 14 && incident.CertificateThreshold != 7 {
+		// The mirrored subject must be the exact immutable identity the source
+		// delivered. A threshold without its own expiry cannot be compared against a
+		// later transition or a duplicate receipt, and the same threshold recurs
+		// across renewals.
+		if !domain.ValidCertificateIncident(incident) {
 			return fmt.Errorf("certificate subject: %w", domain.ErrValidation)
 		}
 	case domain.IncidentSubjectWatchdog:
@@ -429,7 +435,8 @@ func incidentIdentityConflict(existing, incoming *probeIncidentModel) error {
 		!sameOptionalInt64(existing.AssignmentGeneration, incoming.AssignmentGeneration) ||
 		!existing.StartedAt.UTC().Equal(incoming.StartedAt.UTC()) ||
 		!sameOptionalString(existing.ConditionKind, incoming.ConditionKind) ||
-		!sameOptionalInt(existing.CertificateThreshold, incoming.CertificateThreshold) {
+		!sameOptionalInt(existing.CertificateThreshold, incoming.CertificateThreshold) ||
+		!sameOptionalTime(existing.CertificateNotAfter, incoming.CertificateNotAfter) {
 		return ports.ErrConflict
 	}
 	return nil
@@ -467,6 +474,7 @@ func incidentModel(in domain.RegionalIncident) probeIncidentModel {
 		v := int(in.CertificateThreshold)
 		m.CertificateThreshold = &v
 	}
+	m.CertificateNotAfter = utcPtr(in.CertificateNotAfter)
 	if in.AckCommandID != "" {
 		v := in.AckCommandID
 		m.AckCommandID = &v
@@ -515,6 +523,7 @@ func incidentFromModel(m *probeIncidentModel) domain.RegionalIncident {
 	if m.CertificateThreshold != nil {
 		out.CertificateThreshold = int64(*m.CertificateThreshold)
 	}
+	out.CertificateNotAfter = utcPtr(m.CertificateNotAfter)
 	if m.AckCommandID != nil {
 		out.AckCommandID = *m.AckCommandID
 	}

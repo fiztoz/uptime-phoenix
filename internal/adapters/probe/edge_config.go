@@ -91,7 +91,7 @@ func (d *EdgeConfigDecoder) DecodeEdge(ctx context.Context, document []byte, tar
 			config["docker_daemon"] = endpoint
 		}
 		m := a.Monitor
-		resolved := domain.EdgeResolvedAssignment{Monitor: &domain.Monitor{ID: a.MonitorID, Name: m.Name, Description: m.Description, Owner: m.Owner, Type: m.Type, Active: a.Active, Interval: int(m.Interval), RetryInterval: int(m.RetryInterval), MaxRetries: int(m.MaxRetries), Timeout: m.Timeout, Config: config, AcceptedStatusCodes: slices.Clone(m.AcceptedStatusCodes), UpsideDown: m.UpsideDown, ResendInterval: int(m.ResendInterval), TLSIgnore: m.TLSIgnore}, Generation: int64(a.Generation), EffectiveOwner: m.EffectiveOwner, MaintenanceIDs: slices.Clone(a.MaintenanceIDs), EscalationPolicyID: a.EscalationPolicyID}
+		resolved := domain.EdgeResolvedAssignment{Monitor: &domain.Monitor{ID: a.MonitorID, Name: m.Name, Description: m.Description, Owner: m.Owner, Type: m.Type, Active: a.Active, Interval: int(m.Interval), RetryInterval: int(m.RetryInterval), MaxRetries: int(m.MaxRetries), Timeout: m.Timeout, Config: config, AcceptedStatusCodes: slices.Clone(m.AcceptedStatusCodes), UpsideDown: m.UpsideDown, ResendInterval: int(m.ResendInterval), TLSIgnore: m.TLSIgnore, CertExpiryNotify: m.CertExpiryNotify}, Generation: int64(a.Generation), EffectiveOwner: m.EffectiveOwner, MaintenanceIDs: slices.Clone(a.MaintenanceIDs), EscalationPolicyID: a.EscalationPolicyID}
 		for _, tag := range m.Tags {
 			resolved.Tags = append(resolved.Tags, domain.ProbeConfigTag{Name: tag.Name, Value: tag.Value})
 		}
@@ -155,10 +155,12 @@ func validateEdgeRuntimeSnapshot(s ConfigSnapshot) error {
 				}
 			}
 		}
-		if a.Monitor.CertExpiryNotify {
-			return fmt.Errorf("certificate paging is unavailable in this build: %w", ErrUnsupportedCapability)
-		}
+		// Certificate paging is supported: the source evaluates its own accepted
+		// assignment, holds the delivered-threshold cursor and sends through its own
+		// durable outbox.
 	}
+	// Acknowledgement links are still unavailable remotely: an ACK must be applied
+	// by the source that owns the incident, and that command path is not built yet.
 	for _, c := range s.NotificationChannels {
 		if c.IncludeAckURL {
 			return fmt.Errorf("remote acknowledgement links are unavailable in this build: %w", ErrUnsupportedCapability)

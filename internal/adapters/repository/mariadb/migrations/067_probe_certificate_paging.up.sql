@@ -1,0 +1,11 @@
+-- Certificate paging: the immutable subject expiry of a mirrored certificate
+-- incident. Threshold alone cannot identify an incident, because the same
+-- threshold recurs across renewals. X.509 validity instants are whole seconds,
+-- so this table's microsecond timestamp column is lossless for the identity;
+-- the source remains the only authority on when a threshold was delivered.
+--
+-- IF NOT EXISTS is deliberate. The shared MariaDB test schema is walked down and
+-- back up by the registry migration rehearsal, and a plain ADD would fail with a
+-- duplicate-column error whenever the column is already present, aborting that
+-- restore and stranding every later reader on an older schema shape.
+ALTER TABLE probe_incidents ADD COLUMN IF NOT EXISTS certificate_not_after DATETIME(6) NULL;

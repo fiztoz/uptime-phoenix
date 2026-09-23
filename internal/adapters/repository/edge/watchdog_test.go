@@ -250,6 +250,19 @@ func runWatchdogMigration(t *testing.T, s *Store, direction string, failAfter bo
 	return s.db.RunInTx(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error { _, err := tx.ExecContext(ctx, string(sql)); return err })
 }
 
+// runCertificatePagingMigration applies the 011 rebuild that later touches the
+// same three tables. The 005 round-trip below is only meaningful with the schema
+// it owns, so 011 must step out of the way first and back in afterwards, or the
+// Go row models would read columns the rebuilt tables no longer have.
+func runCertificatePagingMigration(t *testing.T, s *Store, direction string) error {
+	t.Helper()
+	sql, err := migrations.ReadFile("migrations/011_certificate_paging.tx." + direction + ".sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.db.RunInTx(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error { _, err := tx.ExecContext(ctx, string(sql)); return err })
+}
+
 func TestEdgeWatchdogMigrationPreservesExistingWork(t *testing.T) {
 	s, _, _ := watchdogFixture(t)
 	ctx := t.Context()
@@ -264,6 +277,9 @@ func TestEdgeWatchdogMigrationPreservesExistingWork(t *testing.T) {
 	if err := s.db.NewRaw("SELECT payload FROM edge_telemetry_outbox WHERE seq=2").Scan(ctx, &original); err != nil {
 		t.Fatal(err)
 	}
+	if err := runCertificatePagingMigration(t, s, "down"); err != nil {
+		t.Fatalf("011 down: %v", err)
+	}
 	if err := runWatchdogMigration(t, s, "down", false); err != nil {
 		t.Fatal(err)
 	}
@@ -276,6 +292,9 @@ func TestEdgeWatchdogMigrationPreservesExistingWork(t *testing.T) {
 	}
 	if err := runWatchdogMigration(t, s, "up", false); err != nil {
 		t.Fatal(err)
+	}
+	if err := runCertificatePagingMigration(t, s, "up"); err != nil {
+		t.Fatalf("011 up after 005 round-trip: %v", err)
 	}
 	after, err := s.GetDeliveryIntent(ctx, testIdentity().ProbeID, before[0].DeliveryID)
 	if err != nil || !reflect.DeepEqual(*after, before[0]) {

@@ -47,16 +47,21 @@ type QueuedDelivery struct {
 	CheckOutput          string
 	ObservedAt           time.Time
 	IncidentStatus       string
-	StartedAt            time.Time
-	ResolvedAt           *time.Time
-	Status               string
-	Attempt              int64
-	LeaseToken           string
-	LeasedAt             *time.Time
-	LeaseUntil           *time.Time
-	ErrorCode            string
-	OutcomeAt            *time.Time
-	CreatedAt            time.Time
+	// Certificate carries the immutable alert snapshot for a certificate_expiry
+	// row. It must be present exactly when EventKind is certificate_expiry, so a
+	// later retry renders the threshold it was committed for rather than
+	// re-deriving one from a newer clock or a pruned observation.
+	Certificate *EdgeCertAlertContent
+	StartedAt   time.Time
+	ResolvedAt  *time.Time
+	Status      string
+	Attempt     int64
+	LeaseToken  string
+	LeasedAt    *time.Time
+	LeaseUntil  *time.Time
+	ErrorCode   string
+	OutcomeAt   *time.Time
+	CreatedAt   time.Time
 }
 
 // DeliveryClaim is the persisted attempt fence. Copy these fields from a claim;

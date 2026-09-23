@@ -445,6 +445,7 @@ Use a dedicated edge schema and migration runner under `internal/adapters/reposi
 | `edge_config` | Desired staging snapshot and active snapshot revision/hash, immutable canonical snapshot bytes protected at rest |
 | `edge_assignments` | Materialized active assignment generation and scheduler data |
 | `edge_regional_state` | Last evaluated state, counts, certificate/condition state, source incident IDs |
+| `edge_cert_alert_state` | Source-owned certificate cursor: delivered threshold, its exact expiry, the one open certificate incident, and a fence version |
 | `edge_telemetry_outbox` | Ordered durable events with stream/seq, serialized size, class, observed time, send status |
 | `edge_delivery_outbox` | Durable provider intents, attempts, next retry, incident state and channel version |
 | `edge_alerts` | Regional/watchdog incident lifecycle, acknowledgement and escalation progress |
@@ -653,7 +654,7 @@ Runtime credential rotation keeps pending and active versions during a bounded 1
 | Monitor creation/update/clone | Omitted assignments preserve legacy `local`; new remote assignment writes are admin-only; explicit empty set is invalid; clone retains assignments only when the caller can administer them |
 | Checker inventory | No new types. V1 pull-checker coverage excludes push; advertise actual build/runtime capabilities and reject unsupported assignments before activation |
 | Docker/proxy-dependent checks | Resolve probe-local resources explicitly; never send a hub filesystem/socket reference and pretend it exists on the VM |
-| Database capacity and TLS certificates | Separate state per probe. Capacity warning/error never becomes availability DOWN; preserve two-sample promotion semantics |
+| Database capacity and TLS certificates | Separate state per probe. Certificate paging runs at the source that owns the assignment ([accepted](M4_CERT_PAGING.md)); the hub mirrors incidents and outcomes only. Capacity warning/error never becomes availability DOWN; preserve two-sample promotion semantics |
 | Maintenance | Resolve persisted monitor links into each probe's complete snapshot; unlinked windows cover nothing. Preserve IANA timezone and cron duration; bundle Go timezone data for minimal images |
 | Notifications/templates | Reuse the 11 senders, materialize direct monitor channel/template context, retain current per-link target-redaction behavior; group channel attachments remain group-only; add region/scope template variables |
 | Groups/status-page incidents | Consume overall projection; regional recovery alone cannot close a global incident; unknown state remains visible |
@@ -672,8 +673,24 @@ and `monitor_probe_state`, preserving certificate expiry independently of SQL
 timestamp precision. Accepted current writes refresh the assignment-scoped
 `tls_info` view in the same fenced transaction. Older replay and historical
 assignments cannot replace that view; explicit null and snapshot omission clear
-it. No certificate incident or sent-threshold cursor is inferred. Certificate
-paging and capacity promotion/lifecycle remain unimplemented on remote probes.
+it. No certificate incident or sent-threshold cursor is inferred from that path.
+Certificate paging and capacity promotion/lifecycle were unimplemented on remote
+probes at that checkpoint; certificate paging is now accepted, as recorded below.
+
+The implemented [M4 certificate paging slice](M4_CERT_PAGING.md) keeps the source
+as the only notification authority. The edge evaluates its own accepted
+assignment against the fixed 30/14/7 thresholds, holds the delivered-threshold
+cursor and the single open certificate incident per assignment generation in
+`edge_cert_alert_state`, and commits the incident, the cursor and the provider
+intents with the observation in one transaction. Certificate incidents travel as
+`alert.transition` events carrying the immutable subject (threshold plus exact
+expiry); the outcome travels as a `delivery.result` with event kind
+`certificate_expiry`. The hub mirrors both into `probe_incidents` and
+`probe_delivery_events` and never creates a hub provider intent from them, so
+replayed history cannot page anybody. A threshold advance retires the superseded
+incident before opening the replacement, and maintenance suppresses the whole
+lifecycle rather than consuming a threshold. Capacity promotion and its
+two-sample state machine remain unimplemented on remote probes.
 
 ## 11. Operations and observability
 

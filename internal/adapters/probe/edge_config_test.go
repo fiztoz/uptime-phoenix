@@ -51,7 +51,6 @@ func TestEdgeConfigDecoderRejectsUnsupportedWithoutIO(t *testing.T) {
 		t.Fatalf("lost accepted execution context: %+v %v", resolved, err)
 	}
 	for name, mutate := range map[string]func(*ConfigSnapshot){
-		"certificate": func(s *ConfigSnapshot) { s.Assignments[0].Monitor.CertExpiryNotify = true },
 		"docker resource binding": func(s *ConfigSnapshot) {
 			s.Assignments[0].Monitor.Type = "docker"
 			s.Assignments[0].Monitor.Config = json.RawMessage(`{"container":"phoenix"}`)
@@ -80,6 +79,20 @@ func TestEdgeConfigDecoderRejectsUnsupportedWithoutIO(t *testing.T) {
 	ack.NotificationChannels[0].IncludeAckURL = true
 	if got, err := decoder.DecodeEdge(t.Context(), configBytes(t, ack), target); got != nil || !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("protocol-invalid remote ACK link accepted: %v", err)
+	}
+}
+
+// TestEdgeConfigDecoderAcceptsCertificatePaging proves the accepted graph keeps
+// the opt-in flag so the source can page its own certificate expiry. The gate
+// this replaces used to reject the whole snapshot; paging is now implemented.
+func TestEdgeConfigDecoderAcceptsCertificatePaging(t *testing.T) {
+	decoder := NewEdgeConfigDecoder(checker.Get, notifier.Get)
+	base := m2Config(t)
+	base.Assignments[0].Monitor.CertExpiryNotify = true
+	target := domain.ProbeConfigTarget{HubID: base.HubID, ProbeID: base.ProbeID}
+	resolved, err := decoder.DecodeEdge(t.Context(), configBytes(t, base), target)
+	if err != nil || len(resolved.Assignments) != 1 || resolved.Assignments[0].Monitor == nil || !resolved.Assignments[0].Monitor.CertExpiryNotify {
+		t.Fatalf("certificate paging opt-in lost: %+v %v", resolved, err)
 	}
 }
 

@@ -78,6 +78,59 @@ func authorizeAvailabilityReplay(f domain.ProbeReplayAuthorityFacts, e domain.Pr
 	return ""
 }
 
+// authorizeCertificateReplay admits a source-owned certificate expiry incident.
+// It is deliberately stricter than the availability path: the subject identity
+// (threshold plus exact expiry) is immutable for the incident, and no
+// acknowledgement may travel on a certificate incident in this build, because
+// the remote acknowledgement command targets availability incidents only.
+func authorizeCertificateReplay(f domain.ProbeReplayAuthorityFacts, e domain.ProbeReplayEvent) string {
+	i := e.Incident
+	if i == nil || e.Observation != nil || e.Delivery != nil || i.ProbeID != f.ProbeID || !domain.ValidHubID(i.SourceAlertID) ||
+		i.TransitionVersion <= 0 || i.StartedAt.IsZero() || len(i.Reason) > 4096 || i.EscalationPolicyID != 0 || i.ConditionKind != "" ||
+		!domain.ValidCertificateIncident(i) {
+		return "event_invalid"
+	}
+	if hasReplayAcknowledgement(i) || i.Status != domain.AlertStatusFiring && i.Status != domain.AlertStatusResolved {
+		return "event_invalid"
+	}
+	prior := f.PriorIncident
+	if prior == nil {
+		if i.TransitionVersion != 1 || i.Status != domain.AlertStatusFiring {
+			return "transition_version_invalid"
+		}
+		if i.StartedAt.After(e.ObservedAt) {
+			return "event_invalid"
+		}
+		return authorizeReplayAssignment(f, i.MonitorID, i.AssignmentGeneration, i.ConfigRevision, e.ObservedAt)
+	}
+	if prior.SourceAlertID != i.SourceAlertID || prior.ProbeID != f.ProbeID || prior.MonitorID != i.MonitorID ||
+		prior.AssignmentGeneration != i.AssignmentGeneration || prior.SubjectKind != i.SubjectKind || prior.Scope != i.Scope ||
+		!prior.StartedAt.Equal(i.StartedAt) || prior.Status == domain.AlertStatusResolved ||
+		prior.TransitionVersion == 0 || i.TransitionVersion-prior.TransitionVersion != 1 ||
+		prior.CertificateThreshold != i.CertificateThreshold || !sameOptionalReplayTime(prior.CertificateNotAfter, i.CertificateNotAfter) {
+		return "transition_identity_conflict"
+	}
+	// Only an opening may advance, and it advances to exactly one resolution.
+	if prior.Status != domain.AlertStatusFiring || i.Status != domain.AlertStatusResolved || i.ResolvedAt == nil || i.ResolvedAt.IsZero() {
+		return "transition_identity_conflict"
+	}
+	if !f.MonitorExists || f.MonitorID != i.MonitorID {
+		return "monitor_not_found"
+	}
+	a := f.ConfigAssignment
+	if a == nil || !a.Active || a.MonitorID != i.MonitorID || a.Generation != i.AssignmentGeneration || f.ConfigRevision != i.ConfigRevision {
+		return "config_revision_mismatch"
+	}
+	return ""
+}
+
+// sameOptionalReplayTime compares an immutable subject instant at the precision
+// both hub engines persist, so a duplicate receipt cannot be mistaken for a
+// conflicting identity.
+func sameOptionalReplayTime(a, b *time.Time) bool {
+	return (a == nil) == (b == nil) && (a == nil || a.UTC().Equal(b.UTC()))
+}
+
 func authorizedReplayAcknowledgement(c *domain.ProbeAlertAcknowledgement, i *domain.RegionalIncident) bool {
 	return c != nil && i.AckedAt != nil && c.CommandID == i.AckCommandID && c.ProbeID == i.ProbeID && c.SourceAlertID == i.SourceAlertID && c.AssignmentGeneration == i.AssignmentGeneration && c.ActorDisplayName == i.AckActorDisplayName && sameAckNote(c.Note, i.AckNote) && !i.AckedAt.Before(c.CreatedAt.Add(-MaxFutureClockSkew)) && i.AckedAt.Before(c.ExpiresAt)
 }

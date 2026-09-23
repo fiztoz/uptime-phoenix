@@ -56,7 +56,25 @@ func (s *Store) AuthorizeEdgeDelivery(ctx context.Context, claim domain.Delivery
 			return err
 		}
 		inc := rowIncident.incident(identity.ProbeID)
-		if inc.Scope != domain.IncidentScopeRegional || inc.SubjectKind != domain.IncidentSubjectAvailability || inc.MonitorID != item.MonitorID || inc.AssignmentGeneration != item.AssignmentGeneration || inc.TransitionVersion != item.SourceTransitionVersion || !inc.StartedAt.Equal(item.StartedAt) {
+		if inc.Scope != domain.IncidentScopeRegional || inc.MonitorID != item.MonitorID || inc.AssignmentGeneration != item.AssignmentGeneration ||
+			inc.TransitionVersion != item.SourceTransitionVersion || !inc.StartedAt.Equal(item.StartedAt) {
+			return nil
+		}
+		if item.EventKind == domain.DeliveryEventCertificateExpiry {
+			// A certificate intent is authorized by its own incident identity, not by
+			// the availability lifecycle: the threshold and exact expiry must still be
+			// the ones this snapshot was committed for, and the incident must still be
+			// open. A retired or advanced incident makes the work obsolete.
+			content := item.Certificate
+			if inc.SubjectKind != domain.IncidentSubjectCertificate || !domain.ValidEdgeCertAlertContent(content) ||
+				content.Threshold != int(inc.CertificateThreshold) || inc.CertificateNotAfter == nil ||
+				!content.NotAfter.UTC().Equal(inc.CertificateNotAfter.UTC()) || inc.Status != domain.AlertStatusFiring {
+				return nil
+			}
+			out = &item
+			return nil
+		}
+		if inc.SubjectKind != domain.IncidentSubjectAvailability || item.Certificate != nil {
 			return nil
 		}
 		switch item.CheckStatus {

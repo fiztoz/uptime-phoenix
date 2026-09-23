@@ -1300,3 +1300,60 @@ combined with `--verify-docker`. The fixture's per-monitor `tls_ignore` setting
 does not alter probe-management pin validation or production trust defaults.
 See [the slice acceptance](multi-region/M4_TLS_EVIDENCE.md) for executed evidence
 and the remaining certificate-alert/capacity work.
+
+## M4 certificate paging acceptance
+
+Run the focused source, protocol and storage tests with the documented disposable
+`TEST_MARIADB_DSN` (including `parseTime=true&loc=UTC&multiStatements=true`):
+
+```sh
+rtk proxy go test -race -count=1 -timeout 2400s ./internal/core/services ./internal/adapters/probe ./internal/adapters/repository/edge ./internal/adapters/repository -run 'TestCertAlertPaging|TestEdgeCertificatePaging|TestCertificateIncident|TestProbeCertificatePagingAcceptance'
+```
+
+Audit the exact `TestProbeCertificatePagingAcceptance/mariadb` result and every
+child; a skipped MariaDB parent is not acceptance. Coverage splits as follows.
+
+Pure evaluator (`TestCertAlertPaging*`, `internal/core/services`): the 30/14/7
+matrix, one alert per threshold per certificate, advance retiring then re-firing in
+order, renewal opening a new identity, recovery retiring without provider work,
+maintenance consuming neither a threshold nor an incident, a looser reading of the
+same certificate leaving the tighter alert alone, active/inactive channel fan-out,
+an accepted graph missing a named channel failing closed, and every invalid context
+(missing clock/ID source, foreign cursor, non-certificate open incident, unbounded
+issuer) rejected with `domain.ErrValidation` and no side effects. Assert the
+suppressed paths allocate zero UUIDs — a silent identity is a silent duplicate.
+
+Durable source lifecycle (`TestEdgeCertificatePaging*`, real recorder + encoder +
+edge SQLite): incident row identity, cursor pointing at exactly that incident, the
+observation-then-transition event order, the delivery row's immutable snapshot, raw
+checker metadata never reaching storage, a same-threshold recheck paging nothing
+before **and after a process close/reopen**, threshold advance emitting two ordered
+transitions, one open incident per identity (the partial unique index), a stale
+`ExpectedCertificateVersion` returning `ErrStaleLocalState`, a malformed subject
+rolling back alerts, events, provider work and the stream sequence unchanged, and
+the 011 rebuild preserving rows while a populated downgrade is refused by the guard.
+
+End-to-end provider effect (`TestEdgeCertificatePagingSendsOnceAcrossRestart`): a
+real self-signed HTTPS target with a five-day certificate, the production HTTP
+checker, the real store and the real delivery worker. Assert exactly one provider
+call carrying `certificate_expiry` with the right threshold/days/issuer/expiry and
+regional scope; that a transient provider failure retries the **same** intent rather
+than paging twice; that the outcome becomes `delivery.result` telemetry; and that
+further checks across two more restarts never reopen a delivered threshold.
+
+Wire contract (`TestCertificateIncident*`, `internal/adapters/probe`): encode →
+persisted bytes → hub-side `decodeReplayBatch` mapping preserves the exact subject
+(including a fractional expiry second); malformed subjects (unfixed threshold, null
+expiry, threshold on availability/watchdog, capacity, escalation, aggregate scope)
+are refused by the encoder and by the decoder.
+
+Storage bounds (`TestProbeCertificatePagingAcceptance`, SQLite **and** MariaDB):
+mirror lifecycle with zero `probe_delivery_intents`, immutable subject enforced on
+restatement, acknowledgement refused, orphan delivery refused, duplicate receipt
+adding no rows, and populated migration 067 down/up with the evidence guard.
+
+No compiled-process acceptance gate exists for this slice yet: `--verify-cert-paging`
+is not implemented in `scripts/probe_runtime_smoke.py`, and the TLS slice's
+`--verify-tls` fixture certificate is not inside the paging window. Treat the
+Go-level matrix above as the current evidence and read
+[the acceptance record](multi-region/M4_CERT_PAGING.md) for what stays unverified.

@@ -4,10 +4,12 @@ M3 is complete at implementation `a12a3fa`, recorded in `8b455d4`; the first
 M4 pull-checker slice is recorded in
 [initial M4 acceptance](M4_PULL_CHECKER_ACCEPTANCE.md). The subsequent
 [Docker binding slice](M4_DOCKER_BINDINGS.md) adds probe-local socket/API resources,
-revisioned assignment references and runtime resolution. The next
+revisioned assignment references and runtime resolution. The
 [TLS evidence slice](M4_TLS_EVIDENCE.md) retains remote certificate metadata in
-source telemetry, hub history and current state; certificate paging and capacity
-state remain open.
+source telemetry, hub history and current state. The latest
+[certificate paging slice](M4_CERT_PAGING.md) lets a remote HTTPS monitor page its
+certificate expiry from the source that owns the assignment; capacity state remains
+open.
 Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.
@@ -32,10 +34,10 @@ before choosing work. Completed M2/M3 handoffs are not active assignments.
 | Area | Entry points |
 |---|---|
 | Composition and operator commands | `internal/bootstrap/`, `cmd/app/`, `cmd/probe/`, `cmd/phoenix-probe-admin/` |
-| Runtime use cases | `internal/core/services/probe_*`, `internal/core/ports/` |
+| Runtime use cases | `internal/core/services/probe_*`, `internal/core/services/cert_alert_paging.go`, `internal/core/ports/` |
 | Wire, TLS and sessions | `internal/adapters/probe/` |
-| Hub authority and history | `internal/adapters/repository/probe_*` |
-| Edge persistence and retention | `internal/adapters/repository/edge/` |
+| Hub authority and history | `internal/adapters/repository/probe_*`, `internal/adapters/repository/incident.go` |
+| Edge persistence, cursor and retention | `internal/adapters/repository/edge/` |
 | Production-process verification | `scripts/probe_runtime_smoke.py`, [testing guide](../TESTING.md) |
 
 The [operator guide](M2_OPERATOR_GUIDE.md) covers manual enrollment, configuration,
@@ -47,7 +49,9 @@ installation-key handling. Keep source identity and archived evidence intact.
 
 Database authority, current-state transfer, historical ingest and provider sends
 are separate effects. Configuration/application receipts follow commit. Queued
-history must not create remote provider work on the hub. Regional ACKs identify
+history must not create remote provider work on the hub. A delivered-threshold
+cursor belongs to the source that sent the alert; the hub mirrors incidents and
+outcomes instead of inferring one. Regional ACKs identify
 their original incident. Cleanup preserves unresolved dependencies and tombstones.
 No lease lock spans provider I/O. See [the retrospective](../postmortems/2026-09-21-m3-integration.md)
 for the reproduced failures behind these rules.

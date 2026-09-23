@@ -223,6 +223,8 @@ For `firing`, `resolved_at`, `acked_at`, and `acknowledgement` are null. For `ac
 
 `sent`, `retrying`, and `failed` require a positive signed-64-bit integer attempt. `superseded` permits zero because an obsolete intent may be canceled before any provider attempt. `sent` and `superseded` require null `error_code`; `retrying` and `failed` require a bounded redacted machine code. A delivery ID belongs permanently to one source incident transition, channel/version, and event kind; attempts may advance without changing that identity. The ingest service must correlate the result with an already authorized incident transition (earlier in the same batch or committed previously) and the accepted channel configuration. Neither a DTO nor a retention gap authorizes a previously unknown delivery subject. It describes the source provider outcome; the hub never treats it as a send request.
 
+Implemented correlation detail ([certificate paging](M4_CERT_PAGING.md)): the hub reads the referenced transition's stored `subject_kind` back from `probe_incidents` rather than assuming availability, and admits a delivery only when its event kind belongs to that subject — `status_change` for an availability incident, `certificate_expiry` for a certificate incident, `probe_connection` for a watchdog. A mirrored source alert therefore cannot be re-labelled, and a certificate outcome cannot authorize an availability send.
+
 `condition.transition` data contain `monitor_id`, `assignment_generation`, `config_revision`, `kind`, `previous_state`, `state`, `message`, and `source_alert_id`. All are required. Monitor/generation/config identities are positive. `kind` is `session_pool` or `storage`; `state` is the promoted `ok`, `warning`, or `error`, never derived stale. `previous_state` is a different confirmed state or null for the first promotion. The source sequence orders these transitions. `message` is redacted text bounded to 4096 bytes, and `source_alert_id` is a canonical UUID or null. A supplied incident reference must correlate with the same monitor/generation/condition at ingest. These transitions never change primary availability, create incident recoveries by inference, or rerun promotion.
 
 ### 4.2 Commit and ACK rules
@@ -267,8 +269,12 @@ also clears its current TLS projection. Neither operation deletes retained histo
 Repeated snapshots of the same observation cannot change its TLS fields. Expiry
 is preserved at its wire precision, separately from microsecond observation
 identity. These writes never infer certificate incidents or notification cursors.
-Capacity observations/current state and certificate alert transitions still need
-their M4 runtime owners; see [TLS acceptance](M4_TLS_EVIDENCE.md).
+The certificate alert transitions and `certificate_expiry` outcomes this paging
+produces are emitted by the source that owns the assignment and described in
+section 4.1; the hub mirrors them and never infers a cursor from them. Capacity
+observations/current state still need their M4 runtime owner; see
+[TLS acceptance](M4_TLS_EVIDENCE.md) and
+[certificate paging acceptance](M4_CERT_PAGING.md).
 
 ### 5.1 Exact state transfer frames
 
@@ -534,6 +540,8 @@ source fencing, atomic activation, authenticated sessions/leases, authorized
 current state, missing-assignment reconciliation, durable application receipts,
 ordered ingest and recovery for the supported runtime. See
 [M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) and the subsequent
-[M4 Docker binding slice](M4_DOCKER_BINDINGS.md). Auxiliary/lifecycle compatibility
-and the administrative HTTP/browser feature surface remain M4/M5; do not enable
+[M4 Docker binding slice](M4_DOCKER_BINDINGS.md) and
+[M4 certificate paging slice](M4_CERT_PAGING.md). Auxiliary/lifecycle compatibility
+(the remaining capacity state machine, escalation and acknowledgement links) and
+the administrative HTTP/browser feature surface remain M4/M5; do not enable
 a capability merely because its wire shape decodes.

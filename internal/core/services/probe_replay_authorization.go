@@ -53,6 +53,15 @@ func (s *AccessService) AuthorizeEvent(_ context.Context, f domain.ProbeReplayAu
 			return reject("event_invalid")
 		}
 	case domain.ReplayKindAlertTransition:
+		// The subject selects the lifecycle contract. A certificate incident carries
+		// an immutable threshold/expiry identity and can never be acknowledged
+		// remotely, so it must not borrow the availability rules that allow both.
+		if e.Incident != nil && e.Incident.SubjectKind == domain.IncidentSubjectCertificate {
+			if code := authorizeCertificateReplay(f, e); code != "" {
+				return reject(code)
+			}
+			break
+		}
 		if code := authorizeAvailabilityReplay(f, e); code != "" {
 			return reject(code)
 		}
@@ -84,8 +93,26 @@ func (s *AccessService) AuthorizeEvent(_ context.Context, f domain.ProbeReplayAu
 		if d.NotificationVersion <= 0 || f.Channels[d.NotificationID] != d.NotificationVersion {
 			return reject("channel_unauthorized")
 		}
-		if !watchdog && (d.EventKind != domain.DeliveryEventStatusChange || d.ObservedAt.Before(parent.StartedAt) || parent.ResolvedAt != nil && d.ObservedAt.Before(*parent.ResolvedAt)) {
-			return reject("event_invalid")
+		// The delivery kind must belong to the incident it references. A certificate
+		// outcome can only follow a certificate transition, so a mirrored source
+		// alert can never be re-labeled as an availability transition (or the
+		// reverse) by a later batch. Watchdog outcomes were validated above.
+		if !watchdog {
+			switch parent.SubjectKind {
+			case domain.IncidentSubjectAvailability:
+				if d.EventKind != domain.DeliveryEventStatusChange {
+					return reject("event_invalid")
+				}
+			case domain.IncidentSubjectCertificate:
+				if d.EventKind != domain.DeliveryEventCertificateExpiry {
+					return reject("event_invalid")
+				}
+			default:
+				return reject("event_invalid")
+			}
+			if d.ObservedAt.Before(parent.StartedAt) || parent.ResolvedAt != nil && d.ObservedAt.Before(*parent.ResolvedAt) {
+				return reject("event_invalid")
+			}
 		}
 		switch d.Status {
 		case domain.DeliveryStatusSent, domain.DeliveryStatusRetrying, domain.DeliveryStatusFailed:
