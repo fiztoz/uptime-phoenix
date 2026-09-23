@@ -34,9 +34,7 @@ func decodeReplayBatch(data []byte, probeID string) (domain.ProbeReplayBatch, er
 		e := domain.ProbeReplayEvent{Seq: int64(event.Seq), Digest: hex.EncodeToString(digest[:]), Kind: event.Kind, ObservedAt: time.Time(event.ObservedAt).UTC()}
 		switch value := event.Data.(type) {
 		case Observation:
-			if len(value.Conditions) == 0 {
-				e.Observation = &domain.RegionalObservation{MonitorID: value.MonitorID, ProbeID: probeID, AssignmentGeneration: int64(value.AssignmentGeneration), StreamID: wire.StreamID, Seq: e.Seq, ConfigRevision: int64(value.ConfigRevision), Status: replayDomainStatus(value.Status), RawStatus: replayDomainStatus(value.RawStatus), DownCount: int(value.DownCount), Ping: int(value.Ping), DurationMS: int(value.DurationMS), Message: value.Message, Important: value.Important, ObservedAt: e.ObservedAt, TLS: sourceTLS(value.TLS)}
-			}
+			e.Observation = &domain.RegionalObservation{MonitorID: value.MonitorID, ProbeID: probeID, AssignmentGeneration: int64(value.AssignmentGeneration), StreamID: wire.StreamID, Seq: e.Seq, ConfigRevision: int64(value.ConfigRevision), Status: replayDomainStatus(value.Status), RawStatus: replayDomainStatus(value.RawStatus), DownCount: int(value.DownCount), Ping: int(value.Ping), DurationMS: int(value.DurationMS), Message: value.Message, Important: value.Important, ObservedAt: e.ObservedAt, TLS: sourceTLS(value.TLS), Conditions: sourceConditionObservations(value.Conditions)}
 		case IncidentTransition:
 			monitor := value.MonitorID != nil && value.AssignmentGeneration != nil && *value.MonitorID > 0 && *value.AssignmentGeneration > 0
 			availability := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectAvailability && value.Escalation == nil && monitor
@@ -74,6 +72,11 @@ func decodeReplayBatch(data []byte, probeID string) (domain.ProbeReplayBatch, er
 				d.ErrorCode = *value.ErrorCode
 			}
 			e.Delivery = d
+		case ConditionTransition:
+			// Promoted auxiliary state crosses as its own event. The hub mirrors it
+			// and never re-derives promotion from raw evidence.
+			transition := sourceConditionTransition(value)
+			e.Condition = &transition
 		}
 		batch.Events = append(batch.Events, e)
 	}

@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // Monitor condition kinds emitted by checkers. A condition is deliberately
 // separate from heartbeat Status: it describes resource pressure or an
@@ -64,6 +67,85 @@ type MonitorCondition struct {
 	ConsecutiveCount  int
 	LastNotifiedState ConditionState
 	LastNotifiedAt    *time.Time
+}
+
+// ConditionEvidence is one source-evaluated condition state. The embedded
+// observation keeps the RAW checker state and measurements; EffectiveState is
+// the promoted (two-sample confirmed) state and is nil while unconfirmed.
+// ConsecutiveState/Count track the pending transition candidate. The
+// notification cursor deliberately stays out: delivery is source-owned and its
+// cursor never crosses the wire.
+type ConditionEvidence struct {
+	ConditionObservation
+	EffectiveState   *ConditionState
+	ConsecutiveState ConditionState
+	ConsecutiveCount int
+	LastSuccessAt    *time.Time
+}
+
+// ConditionTransition is one promoted auxiliary transition. It never changes
+// primary availability and never re-derives promotion at a reader.
+type ConditionTransition struct {
+	MonitorID            int64
+	AssignmentGeneration int64
+	ConfigRevision       int64
+	Kind                 string
+	PreviousState        *ConditionState
+	State                ConditionState
+	Message              string
+	SourceAlertID        *string
+}
+
+// ValidConditionEvidence enforces the same promotion invariants the wire
+// decoder applies, so callers that bypass DTO decoding cannot persist an
+// impossible state: only a first warning/error may be unconfirmed, a confirmed
+// condition matches its candidate once it has two samples, and the only legal
+// observed/candidate disagreement is the five-point warning recovery latch.
+func ValidConditionEvidence(e *ConditionEvidence) bool {
+	if e == nil || e.Kind != MonitorConditionSessionPool && e.Kind != MonitorConditionStorage ||
+		!e.State.IsValid() || !e.ConsecutiveState.IsValid() || e.ConsecutiveCount <= 0 ||
+		e.EffectiveState != nil && !e.EffectiveState.IsValid() ||
+		len(e.Message) > 4096 || len(e.Unit) > 256 || len(e.Resource) > 256 || len(e.Scope) > 256 || len(e.Source) > 256 {
+		return false
+	}
+	for _, value := range []*float64{e.Used, e.Limit, e.Percent, e.Threshold} {
+		if value != nil && (*value < 0 || *value != *value || *value > math.MaxFloat64) {
+			return false
+		}
+	}
+	if e.StaleAfter.IsZero() || e.ObservedAt.IsZero() || e.StaleAfter.Before(e.ObservedAt) {
+		return false
+	}
+	if e.EffectiveState == nil {
+		if e.ConsecutiveCount != 1 || e.ConsecutiveState == ConditionStateOK {
+			return false
+		}
+	} else if e.ConsecutiveCount >= 2 && *e.EffectiveState != e.ConsecutiveState {
+		return false
+	}
+	if e.State != e.ConsecutiveState &&
+		!(e.State == ConditionStateOK && e.ConsecutiveState == ConditionStateWarning &&
+			e.EffectiveState != nil && *e.EffectiveState == ConditionStateWarning) {
+		return false
+	}
+	if e.State != ConditionStateError && e.LastSuccessAt == nil {
+		return false
+	}
+	return true
+}
+
+// ValidConditionTransition checks one promoted transition identity. A previous
+// state, when present, is a different confirmed state.
+func ValidConditionTransition(t *ConditionTransition) bool {
+	if t == nil || t.MonitorID <= 0 || t.AssignmentGeneration <= 0 || t.ConfigRevision <= 0 ||
+		t.Kind != MonitorConditionSessionPool && t.Kind != MonitorConditionStorage ||
+		!t.State.IsValid() || len(t.Message) > 4096 {
+		return false
+	}
+	if t.PreviousState != nil && (!t.PreviousState.IsValid() || *t.PreviousState == t.State) {
+		return false
+	}
+	return t.SourceAlertID == nil || ValidHubID(*t.SourceAlertID)
 }
 
 // ConditionDelete is published when a persisted condition row is removed.

@@ -174,6 +174,13 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 					if err := putDeliveryTx(ctx, tx, &delivery, false); err != nil {
 						return err
 					}
+				case domain.ReplayKindConditionTransition:
+					// Promoted auxiliary state is mirrored exactly as the source
+					// evaluated it; nothing here recomputes promotion.
+					transition := *event.Condition
+					if err := mirrorRemoteConditionTransition(ctx, tx, session.ProbeID, transition.AssignmentGeneration, transition.MonitorID, event.Seq, transition); err != nil {
+						return err
+					}
 				default:
 					return domain.ErrValidation
 				}
@@ -229,6 +236,25 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 	case event.Observation != nil:
 		f.MonitorID = event.Observation.MonitorID
 		f.ConfigRevision = event.Observation.ConfigRevision
+	case event.Condition != nil:
+		c := event.Condition
+		f.MonitorID = c.MonitorID
+		f.ConfigRevision = c.ConfigRevision
+		found, err := remoteConditionEvidenceFound(ctx, tx, c.MonitorID, session.ProbeID, c.AssignmentGeneration, c.Kind)
+		if err != nil {
+			return f, err
+		}
+		f.ConditionEvidenceFound = found
+		if c.SourceAlertID != nil {
+			var referenced probeIncidentModel
+			err := tx.NewSelect().Model(&referenced).Where("source_alert_id = ?", *c.SourceAlertID).Scan(ctx)
+			if err == nil {
+				v := incidentFromModel(&referenced)
+				f.ReferencedIncident = &v
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return f, err
+			}
+		}
 	case event.Incident != nil:
 		i := event.Incident
 		f.MonitorID = i.MonitorID
@@ -403,6 +429,9 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 }
 
 func updateReplayState(ctx context.Context, tx bun.Tx, obs domain.RegionalObservation, now time.Time) error {
+	if err := syncRemoteConditionMeasurements(ctx, tx, obs); err != nil {
+		return err
+	}
 	state := domain.RegionalState{TLS: obs.TLS, MonitorID: obs.MonitorID, ProbeID: obs.ProbeID, AssignmentGeneration: obs.AssignmentGeneration, StreamID: obs.StreamID, Seq: obs.Seq, ConfigRevision: obs.ConfigRevision, Status: obs.Status, DownCount: obs.DownCount, Ping: obs.Ping, Message: obs.Message, ObservedAt: obs.ObservedAt.UTC(), ReceivedAt: now}
 	return updateCurrentProbeState(ctx, tx, state, now, false)
 }
@@ -442,7 +471,7 @@ func updateCurrentProbeState(ctx context.Context, tx bun.Tx, state domain.Region
 	if err == nil && existing.StreamID == state.StreamID && existing.Seq == state.Seq {
 		// Snapshot-only incident references may advance without a new check,
 		// but the immutable availability observation cannot change identity.
-		if !domain.SameTLSObservation(existing.TLSJSON.evidence(), state.TLS) || existing.Status != int(state.Status) || existing.DownCount != state.DownCount || existing.Ping != state.Ping || existing.Message != state.Message || !existing.ObservedAt.UTC().Truncate(time.Microsecond).Equal(state.ObservedAt.UTC().Truncate(time.Microsecond)) {
+		if !domain.SameTLSObservation(existing.TLSJSON.evidence(), state.TLS) || snapshot && !sameConditionEvidence(existing.ConditionsJSON, state.Conditions) || existing.Status != int(state.Status) || existing.DownCount != state.DownCount || existing.Ping != state.Ping || existing.Message != state.Message || !existing.ObservedAt.UTC().Truncate(time.Microsecond).Equal(state.ObservedAt.UTC().Truncate(time.Microsecond)) {
 			return ports.ErrConflict
 		}
 	}
@@ -450,6 +479,9 @@ func updateCurrentProbeState(ctx context.Context, tx bun.Tx, state domain.Region
 		state.LastSuccessAt = utcTimePtr(existing.LastSuccessAt)
 		if !snapshot {
 			state.ActiveSourceAlertID = existing.ActiveSourceAlertID
+			// Raw replay carries no evaluated condition state; the last accepted
+			// evaluation (snapshot or transition mirror) stays authoritative.
+			state.Conditions = conditionEvidenceListDomain(existing.ConditionsJSON)
 		}
 	}
 	if state.Status == domain.StatusUp {
@@ -461,6 +493,13 @@ func updateCurrentProbeState(ctx context.Context, tx bun.Tx, state domain.Region
 	}
 	if err := upsertRegionalState(ctx, tx, state); err != nil {
 		return err
+	}
+	if snapshot {
+		// A complete snapshot replaces the evaluated condition projection and
+		// clears omitted kinds while retaining their historical samples.
+		if err := replaceRemoteConditions(ctx, tx, state); err != nil {
+			return err
+		}
 	}
 	return replaceRemoteTLSInfo(ctx, tx, state)
 }

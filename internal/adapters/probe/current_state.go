@@ -23,10 +23,15 @@ func encodeCurrentSnapshot(source domain.EdgeCurrentSnapshot) (StateSnapshot, []
 			return snapshot, nil, err
 		}
 		observation, ok := event.Data.(Observation)
-		if !ok || event.Kind != "observation" || event.Seq != Decimal(state.Seq) || observation.MonitorID != state.MonitorID || observation.AssignmentGeneration != Decimal(state.AssignmentGeneration) || len(observation.Conditions) > 0 {
+		if !ok || event.Kind != "observation" || event.Seq != Decimal(state.Seq) || observation.MonitorID != state.MonitorID || observation.AssignmentGeneration != Decimal(state.AssignmentGeneration) {
 			return snapshot, nil, errors.New("unsupported or inconsistent current evidence")
 		}
-		snapshot.States = append(snapshot.States, MonitorState{MonitorID: state.MonitorID, AssignmentGeneration: Decimal(state.AssignmentGeneration), LastObservationSeq: event.Seq, ObservedAt: event.ObservedAt, Status: observation.Status, DownCount: observation.DownCount, Ping: observation.Ping, Message: observation.Message, Conditions: []ConditionState{}, TLS: observation.TLS, ActiveSourceAlertID: state.ActiveSourceAlertID})
+		// Evaluated condition state must describe exactly the raw evidence the
+		// immutable observation payload retains.
+		if !conditionEvidenceMatchesPayload(state.Conditions, observation.Conditions) {
+			return snapshot, nil, errors.New("inconsistent current condition evidence")
+		}
+		snapshot.States = append(snapshot.States, MonitorState{MonitorID: state.MonitorID, AssignmentGeneration: Decimal(state.AssignmentGeneration), LastObservationSeq: event.Seq, ObservedAt: event.ObservedAt, Status: observation.Status, DownCount: observation.DownCount, Ping: observation.Ping, Message: observation.Message, Conditions: wireConditionEvidenceList(state.Conditions), TLS: observation.TLS, ActiveSourceAlertID: state.ActiveSourceAlertID})
 	}
 	document, err := json.Marshal(snapshot)
 	if err != nil {
@@ -132,10 +137,10 @@ func (r *hubStateReceiver) handle(ctx context.Context, connection *Session, fram
 		}
 		candidate := domain.ProbeCurrentSnapshot{ProbeID: r.session.ProbeID, StreamID: snapshot.StreamID, SnapshotID: commit.SnapshotID, SHA256: commit.SHA256, ConfigRevision: int64(snapshot.ConfigRevision), CreatedAt: time.Time(snapshot.CreatedAt).UTC(), LastCreatedSeq: int64(snapshot.LastCreatedSeq), States: make([]domain.ProbeCurrentState, 0, len(snapshot.States))}
 		for _, state := range snapshot.States {
-			if len(state.Conditions) > 0 || state.DownCount > math.MaxInt32 || state.Ping > math.MaxInt32 {
+			if state.DownCount > math.MaxInt32 || state.Ping > math.MaxInt32 {
 				return errors.New("unsupported auxiliary current state")
 			}
-			candidate.States = append(candidate.States, domain.ProbeCurrentState{MonitorID: state.MonitorID, AssignmentGeneration: int64(state.AssignmentGeneration), Seq: int64(state.LastObservationSeq), ObservedAt: time.Time(state.ObservedAt).UTC(), Status: replayDomainStatus(state.Status), DownCount: int(state.DownCount), Ping: int(state.Ping), Message: state.Message, ActiveSourceAlertID: state.ActiveSourceAlertID, TLS: sourceTLS(state.TLS)})
+			candidate.States = append(candidate.States, domain.ProbeCurrentState{MonitorID: state.MonitorID, AssignmentGeneration: int64(state.AssignmentGeneration), Seq: int64(state.LastObservationSeq), ObservedAt: time.Time(state.ObservedAt).UTC(), Status: replayDomainStatus(state.Status), DownCount: int(state.DownCount), Ping: int(state.Ping), Message: state.Message, ActiveSourceAlertID: state.ActiveSourceAlertID, TLS: sourceTLS(state.TLS), Conditions: sourceConditionEvidenceList(state.Conditions)})
 		}
 		opCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		receipt, err := r.ingest.ApplySnapshot(opCtx, r.session, candidate)

@@ -34,6 +34,7 @@ type ProbeStream struct {
 // Sequence and assignment generation belong to one stream/assignment, never a pool.
 type RegionalObservation struct {
 	TLS                  *TLSObservation
+	Conditions           []ConditionObservation
 	ID                   int64
 	MonitorID            int64
 	ProbeID              string
@@ -55,6 +56,7 @@ type RegionalObservation struct {
 // RegionalState is the current assignment evidence used for health projection.
 type RegionalState struct {
 	TLS                  *TLSObservation
+	Conditions           []ConditionEvidence
 	MonitorID            int64
 	ProbeID              string
 	AssignmentGeneration int64

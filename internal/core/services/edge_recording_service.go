@@ -93,10 +93,36 @@ func (s *EdgeRecordingService) Record(ctx context.Context, config *domain.EdgeRe
 		eval := EvaluateObservation(previous, result.Status, maintenance, m.MaxRetries)
 		o := domain.RegionalObservation{ProbeID: i.ProbeID, StreamID: i.StreamID, MonitorID: m.ID, AssignmentGeneration: assignment.Generation, ConfigRevision: config.Metadata.Revision, Status: eval.State.Status, RawStatus: result.Status, DownCount: eval.State.DownCount, Ping: int(result.LatencyMs), DurationMS: int(result.DurationMs), Message: result.Message, Important: eval.Important, ObservedAt: at, ReceivedAt: at}
 		o.TLS = edgeTLSObservation(result.Metadata, at)
+		// Auxiliary capacity conditions are evaluated at the source: raw evidence
+		// rides the observation, promotion is two-sample confirmed and fenced like
+		// every other source-owned state, and a disabled check retires its row.
+		priors := ConditionStatePriors(before.Conditions)
+		versions := ConditionStateVersions(before.Conditions)
+		conditionWorks := make([]domain.EdgeConditionWork, 0, len(result.Conditions)+len(before.Conditions))
+		for _, raw := range result.Conditions {
+			evaluation := EvaluateCondition(priors[raw.Kind], raw, m.ID, m.Interval, at)
+			if !domain.ValidConditionEvidence(&evaluation.State) {
+				return domain.RegionalObservation{}, domain.ErrValidation
+			}
+			work := domain.EdgeConditionWork{State: evaluation.State, ExpectedVersion: versions[raw.Kind]}
+			if evaluation.Transition != nil {
+				transition := *evaluation.Transition
+				transition.AssignmentGeneration = assignment.Generation
+				transition.ConfigRevision = config.Metadata.Revision
+				work.Transition = &transition
+			}
+			conditionWorks = append(conditionWorks, work)
+			o.Conditions = append(o.Conditions, evaluation.State.ConditionObservation)
+		}
+		for _, stored := range before.Conditions {
+			if !ConditionKindEnabled(m.Config, stored.Kind) {
+				conditionWorks = append(conditionWorks, domain.EdgeConditionWork{State: domain.ConditionEvidence{ConditionObservation: domain.ConditionObservation{Kind: stored.Kind}}, ExpectedVersion: stored.Version, Remove: true})
+			}
+		}
 		if maintenance {
 			o.Message = "Maintenance window active"
 		}
-		record := domain.EdgeCheckRecord{ExpectedStateSeq: expectedSeq, Observation: o}
+		record := domain.EdgeCheckRecord{ExpectedStateSeq: expectedSeq, Observation: o, Conditions: conditionWorks}
 		incident := before.Incident
 		if incident != nil {
 			record.ExpectedIncidentVersion = incident.TransitionVersion

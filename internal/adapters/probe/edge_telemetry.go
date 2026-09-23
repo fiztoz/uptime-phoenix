@@ -15,9 +15,20 @@ type EdgeTelemetryEncoder struct{}
 var _ ports.EdgeTelemetryEncoder = EdgeTelemetryEncoder{}
 
 // EncodeObservation preserves raw/effective retry evidence with explicit DTOs.
+// Raw checker condition evidence travels with the observation; freshness is
+// already derived from the accepted monitor configuration by the evaluator.
 func (EdgeTelemetryEncoder) EncodeObservation(o domain.RegionalObservation) ([]byte, error) {
 	status, raw := edgeWireStatus(o.Status), edgeWireStatus(o.RawStatus)
-	return encodeEdgeEvent(TelemetryEvent{Seq: Decimal(o.Seq), Kind: "observation", ObservedAt: Timestamp(o.ObservedAt.UTC()), Data: Observation{MonitorID: o.MonitorID, AssignmentGeneration: Decimal(o.AssignmentGeneration), ConfigRevision: Decimal(o.ConfigRevision), Status: status, RawStatus: raw, DownCount: int64(o.DownCount), Ping: int64(o.Ping), DurationMS: int64(o.DurationMS), Message: o.Message, Important: o.Important, Conditions: []ConditionObservation{}, TLS: wireTLS(o.TLS)}})
+	return encodeEdgeEvent(TelemetryEvent{Seq: Decimal(o.Seq), Kind: "observation", ObservedAt: Timestamp(o.ObservedAt.UTC()), Data: Observation{MonitorID: o.MonitorID, AssignmentGeneration: Decimal(o.AssignmentGeneration), ConfigRevision: Decimal(o.ConfigRevision), Status: status, RawStatus: raw, DownCount: int64(o.DownCount), Ping: int64(o.Ping), DurationMS: int64(o.DurationMS), Message: o.Message, Important: o.Important, Conditions: wireConditionObservations(o.Conditions), TLS: wireTLS(o.TLS)}})
+}
+
+// EncodeConditionTransition records one promoted auxiliary transition. It can
+// never change primary availability or carry escalation intent.
+func (EdgeTelemetryEncoder) EncodeConditionTransition(seq int64, at time.Time, transition domain.ConditionTransition) ([]byte, error) {
+	if seq <= 0 || at.IsZero() || transition.MonitorID <= 0 || transition.AssignmentGeneration <= 0 || transition.ConfigRevision <= 0 {
+		return nil, domain.ErrValidation
+	}
+	return encodeEdgeEvent(TelemetryEvent{Seq: Decimal(seq), Kind: "condition.transition", ObservedAt: Timestamp(at.UTC()), Data: wireConditionTransition(transition)})
 }
 
 // EncodeIncident records supported source transitions with explicit entity scope.

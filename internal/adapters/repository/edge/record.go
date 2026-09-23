@@ -103,6 +103,11 @@ func readEdgeEvidence(ctx context.Context, db bun.IDB, i domain.EdgeIdentity, mo
 		return domain.EdgeMonitorEvidence{}, err
 	}
 	evidence.Certificate, evidence.CertificateIncident = certificate, certificateIncident
+	conditions, err := readEdgeConditionStates(ctx, db, monitorID, generation)
+	if err != nil {
+		return domain.EdgeMonitorEvidence{}, err
+	}
+	evidence.Conditions = conditions
 	return evidence, nil
 }
 
@@ -130,8 +135,13 @@ func (s *Store) ReadEdgeEvidence(ctx context.Context, monitorID, generation int6
 // Provider I/O is impossible here; only the injected pure encoder is invoked.
 func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckRecord) (domain.RegionalObservation, error) {
 	o := record.Observation
-	if s.telemetry == nil || !domain.ValidTLSObservation(o.TLS) || record.ExpectedStateSeq < 0 || record.ExpectedIncidentVersion < 0 || record.ExpectedCertificateVersion < 0 || o.MonitorID <= 0 || o.AssignmentGeneration <= 0 || o.ConfigRevision <= 0 || o.Seq != 0 || o.ObservedAt.IsZero() || o.ReceivedAt.IsZero() || o.Status < domain.StatusDown || o.Status > domain.StatusMaintenance || o.RawStatus != domain.StatusUp && o.RawStatus != domain.StatusDown || len(record.DeliveryIntents) > 1000 {
+	if s.telemetry == nil || !domain.ValidTLSObservation(o.TLS) || record.ExpectedStateSeq < 0 || record.ExpectedIncidentVersion < 0 || record.ExpectedCertificateVersion < 0 || o.MonitorID <= 0 || o.AssignmentGeneration <= 0 || o.ConfigRevision <= 0 || o.Seq != 0 || o.ObservedAt.IsZero() || o.ReceivedAt.IsZero() || o.Status < domain.StatusDown || o.Status > domain.StatusMaintenance || o.RawStatus != domain.StatusUp && o.RawStatus != domain.StatusDown || len(record.DeliveryIntents) > 1000 || len(record.Conditions) > 2 {
 		return domain.RegionalObservation{}, domain.ErrValidation
+	}
+	for _, work := range record.Conditions {
+		if work.ExpectedVersion < 0 {
+			return domain.RegionalObservation{}, domain.ErrValidation
+		}
 	}
 	o.ObservedAt, o.ReceivedAt = o.ObservedAt.UTC(), o.ReceivedAt.UTC()
 	var committed domain.RegionalObservation
@@ -180,6 +190,11 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 			}
 			eventCount += int64(len(record.Certificate.Transitions))
 		}
+		for _, work := range record.Conditions {
+			if !work.Remove && work.Transition != nil {
+				eventCount++
+			}
+		}
 		if i.LastCreatedSeq > math.MaxInt64-eventCount {
 			return ports.ErrConflict
 		}
@@ -209,7 +224,11 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 		if record.Incident != nil {
 			nextSeq++
 		}
-		if _, err := s.applyEdgeCertAlertWork(ctx, tx, o, before, record.Certificate, nextSeq); err != nil {
+		certSeq, err := s.applyEdgeCertAlertWork(ctx, tx, o, before, record.Certificate, nextSeq)
+		if err != nil {
+			return err
+		}
+		if _, err := s.applyEdgeConditionWork(ctx, tx, o, before.Conditions, record.Conditions, certSeq); err != nil {
 			return err
 		}
 		state := edgeStateRow{CurrentObservation: observationBytes, MonitorID: o.MonitorID, Generation: o.AssignmentGeneration, Seq: o.Seq, ConfigRevision: o.ConfigRevision, Status: o.Status, DownCount: o.DownCount, ObservedAt: o.ObservedAt.UnixMicro(), ReceivedAt: o.ReceivedAt.UnixMicro(), LastEnqueuedAt: microFromTime(before.LastEnqueuedAt)}
@@ -247,6 +266,30 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 		return domain.RegionalObservation{}, err
 	}
 	return committed, nil
+}
+
+// sameRecordedRawCondition proves the evaluated work describes the same raw
+// checker measurement the immutable observation payload carries for its kind.
+func sameRecordedRawCondition(recorded []domain.ConditionObservation, raw domain.ConditionObservation) bool {
+	for _, condition := range recorded {
+		if condition.Kind != raw.Kind {
+			continue
+		}
+		return condition.State == raw.State && condition.Message == raw.Message &&
+			condition.Unit == raw.Unit && condition.Resource == raw.Resource && condition.Scope == raw.Scope && condition.Source == raw.Source &&
+			condition.ObservedAt.UTC().Truncate(time.Microsecond).Equal(raw.ObservedAt.UTC().Truncate(time.Microsecond)) &&
+			condition.StaleAfter.UTC().Truncate(time.Microsecond).Equal(raw.StaleAfter.UTC().Truncate(time.Microsecond)) &&
+			sameOptionalFloat(condition.Used, raw.Used) && sameOptionalFloat(condition.Limit, raw.Limit) &&
+			sameOptionalFloat(condition.Percent, raw.Percent) && sameOptionalFloat(condition.Threshold, raw.Threshold)
+	}
+	return false
+}
+
+func sameOptionalFloat(a, b *float64) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	return a == nil || *a == *b
 }
 
 func (s *Store) appendTelemetry(ctx context.Context, tx bun.Tx, seq int64, kind string, at time.Time, payload []byte) error {

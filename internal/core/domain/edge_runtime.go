@@ -169,6 +169,29 @@ type EdgeMonitorEvidence struct {
 	LastEnqueuedAt      *time.Time
 	Certificate         *EdgeCertAlertState
 	CertificateIncident *RegionalIncident
+	Conditions          []EdgeConditionState
+}
+
+// EdgeConditionState is the durable, source-owned evaluated state of one
+// auxiliary condition for one immutable assignment generation. It is the edge
+// analog of a regional monitor_conditions row: raw measurement, promotion
+// candidate and promoted state, with no delivery cursor. Version fences every
+// write so a concurrent recording forces re-evaluation instead of losing or
+// duplicating a promotion.
+type EdgeConditionState struct {
+	ConditionEvidence
+	Version int64
+}
+
+// EdgeConditionWork is one evaluated condition's durable state change plus its
+// optional promoted transition. The transition is emitted as an ordered
+// condition.transition event; it never changes primary availability. Remove
+// retires a stored kind whose check was disabled in the accepted configuration.
+type EdgeConditionWork struct {
+	State           ConditionEvidence
+	ExpectedVersion int64
+	Remove          bool
+	Transition      *ConditionTransition
 }
 
 // EdgeCertAlertWork is the certificate paging lifecycle produced by one
@@ -197,6 +220,7 @@ type EdgeCheckRecord struct {
 	Incident                   *RegionalIncident
 	DeliveryIntents            []DeliveryIntent
 	Certificate                *EdgeCertAlertWork
+	Conditions                 []EdgeConditionWork
 }
 
 // EdgeTelemetryRecord retains exact bounded event bytes for later hub replay.

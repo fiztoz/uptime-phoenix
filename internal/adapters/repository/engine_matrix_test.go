@@ -76,6 +76,9 @@ func mariadbFactory(t *testing.T) repositorySet {
 // post-condition a shared-schema rehearsal can remove temporarily.
 var mariadbTailHeals = []struct{ migration, table, column string }{
 	{"067_probe_certificate_paging", "probe_incidents", "certificate_not_after"},
+	{"068_probe_capacity_state", "monitor_conditions", "source_seq"},
+	{"068_probe_capacity_state", "probe_observations", "conditions_json"},
+	{"068_probe_capacity_state", "monitor_probe_state", "conditions_json"},
 }
 
 // healMariaDBTail re-applies idempotent tail migrations after RunMigrations.

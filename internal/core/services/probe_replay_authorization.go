@@ -38,12 +38,33 @@ func (s *AccessService) AuthorizeEvent(_ context.Context, f domain.ProbeReplayAu
 		if code := authorizeWatchdogReplay(f, e); code != "" {
 			return reject(code)
 		}
+	case domain.ReplayKindConditionTransition:
+		c := e.Condition
+		if c == nil || e.Incident != nil || e.Delivery != nil || e.Observation != nil || !domain.ValidConditionTransition(c) {
+			return reject("event_invalid")
+		}
+		if code := authorizeReplayAssignment(f, c.MonitorID, c.AssignmentGeneration, c.ConfigRevision, e.ObservedAt); code != "" {
+			return reject(code)
+		}
+		// Promotion is copied from the source, never recomputed here; it must
+		// arrive after the raw evidence it promoted.
+		if !f.ConditionEvidenceFound {
+			return reject("condition_evidence_not_found")
+		}
+		if c.SourceAlertID != nil {
+			i := f.ReferencedIncident
+			if i == nil || i.ProbeID != f.ProbeID || i.SourceAlertID != *c.SourceAlertID ||
+				i.SubjectKind != domain.IncidentSubjectCapacity || i.ConditionKind != c.Kind ||
+				i.MonitorID != c.MonitorID || i.AssignmentGeneration != c.AssignmentGeneration {
+				return reject("incident_mismatch")
+			}
+		}
 	case domain.ReplayKindObservation:
 		o := e.Observation
 		if o != nil && !domain.ValidTLSObservation(o.TLS) {
 			return reject("event_invalid")
 		}
-		if o == nil || e.Incident != nil || e.Delivery != nil || o.ProbeID != f.ProbeID || o.StreamID != f.StreamID || o.Seq != e.Seq || !o.ObservedAt.Equal(e.ObservedAt) {
+		if o == nil || e.Incident != nil || e.Delivery != nil || e.Condition != nil || o.ProbeID != f.ProbeID || o.StreamID != f.StreamID || o.Seq != e.Seq || !o.ObservedAt.Equal(e.ObservedAt) {
 			return reject("event_invalid")
 		}
 		if code := authorizeReplayAssignment(f, o.MonitorID, o.AssignmentGeneration, o.ConfigRevision, e.ObservedAt); code != "" {
@@ -51,6 +72,11 @@ func (s *AccessService) AuthorizeEvent(_ context.Context, f domain.ProbeReplayAu
 		}
 		if !replayStatus(o.Status) || !replayStatus(o.RawStatus) || o.DownCount < 0 || o.DownCount > math.MaxInt32 || o.Ping < 0 || o.Ping > math.MaxInt32 || o.DurationMS < 0 || o.DurationMS > math.MaxInt32 || len(o.Message) > 4096 {
 			return reject("event_invalid")
+		}
+		for i := range o.Conditions {
+			if !validReplayCondition(o.Conditions[i]) {
+				return reject("event_invalid")
+			}
 		}
 	case domain.ReplayKindAlertTransition:
 		// The subject selects the lifecycle contract. A certificate incident carries
@@ -67,7 +93,7 @@ func (s *AccessService) AuthorizeEvent(_ context.Context, f domain.ProbeReplayAu
 		}
 	case domain.ReplayKindDeliveryResult:
 		d := e.Delivery
-		if d == nil || e.Incident != nil || e.Observation != nil || d.ProbeID != f.ProbeID || !domain.ValidHubID(d.DeliveryID) || !domain.ValidHubID(d.SourceAlertID) || !d.ObservedAt.Equal(e.ObservedAt) || d.Attempt < 0 {
+		if d == nil || e.Incident != nil || e.Observation != nil || e.Condition != nil || d.ProbeID != f.ProbeID || !domain.ValidHubID(d.DeliveryID) || !domain.ValidHubID(d.SourceAlertID) || !d.ObservedAt.Equal(e.ObservedAt) || d.Attempt < 0 {
 			return reject("event_invalid")
 		}
 		parent := f.ParentTransition
@@ -142,9 +168,26 @@ func (s *AccessService) AuthorizeEvent(_ context.Context, f domain.ProbeReplayAu
 	return "", true
 }
 
+// validReplayCondition enforces the raw-evidence bounds of one carried capacity
+// sample: fresh timestamps, bounded redacted text and finite measurements.
+func validReplayCondition(c domain.ConditionObservation) bool {
+	if c.Kind != domain.MonitorConditionSessionPool && c.Kind != domain.MonitorConditionStorage || !c.State.IsValid() {
+		return false
+	}
+	if len(c.Message) > 4096 || len(c.Unit) > 256 || len(c.Resource) > 256 || len(c.Scope) > 256 || len(c.Source) > 256 {
+		return false
+	}
+	for _, value := range []*float64{c.Used, c.Limit, c.Percent, c.Threshold} {
+		if value != nil && (*value < 0 || math.IsNaN(*value) || math.IsInf(*value, 0)) {
+			return false
+		}
+	}
+	return !c.ObservedAt.IsZero() && !c.StaleAfter.IsZero() && !c.StaleAfter.Before(c.ObservedAt)
+}
+
 func authorizeWatchdogReplay(f domain.ProbeReplayAuthorityFacts, e domain.ProbeReplayEvent) string {
 	i := e.Incident
-	if i == nil || e.Observation != nil || e.Delivery != nil {
+	if i == nil || e.Observation != nil || e.Delivery != nil || e.Condition != nil {
 		return "event_invalid"
 	}
 	if !f.ConfigFound || f.ConfigRevision != i.ConfigRevision {

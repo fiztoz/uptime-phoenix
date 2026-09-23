@@ -11,14 +11,15 @@ var ErrReplayRetry = errors.New("telemetry storage temporarily unavailable")
 
 // Supported replay event kinds.
 const (
-	ReplayKindObservation        = "observation"
-	ReplayKindAlertTransition    = "alert.transition"
-	ReplayKindWatchdogTransition = "watchdog.transition"
-	ReplayKindDeliveryResult     = "delivery.result"
+	ReplayKindObservation         = "observation"
+	ReplayKindAlertTransition     = "alert.transition"
+	ReplayKindWatchdogTransition  = "watchdog.transition"
+	ReplayKindDeliveryResult      = "delivery.result"
+	ReplayKindConditionTransition = "condition.transition"
 )
 
 // ProbeReplayEvent is one immutable source event in the replayed stream.
-// Data is exactly one of Observation, Incident, or Delivery.
+// Data is exactly one of Observation, Incident, Delivery, or Condition.
 type ProbeReplayEvent struct {
 	Seq         int64
 	Digest      string // SHA-256 of the complete compact wire event.
@@ -27,6 +28,7 @@ type ProbeReplayEvent struct {
 	Observation *RegionalObservation
 	Incident    *RegionalIncident
 	Delivery    *RegionalDelivery
+	Condition   *ConditionTransition
 }
 
 // ProbeReplayBatch is an ordered, contiguous batch of replayed events.
@@ -66,23 +68,25 @@ type ProbeReplaySession struct {
 // ProbeReplayAuthorityFacts contains only nonsecret, transaction-bound facts for
 // one event. History and configuration membership are scoped to MonitorID.
 type ProbeReplayAuthorityFacts struct {
-	ProbeID               string
-	StreamID              string
-	MonitorID             int64
-	MonitorExists         bool
-	ConfigRevision        int64
-	ConfigEffectiveAt     time.Time
-	ConfigFound           bool
-	WatchdogEnabled       bool
-	HubOwnedIncident      bool
-	ConfigAssignment      *EdgeAssignmentIdentity
-	AssignmentHistory     []AssignmentInterval
-	Channels              map[int64]int64
-	PriorIncident         *RegionalIncident
-	IssuedAcknowledgement *ProbeAlertAcknowledgement
-	ParentTransition      *RegionalIncident
-	PriorDelivery         *RegionalDelivery
-	DeliveryIntentExists  bool
+	ProbeID                string
+	StreamID               string
+	MonitorID              int64
+	MonitorExists          bool
+	ConfigRevision         int64
+	ConfigEffectiveAt      time.Time
+	ConfigFound            bool
+	WatchdogEnabled        bool
+	HubOwnedIncident       bool
+	ConfigAssignment       *EdgeAssignmentIdentity
+	AssignmentHistory      []AssignmentInterval
+	Channels               map[int64]int64
+	PriorIncident          *RegionalIncident
+	IssuedAcknowledgement  *ProbeAlertAcknowledgement
+	ParentTransition       *RegionalIncident
+	ReferencedIncident     *RegionalIncident
+	PriorDelivery          *RegionalDelivery
+	DeliveryIntentExists   bool
+	ConditionEvidenceFound bool
 }
 
 // ValidProbeReplayBatch verifies contiguous framing at the core boundary too.

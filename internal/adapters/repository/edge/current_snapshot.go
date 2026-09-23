@@ -60,7 +60,15 @@ func (s *Store) ReadCurrentSnapshot(ctx context.Context, fence domain.EdgeReplay
 			if row.Seq <= 0 || row.Seq > i.LastCreatedSeq {
 				return ports.ErrConflict
 			}
-			snapshot.States = append(snapshot.States, domain.EdgeCurrentEvidence{MonitorID: row.MonitorID, AssignmentGeneration: row.Generation, Seq: row.Seq, Payload: row.CurrentObservation, ActiveSourceAlertID: row.SourceAlertID})
+			conditions, err := readEdgeConditionStates(ctx, tx, row.MonitorID, row.Generation)
+			if err != nil {
+				return err
+			}
+			evidence := make([]domain.ConditionEvidence, 0, len(conditions))
+			for _, condition := range conditions {
+				evidence = append(evidence, condition.ConditionEvidence)
+			}
+			snapshot.States = append(snapshot.States, domain.EdgeCurrentEvidence{MonitorID: row.MonitorID, AssignmentGeneration: row.Generation, Seq: row.Seq, Payload: row.CurrentObservation, ActiveSourceAlertID: row.SourceAlertID, Conditions: evidence})
 		}
 		return nil
 	})

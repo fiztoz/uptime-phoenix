@@ -21,11 +21,13 @@ type EdgeCurrentEvidence struct {
 	Seq                  int64
 	Payload              []byte
 	ActiveSourceAlertID  *string
+	Conditions           []ConditionEvidence
 }
 
 // ProbeCurrentState carries source-evaluated availability independently of history.
 type ProbeCurrentState struct {
 	TLS                  *TLSObservation
+	Conditions           []ConditionEvidence
 	MonitorID            int64
 	AssignmentGeneration int64
 	Seq                  int64
@@ -76,8 +78,15 @@ func ValidProbeCurrentSnapshot(session ProbeReplaySession, s ProbeCurrentSnapsho
 	}
 	monitors, sequences := make(map[int64]bool, len(s.States)), make(map[int64]bool, len(s.States))
 	for _, state := range s.States {
-		if !ValidTLSObservation(state.TLS) {
+		if !ValidTLSObservation(state.TLS) || len(state.Conditions) > 2 {
 			return false
+		}
+		kinds := make(map[string]bool, len(state.Conditions))
+		for i := range state.Conditions {
+			if !ValidConditionEvidence(&state.Conditions[i]) || kinds[state.Conditions[i].Kind] {
+				return false
+			}
+			kinds[state.Conditions[i].Kind] = true
 		}
 		if state.MonitorID <= 0 || state.AssignmentGeneration <= 0 || state.Seq <= 0 || state.Seq > s.LastCreatedSeq || state.ObservedAt.IsZero() || state.DownCount < 0 || state.DownCount > math.MaxInt32 || state.Ping < 0 || state.Ping > math.MaxInt32 || len(state.Message) > 4096 || monitors[state.MonitorID] || sequences[state.Seq] {
 			return false

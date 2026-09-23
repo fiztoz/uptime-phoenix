@@ -122,7 +122,7 @@ func (s *ProbeReplayStore) ApplyCurrentSnapshot(ctx context.Context, session dom
 				return err
 			}
 			if state, ok := byMonitor[assignment.MonitorID]; ok {
-				candidate := domain.RegionalState{TLS: state.TLS, MonitorID: state.MonitorID, ProbeID: session.ProbeID, AssignmentGeneration: state.AssignmentGeneration, StreamID: session.StreamID, Seq: state.Seq, ConfigRevision: snapshot.ConfigRevision, Status: state.Status, DownCount: state.DownCount, Ping: state.Ping, Message: state.Message, ActiveSourceAlertID: state.ActiveSourceAlertID, ObservedAt: state.ObservedAt.UTC(), ReceivedAt: authority.now}
+				candidate := domain.RegionalState{TLS: state.TLS, Conditions: state.Conditions, MonitorID: state.MonitorID, ProbeID: session.ProbeID, AssignmentGeneration: state.AssignmentGeneration, StreamID: session.StreamID, Seq: state.Seq, ConfigRevision: snapshot.ConfigRevision, Status: state.Status, DownCount: state.DownCount, Ping: state.Ping, Message: state.Message, ActiveSourceAlertID: state.ActiveSourceAlertID, ObservedAt: state.ObservedAt.UTC(), ReceivedAt: authority.now}
 				if err := updateCurrentProbeState(ctx, tx, candidate, authority.now, true); err != nil {
 					return err
 				}
@@ -213,6 +213,9 @@ func applyMissingState(ctx context.Context, tx bun.Tx, session domain.ProbeRepla
 	if err := replaceRemoteTLSInfo(ctx, tx, domain.RegionalState{MonitorID: assignment.MonitorID, ProbeID: session.ProbeID, AssignmentGeneration: assignment.Generation}); err != nil {
 		return err
 	}
+	if err := clearRemoteConditions(ctx, tx, assignment.MonitorID, session.ProbeID, assignment.Generation); err != nil {
+		return err
+	}
 	row := probeMissingStateModel{MonitorID: assignment.MonitorID, ProbeID: session.ProbeID, StreamID: session.StreamID, AssignmentGeneration: assignment.Generation, ConfigRevision: snapshot.ConfigRevision, SnapshotSeq: snapshot.LastCreatedSeq, CreatedAt: snapshot.CreatedAt.UTC(), AppliedAt: now, Reason: "missing_snapshot_state"}
 	if exists {
 		_, err = tx.NewUpdate().Model(&row).WherePK().Exec(ctx)
@@ -232,9 +235,9 @@ func (r *RegionalCommitStore) readCurrentStates(ctx context.Context, monitorID i
 		args = append(args, probeID)
 	}
 	args = append(args, args...)
-	query := `SELECT monitor_id,probe_id,assignment_generation,stream_id,seq,config_revision,status,down_count,observed_at,received_at,last_success_at,ping,message,active_source_alert_id,tls_json,'' AS unknown_reason
+	query := `SELECT monitor_id,probe_id,assignment_generation,stream_id,seq,config_revision,status,down_count,observed_at,received_at,last_success_at,ping,message,active_source_alert_id,tls_json,conditions_json,'' AS unknown_reason
  FROM monitor_probe_state WHERE monitor_id = ?` + filter + `
- UNION ALL SELECT monitor_id,probe_id,assignment_generation,stream_id,snapshot_seq,config_revision,4,0,created_at,applied_at,NULL,0,'',NULL,NULL,reason
+ UNION ALL SELECT monitor_id,probe_id,assignment_generation,stream_id,snapshot_seq,config_revision,4,0,created_at,applied_at,NULL,0,'',NULL,NULL,NULL,reason
  FROM probe_missing_state AS missing WHERE monitor_id = ?` + filter + `
  AND NOT EXISTS (SELECT 1 FROM monitor_probe_state AS current WHERE current.monitor_id = missing.monitor_id AND current.probe_id = missing.probe_id)
  ORDER BY probe_id`

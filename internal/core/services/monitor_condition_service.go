@@ -203,7 +203,11 @@ func PromoteCondition(previous *domain.MonitorCondition, observation domain.Cond
 			condition.ConsecutiveCount = previous.ConsecutiveCount + 1
 		}
 	}
-	if previous == nil && candidate == domain.ConditionStateOK {
+	// A first successful sample with no confirmed state IS the baseline: it
+	// confirms immediately. A first warning/error candidate stays unconfirmed
+	// until its second consecutive sample, so no confident ok is fabricated for
+	// a failed first sample.
+	if conditionStableState(previous) == "" && candidate == domain.ConditionStateOK {
 		condition.ConsecutiveCount = conditionTransitionSamples
 	}
 	if condition.ConsecutiveCount >= conditionTransitionSamples {

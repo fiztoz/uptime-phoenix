@@ -8,8 +8,10 @@ revisioned assignment references and runtime resolution. The
 [TLS evidence slice](M4_TLS_EVIDENCE.md) retains remote certificate metadata in
 source telemetry, hub history and current state. The latest
 [certificate paging slice](M4_CERT_PAGING.md) lets a remote HTTPS monitor page its
-certificate expiry from the source that owns the assignment; capacity state remains
-open.
+certificate expiry from the source that owns the assignment. The latest
+[capacity state slice](M4_CAPACITY_STATE.md) gives remote capacity conditions the
+shared two-sample promotion contract with hub mirroring; source-owned capacity
+paging remains open.
 Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.

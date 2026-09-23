@@ -64,4 +64,5 @@ type EdgeTelemetryEncoder interface {
 	EncodeObservation(observation domain.RegionalObservation) ([]byte, error)
 	EncodeIncident(seq int64, at time.Time, incident domain.RegionalIncident) ([]byte, error)
 	EncodeDelivery(seq int64, delivery domain.RegionalDelivery) ([]byte, error)
+	EncodeConditionTransition(seq int64, at time.Time, transition domain.ConditionTransition) ([]byte, error)
 }

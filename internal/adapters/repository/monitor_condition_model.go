@@ -17,6 +17,7 @@ type MonitorConditionModel struct {
 	AssignmentGeneration int64                 `bun:"assignment_generation,pk"`
 	Kind                 string                `bun:"kind,pk"`
 	State                domain.ConditionState `bun:"state,notnull"`
+	SourceSeq            int64                 `bun:"source_seq"`
 	UsedValue            *float64              `bun:"used_value"`
 	LimitValue           *float64              `bun:"limit_value"`
 	PercentValue         *float64              `bun:"percent_value"`

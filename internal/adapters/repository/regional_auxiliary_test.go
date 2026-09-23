@@ -336,7 +336,40 @@ func runAuxiliaryMigration(t *testing.T, f probeRegistryFixture, direction strin
 			return err
 		}
 	}
+	if direction == "up" {
+		return healCapacitySourceSeq(t, f)
+	}
 	return nil
+}
+
+// healCapacitySourceSeq restores the 068 mirror fence after SQLite table
+// rebuilds. Migration 041 predates 068, so its down/up cycle rebuilds
+// monitor_conditions with its own column list and silently drops source_seq —
+// the same shared-schema drift class as the MariaDB rehearsal healing. This is
+// harness healing, not a schema contract change.
+func healCapacitySourceSeq(t *testing.T, f probeRegistryFixture) error {
+	t.Helper()
+	if f.engine == "sqlite" {
+		var present int
+		if err := f.db.NewRaw("SELECT COUNT(*) FROM pragma_table_info('monitor_conditions') WHERE name = 'source_seq'").Scan(t.Context(), &present); err != nil {
+			return err
+		}
+		if present == 1 {
+			return nil
+		}
+		_, err := f.db.ExecContext(context.Background(), "ALTER TABLE monitor_conditions ADD COLUMN source_seq INTEGER NOT NULL DEFAULT 0")
+		return err
+	}
+	var present int
+	if err := f.db.NewRaw(`SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = DATABASE() AND table_name = 'monitor_conditions' AND column_name = 'source_seq'`).Scan(t.Context(), &present); err != nil {
+		return err
+	}
+	if present == 1 {
+		return nil
+	}
+	_, err := f.db.ExecContext(context.Background(), "ALTER TABLE monitor_conditions ADD COLUMN source_seq BIGINT NOT NULL DEFAULT 0")
+	return err
 }
 
 func testAuxiliaryMigration(t *testing.T, f probeRegistryFixture) {

@@ -120,7 +120,9 @@ func testReplayMixed(t *testing.T, r replayFixture) {
 	if result.CommittedSeq != 10 || result.AcceptedCount != 7 || len(result.Rejected) != 3 {
 		t.Fatalf("mixed: %+v", result)
 	}
-	if result.Rejected[0].Code != "channel_unauthorized" || result.Rejected[1].Code != "unsupported_event" || result.Rejected[2].Code != "config_revision_mismatch" {
+	// A condition transition without a body is a permanently invalid event: the
+	// kind itself is supported since the capacity state slice.
+	if result.Rejected[0].Code != "channel_unauthorized" || result.Rejected[1].Code != "event_invalid" || result.Rejected[2].Code != "config_revision_mismatch" {
 		t.Fatalf("rejections: %+v", result.Rejected)
 	}
 	for table, want := range map[string]int{"probe_telemetry_receipts": 10, "probe_observations": 2, "probe_incidents": 1, "probe_delivery_events": 2, "alerts": 0, "alert_escalations": 0, "probe_delivery_intents": 0} {
