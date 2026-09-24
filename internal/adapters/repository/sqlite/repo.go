@@ -596,20 +596,28 @@ func (r *HeartbeatRepo) GetLatestForMonitors(ctx context.Context, monitorIDs []i
 // ListByMonitor returns heartbeats in [from, to].
 //
 // The bounds are forced to UTC here, at the boundary, and not merely by
-// convention upstream. Rows hold a UTC wall-clock, and a local-zoned bound must
-// not be allowed to reach the comparison. Not every caller goes through
+// convention upstream. Rows hold a UTC wall-clock, and keeping the conversion in
+// both adapters identical is the point. Not every caller goes through
 // HeartbeatService (StatusPageService holds this repo directly), so the guarantee
-// has to live here. See AGENTS.md rule 6.
+// has to live at this layer regardless. See AGENTS.md rule 6.
 //
-// Correction to an earlier version of this comment: it claimed the MySQL driver
-// "converts to the DSN's loc=UTC" and therefore needed no such forcing. That is
-// backwards. Measured against real MariaDB, the MySQL driver is the one that
-// writes a bound in whatever zone it carries — a UTC+7 bound is emitted seven
-// hours later and matches nothing, even with loc=UTC in the DSN — while the
-// SQLite path did not shift the window in the same measurement. The normalization
-// is kept on both engines so they behave identically; the MariaDB half is proven by
-// TestHeartbeatUTCBound_MariaDB_LocalZonedBoundShiftsSQL. Why the SQLite path
-// tolerates a zoned bound was not investigated and is deliberately not asserted.
+// Correction to an earlier version of this comment, which had the two engines
+// exactly inverted. It claimed the SQLite driver renders a bound in whatever zone
+// it carries while "the MySQL driver converts to the DSN's loc=UTC". Measured the
+// other way round, and now pinned by tests:
+//
+//   - SQLite: heartbeats.time is TEXT, and the driver serializes a time.Time to
+//     UTC before writing. One instant passed as UTC and as UTC+7 yields the
+//     identical stored string and the identical WHERE literal, so this path cannot
+//     shift. Its .UTC() is therefore redundant for correctness.
+//   - MariaDB: the driver writes the value's own wall-clock even with loc=UTC in
+//     the DSN, so a UTC+7 bound lands seven hours out and matches nothing. There
+//     the .UTC() is load-bearing.
+//
+// See TestHeartbeatUTCBound_SQLite_DriverNormalizesToUTC and
+// TestHeartbeatUTCBound_MariaDB_LocalZonedBoundShiftsSQL. The redundant conversion
+// stays deliberately: symmetry means no caller can come to rely on one engine's
+// forgiveness and quietly break on the other.
 func (r *HeartbeatRepo) ListByMonitor(ctx context.Context, monitorID int64, from, to time.Time) ([]*domain.Heartbeat, error) {
 	var models []*repository.HeartbeatModel
 	err := r.db.NewSelect().Model(&models).

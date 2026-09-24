@@ -3,11 +3,13 @@ package repository_test
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb"
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/sqlite"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
@@ -49,6 +51,68 @@ func TestHeartbeatUTCBoundContract_SQLite(t *testing.T) {
 
 func TestHeartbeatUTCBoundContract_MariaDB(t *testing.T) {
 	runHeartbeatUTCBoundContract(t, mariadbFactory)
+}
+
+// TestHeartbeatUTCBound_SQLite_DriverNormalizesToUTC explains WHY the SQLite path
+// tolerates a local-zoned bound, and pins the reason rather than only the
+// behavior.
+//
+// heartbeats.time is TEXT on SQLite, and the driver serializes a time.Time to UTC
+// before writing it: one instant passed as UTC and as UTC+7 produces the identical
+// stored string, and the generated WHERE literal comes out the same for both bound
+// styles. No shift can occur, because the location is normalized away before the
+// comparison -- which is exactly what the MySQL driver does NOT do (see
+// TestHeartbeatUTCBound_MariaDB_LocalZonedBoundShiftsSQL).
+//
+// The comment this replaces asserted the two engines the other way round. The
+// adapter's own .UTC() is therefore redundant for correctness on SQLite; it stays
+// so both adapters read identically and no caller can come to depend on
+// driver-specific forgiveness.
+func TestHeartbeatUTCBound_SQLite_DriverNormalizesToUTC(t *testing.T) {
+	db, err := sqlite.NewDB("file:" + t.TempDir() + "/utc-normalize.db?cache=shared")
+	if err != nil {
+		t.Fatalf("open SQLite: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := repository.RunMigrations(db.DB, "sqlite"); err != nil {
+		t.Fatalf("run SQLite migrations: %v", err)
+	}
+	repo := sqlite.NewRepository(db)
+	ctx := context.Background()
+
+	// heartbeats.monitor_id is a foreign key, so the row needs a real parent.
+	repos := sqliteRepositorySet(repo)
+	user := createUser(t, ctx, repos, "utc-normalize-owner")
+	monitor := createMonitor(t, ctx, repos, user.ID, "utc-normalize")
+
+	stamp := time.Date(2026, 3, 14, 6, 30, 0, 0, time.UTC)
+	stored := map[string]string{}
+	for label, v := range map[string]time.Time{"utc": stamp, "utc+7": stamp.In(bangkok)} {
+		if _, err := db.NewRaw(`DELETE FROM heartbeats WHERE monitor_id = ?`, monitor.ID).Exec(ctx); err != nil {
+			t.Fatalf("clear %s: %v", label, err)
+		}
+		if _, err := db.NewRaw(
+			`INSERT INTO heartbeats (monitor_id, status, time, ping) VALUES (?, ?, ?, ?)`,
+			monitor.ID, 0, v, 5).Exec(ctx); err != nil {
+			t.Fatalf("insert %s: %v", label, err)
+		}
+		var got string
+		if err := db.NewRaw(`SELECT time FROM heartbeats WHERE monitor_id = ? LIMIT 1`, monitor.ID).Scan(ctx, &got); err != nil {
+			t.Fatalf("scan %s: %v", label, err)
+		}
+		stored[label] = got
+	}
+
+	// The whole explanation in one comparison: one instant, two locations, one
+	// stored representation.
+	if stored["utc"] != stored["utc+7"] {
+		t.Errorf("SQLite serialized the two locations differently: utc=%q utc+7=%q — the driver no "+
+			"longer normalizes to UTC, so this engine's tolerance of a zoned bound has ended and the "+
+			"two adapters are no longer equivalent", stored["utc"], stored["utc+7"])
+	}
+	if !strings.HasSuffix(stored["utc"], "+00:00") {
+		t.Errorf("stored text %q carries no UTC offset; expected the driver to serialize as +00:00", stored["utc"])
+	}
 }
 
 // TestHeartbeatUTCBound_MariaDB_LocalZonedBoundShiftsSQL measures the AGENTS.md

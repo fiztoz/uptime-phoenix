@@ -92,7 +92,7 @@ carry the same defect class, checked so the record is not a partial scan.
 - **Chart labels cross the wire as absolute instants.** `heartbeat.go:137` formats
   buckets with `time.RFC3339`, and `ResponseTimeChart.svelte:75` parses them with
   `new Date(b.time)`, so d3 renders axis ticks in the viewer's own zone. This is
-  the behaviour the report asked for; it is already how the code works. A zone-less
+  the behavior the report asked for; it is already how the code works. A zone-less
   label here would make JS parse the string as *viewer-local* and shift the axis by
   the viewer's offset — the client-side mirror image of the server bug — which is
   why the new test asserts the designator is present.
@@ -199,12 +199,39 @@ so the rewritten comment states the measurement and explicitly declines to asser
 mechanism. The `.UTC()` calls themselves are unchanged on both engines — they are
 correct either way, and keeping both adapters identical is deliberate.
 
+### The two engines were described exactly backwards
+
+The open question from the first pass — why SQLite tolerates a local-zoned bound —
+is now answered, and it inverts the original comments' reasoning.
+
+`heartbeats.time` is `TEXT` on SQLite and `TIMESTAMP` on MariaDB. On SQLite the
+driver serializes a `time.Time` to UTC *before* writing, so one instant passed as
+UTC and as UTC+7 yields the identical stored string:
+
+```
+store=UTC     go=2026-09-24T08:18:39Z       stored_text="2026-09-24 08:18:39+00:00"
+store=UTC+7   go=2026-09-24T15:18:39+07:00  stored_text="2026-09-24 08:18:39+00:00"
+WHERE literal for both bound styles: time >= '2026-09-24 07:18:39+00:00'  (identical)
+```
+
+MariaDB does the opposite and writes the value's own wall-clock. So the SQLite
+adapter's `.UTC()` is **redundant for correctness** while the MariaDB one is
+**load-bearing** — the precise reverse of what both comments asserted. Inverting
+the two is the maximally misleading direction to get it: it invites deleting the
+guard on the engine that needs it while keeping the one that does not. Both
+conversions stay, deliberately symmetric, so no caller can come to depend on one
+engine's forgiveness and quietly break on the other.
+
 ### Durable coverage added
 
 `internal/adapters/repository/heartbeat_utc_matrix_test.go`:
 
 - `TestHeartbeatUTCBoundContract_{SQLite,MariaDB}` — a UTC-normalized one-hour
   window finds a 30-minute-old heartbeat on both engines.
+- `TestHeartbeatUTCBound_SQLite_DriverNormalizesToUTC` — the SQLite counterpart,
+  which explains rather than merely records: one instant serialized as UTC and as
+  UTC+7 produces the identical stored `TEXT`, so this engine cannot shift. Verified
+  non-vacuous by feeding a genuinely different instant, which fails it.
 - `TestHeartbeatUTCBound_MariaDB_LocalZonedBoundShiftsSQL` — the three-part
   statement: a raw bun query with a local-zoned bound loses the row (hazard),
   `loc=UTC` does not save it, and the adapter's normalization returns it (defense).
@@ -250,6 +277,8 @@ Distinguishing authored from executed, per `AGENTS.md` rule 13.
 | `gofmt -l internal/` | empty |
 | `go vet ./internal/adapters/http/... ./internal/core/services/...` | pass |
 | `GOTOOLCHAIN=go1.26.6 golangci-lint run` on all touched packages | **0 issues in touched files**; 5 pre-existing reports elsewhere |
+| Both engines, heartbeat UTC contract (SQLite + live MariaDB) | **4 named passes, 0 fails, 0 skips** |
+| Mutation check, SQLite fed a genuinely different instant | new SQLite test fails (correctly) — assertion is non-vacuous |
 | `go test -count=1 -run 'Heartbeat\|Maintenance\|Timezone\|UTC\|Window\|Cron\|Escalation\|IsActive\|Insight'` over handlers + services + scheduler | **152 named passes, 0 fails, 0 skips** |
 | `go test -race -count=1 ./internal/core/services/ ./internal/adapters/http/handlers/` | **919 passed** |
 | Mutation check, service `.UTC()` removed | new test fails (correctly) |
@@ -285,10 +314,6 @@ quietly downgraded rather than fixed. The trap and its one-variable fix are now 
 
 ### Not verified
 
-- Why SQLite tolerates a local-zoned bound was not investigated. It is reported
-  as measured behaviour only, and the rewritten adapter comment says so. The
-  engine-independent consequence — that both adapters keep the normalization — is
-  verified; the reason the SQLite path is forgiving is not.
 - The frontend gates (`bun run check`, `bun run build`) were not run. Nothing in
   `web/` was modified; `ResponseTimeChart.svelte` was read only.
 - The Low/Info findings, and any finding outside the timezone class, remain unaudited.
