@@ -266,19 +266,25 @@ failure mode `AGENTS.md` rule 13 warns about. The final scoped row is the eviden
 that the MariaDB paths genuinely run under the race detector, not merely that the
 package reported `ok`.
 
+#### The lint gate was nearly skipped for the wrong reason
+
+`golangci-lint` initially looked broken on this host: it panicked inside `go/types`
+while parsing the standard library. That was a toolchain mismatch, not a code
+defect — the binary is built with Go 1.26.5, the machine default is 1.27.1, and
+`go.mod` declares `go 1.26.6`. Running it as `GOTOOLCHAIN=go1.26.6 golangci-lint run`
+at CI's pinned v2.12.2 works. **Zero issues in any file this pass touched**; the 5
+reports it does produce (`1 unconvert` in `condition_mirror.go`, `4 unparam` in
+`probe_capacity_*_test.go`) are pre-existing debt in files untouched since the
+capacity slices, and the gate is "zero warnings on new code".
+
+An earlier pass on this same work concluded "the linter crashes here, use the
+`go vet` fallback" and recorded that as fact. It was wrong, and the error is the
+interesting part: a crashing tool reads as an environment problem, so the gate gets
+quietly downgraded rather than fixed. The trap and its one-variable fix are now in
+`docs/TESTING.md` §4.1 so the next person does not re-derive it.
+
 ### Not verified
 
-- `golangci-lint run` now **has** been run, at CI's pinned v2.12.2. It initially
-  appeared broken — it panicked inside `go/types` while parsing the standard
-  library — but that was a toolchain mismatch, not a code defect: the binary is
-  built with Go 1.26.5, the machine default is 1.27.1, and `go.mod` declares
-  `go 1.26.6`. Run it as `GOTOOLCHAIN=go1.26.6 golangci-lint run` and it works.
-  The same trap is now documented in `docs/TESTING.md` §4.1, because misreading it
-  as "the linter is broken here" leads straight to skipping a required gate.
-  **Zero issues in any file this pass touched.** The 5 remaining reports
-  (`1 unconvert` in `condition_mirror.go`, `4 unparam` in `probe_capacity_*_test.go`)
-  are pre-existing debt in files untouched since the capacity slices; the gate is
-  "zero warnings on new code", so they are left alone deliberately.
 - Why SQLite tolerates a local-zoned bound was not investigated. It is reported
   as measured behaviour only, and the rewritten adapter comment says so. The
   engine-independent consequence — that both adapters keep the normalization — is
