@@ -257,6 +257,14 @@ Distinguishing authored from executed, per `AGENTS.md` rule 13.
 | Mutation check, chart label made zone-less | new chart subtests fail (correctly) |
 | **Live MariaDB 11.8.9** (`phoenix_ci`, `TEST_MARIADB_DSN` set) | `TestHeartbeatUTCBound*` **3 named passes, 0 skips** |
 | Mutation check on live MariaDB, adapter `.UTC()` removed | fails with "adapter returned 0 rows for a local-zoned bound" |
+| Repo-wide gate, race detector + live MariaDB: `go test -race -count=1 -timeout 2400s -p 4 ./...` | **22 packages ok, 0 FAIL, 0 data races, 0 panics** (slowest package 806s) |
+| Same gate scoped to the MariaDB contracts: `-race -run 'TestRepositoryContract_MariaDB\|TestHeartbeatUTCBound\|TestEscalationContract_MariaDB'` | **26 named passes, 0 fails, 0 skips** (25 MariaDB-family) |
+
+The `-race ./...` log was captured without per-test detail, so on its own it could
+not distinguish an executed MariaDB contract from a silently skipped one — the
+failure mode `AGENTS.md` rule 13 warns about. The final scoped row is the evidence
+that the MariaDB paths genuinely run under the race detector, not merely that the
+package reported `ok`.
 
 ### Not verified
 
@@ -271,11 +279,12 @@ Distinguishing authored from executed, per `AGENTS.md` rule 13.
   (`1 unconvert` in `condition_mirror.go`, `4 unparam` in `probe_capacity_*_test.go`)
   are pre-existing debt in files untouched since the capacity slices; the gate is
   "zero warnings on new code", so they are left alone deliberately.
-- The **full** repository engine matrix was not re-run end to end; the live-engine
-  evidence above is the heartbeat UTC contract specifically, not every MariaDB
-  contract in `docs/TESTING.md`.
-- **Why SQLite tolerates a local-zoned bound was not investigated.** It is reported
-  as measured behaviour only, and the rewritten adapter comment says so.
+- Why SQLite tolerates a local-zoned bound was not investigated. It is reported
+  as measured behaviour only, and the rewritten adapter comment says so. The
+  engine-independent consequence — that both adapters keep the normalization — is
+  verified; the reason the SQLite path is forgiving is not.
+- The frontend gates (`bun run check`, `bun run build`) were not run. Nothing in
+  `web/` was modified; `ResponseTimeChart.svelte` was read only.
 - The Low/Info findings, and any finding outside the timezone class, remain unaudited.
 
 ## Files changed by this pass
