@@ -382,6 +382,25 @@ Install if missing:
 go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 ```
 
+Match CI instead of drifting: CI pins `v2.12.2`
+(`.github/workflows/ci.yml`, `golangci/lint-action`). Install that exact version
+when you want local results to agree with the PR gate.
+
+**If it panics rather than linting.** A build of `golangci-lint` older than the Go
+stdlib it is asked to analyse crashes with a type-checker error inside the standard
+library (e.g. `could not import math/rand/v2 ... method must have no type
+parameters`) followed by a `go/types` stack dump and exit 2. That is a toolchain
+mismatch, not a code defect, and it is easy to misread as "the linter is broken
+here, use the `go vet` fallback". Align the toolchain with `go.mod` (currently
+`go 1.26.6`) instead:
+
+```bash
+GOTOOLCHAIN=go1.26.6 golangci-lint run
+```
+
+The same pin the MariaDB contract suites in §2 use. `go vet` and `gofmt -l`
+are unaffected by this and remain the fallback only when the binary is genuinely
+absent.
 Common warnings to fix:
 - `unparam` — unused function parameters → use `_` or remove
 - `SA1029` — using string as context key → define custom type

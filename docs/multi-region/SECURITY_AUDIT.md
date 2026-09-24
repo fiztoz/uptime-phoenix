@@ -249,6 +249,7 @@ Distinguishing authored from executed, per `AGENTS.md` rule 13.
 | `go build ./...` | pass |
 | `gofmt -l internal/` | empty |
 | `go vet ./internal/adapters/http/... ./internal/core/services/...` | pass |
+| `GOTOOLCHAIN=go1.26.6 golangci-lint run` on all touched packages | **0 issues in touched files**; 5 pre-existing reports elsewhere |
 | `go test -count=1 -run 'Heartbeat\|Maintenance\|Timezone\|UTC\|Window\|Cron\|Escalation\|IsActive\|Insight'` over handlers + services + scheduler | **152 named passes, 0 fails, 0 skips** |
 | `go test -race -count=1 ./internal/core/services/ ./internal/adapters/http/handlers/` | **919 passed** |
 | Mutation check, service `.UTC()` removed | new test fails (correctly) |
@@ -259,9 +260,17 @@ Distinguishing authored from executed, per `AGENTS.md` rule 13.
 
 ### Not verified
 
-- `golangci-lint run` was **not** executed. The v2.12.2 binary present on this host
-  aborts with "file requires newer Go version go1.27 (built with go1.26)"; the
-  documented fallback (`gofmt` + `go vet`, both clean) was used instead.
+- `golangci-lint run` now **has** been run, at CI's pinned v2.12.2. It initially
+  appeared broken — it panicked inside `go/types` while parsing the standard
+  library — but that was a toolchain mismatch, not a code defect: the binary is
+  built with Go 1.26.5, the machine default is 1.27.1, and `go.mod` declares
+  `go 1.26.6`. Run it as `GOTOOLCHAIN=go1.26.6 golangci-lint run` and it works.
+  The same trap is now documented in `docs/TESTING.md` §4.1, because misreading it
+  as "the linter is broken here" leads straight to skipping a required gate.
+  **Zero issues in any file this pass touched.** The 5 remaining reports
+  (`1 unconvert` in `condition_mirror.go`, `4 unparam` in `probe_capacity_*_test.go`)
+  are pre-existing debt in files untouched since the capacity slices; the gate is
+  "zero warnings on new code", so they are left alone deliberately.
 - The **full** repository engine matrix was not re-run end to end; the live-engine
   evidence above is the heartbeat UTC contract specifically, not every MariaDB
   contract in `docs/TESTING.md`.
