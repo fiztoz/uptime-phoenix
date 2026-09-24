@@ -594,11 +594,18 @@ func (r *HeartbeatRepo) GetLatestForMonitors(ctx context.Context, monitorIDs []i
 
 // ListByMonitor returns heartbeats in [from, to].
 //
-// The bounds are forced to UTC at the boundary. The MySQL driver does convert to
-// the DSN's loc=UTC, so this is belt-and-braces here — but the SQLite repo shares
-// these callers and does NOT convert, and a query that behaves differently on the
-// two engines is worse than one that is simply wrong. Keep both identical. See
-// AGENTS.md rule 6.
+// The bounds are forced to UTC at the boundary, and that conversion is
+// load-bearing rather than belt-and-braces: go-sql-driver renders a time.Time
+// parameter as *its own* wall-clock even when the DSN carries loc=UTC, so a
+// UTC+7-zoned bound is emitted seven hours later and silently matches nothing.
+// (loc=UTC governs how stored values are parsed back into Go, not how a bound is
+// written.) Verified against real MariaDB by
+// TestHeartbeatUTCBound_MariaDB_LocalZonedBoundShiftsSQL, which shows a raw bun
+// query losing the row and this normalization rescuing it.
+//
+// The SQLite repo shares these callers and keeps the identical conversion, so the
+// two engines behave the same way here; a query that differs between engines is
+// worse than one that is simply wrong. See AGENTS.md rule 6.
 func (r *HeartbeatRepo) ListByMonitor(ctx context.Context, monitorID int64, from, to time.Time) ([]*domain.Heartbeat, error) {
 	var models []*repository.HeartbeatModel
 	err := r.db.NewSelect().Model(&models).
