@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,6 +155,57 @@ func TestHeartbeatHandlers_ShortRangesSeeRecentHeartbeats_UnderNonUTCServerZone(
 				t.Fatalf("hours=%d returned %d heartbeats; want 1. The query window was [%s, %s] "+
 					"— a 30-second-old heartbeat must fall inside every range.",
 					hours, len(got), hbRepo.gotFrom.Format(time.RFC3339), hbRepo.gotTo.Format(time.RFC3339))
+			}
+		})
+
+		// GET /chart is the endpoint the 2026-09 audit reported as permanently blank
+		// on a non-UTC host. It shares heartbeatWindow() with the list path, but "the
+		// same helper is used" is a reading, not a test — and the symptom (an empty
+		// chart with a 200 and a healthy-looking list endpoint) is exactly the class
+		// of failure a status-code assertion cannot see. Exercise the real route.
+		t.Run("chart_hours_"+itoa(hours), func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/monitors/1/heartbeats/chart?hours="+itoa(hours), nil)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET chart?hours=%d returned %d (body: %s)", hours, rec.Code, rec.Body.String())
+			}
+			var chart struct {
+				Buckets []struct {
+					Time string `json:"time"`
+				} `json:"buckets"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &chart); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if len(chart.Buckets) != 1 {
+				t.Fatalf("hours=%d returned %d chart buckets; want 1. The chart query window was [%s, %s] "+
+					"— a 30-second-old heartbeat must fall inside every range, so zero buckets here is the "+
+					"local-zoned-window bug, not a monitor with no data.",
+					hours, len(chart.Buckets), hbRepo.gotFrom.Format(time.RFC3339), hbRepo.gotTo.Format(time.RFC3339))
+			}
+
+			// Bounds must reach the repository in UTC, same invariant as the list path.
+			if loc := hbRepo.gotFrom.Location(); loc != time.UTC {
+				t.Errorf("chart from bound location = %v; want UTC", loc)
+			}
+			if loc := hbRepo.gotTo.Location(); loc != time.UTC {
+				t.Errorf("chart to bound location = %v; want UTC", loc)
+			}
+
+			// The bucket label must cross the wire as an absolute instant, which is what
+			// lets the browser render it in the viewer's own zone (new Date(b.time)).
+			// A bare "2006-01-02T15:04:05" here would parse as *local* in JS and shift
+			// the axis by the UTC offset — the mirror image of the server-side bug.
+			if _, err := time.Parse(time.RFC3339, chart.Buckets[0].Time); err != nil {
+				t.Errorf("chart bucket time %q is not RFC3339: %v", chart.Buckets[0].Time, err)
+			}
+			if len(chart.Buckets[0].Time) <= 10 {
+				t.Fatalf("chart bucket time %q is too short to carry a zone", chart.Buckets[0].Time)
+			}
+			if !strings.HasSuffix(chart.Buckets[0].Time, "Z") && !strings.Contains(chart.Buckets[0].Time[10:], "+") {
+				t.Errorf("chart bucket time %q carries no zone designator", chart.Buckets[0].Time)
 			}
 		})
 	}

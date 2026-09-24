@@ -22,6 +22,9 @@ type fakeHeartbeatRepo struct {
 	latest           map[int64]*domain.Heartbeat // monitorID -> latest
 	errOnSave        error
 	lastDeleteCutoff time.Time // last bound passed to DeleteOlderThan
+	lastListFrom     time.Time // last lower bound passed to ListByMonitor
+	lastListTo       time.Time // last upper bound passed to ListByMonitor
+	listCalled       bool      // distinguishes a zero bound from "never called"
 }
 
 func newFakeHeartbeatRepo() *fakeHeartbeatRepo {
@@ -55,6 +58,7 @@ func (r *fakeHeartbeatRepo) GetLatest(_ context.Context, monitorID int64) (*doma
 func (r *fakeHeartbeatRepo) ListByMonitor(_ context.Context, monitorID int64, from, to time.Time) ([]*domain.Heartbeat, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.lastListFrom, r.lastListTo, r.listCalled = from, to, true
 	var out []*domain.Heartbeat
 	for _, h := range r.heartbeats {
 		if h.MonitorID == monitorID && !h.Time.Before(from) && !h.Time.After(to) {
@@ -589,6 +593,49 @@ func TestHeartbeatService_DeleteOlderThan_CutoffIsUTC(t *testing.T) {
 	}
 	if !got.Equal(localCutoff.UTC()) {
 		t.Errorf("cutoff = %v; want %v", got, localCutoff.UTC())
+	}
+}
+
+// ListByMonitor must force both bounds to UTC before they reach the repository.
+//
+// This is the load-bearing guard for AGENTS.md rule 6 on the read path. A
+// row-count assertion cannot catch a zone regression here: fakeHeartbeatRepo
+// compares instants, which are zone-independent, so a local-zoned bound still
+// selects the right rows and the test passes while the real driver would write
+// the wrong wall-clock into SQL. Only the Location() of the bound the repo
+// actually receives proves the normalization ran, so the fake records its bounds
+// and this test asserts on them directly.
+func TestHeartbeatService_ListByMonitor_BoundsAreUTC(t *testing.T) {
+	repo := newFakeHeartbeatRepo()
+	svc := NewHeartbeatService(repo, newFakeBus())
+
+	// A UTC+7 host's wall-clock, i.e. what time.Now() returns in Bangkok.
+	loc := time.FixedZone("UTC+7", 7*3600)
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, loc)
+	to := time.Date(2026, 1, 2, 12, 0, 0, 0, loc)
+
+	if _, err := svc.ListByMonitor(context.Background(), 1, from, to); err != nil {
+		t.Fatalf("ListByMonitor: %v", err)
+	}
+	if !repo.listCalled {
+		t.Fatal("repo.ListByMonitor was never called")
+	}
+
+	for _, tc := range []struct {
+		name string
+		got  time.Time
+		want time.Time
+	}{
+		{"from", repo.lastListFrom, from.UTC()},
+		{"to", repo.lastListTo, to.UTC()},
+	} {
+		if tc.got.Location() != time.UTC {
+			t.Errorf("%s bound Location() = %v; want time.UTC — a local-zoned bound is rendered "+
+				"into SQL as its local wall-clock, shifting the window by the host offset", tc.name, tc.got.Location())
+		}
+		if !tc.got.Equal(tc.want) {
+			t.Errorf("%s bound = %v; want %v", tc.name, tc.got, tc.want)
+		}
 	}
 }
 
