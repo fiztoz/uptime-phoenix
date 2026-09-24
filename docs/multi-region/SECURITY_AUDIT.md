@@ -152,6 +152,70 @@ with "carries no zone designator". Both new assertions were verified to fail on 
 defect they claim to guard, and both files were restored afterwards (`git diff`
 shows test-only additions).
 
+## Real-engine verification and a corrected code comment
+
+The first draft of this record stated honestly that no real database had been
+exercised. That gap is now closed, and closing it produced a finding.
+
+### The mechanism, measured on MariaDB 11.8.9
+
+Against a live InnoDB `TIMESTAMP` column, with `loc=UTC` present in the DSN, the
+same instant passed as a UTC value and as a UTC+7 value is written differently:
+
+```
+go-value=2026-03-14T06:30:00Z     stored=2026-03-14 06:30:00
+go-value=2026-03-14T13:30:00+07:00  stored=2026-03-14 13:30:00
+```
+
+And on the query path production actually uses (bun `Where("time >= ?", bound)`):
+
+```
+UTC bounds        -> time >= '2026-09-24 03:30:55'   count=1
+local(+7) bounds  -> time >= '2026-09-24 10:30:55'   count=0
+```
+
+Identical instants; the bound's *location* alone decides whether the row exists.
+AGENTS.md rule 6's mechanism is therefore confirmed on the engine, not merely
+asserted from the Go side, and the in-memory fake's blindness is confirmed too.
+
+### Finding: two adapter comments asserted a false driver claim
+
+`mariadb.HeartbeatRepo.ListByMonitor` justified its own `from.UTC()` / `to.UTC()`
+as "belt-and-braces", on the grounds that "the MySQL driver does convert to the
+DSN's `loc=UTC`". The measurement above shows that is false on both the raw
+parameter path and the bun path. `loc=UTC` governs how stored values are parsed
+*back into Go*; it does not rewrite a bound being written out.
+
+This is not cosmetic. A comment that says a guard is redundant is an invitation to
+someone later to delete it, and deleting it reintroduces the blank-chart bug on the
+one engine where the comment claims it cannot exist.
+
+The mirror-image claim sat in `sqlite.HeartbeatRepo.ListByMonitor`, which asserted
+that SQLite renders a zoned bound while "unlike the MySQL driver, which converts
+to the DSN's `loc=UTC`". Both halves are wrong or unsupported: MySQL shifts, and
+SQLite did *not* shift in the same measurement. Only the MySQL half is corrected
+with evidence; why the SQLite path tolerates a zoned bound was not investigated,
+so the rewritten comment states the measurement and explicitly declines to assert a
+mechanism. The `.UTC()` calls themselves are unchanged on both engines — they are
+correct either way, and keeping both adapters identical is deliberate.
+
+### Durable coverage added
+
+`internal/adapters/repository/heartbeat_utc_matrix_test.go`:
+
+- `TestHeartbeatUTCBoundContract_{SQLite,MariaDB}` — a UTC-normalized one-hour
+  window finds a 30-minute-old heartbeat on both engines.
+- `TestHeartbeatUTCBound_MariaDB_LocalZonedBoundShiftsSQL` — the three-part
+  statement: a raw bun query with a local-zoned bound loses the row (hazard),
+  `loc=UTC` does not save it, and the adapter's normalization returns it (defense).
+  It asserts the *premise* too, that both windows denote identical instants, so the
+  comparison cannot quietly become meaningless.
+
+Mutation-verified on the live engine: deleting `.UTC()` from
+`mariadb.HeartbeatRepo.ListByMonitor` fails it with "adapter returned 0 rows for a
+local-zoned bound". The MariaDB-only scoping is deliberate — asserting the shift on
+SQLite would encode semantics this measurement did not confirm.
+
 ## Lost scratch list
 
 The remaining 11 findings (5 Medium, 4 Low, 2 Info) from the prior audit are
@@ -190,20 +254,19 @@ Distinguishing authored from executed, per `AGENTS.md` rule 13.
 | Mutation check, service `.UTC()` removed | new test fails (correctly) |
 | Mutation check, handler `.UTC()` removed | handler test passes — documented above as a known-blind layer |
 | Mutation check, chart label made zone-less | new chart subtests fail (correctly) |
+| **Live MariaDB 11.8.9** (`phoenix_ci`, `TEST_MARIADB_DSN` set) | `TestHeartbeatUTCBound*` **3 named passes, 0 skips** |
+| Mutation check on live MariaDB, adapter `.UTC()` removed | fails with "adapter returned 0 rows for a local-zoned bound" |
 
 ### Not verified
 
 - `golangci-lint run` was **not** executed. The v2.12.2 binary present on this host
   aborts with "file requires newer Go version go1.27 (built with go1.26)"; the
   documented fallback (`gofmt` + `go vet`, both clean) was used instead.
-- **No real MariaDB or SQLite engine was exercised.** Every assertion above runs
-  against in-memory fakes. The fakes compare instants, so per `AGENTS.md` rules 6,
-  12 and 8 they cannot confirm that the driver writes the UTC wall-clock — only
-  that the Go value is zoned UTC. End-to-end proof of the original symptom needs a
-  non-UTC host (or `TZ=Asia/Bangkok`) against a real MariaDB with
-  `TEST_MARIADB_DSN` set. Without that, "fixed" here means "the bound handed to the
-  repository is UTC", which is the mechanism the rule defines, not a reproduction of
-  the blank chart on a Bangkok host.
+- The **full** repository engine matrix was not re-run end to end; the live-engine
+  evidence above is the heartbeat UTC contract specifically, not every MariaDB
+  contract in `docs/TESTING.md`.
+- **Why SQLite tolerates a local-zoned bound was not investigated.** It is reported
+  as measured behaviour only, and the rewritten adapter comment says so.
 - The Low/Info findings, and any finding outside the timezone class, remain unaudited.
 
 ## Files changed by this pass
@@ -211,5 +274,13 @@ Distinguishing authored from executed, per `AGENTS.md` rule 13.
 - `internal/adapters/http/handlers/heartbeat_window_test.go` — chart-route subtests.
 - `internal/core/services/heartbeat_service_test.go` — fake records its query
   bounds; `TestHeartbeatService_ListByMonitor_BoundsAreUTC`.
+- `internal/adapters/repository/heartbeat_utc_matrix_test.go` — new; the two-engine
+  UTC window contract plus the live-MariaDB mechanism test.
+- `internal/adapters/repository/mariadb/repo.go` — comment only: corrected the
+  "belt-and-braces / driver converts to loc=UTC" claim.
+- `internal/adapters/repository/sqlite/repo.go` — comment only: corrected the
+  mirror-image claim; states the measurement, declines to assert an unverified
+  mechanism.
 
-No production code was modified: the timezone fixes were already in the tree.
+No executable production code was modified: the timezone fixes were already in the
+tree, and the adapter `.UTC()` calls were verified correct and left in place.
