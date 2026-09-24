@@ -20,6 +20,11 @@ Let one private Phoenix hub manage independent execution probes, assign each mon
 The implemented standalone key tool is documented in
 [key provisioning and recovery](KEY_PROVISIONING.md).
 
+Verification records sit alongside these contracts. [Timezone/UTC audit
+verification](SECURITY_AUDIT.md) records which reported findings were already
+remediated at `b872106`, which regression guards were missing, and what was and was
+not exercised (in-memory fakes only; no MariaDB run).
+
 These documents define the proposed feature together. Existing `AGENTS.md` rules remain authoritative. Update the contract before implementing any intentional departure, and record the reason in the decision log below. They do not mark the feature complete or authorize a production deployment.
 
 ## Delivery boundaries
