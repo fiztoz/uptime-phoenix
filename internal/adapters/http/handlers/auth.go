@@ -62,6 +62,32 @@ type LoginResponse struct {
 	Ticket      string    `json:"ticket,omitempty"`
 }
 
+// UserResponse is the single-user envelope returned by endpoints that hand back
+// one user and no session: GET /api/auth/me and the /api/users create, get and
+// update handlers.
+//
+// It exists so those payloads stop being inline map[string]any (AGENTS.md rule 5):
+// an untyped map has no field list, so a field added to it is invisible to the
+// compiler and to review, which is how the historical PasswordHash leak happened.
+// No omitempty here on purpose — the previous maps always emitted "user", and the
+// wire bytes must not move as part of a typing-only change.
+type UserResponse struct {
+	User *UserView `json:"user"`
+}
+
+// RegisterResponse is the POST /api/auth/register envelope for the branch where
+// registration SUCCEEDED but the auto-login did not.
+//
+// Token is intentionally the empty string and is deliberately NOT omitempty, so
+// the field stays present exactly as it was when this was an inline map. The
+// frontend gates auto-login on `res.token && res.user`, so an absent field and an
+// empty string are equally falsy — but keeping it present means any client that
+// inspects the key sees the same shape it always has.
+type RegisterResponse struct {
+	User  *UserView `json:"user"`
+	Token string    `json:"token"`
+}
+
 // Verify2FARequest is the body of POST /api/auth/verify-2fa.
 type Verify2FARequest struct {
 	Ticket string `json:"ticket"`
@@ -203,9 +229,9 @@ func (h *AuthHandlers) Register(c echo.Context) error {
 		// Registration succeeded but auto-login failed. Still respond
 		// 201 so the client knows the account exists, but force them
 		// to call /login.
-		return c.JSON(http.StatusCreated, map[string]any{
-			"user":  toUserView(user),
-			"token": "",
+		return c.JSON(http.StatusCreated, RegisterResponse{
+			User:  toUserView(user),
+			Token: "",
 		})
 	}
 	return c.JSON(http.StatusCreated, LoginResponse{
@@ -362,7 +388,7 @@ func (h *AuthHandlers) Me(c echo.Context) error {
 	if err != nil {
 		return mapAuthError(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"user": toUserView(user)})
+	return c.JSON(http.StatusOK, UserResponse{User: toUserView(user)})
 }
 
 // HasUsers handles GET /api/auth/has-users. It returns whether at least

@@ -213,7 +213,7 @@ func (h *UserHandlers) Create(c echo.Context) error {
 	if err != nil {
 		return mapAuthError(c, err)
 	}
-	return c.JSON(http.StatusCreated, map[string]any{"user": toUserView(user)})
+	return c.JSON(http.StatusCreated, UserResponse{User: toUserView(user)})
 }
 
 // List handles GET /api/users.
@@ -239,7 +239,7 @@ func (h *UserHandlers) GetByID(c echo.Context) error {
 	if err != nil {
 		return mapAuthError(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"user": toUserView(user)})
+	return c.JSON(http.StatusOK, UserResponse{User: toUserView(user)})
 }
 
 // Update handles PUT /api/users/:id.
@@ -266,7 +266,7 @@ func (h *UserHandlers) Update(c echo.Context) error {
 	if err != nil {
 		return mapAuthError(c, err)
 	}
-	return c.JSON(http.StatusOK, map[string]any{"user": toUserView(user)})
+	return c.JSON(http.StatusOK, UserResponse{User: toUserView(user)})
 }
 
 // GetPermissions handles GET /api/users/:id/permissions. Admin-only.

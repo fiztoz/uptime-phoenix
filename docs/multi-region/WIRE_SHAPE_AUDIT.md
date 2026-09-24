@@ -46,10 +46,21 @@ untyped map has no field list, so adding a field to it is invisible to the compi
 and to review. Rule 5's own history is a `PasswordHash` reaching an unauthenticated
 endpoint through exactly this kind of "we'll just return this data" path.
 
-`auth.go:206` carries a second, sharper smell: `"token": ""`. A permanently empty
-token field is the sibling of rule 7's never-leave-a-stub-that-returns-success — a
-wire slot that advertises a capability and silently delivers nothing. A client
-reading `resp.token` gets `""` rather than an error.
+`auth.go:206`'s `"token": ""` is **not** a stub, and this section originally said it
+was. Read in context, `:196-209` documents it: registration succeeded but
+auto-login failed, so the handler returns 201 with an empty token specifically to
+make the client's `res.token && res.user` gate fall through to an explicit
+`/login`. It is a deliberate, commented contract, and the frontend does depend on
+the key being falsy. The earlier comparison to rule 7 was wrong and is retracted —
+rule 7 is about a handler that *pretends* to do work; this one does its work and
+reports the one thing that didn't happen.
+
+What *was* wrong is that this real, load-bearing contract lived inside an untyped
+map, where nothing records that `token` must remain present and falsy. That is now
+`RegisterResponse`, whose non-`omitempty` `Token` field makes the requirement
+explicit in the type. `LoginResponse` was deliberately *not* reused: its
+`omitempty` would have deleted the `token` key from the wire rather than sending
+`""`, which is a behavior-affecting change disguised as a typing cleanup.
 
 `configascode.go:57` is the weakest case for change: `{"valid", "errors"}` is a
 genuine ad-hoc result, but `errors` is `[]error`-ish and its serialized shape is
@@ -113,8 +124,10 @@ Stated so the next reader does not mistake triage for proof.
 
 ## Suggested follow-up, in priority order
 
-1. Convert the 5 `{"user": toUserView(user)}`-shaped sites to typed Views and
-   resolve the `"token": ""` placeholder into an explicit contract.
+1. ~~Convert the 5 `{"user": toUserView(user)}`-shaped sites to typed Views~~
+   **DONE** — `UserResponse` (4 sites) and `RegisterResponse` (1 site), both without
+   `omitempty` so the wire bytes are unchanged; 236 HTTP tests still pass.
+   `configascode.go:57` is the one remaining untyped map, left deliberately: see 4.
 2. Type-resolve `configascode.go`'s `plan`/`res` and `backup.go:65` `summary`, then
    the rest of the unresolved BARE-VAR set.
 3. Field-inspect the View types behind the 270 typed sites for secret fields.
