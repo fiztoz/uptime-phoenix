@@ -22,8 +22,17 @@ The implemented standalone key tool is documented in
 
 Verification records sit alongside these contracts. [Timezone/UTC audit
 verification](SECURITY_AUDIT.md) records which reported findings were already
-remediated at `b872106`, which regression guards were missing, and what was and was
-not exercised (in-memory fakes only; no MariaDB run).
+remediated at `b872106`, which regression guards were missing, and the
+corrected-then-verified driver semantics for UTC bounds on both SQLite and live
+MariaDB. [Wire-shape and secret-exposure audit](WIRE_SHAPE_AUDIT.md) enumerates
+all 319 HTTP JSON payload sites by AST classification, names the 6 untyped-map
+rule 5 deviations, and records which apparent secret exposures are documented
+deliberate exceptions.
+
+Both records state their own unverified scope. Read that section before treating
+either as a clean bill of health, and treat any claim of hand-verified coverage in
+them as suspect until the named file and line are checked — one draft of the
+wire-shape record overstated its manual tracing and was corrected in place.
 
 These documents define the proposed feature together. Existing `AGENTS.md` rules remain authoritative. Update the contract before implementing any intentional departure, and record the reason in the decision log below. They do not mark the feature complete or authorize a production deployment.
 
