@@ -1,8 +1,9 @@
 # Multi-region implementation status
 
-Updated 2026-09-25 after the M4 lifecycle/recovery slice; see
-[lifecycle/recovery](M4_LIFECYCLE_RECOVERY.md). The previous backup/config
-slice is recorded in [backup/config](M4_BACKUP_CONFIG.md). Accepted M3
+Updated 2026-09-25 after the M4 deployment compatibility slice; see
+[deployment compatibility](M4_DEPLOYMENT_COMPAT.md). The previous
+lifecycle/recovery slice is recorded in
+[lifecycle/recovery](M4_LIFECYCLE_RECOVERY.md). Accepted M3
 implementation: `a12a3fa`; completion evidence: `8b455d4`.
 This is the current status. Check HEAD and newer acceptance records before starting work.
 
@@ -12,7 +13,7 @@ This is the current status. Check HEAD and newer acceptance records before start
 | M1 regional persistence and local parity | Accepted after integration corrections | [M1 retrospective](../postmortems/2026-09-20-m1-integration-followup.md), [M2 gate](M2_ACCEPTANCE_REPORT.md) |
 | M2 autonomous runtime and enrollment | Accepted for HTTP/TCP/DNS | [M2 acceptance](M2_ACCEPTANCE_REPORT.md), [operator guide](M2_OPERATOR_GUIDE.md) |
 | M3 synchronization and recovery | Complete for the supported runtime | [Final acceptance](M3_COMPLETION_ACCEPTANCE.md), [hashed evidence](M3_COMPLETION_EVIDENCE.json) |
-| M4 compatibility | Pull-checker, TLS evidence, certificate paging, capacity state, capacity paging, escalation, group/status-page recovery, Insights, backup/config, and lifecycle/recovery slices accepted | [Initial coverage](M4_PULL_CHECKER_ACCEPTANCE.md), [Docker bindings](M4_DOCKER_BINDINGS.md), [TLS evidence](M4_TLS_EVIDENCE.md), [certificate paging](M4_CERT_PAGING.md), [capacity state](M4_CAPACITY_STATE.md), [capacity paging](M4_CAPACITY_PAGING.md), [escalation](M4_ESCALATION.md), [group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md), [Insights](M4_INSIGHTS.md), [backup/config](M4_BACKUP_CONFIG.md), [lifecycle/recovery](M4_LIFECYCLE_RECOVERY.md). Open: deployment compatibility
+| M4 compatibility | Pull-checker, TLS evidence, certificate paging, capacity state, capacity paging, escalation, group/status-page recovery, Insights, backup/config, lifecycle/recovery, and deployment compatibility slices accepted | [Initial coverage](M4_PULL_CHECKER_ACCEPTANCE.md), [Docker bindings](M4_DOCKER_BINDINGS.md), [TLS evidence](M4_TLS_EVIDENCE.md), [certificate paging](M4_CERT_PAGING.md), [capacity state](M4_CAPACITY_STATE.md), [capacity paging](M4_CAPACITY_PAGING.md), [escalation](M4_ESCALATION.md), [group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md), [Insights](M4_INSIGHTS.md), [backup/config](M4_BACKUP_CONFIG.md), [lifecycle/recovery](M4_LIFECYCLE_RECOVERY.md), [deployment compatibility](M4_DEPLOYMENT_COMPAT.md). Open: the remaining M4 requirement rows (capability advertisement, maintenance/notification sync, direct-monitor and group-notification semantics)
 | M5 fleet UI and API | Not complete | Administrative workflows, scoped regional views and browser integration |
 | M6 release validation | Not complete | Cross-feature failure tests and controlled V1 activation |
 | M7–M9 | Future work | Optional aggregate paging, SSH provisioning and push gateway |
@@ -69,8 +70,11 @@ to local execution, and prune never deletes probe registrations
 history scope behind a durable per-assignment watermark that fences replay,
 and the soft-delete, tombstone, stream-retirement and restored-hub/edge
 recovery contracts are defined ([lifecycle/recovery](M4_LIFECYCLE_RECOVERY.md)).
-Deployment compatibility and fleet
-UI remain M4/M5. Watchdog ACK is
+Operator deployment documentation and the Helm probes feature flag, config and
+installation-key secret references are in place with single-pod defaults and
+split-image behavior preserved
+([deployment compatibility](M4_DEPLOYMENT_COMPAT.md)). Fleet
+UI remains M5. Watchdog ACK is
 not supported by the regional positive-assignment-generation command target.
 Provider delivery retains its documented external-acceptance ambiguity. A WAL
 admission threshold is not a hard filesystem quota. Local acceptance does not

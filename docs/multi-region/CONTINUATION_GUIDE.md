@@ -23,8 +23,10 @@ gives backup/restore and config-as-code stable probe keys and assignment
 references, with restored identities disabled pending reenrollment. The
 [lifecycle/recovery slice](M4_LIFECYCLE_RECOVERY.md) implements clear-history
 watermarks with `history_cleared` receipts and defines the soft-delete,
-tombstone, stream-retirement and restored-hub/edge recovery contracts.
-Deployment documentation remains open.
+tombstone, stream-retirement and restored-hub/edge recovery contracts. The
+[deployment compatibility slice](M4_DEPLOYMENT_COMPAT.md) updates the operator
+deployment docs and adds the Helm probes feature flag/config/secret references
+without changing single-pod defaults or split-image behavior.
 Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.

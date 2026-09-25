@@ -958,3 +958,50 @@ app.kubernetes.io/version: {{ .root.Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 app.kubernetes.io/part-of: phoenix
 {{- end }}
+
+{{/*
+Remote probe hub wiring (multi-region). Rendered ONLY when probes.enabled=true,
+so the default single-pod (mode: all) and split (api/worker/web) manifests stay
+exactly the pre-probe deployment. The installation key comes from an
+operator-owned Secret; the chart never generates, stores or rotates it — see
+docs/multi-region/KEY_PROVISIONING.md. PROBES_ENABLED opts the worker role
+(the all-in-one pod is its own worker) into remote connector ownership; the API
+tier never runs connector workers and never receives the key.
+*/}}
+{{- define "phoenix.probeSecretName" -}}
+{{- if .Values.probes.enabled -}}
+{{- required "probes.enabled=true requires probes.secretName: an existing Secret holding the installation key (docs/multi-region/KEY_PROVISIONING.md)" .Values.probes.secretName -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "phoenix.probeKeyPath" -}}
+/etc/uptime-phoenix/probe-key
+{{- end -}}
+
+{{- define "phoenix.probeEnv" -}}
+{{- if .Values.probes.enabled }}
+- name: PROBES_ENABLED
+  value: "true"
+- name: PROBE_SECRET_KEY_FILE
+  value: {{ printf "%s/%s" (include "phoenix.probeKeyPath" .) .Values.probes.secretKey | quote }}
+{{- end }}
+{{- end }}
+
+{{- define "phoenix.probeVolumeMounts" -}}
+{{- if .Values.probes.enabled }}
+- name: probe-key
+  mountPath: {{ include "phoenix.probeKeyPath" . }}
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- define "phoenix.probeVolumes" -}}
+{{- if .Values.probes.enabled }}
+- name: probe-key
+  secret:
+    secretName: {{ include "phoenix.probeSecretName" . }}
+    items:
+      - key: {{ .Values.probes.secretKey }}
+        path: {{ .Values.probes.secretKey }}
+{{- end }}
+{{- end }}

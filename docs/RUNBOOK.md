@@ -18,6 +18,16 @@ does not contain users, API keys, passkey credentials, sessions, raw heartbeats,
 history, or every install-wide record. Use a MariaDB backup/storage snapshot or a copy of
 the SQLite database for full recovery.
 
+**Multi-region installs:** since backup document version 2 the export also carries
+remote probe identity metadata (never credentials) and each monitor's complete
+assignment set. Restored probe identities are created **disabled pending
+reenrollment** and an unrestorable assignment set is never silently rerouted to the
+local scheduler — see [backup/config acceptance](multi-region/M4_BACKUP_CONFIG.md).
+When restoring a hub database rather than the JSON backup, follow the restored-hub
+procedure in [lifecycle/recovery contracts](multi-region/M4_LIFECYCLE_RECOVERY.md),
+including re-running clear history for monitors cleared after the backup's timestamp
+and reconciling stream cursors before resuming workers.
+
 ### 1.1 Acquire an admin session token
 
 The backup routes require a session JWT for an administrator. The following avoids putting
@@ -404,6 +414,8 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `SHARD_LEASE_TTL` | `300` | Lease lifetime in seconds. |
 | `SHARD_POLL_EVERY` | `30` | Claim/refresh interval in seconds. |
 | `HEARTBEAT_RETENTION_DAYS` | `180` | Raw-heartbeat retention. Set `0` to disable retention deletion. |
+| `PROBES_ENABLED` | `false` | Opt-in remote-probe hub mode: enables compatible connector **workers** (the all-in-one process is its own worker). Requires `PROBE_SECRET_KEY_FILE`; the process refuses to boot otherwise. Never set on an API-only tier. |
+| `PROBE_SECRET_KEY_FILE` | empty | Path to the installation key that protects hub-side recoverable probe credentials and configuration snapshots. Provision it as a file from a Kubernetes Secret or a root-owned file with restrictive permissions — see [key provisioning](multi-region/KEY_PROVISIONING.md). The chart mounts it when `probes.enabled=true`. |
 | `PUBLIC_URL` | empty | Absolute public origin for subscription links and OIDC post-login redirects. |
 | `OIDC_ISSUER` | empty | OIDC issuer URL. Empty disables SSO. |
 | `OIDC_CLIENT_ID` | empty | OIDC client ID (required when issuer is set). |

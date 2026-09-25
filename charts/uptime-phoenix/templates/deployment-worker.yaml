@@ -79,12 +79,15 @@ spec:
               value: {{ .Values.worker.shards.pollEvery | quote }}
             {{- end }}
             {{- include "phoenix.envAppConfig" . | nindent 12 }}
+            {{- include "phoenix.probeEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "phoenix.probeVolumeMounts" . | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "phoenix.probeVolumes" . | nindent 8 }}
 {{- end }}

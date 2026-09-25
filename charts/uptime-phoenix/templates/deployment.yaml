@@ -88,6 +88,7 @@ spec:
                   key: port
             - name: MODE
               value: {{ .Values.mode | quote }}
+            {{- include "phoenix.probeEnv" . | nindent 12 }}
             {{- if .Values.bootstrap.enabled }}
             - name: BOOTSTRAP_USERNAME
               value: {{ .Values.bootstrap.username | quote }}
@@ -121,6 +122,7 @@ spec:
             {{- end }}
             - name: tmp
               mountPath: /tmp
+            {{- include "phoenix.probeVolumeMounts" . | nindent 12 }}
           lifecycle:
             preStop:
               exec:
@@ -133,6 +135,7 @@ spec:
         {{- end }}
         - name: tmp
           emptyDir: {}
+        {{- include "phoenix.probeVolumes" . | nindent 8 }}
       terminationGracePeriodSeconds: 40
       {{- with .Values.nodeSelector }}
       nodeSelector:

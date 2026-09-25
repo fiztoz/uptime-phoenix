@@ -12,10 +12,16 @@ Operator credential/certificate rotation, explicit stream-reset recovery and the
 actual fifteen-minute partition are accepted. M4 adds all pull checker types
 ([Docker resource configuration](M4_DOCKER_BINDINGS.md)),
 [remote TLS metadata](M4_TLS_EVIDENCE.md), certificate paging, capacity state
-and paging, and [source-owned escalation](M4_ESCALATION.md). Fleet UI, group and
-status-page recovery, and backup/deployment compatibility remain open; consult
-[current status](IMPLEMENTATION_STATUS.md).
-For recovery commands and preservation requirements, see [explicit stream reset](M3_HUB_RESET_ACCEPTANCE.md).
+and paging, and [source-owned escalation](M4_ESCALATION.md). Group and status-page
+recovery, [backup/config](M4_BACKUP_CONFIG.md),
+[lifecycle/recovery](M4_LIFECYCLE_RECOVERY.md) and
+[deployment compatibility](M4_DEPLOYMENT_COMPAT.md) are accepted; fleet UI
+remains open; consult [current status](IMPLEMENTATION_STATUS.md).
+This guide covers the operator CLI flow on the probe host. Helm deployments
+start with the chart's `probes.*` values and the installation-key Secret — see
+[deployment modes](../DEPLOYMENT_MODES.md) — then continue here for
+registration, enrollment and rotation.
+For recovery commands and preservation requirements, see [explicit stream reset](M3_HUB_RESET_ACCEPTANCE.md) and the [lifecycle/recovery runbook](M4_LIFECYCLE_RECOVERY.md).
 
 ## Initialize the probe
 

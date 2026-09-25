@@ -67,6 +67,9 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 | `valkey.auth.managedSecret` | bool | `true` | Generate and retain the Valkey password Secret |
 | `valkey.dataStorage.requestedSize` | string | `1Gi` | Standalone Valkey PVC size |
 | `valkey.replica.enabled` | bool | `false` | Enable a primary plus persistent Valkey replicas |
+| `probes.enabled` | bool | `false` | Remote-probe hub mode: renders `PROBES_ENABLED` + `PROBE_SECRET_KEY_FILE` on the worker role only (the `mode=all` pod is its own worker). Off by default — no probe wiring is rendered at all |
+| `probes.secretName` | string | `""` | Existing Secret holding the installation key. **Required** when `probes.enabled=true`; the render fails without it. The chart never generates or stores the key |
+| `probes.secretKey` | string | `installation-key` | Key inside that Secret; it becomes the mounted file name at `/etc/uptime-phoenix/probe-key/` |
 | `web.split` | bool | `false` | Split frontend to separate Deployment (opt-in) |
 | `ingress.enabled` | bool | `true` | Enable Ingress with nginx WS timeout annotations |
 | `cloudflareTunnel.enabled` | bool | `false` | Run a `cloudflared` Deployment to expose Uptime Phoenix via a Cloudflare named tunnel (no inbound ingress) |
@@ -363,6 +366,33 @@ Paths must not equal or nest under reserved Phoenix routes (`/api`, `/ws`,
 
 Cloudflare Tunnel users must add each extension path (e.g. `/storage`) as a
 Public Hostname route themselves — the chart only wires cluster Ingress.
+
+### Remote probes (multi-region hub)
+
+Off by default. Enabling renders the probe wiring on the **worker role only**
+(the `mode=all` Deployment or `uptime-phoenix-worker`); the API tier never
+receives the key, and single-pod defaults and split-image behavior are
+unchanged.
+
+```bash
+# The installation key is operator-owned; the chart never generates it.
+# See docs/multi-region/KEY_PROVISIONING.md for provisioning and permissions.
+kubectl create secret generic phx-probe-key \
+  --from-file=installation-key=/path/to/installation.key
+
+helm upgrade uptime-phoenix ./charts/uptime-phoenix --reuse-values \
+  --set probes.enabled=true \
+  --set probes.secretName=phx-probe-key
+```
+
+- Enabling without `probes.secretName` **fails the render loudly** — the
+  process refuses to boot with `PROBES_ENABLED` and no `PROBE_SECRET_KEY_FILE`.
+- The key mounts read-only at `/etc/uptime-phoenix/probe-key/installation-key`
+  (`probes.secretKey` changes the file name).
+- Registration, enrollment and recovery stay operator actions; see
+  `docs/multi-region/M2_OPERATOR_GUIDE.md` and
+  `docs/multi-region/M4_DEPLOYMENT_COMPAT.md`. The same assertions run in
+  `make helm-validate` (`scripts/helm-probes-check.sh`).
 
 ## Verification
 

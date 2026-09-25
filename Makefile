@@ -288,6 +288,8 @@ helm-validate: ## Assert the MariaDB topology renders its workload and the guard
 	helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true --set mode=worker > /dev/null
 	@echo "==> extension-only image changes must not roll Phoenix or MariaDB"
 	@./scripts/helm-checksum-scope.sh
+	@echo "==> remote-probe flag renders only with an explicit secret reference"
+	@./scripts/helm-probes-check.sh
 	@echo "==> in-release MariaDB must render StatefulSet + PVC + NetworkPolicy"
 	@out="$$(helm template uptime-phoenix charts/uptime-phoenix \
 		--set database.engine=mariadb --set mariadb.enabled=true --set networkPolicy.enabled=true)"; \
