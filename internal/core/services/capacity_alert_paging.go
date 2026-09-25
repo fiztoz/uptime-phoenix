@@ -148,7 +148,7 @@ func EvaluateCapacityPaging(in CapacityPagingInput) (*domain.EdgeConditionAlertW
 			EventKind: domain.DeliveryEventCapacityCondition, AvailableAt: now,
 		})
 	}
-	if domain.ValidCapacityIncident(work.Incident) == false {
+	if !domain.ValidCapacityIncident(work.Incident) {
 		return nil, domain.ErrValidation
 	}
 	return work, nil

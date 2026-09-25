@@ -104,7 +104,7 @@ func mirrorRemoteConditionTransition(ctx context.Context, tx bun.Tx, probeID str
 		return nil
 	}
 	row.State = transition.State
-	row.ConsecutiveState = domain.ConditionState(transition.State)
+	row.ConsecutiveState = transition.State
 	if row.ConsecutiveCount < 2 {
 		row.ConsecutiveCount = 2
 	}

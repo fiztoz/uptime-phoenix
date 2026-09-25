@@ -218,13 +218,13 @@ func (s *StatusPageService) SetIncidentUpdateRepo(repo ports.IncidentUpdateRepos
 
 // SetSubscriptionAvailability attaches the PUBLIC_URL + SMTP channel probe
 // used for the public subscriptions_available flag.
-// SetAggregateStatus makes public status and incident recovery follow overall
-// policy for monitors assigned to a remote probe. Optional.
-func (s *StatusPageService) SetAggregateStatus(r AggregateStatusReader) { s.overall = r }
-
 func (s *StatusPageService) SetSubscriptionAvailability(a statusPageSubscriptionAvailability) {
 	s.subAvail = a
 }
+
+// SetAggregateStatus makes public status and incident recovery follow overall
+// policy for monitors assigned to a remote probe. Optional.
+func (s *StatusPageService) SetAggregateStatus(r AggregateStatusReader) { s.overall = r }
 
 // Create creates a new public status page.
 func (s *StatusPageService) Create(ctx context.Context, sp *domain.StatusPage) error {

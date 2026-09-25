@@ -11,13 +11,13 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-func conditionRecord(t *testing.T, at time.Time, expectedSeq, version int64, prior *domain.MonitorCondition, state domain.ConditionState, percent float64) domain.EdgeCheckRecord {
+func conditionRecord(t *testing.T, at time.Time, expectedSeq, version int64, prior *domain.MonitorCondition, percent float64) domain.EdgeCheckRecord {
 	t.Helper()
 	i := testIdentity()
 	threshold, limit := 80.0, 100.0
 	used := percent
 	sample := domain.ConditionObservation{
-		Kind: domain.MonitorConditionStorage, State: state, Used: &used, Limit: &limit, Percent: &percent, Threshold: &threshold,
+		Kind: domain.MonitorConditionStorage, State: domain.ConditionStateWarning, Used: &used, Limit: &limit, Percent: &percent, Threshold: &threshold,
 		Unit: "bytes", Resource: "Database size", Scope: "database", Source: "fixed engine query",
 		Message: "sampled", ObservedAt: at, StaleAfter: at.Add(3 * time.Minute),
 	}
@@ -71,7 +71,7 @@ func TestEdgeConditionLifecycleAndRestart(t *testing.T) {
 	warning := domain.ConditionStateWarning
 
 	// First sample: durable unconfirmed candidate, no transition event.
-	first := conditionRecord(t, at, 0, 0, nil, warning, 84)
+	first := conditionRecord(t, at, 0, 0, nil, 84)
 	committed, err := s.CommitEdgeCheck(ctx, first)
 	if err != nil || committed.Seq != 1 {
 		t.Fatalf("first condition commit: %+v %v", committed, err)
@@ -90,7 +90,7 @@ func TestEdgeConditionLifecycleAndRestart(t *testing.T) {
 
 	// Second sample promotes and emits exactly one ordered transition.
 	prior := services.ConditionStatePriors(evidence.Conditions)[domain.MonitorConditionStorage]
-	second := conditionRecord(t, at.Add(time.Minute), 1, 1, prior, warning, 85)
+	second := conditionRecord(t, at.Add(time.Minute), 1, 1, prior, 85)
 	committed, err = s.CommitEdgeCheck(ctx, second)
 	if err != nil || committed.Seq != 2 {
 		t.Fatalf("second condition commit: %+v %v", committed, err)
@@ -108,7 +108,7 @@ func TestEdgeConditionLifecycleAndRestart(t *testing.T) {
 	}
 
 	// A superseded evaluation cannot commit.
-	stale := conditionRecord(t, at.Add(2*time.Minute), 2, 1, prior, warning, 86)
+	stale := conditionRecord(t, at.Add(2*time.Minute), 2, 1, prior, 86)
 	if _, err := s.CommitEdgeCheck(ctx, stale); !errors.Is(err, ports.ErrStaleLocalState) {
 		t.Fatalf("stale condition evaluation committed: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestEdgeConditionLifecycleAndRestart(t *testing.T) {
 	}
 
 	// Inconsistent transitions and duplicate kinds are rejected before storage.
-	bad := conditionRecord(t, at.Add(4*time.Minute), 4, 0, nil, warning, 84)
+	bad := conditionRecord(t, at.Add(4*time.Minute), 4, 0, nil, 84)
 	bad.Conditions[0].Transition = &domain.ConditionTransition{MonitorID: 17, AssignmentGeneration: 1, ConfigRevision: 1, Kind: domain.MonitorConditionStorage, State: domain.ConditionStateError, Message: "mismatched"}
 	if _, err := reopened.CommitEdgeCheck(ctx, bad); !errors.Is(err, domain.ErrValidation) {
 		t.Fatalf("transition disagreeing with its evidence committed: %v", err)

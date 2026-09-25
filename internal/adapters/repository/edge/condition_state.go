@@ -231,7 +231,7 @@ func (s *Store) applyEdgeConditionAlertWork(ctx context.Context, tx bun.Tx, o do
 	if incident.Status == domain.AlertStatusFiring && work.OpenAlertID != incident.SourceAlertID || incident.Status == domain.AlertStatusResolved && work.OpenAlertID != "" {
 		return seq, domain.ErrValidation
 	}
-	if err := saveEdgeCapacityIncident(ctx, tx, o, prior.Alert, *incident); err != nil {
+	if err := saveEdgeCapacityIncident(ctx, tx, prior.Alert, *incident); err != nil {
 		return seq, err
 	}
 	payload, err := s.telemetry.EncodeIncident(seq, o.ObservedAt, *incident)
@@ -259,7 +259,7 @@ func (s *Store) applyEdgeConditionAlertWork(ctx context.Context, tx bun.Tx, o do
 // always a new identity at version one; a restate or resolution may only advance
 // the stored incident this cursor points at and keeps its immutable condition
 // kind and start time.
-func saveEdgeCapacityIncident(ctx context.Context, tx bun.Tx, o domain.RegionalObservation, prior *domain.RegionalIncident, inc domain.RegionalIncident) error {
+func saveEdgeCapacityIncident(ctx context.Context, tx bun.Tx, prior *domain.RegionalIncident, inc domain.RegionalIncident) error {
 	if !domain.ValidCapacityIncident(&inc) || inc.StartedAt.IsZero() {
 		return domain.ErrValidation
 	}

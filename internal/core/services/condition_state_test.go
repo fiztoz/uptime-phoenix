@@ -56,7 +56,7 @@ func TestEvaluateConditionTwoSamplePromotion(t *testing.T) {
 	errorState := domain.ConditionStateError
 
 	t.Run("FirstWarningIsUnconfirmedUntilSecondSample", func(t *testing.T) {
-		var chain []ConditionEvaluation
+		chain := make([]ConditionEvaluation, 0, 2)
 		first := evaluate(t, chain, capacitySample(domain.MonitorConditionStorage, warning, 82, at), at)
 		assertPromotion(t, first, nil, warning, 1, false)
 		if first.State.Message == "" || first.State.LastSuccessAt == nil {
@@ -133,7 +133,7 @@ func TestEvaluateConditionTwoSamplePromotion(t *testing.T) {
 		}
 		// A first warning followed by ok must not fabricate a stale unconfirmed
 		// candidate: with no confirmed state, ok is the baseline again.
-		var unsettled []ConditionEvaluation
+		unsettled := make([]ConditionEvaluation, 0, 1)
 		warn := evaluate(t, unsettled, capacitySample(domain.MonitorConditionStorage, warning, 82, at), at)
 		unsettled = append(unsettled, warn)
 		recovered := evaluate(t, unsettled, capacitySample(domain.MonitorConditionStorage, ok, 10, at.Add(time.Minute)), at.Add(time.Minute))
@@ -143,7 +143,6 @@ func TestEvaluateConditionTwoSamplePromotion(t *testing.T) {
 	t.Run("RestartKeepsDebounceFromPersistedCandidate", func(t *testing.T) {
 		var chain []ConditionEvaluation
 		first := evaluate(t, chain, capacitySample(domain.MonitorConditionStorage, warning, 82, at), at)
-		chain = append(chain, first)
 		// The durable row (evidence + version) is what survives a restart.
 		rows := []domain.EdgeConditionState{{ConditionEvidence: first.State, Version: 1}}
 		prior := ConditionStatePriors(rows)[domain.MonitorConditionStorage]

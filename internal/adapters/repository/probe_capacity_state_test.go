@@ -45,15 +45,15 @@ func capacityObservationEvent(r replayFixture, seq int64, samples ...domain.Cond
 	return event
 }
 
-func capacityTransitionEvent(r replayFixture, seq int64, kind string, previous *domain.ConditionState, state domain.ConditionState) domain.ProbeReplayEvent {
-	transition := domain.ConditionTransition{MonitorID: r.monitor, AssignmentGeneration: 1, ConfigRevision: 1, Kind: kind, PreviousState: previous, State: state, Message: "promoted"}
+func capacityTransitionEvent(r replayFixture, seq int64, previous *domain.ConditionState, state domain.ConditionState) domain.ProbeReplayEvent {
+	transition := domain.ConditionTransition{MonitorID: r.monitor, AssignmentGeneration: 1, ConfigRevision: 1, Kind: domain.MonitorConditionStorage, PreviousState: previous, State: state, Message: "promoted"}
 	return domain.ProbeReplayEvent{Seq: seq, Kind: domain.ReplayKindConditionTransition, ObservedAt: r.at, Condition: &transition}
 }
 
-func assertCondition(t *testing.T, r replayFixture, kind string, wantState domain.ConditionState, wantEffective bool, wantPercent float64) {
+func assertCondition(t *testing.T, r replayFixture, wantState domain.ConditionState, wantEffective bool, wantPercent float64) {
 	t.Helper()
 	repo, _ := boundAuxiliary(t, r.f, r.session.ProbeID, 1)
-	condition, err := repo.Get(t.Context(), r.monitor, kind)
+	condition, err := repo.Get(t.Context(), r.monitor, domain.MonitorConditionStorage)
 	if err != nil {
 		t.Fatal("mirrored condition missing:", err)
 	}
@@ -79,7 +79,7 @@ func TestProbeCapacityStateAcceptance(t *testing.T) {
 				}
 				// A raw sample never establishes a promoted condition: the mirror
 				// starts unconfirmed with the observed candidate.
-				assertCondition(t, r, domain.MonitorConditionStorage, "", false, 84)
+				assertCondition(t, r, "", false, 84)
 				history, err := r.f.commits.ListObservations(t.Context(), r.monitor, r.session.ProbeID, r.at.Add(-time.Minute), r.at.Add(time.Minute))
 				if err != nil || len(history) != 1 || len(history[0].Conditions) != 1 {
 					t.Fatal("raw capacity history lost", err, history)
@@ -106,9 +106,9 @@ func TestProbeCapacityStateAcceptance(t *testing.T) {
 				r.ingest(t, r.batch(
 					capacityObservationEvent(r, 1, capacityEvidenceSample(domain.MonitorConditionStorage, warning, 84, r.at)),
 					capacityObservationEvent(r, 2, capacityEvidenceSample(domain.MonitorConditionStorage, warning, 85, r.at)),
-					capacityTransitionEvent(r, 3, domain.MonitorConditionStorage, nil, warning),
+					capacityTransitionEvent(r, 3, nil, warning),
 				))
-				assertCondition(t, r, domain.MonitorConditionStorage, warning, true, 85)
+				assertCondition(t, r, warning, true, 85)
 				repo, _ := boundAuxiliary(t, r.f, r.session.ProbeID, 1)
 				condition, err := repo.Get(t.Context(), r.monitor, domain.MonitorConditionStorage)
 				if err != nil || condition.ConsecutiveState != warning || condition.ConsecutiveCount < 2 {
@@ -118,13 +118,13 @@ func TestProbeCapacityStateAcceptance(t *testing.T) {
 				duplicate := r.ingest(t, r.batch(
 					capacityObservationEvent(r, 1, capacityEvidenceSample(domain.MonitorConditionStorage, warning, 84, r.at)),
 					capacityObservationEvent(r, 2, capacityEvidenceSample(domain.MonitorConditionStorage, warning, 85, r.at)),
-					capacityTransitionEvent(r, 3, domain.MonitorConditionStorage, nil, warning),
+					capacityTransitionEvent(r, 3, nil, warning),
 				))
 				if duplicate.DuplicateCount != 3 {
 					t.Fatal("duplicate receipt re-applied promotion", duplicate)
 				}
-				r.ingest(t, r.batch(capacityTransitionEvent(r, 4, domain.MonitorConditionStorage, &warning, ok)))
-				assertCondition(t, r, domain.MonitorConditionStorage, ok, true, 85)
+				r.ingest(t, r.batch(capacityTransitionEvent(r, 4, &warning, ok)))
+				assertCondition(t, r, ok, true, 85)
 				// The recovery transition copied the source state; it did not
 				// recompute counts or invent delivery state.
 				condition, err = repo.Get(t.Context(), r.monitor, domain.MonitorConditionStorage)
@@ -136,16 +136,16 @@ func TestProbeCapacityStateAcceptance(t *testing.T) {
 			t.Run("UnsupportedConditionTransitionsAreRejectedPermanently", func(t *testing.T) {
 				r := newReplayFixture(t, engine)
 				warning := domain.ConditionStateWarning
-				got := r.ingest(t, r.batch(capacityTransitionEvent(r, 1, domain.MonitorConditionStorage, nil, warning)))
+				got := r.ingest(t, r.batch(capacityTransitionEvent(r, 1, nil, warning)))
 				if got.AcceptedCount != 0 || len(got.Rejected) != 1 || got.Rejected[0].Code != "condition_evidence_not_found" {
 					t.Fatal("transition without raw evidence must be rejected", got)
 				}
 				// Rejection must not block later valid events.
 				r.ingest(t, r.batch(capacityObservationEvent(r, 2, capacityEvidenceSample(domain.MonitorConditionStorage, warning, 84, r.at))))
-				assertCondition(t, r, domain.MonitorConditionStorage, "", false, 84)
+				assertCondition(t, r, "", false, 84)
 				// A fabricated incident reference must correlate with a capacity
 				// incident for the same monitor/generation/condition.
-				forged := capacityTransitionEvent(r, 3, domain.MonitorConditionStorage, nil, warning)
+				forged := capacityTransitionEvent(r, 3, nil, warning)
 				id := "99999999-9999-4999-8999-999999999999"
 				forged.Condition.SourceAlertID = &id
 				got = r.ingest(t, r.batch(forged))
@@ -162,13 +162,13 @@ func TestProbeCapacityStateAcceptance(t *testing.T) {
 				if _, err := r.store.ApplyCurrentSnapshot(t.Context(), r.session, currentSnapshot(r, 10, entry), &services.AccessService{}); err != nil {
 					t.Fatal(err)
 				}
-				assertCondition(t, r, domain.MonitorConditionStorage, domain.ConditionStateWarning, true, 90)
+				assertCondition(t, r, domain.ConditionStateWarning, true, 90)
 				changed := entry
 				changed.Conditions = []domain.ConditionEvidence{capacityEvidence(domain.MonitorConditionStorage, domain.ConditionStateWarning, domain.ConditionStateWarning, 91, r.at, 2)}
 				if _, err := r.store.ApplyCurrentSnapshot(t.Context(), r.session, currentSnapshot(r, 10, changed), &services.AccessService{}); !errors.Is(err, ports.ErrConflict) {
 					t.Fatal("same source sequence changed evaluated state", err)
 				}
-				assertCondition(t, r, domain.MonitorConditionStorage, domain.ConditionStateWarning, true, 90)
+				assertCondition(t, r, domain.ConditionStateWarning, true, 90)
 				// Complete omission clears the projection but keeps history.
 				if _, err := r.store.ApplyCurrentSnapshot(t.Context(), r.session, currentSnapshot(r, 11, currentEntry(r, 11, domain.StatusUp)), &services.AccessService{}); err != nil {
 					t.Fatal(err)
@@ -190,9 +190,9 @@ func TestProbeCapacityStateAcceptance(t *testing.T) {
 				ok := domain.ConditionStateOK
 				r.ingest(t, r.batch(
 					capacityObservationEvent(r, 1, capacityEvidenceSample(domain.MonitorConditionStorage, ok, 10, r.at.Add(-time.Second))),
-					capacityTransitionEvent(r, 2, domain.MonitorConditionStorage, nil, ok),
+					capacityTransitionEvent(r, 2, nil, ok),
 				))
-				assertCondition(t, r, domain.MonitorConditionStorage, domain.ConditionStateWarning, true, 90)
+				assertCondition(t, r, domain.ConditionStateWarning, true, 90)
 				state, err := r.f.commits.GetState(t.Context(), r.monitor, r.session.ProbeID)
 				if err != nil || state.Seq != 10 || len(state.Conditions) != 1 || state.Conditions[0].Percent == nil || *state.Conditions[0].Percent != 90 {
 					t.Fatal("older replay replaced newer evaluated state", state, err)
@@ -205,7 +205,7 @@ func TestProbeCapacityStateAcceptance(t *testing.T) {
 				if err := runEngineMigration(t, r.f.db, engine, "068_probe_capacity_state", "down"); err == nil {
 					t.Fatal("downgrade must refuse to drop populated capacity evidence")
 				}
-				assertCondition(t, r, domain.MonitorConditionStorage, "", false, 84)
+				assertCondition(t, r, "", false, 84)
 
 				clean := newReplayFixture(t, engine)
 				if err := runEngineMigration(t, clean.f.db, engine, "068_probe_capacity_state", "down"); err != nil {
@@ -215,7 +215,7 @@ func TestProbeCapacityStateAcceptance(t *testing.T) {
 					t.Fatal(err)
 				}
 				clean.ingest(t, clean.batch(capacityObservationEvent(clean, 1, capacityEvidenceSample(domain.MonitorConditionStorage, domain.ConditionStateWarning, 84, clean.at))))
-				assertCondition(t, clean, domain.MonitorConditionStorage, "", false, 84)
+				assertCondition(t, clean, "", false, 84)
 			})
 		})
 	}

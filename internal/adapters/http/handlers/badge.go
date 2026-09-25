@@ -148,6 +148,7 @@ func (h *BadgeHandlers) latestStatus(ctx context.Context, monitorID int64) (doma
 	if h.overall != nil {
 		got, err := h.overall.StatusForMonitors(ctx, []int64{monitorID}, time.Now().UTC())
 		if err != nil {
+			//nolint:nilerr // A badge must always render: a projection failure degrades to UNKNOWN instead of failing the SVG request. The error is deliberately consumed here.
 			return domain.StatusUnknown, nil
 		}
 		if status, ok := got[monitorID]; ok {
