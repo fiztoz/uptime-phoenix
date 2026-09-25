@@ -164,6 +164,8 @@ func Run(cfg Config) error {
 	healthSvc := services.NewMonitorHealthService(repos.monitor, repos.probeAssignments, repos.regionalCommit, nil)
 	healthSvc.SetProjections(repos.projections)
 	heartbeatSvc.SetOverallProjector(healthSvc)
+	heartbeatSvc.SetAggregateStatus(healthSvc)
+	monitorGroupSvc.SetAggregateStatus(healthSvc)
 
 	notificationSvc := services.NewNotificationService(repos.notification, repos.monitorNotif)
 	notificationSvc.SetEventBus(bus)
@@ -215,6 +217,7 @@ func Run(cfg Config) error {
 	)
 	statusPageSvc.SetIncidentNotifier(subscriptionSvc)
 	statusPageSvc.SetSubscriptionAvailability(subscriptionSvc)
+	statusPageSvc.SetAggregateStatus(healthSvc)
 
 	tagSvc := services.NewTagService(repos.tag, repos.monitorTag)
 	notificationSvc.SetTagReader(tagSvc)
@@ -285,6 +288,7 @@ func Run(cfg Config) error {
 	notifDispatcher.SetThrottleRepository(repos.notificationThrottle)
 	notifDispatcher.SetAssignmentRepository(repos.probeAssignments)
 	notifDispatcher.SetAutoResolver(statusPageSvc)
+	notifDispatcher.SetAggregateStatus(healthSvc)
 	notifDispatcher.SetAlertLifecycle(alertSvc)
 	notifDispatcher.SetPublicURL(cfg.PublicURL)
 	// Folder alerting rides the same heartbeat path, for the same reason: a
@@ -298,6 +302,7 @@ func Run(cfg Config) error {
 		repos.heartbeat,
 		notificationSvc,
 	)
+	groupAlertSvc.SetAggregateStatus(healthSvc)
 	notifDispatcher.SetGroupEvaluator(groupAlertSvc)
 	// F2.3: escalation ladders. StartForAlert runs AFTER the dispatcher's own
 	// step-zero notification, and cancellation is wired into AlertService rather
@@ -624,6 +629,7 @@ func Run(cfg Config) error {
 		pushHandler.SetActivationRepo(repos.probeActivation)
 	}
 	badgeHandlers := handlers.NewBadgeHandlers(repos.monitor, repos.heartbeat, aggregateSvc)
+	badgeHandlers.SetAggregateStatus(healthSvc)
 	backupHandlers := handlers.NewBackupHandlers(backupSvc)
 	configHandlers := handlers.NewConfigHandlers(configSvc)
 	alertHandlers := handlers.NewAlertHandlers(alertSvc, accessSvc)

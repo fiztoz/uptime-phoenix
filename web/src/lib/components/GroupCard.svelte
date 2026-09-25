@@ -88,7 +88,7 @@
 		</div>
 	</div>
 
-	{#if hasDown || summary.pending > 0 || summary.idle > 0 || summary.subgroups > 0}
+	{#if hasDown || summary.pending > 0 || summary.unknown > 0 || summary.idle > 0 || summary.subgroups > 0}
 		<div
 			class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border pt-3 text-xs"
 		>
@@ -104,6 +104,9 @@
 			{/if}
 			{#if summary.pending > 0}
 				<span class="text-warning tabular-nums">{m.group_card_pending_count({ count: summary.pending })}</span>
+			{/if}
+			{#if summary.unknown > 0}
+				<span class="text-muted-foreground tabular-nums">{m.group_card_unknown_count({ count: summary.unknown })}</span>
 			{/if}
 			{#if summary.idle > 0}
 				<span class="text-muted-foreground tabular-nums">{m.group_card_paused_count({ count: summary.idle })}</span>

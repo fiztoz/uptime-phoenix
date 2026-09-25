@@ -103,10 +103,11 @@ type NotificationDispatcher struct {
 	notifier    alertNotifier
 	maintenance maintenanceChecker
 	autoResolve incidentAutoResolver // optional
-	groups      groupEvaluator       // optional — folder alerting
-	lifecycle   alertLifecycle       // optional — F2.2 alert entity
-	escalation  escalationStarter    // optional — F2.3 escalation ladder
-	publicURL   string               // optional — for deep-link AckURL
+	aggregate   AggregateStatusReader
+	groups      groupEvaluator    // optional — folder alerting
+	lifecycle   alertLifecycle    // optional — F2.2 alert entity
+	escalation  escalationStarter // optional — F2.3 escalation ladder
+	publicURL   string            // optional — for deep-link AckURL
 	throttles   ports.NotificationThrottleRepository
 	assignments ports.MonitorProbeAssignmentRepository
 
@@ -142,6 +143,13 @@ func (d *NotificationDispatcher) SetAssignmentRepository(repo ports.MonitorProbe
 // SetAutoResolver wires incident auto-resolve on monitor recovery. Optional.
 func (d *NotificationDispatcher) SetAutoResolver(r incidentAutoResolver) {
 	d.autoResolve = r
+}
+
+// SetAggregateStatus lets status-page recovery follow overall policy. A remote
+// assignment resolves on a fresh overall UP, including a later local check that
+// is not itself a DOWN-to-UP transition. Optional.
+func (d *NotificationDispatcher) SetAggregateStatus(r AggregateStatusReader) {
+	d.aggregate = r
 }
 
 // SetGroupEvaluator wires folder (monitor group) alerting. Optional — without it
@@ -231,11 +239,7 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 	if d.outboxDelivery {
 		// Availability lifecycle, step zero and escalation registration already
 		// committed with the heartbeat. Retain only independent side effects.
-		if hb.Status == domain.StatusUp && prevStatus != nil && *prevStatus == domain.StatusDown && d.autoResolve != nil {
-			if err := d.autoResolve.AutoResolveOnRecovery(ctx, monitor.ID); err != nil {
-				slog.Error("notification dispatcher: auto-resolve failed", "monitor_id", monitor.ID, "error", err)
-			}
-		}
+		d.resolveStatusPage(ctx, monitor, hb, prevStatus)
 		return
 	}
 
@@ -247,6 +251,10 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 	now := d.now().UTC()
 
 	checkOutput := hb.Msg
+	// Status-page recovery is independent of this probe's own transition.
+	// Overall UP closes the incident; a local DOWN→UP does that only when the
+	// monitor has no remote assignment.
+	d.resolveStatusPage(ctx, monitor, hb, prevStatus)
 
 	switch {
 	case cur == domain.StatusDown && prev != domain.StatusDown:
@@ -273,12 +281,6 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 			d.dispatch(ctx, monitor, cur, prev, "", checkOutput, startedAt, duration)
 		}
 		d.forget(ctx, key)
-		if d.autoResolve != nil {
-			if err := d.autoResolve.AutoResolveOnRecovery(ctx, monitor.ID); err != nil {
-				slog.Error("notification dispatcher: auto-resolve failed",
-					"monitor_id", monitor.ID, "error", err)
-			}
-		}
 	case cur == domain.StatusDown && prev == domain.StatusDown:
 		if d.outboxDelivery {
 			return
@@ -398,6 +400,36 @@ func (d *NotificationDispatcher) dispatch(
 	if err != nil {
 		slog.Error("notification dispatcher: notify failed",
 			"monitor_id", monitor.ID, "status", status.String(), "error", err)
+	}
+}
+
+// resolveStatusPage closes auto-resolve incidents when recovery evidence is
+// fresh. Remotely assigned monitors use overall policy, so a single region's
+// UP does not close the page while another region is still down or unknown.
+func (d *NotificationDispatcher) resolveStatusPage(ctx context.Context, monitor *domain.Monitor, hb *domain.Heartbeat, prev *domain.Status) {
+	if d.autoResolve == nil || monitor == nil || hb == nil {
+		return
+	}
+	if d.aggregate != nil {
+		got, err := d.aggregate.StatusForMonitors(ctx, []int64{monitor.ID}, d.now().UTC())
+		if err != nil {
+			slog.Error("notification dispatcher: overall status failed", "monitor_id", monitor.ID, "error", err)
+			return
+		}
+		if status, ok := got[monitor.ID]; ok {
+			if status != domain.StatusUp {
+				return
+			}
+			if err := d.autoResolve.AutoResolveOnRecovery(ctx, monitor.ID); err != nil {
+				slog.Error("notification dispatcher: auto-resolve failed", "monitor_id", monitor.ID, "error", err)
+			}
+			return
+		}
+	}
+	if hb.Status == domain.StatusUp && prev != nil && *prev == domain.StatusDown {
+		if err := d.autoResolve.AutoResolveOnRecovery(ctx, monitor.ID); err != nil {
+			slog.Error("notification dispatcher: auto-resolve failed", "monitor_id", monitor.ID, "error", err)
+		}
 	}
 }
 

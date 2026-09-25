@@ -101,8 +101,11 @@ export function computeOverall(
     (incident) => severityOf(incident.style).rank >= SEVERITY.danger.rank,
   );
 
+  const hasUnknownMonitor = monitors.some(
+    (monitor) => monitor.status === "unknown",
+  );
   if (hasDownMonitor || hasDangerIncident) return "outage";
-  if (activeIncidents.length > 0) return "degraded";
+  if (activeIncidents.length > 0 || hasUnknownMonitor) return "degraded";
   return "operational";
 }
 

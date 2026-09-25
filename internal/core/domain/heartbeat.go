@@ -25,3 +25,11 @@ type Heartbeat struct {
 	// ConfigRevision is the accepted snapshot revision at observation time.
 	ConfigRevision int64
 }
+
+// HeartbeatPublication is the in-process event payload for one recorded check.
+// Overall is the policy status when the monitor has a remote assignment.
+// A nil Overall means the local sample is the aggregate status.
+type HeartbeatPublication struct {
+	Heartbeat *Heartbeat
+	Overall   *Status
+}

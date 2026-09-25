@@ -84,6 +84,54 @@ func TestMonitorTarget_RabbitMQRedactsUserinfo(t *testing.T) {
 	}
 }
 
+func TestMarshalWireEvent_HeartbeatOverallSurvivesRedisShape(t *testing.T) {
+	overall := domain.StatusUnknown
+	pub := domain.HeartbeatPublication{
+		Heartbeat: &domain.Heartbeat{
+			MonitorID: 7,
+			Status:    domain.StatusUp,
+			Time:      time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC),
+			Ping:      12,
+			Msg:       "ok",
+		},
+		Overall: &overall,
+	}
+	direct, err := marshalWireEvent(ports.Event{Type: EventHeartbeat, Payload: pub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertOverall(t, direct, "up", "unknown")
+
+	raw, err := json.Marshal(ports.Event{Type: EventHeartbeat, Payload: pub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var round ports.Event
+	if err := json.Unmarshal(raw, &round); err != nil {
+		t.Fatal(err)
+	}
+	again, err := marshalWireEvent(round)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertOverall(t, again, "up", "unknown")
+}
+
+func assertOverall(t *testing.T, data []byte, status, overall string) {
+	t.Helper()
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	payload, ok := got["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload type %T", got["payload"])
+	}
+	if payload["status"] != status || payload["overall_status"] != overall {
+		t.Fatalf("payload = %v", payload)
+	}
+}
+
 func TestMarshalWireEvent_MonitorList(t *testing.T) {
 	monitors := []*domain.Monitor{
 		{ID: 1, Name: "A", Type: "http", Config: map[string]any{"url": "https://a.test"}},

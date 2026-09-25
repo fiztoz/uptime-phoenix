@@ -35,6 +35,7 @@
 	export interface ChartPayload {
 		buckets: ChartBucket[];
 		downtime_intervals: Array<{ start: string; end: string }>;
+		unknown_intervals?: Array<{ start: string; end: string }>;
 	}
 
 	interface Props {
@@ -84,6 +85,14 @@
 	const downtimeIntervals = $derived.by((): DowntimeInterval[] => {
 		if (!chart?.downtime_intervals?.length) return [];
 		return chart.downtime_intervals.map((iv) => ({
+			start: new Date(iv.start),
+			end: new Date(iv.end),
+		}));
+	});
+
+	const unknownIntervals = $derived.by((): DowntimeInterval[] => {
+		if (!chart?.unknown_intervals?.length) return [];
+		return chart.unknown_intervals.map((iv) => ({
 			start: new Date(iv.start),
 			end: new Date(iv.end),
 		}));
@@ -191,6 +200,7 @@
 				<Svg titleText="Response time chart">
 					<Grid ticks={5} />
 					<PlotClip>
+						<DowntimeMarkers intervals={unknownIntervals} fill="var(--color-muted-foreground)" opacity={0.16} />
 						<DowntimeMarkers intervals={downtimeIntervals} />
 						<RangeBars y0="min" y1="max" stroke="var(--color-success)" />
 						<Area fill="var(--color-success)" opacity={0.5} linear />

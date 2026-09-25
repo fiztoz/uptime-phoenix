@@ -54,6 +54,7 @@ type downtimeIntervalView struct {
 type chartDataView struct {
 	Buckets           []chartBucketView      `json:"buckets"`
 	DowntimeIntervals []downtimeIntervalView `json:"downtime_intervals"`
+	UnknownIntervals  []downtimeIntervalView `json:"unknown_intervals"`
 }
 
 // ListByMonitor handles GET /api/monitors/:id/heartbeats.
@@ -128,9 +129,11 @@ func (h *HeartbeatHandlers) GetChartData(c echo.Context) error {
 	buckets := services.BucketHeartbeats(heartbeats, bucketDur)
 	intervals := services.DetectDowntimeIntervals(heartbeats)
 
+	unknown := services.DetectUnknownIntervals(heartbeats)
 	view := chartDataView{
 		Buckets:           make([]chartBucketView, 0, len(buckets)),
 		DowntimeIntervals: make([]downtimeIntervalView, 0, len(intervals)),
+		UnknownIntervals:  make([]downtimeIntervalView, 0, len(unknown)),
 	}
 	for _, b := range buckets {
 		view.Buckets = append(view.Buckets, chartBucketView{
@@ -142,6 +145,12 @@ func (h *HeartbeatHandlers) GetChartData(c echo.Context) error {
 	}
 	for _, iv := range intervals {
 		view.DowntimeIntervals = append(view.DowntimeIntervals, downtimeIntervalView{
+			Start: iv.Start.Format(time.RFC3339),
+			End:   iv.End.Format(time.RFC3339),
+		})
+	}
+	for _, iv := range unknown {
+		view.UnknownIntervals = append(view.UnknownIntervals, downtimeIntervalView{
 			Start: iv.Start.Format(time.RFC3339),
 			End:   iv.End.Format(time.RFC3339),
 		})

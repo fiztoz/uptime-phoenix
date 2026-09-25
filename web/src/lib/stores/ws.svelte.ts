@@ -54,7 +54,7 @@ export interface Monitor {
    * (up/down/pending/maintenance) plus one frontend-only addition: "paused"
    * means `active === false`, a state no Heartbeat ever reports.
    */
-  status: "up" | "down" | "pending" | "maintenance" | "paused";
+  status: "up" | "down" | "pending" | "maintenance" | "unknown" | "paused";
   active?: boolean;
   /** Seconds between checks (top-level API/WS field, not inside config). */
   interval?: number;
@@ -116,6 +116,8 @@ export interface MonitorTagView {
 export interface Heartbeat {
   monitor_id: number;
   status: Status;
+  /** Policy status for a remotely assigned monitor. Absent on local-only checks. */
+  overall_status?: Status;
   time: string;
   ping: number;
   msg?: string;
@@ -167,6 +169,8 @@ function normalizeWireStatus(statusRaw: string): Status {
     case "maintenance":
     case "paused":
       return "maintenance";
+    case "unknown":
+      return "unknown";
     default:
       return "up";
   }
@@ -183,12 +187,18 @@ function normalizeHeartbeat(raw: unknown): Heartbeat | null {
     typeof statusField === "string" ? statusField : ""
   ).toLowerCase();
   const status: Status = normalizeWireStatus(statusRaw);
+  const overallRaw = o.overall_status ?? o.OverallStatus;
+  const overall_status =
+    typeof overallRaw === "string" && overallRaw !== ""
+      ? normalizeWireStatus(overallRaw.toLowerCase())
+      : undefined;
   const time = String(o.time ?? o.Time ?? "");
   const ping = Number(o.ping ?? o.Ping ?? 0);
   const msg = o.msg ?? o.Msg;
   return {
     monitor_id: monitorId,
     status,
+    overall_status,
     time,
     ping: Number.isFinite(ping) ? ping : 0,
     msg: typeof msg === "string" && msg ? msg : undefined,
@@ -328,11 +338,14 @@ function createWsStore() {
         lastHeartbeat = hb;
         heartbeatSeq += 1;
         // Keep monitor status in sync with the latest check result (skip paused).
-        if (hb.status === "up" || hb.status === "down") {
-          // Narrow into a local so the union stays "up" | "down" inside the
-          // closure below (property narrowing on `hb.status` does not persist
-          // across the .map() callback boundary).
-          const syncedStatus = hb.status;
+        // A remote assignment publishes overall_status; that is the badge status.
+        const pillStatus = hb.overall_status
+          ? hb.overall_status
+          : hb.status === "up" || hb.status === "down"
+            ? hb.status
+            : null;
+        if (pillStatus) {
+          const syncedStatus = pillStatus;
           monitors = monitors.map((m) =>
             m.id === hb.monitor_id &&
             m.active !== false &&

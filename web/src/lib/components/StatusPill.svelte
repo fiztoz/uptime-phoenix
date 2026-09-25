@@ -31,6 +31,11 @@
       dotClass: "dot-info",
       bgClass: "bg-info/10 text-info border-info/25",
     },
+    unknown: {
+      label: "Unknown",
+      dotClass: "dot-muted",
+      bgClass: "border-dashed bg-muted/40 text-muted-foreground border-border",
+    },
     paused: {
       label: "Paused",
       dotClass: "dot-muted",

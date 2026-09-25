@@ -367,7 +367,14 @@ describe("tallyMonitors / summarizeGroup", () => {
       monitor(5, { status: "paused" }),
       monitor(6, { status: "maintenance" }),
     ]);
-    expect(t).toEqual({ total: 6, up: 2, down: 1, pending: 1, idle: 2 });
+    expect(t).toEqual({
+      total: 6,
+      up: 2,
+      down: 1,
+      pending: 1,
+      unknown: 0,
+      idle: 2,
+    });
   });
 
   test("group summary counts monitors recursively but subgroups directly", () => {
@@ -384,6 +391,7 @@ describe("tallyMonitors / summarizeGroup", () => {
       up: 1,
       down: 1,
       pending: 0,
+      unknown: 0,
       idle: 1,
       subgroups: 1,
     });
@@ -395,6 +403,7 @@ describe("tallyMonitors / summarizeGroup", () => {
       up: 0,
       down: 0,
       pending: 0,
+      unknown: 0,
       idle: 0,
       subgroups: 0,
     });
@@ -429,6 +438,7 @@ describe("sortDashboardMonitors", () => {
     expect(normalizeStatusOrder(["up", "up", "exploded", "down"])).toEqual([
       "up",
       "down",
+      "unknown",
       "pending",
       "maintenance",
       "paused",
@@ -484,7 +494,14 @@ describe("URL codec", () => {
       statuses: ["down", "pending"],
       type: "http",
       sort: "status",
-      statusOrder: ["up", "pending", "down", "maintenance", "paused"],
+      statusOrder: [
+        "up",
+        "pending",
+        "down",
+        "maintenance",
+        "paused",
+        "unknown",
+      ],
     });
     const qs = criteriaToSearchString(new URLSearchParams(), c);
     expect(criteriaFromParams(new URLSearchParams(qs))).toEqual(c);
@@ -578,12 +595,19 @@ describe("URL codec", () => {
   test("custom status sort order survives a shareable URL", () => {
     const c = criteria({
       sort: "status",
-      statusOrder: ["up", "pending", "down", "paused", "maintenance"],
+      statusOrder: [
+        "up",
+        "pending",
+        "down",
+        "paused",
+        "maintenance",
+        "unknown",
+      ],
     });
     const qs = criteriaToSearchString(new URLSearchParams(), c);
     expect(qs).toContain("sort=status");
     expect(qs).toContain(
-      "status_order=up%2Cpending%2Cdown%2Cpaused%2Cmaintenance",
+      "status_order=up%2Cpending%2Cdown%2Cpaused%2Cmaintenance%2Cunknown",
     );
     expect(criteriaFromParams(new URLSearchParams(qs))).toEqual(c);
 
@@ -605,6 +629,7 @@ describe("URL codec", () => {
     expect(c.statusOrder).toEqual([
       "up",
       "down",
+      "unknown",
       "pending",
       "maintenance",
       "paused",

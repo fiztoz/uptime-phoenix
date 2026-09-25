@@ -155,7 +155,7 @@
 	// stay stable while the user narrows the list.
 	let statusCounts = $derived.by(() => {
 		const counts: Record<MonitorStatus, number> = {
-			up: 0, down: 0, pending: 0, maintenance: 0, paused: 0,
+			up: 0, down: 0, pending: 0, unknown: 0, maintenance: 0, paused: 0,
 		};
 		for (const mo of realtime.monitors) {
 			if (mo.status in counts) counts[mo.status as MonitorStatus]++;
@@ -185,6 +185,7 @@
 		up: m.dashboard_up(),
 		down: m.status_down(),
 		pending: m.status_pending(),
+		unknown: m.status_unknown(),
 		maintenance: m.status_maintenance(),
 		paused: m.status_paused(),
 	});
@@ -193,6 +194,7 @@
 		up: 'dot-up',
 		down: 'dot-down',
 		pending: 'dot-warn',
+		unknown: 'dot-muted',
 		maintenance: 'dot-info',
 		paused: 'dot-muted',
 	};
@@ -257,7 +259,10 @@
 		const withStatus = all.map((m) => ({
 			id: m.id,
 			group_id: m.group_id ?? null,
-			status: monitorToRollupStatus(m.status, hbMap.get(m.id)?.status),
+			status: monitorToRollupStatus(
+				m.status,
+				hbMap.get(m.id)?.overall_status ?? hbMap.get(m.id)?.status,
+			),
 		}));
 		return resolveGroupStatuses(groups, withStatus);
 	});

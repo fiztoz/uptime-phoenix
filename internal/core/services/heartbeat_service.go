@@ -44,6 +44,7 @@ type HeartbeatService struct {
 	regional      ports.LocalHeartbeatRecorder
 	activations   ports.ProbeConfigActivationRepository
 	projector     overallHealthProjector
+	aggregate     AggregateStatusReader
 	maintenance   maintenanceChecker
 	monitorNotifs ports.MonitorNotificationRepository
 }
@@ -111,6 +112,12 @@ func (s *HeartbeatService) SetOverallProjector(p overallHealthProjector) {
 	s.projector = p
 }
 
+// SetAggregateStatus publishes the overall policy status beside a local check
+// when the monitor is assigned to a remote probe. Optional.
+func (s *HeartbeatService) SetAggregateStatus(r AggregateStatusReader) {
+	s.aggregate = r
+}
+
 // SetMonitorNotificationRepo attaches monitor-notification link retrieval so
 // availability status transitions can enqueue delivery outbox intents atomically.
 func (s *HeartbeatService) SetMonitorNotificationRepo(repo ports.MonitorNotificationRepository) {
@@ -157,6 +164,15 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 			return fmt.Errorf("heartbeat service: project overall health: %w", err)
 		}
 	}
+	var overall *domain.Status
+	if s.aggregate != nil {
+		got, err := s.aggregate.StatusForMonitors(ctx, []int64{monitor.ID}, hb.Time)
+		if err != nil {
+			slog.Error("heartbeat service: overall status failed", "monitor_id", monitor.ID, "error", err)
+		} else if status, ok := got[monitor.ID]; ok {
+			overall = &status
+		}
+	}
 
 	// Persist TLS certificate info when present (best-effort).
 	if s.tlsInfo != nil {
@@ -196,7 +212,11 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 	}
 
 	// Publish heartbeat event (best-effort — never fail on bus.Publish).
-	_ = s.bus.Publish(ctx, ports.Event{Type: "heartbeat", Payload: hb})
+	var heartbeatPayload any = hb
+	if overall != nil {
+		heartbeatPayload = domain.HeartbeatPublication{Heartbeat: hb, Overall: overall}
+	}
+	_ = s.bus.Publish(ctx, ports.Event{Type: "heartbeat", Payload: heartbeatPayload})
 
 	// Publish status.change on first check and on every effective transition so the
 	// dashboard moves off "pending" without requiring a prior heartbeat.
@@ -205,14 +225,18 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 		prev = *oldStatus
 	}
 	if transitioned {
+		change := map[string]any{
+			"monitor_id": monitor.ID,
+			"old_status": prev,
+			"new_status": hb.Status,
+			"monitor":    monitor,
+		}
+		if overall != nil {
+			change["overall_status"] = *overall
+		}
 		_ = s.bus.Publish(ctx, ports.Event{
-			Type: "status.change",
-			Payload: map[string]any{
-				"monitor_id": monitor.ID,
-				"old_status": prev,
-				"new_status": hb.Status,
-				"monitor":    monitor,
-			},
+			Type:    "status.change",
+			Payload: change,
 		})
 	}
 

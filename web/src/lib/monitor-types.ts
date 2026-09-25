@@ -97,7 +97,7 @@ export const MONITOR_TYPE_GROUPS: ReadonlyArray<{
  * concept (derived from `active === false`) and is NOT part of this union —
  * see web/src/lib/stores/ws.svelte.ts's `Monitor["status"]`.
  */
-export type Status = "up" | "down" | "pending" | "maintenance";
+export type Status = "up" | "down" | "pending" | "maintenance" | "unknown";
 
 /**
  * Canonical heartbeat record shape, matching the REST API's `heartbeatView`

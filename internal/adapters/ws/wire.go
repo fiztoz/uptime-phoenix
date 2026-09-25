@@ -75,11 +75,12 @@ func toWireTagViews(details []services.MonitorTagDetail) []MonitorTagView {
 
 // HeartbeatView is the WebSocket wire representation of a heartbeat.
 type HeartbeatView struct {
-	MonitorID int64  `json:"monitor_id"`
-	Status    string `json:"status"`
-	Time      string `json:"time"`
-	Ping      int    `json:"ping"`
-	Msg       string `json:"msg,omitempty"`
+	MonitorID     int64  `json:"monitor_id"`
+	Status        string `json:"status"`
+	OverallStatus string `json:"overall_status,omitempty"`
+	Time          string `json:"time"`
+	Ping          int    `json:"ping"`
+	Msg           string `json:"msg,omitempty"`
 }
 
 // MonitorConditionView is the WebSocket wire representation of one latest
@@ -139,11 +140,28 @@ func transformPayload(eventType string, payload any) any {
 			return views
 		}
 	case EventHeartbeat:
-		if hb, ok := payload.(*domain.Heartbeat); ok {
+		switch hb := payload.(type) {
+		case *domain.Heartbeat:
 			return toHeartbeatView(hb)
-		}
-		if m, ok := payload.(map[string]any); ok {
-			return heartbeatMapToView(m)
+		case domain.HeartbeatPublication:
+			return toHeartbeatPublication(hb)
+		case *domain.HeartbeatPublication:
+			if hb != nil {
+				return toHeartbeatPublication(*hb)
+			}
+		case map[string]any:
+			if inner, ok := hb["Heartbeat"].(map[string]any); ok {
+				view := heartbeatMapToView(inner)
+				if overall, ok := statusFromMap(hb, "Overall"); ok {
+					view.OverallStatus = statusToWire(overall)
+				}
+				return view
+			}
+			view := heartbeatMapToView(hb)
+			if overall, ok := statusFromMap(hb, "overall_status"); ok {
+				view.OverallStatus = statusToWire(overall)
+			}
+			return view
 		}
 	case EventConditionUpdate:
 		switch v := payload.(type) {
@@ -277,9 +295,28 @@ func transformStatusChange(payload any) any {
 	case float64:
 		newStatus = domain.Status(v)
 	}
+	status := statusToWire(newStatus)
+	if overall, ok := statusFromMap(m, "overall_status"); ok {
+		status = statusToWire(overall)
+	}
 	return map[string]any{
 		"monitor_id": monitorID,
-		"status":     statusToWire(newStatus),
+		"status":     status,
+	}
+}
+
+func statusFromMap(m map[string]any, key string) (domain.Status, bool) {
+	switch v := m[key].(type) {
+	case domain.Status:
+		return v, true
+	case int:
+		return domain.Status(v), true
+	case int64:
+		return domain.Status(v), true
+	case float64:
+		return domain.Status(v), true
+	default:
+		return 0, false
 	}
 }
 
@@ -460,6 +497,14 @@ func heartbeatMapToView(m map[string]any) HeartbeatView {
 	return v
 }
 
+func toHeartbeatPublication(pub domain.HeartbeatPublication) HeartbeatView {
+	view := toHeartbeatView(pub.Heartbeat)
+	if pub.Overall != nil {
+		view.OverallStatus = statusToWire(*pub.Overall)
+	}
+	return view
+}
+
 func toHeartbeatView(hb *domain.Heartbeat) HeartbeatView {
 	if hb == nil {
 		return HeartbeatView{}
@@ -484,6 +529,8 @@ func statusToWire(s domain.Status) string {
 		return "pending"
 	case domain.StatusMaintenance:
 		return "paused"
+	case domain.StatusUnknown:
+		return "unknown"
 	default:
 		return "pending"
 	}

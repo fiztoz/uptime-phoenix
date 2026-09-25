@@ -100,6 +100,12 @@ type MonitorGroup struct {
 // Children in MAINTENANCE are excluded from the tally rather than counted as
 // DOWN: maintenance is deliberate downtime and must not trip a group. A group
 // whose children are *all* in maintenance is itself MAINTENANCE.
+//
+// UNKNOWN is a real status. It does not trip a group and it does not count as
+// a fresh UP. worst_of_children and threshold stay UNKNOWN while any active
+// child is UNKNOWN, so incomplete evidence cannot look healthy. all_down still
+// reports UP when one child is a fresh UP: one surviving member means the pool
+// is up, and the unknown sibling stays visible on that child.
 func (g MonitorGroup) Rollup(children []Status) (Status, bool) {
 	if g.Condition == GroupConditionIgnore || len(children) == 0 {
 		return StatusPending, false
@@ -115,6 +121,10 @@ func (g MonitorGroup) Rollup(children []Status) (Status, bool) {
 	switch {
 	case g.trips(t):
 		return StatusDown, true
+	case g.Condition == GroupConditionAllDown && t.up > 0:
+		return StatusUp, true
+	case t.unknown > 0:
+		return StatusUnknown, true
 	case t.up > 0:
 		return StatusUp, true
 	default:
@@ -125,7 +135,7 @@ func (g MonitorGroup) Rollup(children []Status) (Status, bool) {
 // statusTally counts children by status. Children in MAINTENANCE are counted in
 // neither active nor any bucket, so they cannot trip a group.
 type statusTally struct {
-	down, up, active int
+	down, up, unknown, active int
 }
 
 func tallyStatuses(children []Status) statusTally {
@@ -140,6 +150,8 @@ func tallyStatuses(children []Status) statusTally {
 			t.down++
 		case StatusUp:
 			t.up++
+		case StatusUnknown:
+			t.unknown++
 		}
 	}
 	return t

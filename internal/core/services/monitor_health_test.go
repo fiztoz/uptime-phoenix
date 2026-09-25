@@ -194,6 +194,56 @@ var (
 	_ ports.RegionalCommitRepository         = (*healthRegionalRepo)(nil)
 )
 
+func TestStatusForMonitors_RemotePolicySkipsLocalOnly(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	remote := &domain.Monitor{ID: 7, Active: true, Interval: 60, RetryInterval: 0, Timeout: 5}
+	local := &domain.Monitor{ID: 8, Active: true, Interval: 60, RetryInterval: 0, Timeout: 5}
+	remoteSet := &domain.MonitorProbeAssignments{
+		MonitorID: 7, HealthPolicy: domain.HealthPolicyAnyDown,
+		Assignments: []domain.ProbeAssignment{
+			{MonitorID: 7, ProbeID: domain.LocalProbeID, Generation: 1},
+			{MonitorID: 7, ProbeID: "asia", Generation: 1},
+		},
+	}
+	localSet := &domain.MonitorProbeAssignments{
+		MonitorID: 8, HealthPolicy: domain.HealthPolicyAnyDown,
+		Assignments: []domain.ProbeAssignment{{MonitorID: 8, ProbeID: domain.LocalProbeID, Generation: 1}},
+	}
+	states := []domain.RegionalState{
+		{MonitorID: 7, ProbeID: domain.LocalProbeID, AssignmentGeneration: 1, Status: domain.StatusUp, ObservedAt: now},
+		{MonitorID: 7, ProbeID: "asia", AssignmentGeneration: 1, Status: domain.StatusDown, ObservedAt: now},
+	}
+	svc := NewMonitorHealthService(
+		healthMonitorRepo{monitors: map[int64]*domain.Monitor{7: remote, 8: local}},
+		healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{7: remoteSet, 8: localSet}},
+		&healthRegionalRepo{states: map[int64][]domain.RegionalState{7: states}},
+		healthAccess{allow: map[int64]bool{7: true, 8: true}},
+	)
+	got, err := svc.StatusForMonitors(context.Background(), []int64{7, 8, 7}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[7] != domain.StatusDown {
+		t.Fatalf("remote any_down = %v, want DOWN while asia is down", got[7])
+	}
+	if _, ok := got[8]; ok {
+		t.Fatal("local-only monitor must keep its heartbeat reader")
+	}
+
+	remoteSet.HealthPolicy = domain.HealthPolicyAllDown
+	got, err = svc.StatusForMonitors(context.Background(), []int64{7}, now)
+	if err != nil || got[7] != domain.StatusUp {
+		t.Fatalf("all_down with one fresh UP = %v %v", got[7], err)
+	}
+
+	states[1].ObservedAt = now.Add(-time.Hour)
+	remoteSet.HealthPolicy = domain.HealthPolicyAnyDown
+	got, err = svc.StatusForMonitors(context.Background(), []int64{7}, now)
+	if err != nil || got[7] != domain.StatusUnknown {
+		t.Fatalf("stale remote evidence = %v %v, want UNKNOWN", got[7], err)
+	}
+}
+
 func TestMonitorHealthCurrentPolicyAndAccess(t *testing.T) {
 	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
 	localZone := now.In(time.FixedZone("UTC+7", 7*3600))

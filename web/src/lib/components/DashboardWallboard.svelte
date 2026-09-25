@@ -61,10 +61,11 @@
 
 	const statusPriority: Record<Monitor['status'], number> = {
 		down: 0,
-		pending: 1,
-		maintenance: 2,
-		paused: 3,
-		up: 4,
+		unknown: 1,
+		pending: 2,
+		maintenance: 3,
+		paused: 4,
+		up: 5,
 	};
 
 	// The default wallboard stays urgency-first. Any operator-selected dashboard

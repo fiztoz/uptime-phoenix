@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -39,6 +40,7 @@ type GroupAlertService struct {
 	monitors   ports.MonitorRepository
 	heartbeats ports.HeartbeatRepository
 	notifier   groupAlertNotifier
+	overall    AggregateStatusReader
 }
 
 // NewGroupAlertService creates the folder-alerting evaluator.
@@ -56,6 +58,12 @@ func NewGroupAlertService(
 		heartbeats: heartbeats,
 		notifier:   notifier,
 	}
+}
+
+// SetAggregateStatus makes folder recovery follow overall policy for monitors
+// assigned to a remote probe. Optional: without it, children keep the local heartbeat.
+func (s *GroupAlertService) SetAggregateStatus(r AggregateStatusReader) {
+	s.overall = r
 }
 
 // OnHeartbeat re-evaluates every ancestor folder of the monitor that just
@@ -105,6 +113,12 @@ func (s *GroupAlertService) claimAndAlert(ctx context.Context, g *domain.Monitor
 	prev := g.LastStatus
 	if prev != nil && *prev == status {
 		return // nothing moved. Also keeps the CAS from being called with to == *from.
+	}
+	// UNKNOWN and PENDING are not a fresh UP. Keep a confirmed DOWN incident
+	// until policy evidence is actually UP, so a stale or partial child cannot
+	// clear the folder and then hide the later recovery.
+	if prev != nil && *prev == domain.StatusDown && status != domain.StatusDown && status != domain.StatusUp {
+		return
 	}
 
 	won, err := s.groups.ClaimStatusTransition(ctx, g.ID, prev, status)
@@ -178,6 +192,7 @@ type groupEval struct {
 	resolved map[int64]domain.Status // folders that HAVE a derived status
 	noStatus map[int64]bool          // folders resolved to "no status" (ignore/childless)
 	visiting map[int64]bool          // cycle guard for bad data
+	overall  map[int64]domain.Status // remote monitors; absent means use the heartbeat
 }
 
 func newGroupEval(s *GroupAlertService, all []*domain.MonitorGroup) *groupEval {
@@ -238,12 +253,16 @@ func (e *groupEval) resolve(ctx context.Context, g *domain.MonitorGroup) (domain
 	defer delete(e.visiting, g.ID)
 
 	if err := e.loadMonitors(ctx); err != nil {
-		slog.Error("group alert: list monitors failed", "group_id", g.ID, "error", err)
+		slog.Error("group alert: load children failed", "group_id", g.ID, "error", err)
 		return domain.StatusPending, false
 	}
 
 	children := make([]domain.Status, 0, len(e.monitorsByGroup[g.ID])+len(e.childGroup[g.ID]))
 	for _, m := range e.monitorsByGroup[g.ID] {
+		if status, ok := e.overall[m.ID]; ok {
+			children = append(children, status)
+			continue
+		}
 		hb, err := e.svc.heartbeats.GetLatest(ctx, m.ID)
 		if err != nil {
 			continue // never checked yet — contributes no status, exactly as ResolveStatuses does
@@ -277,11 +296,20 @@ func (e *groupEval) loadMonitors(ctx context.Context) error {
 		return err
 	}
 	e.monitorsByGroup = make(map[int64][]*domain.Monitor)
+	ids := make([]int64, 0, len(monitors))
 	for _, m := range monitors {
 		if m.GroupID == nil {
 			continue
 		}
 		e.monitorsByGroup[*m.GroupID] = append(e.monitorsByGroup[*m.GroupID], m)
+		ids = append(ids, m.ID)
+	}
+	if e.svc.overall != nil && len(ids) > 0 {
+		statuses, err := e.svc.overall.StatusForMonitors(ctx, ids, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		e.overall = statuses
 	}
 	e.monitorsLoaded = true
 	return nil

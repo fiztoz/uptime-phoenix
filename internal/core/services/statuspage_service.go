@@ -67,6 +67,7 @@ type StatusPageService struct {
 	tlsInfo         ports.TLSInfoRepository
 	incidentMail    statusPageIncidentNotifier
 	subAvail        statusPageSubscriptionAvailability
+	overall         AggregateStatusReader
 }
 
 const (
@@ -144,6 +145,7 @@ type PublicDowntimeInterval struct {
 type PublicMonitorChart struct {
 	Buckets           []PublicChartBucket      `json:"buckets"`
 	DowntimeIntervals []PublicDowntimeInterval `json:"downtime_intervals"`
+	UnknownIntervals  []PublicDowntimeInterval `json:"unknown_intervals"`
 }
 
 // PublicIncidentUpdateView is the wire shape of an incident timeline update.
@@ -216,6 +218,10 @@ func (s *StatusPageService) SetIncidentUpdateRepo(repo ports.IncidentUpdateRepos
 
 // SetSubscriptionAvailability attaches the PUBLIC_URL + SMTP channel probe
 // used for the public subscriptions_available flag.
+// SetAggregateStatus makes public status and incident recovery follow overall
+// policy for monitors assigned to a remote probe. Optional.
+func (s *StatusPageService) SetAggregateStatus(r AggregateStatusReader) { s.overall = r }
+
 func (s *StatusPageService) SetSubscriptionAvailability(a statusPageSubscriptionAvailability) {
 	s.subAvail = a
 }
@@ -393,16 +399,10 @@ func (s *StatusPageService) monitorPublicStatus(ctx context.Context, monitorID i
 		Status: "pending",
 	}
 
-	// Get latest heartbeat for status.
-	if hb, err := s.hbRepo.GetLatest(ctx, mon.ID); err == nil && hb != nil {
-		switch hb.Status {
-		case domain.StatusUp:
-			ms.Status = "up"
-		case domain.StatusDown:
-			ms.Status = "down"
-		case domain.StatusMaintenance:
-			ms.Status = "maintenance"
-		}
+	if status, ok := s.aggregateStatus(ctx, mon.ID); ok {
+		ms.Status = publicMonitorStatusName(status)
+	} else if hb, err := s.hbRepo.GetLatest(ctx, mon.ID); err == nil && hb != nil {
+		ms.Status = publicMonitorStatusName(hb.Status)
 	}
 
 	ms.UptimeData, ms.UptimePercent = s.monitorUptimeBar(ctx, mon.ID)
@@ -435,7 +435,38 @@ func (s *StatusPageService) attachPublicCert(ctx context.Context, monitorID int6
 // dayCounts is a single day's heartbeat tally, from either daily aggregates or
 // raw heartbeats.
 type dayCounts struct {
-	up, down, pending, maint, total int
+	up, down, pending, maint, unknown, total int
+}
+
+func publicMonitorStatusName(status domain.Status) string {
+	switch status {
+	case domain.StatusUp:
+		return "up"
+	case domain.StatusDown:
+		return "down"
+	case domain.StatusMaintenance:
+		return "maintenance"
+	case domain.StatusUnknown:
+		return "unknown"
+	default:
+		return "pending"
+	}
+}
+
+// aggregateStatus returns the overall policy status when this monitor has a
+// remote assignment. ok is false for local-only monitors and for a failed read;
+// callers then keep the local heartbeat instead of inventing a recovery.
+func (s *StatusPageService) aggregateStatus(ctx context.Context, monitorID int64) (domain.Status, bool) {
+	if s.overall == nil {
+		return 0, false
+	}
+	got, err := s.overall.StatusForMonitors(ctx, []int64{monitorID}, time.Now().UTC())
+	if err != nil {
+		slog.Error("status page service: overall status failed", "monitor_id", monitorID, "error", err)
+		return domain.StatusUnknown, true
+	}
+	status, ok := got[monitorID]
+	return status, ok
 }
 
 // monitorUptimeBar builds the public uptime bar and the uptime percentage over
@@ -456,7 +487,7 @@ func (s *StatusPageService) monitorUptimeBar(ctx context.Context, monitorID int6
 	byDay := s.uptimeDayCounts(ctx, monitorID, from, now)
 
 	bar := make([]PublicUptimeDay, 0, days)
-	var totalUp, totalChecks, totalMaint int
+	var totalUp, totalChecks, totalMaint, totalUnknown int
 	for i := 0; i < days; i++ {
 		key := from.AddDate(0, 0, i).Format(time.DateOnly)
 		c := byDay[key]
@@ -464,11 +495,12 @@ func (s *StatusPageService) monitorUptimeBar(ctx context.Context, monitorID int6
 			totalUp += c.up
 			totalChecks += c.total
 			totalMaint += c.maint
+			totalUnknown += c.unknown
 		}
 		bar = append(bar, PublicUptimeDay{Date: key, Status: dayStatus(c)})
 	}
 
-	effective := totalChecks - totalMaint
+	effective := totalChecks - totalMaint - totalUnknown
 	if effective <= 0 {
 		// No effective checks means there is no evidence for either 0% or 100%.
 		// Return an explicit unknown so the public page never invents reliability.
@@ -486,6 +518,8 @@ func dayStatus(c *dayCounts) string {
 		return "none"
 	case c.down > 0:
 		return "down"
+	case c.unknown > 0:
+		return "unknown"
 	case c.pending > 0:
 		return "pending"
 	case c.maint > 0:
@@ -549,6 +583,8 @@ func (s *StatusPageService) uptimeDayCounts(ctx context.Context, monitorID int64
 			d.pending++
 		case domain.StatusMaintenance:
 			d.maint++
+		case domain.StatusUnknown:
+			d.unknown++
 		}
 	}
 	return byDay
@@ -597,16 +633,17 @@ func uptimePeriod(label string, start, periodEnd, today time.Time, byDay map[str
 	if end.After(today) {
 		end = today
 	}
-	var totalUp, totalChecks, totalMaint int
+	var totalUp, totalChecks, totalMaint, totalUnknown int
 	for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
 		if counts := byDay[day.Format(time.DateOnly)]; counts != nil {
 			totalUp += counts.up
 			totalChecks += counts.total
 			totalMaint += counts.maint
+			totalUnknown += counts.unknown
 		}
 	}
 	var percentage *float64
-	if effective := totalChecks - totalMaint; effective > 0 {
+	if effective := totalChecks - totalMaint - totalUnknown; effective > 0 {
 		value := float64(totalUp) / float64(effective) * 100
 		percentage = &value
 	}
@@ -628,6 +665,7 @@ func (s *StatusPageService) monitorPublicChart(ctx context.Context, monitorID in
 	chart := &PublicMonitorChart{
 		Buckets:           []PublicChartBucket{},
 		DowntimeIntervals: []PublicDowntimeInterval{},
+		UnknownIntervals:  []PublicDowntimeInterval{},
 	}
 
 	now := time.Now().UTC()
@@ -660,6 +698,12 @@ func (s *StatusPageService) monitorPublicChart(ctx context.Context, monitorID in
 
 	for _, iv := range DetectDowntimeIntervals(heartbeats) {
 		chart.DowntimeIntervals = append(chart.DowntimeIntervals, PublicDowntimeInterval{
+			Start: iv.Start.Format(time.RFC3339),
+			End:   iv.End.Format(time.RFC3339),
+		})
+	}
+	for _, iv := range DetectUnknownIntervals(heartbeats) {
+		chart.UnknownIntervals = append(chart.UnknownIntervals, PublicDowntimeInterval{
 			Start: iv.Start.Format(time.RFC3339),
 			End:   iv.End.Format(time.RFC3339),
 		})
@@ -984,6 +1028,11 @@ func (s *StatusPageService) ResolveIncident(ctx context.Context, id int64) error
 // dispatcher when a monitor recovers (DOWN→UP). Returns nil even when no pages
 // match — a missing assignment is not an error.
 func (s *StatusPageService) AutoResolveOnRecovery(ctx context.Context, monitorID int64) error {
+	if status, ok := s.aggregateStatus(ctx, monitorID); ok && status != domain.StatusUp {
+		// A regional recovery is not a policy recovery. UNKNOWN and PENDING
+		// keep the incident; only a fresh overall UP closes it.
+		return nil
+	}
 	pages, err := s.repo.List(ctx)
 	if err != nil {
 		return fmt.Errorf("status page service: auto-resolve: list pages: %w", err)

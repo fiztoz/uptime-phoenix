@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -310,6 +311,63 @@ func TestGroupAlert_IgnoreConditionNeverAlerts(t *testing.T) {
 
 	if got := h.sender.count(); got != 0 {
 		t.Errorf("ignore-condition folder alerted %d times, want 0", got)
+	}
+}
+
+type staticAggregate map[int64]domain.Status
+
+func (s staticAggregate) StatusForMonitors(_ context.Context, ids []int64, now time.Time) (map[int64]domain.Status, error) {
+	if now.Location() != time.UTC {
+		return nil, errors.New("overall status requires UTC")
+	}
+	out := make(map[int64]domain.Status, len(ids))
+	for _, id := range ids {
+		if status, ok := s[id]; ok {
+			out[id] = status
+		}
+	}
+	return out, nil
+}
+
+// A local UP does not recover the folder while overall policy is still DOWN,
+// and UNKNOWN keeps the confirmed incident until a later fresh UP.
+func TestGroupAlert_OverallPolicyGovernsRecovery(t *testing.T) {
+	h := newGalertHarness(t)
+	g := h.addGroup(t, "edge", domain.GroupConditionWorstOfChildren, nil)
+	h.addProvider(t, "pager", g.ID)
+	api := h.addMonitor(7, g.ID)
+
+	h.beat(t, api, domain.StatusDown)
+	if got := h.sender.count(); got != 1 {
+		t.Fatalf("trip alerts = %d, want 1", got)
+	}
+
+	h.svc.SetAggregateStatus(staticAggregate{api.ID: domain.StatusDown})
+	h.beat(t, api, domain.StatusUp)
+	if got := h.sender.count(); got != 1 {
+		t.Fatalf("regional UP closed the folder (%d alerts)", got)
+	}
+	if got := h.groups.byID[g.ID].LastStatus; got == nil || *got != domain.StatusDown {
+		t.Fatalf("last status = %v, want DOWN kept through the regional UP", got)
+	}
+
+	h.svc.SetAggregateStatus(staticAggregate{api.ID: domain.StatusUnknown})
+	h.beat(t, api, domain.StatusUp)
+	if got := h.sender.count(); got != 1 {
+		t.Fatalf("UNKNOWN sent an alert (%d)", got)
+	}
+	if got := h.groups.byID[g.ID].LastStatus; got == nil || *got != domain.StatusDown {
+		t.Fatalf("last status = %v, want DOWN kept through UNKNOWN", got)
+	}
+
+	h.svc.SetAggregateStatus(staticAggregate{api.ID: domain.StatusUp})
+	h.beat(t, api, domain.StatusUp)
+	if got := h.sender.count(); got != 2 {
+		t.Fatalf("fresh overall UP alerts = %d, want the recovery", got)
+	}
+	recovery := h.sender.sent[1]
+	if recovery.Status != domain.StatusUp || recovery.PreviousStatus != domain.StatusDown {
+		t.Fatalf("recovery = %v <- %v, want UP <- DOWN", recovery.Status, recovery.PreviousStatus)
 	}
 }
 

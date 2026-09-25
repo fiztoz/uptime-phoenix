@@ -14,7 +14,9 @@ shared two-sample promotion contract with hub mirroring. The latest
 [capacity paging slice](M4_CAPACITY_PAGING.md) pages confirmed capacity changes
 and recovery as one source-owned incident per kind. The
 [escalation slice](M4_ESCALATION.md) at `9046ee2` runs the accepted ladder on that source.
-Group and status-page recovery policy remain open.
+The [group and status-page recovery slice](M4_GROUP_STATUS_RECOVERY.md) makes
+folder alerts and public status follow overall policy for remotely assigned
+monitors. Insights, backup/restore, and deployment documentation remain open.
 Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.

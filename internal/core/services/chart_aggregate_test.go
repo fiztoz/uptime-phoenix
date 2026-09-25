@@ -29,6 +29,24 @@ func TestBucketHeartbeats_MinAvgMax(t *testing.T) {
 	}
 }
 
+func TestDetectUnknownIntervals_StaysOutOfDowntime(t *testing.T) {
+	base := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	hbs := []*domain.Heartbeat{
+		{Time: base, Status: domain.StatusUp},
+		{Time: base.Add(time.Minute), Status: domain.StatusUnknown},
+		{Time: base.Add(2 * time.Minute), Status: domain.StatusUnknown},
+		{Time: base.Add(3 * time.Minute), Status: domain.StatusDown},
+	}
+	unknown := DetectUnknownIntervals(hbs)
+	if len(unknown) != 1 || !unknown[0].Start.Equal(base.Add(time.Minute)) || !unknown[0].End.Equal(base.Add(2*time.Minute)) {
+		t.Fatalf("unknown intervals = %+v", unknown)
+	}
+	down := DetectDowntimeIntervals(hbs)
+	if len(down) != 1 || !down[0].Start.Equal(base.Add(3*time.Minute)) {
+		t.Fatalf("downtime swallowed unknown: %+v", down)
+	}
+}
+
 func TestDetectDowntimeIntervals_MergesContiguous(t *testing.T) {
 	base := time.Date(2026, 7, 6, 12, 0, 0, 0, time.UTC)
 	hbs := []*domain.Heartbeat{
