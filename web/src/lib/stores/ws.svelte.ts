@@ -6,7 +6,13 @@
  *   realtime.connect();
  *   $effect(() => { console.log(realtime.status); });
  */
+import { dashboardInsights } from "$lib/api/insights";
+import { monitorGroupsCatalog } from "$lib/api/monitorGroups";
 import type { Status } from "$lib/monitor-types";
+import {
+  createProjectionInvalidator,
+  decideProjectionVersion,
+} from "$lib/projection-version";
 import {
   clearMonitorSnapshotCache,
   readMonitorSnapshotCache,
@@ -118,6 +124,8 @@ export interface Heartbeat {
   status: Status;
   /** Policy status for a remotely assigned monitor. Absent on local-only checks. */
   overall_status?: Status;
+  /** Newest overall projection applied for this check. Absent on local-only checks. */
+  projection_version?: number;
   time: string;
   ping: number;
   msg?: string;
@@ -192,6 +200,9 @@ function normalizeHeartbeat(raw: unknown): Heartbeat | null {
     typeof overallRaw === "string" && overallRaw !== ""
       ? normalizeWireStatus(overallRaw.toLowerCase())
       : undefined;
+  const versionRaw = Number(o.projection_version ?? o.ProjectionVersion ?? 0);
+  const projection_version =
+    Number.isFinite(versionRaw) && versionRaw > 0 ? versionRaw : undefined;
   const time = String(o.time ?? o.Time ?? "");
   const ping = Number(o.ping ?? o.Ping ?? 0);
   const msg = o.msg ?? o.Msg;
@@ -199,6 +210,7 @@ function normalizeHeartbeat(raw: unknown): Heartbeat | null {
     monitor_id: monitorId,
     status,
     overall_status,
+    projection_version,
     time,
     ping: Number.isFinite(ping) ? ping : 0,
     msg: typeof msg === "string" && msg ? msg : undefined,
@@ -272,6 +284,23 @@ function createWsStore() {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let connectUrl = "";
   let connectGeneration = 0;
+  const projectionVersions = new Map<number, number>();
+  const invalidateNavigation = createProjectionInvalidator(() => {
+    monitorGroupsCatalog.clear();
+    dashboardInsights.clear();
+  });
+
+  function noteProjection(monitorId: number, version: number | undefined) {
+    const decision = decideProjectionVersion(
+      projectionVersions.get(monitorId),
+      version ?? 0,
+    );
+    if (decision === "newer") {
+      projectionVersions.set(monitorId, version ?? 0);
+      invalidateNavigation();
+    }
+    return decision;
+  }
 
   function getWebSocketUrl(): string {
     if (connectUrl) return connectUrl;
@@ -331,6 +360,9 @@ function createWsStore() {
       case "heartbeat": {
         const hb = normalizeHeartbeat(event.payload);
         if (!hb) break;
+        if (noteProjection(hb.monitor_id, hb.projection_version) === "stale") {
+          break;
+        }
         appendWsDebugEvent("heartbeat", hb.monitor_id);
         const next = new Map(heartbeats);
         next.set(hb.monitor_id, hb);
@@ -357,10 +389,13 @@ function createWsStore() {
         break;
       }
       case "status.change": {
-        const { monitor_id, status: newStatus } = event.payload as {
-          monitor_id: number;
-          status: string;
-        };
+        const { monitor_id, status: newStatus, projection_version } =
+          event.payload as {
+            monitor_id: number;
+            status: string;
+            projection_version?: number;
+          };
+        if (noteProjection(monitor_id, projection_version) === "stale") break;
         appendWsDebugEvent("status.change", monitor_id);
         monitors = monitors.map((m) =>
           m.id === monitor_id
@@ -550,6 +585,8 @@ function createWsStore() {
         if (generation !== connectGeneration) return;
         status = "disconnected";
         ws = null;
+        projectionVersions.clear();
+        invalidateNavigation();
         // 4001–4003 from the hub, plus 1008 from pre-fix servers: the JWT is
         // dead. Reconnecting with it loops 101 → close forever and the
         // dashboard never leaves "pending".

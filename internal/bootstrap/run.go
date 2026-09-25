@@ -404,6 +404,7 @@ func Run(cfg Config) error {
 		return fmt.Errorf("heartbeat repository does not support batched reliability rollups")
 	}
 	insightsSvc := services.NewInsightsService(reliabilityReader, aggregateReader, repos.monitor, repos.monitorGroup, accessSvc)
+	insightsSvc.SetProjectionReader(repos.projections)
 	log.Info("aggregate and insights services initialized")
 
 	metricsExporter := metrics.NewPrometheusExporter()

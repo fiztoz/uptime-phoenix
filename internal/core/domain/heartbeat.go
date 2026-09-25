@@ -32,4 +32,7 @@ type Heartbeat struct {
 type HeartbeatPublication struct {
 	Heartbeat *Heartbeat
 	Overall   *Status
+	// ProjectionVersion is the stored overall version after this check.
+	// Zero means the monitor has no overall projection.
+	ProjectionVersion int64
 }

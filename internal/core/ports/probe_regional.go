@@ -31,8 +31,14 @@ type RegionalCommitRepository interface {
 type MonitorHealthProjectionRepository interface {
 	PutHealthState(ctx context.Context, state *domain.MonitorHealthState) error
 	GetHealthState(ctx context.Context, monitorID int64) (*domain.MonitorHealthState, error)
+	// ListProjectionVersions returns the stored version for each monitor that has
+	// one. Missing monitors are absent. The read is one batched query per chunk.
+	ListProjectionVersions(ctx context.Context, monitorIDs []int64) (map[int64]int64, error)
 	ReplaceHealthHistory(ctx context.Context, monitorID int64, from, to time.Time, intervals []domain.MonitorHealthInterval) error
 	ListHealthHistory(ctx context.Context, monitorID int64, from, to time.Time) ([]domain.MonitorHealthInterval, error)
+	// ListHealthHistoryForMonitors returns overlapping overall intervals for many
+	// monitors in one batched read. Bounds are not clipped; callers clip.
+	ListHealthHistoryForMonitors(ctx context.Context, monitorIDs []int64, from, to time.Time) (map[int64][]domain.MonitorHealthInterval, error)
 	MarkDirty(ctx context.Context, buckets []domain.DirtyBucket) error
 	ListDirty(ctx context.Context, resolution string, limit int) ([]domain.DirtyBucket, error)
 	ClearDirty(ctx context.Context, buckets []domain.DirtyBucket) error

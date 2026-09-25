@@ -127,8 +127,9 @@ remote HTTPS monitor page its certificate expiry. Capacity state and capacity
 paging were accepted the same day. **Partial 2026-09-25:** the
 [escalation slice](M4_ESCALATION.md) runs the accepted ladder on the source.
 **Partial 2026-09-25:** [group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md)
-uses overall policy for remotely assigned monitors. Insights, backup/restore,
-and deployment documentation remain open.
+uses overall policy for remotely assigned monitors. **Partial 2026-09-25:**
+the [Insights slice](M4_INSIGHTS.md) invalidates Insights and navigation caches
+with projection versions. Backup/restore and deployment documentation remain open.
 
 - [x] Cover all existing pull monitor types: `http`, `tcp`, `ping`, `dns`, `websocket`, `docker`, `mqtt`, `rabbitmq`, `grpc`, `snmp`, `database`, `s3`. Keep push local-only until M9.
 - [ ] Advertise real runtime capability constraints, including ICMP privileges, Docker socket/API availability, engine support, and network/proxy bindings. Reject impossible assignments before activation.
@@ -137,7 +138,7 @@ and deployment documentation remain open.
 - [x] Preserve escalation precedence (direct monitor policy, then nearest ancestor group); a disabled assigned policy stops inheritance. Persist edge escalation steps and acknowledgement effect. **Accepted 2026-09-25:** precedence was already resolved into the snapshot; the source now arms, advances, and cancels the ladder ([escalation](M4_ESCALATION.md)). Public acknowledgement URLs stay off.
 - [x] Add per-probe TLS expiry and capacity history/state. Preserve `ok`, `warning`, `error`, derived `stale`, and two-sample promotion. Capacity warnings/errors keep availability UP. **Accepted 2026-09-23:** TLS expiry history, current state and certificate paging ([certificate paging](M4_CERT_PAGING.md)); capacity history/state with source-owned two-sample promotion ([capacity state](M4_CAPACITY_STATE.md)); source-owned capacity paging and its incident mirror ([capacity paging](M4_CAPACITY_PAGING.md)).
 - [x] Update group/status-page recovery to use overall policy and fresh evidence. Preserve UNKNOWN through all readers, badges, incident automation, and chart models. **Accepted 2026-09-25:** remotely assigned monitors use overall policy; local-only heartbeats are unchanged ([group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md)).
-- [ ] Update Insights and navigation cache invalidation with projection versions; retain the current batched SQL/index paths and benchmark coverage.
+- [x] Update Insights and navigation cache invalidation with projection versions; retain the current batched SQL/index paths and benchmark coverage. **Accepted 2026-09-25:** versions miss the Insights cache, and materialized overall history replaces pooled rankings ([Insights](M4_INSIGHTS.md)).
 - [ ] Extend config-as-code and backup/restore with stable probe keys and assignments. Keep secret references/write-only secrets out of ordinary exports. Restored remote identities remain disabled pending reenrollment.
 - [ ] Define clear-history watermarks, soft-delete behavior, assignment removal/tombstones, stream retirement, and restored-hub/edge recovery procedures.
 - [ ] Update operator deployment documentation and Helm feature flag/config/secret references. Preserve single-pod defaults and split-image behavior.

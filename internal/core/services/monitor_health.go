@@ -96,6 +96,25 @@ func (s *MonitorHealthService) ProjectCurrent(ctx context.Context, monitorID int
 	return s.projections.PutHealthState(ctx, &next)
 }
 
+// StoredVersion returns the materialized projection version. Zero means the
+// monitor has no overall snapshot yet.
+func (s *MonitorHealthService) StoredVersion(ctx context.Context, monitorID int64) (int64, error) {
+	if s == nil || s.projections == nil || monitorID <= 0 {
+		return 0, nil
+	}
+	state, err := s.projections.GetHealthState(ctx, monitorID)
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if state == nil {
+		return 0, nil
+	}
+	return state.ProjectionVersion, nil
+}
+
 // ProcessDirty recomputes overall history for closed dirty overall minutes.
 func (s *MonitorHealthService) ProcessDirty(ctx context.Context, now time.Time, limit int) (int, error) {
 	if s.projections == nil {

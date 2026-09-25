@@ -94,7 +94,8 @@ func TestMarshalWireEvent_HeartbeatOverallSurvivesRedisShape(t *testing.T) {
 			Ping:      12,
 			Msg:       "ok",
 		},
-		Overall: &overall,
+		Overall:           &overall,
+		ProjectionVersion: 4,
 	}
 	direct, err := marshalWireEvent(ports.Event{Type: EventHeartbeat, Payload: pub})
 	if err != nil {
@@ -127,7 +128,7 @@ func assertOverall(t *testing.T, data []byte, status, overall string) {
 	if !ok {
 		t.Fatalf("payload type %T", got["payload"])
 	}
-	if payload["status"] != status || payload["overall_status"] != overall {
+	if payload["status"] != status || payload["overall_status"] != overall || payload["projection_version"] != float64(4) {
 		t.Fatalf("payload = %v", payload)
 	}
 }

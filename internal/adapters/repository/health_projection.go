@@ -146,6 +146,24 @@ func (r *RegionalCommitStore) PutHealthState(ctx context.Context, state *domain.
 	return err
 }
 
+// ListProjectionVersions returns stored overall versions for the requested monitors.
+func (r *RegionalCommitStore) ListProjectionVersions(ctx context.Context, monitorIDs []int64) (map[int64]int64, error) {
+	out := make(map[int64]int64)
+	for _, chunk := range chunkMonitorIDs(monitorIDs) {
+		var rows []monitorHealthStateModel
+		if err := r.db.NewSelect().Model(&rows).
+			Column("monitor_id", "projection_version").
+			Where("monitor_id IN (?)", bun.List(chunk)).
+			Scan(ctx); err != nil {
+			return nil, fmt.Errorf("list projection versions: %w", err)
+		}
+		for _, row := range rows {
+			out[row.MonitorID] = row.ProjectionVersion
+		}
+	}
+	return out, nil
+}
+
 // GetHealthState returns the materialized current overall snapshot.
 func (r *RegionalCommitStore) GetHealthState(ctx context.Context, monitorID int64) (*domain.MonitorHealthState, error) {
 	m := new(monitorHealthStateModel)
@@ -208,6 +226,60 @@ func (r *RegionalCommitStore) ListHealthHistory(ctx context.Context, monitorID i
 		}
 	}
 	return out, nil
+}
+
+// ListHealthHistoryForMonitors returns unclipped overall intervals that overlap
+// [from, to) for every requested monitor. Ordering is monitor, start, id.
+func (r *RegionalCommitStore) ListHealthHistoryForMonitors(ctx context.Context, monitorIDs []int64, from, to time.Time) (map[int64][]domain.MonitorHealthInterval, error) {
+	from, to = from.UTC(), to.UTC()
+	out := make(map[int64][]domain.MonitorHealthInterval)
+	if !from.Before(to) {
+		return out, nil
+	}
+	for _, chunk := range chunkMonitorIDs(monitorIDs) {
+		var rows []monitorHealthHistoryModel
+		if err := r.db.NewSelect().Model(&rows).
+			Where("monitor_id IN (?)", bun.List(chunk)).
+			Where("started_at < ?", to).
+			Where("ended_at IS NULL OR ended_at > ?", from).
+			Order("monitor_id ASC", "started_at ASC", "id ASC").
+			Scan(ctx); err != nil {
+			return nil, fmt.Errorf("list health history: %w", err)
+		}
+		for _, row := range rows {
+			out[row.MonitorID] = append(out[row.MonitorID], row.interval())
+		}
+	}
+	return out, nil
+}
+
+func chunkMonitorIDs(ids []int64) [][]int64 {
+	const size = 500
+	seen := make(map[int64]struct{}, len(ids))
+	clean := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		clean = append(clean, id)
+	}
+	if len(clean) == 0 {
+		return nil
+	}
+	out := make([][]int64, 0, (len(clean)+size-1)/size)
+	for len(clean) > 0 {
+		n := size
+		if n > len(clean) {
+			n = len(clean)
+		}
+		out = append(out, clean[:n])
+		clean = clean[n:]
+	}
+	return out
 }
 
 // MarkDirty records work with a fresh identity whenever source evidence changes.

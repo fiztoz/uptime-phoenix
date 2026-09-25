@@ -152,6 +152,26 @@ func (r *healthProjectionRepo) ListHealthHistory(_ context.Context, monitorID in
 	return r.history[monitorID], nil
 }
 
+func (r *healthProjectionRepo) ListProjectionVersions(_ context.Context, monitorIDs []int64) (map[int64]int64, error) {
+	out := make(map[int64]int64)
+	for _, id := range monitorIDs {
+		if state, ok := r.states[id]; ok {
+			out[id] = state.ProjectionVersion
+		}
+	}
+	return out, nil
+}
+
+func (r *healthProjectionRepo) ListHealthHistoryForMonitors(_ context.Context, monitorIDs []int64, _, _ time.Time) (map[int64][]domain.MonitorHealthInterval, error) {
+	out := make(map[int64][]domain.MonitorHealthInterval)
+	for _, id := range monitorIDs {
+		if rows := r.history[id]; len(rows) > 0 {
+			out[id] = rows
+		}
+	}
+	return out, nil
+}
+
 func (r *healthProjectionRepo) MarkDirty(_ context.Context, buckets []domain.DirtyBucket) error {
 	r.dirty = append(r.dirty, buckets...)
 	return nil

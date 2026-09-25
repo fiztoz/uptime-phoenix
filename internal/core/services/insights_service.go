@@ -113,12 +113,13 @@ type InsightsRow struct {
 
 // InsightsResult is the full response for the page.
 type InsightsResult struct {
-	From          time.Time
-	To            time.Time
-	Period        InsightsPeriod
-	Metric        InsightsMetric
-	CoverageBasis string
-	Rows          []InsightsRow
+	From              time.Time
+	To                time.Time
+	Period            InsightsPeriod
+	Metric            InsightsMetric
+	CoverageBasis     string
+	ProjectionVersion int64
+	Rows              []InsightsRow
 }
 
 // InsightsService computes the reliability ranking read model. It is the single
@@ -132,6 +133,7 @@ type InsightsService struct {
 	now         func() time.Time
 	observer    ports.InsightsObserver
 	cache       insightsCache
+	projections insightsProjectionReader
 }
 
 // NewInsightsService wires the reliability read model.
@@ -218,8 +220,15 @@ func (s *InsightsService) GetInsights(ctx context.Context, q InsightsQuery) (*In
 	}
 
 	// Resolve access and the actual monitor set on EVERY request, including
-	// hits. Revocation, deletion, group moves and new monitors change the key.
-	key := newInsightsCacheKey(q.UserID, period, filter.Type, q.GroupID, monitors)
+	// hits. Revocation, deletion, group moves, new monitors, and overall
+	// projection versions change the key.
+	monitorIDs := monitorIDsOf(monitors)
+	versions, versionErr := s.projectionVersions(ctx, monitorIDs)
+	if versionErr != nil {
+		return nil, versionErr
+	}
+	result.ProjectionVersion = maxProjectionVersion(versions)
+	key := newInsightsCacheKey(q.UserID, period, filter.Type, q.GroupID, monitors, versions)
 	cached, err := s.cachedInsights(ctx, key, func(ctx context.Context) (*InsightsResult, error) {
 		return s.calculateInsights(ctx, result, monitors)
 	})
@@ -245,6 +254,35 @@ func (s *InsightsService) observeStage(stage string, started time.Time) {
 	if s.observer != nil {
 		s.observer.ObserveInsightsStage(stage, time.Since(started))
 	}
+}
+
+func monitorIDsOf(monitors []*domain.Monitor) []int64 {
+	ids := make([]int64, 0, len(monitors))
+	for _, m := range monitors {
+		ids = append(ids, m.ID)
+	}
+	return ids
+}
+
+func (s *InsightsService) projectionVersions(ctx context.Context, monitorIDs []int64) (map[int64]int64, error) {
+	if s.projections == nil || len(monitorIDs) == 0 {
+		return nil, nil
+	}
+	versions, err := s.projections.ListProjectionVersions(ctx, monitorIDs)
+	if err != nil {
+		return nil, fmt.Errorf("insights: list projection versions: %w", err)
+	}
+	return versions, nil
+}
+
+func maxProjectionVersion(versions map[int64]int64) int64 {
+	var max int64
+	for _, version := range versions {
+		if version > max {
+			max = version
+		}
+	}
+	return max
 }
 
 func (s *InsightsService) resolveGroupFilter(ctx context.Context, userID, groupID int64) ([]int64, error) {
@@ -273,14 +311,12 @@ func (s *InsightsService) resolveGroupFilter(ctx context.Context, userID, groupI
 func (s *InsightsService) calculateInsights(ctx context.Context, result *InsightsResult, monitors []*domain.Monitor) (*InsightsResult, error) {
 	from, to, period := result.From, result.To, result.Period
 
-	monitorIDs := make([]int64, 0, len(monitors))
-	for _, m := range monitors {
-		monitorIDs = append(monitorIDs, m.ID)
-	}
+	monitorIDs := monitorIDsOf(monitors)
 	var transitionsByMonitor map[int64][]*domain.Heartbeat
 	var leadingByMonitor map[int64]*domain.Heartbeat
 	var latencyByMonitor map[int64][]*ports.Aggregate1h
 	var dailyLatencyByMonitor map[int64][]*ports.Aggregate1d
+	var overallByMonitor map[int64][]domain.MonitorHealthInterval
 
 	// All reads use the same UTC window and monitor allowlist. Each goroutine
 	// owns its result; Wait joins them before calculation. The first error
@@ -326,6 +362,16 @@ func (s *InsightsService) calculateInsights(ctx context.Context, result *Insight
 		}
 		return nil
 	})
+	if s.projections != nil {
+		run("overall", func(ctx context.Context) error {
+			var err error
+			overallByMonitor, err = s.projections.ListHealthHistoryForMonitors(ctx, monitorIDs, from, to)
+			if err != nil {
+				return fmt.Errorf("insights: list overall history: %w", err)
+			}
+			return nil
+		})
+	}
 	reads.Wait()
 	if err := context.Cause(readCtx); err != nil {
 		return nil, err
@@ -334,7 +380,7 @@ func (s *InsightsService) calculateInsights(ctx context.Context, result *Insight
 
 	rows := make([]InsightsRow, 0, len(monitors))
 	for _, m := range monitors {
-		rows = append(rows, s.computeRow(
+		row := s.computeRow(
 			m,
 			from,
 			to,
@@ -342,7 +388,8 @@ func (s *InsightsService) calculateInsights(ctx context.Context, result *Insight
 			leadingByMonitor[m.ID],
 			latencyByMonitor[m.ID],
 			dailyLatencyByMonitor[m.ID],
-		))
+		)
+		rows = append(rows, applyOverallProjection(row, overallByMonitor[m.ID], from, to))
 	}
 
 	result.Rows = rows

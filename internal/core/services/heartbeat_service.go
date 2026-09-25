@@ -165,12 +165,25 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 		}
 	}
 	var overall *domain.Status
+	var projectionVersion int64
 	if s.aggregate != nil {
 		got, err := s.aggregate.StatusForMonitors(ctx, []int64{monitor.ID}, hb.Time)
 		if err != nil {
 			slog.Error("heartbeat service: overall status failed", "monitor_id", monitor.ID, "error", err)
 		} else if status, ok := got[monitor.ID]; ok {
 			overall = &status
+		}
+	}
+	if overall != nil {
+		if reader, ok := s.aggregate.(interface {
+			StoredVersion(context.Context, int64) (int64, error)
+		}); ok {
+			version, err := reader.StoredVersion(ctx, monitor.ID)
+			if err != nil {
+				slog.Error("heartbeat service: projection version failed", "monitor_id", monitor.ID, "error", err)
+			} else {
+				projectionVersion = version
+			}
 		}
 	}
 
@@ -214,7 +227,7 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 	// Publish heartbeat event (best-effort — never fail on bus.Publish).
 	var heartbeatPayload any = hb
 	if overall != nil {
-		heartbeatPayload = domain.HeartbeatPublication{Heartbeat: hb, Overall: overall}
+		heartbeatPayload = domain.HeartbeatPublication{Heartbeat: hb, Overall: overall, ProjectionVersion: projectionVersion}
 	}
 	_ = s.bus.Publish(ctx, ports.Event{Type: "heartbeat", Payload: heartbeatPayload})
 
@@ -233,6 +246,9 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 		}
 		if overall != nil {
 			change["overall_status"] = *overall
+		}
+		if projectionVersion > 0 {
+			change["projection_version"] = projectionVersion
 		}
 		_ = s.bus.Publish(ctx, ports.Event{
 			Type:    "status.change",

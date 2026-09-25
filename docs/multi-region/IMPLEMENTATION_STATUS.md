@@ -1,8 +1,8 @@
 # Multi-region implementation status
 
-Updated 2026-09-25 after the M4 group and status-page recovery slice; see
-[group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md). The previous
-escalation slice is `9046ee2`. Accepted M3
+Updated 2026-09-25 after the M4 Insights slice; see
+[Insights](M4_INSIGHTS.md). The previous group and status-page recovery slice
+is recorded in [that acceptance](M4_GROUP_STATUS_RECOVERY.md). Accepted M3
 implementation: `a12a3fa`; completion evidence: `8b455d4`.
 This is the current status. Check HEAD and newer acceptance records before starting work.
 
@@ -12,7 +12,7 @@ This is the current status. Check HEAD and newer acceptance records before start
 | M1 regional persistence and local parity | Accepted after integration corrections | [M1 retrospective](../postmortems/2026-09-20-m1-integration-followup.md), [M2 gate](M2_ACCEPTANCE_REPORT.md) |
 | M2 autonomous runtime and enrollment | Accepted for HTTP/TCP/DNS | [M2 acceptance](M2_ACCEPTANCE_REPORT.md), [operator guide](M2_OPERATOR_GUIDE.md) |
 | M3 synchronization and recovery | Complete for the supported runtime | [Final acceptance](M3_COMPLETION_ACCEPTANCE.md), [hashed evidence](M3_COMPLETION_EVIDENCE.json) |
-| M4 compatibility | Pull-checker, TLS evidence, certificate paging, capacity state, capacity paging, escalation, and group/status-page recovery slices accepted | [Initial coverage](M4_PULL_CHECKER_ACCEPTANCE.md), [Docker bindings](M4_DOCKER_BINDINGS.md), [TLS evidence](M4_TLS_EVIDENCE.md), [certificate paging](M4_CERT_PAGING.md), [capacity state](M4_CAPACITY_STATE.md), [capacity paging](M4_CAPACITY_PAGING.md), [escalation](M4_ESCALATION.md), [group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md). Open: Insights, backup and deployment compatibility |
+| M4 compatibility | Pull-checker, TLS evidence, certificate paging, capacity state, capacity paging, escalation, group/status-page recovery, and Insights slices accepted | [Initial coverage](M4_PULL_CHECKER_ACCEPTANCE.md), [Docker bindings](M4_DOCKER_BINDINGS.md), [TLS evidence](M4_TLS_EVIDENCE.md), [certificate paging](M4_CERT_PAGING.md), [capacity state](M4_CAPACITY_STATE.md), [capacity paging](M4_CAPACITY_PAGING.md), [escalation](M4_ESCALATION.md), [group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md), [Insights](M4_INSIGHTS.md). Open: backup and deployment compatibility |
 | M5 fleet UI and API | Not complete | Administrative workflows, scoped regional views and browser integration |
 | M6 release validation | Not complete | Cross-feature failure tests and controlled V1 activation |
 | M7–M9 | Future work | Optional aggregate paging, SSH provisioning and push gateway |
@@ -59,7 +59,10 @@ stay off. Folder alerts and public status pages now use overall policy for a
 monitor assigned to a remote probe: a regional recovery does not close the
 folder or a public incident unless that policy is a fresh up, and UNKNOWN stays
 visible ([group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md)).
-Insights, backup/deployment compatibility and fleet UI remain M4/M5. Watchdog ACK is
+Insights rankings and the folder/dashboard navigation caches invalidate on
+projection version, and a monitor with overall history is ranked from that
+history ([Insights](M4_INSIGHTS.md)). Backup/deployment compatibility and fleet
+UI remain M4/M5. Watchdog ACK is
 not supported by the regional positive-assignment-generation command target.
 Provider delivery retains its documented external-acceptance ambiguity. A WAL
 admission threshold is not a hard filesystem quota. Local acceptance does not

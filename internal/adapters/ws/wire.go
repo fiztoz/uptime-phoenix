@@ -75,12 +75,13 @@ func toWireTagViews(details []services.MonitorTagDetail) []MonitorTagView {
 
 // HeartbeatView is the WebSocket wire representation of a heartbeat.
 type HeartbeatView struct {
-	MonitorID     int64  `json:"monitor_id"`
-	Status        string `json:"status"`
-	OverallStatus string `json:"overall_status,omitempty"`
-	Time          string `json:"time"`
-	Ping          int    `json:"ping"`
-	Msg           string `json:"msg,omitempty"`
+	MonitorID         int64  `json:"monitor_id"`
+	Status            string `json:"status"`
+	OverallStatus     string `json:"overall_status,omitempty"`
+	ProjectionVersion int64  `json:"projection_version,omitempty"`
+	Time              string `json:"time"`
+	Ping              int    `json:"ping"`
+	Msg               string `json:"msg,omitempty"`
 }
 
 // MonitorConditionView is the WebSocket wire representation of one latest
@@ -155,12 +156,14 @@ func transformPayload(eventType string, payload any) any {
 				if overall, ok := statusFromMap(hb, "Overall"); ok {
 					view.OverallStatus = statusToWire(overall)
 				}
+				view.ProjectionVersion = extractInt64(hb, "ProjectionVersion")
 				return view
 			}
 			view := heartbeatMapToView(hb)
 			if overall, ok := statusFromMap(hb, "overall_status"); ok {
 				view.OverallStatus = statusToWire(overall)
 			}
+			view.ProjectionVersion = extractInt64(hb, "projection_version")
 			return view
 		}
 	case EventConditionUpdate:
@@ -299,10 +302,14 @@ func transformStatusChange(payload any) any {
 	if overall, ok := statusFromMap(m, "overall_status"); ok {
 		status = statusToWire(overall)
 	}
-	return map[string]any{
+	out := map[string]any{
 		"monitor_id": monitorID,
 		"status":     status,
 	}
+	if version := extractInt64(m, "projection_version"); version > 0 {
+		out["projection_version"] = version
+	}
+	return out
 }
 
 func statusFromMap(m map[string]any, key string) (domain.Status, bool) {
@@ -501,6 +508,9 @@ func toHeartbeatPublication(pub domain.HeartbeatPublication) HeartbeatView {
 	view := toHeartbeatView(pub.Heartbeat)
 	if pub.Overall != nil {
 		view.OverallStatus = statusToWire(*pub.Overall)
+	}
+	if pub.ProjectionVersion > 0 {
+		view.ProjectionVersion = pub.ProjectionVersion
 	}
 	return view
 }

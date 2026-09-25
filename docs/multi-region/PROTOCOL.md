@@ -542,7 +542,8 @@ ordered ingest and recovery for the supported runtime. See
 [M4 Docker binding slice](M4_DOCKER_BINDINGS.md),
 [M4 certificate paging slice](M4_CERT_PAGING.md), and
 [M4 escalation slice](M4_ESCALATION.md), and
-[M4 group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md). Public
+[M4 group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md), and
+[M4 Insights](M4_INSIGHTS.md). Public
 acknowledgement links, backup/deployment compatibility, and the administrative
 HTTP/browser feature surface remain M4/M5; do not enable a capability merely
 because its wire shape decodes.
