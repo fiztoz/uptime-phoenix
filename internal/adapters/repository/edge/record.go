@@ -41,25 +41,30 @@ type edgeStateRow struct {
 }
 
 type edgeIncidentRow struct {
-	bun.BaseModel        `bun:"table:edge_alerts"`
-	SourceAlertID        string `bun:",pk"`
-	MonitorID            int64  `bun:"monitor_id,nullzero"`
-	Generation           int64  `bun:"generation,nullzero"`
-	Scope                string
-	SubjectKind          string
-	ConditionKind        *string `bun:"condition_kind"`
-	AckCommandID         string  `bun:"ack_command_id,nullzero"`
-	AckActorDisplayName  string  `bun:"ack_actor_display_name,nullzero"`
-	AckNote              *string
-	Status               string
-	TransitionVersion    int64
-	StartedAt            int64
-	ResolvedAt           *int64
-	AckedAt              *int64
-	Reason               string
-	ConfigRevision       int64
-	CertificateThreshold int64  `bun:"certificate_threshold,nullzero"`
-	CertificateNotAfter  *int64 `bun:"certificate_not_after"`
+	bun.BaseModel           `bun:"table:edge_alerts"`
+	SourceAlertID           string `bun:",pk"`
+	MonitorID               int64  `bun:"monitor_id,nullzero"`
+	Generation              int64  `bun:"generation,nullzero"`
+	Scope                   string
+	SubjectKind             string
+	ConditionKind           *string `bun:"condition_kind"`
+	AckCommandID            string  `bun:"ack_command_id,nullzero"`
+	AckActorDisplayName     string  `bun:"ack_actor_display_name,nullzero"`
+	AckNote                 *string
+	Status                  string
+	TransitionVersion       int64
+	StartedAt               int64
+	ResolvedAt              *int64
+	AckedAt                 *int64
+	Reason                  string
+	ConfigRevision          int64
+	CertificateThreshold    int64  `bun:"certificate_threshold,nullzero"`
+	CertificateNotAfter     *int64 `bun:"certificate_not_after"`
+	EscalationPolicyID      *int64 `bun:"escalation_policy_id"`
+	EscalationPolicyVersion *int64 `bun:"escalation_policy_version"`
+	EscalationStatus        string `bun:"escalation_status,nullzero"`
+	EscalationNextStep      *int64 `bun:"escalation_next_step"`
+	EscalationNextRunAt     *int64 `bun:"escalation_next_run_at"`
 }
 
 func timeFromMicro(value *int64) *time.Time {
@@ -79,7 +84,14 @@ func microFromTime(value *time.Time) *int64 {
 }
 
 func (row edgeIncidentRow) incident(probeID string) *domain.RegionalIncident {
-	return &domain.RegionalIncident{SourceAlertID: row.SourceAlertID, ProbeID: probeID, MonitorID: row.MonitorID, AssignmentGeneration: row.Generation, Scope: domain.IncidentScope(row.Scope), SubjectKind: row.SubjectKind, ConditionKind: edgeStringOrEmpty(row.ConditionKind), AckCommandID: row.AckCommandID, AckActorDisplayName: row.AckActorDisplayName, AckNote: row.AckNote, Status: row.Status, TransitionVersion: row.TransitionVersion, StartedAt: time.UnixMicro(row.StartedAt).UTC(), ResolvedAt: timeFromMicro(row.ResolvedAt), AckedAt: timeFromMicro(row.AckedAt), Reason: row.Reason, ConfigRevision: row.ConfigRevision, CertificateThreshold: row.CertificateThreshold, CertificateNotAfter: timeFromMicro(row.CertificateNotAfter)}
+	out := &domain.RegionalIncident{SourceAlertID: row.SourceAlertID, ProbeID: probeID, MonitorID: row.MonitorID, AssignmentGeneration: row.Generation, Scope: domain.IncidentScope(row.Scope), SubjectKind: row.SubjectKind, ConditionKind: edgeStringOrEmpty(row.ConditionKind), AckCommandID: row.AckCommandID, AckActorDisplayName: row.AckActorDisplayName, AckNote: row.AckNote, Status: row.Status, TransitionVersion: row.TransitionVersion, StartedAt: time.UnixMicro(row.StartedAt).UTC(), ResolvedAt: timeFromMicro(row.ResolvedAt), AckedAt: timeFromMicro(row.AckedAt), Reason: row.Reason, ConfigRevision: row.ConfigRevision, CertificateThreshold: row.CertificateThreshold, CertificateNotAfter: timeFromMicro(row.CertificateNotAfter), EscalationStatus: row.EscalationStatus, EscalationNextStep: row.EscalationNextStep, EscalationNextRunAt: timeFromMicro(row.EscalationNextRunAt)}
+	if row.EscalationPolicyID != nil {
+		out.EscalationPolicyID = *row.EscalationPolicyID
+	}
+	if row.EscalationPolicyVersion != nil {
+		out.EscalationPolicyVersion = *row.EscalationPolicyVersion
+	}
+	return out
 }
 
 func readEdgeEvidence(ctx context.Context, db bun.IDB, i domain.EdgeIdentity, monitorID, generation int64) (domain.EdgeMonitorEvidence, error) {
@@ -328,22 +340,40 @@ func (s *Store) appendTelemetry(ctx context.Context, tx bun.Tx, seq int64, kind 
 }
 
 func saveEdgeIncident(ctx context.Context, tx bun.Tx, o domain.RegionalObservation, prior *domain.RegionalIncident, inc domain.RegionalIncident) error {
-	if !domain.ValidHubID(inc.SourceAlertID) || inc.ProbeID != o.ProbeID || inc.MonitorID != o.MonitorID || inc.AssignmentGeneration != o.AssignmentGeneration || inc.ConfigRevision != o.ConfigRevision || inc.Scope != domain.IncidentScopeRegional || inc.SubjectKind != domain.IncidentSubjectAvailability || inc.StartedAt.IsZero() || inc.EscalationPolicyID != 0 {
+	if !domain.ValidHubID(inc.SourceAlertID) || inc.ProbeID != o.ProbeID || inc.MonitorID != o.MonitorID || inc.AssignmentGeneration != o.AssignmentGeneration || inc.ConfigRevision != o.ConfigRevision || inc.Scope != domain.IncidentScopeRegional || inc.SubjectKind != domain.IncidentSubjectAvailability || inc.StartedAt.IsZero() || !domain.ValidIncidentEscalation(&inc) {
 		return domain.ErrValidation
 	}
 	row := newEdgeIncidentRow(inc)
 	if prior == nil || prior.Status == domain.AlertStatusResolved {
-		if inc.Status != domain.AlertStatusFiring || inc.TransitionVersion != 1 || inc.ResolvedAt != nil || inc.AckedAt != nil || inc.AckCommandID != "" || inc.AckActorDisplayName != "" || inc.AckNote != nil || o.Status != domain.StatusDown {
+		if inc.Status != domain.AlertStatusFiring || inc.TransitionVersion != 1 || inc.ResolvedAt != nil || inc.AckedAt != nil || inc.AckCommandID != "" || inc.AckActorDisplayName != "" || inc.AckNote != nil || o.Status != domain.StatusDown || inc.EscalationStatus != "" && inc.EscalationStatus != domain.EscalationStatePending {
 			return domain.ErrValidation
 		}
 		_, err := tx.NewInsert().Model(&row).Exec(ctx)
 		return err
 	}
-	if !sameIncidentAcknowledgement(inc, *prior) || (prior.Status != domain.AlertStatusFiring && prior.Status != domain.AlertStatusAcked) || inc.SourceAlertID != prior.SourceAlertID || inc.StartedAt.UTC().UnixMicro() != prior.StartedAt.UTC().UnixMicro() || prior.TransitionVersion == math.MaxInt64 || inc.TransitionVersion != prior.TransitionVersion+1 || inc.Status != domain.AlertStatusResolved || inc.ResolvedAt == nil || o.Status != domain.StatusUp {
+	if !sameIncidentAcknowledgement(inc, *prior) || !sameSettledEscalation(*prior, inc) || (prior.Status != domain.AlertStatusFiring && prior.Status != domain.AlertStatusAcked) || inc.SourceAlertID != prior.SourceAlertID || inc.StartedAt.UTC().UnixMicro() != prior.StartedAt.UTC().UnixMicro() || prior.TransitionVersion == math.MaxInt64 || inc.TransitionVersion != prior.TransitionVersion+1 || inc.Status != domain.AlertStatusResolved || inc.ResolvedAt == nil || o.Status != domain.StatusUp {
 		return domain.ErrValidation
 	}
 	_, err := tx.NewUpdate().Model(&row).WherePK().Exec(ctx)
 	return err
+}
+
+// sameSettledEscalation keeps the policy that armed the ladder and requires
+// recovery to cancel pending work instead of leaving a step due.
+func sameSettledEscalation(prior, next domain.RegionalIncident) bool {
+	if prior.EscalationPolicyID != next.EscalationPolicyID {
+		return false
+	}
+	switch prior.EscalationStatus {
+	case "":
+		return next.EscalationStatus == ""
+	case domain.EscalationStatePending, domain.EscalationStateCanceled:
+		return next.EscalationStatus == domain.EscalationStateCanceled && next.EscalationNextStep == nil && next.EscalationNextRunAt == nil
+	case domain.EscalationStateDone:
+		return next.EscalationStatus == domain.EscalationStateDone && next.EscalationNextStep == nil && next.EscalationNextRunAt == nil
+	default:
+		return false
+	}
 }
 
 func insertEdgeIntent(ctx context.Context, tx bun.Tx, o domain.RegionalObservation, inc *domain.RegionalIncident, intent domain.DeliveryIntent) error {
@@ -360,9 +390,17 @@ func insertEdgeIntent(ctx context.Context, tx bun.Tx, o domain.RegionalObservati
 }
 
 func newEdgeIncidentRow(inc domain.RegionalIncident) edgeIncidentRow {
-	row := edgeIncidentRow{SourceAlertID: inc.SourceAlertID, MonitorID: inc.MonitorID, Generation: inc.AssignmentGeneration, Scope: string(inc.Scope), SubjectKind: inc.SubjectKind, Status: inc.Status, TransitionVersion: inc.TransitionVersion, StartedAt: inc.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(inc.ResolvedAt), AckedAt: microFromTime(inc.AckedAt), AckCommandID: inc.AckCommandID, AckActorDisplayName: inc.AckActorDisplayName, AckNote: inc.AckNote, Reason: inc.Reason, ConfigRevision: inc.ConfigRevision, CertificateThreshold: inc.CertificateThreshold, CertificateNotAfter: microFromTime(inc.CertificateNotAfter)}
+	row := edgeIncidentRow{SourceAlertID: inc.SourceAlertID, MonitorID: inc.MonitorID, Generation: inc.AssignmentGeneration, Scope: string(inc.Scope), SubjectKind: inc.SubjectKind, Status: inc.Status, TransitionVersion: inc.TransitionVersion, StartedAt: inc.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(inc.ResolvedAt), AckedAt: microFromTime(inc.AckedAt), AckCommandID: inc.AckCommandID, AckActorDisplayName: inc.AckActorDisplayName, AckNote: inc.AckNote, Reason: inc.Reason, ConfigRevision: inc.ConfigRevision, CertificateThreshold: inc.CertificateThreshold, CertificateNotAfter: microFromTime(inc.CertificateNotAfter), EscalationStatus: inc.EscalationStatus, EscalationNextStep: inc.EscalationNextStep, EscalationNextRunAt: microFromTime(inc.EscalationNextRunAt)}
 	if inc.ConditionKind != "" {
 		row.ConditionKind = edgeOptionalString(inc.ConditionKind)
+	}
+	if inc.EscalationPolicyID > 0 {
+		id := inc.EscalationPolicyID
+		row.EscalationPolicyID = &id
+	}
+	if inc.EscalationPolicyVersion > 0 {
+		version := inc.EscalationPolicyVersion
+		row.EscalationPolicyVersion = &version
 	}
 	return row
 }

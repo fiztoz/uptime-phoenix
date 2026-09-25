@@ -42,6 +42,17 @@ func configBytes(t *testing.T, s ConfigSnapshot) []byte {
 	return append(data, '\n')
 }
 
+func TestEdgeConfigDecoderAcceptsEnabledEscalation(t *testing.T) {
+	decoder := NewEdgeConfigDecoder(checker.Get, notifier.Get)
+	base := m2Config(t)
+	base.EscalationPolicies[0].Enabled = true
+	base.EscalationPolicies[0].Steps = []ConfigEscalationStep{{Step: 1, DelaySeconds: 60, NotificationIDs: []int64{10}}}
+	resolved, err := decoder.DecodeEdge(t.Context(), configBytes(t, base), domain.ProbeConfigTarget{HubID: base.HubID, ProbeID: base.ProbeID})
+	if err != nil || resolved.Policies[30] == nil || !resolved.Policies[30].Enabled || len(resolved.Policies[30].Steps) != 1 || resolved.Assignments[0].EscalationPolicyID == nil || *resolved.Assignments[0].EscalationPolicyID != 30 {
+		t.Fatalf("enabled ladder rejected: %+v %v", resolved, err)
+	}
+}
+
 func TestEdgeConfigDecoderRejectsUnsupportedWithoutIO(t *testing.T) {
 	decoder := NewEdgeConfigDecoder(checker.Get, notifier.Get)
 	base := m2Config(t)
@@ -56,10 +67,6 @@ func TestEdgeConfigDecoderRejectsUnsupportedWithoutIO(t *testing.T) {
 			s.Assignments[0].Monitor.Config = json.RawMessage(`{"container":"phoenix"}`)
 			s.Assignments[0].RequiredCapabilities = []string{"checker.docker.v1"}
 			s.Assignments[0].ResourceBindings = []ResourceBinding{{BindingKey: "docker", Kind: "docker_socket"}}
-		},
-		"enabled escalation": func(s *ConfigSnapshot) {
-			s.EscalationPolicies[0].Enabled = true
-			s.EscalationPolicies[0].Steps = []ConfigEscalationStep{{Step: 1, DelaySeconds: 60, NotificationIDs: []int64{10}}}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -56,6 +56,14 @@ type EdgeConfigReader interface {
 type EdgeCheckRepository interface {
 	ReadEdgeEvidence(ctx context.Context, monitorID, generation int64) (domain.EdgeMonitorEvidence, error)
 	CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckRecord) (domain.RegionalObservation, error)
+	// ListDueEscalations returns firing availability incidents whose pending
+	// ladder step is due at now. The result is ordered by due time, then id.
+	ListDueEscalations(ctx context.Context, now time.Time, limit int) ([]domain.RegionalIncident, error)
+	// CommitEscalationAdvance persists one already-planned ladder transition and
+	// its provider intents. expectedVersion is the incident version the plan was
+	// built from; a newer commit returns ErrStaleLocalState. at is the source
+	// wall clock of the transition.
+	CommitEscalationAdvance(ctx context.Context, expectedVersion int64, incident domain.RegionalIncident, intents []domain.DeliveryIntent, message string, at time.Time) error
 }
 
 // EdgeTelemetryEncoder maps source records into explicit, validated event DTOs.

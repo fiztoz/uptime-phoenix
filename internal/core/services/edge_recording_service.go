@@ -167,6 +167,14 @@ func (s *EdgeRecordingService) Record(ctx context.Context, config *domain.EdgeRe
 					return domain.RegionalObservation{}, err
 				}
 				incident = &domain.RegionalIncident{SourceAlertID: id, Scope: domain.IncidentScopeRegional, SubjectKind: domain.IncidentSubjectAvailability, ProbeID: i.ProbeID, MonitorID: m.ID, AssignmentGeneration: assignment.Generation, Status: domain.AlertStatusFiring, TransitionVersion: 1, StartedAt: at, Reason: o.Message, ConfigRevision: o.ConfigRevision}
+				// Step zero is the direct links queued below. A runnable policy
+				// only schedules its first real step; a disabled policy stays
+				// on the assignment and does not fall through.
+				var policy *domain.EscalationPolicy
+				if assignment.EscalationPolicyID != nil {
+					policy = config.Policies[*assignment.EscalationPolicyID]
+				}
+				domain.ArmAvailabilityEscalation(incident, policy, o.ConfigRevision, at)
 				record.Incident, enqueue = incident, true
 			} else if incident.Status == domain.AlertStatusFiring && m.ResendInterval > 0 {
 				enqueue = before.LastEnqueuedAt == nil || at.Sub(*before.LastEnqueuedAt) >= time.Duration(m.ResendInterval)*time.Minute
@@ -179,6 +187,7 @@ func (s *EdgeRecordingService) Record(ctx context.Context, config *domain.EdgeRe
 			resolved.Status, resolved.ResolvedAt = domain.AlertStatusResolved, &at
 			resolved.TransitionVersion++
 			resolved.ConfigRevision, resolved.Reason = o.ConfigRevision, o.Message
+			domain.SettleAvailabilityEscalation(&resolved)
 			incident, record.Incident, enqueue = &resolved, &resolved, true
 		}
 		if enqueue {

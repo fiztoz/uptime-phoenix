@@ -1376,3 +1376,16 @@ is not implemented in `scripts/probe_runtime_smoke.py`, and the TLS slice's
 `--verify-tls` fixture certificate is not inside the paging window. Treat the
 Go-level matrix above as the current evidence and read
 [the acceptance record](multi-region/M4_CERT_PAGING.md) for what stays unverified.
+
+## M4 escalation acceptance
+
+Run the source, wire, and edge storage tests:
+
+```sh
+rtk proxy go test -count=1 -timeout 180s ./internal/core/domain ./internal/core/services ./internal/adapters/probe ./internal/adapters/repository/edge ./internal/adapters/repository -run 'TestAvailabilityEscalation|TestEdgeRecordingArmsAndCancelsEscalation|TestEdgeEscalationSurvivesRestart|TestAvailabilityEscalationRoundTrips|TestEdgeConfigDecoderAcceptsEnabledEscalation|TestRemoteConfigEncoderPublishesEnabledEscalation|TestAccessReplayAvailabilityEscalation|TestIncidentEscalationRoundTrip'
+```
+
+The edge case must reopen SQLite, advance one due step, and refuse migration
+`014` down while that ladder exists. A skipped or missing case is not acceptance.
+There is no `probe_runtime_smoke.py` flag for this slice. See
+[the acceptance record](multi-region/M4_ESCALATION.md).

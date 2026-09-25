@@ -53,13 +53,28 @@ func TestRemoteConfigEncoderPreservesScopeAndLocalPreferences(t *testing.T) {
 	}
 }
 
+func TestRemoteConfigEncoderPublishesEnabledEscalation(t *testing.T) {
+	d := remoteDefinitionFixture()
+	d.Policies[0].Enabled = true
+	document, err := (RemoteConfigEncoder{}).EncodeRemote(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := DecodeConfigSnapshot(document)
+	if err != nil || len(snapshot.EscalationPolicies) == 0 || !snapshot.EscalationPolicies[0].Enabled || len(snapshot.EscalationPolicies[0].Steps) == 0 {
+		t.Fatalf("enabled ladder dropped: %+v %v", snapshot.EscalationPolicies, err)
+	}
+	if err := validateEdgeRuntimeSnapshot(snapshot); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRemoteConfigEncoderRejectsUnsupportedWork(t *testing.T) {
 	for name, change := range map[string]func(*domain.LocalProbeConfigDefinition){
 		"local identity":           func(d *domain.LocalProbeConfigDefinition) { d.Target.ProbeID = domain.LocalProbeID },
 		"invalid identity":         func(d *domain.LocalProbeConfigDefinition) { d.Target.ProbeID = "edge" },
 		"push":                     func(d *domain.LocalProbeConfigDefinition) { d.Assignments[0].Monitor.Type = "push" },
 		"docker resource bindings": func(d *domain.LocalProbeConfigDefinition) { d.Assignments[0].Monitor.Type = "docker" },
-		"active escalation":        func(d *domain.LocalProbeConfigDefinition) { d.Policies[0].Enabled = true },
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := remoteDefinitionFixture()

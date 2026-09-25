@@ -24,6 +24,12 @@ func (*edgeSourceFake) AcceptConnectionGeneration(context.Context, string, int64
 func (f *edgeSourceFake) ReadEdgeEvidence(context.Context, int64, int64) (domain.EdgeMonitorEvidence, error) {
 	return f.e, nil
 }
+func (f *edgeSourceFake) ListDueEscalations(context.Context, time.Time, int) ([]domain.RegionalIncident, error) {
+	return nil, nil
+}
+func (f *edgeSourceFake) CommitEscalationAdvance(context.Context, int64, domain.RegionalIncident, []domain.DeliveryIntent, string, time.Time) error {
+	return errors.New("unexpected escalation advance")
+}
 func (f *edgeSourceFake) CommitEdgeCheck(_ context.Context, r domain.EdgeCheckRecord) (domain.RegionalObservation, error) {
 	if f.fail != nil {
 		return domain.RegionalObservation{}, f.fail
@@ -47,6 +53,37 @@ func edgeServiceFixture() (*edgeSourceFake, *domain.EdgeResolvedConfig, domain.E
 	c := &domain.EdgeResolvedConfig{Metadata: domain.ProbeConfigMetadata{ProbeConfigTarget: domain.ProbeConfigTarget{HubID: "hub", ProbeID: "probe"}, Revision: 3}, Assignments: []domain.EdgeResolvedAssignment{a}, Channels: map[int64]domain.EdgeResolvedChannel{7: {Notification: &domain.Notification{ID: 7, Active: true}, Version: 3}}, Maintenance: map[int64]*domain.MaintenanceWindow{}}
 	return f, c, a
 }
+func TestEdgeRecordingArmsAndCancelsEscalation(t *testing.T) {
+	f, c, a := edgeServiceFixture()
+	policyID := int64(30)
+	a.Monitor.MaxRetries = 0
+	a.EscalationPolicyID = &policyID
+	c.Assignments[0] = a
+	c.Policies = map[int64]*domain.EscalationPolicy{30: {ID: 30, Enabled: true, Steps: []domain.EscalationStep{{StepOrder: 1, WaitMinutes: 5, NotificationIDs: []int64{8}}}}}
+	svc := NewEdgeRecordingService(f, f, nil)
+	at := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	down := ports.CheckResult{Status: domain.StatusDown, Message: "down"}
+	if _, err := svc.Record(t.Context(), c, a, down, at); err != nil {
+		t.Fatal(err)
+	}
+	opened := f.records[0].Incident
+	if opened == nil || opened.EscalationStatus != domain.EscalationStatePending || opened.EscalationPolicyID != 30 || opened.EscalationNextStep == nil || *opened.EscalationNextStep != 1 || !opened.EscalationNextRunAt.Equal(at.Add(5*time.Minute)) {
+		t.Fatalf("ladder not armed: %+v", opened)
+	}
+	if len(f.records[0].DeliveryIntents) != 1 || f.records[0].DeliveryIntents[0].EscalationStep != 0 {
+		t.Fatal("step zero was claimed by the policy")
+	}
+	f.e.Incident = opened
+	f.e.State = &domain.RegionalState{Seq: 1, Status: domain.StatusDown, DownCount: 1}
+	if _, err := svc.Record(t.Context(), c, a, ports.CheckResult{Status: domain.StatusUp, Message: "up"}, at.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	resolved := f.records[1].Incident
+	if resolved == nil || resolved.Status != domain.AlertStatusResolved || resolved.EscalationStatus != domain.EscalationStateCanceled || resolved.EscalationNextStep != nil || resolved.EscalationPolicyID != 30 {
+		t.Fatalf("recovery left the ladder running: %+v", resolved)
+	}
+}
+
 func TestEdgeRecordingRetryIncidentResendAndRecovery(t *testing.T) {
 	f, c, a := edgeServiceFixture()
 	svc := NewEdgeRecordingService(f, f, nil)

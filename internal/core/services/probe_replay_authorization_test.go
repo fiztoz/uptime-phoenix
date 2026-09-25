@@ -8,6 +8,42 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
+func TestAccessReplayAvailabilityEscalationProgress(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	due := now.Add(5 * time.Minute)
+	step := int64(1)
+	next := int64(2)
+	opening := domain.RegionalIncident{
+		SourceAlertID: "11111111-1111-4111-8111-111111111111", ProbeID: "probe", Scope: domain.IncidentScopeRegional,
+		SubjectKind: domain.IncidentSubjectAvailability, MonitorID: 1, AssignmentGeneration: 2, Status: domain.AlertStatusFiring,
+		TransitionVersion: 1, StartedAt: now.Add(-time.Minute), Reason: "down", ConfigRevision: 3,
+		EscalationPolicyID: 30, EscalationPolicyVersion: 3, EscalationStatus: domain.EscalationStatePending,
+		EscalationNextStep: &step, EscalationNextRunAt: &due,
+	}
+	facts := domain.ProbeReplayAuthorityFacts{ProbeID: "probe", StreamID: "stream", MonitorID: 1, MonitorExists: true, ConfigRevision: 3, ConfigAssignment: &domain.EdgeAssignmentIdentity{MonitorID: 1, Generation: 2, Active: true}, AssignmentHistory: []domain.AssignmentInterval{{ProbeID: "probe", Generation: 2, From: now.Add(-time.Hour)}}}
+	a := &services.AccessService{}
+	openEvent := domain.ProbeReplayEvent{Seq: 1, Kind: domain.ReplayKindAlertTransition, ObservedAt: opening.StartedAt, Incident: &opening}
+	if code, ok := a.AuthorizeEvent(t.Context(), facts, openEvent, now); code != "" || !ok {
+		t.Fatalf("opening ladder rejected: %s", code)
+	}
+	advanced := opening
+	advanced.TransitionVersion = 2
+	advanced.EscalationNextStep = &next
+	later := now.Add(5 * time.Minute)
+	advanced.EscalationNextRunAt = &later
+	facts.PriorIncident = &opening
+	event := domain.ProbeReplayEvent{Seq: 2, Kind: domain.ReplayKindAlertTransition, ObservedAt: now, Incident: &advanced}
+	if code, ok := a.AuthorizeEvent(t.Context(), facts, event, now); code != "" || !ok {
+		t.Fatalf("step advance rejected: %s", code)
+	}
+	stalled := advanced
+	stalled.EscalationNextStep = &step
+	event.Incident = &stalled
+	if code, ok := a.AuthorizeEvent(t.Context(), facts, event, now); code != "transition_identity_conflict" || ok {
+		t.Fatalf("unchanged rung accepted: %s", code)
+	}
+}
+
 func TestAccessReplayRequiresExactConfigAndHistoricalMembership(t *testing.T) {
 	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
 	a := &services.AccessService{}

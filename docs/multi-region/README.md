@@ -1,6 +1,6 @@
 # Multi-region probes
 
-Status: M0–M3 engineering acceptance is complete for the HTTP/TCP/DNS remote runtime. M4 now includes all pull types through the [Docker binding slice](M4_DOCKER_BINDINGS.md), remote certificate metadata through the [TLS evidence slice](M4_TLS_EVIDENCE.md) and source-owned expiry paging through the [certificate paging slice](M4_CERT_PAGING.md); remaining compatibility, M5 fleet UI and M6 release validation are still open. See [current status](IMPLEMENTATION_STATUS.md) and [M3 acceptance](M3_COMPLETION_ACCEPTANCE.md). No production rollout is implied.
+Status: M0–M3 engineering acceptance is complete for the HTTP/TCP/DNS remote runtime. M4 includes all pull types ([Docker bindings](M4_DOCKER_BINDINGS.md)), remote certificate metadata ([TLS evidence](M4_TLS_EVIDENCE.md)), source-owned certificate paging ([certificate paging](M4_CERT_PAGING.md)), capacity state and paging, and source-owned escalation ([escalation](M4_ESCALATION.md)). Group and status-page recovery, backup and deployment compatibility, M5 fleet UI, and M6 release validation are still open. See [current status](IMPLEMENTATION_STATUS.md) and [M3 acceptance](M3_COMPLETION_ACCEPTANCE.md). No production rollout is implied.
 
 Prepared: 2026-09-13. Application baseline: `main` at `5183093c5c218675bab89fe9d6c7056de2d711eb`. Research baseline: Gemini's `research_multi_region_deployment` at `f4ef4a4677120264cb513158df813479ee5dd644`.
 

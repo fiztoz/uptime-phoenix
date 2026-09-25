@@ -37,7 +37,7 @@ func decodeReplayBatch(data []byte, probeID string) (domain.ProbeReplayBatch, er
 			e.Observation = &domain.RegionalObservation{MonitorID: value.MonitorID, ProbeID: probeID, AssignmentGeneration: int64(value.AssignmentGeneration), StreamID: wire.StreamID, Seq: e.Seq, ConfigRevision: int64(value.ConfigRevision), Status: replayDomainStatus(value.Status), RawStatus: replayDomainStatus(value.RawStatus), DownCount: int(value.DownCount), Ping: int(value.Ping), DurationMS: int(value.DurationMS), Message: value.Message, Important: value.Important, ObservedAt: e.ObservedAt, TLS: sourceTLS(value.TLS), Conditions: sourceConditionObservations(value.Conditions)}
 		case IncidentTransition:
 			monitor := value.MonitorID != nil && value.AssignmentGeneration != nil && *value.MonitorID > 0 && *value.AssignmentGeneration > 0
-			availability := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectAvailability && value.Escalation == nil && monitor
+			availability := event.Kind == domain.ReplayKindAlertTransition && value.Subject.Kind == domain.IncidentSubjectAvailability && monitor
 			watchdog := event.Kind == domain.ReplayKindWatchdogTransition && value.Subject.Kind == domain.IncidentSubjectWatchdog && value.Escalation == nil && value.MonitorID == nil && value.AssignmentGeneration == nil
 			// A capacity transition keeps its condition kind through state changes
 			// and recovery; a missing kind cannot re-derive the subject.
@@ -72,6 +72,19 @@ func decodeReplayBatch(data []byte, probeID string) (domain.ProbeReplayBatch, er
 				if value.AckedAt != nil && value.Acknowledgement != nil {
 					at := time.Time(*value.AckedAt).UTC()
 					i.AckedAt, i.AckCommandID, i.AckActorDisplayName, i.AckNote = &at, value.Acknowledgement.CommandID, value.Acknowledgement.ActorDisplayName, value.Acknowledgement.Note
+				}
+				if availability && value.Escalation != nil {
+					i.EscalationPolicyID = value.Escalation.PolicyID
+					i.EscalationPolicyVersion = int64(value.Escalation.PolicyVersion)
+					i.EscalationStatus = value.Escalation.Status
+					i.EscalationNextStep = value.Escalation.NextStep
+					if value.Escalation.NextRunAt != nil {
+						at := time.Time(*value.Escalation.NextRunAt).UTC()
+						i.EscalationNextRunAt = &at
+					}
+					if !domain.ValidIncidentEscalation(i) {
+						return domain.ProbeReplayBatch{}, domain.ErrValidation
+					}
 				}
 				e.Incident = i
 			}

@@ -156,14 +156,21 @@ func (s *Store) acknowledgeIncident(ctx context.Context, tx bun.Tx, identity dom
 	default:
 		return ports.ErrConflict
 	}
-	incident.Status, incident.AckedAt = domain.AlertStatusAcked, microFromTime(&now)
-	incident.AckCommandID, incident.AckActorDisplayName, incident.AckNote = command.CommandID, command.ActorDisplayName, command.Note
-	incident.TransitionVersion++
-	if _, err := tx.NewUpdate().Model(&incident).WherePK().Exec(ctx); err != nil {
+	view := incident.incident(identity.ProbeID)
+	view.Status, view.AckedAt = domain.AlertStatusAcked, &now
+	view.AckCommandID, view.AckActorDisplayName, view.AckNote = command.CommandID, command.ActorDisplayName, command.Note
+	view.TransitionVersion++
+	// Acknowledgement stops the ladder. A finished ladder stays done.
+	domain.SettleAvailabilityEscalation(view)
+	if !domain.ValidIncidentEscalation(view) {
+		return domain.ErrValidation
+	}
+	row := newEdgeIncidentRow(*view)
+	if _, err := tx.NewUpdate().Model(&row).WherePK().Exec(ctx); err != nil {
 		return err
 	}
 	seq := identity.LastCreatedSeq + 1
-	payload, err := s.telemetry.EncodeIncident(seq, now, *incident.incident(identity.ProbeID))
+	payload, err := s.telemetry.EncodeIncident(seq, now, *view)
 	if err != nil {
 		return domain.ErrValidation
 	}

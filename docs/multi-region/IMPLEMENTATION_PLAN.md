@@ -123,17 +123,17 @@ still produce DOWN observations. The [TLS evidence slice](M4_TLS_EVIDENCE.md)
 adds exact certificate metadata to source telemetry, hub history and current state.
 
 **Partial 2026-09-23:** the [certificate paging slice](M4_CERT_PAGING.md) lets a
-remote HTTPS monitor page its certificate expiry: the source evaluates the accepted
-assignment, keeps the delivered-threshold cursor and open incident per generation,
-and sends through its own durable outbox, while the hub mirrors incidents and
-outcomes without inferring a cursor or doing provider work. Capacity promotion remains open, so the combined
-auxiliary requirement below is not marked complete.
+remote HTTPS monitor page its certificate expiry. Capacity state and capacity
+paging were accepted the same day. **Partial 2026-09-25:** the
+[escalation slice](M4_ESCALATION.md) runs the accepted ladder on the source.
+Group and status-page recovery, Insights, backup/restore, and deployment
+documentation remain open.
 
 - [x] Cover all existing pull monitor types: `http`, `tcp`, `ping`, `dns`, `websocket`, `docker`, `mqtt`, `rabbitmq`, `grpc`, `snmp`, `database`, `s3`. Keep push local-only until M9.
 - [ ] Advertise real runtime capability constraints, including ICMP privileges, Docker socket/API availability, engine support, and network/proxy bindings. Reject impossible assignments before activation.
 - [ ] Synchronize maintenance schedules/timezones, direct monitor notification links, provider/template configuration, target visibility flags, tags/owner context, and effective escalation policies.
 - [ ] Preserve direct-monitor and group-notification semantics: group channel attachments page on group incidents and are not automatically copied to every regional monitor.
-- [ ] Preserve escalation precedence (direct monitor policy, then nearest ancestor group); a disabled assigned policy stops inheritance. Persist edge escalation steps and acknowledgement effect.
+- [x] Preserve escalation precedence (direct monitor policy, then nearest ancestor group); a disabled assigned policy stops inheritance. Persist edge escalation steps and acknowledgement effect. **Accepted 2026-09-25:** precedence was already resolved into the snapshot; the source now arms, advances, and cancels the ladder ([escalation](M4_ESCALATION.md)). Public acknowledgement URLs stay off.
 - [x] Add per-probe TLS expiry and capacity history/state. Preserve `ok`, `warning`, `error`, derived `stale`, and two-sample promotion. Capacity warnings/errors keep availability UP. **Accepted 2026-09-23:** TLS expiry history, current state and certificate paging ([certificate paging](M4_CERT_PAGING.md)); capacity history/state with source-owned two-sample promotion ([capacity state](M4_CAPACITY_STATE.md)); source-owned capacity paging and its incident mirror ([capacity paging](M4_CAPACITY_PAGING.md)).
 - [ ] Update group/status-page recovery to use overall policy and fresh evidence. Preserve UNKNOWN through all readers, badges, incident automation, and chart models.
 - [ ] Update Insights and navigation cache invalidation with projection versions; retain the current batched SQL/index paths and benchmark coverage.

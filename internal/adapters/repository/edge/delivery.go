@@ -49,7 +49,9 @@ type edgeDeliveryRow struct {
 	CertIssuer        string `bun:"cert_issuer"`
 	CertNotAfter      *int64 `bun:"cert_not_after"`
 	// Capacity snapshot under the same exactly-when rule as the certificate one.
-	ConditionJSON *string `bun:"condition_json"`
+	ConditionJSON      *string `bun:"condition_json"`
+	EscalationPolicyID int64   `bun:"escalation_policy_id"`
+	EscalationStep     int     `bun:"escalation_step"`
 }
 
 func (row *edgeDeliveryRow) queued(probeID, streamID string) domain.QueuedDelivery {
@@ -63,8 +65,8 @@ func (row *edgeDeliveryRow) queued(probeID, streamID string) domain.QueuedDelive
 			NotificationVersion:     row.NotificationVersion,
 			EventKind:               row.EventKind,
 			AvailableAt:             time.UnixMicro(row.AvailableAt).UTC(),
-			EscalationPolicyID:      0,
-			EscalationStep:          0,
+			EscalationPolicyID:      row.EscalationPolicyID,
+			EscalationStep:          row.EscalationStep,
 		},
 		MonitorID:            row.MonitorID,
 		AssignmentGeneration: row.Generation,
@@ -416,6 +418,9 @@ func sameEdgeDeliveryResult(row *edgeDeliveryRow, result domain.DeliveryResult, 
 // Source recorders validate scope/lifecycle before sharing this bounded insert.
 // NULL monitor/generation represent a probe entity, never a fabricated monitor.
 func insertEdgeQueuedDelivery(ctx context.Context, tx bun.Tx, item domain.QueuedDelivery) error {
+	if item.EscalationStep < 0 || item.EscalationPolicyID < 0 || (item.EscalationStep > 0) != (item.EscalationPolicyID > 0) {
+		return domain.ErrValidation
+	}
 	issuerBytes := int64(0)
 	if item.Certificate != nil {
 		issuerBytes = int64(len(item.Certificate.Issuer))
@@ -436,7 +441,7 @@ func insertEdgeQueuedDelivery(ctx context.Context, tx bun.Tx, item domain.Queued
 	if retainedBytes > maxDeliveryQueueBytes-int64(len(item.CheckOutput))-issuerBytes-1024 {
 		return ErrQueueFull
 	}
-	row := edgeDeliveryRow{DeliveryID: item.DeliveryID, SourceAlertID: item.SourceAlertID, SourceTransitionVersion: item.SourceTransitionVersion, NotificationID: item.NotificationID, NotificationVersion: item.NotificationVersion, EventKind: item.EventKind, MonitorID: item.MonitorID, Generation: item.AssignmentGeneration, SourceSeq: item.SourceSeq, ConfigRevision: item.ConfigRevision, CheckStatus: int(item.CheckStatus), CheckOutput: item.CheckOutput, ObservedAt: item.ObservedAt.UTC().UnixMicro(), IncidentStatus: item.IncidentStatus, StartedAt: item.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(item.ResolvedAt), AvailableAt: item.AvailableAt.UTC().UnixMicro(), Status: domain.DeliveryStatusPending, CreatedAt: item.CreatedAt.UTC().UnixMicro()}
+	row := edgeDeliveryRow{DeliveryID: item.DeliveryID, SourceAlertID: item.SourceAlertID, SourceTransitionVersion: item.SourceTransitionVersion, NotificationID: item.NotificationID, NotificationVersion: item.NotificationVersion, EventKind: item.EventKind, MonitorID: item.MonitorID, Generation: item.AssignmentGeneration, SourceSeq: item.SourceSeq, ConfigRevision: item.ConfigRevision, CheckStatus: int(item.CheckStatus), CheckOutput: item.CheckOutput, ObservedAt: item.ObservedAt.UTC().UnixMicro(), IncidentStatus: item.IncidentStatus, StartedAt: item.StartedAt.UTC().UnixMicro(), ResolvedAt: microFromTime(item.ResolvedAt), AvailableAt: item.AvailableAt.UTC().UnixMicro(), Status: domain.DeliveryStatusPending, CreatedAt: item.CreatedAt.UTC().UnixMicro(), EscalationPolicyID: item.EscalationPolicyID, EscalationStep: item.EscalationStep}
 	if item.Certificate != nil {
 		threshold, days := int64(item.Certificate.Threshold), int64(item.Certificate.DaysRemaining)
 		row.CertThreshold, row.CertDaysRemaining, row.CertIssuer, row.CertNotAfter = &threshold, &days, item.Certificate.Issuer, microFromTime(&item.Certificate.NotAfter)

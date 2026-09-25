@@ -689,8 +689,9 @@ expiry); the outcome travels as a `delivery.result` with event kind
 `probe_delivery_events` and never creates a hub provider intent from them, so
 replayed history cannot page anybody. A threshold advance retires the superseded
 incident before opening the replacement, and maintenance suppresses the whole
-lifecycle rather than consuming a threshold. Capacity promotion and its
-two-sample state machine remain unimplemented on remote probes.
+lifecycle rather than consuming a threshold. Capacity promotion, capacity paging,
+and source-owned escalation are accepted; see
+[capacity paging](M4_CAPACITY_PAGING.md) and [escalation](M4_ESCALATION.md).
 
 ## 11. Operations and observability
 

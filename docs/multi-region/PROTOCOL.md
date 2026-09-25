@@ -272,9 +272,8 @@ identity. These writes never infer certificate incidents or notification cursors
 The certificate alert transitions and `certificate_expiry` outcomes this paging
 produces are emitted by the source that owns the assignment and described in
 section 4.1; the hub mirrors them and never infers a cursor from them. Capacity
-observations/current state still need their M4 runtime owner; see
-[TLS acceptance](M4_TLS_EVIDENCE.md) and
-[certificate paging acceptance](M4_CERT_PAGING.md).
+state, capacity paging, and availability escalation are also source-owned; see
+[capacity paging](M4_CAPACITY_PAGING.md) and [escalation](M4_ESCALATION.md).
 
 ### 5.1 Exact state transfer frames
 
@@ -540,8 +539,9 @@ source fencing, atomic activation, authenticated sessions/leases, authorized
 current state, missing-assignment reconciliation, durable application receipts,
 ordered ingest and recovery for the supported runtime. See
 [M3 acceptance](M3_COMPLETION_ACCEPTANCE.md) and the subsequent
-[M4 Docker binding slice](M4_DOCKER_BINDINGS.md) and
-[M4 certificate paging slice](M4_CERT_PAGING.md). Auxiliary/lifecycle compatibility
-(the remaining capacity state machine, escalation and acknowledgement links) and
-the administrative HTTP/browser feature surface remain M4/M5; do not enable
-a capability merely because its wire shape decodes.
+[M4 Docker binding slice](M4_DOCKER_BINDINGS.md),
+[M4 certificate paging slice](M4_CERT_PAGING.md), and
+[M4 escalation slice](M4_ESCALATION.md). Public acknowledgement links, group and
+status-page recovery, backup/deployment compatibility, and the administrative
+HTTP/browser feature surface remain M4/M5; do not enable a capability merely
+because its wire shape decodes.

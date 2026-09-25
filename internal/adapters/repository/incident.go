@@ -355,6 +355,9 @@ func validateIncident(incident *domain.RegionalIncident) error {
 	if incident.Status == domain.AlertStatusResolved && incident.ResolvedAt == nil {
 		return fmt.Errorf("resolved incident times: %w", domain.ErrValidation)
 	}
+	if !domain.ValidIncidentEscalation(incident) {
+		return fmt.Errorf("incident escalation: %w", domain.ErrValidation)
+	}
 	incident.StartedAt = incident.StartedAt.UTC()
 	if incident.ResolvedAt != nil {
 		t := incident.ResolvedAt.UTC()
@@ -446,7 +449,12 @@ func sameIncidentSnapshot(existing, incoming *probeIncidentModel) bool {
 	return existing.Status == incoming.Status && existing.Reason == incoming.Reason &&
 		existing.ConfigRevision == incoming.ConfigRevision &&
 		sameOptionalTime(existing.ResolvedAt, incoming.ResolvedAt) &&
-		sameOptionalTime(existing.AckedAt, incoming.AckedAt)
+		sameOptionalTime(existing.AckedAt, incoming.AckedAt) &&
+		sameOptionalInt64(existing.EscalationPolicyID, incoming.EscalationPolicyID) &&
+		sameOptionalInt64(existing.EscalationPolicyVersion, incoming.EscalationPolicyVersion) &&
+		sameOptionalString(existing.EscalationStatus, incoming.EscalationStatus) &&
+		sameOptionalInt64(existing.EscalationNextStep, incoming.EscalationNextStep) &&
+		sameOptionalTime(existing.EscalationNextRunAt, incoming.EscalationNextRunAt)
 }
 
 func incidentModel(in domain.RegionalIncident) probeIncidentModel {

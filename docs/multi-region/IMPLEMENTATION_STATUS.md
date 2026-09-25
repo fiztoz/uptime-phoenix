@@ -1,7 +1,7 @@
 # Multi-region implementation status
 
-Updated 2026-09-23 after the M4 capacity paging slice; see
-[capacity paging acceptance](M4_CAPACITY_PAGING.md). Accepted M3
+Updated 2026-09-25 after the M4 escalation slice; see
+[escalation acceptance](M4_ESCALATION.md). Accepted M3
 implementation: `a12a3fa`; completion evidence: `8b455d4`.
 This is the current status. Check HEAD and newer acceptance records before starting work.
 
@@ -11,7 +11,7 @@ This is the current status. Check HEAD and newer acceptance records before start
 | M1 regional persistence and local parity | Accepted after integration corrections | [M1 retrospective](../postmortems/2026-09-20-m1-integration-followup.md), [M2 gate](M2_ACCEPTANCE_REPORT.md) |
 | M2 autonomous runtime and enrollment | Accepted for HTTP/TCP/DNS | [M2 acceptance](M2_ACCEPTANCE_REPORT.md), [operator guide](M2_OPERATOR_GUIDE.md) |
 | M3 synchronization and recovery | Complete for the supported runtime | [Final acceptance](M3_COMPLETION_ACCEPTANCE.md), [hashed evidence](M3_COMPLETION_EVIDENCE.json) |
-| M4 compatibility | Pull-checker, TLS evidence, certificate paging, capacity state and capacity paging slices accepted | [Initial coverage](M4_PULL_CHECKER_ACCEPTANCE.md), [Docker bindings](M4_DOCKER_BINDINGS.md), [TLS evidence](M4_TLS_EVIDENCE.md), [certificate paging](M4_CERT_PAGING.md), [capacity state](M4_CAPACITY_STATE.md), [capacity paging](M4_CAPACITY_PAGING.md). Open: escalation, recovery, backup and deployment compatibility |
+| M4 compatibility | Pull-checker, TLS evidence, certificate paging, capacity state, capacity paging, and escalation slices accepted | [Initial coverage](M4_PULL_CHECKER_ACCEPTANCE.md), [Docker bindings](M4_DOCKER_BINDINGS.md), [TLS evidence](M4_TLS_EVIDENCE.md), [certificate paging](M4_CERT_PAGING.md), [capacity state](M4_CAPACITY_STATE.md), [capacity paging](M4_CAPACITY_PAGING.md), [escalation](M4_ESCALATION.md). Open: group/status-page recovery, Insights, backup and deployment compatibility |
 | M5 fleet UI and API | Not complete | Administrative workflows, scoped regional views and browser integration |
 | M6 release validation | Not complete | Cross-feature failure tests and controlled V1 activation |
 | M7–M9 | Future work | Optional aggregate paging, SSH provisioning and push gateway |
@@ -50,8 +50,12 @@ hysteresis contract, pages confirmed changes and recovery as one capacity
 incident per kind through its own durable outbox, and the hub mirrors promoted
 state, incidents and outcomes without recomputing promotion or touching
 availability ([capacity state](M4_CAPACITY_STATE.md),
-[capacity paging](M4_CAPACITY_PAGING.md)). Escalation, recovery policy,
-backup/deployment compatibility and fleet UI remain M4/M5. Watchdog ACK is
+[capacity paging](M4_CAPACITY_PAGING.md)). Remote escalation now runs on the
+source that owns the assignment: direct monitor policy, then nearest ancestor,
+with a disabled policy stopping inheritance; acknowledgement and recovery cancel
+a pending ladder ([escalation](M4_ESCALATION.md)). Public acknowledgement URLs
+stay off. Group/status-page recovery, Insights, backup/deployment compatibility
+and fleet UI remain M4/M5. Watchdog ACK is
 not supported by the regional positive-assignment-generation command target.
 Provider delivery retains its documented external-acceptance ambiguity. A WAL
 admission threshold is not a hard filesystem quota. Local acceptance does not

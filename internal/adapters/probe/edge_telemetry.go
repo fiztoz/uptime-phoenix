@@ -35,11 +35,12 @@ func (EdgeTelemetryEncoder) EncodeConditionTransition(seq int64, at time.Time, t
 // A watchdog has no monitor/generation; acknowledgement metadata is preserved.
 // Certificate subjects carry their immutable threshold and exact expiry identity.
 func (EdgeTelemetryEncoder) EncodeIncident(seq int64, at time.Time, i domain.RegionalIncident) ([]byte, error) {
-	if i.EscalationPolicyID != 0 || i.EscalationPolicyVersion != 0 || i.EscalationStatus != "" || i.EscalationNextStep != nil || i.EscalationNextRunAt != nil {
+	if at.IsZero() || !domain.ValidIncidentEscalation(&i) {
 		return nil, domain.ErrValidation
 	}
-	if at.IsZero() {
-		return nil, domain.ErrValidation
+	escalation, err := incidentEscalationDTO(i)
+	if err != nil {
+		return nil, err
 	}
 	kind := "alert.transition"
 	var monitorID *int64
@@ -91,7 +92,26 @@ func (EdgeTelemetryEncoder) EncodeIncident(seq int64, at time.Time, i domain.Reg
 	} else if i.AckCommandID != "" || i.AckActorDisplayName != "" || i.AckNote != nil {
 		return nil, domain.ErrValidation
 	}
-	return encodeEdgeEvent(TelemetryEvent{Seq: Decimal(seq), Kind: kind, ObservedAt: Timestamp(at.UTC()), Data: IncidentTransition{SourceAlertID: i.SourceAlertID, Scope: string(i.Scope), MonitorID: monitorID, AssignmentGeneration: generation, Status: i.Status, TransitionVersion: Decimal(i.TransitionVersion), StartedAt: Timestamp(i.StartedAt.UTC()), ResolvedAt: resolvedAt, Reason: i.Reason, ConfigRevision: Decimal(i.ConfigRevision), Subject: subject, AckedAt: ackedAt, Acknowledgement: ack}})
+	return encodeEdgeEvent(TelemetryEvent{Seq: Decimal(seq), Kind: kind, ObservedAt: Timestamp(at.UTC()), Data: IncidentTransition{SourceAlertID: i.SourceAlertID, Scope: string(i.Scope), MonitorID: monitorID, AssignmentGeneration: generation, Status: i.Status, TransitionVersion: Decimal(i.TransitionVersion), StartedAt: Timestamp(i.StartedAt.UTC()), ResolvedAt: resolvedAt, Reason: i.Reason, ConfigRevision: Decimal(i.ConfigRevision), Subject: subject, AckedAt: ackedAt, Acknowledgement: ack, Escalation: escalation}})
+}
+
+func incidentEscalationDTO(i domain.RegionalIncident) (*IncidentEscalation, error) {
+	if i.EscalationStatus == "" {
+		return nil, nil
+	}
+	if i.SubjectKind != domain.IncidentSubjectAvailability {
+		return nil, domain.ErrValidation
+	}
+	out := &IncidentEscalation{PolicyID: i.EscalationPolicyID, PolicyVersion: Decimal(i.EscalationPolicyVersion), Status: i.EscalationStatus}
+	if i.EscalationStatus == domain.EscalationStatePending {
+		if i.EscalationNextStep == nil || i.EscalationNextRunAt == nil {
+			return nil, domain.ErrValidation
+		}
+		step := *i.EscalationNextStep
+		at := Timestamp(i.EscalationNextRunAt.UTC())
+		out.NextStep, out.NextRunAt = &step, &at
+	}
+	return out, nil
 }
 
 // EncodeDelivery stores a redacted provider outcome under a new stream sequence.

@@ -8,7 +8,7 @@ import (
 
 func authorizeAvailabilityReplay(f domain.ProbeReplayAuthorityFacts, e domain.ProbeReplayEvent) string {
 	i := e.Incident
-	if i == nil || e.Observation != nil || e.Delivery != nil || i.ProbeID != f.ProbeID || !domain.ValidHubID(i.SourceAlertID) || i.TransitionVersion <= 0 || i.Scope != domain.IncidentScopeRegional || i.SubjectKind != domain.IncidentSubjectAvailability || i.EscalationPolicyID != 0 || i.ConditionKind != "" || i.CertificateThreshold != 0 || i.StartedAt.IsZero() || len(i.Reason) > 4096 {
+	if i == nil || e.Observation != nil || e.Delivery != nil || i.ProbeID != f.ProbeID || !domain.ValidHubID(i.SourceAlertID) || i.TransitionVersion <= 0 || i.Scope != domain.IncidentScopeRegional || i.SubjectKind != domain.IncidentSubjectAvailability || !domain.ValidIncidentEscalation(i) || i.ConditionKind != "" || i.CertificateThreshold != 0 || i.StartedAt.IsZero() || len(i.Reason) > 4096 {
 		return "event_invalid"
 	}
 	switch i.Status {
@@ -35,12 +35,19 @@ func authorizeAvailabilityReplay(f domain.ProbeReplayAuthorityFacts, e domain.Pr
 		if i.StartedAt.After(e.ObservedAt) {
 			return "event_invalid"
 		}
+		if i.EscalationStatus != "" && i.EscalationStatus != domain.EscalationStatePending {
+			return "event_invalid"
+		}
 		return authorizeReplayAssignment(f, i.MonitorID, i.AssignmentGeneration, i.ConfigRevision, e.ObservedAt)
 	}
-	if prior.SourceAlertID != i.SourceAlertID || prior.ProbeID != f.ProbeID || prior.MonitorID != i.MonitorID || prior.AssignmentGeneration != i.AssignmentGeneration || prior.SubjectKind != i.SubjectKind || prior.Scope != i.Scope || !prior.StartedAt.Equal(i.StartedAt) || prior.Status == domain.AlertStatusResolved || i.TransitionVersion <= prior.TransitionVersion || i.TransitionVersion-prior.TransitionVersion != 1 {
+	if prior.SourceAlertID != i.SourceAlertID || prior.ProbeID != f.ProbeID || prior.MonitorID != i.MonitorID || prior.AssignmentGeneration != i.AssignmentGeneration || prior.SubjectKind != i.SubjectKind || prior.Scope != i.Scope || !prior.StartedAt.Equal(i.StartedAt) || prior.Status == domain.AlertStatusResolved || i.TransitionVersion <= prior.TransitionVersion || i.TransitionVersion-prior.TransitionVersion != 1 || prior.EscalationPolicyID != i.EscalationPolicyID {
 		return "transition_identity_conflict"
 	}
-	if i.Status == domain.AlertStatusFiring || prior.Status != domain.AlertStatusFiring && prior.Status != domain.AlertStatusAcked {
+	if i.Status == domain.AlertStatusFiring {
+		if prior.Status != domain.AlertStatusFiring || !availabilityEscalationProgressed(prior, i) {
+			return "transition_identity_conflict"
+		}
+	} else if (prior.Status != domain.AlertStatusFiring && prior.Status != domain.AlertStatusAcked) || !availabilityEscalationSettled(prior, i) {
 		return "transition_identity_conflict"
 	}
 	if prior.AckedAt != nil {
@@ -191,4 +198,36 @@ func sameReplayAcknowledgement(a, b *domain.RegionalIncident) bool {
 
 func sameAckNote(a, b *string) bool {
 	return (a == nil) == (b == nil) && (a == nil || *a == *b)
+}
+
+// availabilityEscalationProgressed allows a still-firing incident to publish
+// the next rung, finish the ladder, or cancel it. It does not allow a ladder
+// to appear after an opening that had none.
+func availabilityEscalationProgressed(prior, next *domain.RegionalIncident) bool {
+	if prior.EscalationStatus != domain.EscalationStatePending || prior.EscalationNextStep == nil || next.EscalationPolicyID == 0 {
+		return false
+	}
+	switch next.EscalationStatus {
+	case domain.EscalationStatePending:
+		return next.EscalationNextStep != nil && *next.EscalationNextStep > *prior.EscalationNextStep && next.EscalationNextRunAt != nil
+	case domain.EscalationStateDone, domain.EscalationStateCanceled:
+		return next.EscalationNextStep == nil && next.EscalationNextRunAt == nil
+	default:
+		return false
+	}
+}
+
+// availabilityEscalationSettled requires acknowledgement and recovery to stop
+// a pending ladder and to preserve a ladder that already finished or was canceled.
+func availabilityEscalationSettled(prior, next *domain.RegionalIncident) bool {
+	switch prior.EscalationStatus {
+	case "":
+		return next.EscalationStatus == ""
+	case domain.EscalationStatePending, domain.EscalationStateCanceled:
+		return next.EscalationStatus == domain.EscalationStateCanceled && next.EscalationNextStep == nil
+	case domain.EscalationStateDone:
+		return next.EscalationStatus == domain.EscalationStateDone && next.EscalationNextStep == nil
+	default:
+		return false
+	}
 }

@@ -157,18 +157,14 @@ func validateEdgeRuntimeSnapshot(s ConfigSnapshot) error {
 		}
 		// Certificate paging is supported: the source evaluates its own accepted
 		// assignment, holds the delivered-threshold cursor and sends through its own
-		// durable outbox.
+		// durable outbox. Enabled escalation policies are too: the source runs the
+		// accepted ladder and acknowledgement cancels it.
 	}
-	// Acknowledgement links are still unavailable remotely: an ACK must be applied
-	// by the source that owns the incident, and that command path is not built yet.
+	// Public acknowledgement URLs stay off. Remote incidents are acknowledged by
+	// an authenticated hub command, which the source applies to the incident it owns.
 	for _, c := range s.NotificationChannels {
 		if c.IncludeAckURL {
 			return fmt.Errorf("remote acknowledgement links are unavailable in this build: %w", ErrUnsupportedCapability)
-		}
-	}
-	for _, p := range s.EscalationPolicies {
-		if p.Enabled && len(p.Steps) != 0 {
-			return fmt.Errorf("remote escalation is unavailable in this build: %w", ErrUnsupportedCapability)
 		}
 	}
 	return nil

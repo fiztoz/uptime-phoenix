@@ -264,6 +264,15 @@ func runCertificatePagingMigration(t *testing.T, s *Store, direction string) err
 	return s.db.RunInTx(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error { _, err := tx.ExecContext(ctx, string(sql)); return err })
 }
 
+func runEscalationMigration(t *testing.T, s *Store, direction string) error {
+	t.Helper()
+	sql, err := migrations.ReadFile("migrations/014_availability_escalation.tx." + direction + ".sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.db.RunInTx(t.Context(), nil, func(ctx context.Context, tx bun.Tx) error { _, err := tx.ExecContext(ctx, string(sql)); return err })
+}
+
 func runConditionPagingMigration(t *testing.T, s *Store, direction string) error {
 	t.Helper()
 	sql, err := migrations.ReadFile("migrations/013_condition_paging.tx." + direction + ".sql")
@@ -286,6 +295,9 @@ func TestEdgeWatchdogMigrationPreservesExistingWork(t *testing.T) {
 	var original []byte
 	if err := s.db.NewRaw("SELECT payload FROM edge_telemetry_outbox WHERE seq=2").Scan(ctx, &original); err != nil {
 		t.Fatal(err)
+	}
+	if err := runEscalationMigration(t, s, "down"); err != nil {
+		t.Fatalf("014 down: %v", err)
 	}
 	if err := runConditionPagingMigration(t, s, "down"); err != nil {
 		t.Fatalf("013 down: %v", err)
@@ -311,6 +323,9 @@ func TestEdgeWatchdogMigrationPreservesExistingWork(t *testing.T) {
 	}
 	if err := runConditionPagingMigration(t, s, "up"); err != nil {
 		t.Fatalf("013 up after 005 round-trip: %v", err)
+	}
+	if err := runEscalationMigration(t, s, "up"); err != nil {
+		t.Fatalf("014 up after 005 round-trip: %v", err)
 	}
 	after, err := s.GetDeliveryIntent(ctx, testIdentity().ProbeID, before[0].DeliveryID)
 	if err != nil || !reflect.DeepEqual(*after, before[0]) {

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -34,11 +35,75 @@ func (s *EdgeDeliveryService) SetWatchdog(watchdog *ProbeWatchdogDeliveryService
 // ProcessNext claims one delivery so work cannot expire while waiting behind a
 // batch of slow sends. Failed persistence is returned, never reported as sent.
 func (s *EdgeDeliveryService) ProcessNext(ctx context.Context, probeID string) (bool, error) {
+	advanced, err := s.advanceDueEscalation(ctx, probeID)
+	if err != nil || advanced {
+		return advanced, err
+	}
 	items, err := s.outbox.ClaimDeliveries(ctx, probeID, s.now().UTC(), time.Minute, 1)
 	if err != nil || len(items) == 0 {
 		return false, err
 	}
 	return true, s.process(ctx, items[0])
+}
+
+// advanceDueEscalation commits at most one due rung. The following loop claims
+// the intents it queued. A stale version means a check or acknowledgement won
+// the race; the next pass reads the committed incident.
+func (s *EdgeDeliveryService) advanceDueEscalation(ctx context.Context, probeID string) (bool, error) {
+	if s.checks == nil {
+		return false, nil
+	}
+	now := s.now().UTC()
+	due, err := s.checks.ListDueEscalations(ctx, now, 1)
+	if err != nil || len(due) == 0 {
+		return false, err
+	}
+	config, err := s.configs.Load(ctx)
+	if err != nil {
+		return false, err
+	}
+	if config == nil || config.Metadata.ProbeID != probeID {
+		return false, domain.ErrValidation
+	}
+	current := due[0]
+	expected := current.TransitionVersion
+	var assignment *domain.EdgeResolvedAssignment
+	for n := range config.Assignments {
+		a := &config.Assignments[n]
+		if a.Monitor != nil && a.Monitor.ID == current.MonitorID && a.Generation == current.AssignmentGeneration && a.Monitor.Active {
+			assignment = a
+			break
+		}
+	}
+	var policy *domain.EscalationPolicy
+	if assignment != nil && assignment.EscalationPolicyID != nil && *assignment.EscalationPolicyID == current.EscalationPolicyID {
+		policy = config.Policies[current.EscalationPolicyID]
+	}
+	step, changed := domain.AdvanceAvailabilityEscalation(&current, policy, config.Metadata.Revision, now)
+	if !changed {
+		return false, nil
+	}
+	var intents []domain.DeliveryIntent
+	message := ""
+	if step != nil && assignment != nil && assignment.Monitor != nil {
+		message = fmt.Sprintf("ESCALATION step %d (policy %d): %s is still DOWN and unacknowledged", step.StepOrder, current.EscalationPolicyID, assignment.Monitor.Name)
+		for _, id := range step.NotificationIDs {
+			channel, exists := config.Channels[id]
+			if !exists || channel.Notification == nil || !channel.Notification.Active || channel.Version != config.Metadata.Revision {
+				continue
+			}
+			deliveryID, err := newUUIDv4()
+			if err != nil {
+				return false, err
+			}
+			intents = append(intents, domain.DeliveryIntent{DeliveryID: deliveryID, SourceAlertID: current.SourceAlertID, SourceTransitionVersion: current.TransitionVersion, ProbeID: probeID, NotificationID: id, NotificationVersion: channel.Version, EventKind: domain.DeliveryEventStatusChange, AvailableAt: now, EscalationPolicyID: current.EscalationPolicyID, EscalationStep: step.StepOrder})
+		}
+	}
+	err = s.checks.CommitEscalationAdvance(ctx, expected, current, intents, message, now)
+	if errors.Is(err, ports.ErrStaleLocalState) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func (s *EdgeDeliveryService) process(ctx context.Context, item domain.QueuedDelivery) error {
@@ -69,10 +134,15 @@ func (s *EdgeDeliveryService) process(ctx context.Context, item domain.QueuedDel
 		return finish(domain.DeliveryStatusSuperseded, "", time.Time{})
 	}
 	linked, includeTarget := false, false
-	for _, link := range assignment.NotificationLinks {
-		if link.NotificationID == item.NotificationID {
-			linked, includeTarget = true, link.IncludeTarget
-			break
+	if item.EscalationStep > 0 {
+		linked = escalationStepAuthorized(config, assignment, item)
+		includeTarget = true
+	} else {
+		for _, link := range assignment.NotificationLinks {
+			if link.NotificationID == item.NotificationID {
+				linked, includeTarget = true, link.IncludeTarget
+				break
+			}
 		}
 	}
 	maintenance, err := EdgeMaintenanceActive(config, *assignment, s.cron, s.now().UTC())
@@ -86,7 +156,10 @@ func (s *EdgeDeliveryService) process(ctx context.Context, item domain.QueuedDel
 	if err != nil {
 		return err
 	}
-	if item.CheckStatus == domain.StatusDown && (evidence.Incident == nil || evidence.Incident.SourceAlertID != item.SourceAlertID || evidence.Incident.Status != domain.AlertStatusFiring || evidence.Incident.TransitionVersion != item.SourceTransitionVersion) {
+	// A later escalation rung keeps the incident firing and must not cancel the
+	// direct notification or an earlier rung that is still leased. Acknowledgement
+	// and recovery leave the firing status, which is what supersedes them.
+	if item.CheckStatus == domain.StatusDown && (evidence.Incident == nil || evidence.Incident.SourceAlertID != item.SourceAlertID || evidence.Incident.Status != domain.AlertStatusFiring) {
 		return finish(domain.DeliveryStatusSuperseded, "", time.Time{})
 	}
 	provider, ok := s.sender(channel.Notification.Type)
@@ -126,6 +199,27 @@ func (s *EdgeDeliveryService) process(ctx context.Context, item domain.QueuedDel
 		return finish(domain.DeliveryStatusRetrying, code, s.now().UTC().Add(CalculateBackoff(item.Attempt)))
 	}
 	return finish(domain.DeliveryStatusFailed, code, time.Time{})
+}
+
+func escalationStepAuthorized(config *domain.EdgeResolvedConfig, assignment *domain.EdgeResolvedAssignment, item domain.QueuedDelivery) bool {
+	if assignment.EscalationPolicyID == nil || *assignment.EscalationPolicyID != item.EscalationPolicyID {
+		return false
+	}
+	policy := config.Policies[item.EscalationPolicyID]
+	if policy == nil || !policy.Enabled {
+		return false
+	}
+	for _, step := range policy.Steps {
+		if step.StepOrder != item.EscalationStep {
+			continue
+		}
+		for _, id := range step.NotificationIDs {
+			if id == item.NotificationID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func edgeAlertContext(item domain.QueuedDelivery, a domain.EdgeResolvedAssignment, config *domain.EdgeResolvedConfig, channel *domain.Notification, includeTarget bool, at time.Time) domain.AlertContext {
