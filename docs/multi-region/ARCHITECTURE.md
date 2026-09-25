@@ -693,6 +693,24 @@ lifecycle rather than consuming a threshold. Capacity promotion, capacity paging
 and source-owned escalation are accepted; see
 [capacity paging](M4_CAPACITY_PAGING.md) and [escalation](M4_ESCALATION.md).
 
+The implemented [M4 backup/config slice](M4_BACKUP_CONFIG.md) gives both
+declarative documents portable probe identity. The backup document is version 2
+(version 1 stays importable) and carries probe identity metadata plus complete
+monitor assignment sets referenced by stable probe key, with probe-local
+resource binding references but no endpoint, TLS pin, sealed credential,
+session token or edge queue. Import reuses an existing identity by id or key,
+creates unknown ones **disabled pending reenrollment**, and refuses to import a
+monitor whose set cannot be honored exactly — an unrestorable assignment never
+reroutes a monitor to the hub scheduler. `phoenix-probe-admin register` adopts
+and re-enables a matching restored identity as the reenrollment entry point.
+Config-as-code adds `spec.probes` (keyed natively by probe key, never in
+`config_keys`) and per-monitor `probe_assignments`/`health_policy`; an omitted
+list is unmanaged, prune never deletes registrations, and plan refuses any set
+whose member would be disabled after apply. The declarative commit is the new
+`MonitorProbeAssignmentRepository.Restore` — like `Replace` but members must be
+registered rather than enabled — while live operator input keeps using
+`Replace`, which still refuses disabled registrations.
+
 ## 11. Operations and observability
 
 Expose bounded-cardinality metrics for connected probes, reconnects, control age, ingest lag, queue bytes/oldest age, dropped/gap events, config desired/applied revision, rejected assignments, duplicate batches, clock skew, check-slot saturation, notification retries/failures, and connector lease ownership. Put high-cardinality stream IDs, event IDs, and detailed monitor identifiers in protected structured logs rather than unbounded metric labels.

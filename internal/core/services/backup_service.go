@@ -4,6 +4,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -15,7 +16,13 @@ import (
 
 // BackupDocumentVersion is the schema version of the export JSON.
 // Bump when the wire shape changes incompatibly so importers can migrate.
-const BackupDocumentVersion = 1
+// Version 2 added remote probe identities and monitor assignment sets.
+const BackupDocumentVersion = 2
+
+// BackupDocumentVersionMin is the oldest schema Import still accepts. Version 1
+// documents simply carry no probe sections, so their monitors keep the legacy
+// local assignment on import.
+const BackupDocumentVersionMin = 1
 
 // BackupDocument is the versioned JSON shape written by Export and accepted by Import.
 //
@@ -47,9 +54,45 @@ type BackupDocument struct {
 	Incidents           []BackupIncident           `json:"incidents"`
 	MaintenanceWindows  []BackupMaintenance        `json:"maintenance_windows"`
 	MaintenanceMonitors []BackupMaintenanceMonitor `json:"maintenance_monitors"`
+	// Probes and MonitorProbeAssignments exist only in version 2 documents.
+	// Probes carry logical registration metadata (stable key, name, location)
+	// and nothing else: runtime session credentials, sealed credentials,
+	// connector leases and edge queues are never part of a backup, so a
+	// restored identity is disabled and inert until an operator reenrolls it.
+	Probes                  []BackupProbe                `json:"probes,omitempty"`
+	MonitorProbeAssignments []BackupMonitorAssignmentSet `json:"monitor_probe_assignments,omitempty"`
 	// StatusPageSubscriptionChannels is the per-page SMTP channel binding only.
 	// Never export subscriber emails, tokens, or confirmation state (Sprint C F3.1).
 	StatusPageSubscriptionChannels []BackupStatusPageSubscriptionChannel `json:"status_page_subscription_channels,omitempty"`
+}
+
+// BackupProbe is the export shape of one remote probe registration. It is
+// identity metadata only; the stable Key is the portable identity referenced by
+// BackupMonitorAssignmentSet members, and ID is the runtime identity an operator
+// reenrolls. The reserved local row is never exported.
+type BackupProbe struct {
+	ID       string           `json:"id"`
+	Key      string           `json:"key"`
+	Name     string           `json:"name"`
+	Location string           `json:"location"`
+	Kind     domain.ProbeKind `json:"kind"`
+}
+
+// BackupMonitorAssignmentSet is one monitor's complete desired vantage-point
+// set. It exists only in version 2 documents; a document without it leaves
+// every monitor on the legacy local assignment.
+type BackupMonitorAssignmentSet struct {
+	MonitorID    int64                           `json:"monitor_id"`
+	HealthPolicy domain.HealthPolicy             `json:"health_policy"`
+	Members      []BackupMonitorAssignmentMember `json:"members"`
+}
+
+// BackupMonitorAssignmentMember references a probe by stable key and carries
+// the probe-local resource binding reference, never the bound endpoint.
+type BackupMonitorAssignmentMember struct {
+	ProbeKey    string `json:"probe_key"`
+	BindingKey  string `json:"binding_key,omitempty"`
+	BindingKind string `json:"binding_kind,omitempty"`
 }
 
 // BackupStatusPageSubscriptionChannel links a status page to one SMTP notification.
@@ -243,6 +286,15 @@ type ImportSkipped struct {
 	Reason string `json:"reason"`
 }
 
+// ImportProbe reports how one document probe identity landed on this install.
+// Newly created identities are disabled pending reenrollment; reused identities
+// keep their current registration state.
+type ImportProbe struct {
+	Key    string `json:"key"`
+	ID     string `json:"id"`
+	Reused bool   `json:"reused"`
+}
+
 // ImportSummary is returned by Import with creation counts and skips.
 type ImportSummary struct {
 	ProxiesCreated               int             `json:"proxies_created"`
@@ -261,6 +313,10 @@ type ImportSummary struct {
 	IncidentsCreated             int             `json:"incidents_created"`
 	MaintenanceWindowsCreated    int             `json:"maintenance_windows_created"`
 	MaintenanceMonitorsCreated   int             `json:"maintenance_monitors_created"`
+	ProbesCreated                int             `json:"probes_created"`
+	ProbesReused                 int             `json:"probes_reused"`
+	MonitorProbeSetsRestored     int             `json:"monitor_probe_sets_restored"`
+	Probes                       []ImportProbe   `json:"probes,omitempty"`
 	Skipped                      []ImportSkipped `json:"skipped"`
 }
 
@@ -285,6 +341,12 @@ type BackupService struct {
 	maintenance   ports.MaintenanceRepository
 	maintMonitors ports.MaintenanceWindowMonitorRepository
 	proxies       ports.ProxyRepository
+	// Optional: probe identity and assignment restoration (M4). When either is
+	// nil, probe sections are omitted from exports and every document monitor
+	// that carries an assignment set is skipped on import rather than being
+	// silently rerouted to the local scheduler.
+	probeRegistry    ports.ProbeRegistryRepository
+	probeAssignments ports.MonitorProbeAssignmentRepository
 	// Optional: channel Get/Set only — never used to export subscriber PII.
 	spSubscribers ports.StatusPageSubscriberRepository
 	// Optional: when set, monitor/group create goes through the service so
@@ -367,6 +429,21 @@ func (s *BackupService) SetProxyService(ps *ProxyService) {
 // emails and tokens are never exported.
 func (s *BackupService) SetSubscriberRepo(repo ports.StatusPageSubscriberRepository) {
 	s.spSubscribers = repo
+}
+
+// SetProbeRegistry attaches the probe registration store so remote identities
+// survive export/import with their stable keys. Restored identities are created
+// disabled pending reenrollment; runtime credentials never travel in a backup.
+func (s *BackupService) SetProbeRegistry(repo ports.ProbeRegistryRepository) {
+	s.probeRegistry = repo
+}
+
+// SetProbeAssignments attaches the desired-assignment store so monitor
+// vantage-point sets round-trip with their policy and resource bindings. It
+// must be paired with SetProbeRegistry: without both, a document that declares
+// an assignment set is refused instead of being rerouted to local.
+func (s *BackupService) SetProbeAssignments(repo ports.MonitorProbeAssignmentRepository) {
+	s.probeAssignments = repo
 }
 
 // Export builds a BackupDocument for everything owned by (or linked to) userID.
@@ -702,6 +779,59 @@ func (s *BackupService) Export(ctx context.Context, userID int64) (*BackupDocume
 		}
 	}
 
+	// Remote probe identities and monitor assignment sets (version 2). Both
+	// stores must be present; without them the document simply carries no probe
+	// sections. Only probes referenced by this user's monitors travel — the
+	// fleet list is install-wide and is never leaked through a per-user export.
+	// Registration metadata is all there is: no endpoint, TLS pin, sealed
+	// credential, session token or edge queue is ever exported.
+	if s.probeRegistry != nil && s.probeAssignments != nil {
+		probesByKey := map[string]BackupProbe{}
+		for _, m := range monitors {
+			set, err := s.probeAssignments.GetByMonitorID(ctx, m.ID)
+			if err != nil {
+				if errors.Is(err, ports.ErrNotFound) {
+					continue
+				}
+				return nil, fmt.Errorf("backup export: probe assignments for monitor %d: %w", m.ID, err)
+			}
+			entry := BackupMonitorAssignmentSet{
+				MonitorID:    m.ID,
+				HealthPolicy: set.HealthPolicy,
+				Members:      []BackupMonitorAssignmentMember{},
+			}
+			for _, member := range set.Assignments {
+				key := domain.LocalProbeID
+				if member.ProbeID != domain.LocalProbeID {
+					p, err := s.probeRegistry.GetByID(ctx, member.ProbeID)
+					if err != nil {
+						return nil, fmt.Errorf("backup export: probe %s: %w", member.ProbeID, err)
+					}
+					key = p.Key
+					if _, ok := probesByKey[key]; !ok {
+						probesByKey[key] = BackupProbe{ID: p.ID, Key: p.Key, Name: p.Name, Location: p.Location, Kind: p.Kind}
+					}
+				}
+				bm := BackupMonitorAssignmentMember{ProbeKey: key}
+				if member.ResourceBinding != nil {
+					bm.BindingKey = member.ResourceBinding.BindingKey
+					bm.BindingKind = member.ResourceBinding.Kind
+				}
+				entry.Members = append(entry.Members, bm)
+			}
+			sort.Slice(entry.Members, func(i, j int) bool { return entry.Members[i].ProbeKey < entry.Members[j].ProbeKey })
+			doc.MonitorProbeAssignments = append(doc.MonitorProbeAssignments, entry)
+		}
+		sort.Slice(doc.MonitorProbeAssignments, func(i, j int) bool {
+			return doc.MonitorProbeAssignments[i].MonitorID < doc.MonitorProbeAssignments[j].MonitorID
+		})
+		doc.Probes = []BackupProbe{}
+		for _, p := range probesByKey {
+			doc.Probes = append(doc.Probes, p)
+		}
+		sort.Slice(doc.Probes, func(i, j int) bool { return doc.Probes[i].Key < doc.Probes[j].Key })
+	}
+
 	return doc, nil
 }
 
@@ -712,12 +842,12 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 		return nil, fmt.Errorf("backup import: %w: document is required", domain.ErrValidation)
 	}
 	if doc.Version == 0 {
-		// Treat missing version as v1 for slightly older hand-written docs.
+		// Treat missing version as the current schema for hand-written docs.
 		doc.Version = BackupDocumentVersion
 	}
-	if doc.Version != BackupDocumentVersion {
-		return nil, fmt.Errorf("backup import: %w: unsupported backup version %d (want %d)",
-			domain.ErrValidation, doc.Version, BackupDocumentVersion)
+	if doc.Version < BackupDocumentVersionMin || doc.Version > BackupDocumentVersion {
+		return nil, fmt.Errorf("backup import: %w: unsupported backup version %d (supported %d..%d)",
+			domain.ErrValidation, doc.Version, BackupDocumentVersionMin, BackupDocumentVersion)
 	}
 
 	summary := &ImportSummary{Skipped: []ImportSkipped{}}
@@ -729,6 +859,36 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 	monitorMap := map[int64]int64{}
 	spMap := map[int64]int64{}
 	maintMap := map[int64]int64{}
+
+	// 0. Remote probe identities. The stable key is the identity: an existing
+	// registration (same id, or the same key under another id) is reused so a
+	// restore can never mint a duplicate live probe identity. Everything else
+	// is created DISABLED and without any runtime credential — restored remote
+	// identities remain disabled pending reenrollment. Runtime session
+	// credentials, sealed credentials, connector leases and edge queues are
+	// deliberately not part of the document and are never recreated here.
+	probeByKey := map[string]string{domain.LocalProbeID: domain.LocalProbeID}
+	probesAvailable := s.probeRegistry != nil && s.probeAssignments != nil
+	if probesAvailable {
+		for _, bp := range doc.Probes {
+			p, reused, err := s.restoreProbeIdentity(ctx, bp)
+			if err != nil {
+				summary.Skipped = append(summary.Skipped, ImportSkipped{Kind: "probe", Name: bp.Key, Reason: err.Error()})
+				continue
+			}
+			probeByKey[p.Key] = p.ID
+			summary.Probes = append(summary.Probes, ImportProbe{Key: p.Key, ID: p.ID, Reused: reused})
+			if reused {
+				summary.ProbesReused++
+			} else {
+				summary.ProbesCreated++
+			}
+		}
+	}
+	setsByMonitor := map[int64]BackupMonitorAssignmentSet{}
+	for _, set := range doc.MonitorProbeAssignments {
+		setsByMonitor[set.MonitorID] = set
+	}
 
 	// 1. Proxies
 	for _, bp := range doc.Proxies {
@@ -926,6 +1086,33 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 			// Missing proxy: create monitor without proxy rather than skip entirely.
 		}
 
+		// A document assignment set is authoritative for this monitor. When it
+		// cannot be honored exactly, the monitor is not imported at all: leaving
+		// it on the placeholder local assignment would silently reroute regional
+		// work to the hub scheduler.
+		set, hasSet := setsByMonitor[bm.ID]
+		var setIDs []string
+		var setBindings []domain.ProbeAssignmentBinding
+		var setPolicy domain.HealthPolicy
+		if hasSet {
+			if !probesAvailable {
+				summary.Skipped = append(summary.Skipped, ImportSkipped{
+					Kind: "monitor", ID: bm.ID, Name: bm.Name,
+					Reason: "monitor probe assignments are not restorable on this install; refusing to import it as local",
+				})
+				continue
+			}
+			ids, bindings, policy, err := resolveAssignmentSet(set, probeByKey)
+			if err != nil {
+				summary.Skipped = append(summary.Skipped, ImportSkipped{
+					Kind: "monitor", ID: bm.ID, Name: bm.Name,
+					Reason: fmt.Sprintf("probe assignments could not be resolved (%s); refusing to import it as local", err),
+				})
+				continue
+			}
+			setIDs, setBindings, setPolicy = ids, bindings, policy
+		}
+
 		m := &domain.Monitor{
 			UserID:              userID,
 			Name:                bm.Name,
@@ -973,6 +1160,22 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 		}
 		monitorMap[bm.ID] = m.ID
 		summary.MonitorsCreated++
+		if hasSet {
+			if err := s.restoreAssignmentSet(ctx, m.ID, setIDs, setPolicy, setBindings); err != nil {
+				// The monitor must not survive with the placeholder local
+				// assignment. Remove the row created moments ago and report the
+				// monitor as not imported.
+				_ = s.monitors.Delete(ctx, m.ID)
+				delete(monitorMap, bm.ID)
+				summary.MonitorsCreated--
+				summary.Skipped = append(summary.Skipped, ImportSkipped{
+					Kind: "monitor", ID: bm.ID, Name: bm.Name,
+					Reason: fmt.Sprintf("probe assignments could not be restored (%s); monitor was not imported", err),
+				})
+				continue
+			}
+			summary.MonitorProbeSetsRestored++
+		}
 	}
 
 	// 6. Monitor-tag assignments
@@ -1322,4 +1525,102 @@ func (s *BackupService) uniqueStatusPageSlug(ctx context.Context, base string) (
 		}
 	}
 	return "", fmt.Errorf("could not allocate unique slug for %q", base)
+}
+
+// restoreProbeIdentity brings one document probe identity onto this install and
+// reports whether an existing registration was reused. The stable key is the
+// identity: the document id is preferred when it is free, an existing id or an
+// existing key is adopted, and a conflicting pair is refused instead of being
+// silently merged. Newly created registrations are disabled and credentialless
+// until an operator reenrolls them.
+func (s *BackupService) restoreProbeIdentity(ctx context.Context, bp BackupProbe) (*domain.Probe, bool, error) {
+	kind := bp.Kind
+	if kind == "" {
+		kind = domain.ProbeKindRemote
+	}
+	if kind != domain.ProbeKindRemote || bp.Key == "" || bp.Key == domain.LocalProbeID {
+		return nil, false, fmt.Errorf("probe %q: only remote identities with a stable key can be restored", bp.Key)
+	}
+	if bp.ID != "" {
+		existing, err := s.probeRegistry.GetByID(ctx, bp.ID)
+		if err == nil {
+			if existing.Key != bp.Key {
+				return nil, false, fmt.Errorf("probe %q: identity %s is already registered as %q", bp.Key, bp.ID, existing.Key)
+			}
+			return existing, true, nil
+		}
+		if !errors.Is(err, ports.ErrNotFound) {
+			return nil, false, err
+		}
+	}
+	if existing, err := s.probeRegistry.GetByKey(ctx, bp.Key); err == nil {
+		return existing, true, nil
+	} else if !errors.Is(err, ports.ErrNotFound) {
+		return nil, false, err
+	}
+	p := &domain.Probe{
+		ID: bp.ID, Key: bp.Key, Name: bp.Name, Location: bp.Location,
+		Kind: domain.ProbeKindRemote, Enabled: false,
+	}
+	if err := s.probeRegistry.Create(ctx, p); err != nil {
+		return nil, false, fmt.Errorf("probe %q: %w", bp.Key, err)
+	}
+	return p, false, nil
+}
+
+// restoreAssignmentSet commits the desired set for a freshly imported monitor.
+// The monitor was created with the placeholder local assignment, so the live
+// revision is read back instead of assumed.
+func (s *BackupService) restoreAssignmentSet(ctx context.Context, monitorID int64, ids []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) error {
+	revision := int64(1)
+	if current, err := s.probeAssignments.GetByMonitorID(ctx, monitorID); err == nil {
+		revision = current.Revision
+	} else if !errors.Is(err, ports.ErrNotFound) {
+		return err
+	}
+	_, err := s.probeAssignments.Restore(ctx, monitorID, revision, ids, policy, bindings)
+	return err
+}
+
+// resolveAssignmentSet maps one document assignment set onto live probe IDs.
+// The reserved local key resolves without a registration lookup. An unknown
+// key, a duplicate member, an unsupported policy or an invalid resource binding
+// is an error: Import must never quietly turn a regional assignment into local
+// execution.
+func resolveAssignmentSet(set BackupMonitorAssignmentSet, probeByKey map[string]string) ([]string, []domain.ProbeAssignmentBinding, domain.HealthPolicy, error) {
+	policy := set.HealthPolicy
+	if policy == "" {
+		policy = domain.HealthPolicyAnyDown
+	}
+	if policy != domain.HealthPolicyAnyDown && policy != domain.HealthPolicyAllDown {
+		return nil, nil, "", fmt.Errorf("unsupported health policy %q", set.HealthPolicy)
+	}
+	if len(set.Members) == 0 {
+		return nil, nil, "", fmt.Errorf("assignment set has no members")
+	}
+	ids := make([]string, 0, len(set.Members))
+	bindings := []domain.ProbeAssignmentBinding{}
+	seen := map[string]struct{}{}
+	for _, member := range set.Members {
+		id, ok := probeByKey[member.ProbeKey]
+		if !ok {
+			return nil, nil, "", fmt.Errorf("probe key %q is not restorable on this install", member.ProbeKey)
+		}
+		if _, dup := seen[id]; dup {
+			return nil, nil, "", fmt.Errorf("duplicate probe key %q", member.ProbeKey)
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+		if member.BindingKey != "" || member.BindingKind != "" {
+			binding := domain.ProbeAssignmentBinding{
+				ProbeID:              id,
+				ProbeResourceBinding: domain.ProbeResourceBinding{BindingKey: member.BindingKey, Kind: member.BindingKind},
+			}
+			if id == domain.LocalProbeID || !domain.ValidProbeResourceBinding(binding.ProbeResourceBinding) {
+				return nil, nil, "", fmt.Errorf("invalid resource binding for probe %q", member.ProbeKey)
+			}
+			bindings = append(bindings, binding)
+		}
+	}
+	return ids, bindings, policy, nil
 }

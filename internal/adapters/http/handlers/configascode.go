@@ -137,7 +137,7 @@ func decodeConfigApplyRequest(c echo.Context) (*ConfigApplyRequest, error) {
 
 func hasConfigSpec(doc *services.ConfigDocument) bool {
 	s := doc.Spec
-	return len(s.Tags)+len(s.Proxies)+len(s.Notifications)+len(s.MonitorGroups)+
+	return len(s.Tags)+len(s.Proxies)+len(s.Notifications)+len(s.Probes)+len(s.MonitorGroups)+
 		len(s.Monitors)+len(s.StatusPages)+len(s.MaintenanceWindows) > 0
 }
 

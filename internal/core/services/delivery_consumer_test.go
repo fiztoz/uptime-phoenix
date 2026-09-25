@@ -131,6 +131,10 @@ func (r *fakeProbeAssignmentRepo) Replace(_ context.Context, _ int64, _ int64, _
 	return nil, nil
 }
 
+func (r *fakeProbeAssignmentRepo) Restore(_ context.Context, _ int64, _ int64, _ []string, _ domain.HealthPolicy, _ []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+	return nil, nil
+}
+
 func (r *fakeProbeAssignmentRepo) ExecutableByLocal(_ context.Context, _ []int64) (map[int64]int64, error) {
 	return nil, nil
 }

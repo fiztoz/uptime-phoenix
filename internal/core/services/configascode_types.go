@@ -25,6 +25,7 @@ type ConfigSpec struct {
 	Tags                 []ConfigTag                 `json:"tags,omitempty" yaml:"tags,omitempty"`
 	Proxies              []ConfigProxy               `json:"proxies,omitempty" yaml:"proxies,omitempty"`
 	Notifications        []ConfigNotification        `json:"notifications,omitempty" yaml:"notifications,omitempty"`
+	Probes               []ConfigProbe               `json:"probes,omitempty" yaml:"probes,omitempty"`
 	MonitorGroups        []ConfigMonitorGroup        `json:"monitor_groups,omitempty" yaml:"monitor_groups,omitempty"`
 	Monitors             []ConfigMonitor             `json:"monitors,omitempty" yaml:"monitors,omitempty"`
 	MonitorTags          []ConfigMonitorTag          `json:"monitor_tags,omitempty" yaml:"monitor_tags,omitempty"`
@@ -69,6 +70,24 @@ type ConfigNotification struct {
 	Config        map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
 }
 
+// ConfigProbe is a remote probe registration declaration. Its key IS the
+// stable probe key (`probes.probe_key`), the portable identity used by
+// monitor assignment references; probe identity is keyed natively and is never
+// recorded in config_keys. Connection material — endpoint, TLS pin, sealed
+// credentials, enrollment tokens — is never part of the document: a created
+// registration is inert until an operator registers and enrolls it out of band.
+// Probe registrations are upsert-only; prune never deletes them.
+type ConfigProbe struct {
+	Key      string `json:"key" yaml:"key"`
+	Name     string `json:"name" yaml:"name"`
+	Location string `json:"location,omitempty" yaml:"location,omitempty"`
+	// Enabled controls whether the registration may hold assignments and
+	// admit connections. Omitted keeps the current state on update and creates
+	// an enabled registration (nothing executes without an enrolled
+	// credential). An enabled:false declaration disables the registration.
+	Enabled *bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`
+}
+
 // ConfigMonitorGroup is a folder declaration.
 type ConfigMonitorGroup struct {
 	Key                string `json:"key" yaml:"key"`
@@ -105,6 +124,24 @@ type ConfigMonitor struct {
 	Weight              int            `json:"weight,omitempty" yaml:"weight,omitempty"`
 	TLSIgnore           bool           `json:"tls_ignore,omitempty" yaml:"tls_ignore,omitempty"`
 	CertExpiryNotify    bool           `json:"cert_expiry_notify,omitempty" yaml:"cert_expiry_notify,omitempty"`
+	// ProbeAssignments declares the complete desired vantage-point set by
+	// stable probe key ("local" or a ConfigProbe key). Omitted means unmanaged:
+	// the live set is left exactly as it is, so a document can never silently
+	// reroute a regional monitor back to local execution. An explicit list is
+	// authoritative and replaces the whole set.
+	ProbeAssignments []ConfigMonitorProbeAssignment `json:"probe_assignments,omitempty" yaml:"probe_assignments,omitempty"`
+	// HealthPolicy is any_down (default) or all_down and applies together with
+	// ProbeAssignments.
+	HealthPolicy string `json:"health_policy,omitempty" yaml:"health_policy,omitempty"`
+}
+
+// ConfigMonitorProbeAssignment references one probe of a monitor's desired
+// set. BindingKey/BindingKind name a probe-local resource (Docker bindings)
+// without exposing its endpoint.
+type ConfigMonitorProbeAssignment struct {
+	Probe       string `json:"probe" yaml:"probe"`
+	BindingKey  string `json:"binding_key,omitempty" yaml:"binding_key,omitempty"`
+	BindingKind string `json:"binding_kind,omitempty" yaml:"binding_kind,omitempty"`
 }
 
 // ConfigMonitorTag links a monitor key to a tag key.

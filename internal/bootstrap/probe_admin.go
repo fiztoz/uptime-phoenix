@@ -49,6 +49,7 @@ Certificate rotation creates the key only at the probe; the old pin remains curr
 Credential rotation retries reuse the rotation ID and version. The ten-minute overlap never extends on retry; active requires a durable source receipt.
 Token and complete snapshot files must be private regular files. Commands print metadata only.
 Registration persists the recoverable protected runtime credential before enrollment.
+register reenrolls a restored identity: a disabled registration with the same key, name and location is re-enabled before its credential is prepared.
 Watchdog replaces saved settings; expected-revision is the settings revision reported by status, initially zero. Saving is not an applied-config receipt.
 ACK retries must reuse the command ID and all original options. Pending means remote alerts may continue until the probe confirms. ACK targets only the named incident, including after reassignment.
 Run compatible hub workers with PROBES_ENABLED=true after enrollment. Workers synchronize supported configurations and replay retained telemetry.
@@ -247,13 +248,8 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		if _, err := probe.NewPinnedHTTPClient(endpoint, pin, policy); err != nil || !domain.ValidHubID(streamID) {
 			return fail("Invalid endpoint, pin or stream ID")
 		}
-		p, err := registry.GetByID(ctx, probeID)
-		if errors.Is(err, ports.ErrNotFound) {
-			p = &domain.Probe{ID: probeID, Key: key, Name: name, Location: location, Kind: domain.ProbeKindRemote, Enabled: true}
-			err = registry.Create(ctx, p)
-		}
-		if err != nil || p.Key != key || p.Name != name || p.Location != location || !p.Enabled {
-			return fail("Registration conflict or invalid registration")
+		if _, err := probeAdminRegistration(ctx, registry, probeID, key, name, location); err != nil {
+			return fail(err.Error())
 		}
 		c, err := connector.Prepare(ctx, probeID, streamID, endpoint, pin)
 		if err != nil {
@@ -371,6 +367,37 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	}
 	return 0
 }
+
+// probeAdminRegistration resolves the registration for one explicit operator
+// `register`: create it when absent, refuse any identity mismatch, and adopt a
+// restored disabled identity by re-enabling it. Backup import creates remote
+// identities disabled pending reenrollment, so this is the documented
+// reenrollment entry point — it runs before the runtime credential is prepared.
+func probeAdminRegistration(ctx context.Context, registry ports.ProbeRegistryRepository, probeID, key, name, location string) (*domain.Probe, error) {
+	p, err := registry.GetByID(ctx, probeID)
+	if errors.Is(err, ports.ErrNotFound) {
+		p = &domain.Probe{ID: probeID, Key: key, Name: name, Location: location, Kind: domain.ProbeKindRemote, Enabled: true}
+		err = registry.Create(ctx, p)
+	}
+	if err != nil {
+		return nil, errProbeRegistrationConflict
+	}
+	if p.Key != key || p.Name != name || p.Location != location {
+		return nil, errProbeRegistrationConflict
+	}
+	if !p.Enabled {
+		p.Enabled = true
+		if err := registry.Update(ctx, p, p.Revision); err != nil {
+			return nil, errProbeReenableFailed
+		}
+	}
+	return p, nil
+}
+
+var (
+	errProbeRegistrationConflict = errors.New("registration conflict or invalid registration")
+	errProbeReenableFailed       = errors.New("restored registration could not be re-enabled")
+)
 
 type probeAdminWatchdogView struct {
 	Revision            probe.Decimal `json:"revision"`

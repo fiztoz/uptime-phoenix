@@ -256,6 +256,8 @@ func Run(cfg Config) error {
 	backupSvc.SetGroupNotificationRepo(repos.groupNotif)
 	backupSvc.SetNotificationTemplateRepo(repos.notificationTemplate)
 	backupSvc.SetSubscriberRepo(repos.spSubscriber)
+	backupSvc.SetProbeRegistry(repos.probeRegistry)
+	backupSvc.SetProbeAssignments(repos.probeAssignments)
 	backupSvc.SetMonitorService(monitorSvc)
 	backupSvc.SetProxyService(proxySvc)
 	backupSvc.SetMonitorGroupService(monitorGroupSvc)
@@ -276,6 +278,8 @@ func Run(cfg Config) error {
 		repos.maintMonitor,
 		passwordHasher,
 	)
+	configSvc.SetProbeRegistry(repos.probeRegistry)
+	configSvc.SetProbeAssignments(repos.probeAssignments)
 
 	// Wire automatic alerting: the dispatcher turns confirmed status transitions
 	// into notifications (with maintenance suppression and resend throttling).
@@ -838,6 +842,7 @@ type repoBundle struct {
 	escalationPolicy       ports.EscalationPolicyRepository
 	escalationAssign       ports.EscalationAssignmentRepository
 	alertEscalation        ports.AlertEscalationRepository
+	probeRegistry          ports.ProbeRegistryRepository
 	probeAssignments       ports.MonitorProbeAssignmentRepository
 	regionalCommit         ports.RegionalCommitRepository
 	localHeartbeat         ports.LocalHeartbeatRecorder
@@ -853,6 +858,7 @@ type repoBundle struct {
 func wireRepositories(engine string, db *bun.DB) repoBundle {
 	var b repoBundle
 	b.notificationThrottle = repo.NewNotificationThrottleStore(db)
+	b.probeRegistry = repo.NewProbeRegistryStore(db)
 	switch engine {
 	case "mariadb":
 		r := mariadbrepo.NewRepository(db)

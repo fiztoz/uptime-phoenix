@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -54,8 +55,13 @@ func NewProbeRegistryStore(db *bun.DB) *ProbeRegistryStore { return &ProbeRegist
 
 var _ ports.ProbeRegistryRepository = (*ProbeRegistryStore)(nil)
 
-// Create stores one caller-allocated remote UUID and assigns revision one.
+// Create stores one remote registration and assigns revision one. When the
+// caller omits the identity a canonical UUID is allocated here so declarative
+// callers never have to mint runtime identities themselves.
 func (r *ProbeRegistryStore) Create(ctx context.Context, probe *domain.Probe) error {
+	if probe != nil && probe.ID == "" {
+		probe.ID = uuid.NewString()
+	}
 	if err := validateProbeRegistration(probe); err != nil {
 		return err
 	}
@@ -76,6 +82,17 @@ func (r *ProbeRegistryStore) GetByID(ctx context.Context, id string) (*domain.Pr
 	m := new(probeRegistrationModel)
 	if err := r.db.NewSelect().Model(m).Where("id = ?", id).Scan(ctx); err != nil {
 		return nil, fmt.Errorf("get probe: %w", probeRegistryError(err))
+	}
+	p := m.domain()
+	return &p, nil
+}
+
+// GetByKey returns one registration by its stable probe key, including the
+// reserved local row.
+func (r *ProbeRegistryStore) GetByKey(ctx context.Context, key string) (*domain.Probe, error) {
+	m := new(probeRegistrationModel)
+	if err := r.db.NewSelect().Model(m).Where("probe_key = ?", key).Scan(ctx); err != nil {
+		return nil, fmt.Errorf("get probe by key: %w", probeRegistryError(err))
 	}
 	p := m.domain()
 	return &p, nil
@@ -327,7 +344,23 @@ func (r *ProbeAssignmentStore) Replace(ctx context.Context, monitorID, expectedR
 // Nil preserves bindings on retained members; an explicit list replaces all
 // bindings. New/recreated Docker assignments always require an explicit binding.
 // Live inventory is checked by the authenticated transport before activation.
+// Every member must be a currently enabled registration.
 func (r *ProbeAssignmentStore) ReplaceWithBindings(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+	return r.replaceWithBindings(ctx, monitorID, expectedRevision, probeIDs, policy, bindings, true)
+}
+
+// Restore commits a complete desired set that arrived from a declarative
+// document (backup import or config apply). Members must be registered but
+// need not be enabled: a restored or just-declared identity is disabled or
+// unenrolled until an operator registers and enrolls it, and nothing executes
+// on a disabled registration. Everything else is identical to
+// ReplaceWithBindings: one complete set, optimistic revision, tombstoned
+// removals, retained generations, explicit resource bindings and history.
+func (r *ProbeAssignmentStore) Restore(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+	return r.replaceWithBindings(ctx, monitorID, expectedRevision, probeIDs, policy, bindings, false)
+}
+
+func (r *ProbeAssignmentStore) replaceWithBindings(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding, requireEnabled bool) (*domain.MonitorProbeAssignments, error) {
 	ids, err := validateProbeReplacement(monitorID, expectedRevision, probeIDs, policy)
 	if err != nil {
 		return nil, err
@@ -372,7 +405,7 @@ func (r *ProbeAssignmentStore) ReplaceWithBindings(ctx context.Context, monitorI
 		// Sorting also gives concurrent replacements a consistent probe-row
 		// lock order. A registration cannot be disabled during this commit.
 		for _, id := range ids {
-			if err := requireEnabledProbe(ctx, tx, id); err != nil {
+			if err := requireRegisteredProbe(ctx, tx, id, requireEnabled); err != nil {
 				return err
 			}
 		}
@@ -435,6 +468,12 @@ func validateProbeReplacement(monitorID, revision int64, probeIDs []string, poli
 }
 
 func requireEnabledProbe(ctx context.Context, tx bun.Tx, id string) error {
+	return requireRegisteredProbe(ctx, tx, id, true)
+}
+
+// requireRegisteredProbe confirms the member exists, optionally that it is
+// enabled, and holds its registration row lock inside the calling transaction.
+func requireRegisteredProbe(ctx context.Context, tx bun.Tx, id string, requireEnabled bool) error {
 	if _, err := tx.NewUpdate().Table("probes").Set("revision = revision").Where("id = ?", id).Exec(ctx); err != nil {
 		return err
 	}
@@ -442,7 +481,7 @@ func requireEnabledProbe(ctx context.Context, tx bun.Tx, id string) error {
 	if err := tx.NewSelect().Model(probe).Where("id = ?", id).Scan(ctx); err != nil {
 		return err
 	}
-	if !probe.Enabled {
+	if requireEnabled && !probe.Enabled {
 		return fmt.Errorf("probe is disabled: %w", domain.ErrValidation)
 	}
 	return nil

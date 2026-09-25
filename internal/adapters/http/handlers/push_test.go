@@ -29,6 +29,9 @@ func (m *pushMockAssignments) GetByMonitorID(_ context.Context, _ int64) (*domai
 func (m *pushMockAssignments) Replace(_ context.Context, _ int64, _ int64, _ []string, _ domain.HealthPolicy) (*domain.MonitorProbeAssignments, error) {
 	return nil, nil
 }
+func (m *pushMockAssignments) Restore(_ context.Context, _ int64, _ int64, _ []string, _ domain.HealthPolicy, _ []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+	return nil, nil
+}
 func (m *pushMockAssignments) ExecutableByLocal(_ context.Context, monitorIDs []int64) (map[int64]int64, error) {
 	out := make(map[int64]int64, len(monitorIDs))
 	for _, id := range monitorIDs {
