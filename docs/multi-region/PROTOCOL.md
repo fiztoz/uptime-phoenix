@@ -245,7 +245,7 @@ Do not advance the cursor before transaction commit. Do not acknowledge an event
 
 `telemetry.gap.payload` contains `stream_id`, `from_seq`, `through_seq`, `reason` (`retention_bytes`, `retention_age`, `disk_pressure`, `restore_loss`, `history_cleared`), `observed_from`, `observed_through`, and `affected_monitor_ids` (bounded array; empty means unknown coverage, not no affected monitors). It must begin at or overlap the hub's next expected sequence. Hub persists the gap, marks affected coverage/aggregates dirty, advances only the contiguous covered interval, and replies with `telemetry.ack`.
 
-Ordinary sender retention gaps cannot erase committed rows. History clearing is a separate authorized hub command that installs a watermark and uses receipts to discard later replay of cleared evidence. Stream retirement is explicit; do not delete active cursor state while queued retries could arrive.
+Ordinary sender retention gaps cannot erase committed rows. History clearing is a separate authorized hub command that installs a watermark and uses receipts to discard later replay of cleared evidence. The hub-side watermark and receipt enforcement are implemented ([lifecycle contracts](M4_LIFECYCLE_RECOVERY.md)); the source-side `history.clear` dispatch/application — evicting the source's own retained copy — remains unimplemented in this build. Stream retirement is explicit; do not delete active cursor state while queued retries could arrive.
 
 ## 5. Current-state snapshot
 

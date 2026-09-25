@@ -138,6 +138,24 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 				return err
 			}
 			code, accepted := authorizer.AuthorizeEvent(ctx, facts, event, now)
+			if accepted && event.Kind == domain.ReplayKindObservation {
+				// History clearing fences replay: evidence under a clear watermark
+				// is an acknowledged intentional drop, never a resurrection. The
+				// receipt below records it so later replay of the same prefix is
+				// discarded idempotently.
+				observed := *event.Observation
+				observed.ReceivedAt = now
+				cleared, err := historyClearCovering(ctx, tx, observed)
+				if err != nil {
+					return err
+				}
+				if cleared != nil {
+					code, accepted = "history_cleared", false
+					if err := countHistoryClearDrop(ctx, tx, *cleared); err != nil {
+						return err
+					}
+				}
+			}
 			receipt := replayReceiptModel{ProbeID: session.ProbeID, StreamID: session.StreamID, Seq: event.Seq, Digest: event.Digest, Kind: event.Kind, RejectionCode: code, ReceivedAt: now}
 			if accepted {
 				switch event.Kind {

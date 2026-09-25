@@ -20,9 +20,11 @@ monitors. The [Insights slice](M4_INSIGHTS.md) invalidates Insights and
 navigation caches with projection versions and ranks monitors that have
 overall history from that history. The [backup/config slice](M4_BACKUP_CONFIG.md)
 gives backup/restore and config-as-code stable probe keys and assignment
-references, with restored identities disabled pending reenrollment. Deployment
-documentation and the clear-history/tombstone/stream-retirement definition
-remain open.
+references, with restored identities disabled pending reenrollment. The
+[lifecycle/recovery slice](M4_LIFECYCLE_RECOVERY.md) implements clear-history
+watermarks with `history_cleared` receipts and defines the soft-delete,
+tombstone, stream-retirement and restored-hub/edge recovery contracts.
+Deployment documentation remains open.
 Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.

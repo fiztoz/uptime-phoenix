@@ -230,6 +230,21 @@ func (r *RegionalCommitStore) Ingest(ctx context.Context, batch domain.ProbeInge
 			if err := requireActiveAssignment(ctx, tx, event.MonitorID, event.ProbeID, event.AssignmentGeneration); err != nil {
 				return err
 			}
+			cleared, err := historyClearCovering(ctx, tx, event)
+			if err != nil {
+				return err
+			}
+			if cleared != nil {
+				// Cleared evidence is an acknowledged intentional drop: the
+				// cursor still advances — the event was consumed — but no row is
+				// resurrected and no state moves.
+				if err := countHistoryClearDrop(ctx, tx, *cleared); err != nil {
+					return err
+				}
+				next = seq + 1
+				stream.CommittedSeq = seq
+				continue
+			}
 			obs := observationModel(event)
 			if _, err := tx.NewInsert().Model(&obs).Exec(ctx); err != nil {
 				return probeRegistryError(err)

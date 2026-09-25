@@ -395,6 +395,7 @@ This is the target schema contract, not ready-to-run migration SQL. Implementati
 | `probe_sessions` | Probe ID, connector owner, lease expiry, connection generation; transactional fencing |
 | `probe_local_sequence` | Singleton local-stream high-water mark; allocated with the heartbeat/observation/state transaction and retained after monitor/history deletion |
 | `probe_streams` | PK `(probe_id,stream_id)`, current/retired epoch, contiguous committed cursor, retirement time, declared gap records |
+| `history_clear_watermarks` | PK `(monitor_id,probe_id,assignment_generation)`, the explicit cleared bound (max ingested sequence + observation time), clear id and counted intentional drops; fences replay of deliberately cleared evidence |
 | `monitor_probe_state` | PK `(monitor_id,probe_id)`, generation, stream/seq, observed/received time, effective status, counts, freshness reason, config revision |
 | `probe_config_snapshots` | PK `(probe_id,revision)`, hub authority, original bytes hash, schema version, encrypted snapshot, source/effective/stored times; `047` stores prepared documents only |
 | `probe_active_configs` | PK `probe_id`, active revision, sha256, hub_id, applied_at, assignment_count; points to currently activated snapshot |
@@ -710,6 +711,20 @@ whose member would be disabled after apply. The declarative commit is the new
 `MonitorProbeAssignmentRepository.Restore` — like `Replace` but members must be
 registered rather than enabled — while live operator input keeps using
 `Replace`, which still refuses disabled registrations.
+
+The implemented [M4 lifecycle/recovery slice](M4_LIFECYCLE_RECOVERY.md) defines
+and implements the clear-history watermark: one fence per
+`(monitor, probe, assignment generation)` recording the explicit bound the
+operator cleared through, whose bounds only ever widen. Both ingest paths
+refuse fenced evidence, count the acknowledged intentional drop and record a
+`history_cleared` receipt so replayed prefixes are discarded idempotently.
+Clear-history now removes the whole history scope (heartbeats, rollups, regional
+observations, materialized windows) in one deliberate action and leaves current
+state, incidents and delivery outcomes alone. The same record pins the
+soft-delete rules, the accepted assignment tombstone contract, stream
+retirement and the restored-hub/edge recovery procedures — including the rule
+that a hub restored from a pre-clear backup must re-run the clear before
+resuming workers.
 
 ## 11. Operations and observability
 

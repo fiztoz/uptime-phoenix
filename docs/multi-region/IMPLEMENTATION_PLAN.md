@@ -132,7 +132,10 @@ the [Insights slice](M4_INSIGHTS.md) invalidates Insights and navigation caches
 with projection versions. **Partial 2026-09-25:** the
 [backup/config slice](M4_BACKUP_CONFIG.md) gives backup/restore and
 config-as-code stable probe keys, assignment references and disabled-pending-
-reenrollment restores. Deployment documentation remains open.
+reenrollment restores. **Partial 2026-09-25:** the
+[lifecycle/recovery slice](M4_LIFECYCLE_RECOVERY.md) defines and implements
+clear-history watermarks and pins soft-delete, tombstone, stream-retirement and
+restored-hub/edge recovery contracts. Deployment documentation remains open.
 
 - [x] Cover all existing pull monitor types: `http`, `tcp`, `ping`, `dns`, `websocket`, `docker`, `mqtt`, `rabbitmq`, `grpc`, `snmp`, `database`, `s3`. Keep push local-only until M9.
 - [ ] Advertise real runtime capability constraints, including ICMP privileges, Docker socket/API availability, engine support, and network/proxy bindings. Reject impossible assignments before activation.
@@ -143,7 +146,7 @@ reenrollment restores. Deployment documentation remains open.
 - [x] Update group/status-page recovery to use overall policy and fresh evidence. Preserve UNKNOWN through all readers, badges, incident automation, and chart models. **Accepted 2026-09-25:** remotely assigned monitors use overall policy; local-only heartbeats are unchanged ([group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md)).
 - [x] Update Insights and navigation cache invalidation with projection versions; retain the current batched SQL/index paths and benchmark coverage. **Accepted 2026-09-25:** versions miss the Insights cache, and materialized overall history replaces pooled rankings ([Insights](M4_INSIGHTS.md)).
 - [x] Extend config-as-code and backup/restore with stable probe keys and assignments. Keep secret references/write-only secrets out of ordinary exports. Restored remote identities remain disabled pending reenrollment. **Accepted 2026-09-25:** the version 2 backup document and `spec.probes`/`probe_assignments` carry portable identity and complete sets; restore reuses identity and creates unknown ones disabled ([backup/config](M4_BACKUP_CONFIG.md)).
-- [ ] Define clear-history watermarks, soft-delete behavior, assignment removal/tombstones, stream retirement, and restored-hub/edge recovery procedures.
+- [x] Define clear-history watermarks, soft-delete behavior, assignment removal/tombstones, stream retirement, and restored-hub/edge recovery procedures. **Accepted 2026-09-25:** the clear-history watermark is implemented at the hub (fence + `history_cleared` receipts + full clear scope) and the remaining contracts and recovery runbook are defined ([lifecycle/recovery](M4_LIFECYCLE_RECOVERY.md)). Source-side `history.clear` application and regional-only clear scopes remain defined but unimplemented.
 - [ ] Update operator deployment documentation and Helm feature flag/config/secret references. Preserve single-pod defaults and split-image behavior.
 
 **Acceptance:** every existing supported feature has an explicit owner and regression test under remote execution; no UI or API quietly drops unsupported config. Migration from a pre-probe DB preserves local IDs/history/alerts, repeated config apply is idempotent, and restore never creates a duplicate live probe identity.

@@ -47,6 +47,7 @@ type HeartbeatService struct {
 	aggregate     AggregateStatusReader
 	maintenance   maintenanceChecker
 	monitorNotifs ports.MonitorNotificationRepository
+	historyClear  ports.HistoryClearStore
 }
 
 type overallHealthProjector interface {
@@ -97,6 +98,16 @@ func (s *HeartbeatService) SetRegionalRecorder(assignments ports.MonitorProbeAss
 // can verify and match the probe's active configuration revision.
 func (s *HeartbeatService) SetActivationRepo(repo ports.ProbeConfigActivationRepository) {
 	s.activations = repo
+}
+
+// SetHistoryClearStore attaches the authorized clear-history action. When set
+// (the composition root always sets it), ClearHistory removes the monitor's
+// whole history scope — raw heartbeats, regional observations, rollups and
+// materialized windows — and installs the watermarks that fence replay. When
+// nil (minimal compositions and older tests), ClearHistory keeps the legacy
+// heartbeat-row delete.
+func (s *HeartbeatService) SetHistoryClearStore(store ports.HistoryClearStore) {
+	s.historyClear = store
 }
 
 // SetMaintenance attaches schedule evaluation for Record. Optional: when nil,
@@ -308,8 +319,22 @@ func (s *HeartbeatService) ListRecentByMonitor(ctx context.Context, monitorID in
 	return all, nil
 }
 
-// ClearHistory deletes all heartbeats for a monitor.
+// ClearHistory removes a monitor's history evidence.
+//
+// With the clear-history store wired this is one deliberate, atomic deletion:
+// raw heartbeats, regional observations, rollups and materialized history
+// windows go together, and one clear-history watermark per active remote
+// assignment fences replay so a restored hub, a restored edge snapshot or a
+// replayed queue cannot resurrect what was cleared. Current state, incidents
+// and delivery outcomes are not history and stay. Without the store wired it
+// degrades to the legacy heartbeat-row delete.
 func (s *HeartbeatService) ClearHistory(ctx context.Context, monitorID int64) error {
+	if s.historyClear != nil {
+		if _, err := s.historyClear.ClearMonitorHistory(ctx, monitorID, time.Now().UTC()); err != nil {
+			return fmt.Errorf("heartbeat service: clear history: %w", err)
+		}
+		return nil
+	}
 	if err := s.heartbeats.DeleteByMonitor(ctx, monitorID); err != nil {
 		return fmt.Errorf("heartbeat service: clear history: %w", err)
 	}

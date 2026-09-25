@@ -568,6 +568,48 @@ func TestHeartbeatService_ClearHistory(t *testing.T) {
 	}
 }
 
+// fakeHistoryClearStore records the authorized clear-history action.
+type fakeHistoryClearStore struct {
+	mu        sync.Mutex
+	monitorID int64
+	at        time.Time
+	calls     int
+}
+
+func (f *fakeHistoryClearStore) ClearMonitorHistory(_ context.Context, monitorID int64, at time.Time) ([]domain.HistoryClearWatermark, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.monitorID, f.at, f.calls = monitorID, at, f.calls+1
+	return []domain.HistoryClearWatermark{{MonitorID: monitorID, ProbeID: "9a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", AssignmentGeneration: 1, ThroughObservedAt: at}}, nil
+}
+
+// With the clear-history store wired, ClearHistory is one deliberate action:
+// the store owns the whole deletion scope and the watermarks, and the clear
+// time crosses the repository boundary in UTC (AGENTS.md rule 6). Without it,
+// the legacy heartbeat-row delete still runs (the test above).
+func TestHeartbeatService_ClearHistory_UsesAuthorizedStore(t *testing.T) {
+	repo := newFakeHeartbeatRepo()
+	svc := NewHeartbeatService(repo, newFakeBus())
+	store := &fakeHistoryClearStore{}
+	svc.SetHistoryClearStore(store)
+	monitor := &domain.Monitor{ID: 7, Name: "regional", Type: "http"}
+	if err := svc.Record(context.Background(), monitor, ports.CheckResult{Status: domain.StatusUp}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if err := svc.ClearHistory(context.Background(), 7); err != nil {
+		t.Fatalf("ClearHistory: %v", err)
+	}
+	if store.calls != 1 || store.monitorID != 7 {
+		t.Fatalf("clear store not called: calls=%d monitor=%d", store.calls, store.monitorID)
+	}
+	if store.at.Location() != time.UTC {
+		t.Fatalf("clear time must cross the DB boundary in UTC, got %v", store.at.Location())
+	}
+	if store.at.IsZero() {
+		t.Fatal("clear time is zero")
+	}
+}
+
 // DeleteOlderThan must force the cutoff to UTC before calling the repo.
 // A local-zoned cutoff would delete rows up to the host offset *newer*
 // than intended (AGENTS.md rule 6). We assert Location(), not only the
