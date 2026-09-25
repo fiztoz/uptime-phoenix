@@ -1,6 +1,6 @@
 # Multi-region implementation status
 
-Updated 2026-09-25 after the M4 escalation slice; see
+Updated 2026-09-25 after the M4 escalation slice `9046ee2`; see
 [escalation acceptance](M4_ESCALATION.md). Accepted M3
 implementation: `a12a3fa`; completion evidence: `8b455d4`.
 This is the current status. Check HEAD and newer acceptance records before starting work.

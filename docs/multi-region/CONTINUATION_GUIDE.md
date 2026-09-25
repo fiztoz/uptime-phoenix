@@ -13,7 +13,7 @@ certificate expiry from the source that owns the assignment. The latest
 shared two-sample promotion contract with hub mirroring. The latest
 [capacity paging slice](M4_CAPACITY_PAGING.md) pages confirmed capacity changes
 and recovery as one source-owned incident per kind. The
-[escalation slice](M4_ESCALATION.md) runs the accepted ladder on that source.
+[escalation slice](M4_ESCALATION.md) at `9046ee2` runs the accepted ladder on that source.
 Group and status-page recovery policy remain open.
 Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
