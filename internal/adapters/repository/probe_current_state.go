@@ -147,6 +147,7 @@ func (s *ProbeReplayStore) ApplyCurrentSnapshot(ctx context.Context, session dom
 			return ports.ErrConflict
 		}
 		result = row.receipt()
+		result.MonitorIDs = activeAssignmentIDs(assignments)
 		return nil
 	})
 	if err != nil {
@@ -187,6 +188,20 @@ func (s *ProbeReplayStore) currentSnapshotAssignments(ctx context.Context, tx bu
 		out = append(out, domain.EdgeAssignmentIdentity{MonitorID: a.Monitor.ID, Generation: a.Generation, Active: a.Monitor.Active})
 	}
 	return out, nil
+}
+
+func activeAssignmentIDs(assignments []domain.EdgeAssignmentIdentity) []int64 {
+	ids := make([]int64, 0, len(assignments))
+	seen := make(map[int64]bool, len(assignments))
+	for _, assignment := range assignments {
+		if !assignment.Active || assignment.MonitorID <= 0 || seen[assignment.MonitorID] {
+			continue
+		}
+		seen[assignment.MonitorID] = true
+		ids = append(ids, assignment.MonitorID)
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 func applyMissingState(ctx context.Context, tx bun.Tx, session domain.ProbeReplaySession, snapshot domain.ProbeCurrentSnapshot, assignment domain.EdgeAssignmentIdentity, now time.Time) error {

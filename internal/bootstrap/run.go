@@ -296,7 +296,8 @@ func Run(cfg Config) error {
 	notifDispatcher.SetAggregateStatus(healthSvc)
 	notifDispatcher.SetAlertLifecycle(alertSvc)
 	notifDispatcher.SetPublicURL(cfg.PublicURL)
-	// Folder alerting rides the same heartbeat path, for the same reason: a
+	// Folder alerting rides the heartbeat path and, when probes are enabled, the
+	// worker's committed remote evidence. It does not ride the bus: a
 	// bus-subscribed alerter would fire once per worker under Redis fan-out. The
 	// remaining race — two workers moving the same folder at once — is closed by
 	// the compare-and-set inside GroupAlertService, not by this wiring.
@@ -440,6 +441,7 @@ func Run(cfg Config) error {
 		if err != nil {
 			return err
 		}
+		stateIngest.SetGroupAlerter(groupAlertSvc)
 		transport := probe.NewHubTransport(policy)
 		transport.SetStateIngest(stateIngest)
 		connections := repo.NewProbeConnectorStore(db)
@@ -462,6 +464,7 @@ func Run(cfg Config) error {
 		if err != nil {
 			return err
 		}
+		replay.SetGroupAlerter(groupAlertSvc)
 		connector.SetReplayIngest(replay)
 		connector.SetCredentialRotation(commandStore)
 		connector.SetCertificateRotation(commandStore)

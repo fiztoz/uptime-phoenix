@@ -72,8 +72,17 @@ func TestProbeCurrentStateAcceptance(t *testing.T) {
 			t.Run("EmptyInitialSnapshotThenFirstEvidence", func(t *testing.T) {
 				r := newReplayFixture(t, engine)
 				activateReplayConfig(t, r)
-				if _, err := r.store.ApplyCurrentSnapshot(t.Context(), r.session, currentSnapshot(r, 0), &services.AccessService{}); err != nil {
+				empty := currentSnapshot(r, 0)
+				receipt, err := r.store.ApplyCurrentSnapshot(t.Context(), r.session, empty, &services.AccessService{})
+				if err != nil {
 					t.Fatal(err)
+				}
+				if len(receipt.MonitorIDs) != 1 || receipt.MonitorIDs[0] != r.monitor {
+					t.Fatalf("omitted assignment was not reconciled for folder paging: %+v", receipt.MonitorIDs)
+				}
+				again, err := r.store.ApplyCurrentSnapshot(t.Context(), r.session, empty, &services.AccessService{})
+				if err != nil || len(again.MonitorIDs) != 0 {
+					t.Fatalf("identical snapshot retried folder paging: %+v %v", again, err)
 				}
 				state, err := r.f.commits.GetState(t.Context(), r.monitor, r.session.ProbeID)
 				if err != nil || state.Seq != 0 || state.Status != domain.StatusUnknown || state.UnknownReason != "missing_snapshot_state" {
@@ -160,7 +169,7 @@ func TestProbeCurrentStateAcceptance(t *testing.T) {
 					t.Fatal("snapshot advanced cursor", cursor, err)
 				}
 				duplicate, err := r.store.ApplyCurrentSnapshot(t.Context(), r.session, candidate, &services.AccessService{})
-				if err != nil || *duplicate != *receipt {
+				if err != nil || duplicate.SnapshotID != receipt.SnapshotID || duplicate.SHA256 != receipt.SHA256 || duplicate.ConfigRevision != receipt.ConfigRevision || !duplicate.AppliedAt.Equal(receipt.AppliedAt) || duplicate.StateCount != receipt.StateCount || len(duplicate.MonitorIDs) != 0 || len(receipt.MonitorIDs) != 1 || receipt.MonitorIDs[0] != r.monitor {
 					t.Fatalf("lost receipt retry changed identity: %+v %+v %v", receipt, duplicate, err)
 				}
 				r.ingest(t, r.batch(r.observation(1)))

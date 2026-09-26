@@ -9,8 +9,9 @@ import (
 
 // ProbeStateService applies current evidence without using the replay cursor.
 type ProbeStateService struct {
-	repository ports.ProbeStateRepository
-	authorizer ports.ProbeStateAuthorizer
+	repository  ports.ProbeStateRepository
+	authorizer  ports.ProbeStateAuthorizer
+	groupAlerts regionalGroupAlerter
 }
 
 // NewProbeStateService binds the atomic current-state persistence boundary.
@@ -21,12 +22,27 @@ func NewProbeStateService(repository ports.ProbeStateRepository, authorizer port
 	return &ProbeStateService{repository: repository, authorizer: authorizer}, nil
 }
 
+// SetGroupAlerter attaches hub-owned folder paging after a current snapshot
+// commits. Optional, and never consulted when the snapshot is rejected.
+func (s *ProbeStateService) SetGroupAlerter(alerter regionalGroupAlerter) {
+	if s != nil {
+		s.groupAlerts = alerter
+	}
+}
+
 // ApplySnapshot validates structure; storage checks transaction-bound authority.
 func (s *ProbeStateService) ApplySnapshot(ctx context.Context, session domain.ProbeReplaySession, snapshot domain.ProbeCurrentSnapshot) (*domain.ProbeStateReceipt, error) {
 	if !domain.ValidProbeCurrentSnapshot(session, snapshot) {
 		return nil, domain.ErrValidation
 	}
-	return s.repository.ApplyCurrentSnapshot(ctx, session, snapshot, s.authorizer)
+	receipt, err := s.repository.ApplyCurrentSnapshot(ctx, session, snapshot, s.authorizer)
+	if err != nil || s.groupAlerts == nil || receipt == nil || len(receipt.MonitorIDs) == 0 {
+		return receipt, err
+	}
+	// MonitorIDs are the active assignments this snapshot reconciled, including
+	// omissions. An identical retry leaves the list empty so it cannot page twice.
+	s.groupAlerts.OnRegionalEvidence(ctx, receipt.MonitorIDs)
+	return receipt, nil
 }
 
 // AuthorizeCurrentSnapshot authorizes every present entry against the exact

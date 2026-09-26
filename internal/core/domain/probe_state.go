@@ -53,6 +53,10 @@ type ProbeCurrentSnapshot struct {
 }
 
 // ProbeStateReceipt proves current projection durability, not history ingestion.
+// MonitorIDs is not a wire field. ApplyCurrentSnapshot fills it with the active
+// assignments reconciled by a newly applied snapshot, including omissions, so
+// hub-owned folder paging can run after commit. An identical retry leaves it
+// empty. Callers must not treat it as part of the applied receipt contract.
 type ProbeStateReceipt struct {
 	SnapshotID     string
 	StreamID       string
@@ -60,6 +64,7 @@ type ProbeStateReceipt struct {
 	SHA256         string
 	AppliedAt      time.Time
 	StateCount     int
+	MonitorIDs     []int64
 }
 
 // ProbeStateAuthorityFacts describes the exact durably applied configuration,

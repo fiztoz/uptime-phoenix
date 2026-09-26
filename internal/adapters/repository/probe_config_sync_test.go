@@ -22,9 +22,10 @@ func TestRemoteConfigSyncContract(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
 			for name, test := range map[string]func(*testing.T, probeRegistryFixture){
-				"SourceEditsAndRestart":         testRemoteSyncSource,
-				"ConcurrentPublication":         testRemoteSyncConcurrent,
-				"ReceiptFencingAndLateRollback": testRemoteSyncReceipt,
+				"SourceEditsAndRestart":          testRemoteSyncSource,
+				"ConcurrentPublication":          testRemoteSyncConcurrent,
+				"ReceiptFencingAndLateRollback":  testRemoteSyncReceipt,
+				"GroupChannelStaysOffAssignment": testRemoteSyncGroupChannel,
 			} {
 				t.Run(name, func(t *testing.T) { test(t, newProbeRegistryFixture(t, engine)) })
 			}
@@ -268,5 +269,47 @@ func testRemoteSyncReceipt(t *testing.T, f probeRegistryFixture) {
 	}
 	if err := store.RecordRemoteApplied(ctx, newLease, receipt2); !errors.Is(err, ports.ErrConflict) {
 		t.Fatal("expired owner accepted even an idempotent receipt", err)
+	}
+}
+
+// A folder channel pages the folder incident. It must not become a direct
+// link on every regional monitor that sits in that folder.
+func testRemoteSyncGroupChannel(t *testing.T, f probeRegistryFixture) {
+	store, protector, monitor, channel := remoteSyncFixture(t, f)
+	ctx := t.Context()
+	at := time.Now().UTC()
+	userID := f.user(t)
+	group := &repository.MonitorGroupModel{UserID: userID, Name: "folder", CreatedAt: at, UpdatedAt: at}
+	insertConfigModel(t, f.db, group)
+	if _, err := f.db.ExecContext(ctx, "UPDATE monitors SET group_id = ? WHERE id = ?", group.ID, monitor); err != nil {
+		t.Fatal(err)
+	}
+	folder := &repository.NotificationModel{UserID: userID, Name: "folder-only", Type: "webhook", Active: true, Config: repository.JSONField{"url": "https://example.test/folder", "token": "never-export-group-channel"}, CreatedAt: at, UpdatedAt: at}
+	insertConfigModel(t, f.db, folder)
+	insertConfigModel(t, f.db, &repository.GroupNotificationModel{GroupID: group.ID, NotificationID: folder.ID})
+	meta, err := store.RefreshRemote(ctx, syncTarget(), at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared := repository.NewProbeConfigStore(f.db)
+	stored, err := prepared.Latest(ctx, probeRegistryID1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := protector.Open(ctx, meta, stored.ProtectedPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(plain)
+	if bytes.Contains(plain, []byte("never-export-group-channel")) {
+		t.Fatal("group channel copied onto the regional assignment")
+	}
+	snapshot, err := probe.DecodeConfigSnapshot(plain)
+	if err != nil || len(snapshot.Assignments) != 1 || len(snapshot.NotificationChannels) != 1 || snapshot.NotificationChannels[0].ID != channel {
+		t.Fatalf("group attachment entered the desired snapshot: %+v %v", snapshot.NotificationChannels, err)
+	}
+	links := snapshot.Assignments[0].NotificationLinks
+	if len(links) != 1 || links[0].NotificationID != channel {
+		t.Fatalf("direct links changed: %+v", links)
 	}
 }

@@ -463,6 +463,47 @@ func TestGroupAlert_MonitorWithoutGroupIsNoOp(t *testing.T) {
 	}
 }
 
+// Remote evidence pages the folder's own channel from overall policy. It does
+// not send the monitor's direct notification, and a second sample of the same
+// overall status does not page again.
+func TestGroupAlert_RegionalEvidencePagesGroupChannelOnly(t *testing.T) {
+	h := newGalertHarness(t)
+	g := h.addGroup(t, "edge", domain.GroupConditionWorstOfChildren, nil)
+	h.addProvider(t, "folder-pager", g.ID)
+	remote := h.addMonitor(7, g.ID)
+	direct := &domain.Notification{UserID: 1, Name: "direct", Type: "recorder", Active: true, Config: map[string]any{"tag": "monitor-direct"}}
+	if err := h.notifs.Create(context.Background(), direct); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.SetAggregateStatus(staticAggregate{remote.ID: domain.StatusDown})
+
+	h.svc.OnRegionalEvidence(context.Background(), []int64{remote.ID, remote.ID, 0})
+	if got := h.sender.tags(); len(got) != 1 || got[0] != "folder-pager" {
+		t.Fatalf("folder pages = %v, want [folder-pager]", got)
+	}
+	sent := h.sender.sent[0]
+	if sent.AlertScope != domain.AlertScopeGroup || sent.GroupName != "edge" || sent.MonitorID != 0 || sent.Status != domain.StatusDown {
+		t.Fatalf("folder alert became a monitor alert: %+v", sent)
+	}
+
+	h.svc.OnRegionalEvidence(context.Background(), []int64{remote.ID})
+	if got := h.sender.count(); got != 1 {
+		t.Fatalf("unchanged overall status paged again (%d)", got)
+	}
+
+	h.svc.SetAggregateStatus(staticAggregate{remote.ID: domain.StatusUnknown})
+	h.svc.OnRegionalEvidence(context.Background(), []int64{remote.ID})
+	if got := h.sender.count(); got != 1 {
+		t.Fatalf("UNKNOWN cleared the folder incident (%d)", got)
+	}
+
+	h.svc.SetAggregateStatus(staticAggregate{remote.ID: domain.StatusUp})
+	h.svc.OnRegionalEvidence(context.Background(), []int64{remote.ID})
+	if got := h.sender.count(); got != 2 || h.sender.sent[1].Status != domain.StatusUp || h.sender.sent[1].PreviousStatus != domain.StatusDown {
+		t.Fatalf("fresh overall UP did not recover the folder: %+v", h.sender.sent)
+	}
+}
+
 // THE ASK. A notification flagged is_default ("auto-attach to new monitors") must
 // attach to a new MONITOR and never to a new FOLDER.
 //

@@ -26,7 +26,10 @@ watermarks with `history_cleared` receipts and defines the soft-delete,
 tombstone, stream-retirement and restored-hub/edge recovery contracts. The
 [deployment compatibility slice](M4_DEPLOYMENT_COMPAT.md) updates the operator
 deployment docs and adds the Helm probes feature flag/config/secret references
-without changing single-pod defaults or split-image behavior.
+without changing single-pod defaults or split-image behavior. The
+[group-notification slice](M4_GROUP_NOTIFICATIONS.md) pages folder channels
+from committed remote evidence and keeps those channels off regional
+assignments.
 Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.

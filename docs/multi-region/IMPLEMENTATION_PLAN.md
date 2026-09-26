@@ -139,12 +139,14 @@ restored-hub/edge recovery contracts. **Accepted 2026-09-25:** the
 [deployment compatibility slice](M4_DEPLOYMENT_COMPAT.md) documents the
 operator deployment surface and adds the Helm probes feature flag, config and
 installation-key secret references without changing single-pod defaults or
-split-image behavior.
+split-image behavior. **Accepted 2026-09-26:** the
+[group-notification slice](M4_GROUP_NOTIFICATIONS.md) pages folder channels
+from committed remote evidence and does not copy them onto regional monitors.
 
 - [x] Cover all existing pull monitor types: `http`, `tcp`, `ping`, `dns`, `websocket`, `docker`, `mqtt`, `rabbitmq`, `grpc`, `snmp`, `database`, `s3`. Keep push local-only until M9.
 - [ ] Advertise real runtime capability constraints, including ICMP privileges, Docker socket/API availability, engine support, and network/proxy bindings. Reject impossible assignments before activation.
 - [ ] Synchronize maintenance schedules/timezones, direct monitor notification links, provider/template configuration, target visibility flags, tags/owner context, and effective escalation policies.
-- [ ] Preserve direct-monitor and group-notification semantics: group channel attachments page on group incidents and are not automatically copied to every regional monitor.
+- [x] Preserve direct-monitor and group-notification semantics: group channel attachments page on group incidents and are not automatically copied to every regional monitor. **Accepted 2026-09-26:** the source still sends direct links; a committed observation or current snapshot re-evaluates the folder on the hub, and group channels stay out of the assignment ([group notifications](M4_GROUP_NOTIFICATIONS.md)).
 - [x] Preserve escalation precedence (direct monitor policy, then nearest ancestor group); a disabled assigned policy stops inheritance. Persist edge escalation steps and acknowledgement effect. **Accepted 2026-09-25:** precedence was already resolved into the snapshot; the source now arms, advances, and cancels the ladder ([escalation](M4_ESCALATION.md)). Public acknowledgement URLs stay off.
 - [x] Add per-probe TLS expiry and capacity history/state. Preserve `ok`, `warning`, `error`, derived `stale`, and two-sample promotion. Capacity warnings/errors keep availability UP. **Accepted 2026-09-23:** TLS expiry history, current state and certificate paging ([certificate paging](M4_CERT_PAGING.md)); capacity history/state with source-owned two-sample promotion ([capacity state](M4_CAPACITY_STATE.md)); source-owned capacity paging and its incident mirror ([capacity paging](M4_CAPACITY_PAGING.md)).
 - [x] Update group/status-page recovery to use overall policy and fresh evidence. Preserve UNKNOWN through all readers, badges, incident automation, and chart models. **Accepted 2026-09-25:** remotely assigned monitors use overall policy; local-only heartbeats are unchanged ([group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md)).

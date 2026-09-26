@@ -24,16 +24,21 @@ type groupAlertNotifier interface {
 // inheritance shortcut that alerts once per monitor inside it. The monitors keep
 // alerting through their own attachments, independently.
 //
-// It runs inside the heartbeat path (via NotificationDispatcher), NOT off the
-// event bus: under Redis fan-out every worker receives every event, so a
-// bus-subscribed alerter would send one alert per worker.
+// It runs inside the heartbeat path (via NotificationDispatcher) and, for a
+// monitor assigned to a remote probe, after that probe's evidence commits.
+// It does not run off the event bus: under Redis fan-out every worker receives
+// every event, so a bus-subscribed alerter would send one alert per worker.
 //
-// That still leaves a race the heartbeat path cannot close on its own: two
-// monitors in the same folder are checked by two different sharded workers at
-// the same instant, both recompute the folder's rollup as DOWN, and both try to
-// alert. So the transition is CLAIMED with a compare-and-set against the group's
+// That still leaves a race one path cannot close on its own: two monitors in
+// the same folder are checked by two different sharded workers at the same
+// instant, both recompute the folder's rollup as DOWN, and both try to alert.
+// So the transition is CLAIMED with a compare-and-set against the group's
 // persisted last_status (ports.MonitorGroupRepository.ClaimStatusTransition) —
 // exactly one worker's UPDATE matches, and only that worker sends.
+//
+// Regional evidence uses the same evaluator. It pages the folder's own
+// channels only. Direct monitor links stay on the source that owns the
+// assignment and are never copied here.
 type GroupAlertService struct {
 	groups     ports.MonitorGroupRepository
 	groupNotif ports.GroupNotificationRepository
@@ -72,38 +77,90 @@ func (s *GroupAlertService) SetAggregateStatus(r AggregateStatusReader) {
 // Errors are logged, never returned: a failure to evaluate a folder must not
 // fail the heartbeat that triggered it.
 func (s *GroupAlertService) OnHeartbeat(ctx context.Context, monitor *domain.Monitor) {
-	if monitor == nil || monitor.GroupID == nil {
-		return // a monitor in no folder can never move one
-	}
-
-	all, err := s.groups.ListAll(ctx)
-	if err != nil {
-		slog.Error("group alert: list groups failed", "monitor_id", monitor.ID, "error", err)
+	if monitor == nil {
 		return
 	}
+	s.evaluateMonitors(ctx, []*domain.Monitor{monitor})
+}
 
+// OnRegionalEvidence re-evaluates folders after remote evidence has committed.
+// monitorIDs are the assignments whose current evidence may have changed,
+// including an active assignment omitted from a current snapshot. A failure
+// here must not fail ingest: the evidence is already durable, and the next
+// committed sample evaluates the folder again.
+func (s *GroupAlertService) OnRegionalEvidence(ctx context.Context, monitorIDs []int64) {
+	if s == nil || s.monitors == nil || len(monitorIDs) == 0 {
+		return
+	}
+	wanted := make(map[int64]struct{}, len(monitorIDs))
+	for _, id := range monitorIDs {
+		if id > 0 {
+			wanted[id] = struct{}{}
+		}
+	}
+	if len(wanted) == 0 {
+		return
+	}
+	monitors, err := s.monitors.List(ctx, ports.MonitorFilter{})
+	if err != nil {
+		slog.Error("group alert: list monitors failed", "error", err)
+		return
+	}
+	matched := make([]*domain.Monitor, 0, len(wanted))
+	for _, monitor := range monitors {
+		if monitor == nil {
+			continue
+		}
+		if _, ok := wanted[monitor.ID]; ok {
+			matched = append(matched, monitor)
+		}
+	}
+	s.evaluateMonitors(ctx, matched)
+}
+
+// evaluateMonitors pages each affected folder once. Rollup reads every child,
+// so a second monitor in the same folder cannot change the result of this call.
+func (s *GroupAlertService) evaluateMonitors(ctx context.Context, monitors []*domain.Monitor) {
+	if s == nil || s.groups == nil || len(monitors) == 0 {
+		return
+	}
+	all, err := s.groups.ListAll(ctx)
+	if err != nil {
+		slog.Error("group alert: list groups failed", "error", err)
+		return
+	}
 	ev := newGroupEval(s, all)
-	for _, g := range ev.ancestorsOf(*monitor.GroupID) {
-		// Cheap guard first: a folder with no providers attached can never alert,
-		// so don't pay for its rollup. Its last_status stays untouched, which is
-		// harmless — nothing reads it but this path.
-		links, err := s.groupNotif.ListByGroup(ctx, g.ID)
-		if err != nil {
-			slog.Error("group alert: list group notifications failed", "group_id", g.ID, "error", err)
-			continue
+	seen := make(map[int64]bool)
+	for _, monitor := range monitors {
+		if monitor == nil || monitor.GroupID == nil {
+			continue // a monitor in no folder can never move one
 		}
-		if len(links) == 0 {
-			continue
-		}
+		for _, g := range ev.ancestorsOf(*monitor.GroupID) {
+			if seen[g.ID] {
+				continue
+			}
+			seen[g.ID] = true
+			// Cheap guard first: a folder with no providers attached can never alert,
+			// so don't pay for its rollup. Its last_status stays untouched, which is
+			// harmless — nothing reads it but this path.
+			links, err := s.groupNotif.ListByGroup(ctx, g.ID)
+			if err != nil {
+				slog.Error("group alert: list group notifications failed", "group_id", g.ID, "error", err)
+				continue
+			}
+			if len(links) == 0 {
+				continue
+			}
 
-		status, ok := ev.resolve(ctx, g)
-		if !ok {
-			// No derived status: an "ignore" folder, or one with no children that
-			// have a status yet. It has nothing to alert about — by design, an
-			// ignore folder never alerts even with providers attached.
-			continue
+			status, ok := ev.resolve(ctx, g)
+			if !ok {
+				// No derived status: an "ignore" folder, or one with no children that
+				// have a status yet. It has nothing to alert about — by design, an
+				// ignore folder never alerts even with providers attached.
+				continue
+			}
+			s.claimAndAlert(ctx, g, status)
 		}
-		s.claimAndAlert(ctx, g, status)
 	}
 }
 
