@@ -75,7 +75,7 @@ func TestEdgeRuntimeFencingConfigReceiptAndShutdown(t *testing.T) {
 	runtime, err := NewEdgeRuntime(func(ctx context.Context) (domain.EdgeIdentity, int64, error) {
 		d, err := store.ReadDiagnostics(ctx)
 		return d.Identity, d.FirstRetainedSeq, err
-	}, store, configs, EdgeRuntimeConfig{AgentVersion: "test", Capabilities: []string{"snapshot.v1", "checker.http.v1", "notifier.webhook.v1"}}, func(ctx context.Context) (Health, error) {
+	}, store, configs, EdgeRuntimeConfig{AgentVersion: "test", Capabilities: []string{"snapshot.v1", "checker.http.v1", "notifier.webhook.v1", "proxy.socks5.v1"}}, func(ctx context.Context) (Health, error) {
 		i, err := store.ReadIdentity(ctx)
 		healthy, queue := true, int64(0)
 		return Health{Role: "probe", Ready: i.ConfigRevision > 0, DBWritable: true, SchedulerHealthy: &healthy, ConfigRevision: Decimal(i.ConfigRevision), QueueBytes: &queue, ClockTime: Timestamp(time.Now().UTC()), Errors: []string{}}, err
@@ -177,7 +177,7 @@ func TestEdgeRuntimeFencingConfigReceiptAndShutdown(t *testing.T) {
 	hash := hex.EncodeToString(digest[:])
 	transfer := func() string {
 		t.Helper()
-		begin := ConfigBegin{ConfigTransferIdentity: transferID, ConfigSchemaVersion: 1, TotalBytes: len(document), ChunkCount: 1, SHA256: hash, RequiredCapabilities: []string{"snapshot.v1", "checker.http.v1", "notifier.webhook.v1"}, EffectiveAt: snapshot.EffectiveAt}
+		begin := ConfigBegin{ConfigTransferIdentity: transferID, ConfigSchemaVersion: 1, TotalBytes: len(document), ChunkCount: 1, SHA256: hash, RequiredCapabilities: []string{"snapshot.v1", "checker.http.v1", "notifier.webhook.v1", "proxy.socks5.v1"}, EffectiveAt: snapshot.EffectiveAt}
 		write(second, "config.begin", 2, begin)
 		write(second, "config.chunk", 2, ConfigChunk{ConfigTransferIdentity: transferID, Index: 0, Data: document})
 		write(second, "config.commit", 2, ConfigCommit{ConfigTransferIdentity: transferID, SHA256: hash})

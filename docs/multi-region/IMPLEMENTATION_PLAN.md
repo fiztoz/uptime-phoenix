@@ -142,9 +142,12 @@ installation-key secret references without changing single-pod defaults or
 split-image behavior. **Accepted 2026-09-26:** the
 [group-notification slice](M4_GROUP_NOTIFICATIONS.md) pages folder channels
 from committed remote evidence and does not copy them onto regional monitors.
+**Accepted 2026-09-26:** the [capability advertisement slice](M4_CAPABILITY_ADVERTISEMENT.md)
+advertises compiled proxy protocols and rejects a proxy on a checker that would ignore it.
+Database engines stay on `checker.database.v1`; an unsupported engine still fails before activation.
 
 - [x] Cover all existing pull monitor types: `http`, `tcp`, `ping`, `dns`, `websocket`, `docker`, `mqtt`, `rabbitmq`, `grpc`, `snmp`, `database`, `s3`. Keep push local-only until M9.
-- [ ] Advertise real runtime capability constraints, including ICMP privileges, Docker socket/API availability, engine support, and network/proxy bindings. Reject impossible assignments before activation.
+- [x] Advertise real runtime capability constraints, including ICMP privileges, Docker socket/API availability, engine support, and network/proxy bindings. Reject impossible assignments before activation. **Accepted 2026-09-26:** ICMP and Docker were already gated. Proxy protocols are now advertised, and a proxy on a checker that does not dial it is rejected before activation. Unsupported database engines fail the installed validator before activation; per-engine wire names stay off the contract ([capability advertisement](M4_CAPABILITY_ADVERTISEMENT.md)).
 - [ ] Synchronize maintenance schedules/timezones, direct monitor notification links, provider/template configuration, target visibility flags, tags/owner context, and effective escalation policies.
 - [x] Preserve direct-monitor and group-notification semantics: group channel attachments page on group incidents and are not automatically copied to every regional monitor. **Accepted 2026-09-26:** the source still sends direct links; a committed observation or current snapshot re-evaluates the folder on the hub, and group channels stay out of the assignment ([group notifications](M4_GROUP_NOTIFICATIONS.md)).
 - [x] Preserve escalation precedence (direct monitor policy, then nearest ancestor group); a disabled assigned policy stops inheritance. Persist edge escalation steps and acknowledgement effect. **Accepted 2026-09-25:** precedence was already resolved into the snapshot; the source now arms, advances, and cancels the ladder ([escalation](M4_ESCALATION.md)). Public acknowledgement URLs stay off.

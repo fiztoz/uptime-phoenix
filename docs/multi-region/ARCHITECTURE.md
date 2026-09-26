@@ -654,7 +654,7 @@ Runtime credential rotation keeps pending and active versions during a bounded 1
 |---|---|
 | Monitor creation/update/clone | Omitted assignments preserve legacy `local`; new remote assignment writes are admin-only; explicit empty set is invalid; clone retains assignments only when the caller can administer them |
 | Checker inventory | No new types. V1 pull-checker coverage excludes push; advertise actual build/runtime capabilities and reject unsupported assignments before activation |
-| Docker/proxy-dependent checks | Resolve probe-local resources explicitly; never send a hub filesystem/socket reference and pretend it exists on the VM |
+| Docker/proxy-dependent checks | Resolve probe-local Docker resources explicitly; never send a hub filesystem/socket reference and pretend it exists on the VM. Hub proxy endpoints travel in the snapshot. Only checkers that dial them (`http`, `s3`) may reference one, and the probe must advertise `proxy.<protocol>.v1` |
 | Database capacity and TLS certificates | Separate state per probe. Certificate paging runs at the source that owns the assignment ([accepted](M4_CERT_PAGING.md)); the hub mirrors incidents and outcomes only. Capacity warning/error never becomes availability DOWN; preserve two-sample promotion semantics |
 | Maintenance | Resolve persisted monitor links into each probe's complete snapshot; unlinked windows cover nothing. Preserve IANA timezone and cron duration; bundle Go timezone data for minimal images |
 | Notifications/templates | Reuse the 11 senders, materialize direct monitor channel/template context, retain current per-link target-redaction behavior; group channel attachments remain group-only; add region/scope template variables |

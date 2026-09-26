@@ -1,6 +1,7 @@
 package probe
 
 import (
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
@@ -36,4 +37,24 @@ func PullCheckerCapabilities(candidates []string, lookup func(string) (ports.Che
 		advertised = append(advertised, "checker."+kind+".v1")
 	}
 	return advertised
+}
+
+// ProxyCapabilities advertises the proxy protocols this build can actually
+// apply. It is withheld unless a checker that reads the proxy fragment is
+// installed. Unlike ICMP, this is a compile-time dialer constraint, not a
+// socket probe: an unreachable proxy still produces a normal DOWN check.
+func ProxyCapabilities(lookup func(string) (ports.Checker, bool)) []string {
+	if lookup == nil {
+		return nil
+	}
+	for _, kind := range []string{"http", "s3"} {
+		if !checker.ProxyCapable(kind) {
+			continue
+		}
+		c, ok := lookup(kind)
+		if ok && c != nil && c.Type() == kind {
+			return checker.ProxyCapabilityNames()
+		}
+	}
+	return nil
 }

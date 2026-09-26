@@ -77,3 +77,22 @@ func TestPullCheckerCapabilitiesWithheldTypes(t *testing.T) {
 		t.Fatalf("nil lookup advertised: %v", got)
 	}
 }
+
+func TestProxyCapabilitiesFollowInstalledProxyCheckers(t *testing.T) {
+	want := []string{"proxy.http.v1", "proxy.https.v1", "proxy.socks5.v1"}
+	if got := ProxyCapabilities(fullStubLookup); !slices.Equal(got, want) {
+		t.Fatalf("proxy protocols = %v", got)
+	}
+	onlyTCP := func(kind string) (ports.Checker, bool) {
+		if kind == "tcp" {
+			return stubLookupChecker{"tcp"}, true
+		}
+		return nil, false
+	}
+	if got := ProxyCapabilities(onlyTCP); got != nil {
+		t.Fatalf("proxy advertised without a checker that dials it: %v", got)
+	}
+	if got := ProxyCapabilities(nil); got != nil {
+		t.Fatal("nil lookup advertised proxy protocols")
+	}
+}

@@ -128,7 +128,7 @@ func performHandshakeAndConfig(ctx context.Context, t *testing.T, conn *websocke
 		ConfigRevision:   s.snapshot.Revision,
 		FirstRetainedSeq: 1,
 		LastCreatedSeq:   100,
-		Capabilities:     []string{"snapshot.v1", "checker.http.v1", "notifier.webhook.v1"},
+		Capabilities:     []string{"snapshot.v1", "checker.http.v1", "notifier.webhook.v1", "proxy.socks5.v1"},
 		ResourceBindings: []ResourceBinding{},
 	}
 	helloFrame, err := encodeFrame("hello", 0, hello)
@@ -657,7 +657,7 @@ func TestHubTransport_ReplayConflictAuthority_ClosesWithoutRetryOrACK(t *testing
 			ConfigRevision:   s.snapshot.Revision,
 			FirstRetainedSeq: 1,
 			LastCreatedSeq:   100,
-			Capabilities:     []string{"snapshot.v1", "checker.http.v1", "notifier.webhook.v1"},
+			Capabilities:     []string{"snapshot.v1", "checker.http.v1", "notifier.webhook.v1", "proxy.socks5.v1"},
 			ResourceBindings: []ResourceBinding{},
 		}
 		helloFrame, err := encodeFrame("hello", 0, hello)

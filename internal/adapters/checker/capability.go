@@ -50,3 +50,36 @@ func ICMPAvailable() bool {
 	}
 	return conn.Close() == nil
 }
+
+// proxyCapableTypes are the pull checkers whose Check reads the scheduler's
+// "_proxy" fragment. Every other type dials the target directly, so a proxy
+// on one of those monitors would be silently ignored.
+var proxyCapableTypes = []string{"http", "s3"}
+
+// supportedProxyProtocols are the schemes buildProxyTransport can dial.
+// socks4 stays excluded: the vendored dialer has no SOCKS4 client.
+var supportedProxyProtocols = []string{"http", "https", "socks5"}
+
+// ProxyCapable reports whether a monitor type honors a configured proxy.
+func ProxyCapable(kind string) bool {
+	return slices.Contains(proxyCapableTypes, kind)
+}
+
+// SupportedProxyProtocol reports whether the compiled dialer implements protocol.
+func SupportedProxyProtocol(protocol string) bool {
+	return slices.Contains(supportedProxyProtocols, protocol)
+}
+
+// ProxyCapabilityName is the hello name for one supported proxy protocol.
+func ProxyCapabilityName(protocol string) string {
+	return "proxy." + protocol + ".v1"
+}
+
+// ProxyCapabilityNames returns the hello names for every compiled proxy protocol.
+func ProxyCapabilityNames() []string {
+	out := make([]string, len(supportedProxyProtocols))
+	for i, protocol := range supportedProxyProtocols {
+		out[i] = ProxyCapabilityName(protocol)
+	}
+	return out
+}

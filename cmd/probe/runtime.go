@@ -71,6 +71,7 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 	// Advertise only checkers this build actually runs. Ping additionally
 	// requires the unprivileged ICMP socket; Docker requires local bindings.
 	capabilities = append(capabilities, probe.PullCheckerCapabilities(checker.RegisteredPullTypes(), checker.Get, checker.ICMPAvailable(), resources)...)
+	capabilities = append(capabilities, probe.ProxyCapabilities(checker.Get)...)
 	for _, name := range []string{"telegram", "discord", "slack", "smtp", "webhook", "teams", "mattermost", "gotify", "bark", "feishu", "line"} {
 		if _, ok := notifier.Get(name); ok {
 			capabilities = append(capabilities, "notifier."+name+".v1")

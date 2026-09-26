@@ -113,6 +113,7 @@ func TestDockerResourceBindingExecution(t *testing.T) {
 			s.Assignments[0].Monitor.Type = "docker"
 			s.Assignments[0].Monitor.Config = json.RawMessage(`{"container":"phoenix"}`)
 			s.Assignments[0].RequiredCapabilities = []string{"checker.docker.v1"}
+			s.Assignments[0].ProxyBindingKey = nil
 			s.Assignments[0].ResourceBindings = resources.Inventory()
 			target := domain.ProbeConfigTarget{HubID: s.HubID, ProbeID: s.ProbeID}
 			document := configBytes(t, s)

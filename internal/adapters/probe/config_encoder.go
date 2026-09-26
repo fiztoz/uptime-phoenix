@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
@@ -71,6 +72,21 @@ func encodeProbeConfigDefinition(d domain.LocalProbeConfigDefinition, remote boo
 			a.ResourceBindings = []ResourceBinding{ResourceBinding(*assignment.ResourceBinding)}
 		} else if assignment.ResourceBinding != nil {
 			return nil, domain.ErrValidation
+		}
+		if remote && a.ProxyBindingKey != nil {
+			protocol, found := proxyProtocol(d.Proxies, assignment.Monitor.ProxyID)
+			if !found {
+				return nil, domain.ErrValidation
+			}
+			// A proxy the checker will not dial must not activate and then be ignored.
+			if !checker.ProxyCapable(assignment.Monitor.Type) || !checker.SupportedProxyProtocol(protocol) {
+				return nil, ErrUnsupportedCapability
+			}
+			name := checker.ProxyCapabilityName(protocol)
+			if !containsCapability(a.RequiredCapabilities, name) {
+				a.RequiredCapabilities = append(a.RequiredCapabilities, name)
+				slices.Sort(a.RequiredCapabilities)
+			}
 		}
 		s.Assignments = append(s.Assignments, a)
 	}
@@ -209,6 +225,18 @@ func configInt32(value int) bool { return value >= 0 && int64(value) <= math.Max
 func configTime(value time.Time) Timestamp { return Timestamp(value.UTC().Truncate(time.Microsecond)) }
 
 func localProxyKey(id int64) string { return "proxy-" + strconv.FormatInt(id, 10) }
+
+func proxyProtocol(proxies []*domain.Proxy, id *int64) (string, bool) {
+	if id == nil {
+		return "", false
+	}
+	for _, proxy := range proxies {
+		if proxy != nil && proxy.ID == *id {
+			return proxy.Protocol, true
+		}
+	}
+	return "", false
+}
 
 func sortedConfigList(ids []int64) []int64 {
 	result := append([]int64{}, ids...)

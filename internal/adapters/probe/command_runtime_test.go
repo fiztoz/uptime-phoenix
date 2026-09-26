@@ -132,7 +132,7 @@ func TestCommandRuntimeExactBytesReceiptLossAndRestart(t *testing.T) {
 		r, err := NewEdgeRuntime(func(ctx context.Context) (domain.EdgeIdentity, int64, error) {
 			d, e := store.ReadDiagnostics(ctx)
 			return d.Identity, d.FirstRetainedSeq, e
-		}, store, configService, EdgeRuntimeConfig{AgentVersion: "command-test", Capabilities: []string{"snapshot.v1", AcknowledgementCapability, "checker.http.v1", "notifier.webhook.v1"}}, func(ctx context.Context) (Health, error) {
+		}, store, configService, EdgeRuntimeConfig{AgentVersion: "command-test", Capabilities: []string{"snapshot.v1", AcknowledgementCapability, "checker.http.v1", "notifier.webhook.v1", "proxy.socks5.v1"}}, func(ctx context.Context) (Health, error) {
 			i, e := store.ReadIdentity(ctx)
 			healthy, q := true, int64(0)
 			return Health{Role: "probe", Ready: true, DBWritable: true, SchedulerHealthy: &healthy, ConfigRevision: Decimal(i.ConfigRevision), QueueBytes: &q, ClockTime: Timestamp(time.Now().UTC()), Errors: []string{}}, e

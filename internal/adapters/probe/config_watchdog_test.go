@@ -68,7 +68,7 @@ func TestEnabledWatchdogRequiresMetadataAndCapability(t *testing.T) {
 	if _, err := NewConfigTransfer(begin, time.Now(), transferTarget); !errors.Is(err, ErrUnsupportedCapability) {
 		t.Fatal("old edge accepted watchdog transfer", err)
 	}
-	transferTarget.Capabilities = append(transferTarget.Capabilities, "watchdog.v1")
+	transferTarget.Capabilities = append(transferTarget.Capabilities, "watchdog.v1", "proxy.socks5.v1")
 	// Use the complete inventory for unrelated disabled dependencies too.
 	transferTarget.Capabilities = append(transferTarget.Capabilities, "notifier.discord.v1", "notifier.smtp.v1")
 	transfer := filledConfigTransfer(t, begin, chunks, time.Now(), transferTarget)

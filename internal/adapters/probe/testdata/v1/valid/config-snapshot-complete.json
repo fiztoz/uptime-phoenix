@@ -55,7 +55,8 @@
       "resource_bindings": [],
       "escalation_policy_id": 30,
       "required_capabilities": [
-        "checker.http.v1"
+        "checker.http.v1",
+        "proxy.socks5.v1"
       ]
     },
     {

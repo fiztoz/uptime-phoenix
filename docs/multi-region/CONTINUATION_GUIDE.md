@@ -29,7 +29,8 @@ deployment docs and adds the Helm probes feature flag/config/secret references
 without changing single-pod defaults or split-image behavior. The
 [group-notification slice](M4_GROUP_NOTIFICATIONS.md) pages folder channels
 from committed remote evidence and keeps those channels off regional
-assignments.
+assignments. The [capability advertisement slice](M4_CAPABILITY_ADVERTISEMENT.md)
+advertises compiled proxy protocols and rejects a proxy the checker would ignore.
 Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.

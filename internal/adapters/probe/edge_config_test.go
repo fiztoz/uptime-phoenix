@@ -66,6 +66,7 @@ func TestEdgeConfigDecoderRejectsUnsupportedWithoutIO(t *testing.T) {
 			s.Assignments[0].Monitor.Type = "docker"
 			s.Assignments[0].Monitor.Config = json.RawMessage(`{"container":"phoenix"}`)
 			s.Assignments[0].RequiredCapabilities = []string{"checker.docker.v1"}
+			s.Assignments[0].ProxyBindingKey = nil
 			s.Assignments[0].ResourceBindings = []ResourceBinding{{BindingKey: "docker", Kind: "docker_socket"}}
 		},
 	} {
@@ -114,6 +115,11 @@ func TestEdgeConfigDecoderAcceptsEveryPullCheckerType(t *testing.T) {
 			s := m2Config(t)
 			s.Assignments[0].Monitor.Type = kind
 			s.Assignments[0].RequiredCapabilities = []string{"checker." + kind + ".v1"}
+			if checker.ProxyCapable(kind) {
+				s.Assignments[0].RequiredCapabilities = append(s.Assignments[0].RequiredCapabilities, "proxy.socks5.v1")
+			} else {
+				s.Assignments[0].ProxyBindingKey = nil
+			}
 			raw, err := json.Marshal(config)
 			if err != nil {
 				t.Fatal(err)
@@ -149,6 +155,7 @@ func testEdgeConfigColdValidation(t *testing.T, kind string) {
 		snapshot.Assignments[0].Monitor.Type = "docker"
 		snapshot.Assignments[0].Monitor.Config = json.RawMessage(`{"container":"phoenix"}`)
 		snapshot.Assignments[0].RequiredCapabilities = []string{"checker.docker.v1"}
+		snapshot.Assignments[0].ProxyBindingKey = nil
 		snapshot.Assignments[0].ResourceBindings = resources.Inventory()
 	}
 	dir := t.TempDir()

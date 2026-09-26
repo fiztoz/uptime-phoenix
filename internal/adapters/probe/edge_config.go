@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
@@ -141,6 +142,10 @@ func validateEdgeRuntimeSnapshot(s ConfigSnapshot) error {
 	if s.Watchdog.Enabled && s.Probe == nil {
 		return fmt.Errorf("enabled connection watchdog requires probe metadata: %w", domain.ErrValidation)
 	}
+	proxies := make(map[string]ConfigProxy, len(s.ProxyBindings))
+	for _, proxy := range s.ProxyBindings {
+		proxies[proxy.BindingKey] = proxy
+	}
 	for _, a := range s.Assignments {
 		if a.Monitor.Type == "docker" {
 			config, err := configExtensionObject(a.Monitor.Config)
@@ -159,6 +164,12 @@ func validateEdgeRuntimeSnapshot(s ConfigSnapshot) error {
 		// assignment, holds the delivered-threshold cursor and sends through its own
 		// durable outbox. Enabled escalation policies are too: the source runs the
 		// accepted ladder and acknowledgement cancels it.
+		if a.ProxyBindingKey != nil {
+			proxy, ok := proxies[*a.ProxyBindingKey]
+			if !ok || !checker.ProxyCapable(a.Monitor.Type) || !checker.SupportedProxyProtocol(proxy.Protocol) || !containsCapability(a.RequiredCapabilities, checker.ProxyCapabilityName(proxy.Protocol)) {
+				return fmt.Errorf("proxy binding is not executable on this assignment: %w", ErrUnsupportedCapability)
+			}
+		}
 	}
 	// Public acknowledgement URLs stay off. Remote incidents are acknowledged by
 	// an authenticated hub command, which the source applies to the incident it owns.

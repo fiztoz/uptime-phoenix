@@ -13,6 +13,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
@@ -160,6 +161,20 @@ func (v *LocalConfigValidator) supports(capability string) bool {
 		}
 		s, ok := v.sender(name)
 		return ok && s != nil && s.Type() == name
+	case "proxy":
+		if !checker.SupportedProxyProtocol(name) {
+			return false
+		}
+		for _, kind := range []string{"http", "s3"} {
+			if !checker.ProxyCapable(kind) {
+				continue
+			}
+			c, ok := v.checker(kind)
+			if ok && c != nil && c.Type() == kind {
+				return true
+			}
+		}
+		return false
 	default:
 		return false
 	}

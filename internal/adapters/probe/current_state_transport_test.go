@@ -286,7 +286,7 @@ func TestEdgeRuntimeCurrentStatePrecedesAndRefreshesDuringBacklog(t *testing.T) 
 	runtime, err := NewEdgeRuntime(func(ctx context.Context) (domain.EdgeIdentity, int64, error) {
 		d, e := store.ReadDiagnostics(ctx)
 		return d.Identity, d.FirstRetainedSeq, e
-	}, store, configs, EdgeRuntimeConfig{AgentVersion: "test", Capabilities: []string{"snapshot.v1", "checker.http.v1", "notifier.webhook.v1"}}, func(ctx context.Context) (Health, error) {
+	}, store, configs, EdgeRuntimeConfig{AgentVersion: "test", Capabilities: []string{"snapshot.v1", "checker.http.v1", "notifier.webhook.v1", "proxy.socks5.v1"}}, func(ctx context.Context) (Health, error) {
 		d, e := store.ReadDiagnostics(ctx)
 		healthy := true
 		var oldest *Timestamp

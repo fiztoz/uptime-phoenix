@@ -2,10 +2,13 @@ package probe
 
 import (
 	"bytes"
+	"errors"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/notifier"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
@@ -124,6 +127,56 @@ var remotePullCheckerConfigs = map[string]map[string]any{
 	"snmp":      {"hostname": "example.test", "oid": "1.3.6.1.2.1.1.3.0"},
 	"database":  {"engine": "postgres", "connection_string": "postgres://user:pass@example.test:5432/db"},
 	"s3":        {"bucket": "example-bucket", "access_key": "fixture-key", "secret_key": "fixture-secret"},
+}
+
+func TestRemoteConfigEncoderAdvertisesExecutableProxy(t *testing.T) {
+	d := remoteDefinitionFixture()
+	document, err := (RemoteConfigEncoder{}).EncodeRemote(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := DecodeConfigSnapshot(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var httpAssignment *ConfigAssignment
+	for i := range snapshot.Assignments {
+		if snapshot.Assignments[i].Monitor.Type == "http" {
+			httpAssignment = &snapshot.Assignments[i]
+		}
+		if snapshot.Assignments[i].Monitor.Type == "tcp" && snapshot.Assignments[i].ProxyBindingKey != nil {
+			t.Fatal("tcp assignment gained a proxy")
+		}
+	}
+	if httpAssignment == nil || httpAssignment.ProxyBindingKey == nil || !slices.Contains(httpAssignment.RequiredCapabilities, "proxy.http.v1") {
+		t.Fatalf("http proxy was not required: %+v", httpAssignment)
+	}
+	for i := range snapshot.Assignments {
+		if snapshot.Assignments[i].Monitor.Type == "http" {
+			snapshot.Assignments[i].RequiredCapabilities = []string{"checker.http.v1"}
+		}
+	}
+	if err := validateEdgeRuntimeSnapshot(snapshot); !errors.Is(err, ErrUnsupportedCapability) {
+		t.Fatal("proxy without its protocol capability activated", err)
+	}
+
+	d.Assignments[0].Monitor.ProxyID = d.Assignments[1].Monitor.ProxyID
+	if _, err := (RemoteConfigEncoder{}).EncodeRemote(d); !errors.Is(err, ErrUnsupportedCapability) {
+		t.Fatal("tcp proxy assignment was published", err)
+	}
+}
+
+func TestRemotePublicationRejectsUnsupportedDatabaseEngine(t *testing.T) {
+	d := remoteDefinitionFixture()
+	d.Assignments[0].Monitor.Type = "database"
+	d.Assignments[0].Monitor.Config = map[string]any{"engine": "oracle", "connection_string": "oracle://example.test/db"}
+	document, err := (RemoteConfigEncoder{}).EncodeRemote(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewHubConfigDecoder(checker.Get, notifier.Get).DecodeEdge(t.Context(), document, d.Target); err == nil {
+		t.Fatal("unsupported database engine reached activation")
+	}
 }
 
 // TestRemoteConfigEncoderPublishesEveryPullCheckerType proves the hub can
