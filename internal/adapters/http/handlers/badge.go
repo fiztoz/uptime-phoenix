@@ -144,12 +144,14 @@ func (h *BadgeHandlers) Ping(c echo.Context) error {
 // latestStatus resolves the monitor's current status from its latest
 // heartbeat. A monitor that exists but has no heartbeat yet is reported as
 // StatusPending (matches the UI's "pending" treatment for new monitors).
+// Read failures propagate to the caller, which renders the gray "unknown"
+// badge through its normal fallback — the same path a heartbeat-read failure
+// already takes.
 func (h *BadgeHandlers) latestStatus(ctx context.Context, monitorID int64) (domain.Status, error) {
 	if h.overall != nil {
 		got, err := h.overall.StatusForMonitors(ctx, []int64{monitorID}, time.Now().UTC())
 		if err != nil {
-			//nolint:nilerr // A badge must always render: a projection failure degrades to UNKNOWN instead of failing the SVG request. The error is deliberately consumed here.
-			return domain.StatusUnknown, nil
+			return domain.StatusUnknown, err
 		}
 		if status, ok := got[monitorID]; ok {
 			return status, nil
