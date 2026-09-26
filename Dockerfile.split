@@ -78,6 +78,7 @@ USER 65532
 ENTRYPOINT ["/uptime-phoenix-api"]
 
 # ─── Target: worker ─── scheduler + checkers + notifier (no HTTP port) ───────
+# IANA zones come from time/tzdata in cmd/worker, not from this base image.
 FROM gcr.io/distroless/static-debian12:nonroot AS worker
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Uptime Phoenix Worker" \

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	_ "time/tzdata" // distroless has no zoneinfo; accepted cron windows need the IANA database
 
 	"github.com/caarlos0/env/v11"
 

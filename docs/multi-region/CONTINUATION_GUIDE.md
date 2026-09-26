@@ -31,6 +31,9 @@ without changing single-pod defaults or split-image behavior. The
 from committed remote evidence and keeps those channels off regional
 assignments. The [capability advertisement slice](M4_CAPABILITY_ADVERTISEMENT.md)
 advertises compiled proxy protocols and rejects a proxy the checker would ignore.
+The [maintenance and notification sync slice](M4_MAINTENANCE_NOTIFICATIONS.md)
+keeps accepted schedules, direct links, templates, visibility, tags, owner and
+escalation policy on the edge that executes them.
 Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.

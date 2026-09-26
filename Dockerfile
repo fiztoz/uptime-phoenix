@@ -49,6 +49,8 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOMAXPROCS=2 \
       -o /uptime-phoenix-worker ./cmd/worker
 
 # ─── Stage 3: Final image (distroless, ~25 MB) ──────────────────────────────
+# distroless/static has no /usr/share/zoneinfo. Maintenance cron loads IANA
+# zones from the database embedded by time/tzdata in cmd/app and cmd/worker.
 FROM gcr.io/distroless/static-debian12:nonroot
 ARG VERSION=dev
 ARG TARGETOS=linux

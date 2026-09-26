@@ -228,7 +228,7 @@ func edgeAlertContext(item domain.QueuedDelivery, a domain.EdgeResolvedAssignmen
 	if item.ResolvedAt != nil {
 		end = *item.ResolvedAt
 	}
-	alert := domain.AlertContext{AlertScope: domain.AlertScopeMonitor, ProbeID: item.ProbeID, AssignmentGeneration: item.AssignmentGeneration, DeliveryScope: domain.IncidentScopeRegional, MonitorID: m.ID, MonitorName: m.Name, MonitorType: m.Type, MonitorTarget: m.Target(), MonitorDescription: m.Description, MonitorOwner: a.EffectiveOwner, Status: item.CheckStatus, PreviousStatus: domain.StatusUp, Message: item.CheckOutput, CheckOutput: item.CheckOutput, Duration: max(time.Duration(0), end.Sub(item.StartedAt)), StartedAt: item.StartedAt.UTC(), EventKind: item.EventKind, Tags: make(map[string]string)}
+	alert := domain.AlertContext{AlertScope: domain.AlertScopeMonitor, ProbeID: item.ProbeID, ProbeName: config.Probe.Name, ProbeLocation: config.Probe.Location, AssignmentGeneration: item.AssignmentGeneration, DeliveryScope: domain.IncidentScopeRegional, MonitorID: m.ID, MonitorName: m.Name, MonitorType: m.Type, MonitorTarget: m.Target(), MonitorDescription: m.Description, MonitorOwner: a.EffectiveOwner, Status: item.CheckStatus, PreviousStatus: domain.StatusUp, Message: item.CheckOutput, CheckOutput: item.CheckOutput, Duration: max(time.Duration(0), end.Sub(item.StartedAt)), StartedAt: item.StartedAt.UTC(), EventKind: item.EventKind, Tags: make(map[string]string)}
 	if item.CheckStatus == domain.StatusUp {
 		alert.PreviousStatus = domain.StatusDown
 	}

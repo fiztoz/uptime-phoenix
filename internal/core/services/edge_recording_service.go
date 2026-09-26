@@ -46,6 +46,10 @@ func EdgeMaintenanceActive(config *domain.EdgeResolvedConfig, assignment domain.
 			if cron == nil {
 				return false, domain.ErrValidation
 			}
+			// Empty timezone is UTC, matching MaintenanceService. A named zone must
+			// resolve; distroless images carry that database via time/tzdata in the
+			// hub and probe mains. An unknown name fails the check instead of
+			// suppressing on the wrong clock.
 			loc, err := time.LoadLocation(w.Timezone)
 			if err != nil {
 				return false, domain.ErrValidation

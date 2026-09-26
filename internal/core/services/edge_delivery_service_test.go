@@ -62,8 +62,10 @@ func TestEdgeDeliveryServiceReconcilesAcceptedGraphAndRedactsErrors(t *testing.T
 			until := at.Add(time.Minute)
 			a.Monitor.Name = "Checkout"
 			a.Monitor.Config = map[string]any{"url": "https://secret.example"}
+			a.Monitor.Owner = "contact"
 			a.EffectiveOwner = "Operations"
 			a.Tags = []domain.ProbeConfigTag{{Name: "team", Value: "ops"}}
+			config.Probe = domain.ProbeDisplay{Name: "Bangkok edge", Location: "TH"}
 			config.Assignments[0] = a
 			config.Channels[7] = domain.EdgeResolvedChannel{Notification: &domain.Notification{ID: 7, Active: true, Type: "webhook"}, Version: 3}
 			source.e.Incident = &domain.RegionalIncident{SourceAlertID: "incident", Status: domain.AlertStatusFiring, TransitionVersion: 1}
@@ -110,8 +112,12 @@ func TestEdgeDeliveryServiceReconcilesAcceptedGraphAndRedactsErrors(t *testing.T
 				t.Fatal("provider not called")
 			}
 			alert := f.sent[0]
-			if alert.MonitorOwner != "Operations" || alert.Tags["team"] != "ops" || alert.MonitorTarget != "" || alert.ProbeID != "probe" || alert.AckURL != "" {
+			if alert.MonitorOwner != "Operations" || alert.Tags["team"] != "ops" || alert.MonitorTarget != "" || alert.ProbeID != "probe" || alert.ProbeName != "Bangkok edge" || alert.ProbeLocation != "TH" || alert.AckURL != "" {
 				t.Fatalf("wrong notification context: %+v", alert)
+			}
+			rendered, err := domain.RenderNotificationTemplate("{{probe.name}}/{{probe.location}}/{{monitor.owner}}", alert, at)
+			if err != nil || rendered != "Bangkok edge/TH/Operations" {
+				t.Fatalf("region context did not reach the template: %q %v", rendered, err)
 			}
 			if scenario == "template" && (alert.TemplateTitle != "title" || alert.TemplateBody != "body") {
 				t.Fatal("template dropped")
