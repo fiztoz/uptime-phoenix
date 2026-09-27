@@ -10,6 +10,9 @@ ROOT = "github.com/fiztoz/uptime-phoenix/internal/"
 REQUIRED = {
     (ROOT + "core/services", "TestMonitorRegionalServiceScopeAndFreshness"),
     (ROOT + "core/services", "TestMonitorRegionalServiceLegacyAndFailures"),
+    (ROOT + "core/services", "TestMonitorRegionalHistoryRelationship"),
+    (ROOT + "core/services", "TestMonitorRegionalHistoryBoundsAreUTC"),
+    (ROOT + "core/services", "TestMonitorRegionalHistoryFailures"),
     (ROOT + "core/services", "TestRegionalDisplayHealthBoundaries"),
     (ROOT + "core/services", "TestProbeDiagnosticsSummaryBoundaries"),
     (ROOT + "core/services", "TestProbeFleetServiceListAndDetail"),
@@ -23,6 +26,10 @@ REQUIRED = {
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPFixtures"),
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPErrors"),
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPUnknownAndEmpty"),
+    (ROOT + "adapters/http/handlers", "TestMonitorRegionalHistoryFixtures"),
+    (ROOT + "adapters/http/handlers", "TestMonitorRegionalHistoryQuerySemantics"),
+    (ROOT + "adapters/http/handlers", "TestMonitorRegionalHistoryChart"),
+    (ROOT + "adapters/http/handlers", "TestMonitorRegionalHistoryHTTPErrors"),
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPDiagnosticFills"),
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPReplace"),
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPReplaceErrors"),
@@ -39,6 +46,8 @@ REQUIRED = {
     (ROOT + "adapters/repository", "TestM5AssignmentWrites/mariadb"),
     (ROOT + "adapters/repository", "TestM5AdminOperations/sqlite"),
     (ROOT + "adapters/repository", "TestM5AdminOperations/mariadb"),
+    (ROOT + "adapters/repository", "TestM5HistoryAPI/sqlite"),
+    (ROOT + "adapters/repository", "TestM5HistoryAPI/mariadb"),
 }
 
 
@@ -86,7 +95,7 @@ def main() -> int:
     if errors:
         print("M5 evidence rejected:\n" + "\n".join(errors), file=sys.stderr)
         return 1
-    print("M5 read API evidence passed: service, wire fixtures, SQLite and MariaDB (regional reads, fleet diagnostics, assignment writes, admin operations).")
+    print("M5 read API evidence passed: service, wire fixtures, SQLite and MariaDB (regional reads, fleet diagnostics, assignment writes, admin operations, regional history).")
     return 0
 
 

@@ -160,7 +160,7 @@ func TestCommandRequiredFieldsAreNotNullable(t *testing.T) {
 // the assignment-write slice registers the admin PUT replacement, and the
 // administrative-operations slice registers registration writes plus the
 // enroll/rotate-credential/reset-stream routes and the operation read. Every
-// still-proposed mutation or regional history route must stay unregistered
+// still-proposed mutation route must stay unregistered
 // until its own acceptance exists (a stub that answers 2xx makes a dead feature
 // look healthy). Protocol DTOs and the M2 outbound pinned client may name wire
 // endpoints without registering hub HTTP routes.
@@ -171,7 +171,6 @@ func TestNoUnimplementedProbeAdminRoutes(t *testing.T) {
 		`DELETE("/api/probes`,
 		"/api/probes/:probe_id/revoke",
 		`POST("/api/monitors/:id/probes"`,
-		"/probes/:probe_id/heartbeats",
 	}
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {

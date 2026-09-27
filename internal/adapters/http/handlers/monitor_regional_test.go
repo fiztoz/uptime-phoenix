@@ -26,6 +26,12 @@ type regionalReadFake struct {
 	calls       int
 	hours       int
 	at          time.Time
+
+	observations []domain.RegionalObservation
+	historyErr   error
+	historyProbe string
+	historyFrom  time.Time
+	historyTo    time.Time
 }
 
 func (r *regionalReadFake) Assignments(context.Context, int64, int64, time.Time) (*services.MonitorRegionalAssignments, error) {
@@ -37,6 +43,16 @@ func (r *regionalReadFake) Health(_ context.Context, _, _ int64, hours int, at t
 	r.hours = hours
 	r.at = at
 	return r.health, r.err
+}
+func (r *regionalReadFake) RegionalHistory(_ context.Context, _, _ int64, probeID string, from, to time.Time) ([]domain.RegionalObservation, error) {
+	r.calls++
+	r.historyProbe = probeID
+	r.historyFrom = from
+	r.historyTo = to
+	if r.historyErr != nil {
+		return nil, r.historyErr
+	}
+	return r.observations, r.err
 }
 
 func regionalFixture() *regionalReadFake {

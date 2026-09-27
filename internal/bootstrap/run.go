@@ -654,6 +654,7 @@ func Run(cfg Config) error {
 
 	regionalSvc := services.NewMonitorRegionalService(healthSvc, repos.probeRegistry)
 	regionalSvc.SetDiagnostics(repos.probeDiagnostics)
+	regionalSvc.SetHistory(repo.NewRegionalCommitStore(db), repos.probeAssignments)
 	regionalHandlers := handlers.NewMonitorRegionalHandlers(regionalSvc, cfg.ProbesEnabled)
 	regionalHandlers.SetAssignments(services.NewProbeAssignmentService(repos.probeAssignWriter, repos.probeAssignments, repos.probeRegistry, repos.monitor, checkeradapter.CapabilityInspector{}))
 	fleetSvc := services.NewProbeFleetService(repos.probeDiagnostics)

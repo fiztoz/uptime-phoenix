@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -18,6 +19,8 @@ type MonitorRegionalService struct {
 	health      *MonitorHealthService
 	registry    ports.ProbeRegistryRepository
 	diagnostics ports.ProbeDiagnosticsRepository
+	obs         ports.RegionalObservationReader
+	assignHist  ports.AssignmentHistoryReader
 }
 
 // MonitorRegionalAssignments contains desired membership, not proof of execution.
@@ -49,6 +52,80 @@ func (s *MonitorRegionalService) SetDiagnostics(diagnostics ports.ProbeDiagnosti
 	if s != nil {
 		s.diagnostics = diagnostics
 	}
+}
+
+// SetHistory binds the raw regional evidence and assignment-history readers
+// used by the relationship-checked history routes. Without them the routes
+// report regional_unavailable rather than serving partial evidence.
+func (s *MonitorRegionalService) SetHistory(obs ports.RegionalObservationReader, assignHist ports.AssignmentHistoryReader) {
+	if s != nil {
+		s.obs = obs
+		s.assignHist = assignHist
+	}
+}
+
+// ErrProbeNotRelated reports a monitor/probe pair with no current or recorded
+// assignment relationship. It reads exactly like a missing probe.
+var ErrProbeNotRelated = errors.New("probe not related to monitor")
+
+// RegionalHistory returns a visible monitor's ordered regional history for one
+// probe over [from, to). The monitor/probe relationship is validated first:
+// the probe must be assigned now or have been assigned during the window, and
+// a probe that never belonged to this monitor reads exactly like a missing one.
+// Bounds are normalized to UTC before any storage read.
+func (s *MonitorRegionalService) RegionalHistory(ctx context.Context, userID, monitorID int64, probeID string, from, to time.Time) ([]domain.RegionalObservation, error) {
+	if s == nil || s.health == nil || s.obs == nil || s.assignHist == nil {
+		return nil, domain.ErrInternal
+	}
+	if probeID == "" || from.IsZero() || to.IsZero() || !from.Before(to) {
+		return nil, domain.ErrValidation
+	}
+	if err := s.health.denyIfHidden(ctx, userID, monitorID); err != nil {
+		return nil, err
+	}
+	from, to = from.UTC(), to.UTC()
+	related, err := s.probeRelated(ctx, monitorID, probeID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	if !related {
+		// Same answer as a hidden monitor: never confirm that another monitor's
+		// probe exists or has evidence here.
+		return nil, ErrProbeNotRelated
+	}
+	rows, err := s.obs.ListObservations(ctx, monitorID, probeID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// probeRelated proves the monitor/probe relationship from the current desired
+// set or the recorded assignment intervals overlapping the window.
+func (s *MonitorRegionalService) probeRelated(ctx context.Context, monitorID int64, probeID string, from, to time.Time) (bool, error) {
+	_, set, _, err := s.health.loadMonitorEvidence(ctx, monitorID)
+	if err != nil {
+		return false, err
+	}
+	for _, assignment := range set.Assignments {
+		if assignment.ProbeID == probeID {
+			return true, nil
+		}
+	}
+	intervals, err := s.assignHist.ListHistory(ctx, monitorID, from, to)
+	if err != nil {
+		return false, err
+	}
+	for _, interval := range intervals {
+		if interval.ProbeID != probeID {
+			continue
+		}
+		// [From, To) overlap with [from, to); a zero To means open-ended.
+		if interval.From.Before(to) && (interval.To.IsZero() || from.Before(interval.To)) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Assignments reads only a visible monitor's complete desired set. Revision zero

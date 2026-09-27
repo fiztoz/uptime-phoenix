@@ -425,7 +425,9 @@ implements `PUT /api/monitors/:id/probes`, the monitor-create extension and the
 clone rule. The [administrative operations slice](M5_ADMIN_OPERATIONS.md)
 implements `POST /api/probes`, `PATCH /api/probes/:probe_id`, the
 enroll/rotate-credential/reset-stream routes and `GET /api/probe-operations/:operation_id`;
-revoke and delete remain proposed. The other routes in this table remain
+revoke and delete remain proposed. The [regional history slice](M5_REGIONAL_HISTORY.md)
+implements the relationship-checked `GET /api/monitors/:id/probes/:probe_id/heartbeats`
+and its `/chart` route. The other routes in this table remain
 proposed until their acceptance is recorded.
 
 Endpoint and TLS pin are frozen on the registration (create-only immutable
@@ -502,7 +504,7 @@ The monitor create request may add optional `probe_ids`, `health_policy`, and `p
 
 Existing HTTP heartbeat status is lowercase; probe observation status is uppercase. Legacy browser heartbeats use `msg` and map maintenance to `paused` and unknown integers to `pending`. Keep separate DTOs and fixtures. Before emitting UNKNOWN on existing consumers, deliberately update those mappings and all frontend readers; merely adding the domain constant does not activate it. New regional HTTP/browser status uses lowercase `unknown`.
 
-Existing HTTP heartbeat wire names remain `id`, `monitor_id`, `status`, `ping`, `message`, `time`, `important`. The regional endpoint adds `probe_id`, `received_at`, `assignment_generation`, and `config_revision`; it does not rename `message` to the domain field `Msg`.
+Existing HTTP heartbeat wire names remain `id`, `monitor_id`, `status`, `ping`, `message`, `time`, `important`. The regional endpoint adds `probe_id`, `received_at`, `assignment_generation`, and `config_revision`; it does not rename `message` to the domain field `Msg`. It is implemented ([regional history](M5_REGIONAL_HISTORY.md)) with the existing `hours`, `limit`, `order`, `important` query semantics; an unassigned probe reads `404 probe_not_found`, and `invalid_probe_id` is a 400.
 
 The existing unqualified monitor heartbeat endpoint represents overall monitor history for a multi-probe monitor. Add `scope: "overall"` and `latency_available: false`; `ping` is the existing unmeasured zero sentinel. Overall chart responses have no synthetic latency buckets and carry downtime/unknown intervals. The updated UI uses selected regional endpoints for latency. A local-only monitor preserves today's measured response behavior. This is an explicit compatibility change to verify against every dashboard, badge, status-page, and external client contract before activation.
 

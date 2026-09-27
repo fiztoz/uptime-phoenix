@@ -158,6 +158,11 @@ func NewRouter(
 		// 7.1). The handler answers 503 when no write service is wired.
 		e.PUT("/api/monitors/:id/probes", regional.Replace, middleware.AuthMiddleware(authSvc), requireAdmin)
 
+		// Relationship-checked regional history and chart (protocol section 7).
+		// The monitor/probe relationship is validated before any evidence read.
+		e.GET("/api/monitors/:id/probes/:probe_id/heartbeats", regional.ListHistory, middleware.AuthMiddleware(authSvc))
+		e.GET("/api/monitors/:id/probes/:probe_id/heartbeats/chart", regional.GetHistoryChart, middleware.AuthMiddleware(authSvc))
+
 		// Administrative fleet reads (protocol section 7): authenticated admin
 		// via session or write-scope API key. Non-admins are rejected before the
 		// handler runs; the routes never widen monitor visibility.

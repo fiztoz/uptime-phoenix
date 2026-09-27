@@ -126,10 +126,15 @@ so labels and generations do not require guessing from unrelated observations.
    wrapped with durable exact operation receipts (persisted before any 202,
    redacted bounded errors). Revoke and soft-delete stay proposed: no durable
    revocation state exists yet and a fake 2xx is forbidden.
-4. **Regional history and UI.** Implement relationship-checked history/chart
-   routes before building latency selection. Use these fixtures for TypeScript
-   contracts, then add fleet/monitor views, English/Thai messages and browser
-   tests. Keep UNKNOWN visible; label unavailable diagnostics as unknown.
+4. **Regional history and UI.** Part 1 done — see
+   [regional history](M5_REGIONAL_HISTORY.md): relationship-checked
+   history/chart routes (current or window-overlapping assignment required,
+   unassigned probes read `probe_not_found`) preserve the existing query
+   semantics and the frozen regional row shape with lowercase `unknown`
+   visible. Remaining: TypeScript contracts from these fixtures, latency
+   selection, fleet/monitor views, English/Thai messages and browser tests,
+   then the section-7.2 compatibility activation. Keep UNKNOWN visible; label
+   unavailable diagnostics as unknown.
 5. **Browser events and full M5 acceptance.** Add explicit wire mappings and
    monitor/admin fan-out checks. Test grant revocation after subscription,
    reconnect, stale caches, pending config and pending ACK; require the actual

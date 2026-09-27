@@ -17,6 +17,7 @@ import (
 type monitorRegionalReader interface {
 	Assignments(context.Context, int64, int64, time.Time) (*services.MonitorRegionalAssignments, error)
 	Health(context.Context, int64, int64, int, time.Time) (*services.MonitorRegionalHealth, error)
+	RegionalHistory(context.Context, int64, int64, string, time.Time, time.Time) ([]domain.RegionalObservation, error)
 }
 
 // assignmentWriter is the optional revisioned write surface behind
