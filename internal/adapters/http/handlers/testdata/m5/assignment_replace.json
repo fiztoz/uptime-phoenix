@@ -1,0 +1,9 @@
+{
+  "revision": "9007199254740993",
+  "health_policy": "any_down",
+  "alert_delivery": "regional",
+  "assignments": [
+    {"probe_id": "11111111-1111-4111-8111-111111111111", "name": "Singapore", "location": "SG", "generation": "9007199254740993", "desired_config_revision": "9007199254740993", "applied_config_revision": "9007199254740993", "sync_status": "pending", "bindings": [{"kind": "docker_socket", "binding_key": "docker-main"}]},
+    {"probe_id": "local", "name": "Hub", "location": "", "generation": "1", "desired_config_revision": null, "applied_config_revision": null, "sync_status": null, "bindings": []}
+  ]
+}

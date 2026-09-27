@@ -3,7 +3,9 @@
 **M5 continuation starts at [the foundation and frozen read contracts](M5_FOUNDATION.md).**
 The first slice exposes scoped health and desired assignments. The second,
 [fleet diagnostics](M5_FLEET_DIAGNOSTICS.md), adds the safe runtime diagnostic
-read model and the admin `GET /api/probes` list/detail reads. Assignment writes,
+read model and the admin `GET /api/probes` list/detail reads. The third,
+[assignment writes](M5_ASSIGNMENT_WRITES.md), adds revisioned admin desired-set
+replacement, atomic create-with-assignments and the clone rule. Durable
 operations, regional history, fleet UI and browser work remain; do not infer
 completion from the full proposed route table.
 

@@ -275,6 +275,83 @@ func CreateMonitorWithLocalAssignment(ctx context.Context, db *bun.DB, model *Mo
 	})
 }
 
+// CreateMonitorWithAssignments inserts a monitor together with its complete
+// initial desired assignment set in one transaction. Creation can never leave
+// a different set behind, so an explicit remote create is atomic exactly like
+// the ordinary local default. Model defaults match the engine monitor Create:
+// creation time, empty config and the 200-299 accepted-code default. Every
+// member must be a currently enabled registration (live Replace semantics,
+// never Restore), and resource bindings follow the same rules as replacement:
+// a new or recreated Docker assignment requires an explicit binding and an
+// omitted binding list supplies none.
+func (r *ProbeAssignmentStore) CreateMonitorWithAssignments(ctx context.Context, m *domain.Monitor, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+	if r == nil || r.db == nil || m == nil {
+		return nil, domain.ErrInternal
+	}
+	ids, err := validateProbeMemberSet(probeIDs, policy)
+	if err != nil {
+		return nil, err
+	}
+	model := MonitorModelFromDomain(m)
+	now := time.Now().UTC()
+	model.CreatedAt, model.UpdatedAt = now, now
+	if model.Config == nil {
+		model.Config = JSONField{}
+	}
+	if len(model.AcceptedStatusCodes) == 0 {
+		model.AcceptedStatusCodes = StringListField{"200-299"}
+	}
+	var out *domain.MonitorProbeAssignments
+	err = runConfigAuthorityTx(ctx, r.db, func(ctx context.Context, tx bun.Tx) error {
+		// Match configuration activation/read lock order: probes before monitor
+		// rows, sorted so concurrent writers lock in one order.
+		lockIDs := append(slices.Clone(ids), domain.LocalProbeID)
+		slices.Sort(lockIDs)
+		lockIDs = slices.Compact(lockIDs)
+		for _, id := range lockIDs {
+			if _, err := tx.NewUpdate().Table("probes").Set("revision = revision").Where("id = ?", id).Exec(ctx); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.NewInsert().Model(model).Exec(ctx); err != nil {
+			return err
+		}
+		for _, id := range ids {
+			if err := requireRegisteredProbe(ctx, tx, id, true); err != nil {
+				return err
+			}
+		}
+		resources, _, err := replacementResourceBindings(ctx, tx, model.ID, ids, nil, bindings)
+		if err != nil {
+			return err
+		}
+		changeAt := assignmentChangeTime(time.Time{})
+		set := &probeAssignmentSetModel{MonitorID: model.ID, Revision: 1,
+			HealthPolicy: policy, CreatedAt: changeAt, UpdatedAt: changeAt}
+		if _, err := tx.NewInsert().Model(set).Exec(ctx); err != nil {
+			return err
+		}
+		for _, id := range ids {
+			binding := resources[id]
+			row := probeAssignmentModel{MonitorID: model.ID, ProbeID: id, Generation: 1, Active: true,
+				ResourceBindingKey: binding.BindingKey, ResourceBindingKind: binding.Kind, CreatedAt: changeAt, UpdatedAt: changeAt}
+			if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
+				return err
+			}
+		}
+		if err := writeAssignmentHistory(ctx, tx, model.ID, 1, policy, changeAt); err != nil {
+			return err
+		}
+		out, err = readProbeAssignments(ctx, tx, model.ID)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create monitor with assignments: %w", probeRegistryError(err))
+	}
+	m.ID, m.CreatedAt, m.UpdatedAt = model.ID, model.CreatedAt, model.UpdatedAt
+	return out, nil
+}
+
 // ExecutableByLocal reports which monitors the hub worker may run and their local generation.
 func (r *ProbeAssignmentStore) ExecutableByLocal(ctx context.Context, monitorIDs []int64) (map[int64]int64, error) {
 	allowed := make(map[int64]int64, len(monitorIDs))
@@ -370,10 +447,18 @@ func (r *ProbeAssignmentStore) replaceWithBindings(ctx context.Context, monitorI
 	// publication locks a registration before reading assignments; removed
 	// members also need that order because their foreign keys lock probes.
 	current, err := r.GetByMonitorID(ctx, monitorID)
-	if err != nil {
+	if err != nil && !errors.Is(err, ports.ErrNotFound) {
 		return nil, err
 	}
-	if current.Revision != expectedRevision {
+	if err != nil {
+		// A legacy monitor without an assignment set is initialized inside this
+		// mutation's own transaction below. Revision zero is never a valid
+		// precondition: the caller expects the post-initialization revision.
+		current = &domain.MonitorProbeAssignments{MonitorID: monitorID}
+		if expectedRevision != 1 {
+			return nil, ports.ErrConflict
+		}
+	} else if current.Revision != expectedRevision {
 		return nil, ports.ErrConflict
 	}
 	lockIDs := append(slices.Clone(ids), domain.LocalProbeID)
@@ -397,7 +482,16 @@ func (r *ProbeAssignmentStore) replaceWithBindings(ctx context.Context, monitorI
 		}
 		set := new(probeAssignmentSetModel)
 		if err := tx.NewSelect().Model(set).Where("monitor_id = ?", monitorID).Scan(ctx); err != nil {
-			return err
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			// Initialize under this transaction only; reads never create rows.
+			if err := InitializeLocalAssignment(ctx, tx, monitorID); err != nil {
+				return err
+			}
+			if err := tx.NewSelect().Model(set).Where("monitor_id = ?", monitorID).Scan(ctx); err != nil {
+				return err
+			}
 		}
 		if set.Revision != expectedRevision {
 			return ports.ErrConflict
@@ -453,9 +547,19 @@ func (r *ProbeAssignmentStore) replaceWithBindings(ctx context.Context, monitorI
 }
 
 func validateProbeReplacement(monitorID, revision int64, probeIDs []string, policy domain.HealthPolicy) ([]string, error) {
-	if monitorID < 1 || revision < 1 || len(probeIDs) == 0 ||
+	if monitorID < 1 || revision < 1 {
+		return nil, fmt.Errorf("invalid assignment identity or revision: %w", domain.ErrValidation)
+	}
+	return validateProbeMemberSet(probeIDs, policy)
+}
+
+// validateProbeMemberSet checks the complete desired member set and policy
+// before anything is written: at least one member, no duplicates, canonical
+// probe identities, and one of the two supported health policies.
+func validateProbeMemberSet(probeIDs []string, policy domain.HealthPolicy) ([]string, error) {
+	if len(probeIDs) == 0 ||
 		(policy != domain.HealthPolicyAnyDown && policy != domain.HealthPolicyAllDown) {
-		return nil, fmt.Errorf("invalid assignment identity, revision, member set, or policy: %w", domain.ErrValidation)
+		return nil, fmt.Errorf("invalid member set or policy: %w", domain.ErrValidation)
 	}
 	ids := slices.Clone(probeIDs)
 	slices.Sort(ids)

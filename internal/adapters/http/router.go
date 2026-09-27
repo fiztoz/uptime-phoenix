@@ -150,6 +150,9 @@ func NewRouter(
 		}
 		e.GET("/api/monitors/:id/probes", regional.Assignments, middleware.AuthMiddleware(authSvc))
 		e.GET("/api/monitors/:id/health", regional.Health, middleware.AuthMiddleware(authSvc))
+		// Admin atomic complete assignment/policy replacement (protocol section
+		// 7.1). The handler answers 503 when no write service is wired.
+		e.PUT("/api/monitors/:id/probes", regional.Replace, middleware.AuthMiddleware(authSvc), requireAdmin)
 
 		// Administrative fleet reads (protocol section 7): authenticated admin
 		// via session or write-scope API key. Non-admins are rejected before the

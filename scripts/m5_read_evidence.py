@@ -13,10 +13,15 @@ REQUIRED = {
     (ROOT + "core/services", "TestRegionalDisplayHealthBoundaries"),
     (ROOT + "core/services", "TestProbeDiagnosticsSummaryBoundaries"),
     (ROOT + "core/services", "TestProbeFleetServiceListAndDetail"),
+    (ROOT + "core/services", "TestValidateDesiredAssignments"),
+    (ROOT + "core/services", "TestProbeAssignmentServiceReplace"),
+    (ROOT + "core/services", "TestMonitorServiceCloneAuthority"),
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPFixtures"),
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPErrors"),
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPUnknownAndEmpty"),
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPDiagnosticFills"),
+    (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPReplace"),
+    (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPReplaceErrors"),
     (ROOT + "adapters/http/handlers", "TestProbeFleetHTTPFixtures"),
     (ROOT + "adapters/http/handlers", "TestProbeFleetHTTPErrors"),
     (ROOT + "adapters/http/handlers", "TestProbeFleetHTTPSecretExclusion"),
@@ -24,6 +29,8 @@ REQUIRED = {
     (ROOT + "adapters/repository", "TestM5ReadAPI/mariadb"),
     (ROOT + "adapters/repository", "TestM5FleetAPI/sqlite"),
     (ROOT + "adapters/repository", "TestM5FleetAPI/mariadb"),
+    (ROOT + "adapters/repository", "TestM5AssignmentWrites/sqlite"),
+    (ROOT + "adapters/repository", "TestM5AssignmentWrites/mariadb"),
 }
 
 
@@ -71,7 +78,7 @@ def main() -> int:
     if errors:
         print("M5 evidence rejected:\n" + "\n".join(errors), file=sys.stderr)
         return 1
-    print("M5 read API evidence passed: service, wire fixtures, SQLite and MariaDB (regional reads + fleet diagnostics).")
+    print("M5 read API evidence passed: service, wire fixtures, SQLite and MariaDB (regional reads, fleet diagnostics, assignment writes).")
     return 0
 
 

@@ -17,13 +17,17 @@ import (
 
 // MonitorService handles monitor CRUD and lifecycle operations.
 type MonitorService struct {
-	repo             ports.MonitorRepository
-	bus              ports.EventBus
-	proxyRepo        ports.ProxyRepository               // optional: nil disables proxy_id validation
-	groupRepo        ports.MonitorGroupRepository        // optional: nil disables group_id validation
-	notifRepo        ports.NotificationRepository        // optional: for is_default auto-link
-	monitorNotifRepo ports.MonitorNotificationRepository // optional: for is_default auto-link
-	conditionRepo    ports.MonitorConditionRepository    // optional: removes disabled auxiliary conditions
+	repo              ports.MonitorRepository
+	bus               ports.EventBus
+	proxyRepo         ports.ProxyRepository                  // optional: nil disables proxy_id validation
+	groupRepo         ports.MonitorGroupRepository           // optional: nil disables group_id validation
+	notifRepo         ports.NotificationRepository           // optional: for is_default auto-link
+	monitorNotifRepo  ports.MonitorNotificationRepository    // optional: for is_default auto-link
+	conditionRepo     ports.MonitorConditionRepository       // optional: removes disabled auxiliary conditions
+	assignWriter      ports.ProbeAssignmentWriter            // optional: atomic create-with-assignments
+	assignReader      ports.MonitorProbeAssignmentRepository // optional: clone honors the source set
+	probeRegistry     ports.ProbeRegistryRepository          // optional: validates explicit members
+	probeCapabilities ports.ProbeAssignmentCapabilities      // optional: validates remote executability
 }
 
 // SetConditionRepository wires cleanup for auxiliary observations whose
@@ -277,45 +281,6 @@ func (s *MonitorService) Delete(ctx context.Context, id int64) error {
 }
 
 // Clone duplicates a monitor configuration for the given user.
-func (s *MonitorService) Clone(ctx context.Context, id, userID int64) (*domain.Monitor, error) {
-	src, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("monitor service: clone: %w", err)
-	}
-	if src.UserID != userID {
-		return nil, domain.ErrNotFound
-	}
-	clone := *src
-	clone.ID = 0
-	clone.Name = src.Name + " (copy)"
-	clone.UserID = userID
-	clone.PushToken = ""
-	// clone.GroupID is intentionally left as copied from src: cloning a
-	// monitor filed under a folder should produce a copy that stays in that
-	// same folder, not one that gets kicked out to top-level.
-	if clone.Config != nil {
-		cfg := make(map[string]any, len(clone.Config))
-		for k, v := range clone.Config {
-			cfg[k] = v
-		}
-		if clone.Type == "push" {
-			token, err := generatePushToken()
-			if err != nil {
-				return nil, fmt.Errorf("monitor service: clone: generate push token: %w", err)
-			}
-			cfg["push_token"] = token
-			clone.PushToken = token
-		} else {
-			delete(cfg, "push_token")
-		}
-		clone.Config = cfg
-	}
-	if err := s.Create(ctx, &clone); err != nil {
-		return nil, fmt.Errorf("monitor service: clone: %w", err)
-	}
-	return &clone, nil
-}
-
 // generatePushToken returns a unique push ingest token for push monitors.
 func generatePushToken() (string, error) {
 	buf := make([]byte, 24)

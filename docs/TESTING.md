@@ -1435,7 +1435,10 @@ The first M5 slice exposes scoped health and desired assignments. See the
 it; null runtime diagnostics are deliberate and do not imply application.
 The [fleet diagnostics slice](multi-region/M5_FLEET_DIAGNOSTICS.md) adds the
 admin `GET /api/probes` list/detail reads and the safe diagnostic read port
-that now feeds the formerly-null connection/config fields.
+that now feeds the formerly-null connection/config fields. The
+[assignment write slice](multi-region/M5_ASSIGNMENT_WRITES.md) adds the admin
+`PUT /api/monitors/:id/probes` replacement, atomic create-with-assignments and
+the clone rule.
 
 Set `TEST_MARIADB_DSN` to a disposable MariaDB database with
 `parseTime=true&loc=UTC&multiStatements=true`. Run one engine suite at a time per
@@ -1445,7 +1448,7 @@ that MariaDB tests executed.
 ```sh
 : "${TEST_MARIADB_DSN:?Set a disposable MariaDB test DSN}"
 export TEST_MARIADB_DSN
-rtk proxy go test -race -count=1 -timeout 2400s -json ./internal/core/services ./internal/adapters/http/handlers ./internal/adapters/repository -run 'TestMonitorRegional|TestRegionalDisplayHealthBoundaries|TestM5ReadAPI|TestM5FleetAPI|TestProbeFleet|TestProbeDiagnostics' > /tmp/m5-read.jsonl
+rtk proxy go test -race -count=1 -timeout 2400s -json ./internal/core/services ./internal/adapters/http/handlers ./internal/adapters/repository -run 'TestMonitorRegional|TestRegionalDisplayHealthBoundaries|TestM5ReadAPI|TestM5FleetAPI|TestM5AssignmentWrites|TestProbeFleet|TestProbeDiagnostics|TestValidateDesired|TestProbeAssignmentService|TestMonitorServiceClone' > /tmp/m5-read.jsonl
 rtk proxy python3 scripts/m5_read_evidence.py /tmp/m5-read.jsonl
 ```
 

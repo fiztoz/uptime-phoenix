@@ -19,10 +19,18 @@ type monitorRegionalReader interface {
 	Health(context.Context, int64, int64, int, time.Time) (*services.MonitorRegionalHealth, error)
 }
 
+// assignmentWriter is the optional revisioned write surface behind
+// PUT /api/monitors/:id/probes. Without it the route stays registered but
+// unavailable, exactly like a router built without the read service.
+type assignmentWriter interface {
+	Replace(context.Context, int64, services.ProbeAssignmentRequest) (*services.ProbeAssignmentWriteResult, error)
+}
+
 // MonitorRegionalHandlers exposes the opt-in M5 read contract. The service owns
 // authorization; DTOs below are the only objects serialized to clients.
 type MonitorRegionalHandlers struct {
 	svc     monitorRegionalReader
+	writer  assignmentWriter
 	enabled bool
 	now     func() time.Time
 }
@@ -30,6 +38,13 @@ type MonitorRegionalHandlers struct {
 // NewMonitorRegionalHandlers builds handlers; disabled reads return a typed 503.
 func NewMonitorRegionalHandlers(svc monitorRegionalReader, enabled bool) *MonitorRegionalHandlers {
 	return &MonitorRegionalHandlers{svc: svc, enabled: enabled, now: time.Now}
+}
+
+// SetAssignments wires the revisioned desired-set write surface.
+func (h *MonitorRegionalHandlers) SetAssignments(writer assignmentWriter) {
+	if h != nil {
+		h.writer = writer
+	}
 }
 
 // MonitorProbeAssignmentsView is desired state only. Null synchronization fields
@@ -120,6 +135,74 @@ func (h *MonitorRegionalHandlers) Assignments(c echo.Context) error {
 	if err != nil {
 		return regionalReadError(c, err)
 	}
+	return c.JSON(http.StatusOK, toAssignmentsView(result, nil))
+}
+
+// ReplaceMonitorAssignmentsRequest is the PUT body: one complete desired set.
+// expected_revision is mandatory and decimal-string; bindings is optional and
+// distinguishes omission (preserve retained bindings) from an explicit list.
+type ReplaceMonitorAssignmentsRequest struct {
+	ExpectedRevision string                        `json:"expected_revision"`
+	ProbeIDs         []string                      `json:"probe_ids"`
+	HealthPolicy     string                        `json:"health_policy"`
+	AlertDelivery    string                        `json:"alert_delivery"`
+	Bindings         *[]MonitorProbeBindingRequest `json:"bindings"`
+}
+
+// MonitorProbeBindingRequest selects one probe-local resource for a member.
+type MonitorProbeBindingRequest struct {
+	ProbeID    string `json:"probe_id"`
+	Kind       string `json:"kind"`
+	BindingKey string `json:"binding_key"`
+}
+
+// Replace handles PUT /api/monitors/:id/probes. It validates the complete set
+// before the atomic write, returns 409 for a stale expected revision, and
+// answers the same frozen view as GET with pending application marked for the
+// members this write changed.
+func (h *MonitorRegionalHandlers) Replace(c echo.Context) error {
+	userID, id, ok := h.request(c)
+	if !ok {
+		return nil
+	}
+	if h.writer == nil {
+		return regionalError(c, http.StatusServiceUnavailable, "assignment_unavailable", "assignment writes unavailable")
+	}
+	var body ReplaceMonitorAssignmentsRequest
+	if err := c.Bind(&body); err != nil {
+		return regionalError(c, http.StatusBadRequest, "invalid_request", "invalid request body")
+	}
+	revision, err := strconv.ParseInt(body.ExpectedRevision, 10, 64)
+	if err != nil || revision < 1 {
+		return regionalError(c, http.StatusBadRequest, "invalid_expected_revision", "expected_revision must be a positive decimal string")
+	}
+	req := services.ProbeAssignmentRequest{
+		ExpectedRevision: revision, ProbeIDs: body.ProbeIDs,
+		HealthPolicy: domain.HealthPolicy(body.HealthPolicy), AlertDelivery: body.AlertDelivery,
+	}
+	if body.Bindings != nil {
+		list := make([]domain.ProbeAssignmentBinding, 0, len(*body.Bindings))
+		for _, binding := range *body.Bindings {
+			list = append(list, domain.ProbeAssignmentBinding{ProbeID: binding.ProbeID,
+				ProbeResourceBinding: domain.ProbeResourceBinding{Kind: binding.Kind, BindingKey: binding.BindingKey}})
+		}
+		req.Bindings = &list
+	}
+	written, err := h.writer.Replace(c.Request().Context(), id, req)
+	if err != nil {
+		return regionalWriteError(c, err)
+	}
+	result, err := h.svc.Assignments(c.Request().Context(), userID, id, h.now().UTC())
+	if err != nil {
+		return regionalReadError(c, err)
+	}
+	return c.JSON(http.StatusOK, toAssignmentsView(result, written.PendingProbes))
+}
+
+// toAssignmentsView renders the frozen desired-set view. Members in pending
+// carry this write's unproven desired state and must read pending, never an
+// earlier proven application.
+func toAssignmentsView(result *services.MonitorRegionalAssignments, pending map[string]bool) MonitorProbeAssignmentsView {
 	out := MonitorProbeAssignmentsView{Revision: result.Set.Revision, HealthPolicy: string(result.Set.HealthPolicy), AlertDelivery: string(domain.AlertDeliveryRegional), Assignments: make([]MonitorProbeAssignmentView, 0, len(result.Set.Assignments))}
 	for _, a := range result.Set.Assignments {
 		p := result.Probes[a.ProbeID]
@@ -129,9 +212,39 @@ func (h *MonitorRegionalHandlers) Assignments(c echo.Context) error {
 		if a.ResourceBinding != nil {
 			row.Bindings = append(row.Bindings, MonitorProbeBindingView{Kind: a.ResourceBinding.Kind, BindingKey: a.ResourceBinding.BindingKey})
 		}
+		if pending[a.ProbeID] {
+			row.SyncStatus = optionalString(services.ProbeConfigSyncPending)
+		}
 		out.Assignments = append(out.Assignments, row)
 	}
-	return c.JSON(http.StatusOK, out)
+	return out
+}
+
+func regionalWriteError(c echo.Context, err error) error {
+	switch {
+	case errors.Is(err, services.ErrStaleRevision):
+		return regionalError(c, http.StatusConflict, "stale_revision", "expected revision is stale")
+	case errors.Is(err, services.ErrUnknownProbe):
+		return regionalError(c, http.StatusConflict, "unknown_probe", "one or more probes are not registered")
+	case errors.Is(err, services.ErrProbeUnavailable):
+		return regionalError(c, http.StatusConflict, "probe_unavailable", "one or more probes are disabled")
+	case errors.Is(err, services.ErrUnsupportedAssignment):
+		return regionalError(c, http.StatusUnprocessableEntity, "unsupported_assignment", "the requested assignment cannot execute this monitor")
+	case errors.Is(err, services.ErrInvalidProbeIDs):
+		return regionalError(c, http.StatusBadRequest, "invalid_probe_ids", "probe_ids must be distinct registered probe ids")
+	case errors.Is(err, services.ErrInvalidPolicy):
+		return regionalError(c, http.StatusBadRequest, "invalid_health_policy", "health_policy must be any_down or all_down")
+	case errors.Is(err, services.ErrInvalidDelivery):
+		return regionalError(c, http.StatusBadRequest, "invalid_alert_delivery", "alert_delivery must be regional")
+	case errors.Is(err, services.ErrInvalidBindings):
+		return regionalError(c, http.StatusBadRequest, "invalid_bindings", "bindings must reference member probes with a supported resource")
+	case errors.Is(err, ports.ErrNotFound), errors.Is(err, domain.ErrNotFound):
+		return regionalError(c, http.StatusNotFound, "monitor_not_found", "monitor not found")
+	case errors.Is(err, domain.ErrValidation):
+		return regionalError(c, http.StatusBadRequest, "invalid_request", "invalid assignment request")
+	default:
+		return regionalError(c, http.StatusServiceUnavailable, "assignment_unavailable", "assignment data unavailable")
+	}
 }
 
 // Health handles GET /api/monitors/:id/health. Hours is an integer in [1,720]

@@ -146,6 +146,8 @@ func Run(cfg Config) error {
 	defer bus.Close()
 
 	monitorSvc := services.NewMonitorService(repos.monitor, bus)
+	monitorSvc.SetAssignmentProvisioning(repos.probeAssignWriter, repos.probeRegistry, checkeradapter.CapabilityInspector{})
+	monitorSvc.SetAssignmentReader(repos.probeAssignments)
 	monitorSvc.SetProxyRepo(repos.proxy)
 	// Without this the service rejects every monitor that carries a GroupID, so
 	// filing a monitor into a group would fail at runtime while the tests (which
@@ -652,8 +654,10 @@ func Run(cfg Config) error {
 
 	regionalSvc := services.NewMonitorRegionalService(healthSvc, repos.probeRegistry)
 	regionalSvc.SetDiagnostics(repos.probeDiagnostics)
+	regionalHandlers := handlers.NewMonitorRegionalHandlers(regionalSvc, cfg.ProbesEnabled)
+	regionalHandlers.SetAssignments(services.NewProbeAssignmentService(repos.probeAssignWriter, repos.probeAssignments, repos.probeRegistry, repos.monitor, checkeradapter.CapabilityInspector{}))
 	httpOpts := httppkg.RouterOptions{
-		RegionalMonitors: handlers.NewMonitorRegionalHandlers(regionalSvc, cfg.ProbesEnabled),
+		RegionalMonitors: regionalHandlers,
 		ProbeFleet:       handlers.NewProbeFleetHandlers(services.NewProbeFleetService(repos.probeDiagnostics), cfg.ProbesEnabled),
 		Production:       cfg.Production,
 		RateLimit: middleware.RateLimitConfig{
@@ -855,6 +859,7 @@ type repoBundle struct {
 	probeRegistry          ports.ProbeRegistryRepository
 	probeDiagnostics       ports.ProbeDiagnosticsRepository
 	probeAssignments       ports.MonitorProbeAssignmentRepository
+	probeAssignWriter      ports.ProbeAssignmentWriter
 	regionalCommit         ports.RegionalCommitRepository
 	localHeartbeat         ports.LocalHeartbeatRecorder
 	projections            ports.MonitorHealthProjectionRepository
@@ -905,7 +910,9 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
 		encoder := probe.LocalConfigEncoder{}
-		b.probeAssignments = mariadbrepo.NewProbeAssignmentRepo(db)
+		assignments := mariadbrepo.NewProbeAssignmentRepo(db)
+		b.probeAssignments = assignments
+		b.probeAssignWriter = assignments
 		b.probeInstallation = mariadbrepo.NewProbeInstallationRepo(db)
 		b.probeActivation = mariadbrepo.NewProbeActivationRepo(db, encoder)
 		b.probeConfig = mariadbrepo.NewProbeConfigRepo(db)
@@ -949,7 +956,9 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
 		encoder := probe.LocalConfigEncoder{}
-		b.probeAssignments = sqliterepo.NewProbeAssignmentRepo(db)
+		assignments := sqliterepo.NewProbeAssignmentRepo(db)
+		b.probeAssignments = assignments
+		b.probeAssignWriter = assignments
 		b.probeInstallation = sqliterepo.NewProbeInstallationRepo(db)
 		b.probeActivation = sqliterepo.NewProbeActivationRepo(db, encoder)
 		b.probeConfig = sqliterepo.NewProbeConfigRepo(db)

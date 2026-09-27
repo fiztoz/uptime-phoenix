@@ -422,8 +422,11 @@ two scoped GET routes for monitor `probes` and `health`. It freezes their fixtur
 pagination-independent read semantics and staged null diagnostic fields. The
 [fleet diagnostics slice](M5_FLEET_DIAGNOSTICS.md) implements `GET /api/probes`
 and `GET /api/probes/:probe_id` and wires the coherent diagnostic read port that
-feeds the scoped routes' connection/config fields. The other routes in this
-table remain proposed until their acceptance is recorded.
+feeds the scoped routes' connection/config fields. The
+[assignment write slice](M5_ASSIGNMENT_WRITES.md) implements
+`PUT /api/monitors/:id/probes`, the monitor-create extension and the clone rule.
+The other routes in this table remain proposed until their acceptance is
+recorded.
 
 Fleet routes require an authenticated admin; follow the established session-or-write-API-key pattern for programmatic administration. Regional monitor reads use the current monitor visibility policy through AccessService. Authenticated users without visibility receive 404. Fleet secrets are never present in read responses.
 
@@ -484,11 +487,11 @@ A command receipt has exactly `command_id` (canonical UUID), `status` (`pending`
 }
 ```
 
-Reject duplicate IDs, unknown/revoked probes, empty lists, unavailable capabilities, incompatible required proxy/Docker bindings, and remote push assignments. `expected_revision` is mandatory for replacement; conflicts return 409. Validate all members before committing any change. The response is 200 with `revision`, `health_policy`, `alert_delivery`, and `assignments` containing `probe_id`, `generation`, `desired_config_revision`, `applied_config_revision`, and `sync_status` (`pending`, `applied`, `rejected`). Saving desired state succeeds independently of remote connectivity, and the UI shows pending application.
+Reject duplicate IDs, unknown/revoked probes, empty lists, unavailable capabilities, incompatible required proxy/Docker bindings, and remote push assignments. `expected_revision` is mandatory for replacement; conflicts return 409. Validate all members before committing any change. The response is 200 with `revision`, `health_policy`, `alert_delivery`, and `assignments` containing `probe_id`, `generation`, `desired_config_revision`, `applied_config_revision`, and `sync_status` (`pending`, `applied`, `rejected`). Saving desired state succeeds independently of remote connectivity, and the UI shows pending application: the write response marks every member whose desired state the write changed as `pending`, even when a receipt proves an earlier document. The implemented response reuses the assignment GET view so bindings and labels come from one frozen shape ([assignment writes](M5_ASSIGNMENT_WRITES.md)).
 
 Assignment replacement additionally accepts optional `bindings`, an array of `probe_id`, `kind`, and `binding_key` objects for selected probes. Omission preserves bindings on retained assignments and supplies none for new assignments. An explicit empty array clears bindings; validate that every resulting assignment still has its required resources before commit. The response includes resolved binding keys, never underlying socket paths or API credentials. Network proxy settings use existing monitor proxy configuration materialized into `proxy_bindings`; they do not require a new arbitrary local-resource kind.
 
-The monitor create request may add optional `probe_ids`, `health_policy`, and `probe_bindings` (same members as assignment `bindings`) for admin callers. Omission means `["local"]` and `any_down`; creation plus requested assignments commits atomically. A non-admin creator retains today's local behavior and receives 403 if explicitly attempting remote assignment. Monitor updates preserve assignments when those fields are absent; assignment replacement is preferably routed through the dedicated revisioned endpoint. Clone of a remote monitor by a non-admin is rejected rather than silently rerouted.
+The monitor create request may add optional `probe_ids`, `health_policy`, and `probe_bindings` (same members as assignment `bindings`) for admin callers. Omission means `["local"]` and `any_down`; creation plus requested assignments commits atomically. A non-admin creator retains today's local behavior and receives 403 if explicitly attempting remote assignment; the rejected create leaves no monitor row. Monitor updates preserve assignments when those fields are absent; assignment replacement is preferably routed through the dedicated revisioned endpoint. Clone of a remote monitor by a non-admin is rejected rather than silently rerouted; an admin clone reproduces the source's complete set atomically.
 
 ### 7.2 Read shapes and compatibility
 

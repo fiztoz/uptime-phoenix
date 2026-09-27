@@ -111,12 +111,14 @@ so labels and generations do not require guessing from unrelated observations.
    diagnostic fields. `agent_version`, `protocol_version`, `queue_bytes`,
    `oldest_queued_at` and `capabilities` remain null until their own evidence
    ports exist.
-2. **Revisioned assignment writes.** Add capability/resource validation before
-   atomic complete-set replacement. Preserve omitted bindings versus an explicit
-   empty list. Return 409 for a stale expected revision. Reuse live `Replace`
-   semantics; backup `Restore` intentionally allows disabled identities and is
-   not a substitute. Monitor create plus explicit assignments must be atomic.
-   Non-admin creates remain local, and explicit remote assignment is forbidden.
+2. **Revisioned assignment writes.** ✅ Done — see
+   [assignment writes](M5_ASSIGNMENT_WRITES.md): complete-set validation before
+   the atomic write (capability/resource rules, duplicate/unknown/disabled
+   members, push-remote), omitted versus explicit-empty bindings, 409 stale
+   expected revision over live `Replace` semantics, atomic create with an
+   explicit set, and the non-admin clone rejection. `alert_delivery` accepts
+   only `regional`; probe-side capability advertisements remain enforced at
+   publication and activation.
 3. **Durable administrative operations.** Wrap existing installation/rotation/
    reset services with admin routes and exact operation receipts. Freeze where
    endpoint/pin metadata lives before implementing registration POST: today's
