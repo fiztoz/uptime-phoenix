@@ -1427,3 +1427,27 @@ PY
 See [the fix and evidence record](multi-region/M4_REVIEW_FIXES.md) for the exact
 effects tested and migration 070's downgrade guard. The full backend race gate,
 CGO-free build and linter remain required for changes to these paths.
+
+## M5 read API foundation
+
+The first M5 slice exposes scoped health and desired assignments. See the
+[contract and continuation guide](multi-region/M5_FOUNDATION.md) before extending
+it; null runtime diagnostics are deliberate and do not imply application.
+
+Set `TEST_MARIADB_DSN` to a disposable MariaDB database with
+`parseTime=true&loc=UTC&multiStatements=true`. Run one engine suite at a time per
+database. The JSON audit below is mandatory: supplying a DSN alone does not prove
+that MariaDB tests executed.
+
+```sh
+: "${TEST_MARIADB_DSN:?Set a disposable MariaDB test DSN}"
+export TEST_MARIADB_DSN
+rtk proxy go test -race -count=1 -timeout 2400s -json ./internal/core/services ./internal/adapters/http/handlers ./internal/adapters/repository -run 'TestMonitorRegional|TestRegionalDisplayHealthBoundaries|TestM5ReadAPI' > /tmp/m5-read.jsonl
+rtk proxy python3 scripts/m5_read_evidence.py /tmp/m5-read.jsonl
+```
+
+The audit also accepts a full `go test -race -count=1 -timeout 2400s -json ./...`
+log. It requires successful completion of the affected packages and named SQLite
+and MariaDB cases, rejects failed tests and rejects required skips/missing passes.
+Full backend build, race tests, lint and vulnerability checks remain applicable;
+frontend gates become applicable when the browser slice changes frontend files.

@@ -1,5 +1,10 @@
 # Multi-region continuation guide
 
+**M5 continuation starts at [the foundation and frozen read contracts](M5_FOUNDATION.md).**
+The first slice exposes scoped health and desired assignments. Runtime diagnostics,
+fleet administration, writes and browser work remain; do not infer completion from
+the full proposed route table.
+
 M3 is complete at implementation `a12a3fa`, recorded in `8b455d4`; the first
 M4 pull-checker slice is recorded in
 [initial M4 acceptance](M4_PULL_CHECKER_ACCEPTANCE.md). The subsequent

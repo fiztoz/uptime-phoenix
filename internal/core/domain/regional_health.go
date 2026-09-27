@@ -17,6 +17,7 @@ type RegionalHealthEvidence struct {
 	ProbeID       string
 	Status        Status
 	ObservedAt    time.Time
+	ReceivedAt    time.Time
 	FreshFor      time.Duration
 	Paused        bool
 	UnknownReason string
@@ -43,11 +44,12 @@ type MonitorHealth struct {
 // CurrentMonitorHealth is overall health at one instant from complete assignment evidence.
 // It is not an HTTP or browser view and does not include historical coverage.
 type CurrentMonitorHealth struct {
-	MonitorID int64
-	Policy    HealthPolicy
-	AsOf      time.Time
-	Health    MonitorHealth
-	Regions   []RegionalHealthEvidence
+	Assignments *MonitorProbeAssignments
+	MonitorID   int64
+	Policy      HealthPolicy
+	AsOf        time.Time
+	Health      MonitorHealth
+	Regions     []RegionalHealthEvidence
 }
 
 // Health history causes record why an overall interval started.

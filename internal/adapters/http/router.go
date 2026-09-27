@@ -19,9 +19,12 @@ import (
 
 // RouterOptions configures global HTTP middleware (Phase 3 hardening).
 type RouterOptions struct {
-	Production bool
-	RateLimit  middleware.RateLimitConfig
-	CORS       middleware.CORSConfig
+	// RegionalMonitors is the M5 read surface. A nil handler keeps the routes
+	// registered but unavailable, so staged builds never serve SPA HTML as data.
+	RegionalMonitors *handlers.MonitorRegionalHandlers
+	Production       bool
+	RateLimit        middleware.RateLimitConfig
+	CORS             middleware.CORSConfig
 }
 
 // NewRouter creates and configures the Echo router with all routes and
@@ -137,6 +140,14 @@ func NewRouter(
 	requireExtensions := middleware.RequireCapability(accessSvc, middleware.CapViewExtensions)
 	requireCreateMonitors := middleware.RequireCapability(accessSvc, middleware.CapCreateMonitors)
 	requireCreateGroups := middleware.RequireCapability(accessSvc, middleware.CapCreateGroups)
+	if authSvc != nil {
+		regional := opts.RegionalMonitors
+		if regional == nil {
+			regional = handlers.NewMonitorRegionalHandlers(nil, false)
+		}
+		e.GET("/api/monitors/:id/probes", regional.Assignments, middleware.AuthMiddleware(authSvc))
+		e.GET("/api/monitors/:id/health", regional.Health, middleware.AuthMiddleware(authSvc))
+	}
 
 	// Reliability read model. The handler applies monitor visibility before it
 	// computes any rows, so this route needs authentication but no install-wide

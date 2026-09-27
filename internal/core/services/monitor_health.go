@@ -231,6 +231,7 @@ func (s *MonitorHealthService) evaluate(ctx context.Context, monitorID int64, no
 			region.Status = state.Status
 			region.UnknownReason = state.UnknownReason
 			region.ObservedAt = state.ObservedAt.UTC()
+			region.ReceivedAt = state.ReceivedAt.UTC()
 		}
 		evidence = append(evidence, region)
 	}
@@ -239,7 +240,8 @@ func (s *MonitorHealthService) evaluate(ctx context.Context, monitorID int64, no
 		return nil, err
 	}
 	return &domain.CurrentMonitorHealth{
-		MonitorID: monitorID, Policy: set.HealthPolicy, AsOf: now, Health: health, Regions: evidence,
+		Assignments: set,
+		MonitorID:   monitorID, Policy: set.HealthPolicy, AsOf: now, Health: health, Regions: evidence,
 	}, nil
 }
 

@@ -1,6 +1,7 @@
 # Multi-region implementation status
 
-Updated 2026-09-27 with [M0–M4 review fixes](M4_REVIEW_FIXES.md) for escalation
+Updated 2026-09-27 with the [M5 read API foundation](M5_FOUNDATION.md), following
+[M0–M4 review fixes](M4_REVIEW_FIXES.md) for escalation
 delivery, stream-scoped history clearing, restore activation and remote public
 incident recovery. The latest feature slice remains M4 maintenance and notification sync; see
 [maintenance and notification sync](M4_MAINTENANCE_NOTIFICATIONS.md). The previous
@@ -20,7 +21,7 @@ This is the current status. Check HEAD and newer acceptance records before start
 | M2 autonomous runtime and enrollment | Accepted for HTTP/TCP/DNS | [M2 acceptance](M2_ACCEPTANCE_REPORT.md), [operator guide](M2_OPERATOR_GUIDE.md) |
 | M3 synchronization and recovery | Complete for the supported runtime | [Final acceptance](M3_COMPLETION_ACCEPTANCE.md), [hashed evidence](M3_COMPLETION_EVIDENCE.json) |
 | M4 compatibility | Pull-checker, TLS evidence, certificate paging, capacity state, capacity paging, escalation, group/status-page recovery, Insights, backup/config, lifecycle/recovery, deployment compatibility, group-notification, capability advertisement, and maintenance/notification sync slices accepted | [Initial coverage](M4_PULL_CHECKER_ACCEPTANCE.md), [Docker bindings](M4_DOCKER_BINDINGS.md), [TLS evidence](M4_TLS_EVIDENCE.md), [certificate paging](M4_CERT_PAGING.md), [capacity state](M4_CAPACITY_STATE.md), [capacity paging](M4_CAPACITY_PAGING.md), [escalation](M4_ESCALATION.md), [group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md), [Insights](M4_INSIGHTS.md), [backup/config](M4_BACKUP_CONFIG.md), [lifecycle/recovery](M4_LIFECYCLE_RECOVERY.md), [deployment compatibility](M4_DEPLOYMENT_COMPAT.md), [group notifications](M4_GROUP_NOTIFICATIONS.md), [capability advertisement](M4_CAPABILITY_ADVERTISEMENT.md), [maintenance and notification sync](M4_MAINTENANCE_NOTIFICATIONS.md). M4 compatibility rows are accepted
-| M5 fleet UI and API | Not complete | Administrative workflows, scoped regional views and browser integration |
+| M5 fleet UI and API | Started: scoped monitor health/assignment read foundation; not complete | [Frozen fixtures, scope and next slices](M5_FOUNDATION.md). Fleet administration, diagnostic read models, assignment writes, regional charts and browser integration remain |
 | M6 release validation | Not complete | Cross-feature failure tests and controlled V1 activation |
 | M7–M9 | Future work | Optional aggregate paging, SSH provisioning and push gateway |
 

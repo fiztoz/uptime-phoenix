@@ -651,7 +651,8 @@ func Run(cfg Config) error {
 	extensionHandlers := handlers.NewExtensionHandlers(cfg.ExtensionsJSON)
 
 	httpOpts := httppkg.RouterOptions{
-		Production: cfg.Production,
+		RegionalMonitors: handlers.NewMonitorRegionalHandlers(services.NewMonitorRegionalService(healthSvc, repos.probeRegistry), cfg.ProbesEnabled),
+		Production:       cfg.Production,
 		RateLimit: middleware.RateLimitConfig{
 			RequestsPerSecond: cfg.RateLimitRPS,
 			Burst:             cfg.RateLimitBurst,

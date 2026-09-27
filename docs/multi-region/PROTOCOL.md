@@ -417,6 +417,11 @@ expiry are normalized to UTC before database writes. See
 
 These are proposed endpoints under the existing Echo router. Feature-disabled routes return a typed unavailable/not-implemented response; they do not return fake success. Use explicit Views and the existing auth/error helpers.
 
+Implementation boundary: the [M5 foundation](M5_FOUNDATION.md) implements only the
+two scoped GET routes for monitor `probes` and `health`. It freezes their fixtures,
+pagination-independent read semantics and staged null diagnostic fields. The
+other routes in this table remain proposed until their acceptance is recorded.
+
 Fleet routes require an authenticated admin; follow the established session-or-write-API-key pattern for programmatic administration. Regional monitor reads use the current monitor visibility policy through AccessService. Authenticated users without visibility receive 404. Fleet secrets are never present in read responses.
 
 | Method and path | Request / result |
@@ -483,6 +488,15 @@ Existing HTTP heartbeat wire names remain `id`, `monitor_id`, `status`, `ping`, 
 The existing unqualified monitor heartbeat endpoint represents overall monitor history for a multi-probe monitor. Add `scope: "overall"` and `latency_available: false`; `ping` is the existing unmeasured zero sentinel. Overall chart responses have no synthetic latency buckets and carry downtime/unknown intervals. The updated UI uses selected regional endpoints for latency. A local-only monitor preserves today's measured response behavior. This is an explicit compatibility change to verify against every dashboard, badge, status-page, and external client contract before activation.
 
 Overall HealthView fields: `monitor_id`, `status`, `health_policy`, `projection_version`, `as_of`, `uptime_percent` (number or null), `coverage_percent` (number or null), `known_seconds`, `unknown_seconds`, `maintenance_seconds`, `probe_counts` (assigned/up/down/pending/unknown/maintenance/paused), and `regions`. A region contains only `probe_id`, `name`, `location`, `status`, `connection_status`, `observed_at`, `received_at`, `fresh_until`, `config_sync_status`, and `reason` (nullable). Public status views omit `regions` in V1.
+
+The first M5 read slice accepts one `hours` integer from 1 through 720 (default
+24) on HealthView for historical coverage; current status uses current UTC time.
+Revisions/generations are decimal strings, percentages with no denominator are
+null, and arrays are never null. Connection/config diagnostics are nullable:
+the first slice returns null until a coherent diagnostic read port is wired.
+Null must not be rendered as online or applied. Assignment GET additionally
+includes safe `name`, `location`, and `bindings` (`kind`, `binding_key`) per member.
+See the foundation's executable JSON fixtures before writing browser callers.
 
 ### 7.3 Error semantics
 

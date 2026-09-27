@@ -1,0 +1,242 @@
+package handlers
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
+	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
+	"github.com/fiztoz/uptime-phoenix/internal/core/services"
+)
+
+type monitorRegionalReader interface {
+	Assignments(context.Context, int64, int64) (*services.MonitorRegionalAssignments, error)
+	Health(context.Context, int64, int64, int, time.Time) (*services.MonitorRegionalHealth, error)
+}
+
+// MonitorRegionalHandlers exposes the opt-in M5 read contract. The service owns
+// authorization; DTOs below are the only objects serialized to clients.
+type MonitorRegionalHandlers struct {
+	svc     monitorRegionalReader
+	enabled bool
+	now     func() time.Time
+}
+
+// NewMonitorRegionalHandlers builds handlers; disabled reads return a typed 503.
+func NewMonitorRegionalHandlers(svc monitorRegionalReader, enabled bool) *MonitorRegionalHandlers {
+	return &MonitorRegionalHandlers{svc: svc, enabled: enabled, now: time.Now}
+}
+
+// MonitorProbeAssignmentsView is desired state only. Null synchronization fields
+// mean unreported, never applied. Bindings contain keys, never local endpoints.
+type MonitorProbeAssignmentsView struct {
+	Revision      int64                        `json:"revision,string"`
+	HealthPolicy  string                       `json:"health_policy"`
+	AlertDelivery string                       `json:"alert_delivery"`
+	Assignments   []MonitorProbeAssignmentView `json:"assignments"`
+}
+
+// MonitorProbeAssignmentView contains safe metadata for one assigned region.
+type MonitorProbeAssignmentView struct {
+	ProbeID               string                    `json:"probe_id"`
+	Name                  string                    `json:"name"`
+	Location              string                    `json:"location"`
+	Generation            int64                     `json:"generation,string"`
+	DesiredConfigRevision *string                   `json:"desired_config_revision"`
+	AppliedConfigRevision *string                   `json:"applied_config_revision"`
+	SyncStatus            *string                   `json:"sync_status"`
+	Bindings              []MonitorProbeBindingView `json:"bindings"`
+}
+
+// MonitorProbeBindingView discloses only the logical resource reference.
+type MonitorProbeBindingView struct {
+	Kind       string `json:"kind"`
+	BindingKey string `json:"binding_key"`
+}
+
+// MonitorHealthView keeps overall availability separate from coverage and regions.
+type MonitorHealthView struct {
+	MonitorID          int64                 `json:"monitor_id"`
+	Status             string                `json:"status"`
+	HealthPolicy       string                `json:"health_policy"`
+	ProjectionVersion  int64                 `json:"projection_version,string"`
+	AsOf               time.Time             `json:"as_of"`
+	UptimePercent      *float64              `json:"uptime_percent"`
+	CoveragePercent    *float64              `json:"coverage_percent"`
+	KnownSeconds       float64               `json:"known_seconds"`
+	UnknownSeconds     float64               `json:"unknown_seconds"`
+	MaintenanceSeconds float64               `json:"maintenance_seconds"`
+	ProbeCounts        ProbeHealthCountsView `json:"probe_counts"`
+	Regions            []MonitorRegionView   `json:"regions"`
+}
+
+// ProbeHealthCountsView is the explicit wire map for the complete quorum.
+type ProbeHealthCountsView struct {
+	Assigned    int `json:"assigned"`
+	Up          int `json:"up"`
+	Down        int `json:"down"`
+	Pending     int `json:"pending"`
+	Unknown     int `json:"unknown"`
+	Maintenance int `json:"maintenance"`
+	Paused      int `json:"paused"`
+}
+
+// MonitorRegionView never includes endpoint, credentials, raw checker messages,
+// configuration payloads or fleet totals. Unreported diagnostics are null.
+type MonitorRegionView struct {
+	ProbeID          string     `json:"probe_id"`
+	Name             string     `json:"name"`
+	Location         string     `json:"location"`
+	Status           string     `json:"status"`
+	ConnectionStatus *string    `json:"connection_status"`
+	ObservedAt       *time.Time `json:"observed_at"`
+	ReceivedAt       *time.Time `json:"received_at"`
+	FreshUntil       *time.Time `json:"fresh_until"`
+	ConfigSyncStatus *string    `json:"config_sync_status"`
+	Reason           *string    `json:"reason"`
+}
+
+type regionalErrorView struct {
+	Error string `json:"error"`
+	Code  string `json:"code"`
+}
+
+// Assignments handles GET /api/monitors/:id/probes.
+func (h *MonitorRegionalHandlers) Assignments(c echo.Context) error {
+	userID, id, ok := h.request(c)
+	if !ok {
+		return nil
+	}
+	result, err := h.svc.Assignments(c.Request().Context(), userID, id)
+	if err != nil {
+		return regionalReadError(c, err)
+	}
+	out := MonitorProbeAssignmentsView{Revision: result.Set.Revision, HealthPolicy: string(result.Set.HealthPolicy), AlertDelivery: string(domain.AlertDeliveryRegional), Assignments: make([]MonitorProbeAssignmentView, 0, len(result.Set.Assignments))}
+	for _, a := range result.Set.Assignments {
+		p := result.Probes[a.ProbeID]
+		row := MonitorProbeAssignmentView{ProbeID: a.ProbeID, Name: p.Name, Location: p.Location, Generation: a.Generation, Bindings: []MonitorProbeBindingView{}}
+		if a.ResourceBinding != nil {
+			row.Bindings = append(row.Bindings, MonitorProbeBindingView{Kind: a.ResourceBinding.Kind, BindingKey: a.ResourceBinding.BindingKey})
+		}
+		out.Assignments = append(out.Assignments, row)
+	}
+	return c.JSON(http.StatusOK, out)
+}
+
+// Health handles GET /api/monitors/:id/health. Hours is an integer in [1,720]
+// and defaults to 24; it affects coverage only, never the current freshness read.
+func (h *MonitorRegionalHandlers) Health(c echo.Context) error {
+	userID, id, ok := h.request(c)
+	if !ok {
+		return nil
+	}
+	hours := 24
+	if raw, exists := c.QueryParams()["hours"]; exists {
+		var err error
+		if len(raw) != 1 {
+			return regionalError(c, http.StatusBadRequest, "invalid_hours", "hours must be an integer between 1 and 720")
+		}
+		hours, err = strconv.Atoi(raw[0])
+		if err != nil || hours < 1 || hours > 720 {
+			return regionalError(c, http.StatusBadRequest, "invalid_hours", "hours must be an integer between 1 and 720")
+		}
+	}
+	result, err := h.svc.Health(c.Request().Context(), userID, id, hours, h.now().UTC())
+	if err != nil {
+		return regionalReadError(c, err)
+	}
+	out, err := toMonitorHealthView(result)
+	if err != nil {
+		return regionalReadError(c, err)
+	}
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *MonitorRegionalHandlers) request(c echo.Context) (int64, int64, bool) {
+	c.Response().Header().Set("Cache-Control", "no-store")
+	userID, ok := userIDFromContext(c)
+	if !ok || userID <= 0 {
+		_ = regionalError(c, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return 0, 0, false
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		_ = regionalError(c, http.StatusBadRequest, "invalid_monitor_id", "invalid monitor id")
+		return 0, 0, false
+	}
+	if !h.enabled {
+		_ = regionalError(c, http.StatusServiceUnavailable, "probes_disabled", "multi-region probes are disabled")
+		return 0, 0, false
+	}
+	if h.svc == nil {
+		_ = regionalError(c, http.StatusServiceUnavailable, "regional_unavailable", "regional data unavailable")
+		return 0, 0, false
+	}
+	return userID, id, true
+}
+
+func toMonitorHealthView(result *services.MonitorRegionalHealth) (MonitorHealthView, error) {
+	current, coverage := result.Current, result.Coverage
+	counts := current.Health.Counts
+	out := MonitorHealthView{MonitorID: current.MonitorID, Status: regionalHTTPStatus(current.Health.Status), HealthPolicy: string(current.Policy), ProjectionVersion: result.ProjectionVersion, AsOf: current.AsOf.UTC(), UptimePercent: coverage.UptimePercent, CoveragePercent: coverage.CoveragePercent, KnownSeconds: coverage.Known.Seconds(), UnknownSeconds: coverage.Unknown.Seconds(), MaintenanceSeconds: coverage.Maintenance.Seconds(), ProbeCounts: ProbeHealthCountsView{Assigned: counts.Assigned, Up: counts.Up, Down: counts.Down, Pending: counts.Pending, Unknown: counts.Unknown, Maintenance: counts.Maintenance, Paused: counts.Paused}, Regions: make([]MonitorRegionView, 0, len(current.Regions))}
+	for _, e := range current.Regions {
+		status, reason, err := services.RegionalDisplayHealth(current.AsOf, e)
+		if err != nil {
+			return MonitorHealthView{}, err
+		}
+		p := result.Probes[e.ProbeID]
+		row := MonitorRegionView{ProbeID: e.ProbeID, Name: p.Name, Location: p.Location, Status: regionalHTTPStatus(status), ObservedAt: regionalTime(e.ObservedAt), ReceivedAt: regionalTime(e.ReceivedAt)}
+		if !e.ObservedAt.IsZero() && e.FreshFor > 0 {
+			row.FreshUntil = regionalTime(e.ObservedAt.Add(e.FreshFor))
+		}
+		if reason != "" {
+			row.Reason = &reason
+		}
+		out.Regions = append(out.Regions, row)
+	}
+	return out, nil
+}
+
+func regionalTime(at time.Time) *time.Time {
+	if at.IsZero() {
+		return nil
+	}
+	at = at.UTC()
+	return &at
+}
+
+// Keep this separate from legacy heartbeat/browser mappings: UNKNOWN must not
+// become pending, and maintenance must not become a transport disconnect.
+func regionalHTTPStatus(status domain.Status) string {
+	switch status {
+	case domain.StatusUp:
+		return "up"
+	case domain.StatusDown:
+		return "down"
+	case domain.StatusPending:
+		return "pending"
+	case domain.StatusMaintenance:
+		return "maintenance"
+	default:
+		return "unknown"
+	}
+}
+
+func regionalReadError(c echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ports.ErrNotFound), errors.Is(err, domain.ErrNotFound):
+		return regionalError(c, http.StatusNotFound, "monitor_not_found", "monitor not found")
+	case errors.Is(err, domain.ErrValidation):
+		return regionalError(c, http.StatusBadRequest, "invalid_request", "invalid regional request")
+	default:
+		return regionalError(c, http.StatusServiceUnavailable, "regional_unavailable", "regional data unavailable")
+	}
+}
+func regionalError(c echo.Context, status int, code, message string) error {
+	return c.JSON(status, regionalErrorView{Error: message, Code: code})
+}

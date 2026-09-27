@@ -167,6 +167,11 @@ escalation policy in the snapshot the edge executes. IANA zones are embedded for
 
 **Goal:** expose desired state, actual execution, and uncertainty clearly through the existing UI.
 
+**Started 2026-09-27:** the [M5 foundation](M5_FOUNDATION.md) implements the scoped
+health and assignment GET routes, executable wire fixtures and authorization
+regressions. Connection/config diagnostics remain explicitly null. The checklist
+below remains open until the complete route and browser contracts are accepted.
+
 - [ ] Implement exact routes/DTOs in protocol section 7 with existing admin gates, AccessService checks, context user-ID helpers, and typed errors.
 - [ ] Add fleet list/detail and manual enrollment forms, operation progress, credential/certificate expiry status, pause/revoke handling, and meaningful failed-operation states.
 - [ ] Add probe selection to monitor create/edit, respecting non-admin local creation behavior and admin-only assignment changes. Explain pending configuration application after save.
