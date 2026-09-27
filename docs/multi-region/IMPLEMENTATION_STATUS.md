@@ -1,6 +1,8 @@
 # Multi-region implementation status
 
-Updated 2026-09-26 after the M4 maintenance and notification sync slice; see
+Updated 2026-09-27 with [M0–M4 review fixes](M4_REVIEW_FIXES.md) for escalation
+delivery, stream-scoped history clearing, restore activation and remote public
+incident recovery. The latest feature slice remains M4 maintenance and notification sync; see
 [maintenance and notification sync](M4_MAINTENANCE_NOTIFICATIONS.md). The previous
 capability advertisement slice is recorded in
 [capability advertisement](M4_CAPABILITY_ADVERTISEMENT.md). The previous

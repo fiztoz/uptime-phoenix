@@ -21,6 +21,7 @@ type historyClearWatermarkModel struct {
 	AssignmentGeneration int64     `bun:"assignment_generation,pk"`
 	ClearID              string    `bun:"clear_id"`
 	ThroughSeq           int64     `bun:"through_seq"`
+	ThroughStreamID      string    `bun:"through_stream_id"`
 	ThroughObservedAt    time.Time `bun:"through_observed_at"`
 	ClearedAt            time.Time `bun:"cleared_at"`
 	DroppedCount         int64     `bun:"dropped_count"`
@@ -30,6 +31,7 @@ func (m historyClearWatermarkModel) domain() domain.HistoryClearWatermark {
 	return domain.HistoryClearWatermark{
 		ClearID: m.ClearID, MonitorID: m.MonitorID, ProbeID: m.ProbeID,
 		AssignmentGeneration: m.AssignmentGeneration, ThroughSeq: m.ThroughSeq,
+		ThroughStreamID:   m.ThroughStreamID,
 		ThroughObservedAt: m.ThroughObservedAt.UTC(), ClearedAt: m.ClearedAt.UTC(),
 		DroppedCount: m.DroppedCount,
 	}
@@ -46,9 +48,10 @@ var _ ports.HistoryClearStore = (*HistoryClearStore)(nil)
 func NewHistoryClearStore(db *bun.DB) *HistoryClearStore { return &HistoryClearStore{db: db} }
 
 // ClearMonitorHistory removes the monitor's history evidence and upserts one
-// fence per active remote assignment in a single transaction. The bounds only
-// ever widen, so a repeated clear (or a backward hub clock) can never reopen
-// the fence. Unknown monitors are ErrNotFound; nothing is deleted for them.
+// fence per active remote assignment in a single transaction. The time bound
+// and the sequence bound within the same stream only widen on repeated clears.
+// A replacement stream starts its own sequence bound. Unknown monitors are
+// ErrNotFound; nothing is deleted for them.
 func (r *HistoryClearStore) ClearMonitorHistory(ctx context.Context, monitorID int64, at time.Time) ([]domain.HistoryClearWatermark, error) {
 	if monitorID < 1 || at.IsZero() {
 		return nil, fmt.Errorf("clear monitor history: %w", domain.ErrValidation)
@@ -73,12 +76,14 @@ func (r *HistoryClearStore) ClearMonitorHistory(ctx context.Context, monitorID i
 		type memberRow struct {
 			ProbeID    string
 			Generation int64
+			StreamID   string
 		}
 		var members []memberRow
-		if err := tx.NewSelect().Table("monitor_probe_assignments").
-			Column("probe_id", "generation").
-			Where("monitor_id = ? AND active = ? AND probe_id <> ?", monitorID, true, domain.LocalProbeID).
-			Order("probe_id ASC").Scan(ctx, &members); err != nil {
+		if err := tx.NewSelect().TableExpr("monitor_probe_assignments AS a").
+			ColumnExpr("a.probe_id, a.generation, COALESCE(c.stream_id, '') AS stream_id").
+			Join("LEFT JOIN probe_connections AS c ON c.probe_id = a.probe_id").
+			Where("a.monitor_id = ? AND a.active = ? AND a.probe_id <> ?", monitorID, true, domain.LocalProbeID).
+			Order("a.probe_id ASC").Scan(ctx, &members); err != nil {
 			return err
 		}
 		for _, member := range members {
@@ -91,13 +96,14 @@ func (r *HistoryClearStore) ClearMonitorHistory(ctx context.Context, monitorID i
 			var throughSeq int64
 			if err := tx.NewSelect().Table("probe_observations").
 				ColumnExpr("COALESCE(MAX(seq), 0)").
-				Where("monitor_id = ? AND probe_id = ?", monitorID, member.ProbeID).
+				Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ? AND stream_id = ?", monitorID, member.ProbeID, member.Generation, member.StreamID).
 				Scan(ctx, &throughSeq); err != nil {
 				return err
 			}
 			wm := historyClearWatermarkModel{
 				MonitorID: monitorID, ProbeID: member.ProbeID, AssignmentGeneration: member.Generation,
 				ClearID: clearID, ThroughSeq: throughSeq, ThroughObservedAt: at, ClearedAt: at,
+				ThroughStreamID: member.StreamID,
 			}
 			existing := new(historyClearWatermarkModel)
 			err := tx.NewSelect().Model(existing).
@@ -112,7 +118,7 @@ func (r *HistoryClearStore) ClearMonitorHistory(ctx context.Context, monitorID i
 				return err
 			default:
 				// A repeated clear widens the fence and keeps counting drops.
-				if existing.ThroughSeq > wm.ThroughSeq {
+				if existing.ThroughStreamID == wm.ThroughStreamID && existing.ThroughSeq > wm.ThroughSeq {
 					wm.ThroughSeq = existing.ThroughSeq
 				}
 				if existing.ThroughObservedAt.After(wm.ThroughObservedAt) {
@@ -163,7 +169,7 @@ func historyClearCovering(ctx context.Context, tx bun.Tx, obs domain.RegionalObs
 	if err != nil {
 		return nil, err
 	}
-	if row.domain().Cleared(obs.Seq, obs.ObservedAt) {
+	if row.domain().Cleared(obs.StreamID, obs.Seq, obs.ObservedAt) {
 		return row, nil
 	}
 	return nil, nil

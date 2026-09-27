@@ -442,6 +442,7 @@ func Run(cfg Config) error {
 			return err
 		}
 		stateIngest.SetGroupAlerter(groupAlertSvc)
+		stateIngest.SetStatusPageRecovery(healthSvc, statusPageSvc)
 		transport := probe.NewHubTransport(policy)
 		transport.SetStateIngest(stateIngest)
 		connections := repo.NewProbeConnectorStore(db)
@@ -465,6 +466,7 @@ func Run(cfg Config) error {
 			return err
 		}
 		replay.SetGroupAlerter(groupAlertSvc)
+		replay.SetStatusPageRecovery(healthSvc, statusPageSvc)
 		connector.SetReplayIngest(replay)
 		connector.SetCredentialRotation(commandStore)
 		connector.SetCertificateRotation(commandStore)

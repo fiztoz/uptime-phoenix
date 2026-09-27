@@ -12,6 +12,7 @@ type ProbeStateService struct {
 	repository  ports.ProbeStateRepository
 	authorizer  ports.ProbeStateAuthorizer
 	groupAlerts regionalGroupAlerter
+	recovery    regionalRecovery
 }
 
 // NewProbeStateService binds the atomic current-state persistence boundary.
@@ -30,18 +31,26 @@ func (s *ProbeStateService) SetGroupAlerter(alerter regionalGroupAlerter) {
 	}
 }
 
+// SetStatusPageRecovery attaches post-commit recovery from fresh overall health.
+func (s *ProbeStateService) SetStatusPageRecovery(overall AggregateStatusReader, resolver incidentAutoResolver) {
+	s.recovery = regionalRecovery{overall: overall, resolver: resolver}
+}
+
 // ApplySnapshot validates structure; storage checks transaction-bound authority.
 func (s *ProbeStateService) ApplySnapshot(ctx context.Context, session domain.ProbeReplaySession, snapshot domain.ProbeCurrentSnapshot) (*domain.ProbeStateReceipt, error) {
 	if !domain.ValidProbeCurrentSnapshot(session, snapshot) {
 		return nil, domain.ErrValidation
 	}
 	receipt, err := s.repository.ApplyCurrentSnapshot(ctx, session, snapshot, s.authorizer)
-	if err != nil || s.groupAlerts == nil || receipt == nil || len(receipt.MonitorIDs) == 0 {
+	if err != nil || receipt == nil || len(receipt.MonitorIDs) == 0 {
 		return receipt, err
 	}
 	// MonitorIDs are the active assignments this snapshot reconciled, including
 	// omissions. An identical retry leaves the list empty so it cannot page twice.
-	s.groupAlerts.OnRegionalEvidence(ctx, receipt.MonitorIDs)
+	s.recovery.resolve(ctx, receipt.MonitorIDs)
+	if s.groupAlerts != nil {
+		s.groupAlerts.OnRegionalEvidence(ctx, receipt.MonitorIDs)
+	}
 	return receipt, nil
 }
 

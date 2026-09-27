@@ -859,6 +859,7 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 	monitorMap := map[int64]int64{}
 	spMap := map[int64]int64{}
 	maintMap := map[int64]int64{}
+	var pendingActivation []*domain.Monitor
 
 	// 0. Remote probe identities. The stable key is the identity: an existing
 	// registration (same id, or the same key under another id) is reused so a
@@ -1145,6 +1146,11 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 		if m.Timeout <= 0 {
 			m.Timeout = 30
 		}
+		// Creation installs a local placeholder assignment. Keep assigned imports
+		// invisible to schedulers and config publishers until restoration finishes.
+		if hasSet {
+			m.Active = false
+		}
 
 		var createErr error
 		if s.monitorSvc != nil {
@@ -1165,16 +1171,22 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 				// The monitor must not survive with the placeholder local
 				// assignment. Remove the row created moments ago and report the
 				// monitor as not imported.
-				_ = s.monitors.Delete(ctx, m.ID)
+				reason := fmt.Sprintf("probe assignments could not be restored (%s); monitor was not imported", err)
+				if cleanupErr := s.monitors.Delete(ctx, m.ID); cleanupErr != nil {
+					reason = fmt.Sprintf("probe assignments could not be restored (%s); inactive monitor %d remains because cleanup failed: %s", err, m.ID, cleanupErr)
+				}
 				delete(monitorMap, bm.ID)
 				summary.MonitorsCreated--
 				summary.Skipped = append(summary.Skipped, ImportSkipped{
 					Kind: "monitor", ID: bm.ID, Name: bm.Name,
-					Reason: fmt.Sprintf("probe assignments could not be restored (%s); monitor was not imported", err),
+					Reason: reason,
 				})
 				continue
 			}
 			summary.MonitorProbeSetsRestored++
+			if bm.Active {
+				pendingActivation = append(pendingActivation, m)
+			}
 		}
 	}
 
@@ -1446,6 +1458,25 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 			continue
 		}
 		summary.MaintenanceMonitorsCreated++
+	}
+	// Activate only after importing the complete graph, including maintenance
+	// and notification links. A failed activation leaves a safely paused row.
+	for _, monitor := range pendingActivation {
+		// Create may already have published the original pointer to subscribers.
+		active := *monitor
+		active.Active = true
+		var err error
+		if s.monitorSvc != nil {
+			err = s.monitorSvc.Update(ctx, &active)
+		} else {
+			err = s.monitors.Update(ctx, &active)
+		}
+		if err != nil {
+			summary.Skipped = append(summary.Skipped, ImportSkipped{
+				Kind: "monitor_activation", ID: monitor.ID, Name: monitor.Name,
+				Reason: fmt.Sprintf("monitor imported but activation failed: %s", err),
+			})
+		}
 	}
 
 	return summary, nil

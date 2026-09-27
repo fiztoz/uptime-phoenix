@@ -1389,3 +1389,41 @@ The edge case must reopen SQLite, advance one due step, and refuse migration
 `014` down while that ladder exists. A skipped or missing case is not acceptance.
 There is no `probe_runtime_smoke.py` flag for this slice. See
 [the acceptance record](multi-region/M4_ESCALATION.md).
+
+## M0–M4 review regressions
+
+Use a disposable `TEST_MARIADB_DSN`; these repository tests delete fixture data.
+Run one MariaDB suite at a time per database. The gate requires both engines and
+fails if any expected case was skipped or did not execute:
+
+```sh
+: "${TEST_MARIADB_DSN:?Set a disposable MariaDB test DSN}"
+export TEST_MARIADB_DSN
+rtk proxy go test -race -count=1 -timeout 2400s -json ./internal/core/services ./internal/adapters/repository ./internal/adapters/repository/edge -run '^(TestBackupRestoreKeepsMonitorInactiveUntilAssignmentsCommit|TestBackupRestoreSchedulerAdmission|TestHistoryClearSurvivesStreamReset|TestRegionalRecoveryResolvesPublicIncident|TestRegionalRecoveryRequiresFreshOverallUp|TestEdgeEscalationPreservesEarlierDelivery)$' > /tmp/m04-review.jsonl
+rtk proxy python3 - <<'PY'
+import json
+from pathlib import Path
+
+events = [json.loads(line) for line in Path('/tmp/m04-review.jsonl').read_text().splitlines()]
+passed = {event.get('Test') for event in events if event['Action'] == 'pass'}
+required = {
+    'TestBackupRestoreKeepsMonitorInactiveUntilAssignmentsCommit',
+    'TestRegionalRecoveryRequiresFreshOverallUp',
+    'TestEdgeEscalationPreservesEarlierDelivery',
+}
+for engine in ('sqlite', 'mariadb'):
+    required.add(f'TestBackupRestoreSchedulerAdmission/{engine}')
+    for variant in ('new_fence', 'upgraded_fence'):
+        required.add(f'TestHistoryClearSurvivesStreamReset/{engine}/{variant}')
+    for path in ('replay', 'snapshot'):
+        required.add(f'TestRegionalRecoveryResolvesPublicIncident/{engine}/{path}')
+bad = [event for event in events if event['Action'] in ('fail', 'skip')]
+assert not bad, f'Failed or skipped results: {bad}'
+assert required <= passed, f'Missing required results: {sorted(required - passed)}'
+print('All M0–M4 review regressions passed, including SQLite and MariaDB.')
+PY
+```
+
+See [the fix and evidence record](multi-region/M4_REVIEW_FIXES.md) for the exact
+effects tested and migration 070's downgrade guard. The full backend race gate,
+CGO-free build and linter remain required for changes to these paths.

@@ -75,6 +75,7 @@ func mariadbFactory(t *testing.T) repositorySet {
 // mariadbTailHeals lists migrations whose up script is idempotent and whose
 // post-condition a shared-schema rehearsal can remove temporarily.
 var mariadbTailHeals = []struct{ migration, table, column string }{
+	{"070_history_clear_stream", "history_clear_watermarks", "through_stream_id"},
 	{"067_probe_certificate_paging", "probe_incidents", "certificate_not_after"},
 	{"068_probe_capacity_state", "monitor_conditions", "source_seq"},
 	{"068_probe_capacity_state", "probe_observations", "conditions_json"},

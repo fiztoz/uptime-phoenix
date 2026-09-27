@@ -395,7 +395,7 @@ This is the target schema contract, not ready-to-run migration SQL. Implementati
 | `probe_sessions` | Probe ID, connector owner, lease expiry, connection generation; transactional fencing |
 | `probe_local_sequence` | Singleton local-stream high-water mark; allocated with the heartbeat/observation/state transaction and retained after monitor/history deletion |
 | `probe_streams` | PK `(probe_id,stream_id)`, current/retired epoch, contiguous committed cursor, retirement time, declared gap records |
-| `history_clear_watermarks` | PK `(monitor_id,probe_id,assignment_generation)`, the explicit cleared bound (max ingested sequence + observation time), clear id and counted intentional drops; fences replay of deliberately cleared evidence |
+| `history_clear_watermarks` | PK `(monitor_id,probe_id,assignment_generation)`, the explicit cleared bound (stream id + max ingested sequence in that stream + observation time), clear id and counted intentional drops; fences replay of deliberately cleared evidence |
 | `monitor_probe_state` | PK `(monitor_id,probe_id)`, generation, stream/seq, observed/received time, effective status, counts, freshness reason, config revision |
 | `probe_config_snapshots` | PK `(probe_id,revision)`, hub authority, original bytes hash, schema version, encrypted snapshot, source/effective/stored times; `047` stores prepared documents only |
 | `probe_active_configs` | PK `probe_id`, active revision, sha256, hub_id, applied_at, assignment_count; points to currently activated snapshot |
@@ -702,7 +702,11 @@ resource binding references but no endpoint, TLS pin, sealed credential,
 session token or edge queue. Import reuses an existing identity by id or key,
 creates unknown ones **disabled pending reenrollment**, and refuses to import a
 monitor whose set cannot be honored exactly — an unrestorable assignment never
-reroutes a monitor to the hub scheduler. `phoenix-probe-admin register` adopts
+reroutes a monitor to the hub scheduler. Monitors with explicit assignment sets
+are inserted inactive, including at the SQL boundary, and activated only after
+the import restores assignments and related links. Failed cleanup leaves an
+inactive row and reports its id; failed activation also leaves an inactive row.
+`phoenix-probe-admin register` adopts
 and re-enables a matching restored identity as the reenrollment entry point.
 Config-as-code adds `spec.probes` (keyed natively by probe key, never in
 `config_keys`) and per-monitor `probe_assignments`/`health_policy`; an omitted
@@ -715,7 +719,11 @@ registered rather than enabled — while live operator input keeps using
 The implemented [M4 lifecycle/recovery slice](M4_LIFECYCLE_RECOVERY.md) defines
 and implements the clear-history watermark: one fence per
 `(monitor, probe, assignment generation)` recording the explicit bound the
-operator cleared through, whose bounds only ever widen. Both ingest paths
+operator cleared through. The time bound only widens; the sequence bound only
+widens within its recorded stream. A reset keeps assignment generation but
+starts a new stream, so an old sequence bound cannot fence the new sequence
+space. Migration 070 adds this stream identity to existing fences and refuses
+downgrade while any watermark remains. Both ingest paths
 refuse fenced evidence, count the acknowledged intentional drop and record a
 `history_cleared` receipt so replayed prefixes are discarded idempotently.
 Clear-history now removes the whole history scope (heartbeats, rollups, regional

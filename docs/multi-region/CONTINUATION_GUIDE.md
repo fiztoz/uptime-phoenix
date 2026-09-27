@@ -34,6 +34,9 @@ advertises compiled proxy protocols and rejects a proxy the checker would ignore
 The [maintenance and notification sync slice](M4_MAINTENANCE_NOTIFICATIONS.md)
 keeps accepted schedules, direct links, templates, visibility, tags, owner and
 escalation policy on the edge that executes them.
+The [M0–M4 review fixes](M4_REVIEW_FIXES.md) preserve pending escalation delivery,
+scope clear-history sequences to streams, defer restore activation and connect
+regional ingestion to public incident recovery.
 Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.

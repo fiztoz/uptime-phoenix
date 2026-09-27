@@ -20,6 +20,7 @@ type ProbeReplayService struct {
 	repo        ports.ProbeReplayRepository
 	authorizer  ports.ProbeReplayAuthorizer
 	groupAlerts regionalGroupAlerter
+	recovery    regionalRecovery
 }
 
 var _ ports.ProbeReplayService = (*ProbeReplayService)(nil)
@@ -44,6 +45,12 @@ func (s *ProbeReplayService) SetGroupAlerter(alerter regionalGroupAlerter) {
 	}
 }
 
+// SetStatusPageRecovery attaches post-commit recovery from fresh overall health.
+// It never invokes direct monitor notifications or the local dispatcher.
+func (s *ProbeReplayService) SetStatusPageRecovery(overall AggregateStatusReader, resolver incidentAutoResolver) {
+	s.recovery = regionalRecovery{overall: overall, resolver: resolver}
+}
+
 // ProcessBatch coordinates transactional ingestion of a replayed batch.
 func (s *ProbeReplayService) ProcessBatch(ctx context.Context, session domain.ProbeReplaySession, batch domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error) {
 	if !domain.ValidProbeReplayBatch(session, batch) {
@@ -61,7 +68,7 @@ func (s *ProbeReplayService) ProcessBatch(ctx context.Context, session domain.Pr
 		// position, so the caller can retry a rolled-back write. Page only once
 		// the cursor covers this batch: that is the proof the prefix committed.
 		if cursor >= batch.LastSeq {
-			s.notifyGroupAlerts(ctx, batch, nil)
+			s.notifyRegionalEvidence(ctx, batch, nil)
 		}
 		return &domain.ProbeReplayResult{StreamID: batch.StreamID, CommittedSeq: min(cursor, batch.LastSeq)}, domain.ErrReplayRetry
 	}
@@ -72,19 +79,22 @@ func (s *ProbeReplayService) ProcessBatch(ctx context.Context, session domain.Pr
 	if result != nil {
 		rejected = result.Rejected
 	}
-	s.notifyGroupAlerts(ctx, batch, rejected)
+	s.notifyRegionalEvidence(ctx, batch, rejected)
 	return result, nil
 }
 
-func (s *ProbeReplayService) notifyGroupAlerts(ctx context.Context, batch domain.ProbeReplayBatch, rejected []domain.ProbeReplayRejection) {
-	if s == nil || s.groupAlerts == nil {
+func (s *ProbeReplayService) notifyRegionalEvidence(ctx context.Context, batch domain.ProbeReplayBatch, rejected []domain.ProbeReplayRejection) {
+	if s == nil {
 		return
 	}
 	ids := acceptedObservationMonitors(batch, rejected)
 	if len(ids) == 0 {
 		return
 	}
-	s.groupAlerts.OnRegionalEvidence(ctx, ids)
+	s.recovery.resolve(ctx, ids)
+	if s.groupAlerts != nil {
+		s.groupAlerts.OnRegionalEvidence(ctx, ids)
+	}
 }
 
 // acceptedObservationMonitors is the set of monitors whose observation was not

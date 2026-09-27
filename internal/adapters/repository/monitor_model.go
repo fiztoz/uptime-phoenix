@@ -19,7 +19,7 @@ type MonitorModel struct {
 	Owner               string          `bun:"owner,notnull,default:''"`
 	InheritGroupOwner   bool            `bun:"inherit_group_owner,notnull,default:false"`
 	Type                string          `bun:"type,notnull"`
-	Active              bool            `bun:"active,notnull,default:true"`
+	Active              bool            `bun:"active,notnull"` // Persist false explicitly; restores must stay paused until assignments are ready.
 	Interval            int             `bun:"check_interval,notnull,default:60"`
 	RetryInterval       int             `bun:"retry_interval,notnull,default:0"`
 	MaxRetries          int             `bun:"max_retries,notnull,default:0"`

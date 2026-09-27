@@ -1025,8 +1025,9 @@ func (s *StatusPageService) ResolveIncident(ctx context.Context, id int64) error
 
 // AutoResolveOnRecovery resolves active incidents on status pages that include
 // monitorID and have AutoResolveIncidents enabled. Called from the notification
-// dispatcher when a monitor recovers (DOWN→UP). Returns nil even when no pages
-// match — a missing assignment is not an error.
+// dispatcher on local recovery and after committed regional evidence establishes
+// fresh overall UP. Returns nil even when no pages match — a missing assignment
+// is not an error.
 func (s *StatusPageService) AutoResolveOnRecovery(ctx context.Context, monitorID int64) error {
 	if status, ok := s.aggregateStatus(ctx, monitorID); ok && status != domain.StatusUp {
 		// A regional recovery is not a policy recovery. UNKNOWN and PENDING

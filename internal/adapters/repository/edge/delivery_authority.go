@@ -57,7 +57,14 @@ func (s *Store) AuthorizeEdgeDelivery(ctx context.Context, claim domain.Delivery
 		}
 		inc := rowIncident.incident(identity.ProbeID)
 		if inc.Scope != domain.IncidentScopeRegional || inc.MonitorID != item.MonitorID || inc.AssignmentGeneration != item.AssignmentGeneration ||
-			inc.TransitionVersion != item.SourceTransitionVersion || !inc.StartedAt.Equal(item.StartedAt) {
+			inc.TransitionVersion < item.SourceTransitionVersion || !inc.StartedAt.Equal(item.StartedAt) {
+			return nil
+		}
+		// Escalation advances a firing availability incident without retiring its
+		// earlier DOWN work. Other subjects and recovery snapshots still require
+		// the exact transition; their contents may have been superseded.
+		if inc.TransitionVersion != item.SourceTransitionVersion &&
+			(inc.SubjectKind != domain.IncidentSubjectAvailability || item.CheckStatus != domain.StatusDown) {
 			return nil
 		}
 		if item.EventKind == domain.DeliveryEventCertificateExpiry {
