@@ -84,8 +84,11 @@ func ProbeDiagnosticsSummary(at time.Time, d domain.ProbeDiagnostics) ProbeDiagn
 
 	local := d.Registration.ID == domain.LocalProbeID || d.Registration.Kind == domain.ProbeKindLocal
 	if local {
-		// The hub scheduler owns local execution; there is no remote
-		// enrollment, transport session or runtime lease for the local row.
+		// The hub scheduler owns local execution: it is enrolled in itself,
+		// connected to itself, and ready while enabled. There is no remote
+		// session or runtime lease for the reserved local row.
+		summary.EnrollmentState = ProbeEnrollmentActive
+		summary.ConnectionStatus = ProbeConnectionOnline
 		if d.Registration.Enabled {
 			summary.ExecutionStatus = ProbeExecutionReady
 		} else {

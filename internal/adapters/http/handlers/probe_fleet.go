@@ -41,10 +41,12 @@ type ProbeFleetPageView struct {
 	NextCursor *string     `json:"next_cursor"`
 }
 
-// ProbeView is the frozen protocol section 7 projection. Unknown or unreported
-// values are null: null is never online, applied, ready or failed. Revisions
-// are decimal strings; the fields below never carry endpoint, pin, credential
-// or configuration material.
+// ProbeView is the frozen protocol section 7 projection. Unknown values are
+// null except what the M0 client contract requires in place: config revisions
+// render the decimal string "0" when unreported, capabilities renders an empty
+// array when nothing is advertised, and the three lifecycle statuses always
+// carry a bounded vocabulary value. The fields below never carry credential or
+// configuration material.
 type ProbeView struct {
 	ID                    string     `json:"id"`
 	Key                   string     `json:"key"`
@@ -52,14 +54,14 @@ type ProbeView struct {
 	Location              string     `json:"location"`
 	Kind                  string     `json:"kind"`
 	Enabled               bool       `json:"enabled"`
-	EnrollmentState       *string    `json:"enrollment_state"`
-	ConnectionStatus      *string    `json:"connection_status"`
-	ExecutionStatus       *string    `json:"execution_status"`
+	EnrollmentState       string     `json:"enrollment_state"`
+	ConnectionStatus      string     `json:"connection_status"`
+	ExecutionStatus       string     `json:"execution_status"`
 	LastSeenAt            *time.Time `json:"last_seen_at"`
 	AgentVersion          *string    `json:"agent_version"`
-	ProtocolVersion       *string    `json:"protocol_version"`
-	DesiredConfigRevision *string    `json:"desired_config_revision"`
-	AppliedConfigRevision *string    `json:"applied_config_revision"`
+	ProtocolVersion       *int64     `json:"protocol_version"`
+	DesiredConfigRevision string     `json:"desired_config_revision"`
+	AppliedConfigRevision string     `json:"applied_config_revision"`
 	QueueBytes            *int64     `json:"queue_bytes"`
 	OldestQueuedAt        *time.Time `json:"oldest_queued_at"`
 	Revision              int64      `json:"revision,string"`
@@ -78,7 +80,7 @@ type ProbeDetailView struct {
 	TLSPin               *string              `json:"tls_fingerprint"`
 	CertificateExpiresAt *time.Time           `json:"certificate_expires_at"`
 	CredentialVersion    *string              `json:"credential_version"`
-	Capabilities         *[]string            `json:"capabilities"`
+	Capabilities         []string             `json:"capabilities"`
 	Diagnostics          ProbeDiagnosticsView `json:"diagnostics"`
 }
 
@@ -234,12 +236,12 @@ func toProbeView(entry services.ProbeFleetEntry) ProbeView {
 		CreatedAt: registration.CreatedAt.UTC(), UpdatedAt: registration.UpdatedAt.UTC(),
 	}
 	summary := entry.Summary
-	view.EnrollmentState = optionalString(summary.EnrollmentState)
-	view.ConnectionStatus = optionalString(summary.ConnectionStatus)
-	view.ExecutionStatus = optionalString(summary.ExecutionStatus)
+	view.EnrollmentState = summary.EnrollmentState
+	view.ConnectionStatus = summary.ConnectionStatus
+	view.ExecutionStatus = summary.ExecutionStatus
 	view.LastSeenAt = optionalTime(summary.LastSeenAt)
-	view.DesiredConfigRevision = fleetRevision(summary.DesiredConfigRevision)
-	view.AppliedConfigRevision = fleetRevision(summary.AppliedConfigRevision)
+	view.DesiredConfigRevision = fleetCounter(summary.DesiredConfigRevision)
+	view.AppliedConfigRevision = fleetCounter(summary.AppliedConfigRevision)
 	// agent_version, protocol_version, queue_bytes and oldest_queued_at have no
 	// safe evidence source yet. They stay null; null is unreported, never an
 	// implicit healthy default.
@@ -247,11 +249,19 @@ func toProbeView(entry services.ProbeFleetEntry) ProbeView {
 }
 
 func toProbeDetailView(entry services.ProbeFleetEntry) ProbeDetailView {
-	view := ProbeDetailView{ProbeView: toProbeView(entry), Diagnostics: ProbeDiagnosticsView{Config: ProbeConfigDiagnosticsView{}}}
+	view := ProbeDetailView{ProbeView: toProbeView(entry), Capabilities: []string{}, Diagnostics: ProbeDiagnosticsView{Config: ProbeConfigDiagnosticsView{}}}
 	facts := entry.Diagnostics
+	// The registration owns the operator-declared network trust (frozen home);
+	// prepared connections from before that freeze report theirs instead.
+	view.Endpoint = optionalString(entry.Registration.Endpoint)
+	view.TLSPin = optionalString(entry.Registration.TLSPin)
 	if facts.Enrollment != nil {
-		view.Endpoint = optionalString(facts.Enrollment.Endpoint)
-		view.TLSPin = optionalString(facts.Enrollment.TLSPin)
+		if view.Endpoint == nil {
+			view.Endpoint = optionalString(facts.Enrollment.Endpoint)
+		}
+		if view.TLSPin == nil {
+			view.TLSPin = optionalString(facts.Enrollment.TLSPin)
+		}
 		view.CertificateExpiresAt = optionalTime(facts.Enrollment.CertificateNotAfter)
 		view.CredentialVersion = fleetString(strconv.FormatInt(facts.Enrollment.CredentialVersion, 10))
 		view.Diagnostics.Enrollment = &ProbeEnrollmentDiagnosticsView{
@@ -263,7 +273,7 @@ func toProbeDetailView(entry services.ProbeFleetEntry) ProbeDetailView {
 			ActivatedAt:         optionalTime(facts.Enrollment.ActivatedAt),
 		}
 	}
-	// capabilities has no safe evidence source yet; it stays null.
+	// capabilities has no safe evidence source yet; it renders an empty list.
 	if facts.Session != nil {
 		view.Diagnostics.Connection = &ProbeConnectionDiagnosticsView{
 			OwnerID: facts.Session.OwnerID, Generation: strconv.FormatInt(facts.Session.Generation, 10),
@@ -320,6 +330,15 @@ func fleetRevision(revision int64) *string {
 	}
 	value := strconv.FormatInt(revision, 10)
 	return &value
+}
+
+// fleetCounter renders a required counter as a decimal string, "0" when
+// unreported, per the frozen ProbeView contract.
+func fleetCounter(value int64) string {
+	if value < 0 {
+		value = 0
+	}
+	return strconv.FormatInt(value, 10)
 }
 
 // optionalTime renders a timestamp in UTC and maps absent or zero times to the

@@ -32,6 +32,8 @@ type probeRegistrationModel struct {
 	Location      string           `bun:"location"`
 	Kind          domain.ProbeKind `bun:"kind"`
 	Enabled       bool             `bun:"enabled"`
+	Endpoint      string           `bun:"endpoint"`
+	TLSPin        string           `bun:"tls_fingerprint"`
 	Revision      int64            `bun:"revision"`
 	CreatedAt     time.Time        `bun:"created_at"`
 	UpdatedAt     time.Time        `bun:"updated_at"`
@@ -40,7 +42,7 @@ type probeRegistrationModel struct {
 func (m probeRegistrationModel) domain() domain.Probe {
 	return domain.Probe{
 		ID: m.ID, Key: m.Key, Name: m.Name, Location: m.Location, Kind: m.Kind,
-		Enabled: m.Enabled, Revision: m.Revision,
+		Enabled: m.Enabled, Endpoint: m.Endpoint, TLSPin: m.TLSPin, Revision: m.Revision,
 		CreatedAt: m.CreatedAt.UTC(), UpdatedAt: m.UpdatedAt.UTC(),
 	}
 }
@@ -68,7 +70,8 @@ func (r *ProbeRegistryStore) Create(ctx context.Context, probe *domain.Probe) er
 	now := time.Now().UTC()
 	m := &probeRegistrationModel{
 		ID: probe.ID, Key: probe.Key, Name: probe.Name, Location: probe.Location,
-		Kind: probe.Kind, Enabled: probe.Enabled, Revision: 1, CreatedAt: now, UpdatedAt: now,
+		Kind: probe.Kind, Enabled: probe.Enabled, Endpoint: probe.Endpoint, TLSPin: probe.TLSPin,
+		Revision: 1, CreatedAt: now, UpdatedAt: now,
 	}
 	if _, err := r.db.NewInsert().Model(m).Exec(ctx); err != nil {
 		return fmt.Errorf("create probe: %w", probeRegistryError(err))
@@ -159,6 +162,14 @@ func validateProbeRegistration(p *domain.Probe) error {
 	if !utf8.ValidString(p.Name) || strings.TrimSpace(p.Name) == "" || utf8.RuneCountInString(p.Name) > 200 ||
 		!utf8.ValidString(p.Location) || utf8.RuneCountInString(p.Location) > 255 {
 		return fmt.Errorf("invalid probe name or location: %w", domain.ErrValidation)
+	}
+	// Optional frozen network trust: shape-checked when present, never required
+	// here (the local operator flow may prepare a connection directly).
+	if p.Endpoint != "" && (len(p.Endpoint) > 2048 || strings.TrimSpace(p.Endpoint) != p.Endpoint || strings.ContainsAny(p.Endpoint, "\t\r\n \x00")) {
+		return fmt.Errorf("invalid probe endpoint: %w", domain.ErrValidation)
+	}
+	if p.TLSPin != "" && !domain.ValidKeyHash(p.TLSPin) {
+		return fmt.Errorf("invalid probe TLS fingerprint: %w", domain.ErrValidation)
 	}
 	return nil
 }

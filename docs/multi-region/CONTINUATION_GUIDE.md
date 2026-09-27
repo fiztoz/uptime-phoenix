@@ -5,9 +5,11 @@ The first slice exposes scoped health and desired assignments. The second,
 [fleet diagnostics](M5_FLEET_DIAGNOSTICS.md), adds the safe runtime diagnostic
 read model and the admin `GET /api/probes` list/detail reads. The third,
 [assignment writes](M5_ASSIGNMENT_WRITES.md), adds revisioned admin desired-set
-replacement, atomic create-with-assignments and the clone rule. Durable
-operations, regional history, fleet UI and browser work remain; do not infer
-completion from the full proposed route table.
+replacement, atomic create-with-assignments and the clone rule. The fourth,
+[administrative operations](M5_ADMIN_OPERATIONS.md), freezes the registration
+network trust and lands registration writes plus durable enroll/rotate/reset
+operations. Revocation, regional history, fleet UI and browser work remain; do
+not infer completion from the full proposed route table.
 
 M3 is complete at implementation `a12a3fa`, recorded in `8b455d4`; the first
 M4 pull-checker slice is recorded in

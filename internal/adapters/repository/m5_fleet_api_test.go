@@ -209,13 +209,16 @@ func TestM5FleetAPI(t *testing.T) {
 			}
 			for field, want := range map[string]any{
 				"enrollment_state": "unconfigured", "connection_status": "never_connected", "execution_status": "unconfigured",
-				"desired_config_revision": nil, "applied_config_revision": nil, "last_seen_at": nil,
+				"desired_config_revision": "0", "applied_config_revision": "0", "last_seen_at": nil,
 				"agent_version": nil, "protocol_version": nil, "queue_bytes": nil, "oldest_queued_at": nil,
-				"endpoint": nil, "tls_fingerprint": nil, "certificate_expires_at": nil, "credential_version": nil, "capabilities": nil,
+				"endpoint": nil, "tls_fingerprint": nil, "certificate_expires_at": nil, "credential_version": nil,
 			} {
 				if bare[field] != want {
 					t.Fatalf("bare probe %s = %v, want %v", field, bare[field], want)
 				}
+			}
+			if caps, ok := bare["capabilities"].([]any); !ok || len(caps) != 0 {
+				t.Fatalf("bare probe capabilities must render an empty list: %v", bare["capabilities"])
 			}
 			bareDiag := bare["diagnostics"].(map[string]any)
 			for _, section := range []string{"enrollment", "connection", "runtime", "watchdog"} {

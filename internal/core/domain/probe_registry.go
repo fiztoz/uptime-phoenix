@@ -29,6 +29,12 @@ const (
 // Probe is registration metadata only. It grants no execution or authentication
 // authority and deliberately contains no credentials or transient runtime state.
 // ID, Key, and Kind are immutable after creation. The local row is immutable.
+//
+// Endpoint and TLSPin are the operator-declared network trust of the remote
+// vantage point (frozen home: the registration itself). They are set at
+// creation and immutable afterward — changing them is an explicit identity
+// workflow, never an ordinary update. Enrollment copies them into the prepared
+// connection; neither value is authentication material.
 type Probe struct {
 	ID        string
 	Key       string
@@ -36,6 +42,8 @@ type Probe struct {
 	Location  string
 	Kind      ProbeKind
 	Enabled   bool
+	Endpoint  string
+	TLSPin    string
 	Revision  int64
 	CreatedAt time.Time
 	UpdatedAt time.Time

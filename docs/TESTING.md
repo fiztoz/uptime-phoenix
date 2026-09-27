@@ -1448,7 +1448,7 @@ that MariaDB tests executed.
 ```sh
 : "${TEST_MARIADB_DSN:?Set a disposable MariaDB test DSN}"
 export TEST_MARIADB_DSN
-rtk proxy go test -race -count=1 -timeout 2400s -json ./internal/core/services ./internal/adapters/http/handlers ./internal/adapters/repository -run 'TestMonitorRegional|TestRegionalDisplayHealthBoundaries|TestM5ReadAPI|TestM5FleetAPI|TestM5AssignmentWrites|TestProbeFleet|TestProbeDiagnostics|TestValidateDesired|TestProbeAssignmentService|TestMonitorServiceClone' > /tmp/m5-read.jsonl
+rtk proxy go test -race -count=1 -timeout 2400s -json ./internal/core/services ./internal/adapters/http/handlers ./internal/adapters/repository -run 'TestMonitorRegional|TestRegionalDisplayHealthBoundaries|TestM5ReadAPI|TestM5FleetAPI|TestM5AssignmentWrites|TestM5AdminOperations|TestProbeFleet|TestProbeDiagnostics|TestProbeAdmin|TestValidateDesired|TestProbeAssignmentService|TestMonitorServiceClone|TestValidEnrollment|TestRuntimeEndpoint' > /tmp/m5-read.jsonl
 rtk proxy python3 scripts/m5_read_evidence.py /tmp/m5-read.jsonl
 ```
 

@@ -22,7 +22,7 @@
   "tls_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "certificate_expires_at": "2027-01-01T00:00:00Z",
   "credential_version": "3",
-  "capabilities": null,
+  "capabilities": [],
   "diagnostics": {
     "enrollment": {
       "state": "active",

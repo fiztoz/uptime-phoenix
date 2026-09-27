@@ -163,7 +163,7 @@ func TestProbeDiagnosticsSummaryBoundaries(t *testing.T) {
 		local.Registration.ID, local.Registration.Kind = domain.LocalProbeID, domain.ProbeKindLocal
 		local.Session, local.Runtime, local.Enrollment, local.Watchdog = nil, nil, nil, nil
 		got := ProbeDiagnosticsSummary(at, local)
-		if got.ConnectionStatus != "" || got.EnrollmentState != "" || got.ExecutionStatus != ProbeExecutionReady {
+		if got.ConnectionStatus != ProbeConnectionOnline || got.EnrollmentState != ProbeEnrollmentActive || got.ExecutionStatus != ProbeExecutionReady {
 			t.Fatalf("local projection: %+v", got)
 		}
 		if got.ConfigSyncStatus != ProbeConfigSyncApplied {
@@ -244,7 +244,7 @@ func TestProbeFleetServiceListAndDetail(t *testing.T) {
 			t.Fatalf("absent probe: %v", err)
 		}
 		entry, err := svc.Detail(t.Context(), domain.LocalProbeID, at)
-		if err != nil || entry.Summary.ConnectionStatus != "" {
+		if err != nil || entry.Summary.ConnectionStatus != ProbeConnectionOnline || entry.Summary.EnrollmentState != ProbeEnrollmentActive {
 			t.Fatalf("local detail: %+v %v", entry, err)
 		}
 		summary, err := svc.DiagnosticSummary(t.Context(), domain.LocalProbeID, at)

@@ -72,7 +72,7 @@ func fleetFixtureEntries() (services.ProbeFleetEntry, services.ProbeFleetEntry) 
 	local := services.ProbeFleetEntry{
 		Registration: domain.Probe{ID: domain.LocalProbeID, Key: "local", Name: "Local", Location: "", Kind: domain.ProbeKindLocal, Enabled: true, Revision: 1,
 			CreatedAt: time.Date(2026, 9, 27, 9, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 9, 27, 9, 0, 0, 0, time.UTC)},
-		Summary: services.ProbeDiagnosticSummary{ExecutionStatus: services.ProbeExecutionReady},
+		Summary: services.ProbeDiagnosticSummary{EnrollmentState: services.ProbeEnrollmentActive, ConnectionStatus: services.ProbeConnectionOnline, ExecutionStatus: services.ProbeExecutionReady},
 	}
 	return remote, local
 }

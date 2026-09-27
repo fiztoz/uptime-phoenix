@@ -418,15 +418,20 @@ expiry are normalized to UTC before database writes. See
 These are proposed endpoints under the existing Echo router. Feature-disabled routes return a typed unavailable/not-implemented response; they do not return fake success. Use explicit Views and the existing auth/error helpers.
 
 Implementation boundary: the [M5 foundation](M5_FOUNDATION.md) implements only the
-two scoped GET routes for monitor `probes` and `health`. It freezes their fixtures,
-pagination-independent read semantics and staged null diagnostic fields. The
+two scoped GET routes for monitor `probes` and `health`. The
 [fleet diagnostics slice](M5_FLEET_DIAGNOSTICS.md) implements `GET /api/probes`
-and `GET /api/probes/:probe_id` and wires the coherent diagnostic read port that
-feeds the scoped routes' connection/config fields. The
-[assignment write slice](M5_ASSIGNMENT_WRITES.md) implements
-`PUT /api/monitors/:id/probes`, the monitor-create extension and the clone rule.
-The other routes in this table remain proposed until their acceptance is
-recorded.
+and `GET /api/probes/:probe_id`. The [assignment write slice](M5_ASSIGNMENT_WRITES.md)
+implements `PUT /api/monitors/:id/probes`, the monitor-create extension and the
+clone rule. The [administrative operations slice](M5_ADMIN_OPERATIONS.md)
+implements `POST /api/probes`, `PATCH /api/probes/:probe_id`, the
+enroll/rotate-credential/reset-stream routes and `GET /api/probe-operations/:operation_id`;
+revoke and delete remain proposed. The other routes in this table remain
+proposed until their acceptance is recorded.
+
+Endpoint and TLS pin are frozen on the registration (create-only immutable
+identity; enrollment copies them into the prepared connection), and
+registration create stores the operator's `host[:port]` suggestion while the
+runtime connection uses `wss://host[:port]/ws/probe/v1`.
 
 Fleet routes require an authenticated admin; follow the established session-or-write-API-key pattern for programmatic administration. Regional monitor reads use the current monitor visibility policy through AccessService. Authenticated users without visibility receive 404. Fleet secrets are never present in read responses.
 
@@ -449,7 +454,7 @@ Fleet routes require an authenticated admin; follow the established session-or-w
 | `GET /api/monitors/:id/health` | Overall health, regional counts, coverage, policy and projection version |
 | `POST /api/monitors/:id/probe-alerts/:alert_id/ack` | Existing authenticated monitor-visibility acknowledgement authority (no new capability flag); returns 202 command receipt pending remote application |
 
-`ProbeView` fields: `id`, `key`, `name`, `location`, `kind`, `enabled`, `enrollment_state`, `connection_status`, `execution_status`, `last_seen_at`, `agent_version`, `protocol_version`, `desired_config_revision`, `applied_config_revision`, `queue_bytes`, `oldest_queued_at`, `revision`, `created_at`, `updated_at`. Admin detail additionally exposes `endpoint`, `tls_fingerprint`, `certificate_expires_at`, `credential_version`, and `capabilities`; none of those grant runtime authentication. Unknown values are null.
+`ProbeView` fields: `id`, `key`, `name`, `location`, `kind`, `enabled`, `enrollment_state`, `connection_status`, `execution_status`, `last_seen_at`, `agent_version`, `protocol_version`, `desired_config_revision`, `applied_config_revision`, `queue_bytes`, `oldest_queued_at`, `revision`, `created_at`, `updated_at`. Admin detail additionally exposes `endpoint`, `tls_fingerprint`, `certificate_expires_at`, `credential_version`, and `capabilities`; none of those grant runtime authentication. Per the frozen M0 decoder these read shapes are load-bearing: config revisions render the decimal string `"0"` when unreported, `capabilities` renders `[]`, the lifecycle statuses always carry a vocabulary value, and `protocol_version` is a nullable number. Unknown values are null.
 
 Admin detail also carries a `diagnostics` object with the nonsecret evidence
 sections `enrollment`, `connection`, `runtime`, `watchdog`, and `config`

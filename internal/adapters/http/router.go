@@ -25,6 +25,10 @@ type RouterOptions struct {
 	// ProbeFleet is the M5 administrative fleet read surface. A nil handler
 	// keeps the routes registered but unavailable with the same typed 503.
 	ProbeFleet *handlers.ProbeFleetHandlers
+	// ProbeAdmin is the registration-write and durable-operation surface
+	// (protocol section 7). A nil handler keeps the routes registered but
+	// unavailable; operation routes never fake a 202.
+	ProbeAdmin *handlers.ProbeAdminHandlers
 	Production bool
 	RateLimit  middleware.RateLimitConfig
 	CORS       middleware.CORSConfig
@@ -166,6 +170,21 @@ func NewRouter(
 			requireAdmin)
 		probeGroup.GET("", fleet.List)
 		probeGroup.GET("/:probe_id", fleet.Detail)
+
+		// Registration writes and durable administrative operations (protocol
+		// section 7). A receipt is persisted before any 202; a router built
+		// without the admin service keeps the routes registered but unavailable.
+		admin := opts.ProbeAdmin
+		if admin == nil {
+			admin = handlers.NewProbeAdminHandlers(nil, nil, false)
+		}
+		probeGroup.POST("", admin.Create)
+		probeGroup.PATCH("/:probe_id", admin.Update)
+		probeGroup.POST("/:probe_id/enroll", admin.Enroll)
+		probeGroup.POST("/:probe_id/rotate-credential", admin.RotateCredential)
+		probeGroup.POST("/:probe_id/reset-stream", admin.ResetStream)
+		e.GET("/api/probe-operations/:operation_id", admin.Operation,
+			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"), requireAdmin)
 	}
 
 	// Reliability read model. The handler applies monitor visibility before it

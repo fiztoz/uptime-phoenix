@@ -16,6 +16,10 @@ REQUIRED = {
     (ROOT + "core/services", "TestValidateDesiredAssignments"),
     (ROOT + "core/services", "TestProbeAssignmentServiceReplace"),
     (ROOT + "core/services", "TestMonitorServiceCloneAuthority"),
+    (ROOT + "core/services", "TestProbeAdminRegistrationLifecycle"),
+    (ROOT + "core/services", "TestProbeAdminOperations"),
+    (ROOT + "core/services", "TestValidEnrollmentToken"),
+    (ROOT + "core/services", "TestRuntimeEndpoint"),
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPFixtures"),
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPErrors"),
     (ROOT + "adapters/http/handlers", "TestMonitorRegionalHTTPUnknownAndEmpty"),
@@ -25,12 +29,16 @@ REQUIRED = {
     (ROOT + "adapters/http/handlers", "TestProbeFleetHTTPFixtures"),
     (ROOT + "adapters/http/handlers", "TestProbeFleetHTTPErrors"),
     (ROOT + "adapters/http/handlers", "TestProbeFleetHTTPSecretExclusion"),
+    (ROOT + "adapters/http/handlers", "TestProbeAdminContractParity"),
+    (ROOT + "adapters/http/handlers", "TestProbeAdminHTTPErrors"),
     (ROOT + "adapters/repository", "TestM5ReadAPI/sqlite"),
     (ROOT + "adapters/repository", "TestM5ReadAPI/mariadb"),
     (ROOT + "adapters/repository", "TestM5FleetAPI/sqlite"),
     (ROOT + "adapters/repository", "TestM5FleetAPI/mariadb"),
     (ROOT + "adapters/repository", "TestM5AssignmentWrites/sqlite"),
     (ROOT + "adapters/repository", "TestM5AssignmentWrites/mariadb"),
+    (ROOT + "adapters/repository", "TestM5AdminOperations/sqlite"),
+    (ROOT + "adapters/repository", "TestM5AdminOperations/mariadb"),
 }
 
 
@@ -78,7 +86,7 @@ def main() -> int:
     if errors:
         print("M5 evidence rejected:\n" + "\n".join(errors), file=sys.stderr)
         return 1
-    print("M5 read API evidence passed: service, wire fixtures, SQLite and MariaDB (regional reads, fleet diagnostics, assignment writes).")
+    print("M5 read API evidence passed: service, wire fixtures, SQLite and MariaDB (regional reads, fleet diagnostics, assignment writes, admin operations).")
     return 0
 
 

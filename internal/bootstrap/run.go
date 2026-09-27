@@ -656,9 +656,44 @@ func Run(cfg Config) error {
 	regionalSvc.SetDiagnostics(repos.probeDiagnostics)
 	regionalHandlers := handlers.NewMonitorRegionalHandlers(regionalSvc, cfg.ProbesEnabled)
 	regionalHandlers.SetAssignments(services.NewProbeAssignmentService(repos.probeAssignWriter, repos.probeAssignments, repos.probeRegistry, repos.monitor, checkeradapter.CapabilityInspector{}))
+	fleetSvc := services.NewProbeFleetService(repos.probeDiagnostics)
+	var adminSvc *services.ProbeAdminService
+	if cfg.ProbesEnabled {
+		// Durable administrative operations wrap the same connector/rotation/
+		// reset services the local operator flow composes. They are constructed
+		// here so the API surface can serve them without running the connector
+		// loop (an API replica does not become a worker by serving admin routes).
+		policy, err := probe.LoadEndpointPolicy(cfg.ProbeEndpointPolicyFile)
+		if err != nil {
+			return err
+		}
+		adminOwner, err := uuid.NewRandom()
+		if err != nil {
+			return fmt.Errorf("probe admin owner unavailable")
+		}
+		connections := repo.NewProbeConnectorStore(db)
+		adminConnector, err := services.NewProbeConnectorService(connections, connections, connections, credentialProtector,
+			services.NewProbeConfigService(repos.probeConfig, probe.ConfigInspector{}, protector),
+			probe.NewHubTransport(policy), installationHubID, adminOwner.String(),
+			func(failures int, healthy time.Duration) time.Duration {
+				return probe.ReconnectDelay(failures, healthy, rand.Float64())
+			})
+		if err != nil {
+			return err
+		}
+		rotations, err := services.NewProbeCredentialRotationService(
+			repo.NewProbeCommandStore(db, commandProtector, probe.AcknowledgementCodec{}, credentialProtector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{}),
+			connections, commandProtector, credentialProtector, probe.CredentialCommandCodec{})
+		if err != nil {
+			return err
+		}
+		adminSvc = services.NewProbeAdminService(repo.NewProbeOperationStore(db), repos.probeRegistry, repos.probeInstallation,
+			connections, adminConnector, rotations, repo.NewProbeStreamResetStore(db, protector, credentialProtector, probe.StreamResetCodec{}))
+	}
 	httpOpts := httppkg.RouterOptions{
 		RegionalMonitors: regionalHandlers,
-		ProbeFleet:       handlers.NewProbeFleetHandlers(services.NewProbeFleetService(repos.probeDiagnostics), cfg.ProbesEnabled),
+		ProbeFleet:       handlers.NewProbeFleetHandlers(fleetSvc, cfg.ProbesEnabled),
+		ProbeAdmin:       handlers.NewProbeAdminHandlers(adminSvc, fleetSvc, cfg.ProbesEnabled),
 		Production:       cfg.Production,
 		RateLimit: middleware.RateLimitConfig{
 			RequestsPerSecond: cfg.RateLimitRPS,

@@ -466,6 +466,8 @@ func testProbeRegistryMigration(t *testing.T, f probeRegistryFixture) {
 			t.Fatal(err)
 		}
 	}
+	// No 071 heal here: the boundary downgrade below must see the pure 035
+	// shape, and nothing between the checkpoints reads the later columns.
 	// Read the 035 contract directly: current repositories also require later columns.
 	var backfill int
 	if err := f.db.NewSelect().TableExpr("monitor_probe_assignment_sets s").
@@ -483,6 +485,7 @@ func testProbeRegistryMigration(t *testing.T, f probeRegistryFixture) {
 	if err := runProbeRegistryMigration(t, f.db, f.engine, "up"); err != nil {
 		t.Fatal(err)
 	}
+	healProbeNetworkIdentity(t, f, &downgraded)
 	f.remote(t, probeRegistryID1, "asia")
 	if err := runProbeRegistryMigration(t, f.db, f.engine, "down"); err == nil {
 		t.Fatal("downgrade discarded remote registration")
@@ -493,6 +496,20 @@ func testProbeRegistryMigration(t *testing.T, f probeRegistryFixture) {
 	if count, err := f.db.NewSelect().Table("monitor_probe_assignments").Where("monitor_id = ?", monitorID).Count(ctx); err != nil || count != 1 {
 		t.Fatalf("guard did not preserve assignment tables: count=%d, %v", count, err)
 	}
+}
+
+// healProbeNetworkIdentity restores the registration network-trust columns and
+// the durable operation table (migration 071) after a rehearsal rebuilds
+// `probes` at an older boundary. Current repositories require the later
+// columns; historical migrations are never edited, so the harness re-applies
+// the tail migration exactly like the other tail heals and tells the restore
+// walk that 071 is already back (a second up would duplicate the columns).
+func healProbeNetworkIdentity(t *testing.T, f probeRegistryFixture, downgraded *[]string) {
+	t.Helper()
+	if err := runEngineMigration(t, f.db, f.engine, "071_probe_operations", "up"); err != nil {
+		t.Fatal(err)
+	}
+	*downgraded = slices.DeleteFunc(*downgraded, func(name string) bool { return name == "071_probe_operations" })
 }
 
 func probeTableColumns(t *testing.T, db *bun.DB, table string) []string {

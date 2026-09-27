@@ -80,6 +80,9 @@ var mariadbTailHeals = []struct{ migration, table, column string }{
 	{"068_probe_capacity_state", "monitor_conditions", "source_seq"},
 	{"068_probe_capacity_state", "probe_observations", "conditions_json"},
 	{"068_probe_capacity_state", "monitor_probe_state", "conditions_json"},
+	// Both network-trust columns appear and disappear together; one heal entry
+	// re-applies both because 071's up adds them in one pass.
+	{"071_probe_operations", "probes", "endpoint"},
 }
 
 // healMariaDBTail re-applies idempotent tail migrations after RunMigrations.

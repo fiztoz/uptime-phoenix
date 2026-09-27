@@ -119,11 +119,13 @@ so labels and generations do not require guessing from unrelated observations.
    explicit set, and the non-admin clone rejection. `alert_delivery` accepts
    only `regional`; probe-side capability advertisements remain enforced at
    publication and activation.
-3. **Durable administrative operations.** Wrap existing installation/rotation/
-   reset services with admin routes and exact operation receipts. Freeze where
-   endpoint/pin metadata lives before implementing registration POST: today's
-   `Probe` registration has neither field. Never return 202 without persisting
-   a real operation; do not expose protected material in operation errors.
+3. **Durable administrative operations.** ✅ Done — see
+   [administrative operations](M5_ADMIN_OPERATIONS.md): the endpoint/pin home
+   is frozen on the registration (create-only identity), registration POST and
+   PATCH land, and the existing installation/rotation/reset services are
+   wrapped with durable exact operation receipts (persisted before any 202,
+   redacted bounded errors). Revoke and soft-delete stay proposed: no durable
+   revocation state exists yet and a fake 2xx is forbidden.
 4. **Regional history and UI.** Implement relationship-checked history/chart
    routes before building latency selection. Use these fixtures for TypeScript
    contracts, then add fleet/monitor views, English/Thai messages and browser
