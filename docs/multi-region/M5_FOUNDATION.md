@@ -1,8 +1,10 @@
 # M5 foundation and continuation contract
 
 Status: first read API slice, built on M0–M4 review fixes in `7bc81c5` (original
-base `5873a79`). M5 is **not complete**. Inspect the actual HEAD and working tree
-before continuing or allocating files.
+base `5873a79`). The second slice — safe runtime diagnostics and the admin fleet
+read API — is recorded in [fleet diagnostics](M5_FLEET_DIAGNOSTICS.md). M5 is
+**not complete**. Inspect the actual HEAD and working tree before continuing or
+allocating files.
 
 ## Implemented boundary
 
@@ -26,7 +28,9 @@ are unchanged.
 
 No fleet CRUD, enrollment/rotation/revoke/reset operation API, assignment writes,
 regional heartbeat/chart endpoint or browser event is implemented by this slice.
-Do not mark protocol section 7 or M5's first checklist item complete.
+This slice alone does not complete protocol section 7 or M5's first checklist
+item; that item is completed by the [fleet diagnostics](M5_FLEET_DIAGNOSTICS.md)
+slice.
 
 ## Frozen JSON fixtures
 
@@ -52,10 +56,11 @@ serialize `domain.*` directly. In particular:
 - No evidence or a stale generation has null observation/receipt/deadline fields.
   `reason` contains a bounded diagnostic code, never a raw check output or error.
 - `connection_status`, `config_sync_status`, assignment `sync_status`, and desired/
-  applied config revisions are currently **null**. The existing ports do not give
-  this read service a coherent, safe diagnostic snapshot. Null means unreported;
-  it does not mean online, applied, pending or failed. Never infer application from
-  equal revision counters or infer a connection from an UP target check.
+  applied config revisions are null in the frozen fixtures. They are now filled
+  with evidence from the safe diagnostics port ([fleet diagnostics](M5_FLEET_DIAGNOSTICS.md))
+  and stay null only where evidence is absent. Null means unreported; it does not
+  mean online, applied, pending or failed. Never infer application from equal
+  revision counters or infer a connection from an UP target check.
 - Assignment `bindings` and health `regions` are arrays, including when empty.
   Bindings contain `kind` and `binding_key` only. No socket paths or credentials.
 - `hours` defaults to 24 and must occur once as an integer from 1 to 720. It changes
@@ -98,15 +103,14 @@ so labels and generations do not require guessing from unrelated observations.
 
 ## Next slices, in order
 
-1. **Safe runtime diagnostics and fleet read API.** Define an explicit nonsecret
-   read model for registration, enrollment, connection watchdog, runtime lease,
-   config publication and applied receipts. Read it coherently on both engines.
-   A prepared config is not necessarily the current desired assignment graph;
-   prove source revision/generation matches before returning `applied`. Keep
-   connection health separate from execution readiness and target availability.
-   Add paginated admin list/detail and test admin session/write-scope API keys,
-   non-admin denial, null fields, expired owners and secret exclusion. Replace
-   the null diagnostic fields only with evidence from this port.
+1. **Safe runtime diagnostics and fleet read API.** ✅ Done — see
+   [fleet diagnostics](M5_FLEET_DIAGNOSTICS.md): nonsecret read model over the
+   six evidence sources read coherently on both engines, digest-proven `applied`,
+   connection/execution separation, paginated admin list/detail with admin
+   session and write-scope API keys, and evidence-based replacement of the null
+   diagnostic fields. `agent_version`, `protocol_version`, `queue_bytes`,
+   `oldest_queued_at` and `capabilities` remain null until their own evidence
+   ports exist.
 2. **Revisioned assignment writes.** Add capability/resource validation before
    atomic complete-set replacement. Preserve omitted bindings versus an explicit
    empty list. Return 409 for a stale expected revision. Reuse live `Replace`

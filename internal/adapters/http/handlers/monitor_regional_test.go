@@ -28,7 +28,7 @@ type regionalReadFake struct {
 	at          time.Time
 }
 
-func (r *regionalReadFake) Assignments(context.Context, int64, int64) (*services.MonitorRegionalAssignments, error) {
+func (r *regionalReadFake) Assignments(context.Context, int64, int64, time.Time) (*services.MonitorRegionalAssignments, error) {
 	r.calls++
 	return r.assignments, r.err
 }
@@ -148,5 +148,43 @@ func TestMonitorRegionalHTTPUnknownAndEmpty(t *testing.T) {
 	}
 	if string(body["regions"]) != "[]" || string(body["uptime_percent"]) != "null" || string(body["coverage_percent"]) != "null" {
 		t.Fatal(rec.Body.String())
+	}
+}
+
+// TestMonitorRegionalHTTPDiagnosticFills proves the staged diagnostic fields
+// carry only evidence from the safe diagnostics port, and stay null when that
+// port reports nothing for a probe.
+func TestMonitorRegionalHTTPDiagnosticFills(t *testing.T) {
+	fake := regionalFixture()
+	const remote = "11111111-1111-4111-8111-111111111111"
+	diag := map[string]services.ProbeDiagnosticSummary{
+		remote: {ConnectionStatus: services.ProbeConnectionOnline, ConfigSyncStatus: services.ProbeConfigSyncApplied, DesiredConfigRevision: 9007199254740993, AppliedConfigRevision: 9007199254740993},
+	}
+	fake.assignments.Diag, fake.health.Diag = diag, diag
+
+	rec := regionalRequest(NewMonitorRegionalHandlers(fake, true), "/probes", "7", 1)
+	var assignments MonitorProbeAssignmentsView
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignments); err != nil {
+		t.Fatal(err)
+	}
+	got := assignments.Assignments[0]
+	if got.SyncStatus == nil || *got.SyncStatus != "applied" || got.DesiredConfigRevision == nil || *got.DesiredConfigRevision != "9007199254740993" || got.AppliedConfigRevision == nil {
+		t.Fatalf("assignment diagnostics not mapped: %+v", got)
+	}
+	if assignments.Assignments[1].SyncStatus != nil || assignments.Assignments[1].DesiredConfigRevision != nil {
+		t.Fatalf("unreported local diagnostics must stay null: %+v", assignments.Assignments[1])
+	}
+
+	rec = regionalRequest(NewMonitorRegionalHandlers(fake, true), "/health", "7", 1)
+	var health MonitorHealthView
+	if err := json.Unmarshal(rec.Body.Bytes(), &health); err != nil {
+		t.Fatal(err)
+	}
+	region := health.Regions[0]
+	if region.ConnectionStatus == nil || *region.ConnectionStatus != "online" || region.ConfigSyncStatus == nil || *region.ConfigSyncStatus != "applied" {
+		t.Fatalf("region diagnostics not mapped: %+v", region)
+	}
+	if health.Regions[1].ConnectionStatus != nil || health.Regions[1].ConfigSyncStatus != nil {
+		t.Fatalf("unreported local region diagnostics must stay null: %+v", health.Regions[1])
 	}
 }

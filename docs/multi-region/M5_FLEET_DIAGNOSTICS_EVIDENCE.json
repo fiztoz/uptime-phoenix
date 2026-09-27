@@ -1,0 +1,108 @@
+{
+  "slice": "M5_FLEET_DIAGNOSTICS",
+  "recorded": "2026-09-27",
+  "toolchain": "GOTOOLCHAIN=go1.26.6",
+  "engines": ["sqlite", "mariadb"],
+  "mariadb_dsn": "TEST_MARIADB_DSN set to a disposable mariadb:11 database (phoenix_ci, 127.0.0.1:43316, parseTime=true&loc=UTC&multiStatements=true)",
+  "commands": [
+    "GOTOOLCHAIN=go1.26.6 go test -race -count=1 -timeout 2400s -json ./... > /tmp/m5-full-race.jsonl",
+    "python3 scripts/m5_read_evidence.py /tmp/m5-full-race.jsonl",
+    "GOTOOLCHAIN=go1.26.6 CGO_ENABLED=0 go build ./...",
+    "GOTOOLCHAIN=go1.26.6 ~/go/bin/golangci-lint run",
+    "gofmt -l internal/",
+    "git diff --check"
+  ],
+  "totals": {
+    "packages_ok": 22,
+    "named_passes": 4068,
+    "failed": 0,
+    "skipped": 2,
+    "skipped_names": [
+      "TestDatabaseChecker_Check_MongoDB_RealServer",
+      "TestTelegramSender_Send_DownSeverity"
+    ]
+  },
+  "named_passes": [
+    "services/TestProbeDiagnosticsSummaryBoundaries",
+    "services/TestProbeDiagnosticsSummaryBoundaries/AppliedNeedsRevisionAndDigest",
+    "services/TestProbeDiagnosticsSummaryBoundaries/ConnectionIsNotExecution",
+    "services/TestProbeDiagnosticsSummaryBoundaries/EnrollmentAndPause",
+    "services/TestProbeDiagnosticsSummaryBoundaries/LastSeenIsSourceEvidence",
+    "services/TestProbeDiagnosticsSummaryBoundaries/LocalProbeIsScheduler",
+    "services/TestProbeFleetServiceListAndDetail",
+    "services/TestProbeFleetServiceListAndDetail/LargeRevisionCountersSurvive",
+    "services/TestProbeFleetServiceListAndDetail/NotFoundAndSummary",
+    "services/TestProbeFleetServiceListAndDetail/PaginationDerivesNextCursor",
+    "services/TestProbeFleetServiceListAndDetail/Validation",
+    "services/TestMonitorRegionalServiceScopeAndFreshness",
+    "services/TestMonitorRegionalServiceLegacyAndFailures",
+    "services/TestRegionalDisplayHealthBoundaries",
+    "handlers/TestProbeFleetHTTPFixtures",
+    "handlers/TestProbeFleetHTTPFixtures/fleet_list.json",
+    "handlers/TestProbeFleetHTTPFixtures/fleet_detail.json",
+    "handlers/TestProbeFleetHTTPErrors",
+    "handlers/TestProbeFleetHTTPErrors/unauthenticated",
+    "handlers/TestProbeFleetHTTPErrors/disabled",
+    "handlers/TestProbeFleetHTTPErrors/unavailable_service",
+    "handlers/TestProbeFleetHTTPErrors/zero_limit",
+    "handlers/TestProbeFleetHTTPErrors/huge_limit",
+    "handlers/TestProbeFleetHTTPErrors/malformed_limit",
+    "handlers/TestProbeFleetHTTPErrors/duplicate_limit",
+    "handlers/TestProbeFleetHTTPErrors/duplicate_cursor",
+    "handlers/TestProbeFleetHTTPErrors/malformed_cursor",
+    "handlers/TestProbeFleetHTTPErrors/invalid_probe_id",
+    "handlers/TestProbeFleetHTTPErrors/missing_probe",
+    "handlers/TestProbeFleetHTTPErrors/storage",
+    "handlers/TestProbeFleetHTTPSecretExclusion",
+    "handlers/TestMonitorRegionalHTTPDiagnosticFills",
+    "handlers/TestMonitorRegionalHTTPFixtures",
+    "handlers/TestMonitorRegionalHTTPErrors",
+    "handlers/TestMonitorRegionalHTTPUnknownAndEmpty",
+    "repository/TestM5FleetAPI",
+    "repository/TestM5FleetAPI/sqlite",
+    "repository/TestM5FleetAPI/mariadb",
+    "repository/TestM5ReadAPI",
+    "repository/TestM5ReadAPI/sqlite",
+    "repository/TestM5ReadAPI/mariadb"
+  ],
+  "mariadb_live_matrix_passes": [
+    "repository/TestM5FleetAPI/mariadb",
+    "repository/TestM5ReadAPI/mariadb"
+  ],
+  "mariadb_live_matrix_skips": [],
+  "mutation_checks": [
+    {
+      "guard": "sync proof requires digest match, not just equal revision counters",
+      "mutation": "probeConfigSyncStatus digest comparison replaced with constant true",
+      "caught_by": "services/TestProbeDiagnosticsSummaryBoundaries/AppliedNeedsRevisionAndDigest",
+      "reverted": true
+    },
+    {
+      "guard": "lease expiry drives connection and execution derivation",
+      "mutation": "leaseHeld deadline comparison dropped",
+      "caught_by": "services/TestProbeDiagnosticsSummaryBoundaries/ConnectionIsNotExecution",
+      "reverted": true
+    }
+  ],
+  "source_hashes_sha256": {
+    "internal/core/domain/probe_diagnostics.go": "2ba1c84e6204b75588f79b678b88afe4071c9d982e134588931dc30a8d21a7db",
+    "internal/core/ports/probe_diagnostics.go": "f9d7c770a30da1947058af98cc38fbe854b76125306ef4b2b163a8cbce71e751",
+    "internal/adapters/repository/probe_diagnostics.go": "62f791d5cc8e9c13ea57664ecea209810eeae5e9f0b92be2918703906e5b6cdc",
+    "internal/core/services/probe_fleet_service.go": "85421a71726ab0fa490af2a7a66c90bf98744815c476c9e41ea80612c53cae8f",
+    "internal/adapters/http/handlers/probe_fleet.go": "156b54a35a757c73493b4a1ecba19dc4febf1992885126c17c52721e1e29cebd",
+    "internal/adapters/http/handlers/testdata/m5/fleet_list.json": "937ea4e6aa4bc22d05735742b73c225392d04951a469b3e77aab96c105bece0a",
+    "internal/adapters/http/handlers/testdata/m5/fleet_detail.json": "5a53f2b098a94eb59c0bf0bea6e7b3f27f24956367e64bcfefb1669425d3d2fc",
+    "internal/core/services/monitor_regional_service.go": "fdb84c4352884e7272ac06427101f3e7a0f71e74198d00cad5961bb95ee4a241",
+    "internal/adapters/http/handlers/monitor_regional.go": "286cefbcd32e57845d778afbbbbc8226531b5ce6919208b43859023c4c79defd",
+    "internal/adapters/http/router.go": "467708fa96165fe1ba7e7b411b57daf54389d759909441fc77c38209474b8388",
+    "internal/bootstrap/run.go": "af8bb047b3b0880df331f35a833c3a58d2f759c2e49d4d07996a4e3466daccbe",
+    "scripts/m5_read_evidence.py": "ffe7fc5f922882368532e82d5b52625a78f7f8891f12f3ee62efd033f1cecd6e"
+  },
+  "unverified": [
+    "frontend/browser E2E (no M5 UI in this slice)",
+    "production process restart and deployment",
+    "load/performance benchmarks",
+    "fleet mutation workflows (no write endpoint exists in this slice)",
+    "agent_version, protocol_version, queue_bytes, oldest_queued_at and capabilities remain null: no safe evidence source exists yet"
+  ]
+}

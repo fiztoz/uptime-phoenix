@@ -53,14 +53,14 @@ func TestMonitorRegionalServiceScopeAndFreshness(t *testing.T) {
 	if err != nil || status != domain.StatusUnknown || reason != "stale_evidence" {
 		t.Fatalf("stale UP escaped: %v %s %v", status, reason, err)
 	}
-	assignments, err := svc.Assignments(t.Context(), 1, 7)
+	assignments, err := svc.Assignments(t.Context(), 1, 7, now)
 	if err != nil || assignments.Set.Assignments[0].ProbeID != domain.LocalProbeID || set.Assignments[0].ProbeID != "remote" {
 		t.Fatalf("sorting mutated storage: %+v %v", assignments, err)
 	}
 	// A revoked grant takes effect on the next call, before reading labels/state.
 	access.allow[7] = false
 	beforeLabels, beforeState := len(labels.calls), region.listCalls
-	if _, err := svc.Assignments(t.Context(), 1, 7); !errors.Is(err, ports.ErrNotFound) {
+	if _, err := svc.Assignments(t.Context(), 1, 7, now); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("hidden assignments: %v", err)
 	}
 	if _, err := svc.Health(t.Context(), 1, 7, 1, now); !errors.Is(err, ports.ErrNotFound) {
@@ -76,11 +76,11 @@ func TestMonitorRegionalServiceLegacyAndFailures(t *testing.T) {
 	labels := &regionalLabelRepo{}
 	health := NewMonitorHealthService(healthMonitorRepo{monitors: map[int64]*domain.Monitor{7: {ID: 7, Active: true, Interval: 60, Timeout: 5}}}, healthAssignmentRepo{}, &healthRegionalRepo{}, healthAccess{allow: map[int64]bool{7: true, 99: true}})
 	svc := NewMonitorRegionalService(health, labels)
-	got, err := svc.Assignments(t.Context(), 1, 7)
+	got, err := svc.Assignments(t.Context(), 1, 7, now)
 	if err != nil || got.Set.Revision != 0 || len(got.Set.Assignments) != 1 || got.Set.Assignments[0].ProbeID != domain.LocalProbeID {
 		t.Fatalf("legacy local: %+v %v", got, err)
 	}
-	if _, err := svc.Assignments(t.Context(), 1, 99); !errors.Is(err, ports.ErrNotFound) {
+	if _, err := svc.Assignments(t.Context(), 1, 99, now); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("missing monitor: %v", err)
 	}
 	labels.err = errors.New("storage failed")

@@ -22,9 +22,12 @@ type RouterOptions struct {
 	// RegionalMonitors is the M5 read surface. A nil handler keeps the routes
 	// registered but unavailable, so staged builds never serve SPA HTML as data.
 	RegionalMonitors *handlers.MonitorRegionalHandlers
-	Production       bool
-	RateLimit        middleware.RateLimitConfig
-	CORS             middleware.CORSConfig
+	// ProbeFleet is the M5 administrative fleet read surface. A nil handler
+	// keeps the routes registered but unavailable with the same typed 503.
+	ProbeFleet *handlers.ProbeFleetHandlers
+	Production bool
+	RateLimit  middleware.RateLimitConfig
+	CORS       middleware.CORSConfig
 }
 
 // NewRouter creates and configures the Echo router with all routes and
@@ -147,6 +150,19 @@ func NewRouter(
 		}
 		e.GET("/api/monitors/:id/probes", regional.Assignments, middleware.AuthMiddleware(authSvc))
 		e.GET("/api/monitors/:id/health", regional.Health, middleware.AuthMiddleware(authSvc))
+
+		// Administrative fleet reads (protocol section 7): authenticated admin
+		// via session or write-scope API key. Non-admins are rejected before the
+		// handler runs; the routes never widen monitor visibility.
+		fleet := opts.ProbeFleet
+		if fleet == nil {
+			fleet = handlers.NewProbeFleetHandlers(nil, false)
+		}
+		probeGroup := e.Group("/api/probes",
+			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"),
+			requireAdmin)
+		probeGroup.GET("", fleet.List)
+		probeGroup.GET("/:probe_id", fleet.Detail)
 	}
 
 	// Reliability read model. The handler applies monitor visibility before it

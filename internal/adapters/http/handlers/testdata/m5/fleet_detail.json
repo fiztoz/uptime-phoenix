@@ -1,0 +1,70 @@
+{
+  "id": "11111111-1111-4111-8111-111111111111",
+  "key": "singapore",
+  "name": "Singapore",
+  "location": "SG",
+  "kind": "remote",
+  "enabled": true,
+  "enrollment_state": "active",
+  "connection_status": "online",
+  "execution_status": "ready",
+  "last_seen_at": "2026-09-27T11:58:00Z",
+  "agent_version": null,
+  "protocol_version": null,
+  "desired_config_revision": "9007199254740993",
+  "applied_config_revision": "9007199254740993",
+  "queue_bytes": null,
+  "oldest_queued_at": null,
+  "revision": "9007199254740993",
+  "created_at": "2026-09-27T10:00:00Z",
+  "updated_at": "2026-09-27T11:00:00Z",
+  "endpoint": "wss://edge.example/ws/probe/v1",
+  "tls_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "certificate_expires_at": "2027-01-01T00:00:00Z",
+  "credential_version": "3",
+  "capabilities": null,
+  "diagnostics": {
+    "enrollment": {
+      "state": "active",
+      "credential_version": "3",
+      "certificate_version": "2",
+      "certificate_expires_at": "2027-01-01T00:00:00Z",
+      "prepared_at": "2026-09-27T10:30:00Z",
+      "activated_at": "2026-09-27T10:31:00Z"
+    },
+    "connection": {
+      "owner_id": "44444444-4444-4444-8444-444444444444",
+      "generation": "5",
+      "lease_until": "2026-09-27T12:01:00Z",
+      "connected": true,
+      "live": true
+    },
+    "runtime": {
+      "owner_id": "44444444-4444-4444-8444-444444444444",
+      "epoch": "9007199254740993",
+      "lease_until": "2026-09-27T12:01:00Z",
+      "live": true
+    },
+    "watchdog": {
+      "status": "healthy",
+      "version": "12",
+      "config_revision": "9007199254740993",
+      "armed": true,
+      "pending_loss": false,
+      "incident_open": true,
+      "updated_at": "2026-09-27T11:58:00Z"
+    },
+    "config": {
+      "desired": {
+        "revision": "9007199254740993",
+        "effective_at": "2026-09-27T10:45:00Z"
+      },
+      "applied": {
+        "revision": "9007199254740993",
+        "applied_at": "2026-09-27T11:57:00Z",
+        "assignment_count": 3
+      },
+      "sync_status": "applied"
+    }
+  }
+}

@@ -650,8 +650,11 @@ func Run(cfg Config) error {
 	insightsHandlers := handlers.NewInsightsHandlers(insightsSvc)
 	extensionHandlers := handlers.NewExtensionHandlers(cfg.ExtensionsJSON)
 
+	regionalSvc := services.NewMonitorRegionalService(healthSvc, repos.probeRegistry)
+	regionalSvc.SetDiagnostics(repos.probeDiagnostics)
 	httpOpts := httppkg.RouterOptions{
-		RegionalMonitors: handlers.NewMonitorRegionalHandlers(services.NewMonitorRegionalService(healthSvc, repos.probeRegistry), cfg.ProbesEnabled),
+		RegionalMonitors: handlers.NewMonitorRegionalHandlers(regionalSvc, cfg.ProbesEnabled),
+		ProbeFleet:       handlers.NewProbeFleetHandlers(services.NewProbeFleetService(repos.probeDiagnostics), cfg.ProbesEnabled),
 		Production:       cfg.Production,
 		RateLimit: middleware.RateLimitConfig{
 			RequestsPerSecond: cfg.RateLimitRPS,
@@ -850,6 +853,7 @@ type repoBundle struct {
 	escalationAssign       ports.EscalationAssignmentRepository
 	alertEscalation        ports.AlertEscalationRepository
 	probeRegistry          ports.ProbeRegistryRepository
+	probeDiagnostics       ports.ProbeDiagnosticsRepository
 	probeAssignments       ports.MonitorProbeAssignmentRepository
 	regionalCommit         ports.RegionalCommitRepository
 	localHeartbeat         ports.LocalHeartbeatRecorder
@@ -866,6 +870,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 	var b repoBundle
 	b.notificationThrottle = repo.NewNotificationThrottleStore(db)
 	b.probeRegistry = repo.NewProbeRegistryStore(db)
+	b.probeDiagnostics = repo.NewProbeDiagnosticsStore(db)
 	switch engine {
 	case "mariadb":
 		r := mariadbrepo.NewRepository(db)

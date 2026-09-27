@@ -45,7 +45,7 @@ func SessionOrAPIKey(authSvc *services.AuthService, apiKeyRepo ports.APIKeyRepos
 			}
 
 			key := apiKeyFromRequest(c, raw)
-			if key != "" {
+			if key != "" && apiKeyRepo != nil {
 				// Fingerprint (SHA-256) of high-entropy API token — not password hashing.
 				hash := services.FingerprintAPIKey(key)
 				ak, err := apiKeyRepo.GetByHash(ctx, hash)

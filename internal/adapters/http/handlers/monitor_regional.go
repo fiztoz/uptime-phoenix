@@ -15,7 +15,7 @@ import (
 )
 
 type monitorRegionalReader interface {
-	Assignments(context.Context, int64, int64) (*services.MonitorRegionalAssignments, error)
+	Assignments(context.Context, int64, int64, time.Time) (*services.MonitorRegionalAssignments, error)
 	Health(context.Context, int64, int64, int, time.Time) (*services.MonitorRegionalHealth, error)
 }
 
@@ -42,6 +42,10 @@ type MonitorProbeAssignmentsView struct {
 }
 
 // MonitorProbeAssignmentView contains safe metadata for one assigned region.
+// The synchronization fields carry only evidence from the safe diagnostics
+// port: desired/applied revisions are per-probe published and applied config
+// revisions, and sync_status is applied only when the application receipt
+// matches the published document revision AND digest. Null stays unreported.
 type MonitorProbeAssignmentView struct {
 	ProbeID               string                    `json:"probe_id"`
 	Name                  string                    `json:"name"`
@@ -112,14 +116,16 @@ func (h *MonitorRegionalHandlers) Assignments(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-	result, err := h.svc.Assignments(c.Request().Context(), userID, id)
+	result, err := h.svc.Assignments(c.Request().Context(), userID, id, h.now().UTC())
 	if err != nil {
 		return regionalReadError(c, err)
 	}
 	out := MonitorProbeAssignmentsView{Revision: result.Set.Revision, HealthPolicy: string(result.Set.HealthPolicy), AlertDelivery: string(domain.AlertDeliveryRegional), Assignments: make([]MonitorProbeAssignmentView, 0, len(result.Set.Assignments))}
 	for _, a := range result.Set.Assignments {
 		p := result.Probes[a.ProbeID]
-		row := MonitorProbeAssignmentView{ProbeID: a.ProbeID, Name: p.Name, Location: p.Location, Generation: a.Generation, Bindings: []MonitorProbeBindingView{}}
+		diag := result.Diag[a.ProbeID]
+		row := MonitorProbeAssignmentView{ProbeID: a.ProbeID, Name: p.Name, Location: p.Location, Generation: a.Generation, Bindings: []MonitorProbeBindingView{},
+			DesiredConfigRevision: fleetRevision(diag.DesiredConfigRevision), AppliedConfigRevision: fleetRevision(diag.AppliedConfigRevision), SyncStatus: optionalString(diag.ConfigSyncStatus)}
 		if a.ResourceBinding != nil {
 			row.Bindings = append(row.Bindings, MonitorProbeBindingView{Kind: a.ResourceBinding.Kind, BindingKey: a.ResourceBinding.BindingKey})
 		}
@@ -190,7 +196,9 @@ func toMonitorHealthView(result *services.MonitorRegionalHealth) (MonitorHealthV
 			return MonitorHealthView{}, err
 		}
 		p := result.Probes[e.ProbeID]
-		row := MonitorRegionView{ProbeID: e.ProbeID, Name: p.Name, Location: p.Location, Status: regionalHTTPStatus(status), ObservedAt: regionalTime(e.ObservedAt), ReceivedAt: regionalTime(e.ReceivedAt)}
+		diag := result.Diag[e.ProbeID]
+		row := MonitorRegionView{ProbeID: e.ProbeID, Name: p.Name, Location: p.Location, Status: regionalHTTPStatus(status), ObservedAt: regionalTime(e.ObservedAt), ReceivedAt: regionalTime(e.ReceivedAt),
+			ConnectionStatus: optionalString(diag.ConnectionStatus), ConfigSyncStatus: optionalString(diag.ConfigSyncStatus)}
 		if !e.ObservedAt.IsZero() && e.FreshFor > 0 {
 			row.FreshUntil = regionalTime(e.ObservedAt.Add(e.FreshFor))
 		}

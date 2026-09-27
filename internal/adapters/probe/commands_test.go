@@ -155,11 +155,26 @@ func TestCommandRequiredFieldsAreNotNullable(t *testing.T) {
 	}
 }
 
-// Remote admin mutations belong to M5. Protocol DTOs and the M2 outbound
-// pinned client may name wire endpoints without registering hub HTTP routes.
+// Remote admin mutations belong to later M5 slices. The M5 read slices
+// deliberately register the two GET fleet routes and the scoped monitor reads;
+// every still-proposed mutation, operation or regional history route must stay
+// unregistered until its own acceptance exists (a stub that answers 2xx makes a
+// dead feature look healthy). Protocol DTOs and the M2 outbound pinned client
+// may name wire endpoints without registering hub HTTP routes.
 func TestNoUnimplementedProbeAdminRoutes(t *testing.T) {
 	root := filepath.Join("..", "http")
-	needles := []string{"/api/probes", `Group("/probes"`, `Group("/probe"`}
+	needles := []string{
+		`Group("/probes"`, `Group("/probe"`,
+		`POST("/api/probes"`, `PATCH("/api/probes`, `DELETE("/api/probes`,
+		"/api/probes/:probe_id/enroll",
+		"/api/probes/:probe_id/rotate-credential",
+		"/api/probes/:probe_id/revoke",
+		"/api/probes/:probe_id/reset-stream",
+		"/api/probe-operations",
+		`POST("/api/monitors/:id/probes"`,
+		`PUT("/api/monitors/:id/probes"`,
+		"/probes/:probe_id/heartbeats",
+	}
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err

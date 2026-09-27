@@ -1433,6 +1433,9 @@ CGO-free build and linter remain required for changes to these paths.
 The first M5 slice exposes scoped health and desired assignments. See the
 [contract and continuation guide](multi-region/M5_FOUNDATION.md) before extending
 it; null runtime diagnostics are deliberate and do not imply application.
+The [fleet diagnostics slice](multi-region/M5_FLEET_DIAGNOSTICS.md) adds the
+admin `GET /api/probes` list/detail reads and the safe diagnostic read port
+that now feeds the formerly-null connection/config fields.
 
 Set `TEST_MARIADB_DSN` to a disposable MariaDB database with
 `parseTime=true&loc=UTC&multiStatements=true`. Run one engine suite at a time per
@@ -1442,7 +1445,7 @@ that MariaDB tests executed.
 ```sh
 : "${TEST_MARIADB_DSN:?Set a disposable MariaDB test DSN}"
 export TEST_MARIADB_DSN
-rtk proxy go test -race -count=1 -timeout 2400s -json ./internal/core/services ./internal/adapters/http/handlers ./internal/adapters/repository -run 'TestMonitorRegional|TestRegionalDisplayHealthBoundaries|TestM5ReadAPI' > /tmp/m5-read.jsonl
+rtk proxy go test -race -count=1 -timeout 2400s -json ./internal/core/services ./internal/adapters/http/handlers ./internal/adapters/repository -run 'TestMonitorRegional|TestRegionalDisplayHealthBoundaries|TestM5ReadAPI|TestM5FleetAPI|TestProbeFleet|TestProbeDiagnostics' > /tmp/m5-read.jsonl
 rtk proxy python3 scripts/m5_read_evidence.py /tmp/m5-read.jsonl
 ```
 

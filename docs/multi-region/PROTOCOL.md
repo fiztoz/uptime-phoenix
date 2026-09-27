@@ -420,7 +420,10 @@ These are proposed endpoints under the existing Echo router. Feature-disabled ro
 Implementation boundary: the [M5 foundation](M5_FOUNDATION.md) implements only the
 two scoped GET routes for monitor `probes` and `health`. It freezes their fixtures,
 pagination-independent read semantics and staged null diagnostic fields. The
-other routes in this table remain proposed until their acceptance is recorded.
+[fleet diagnostics slice](M5_FLEET_DIAGNOSTICS.md) implements `GET /api/probes`
+and `GET /api/probes/:probe_id` and wires the coherent diagnostic read port that
+feeds the scoped routes' connection/config fields. The other routes in this
+table remain proposed until their acceptance is recorded.
 
 Fleet routes require an authenticated admin; follow the established session-or-write-API-key pattern for programmatic administration. Regional monitor reads use the current monitor visibility policy through AccessService. Authenticated users without visibility receive 404. Fleet secrets are never present in read responses.
 
@@ -444,6 +447,14 @@ Fleet routes require an authenticated admin; follow the established session-or-w
 | `POST /api/monitors/:id/probe-alerts/:alert_id/ack` | Existing authenticated monitor-visibility acknowledgement authority (no new capability flag); returns 202 command receipt pending remote application |
 
 `ProbeView` fields: `id`, `key`, `name`, `location`, `kind`, `enabled`, `enrollment_state`, `connection_status`, `execution_status`, `last_seen_at`, `agent_version`, `protocol_version`, `desired_config_revision`, `applied_config_revision`, `queue_bytes`, `oldest_queued_at`, `revision`, `created_at`, `updated_at`. Admin detail additionally exposes `endpoint`, `tls_fingerprint`, `certificate_expires_at`, `credential_version`, and `capabilities`; none of those grant runtime authentication. Unknown values are null.
+
+Admin detail also carries a `diagnostics` object with the nonsecret evidence
+sections `enrollment`, `connection`, `runtime`, `watchdog`, and `config`
+(`desired`, `applied`, `sync_status`), as specified by the
+[fleet diagnostics slice](M5_FLEET_DIAGNOSTICS.md). `agent_version`,
+`protocol_version`, `queue_bytes`, `oldest_queued_at`, and `capabilities` stay
+null until their evidence sources exist; document digests, stream identities,
+key hashes and credential bytes are never disclosed on any surface.
 
 Connection states are `never_connected`, `online`, `suspect`, `disconnected`, `revoked`; enrollment states are `unconfigured`, `pending`, `active`, `failed`; execution states are `unconfigured`, `ready`, `degraded`, `paused`, `revoked`. Keep these independent of target availability status.
 
@@ -493,10 +504,14 @@ The first M5 read slice accepts one `hours` integer from 1 through 720 (default
 24) on HealthView for historical coverage; current status uses current UTC time.
 Revisions/generations are decimal strings, percentages with no denominator are
 null, and arrays are never null. Connection/config diagnostics are nullable:
-the first slice returns null until a coherent diagnostic read port is wired.
-Null must not be rendered as online or applied. Assignment GET additionally
-includes safe `name`, `location`, and `bindings` (`kind`, `binding_key`) per member.
-See the foundation's executable JSON fixtures before writing browser callers.
+the coherent diagnostic read port is now wired
+([fleet diagnostics](M5_FLEET_DIAGNOSTICS.md)) and these fields carry
+evidence-based values, nulling only where evidence is absent. Null must not be
+rendered as online or applied; `sync_status` is `applied` only when the
+application receipt matches the published revision **and** digest. Assignment
+GET additionally includes safe `name`, `location`, and `bindings` (`kind`,
+`binding_key`) per member. See the foundation's executable JSON fixtures before
+writing browser callers.
 
 ### 7.3 Error semantics
 
