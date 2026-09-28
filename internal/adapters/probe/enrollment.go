@@ -45,6 +45,7 @@ type EnrollResult struct {
 // EnrollmentTokenRequest is the write-only HTTP enroll body.
 type EnrollmentTokenRequest struct {
 	EnrollmentToken string `json:"enrollment_token"`
+	StreamID        string `json:"stream_id,omitempty"`
 }
 
 // DecodeEnrollRequest validates an enroll.request frame. It does not bind a hub.
@@ -145,8 +146,13 @@ func DecodeEnrollmentTokenRequest(data []byte) (EnrollmentTokenRequest, error) {
 	if err != nil {
 		return EnrollmentTokenRequest{}, err
 	}
-	if err := rejectUnknownKeys(fields, "enrollment_token"); err != nil {
+	if err := rejectUnknownKeys(fields, "enrollment_token", "stream_id"); err != nil {
 		return EnrollmentTokenRequest{}, err
+	}
+	if _, present := fields["stream_id"]; present {
+		if err := requiredUUID(fields, "stream_id", &request.StreamID); err != nil {
+			return EnrollmentTokenRequest{}, errors.New("invalid source stream identity")
+		}
 	}
 	if err := required(fields, "enrollment_token", &request.EnrollmentToken); err != nil {
 		return EnrollmentTokenRequest{}, err

@@ -167,19 +167,19 @@ escalation policy in the snapshot the edge executes. IANA zones are embedded for
 
 **Goal:** expose desired state, actual execution, and uncertainty clearly through the existing UI.
 
-**Started 2026-09-27:** the [M5 foundation](M5_FOUNDATION.md) implements the scoped
-health and assignment GET routes, executable wire fixtures and authorization
-regressions. Connection/config diagnostics remain explicitly null. The checklist
-below remains open until the complete route and browser contracts are accepted.
+**Accepted 2026-09-29:** [M5 completion](M5_COMPLETION.md) records the final
+contracts, real process enrollment/partition/recovery, full dual-engine race
+suite, authorization checks, and 18 passing browser cases. Earlier slices begin
+at the [foundation](M5_FOUNDATION.md).
 
-- [ ] Implement exact routes/DTOs in protocol section 7 with existing admin gates, AccessService checks, context user-ID helpers, and typed errors.
-- [ ] Add fleet list/detail and manual enrollment forms, operation progress, credential/certificate expiry status, pause/revoke handling, and meaningful failed-operation states.
-- [ ] Add probe selection to monitor create/edit, respecting non-admin local creation behavior and admin-only assignment changes. Explain pending configuration application after save.
-- [ ] Add regional heartbeat strips and latency series to monitor detail, with separate connection status, check freshness, overall status, and coverage.
-- [ ] Add region labels to incidents/notifications and pending acknowledgement UI. Do not claim remote suppression before command application.
-- [ ] Add the new browser events through explicit wire maps and the existing Svelte rune store. Preserve monitor-level authorization on every fan-out and cache refresh.
-- [ ] Public views show overall status/coverage without internal endpoint or regional inventory disclosure.
-- [ ] Add English/Thai messages, responsive layouts, keyboard access, focus/error behavior, and accessible status labels beyond color.
+- [x] Implement exact routes/DTOs in protocol section 7 with existing admin gates, AccessService checks, context user-ID helpers, and typed errors.
+- [x] Add fleet list/detail and manual enrollment forms, operation progress, credential/certificate expiry status, pause/revoke handling, and meaningful failed-operation states.
+- [x] Add probe selection to monitor create/edit, respecting non-admin local creation behavior and admin-only assignment changes. Explain pending configuration application after save.
+- [x] Add regional heartbeat strips and latency series to monitor detail, with separate connection status, check freshness, overall status, and coverage.
+- [x] Add region labels to incidents/notifications and pending acknowledgement UI. Do not claim remote suppression before command application.
+- [x] Add the new browser events through explicit wire maps and the existing Svelte rune store. Preserve monitor-level authorization on every fan-out and cache refresh.
+- [x] Public views show overall status/coverage without internal endpoint or regional inventory disclosure.
+- [x] Add English/Thai messages, responsive layouts, keyboard access, focus/error behavior, and accessible status labels beyond color.
 
 **Acceptance:** admin can enroll and assign one VM, see two regional streams, disconnect the link, observe stale/unknown state and pending config/acknowledgement, and reconnect without a duplicate incident storm. A scoped non-admin sees only permitted monitors and safe regional metadata; cannot enumerate the fleet or mutate assignments.
 
@@ -324,7 +324,7 @@ Stop rollout on lost acknowledged data, cross-probe state interference, incorrec
 
 Follow [CONTINUATION_GUIDE.md](CONTINUATION_GUIDE.md) and
 [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md), verifying HEAD before choosing
-a bounded M4/M5 requirement. Preserve completed M0–M3 behavior and current local
+a bounded M6 requirement. Preserve completed M0–M5 behavior and current local
 defaults. Freeze exact wire/API contracts and file ownership before parallel work;
 the integrator verifies all reported effects and commits coherent changes.
 SSH provisioning and the public push gateway remain after the M6 V1 gate.

@@ -68,6 +68,7 @@ type StatusPageService struct {
 	incidentMail    statusPageIncidentNotifier
 	subAvail        statusPageSubscriptionAvailability
 	overall         AggregateStatusReader
+	regionalHealth  *MonitorHealthService
 }
 
 const (
@@ -82,16 +83,17 @@ const (
 
 // PublicMonitorStatus holds the status of a single monitor on a public status page.
 type PublicMonitorStatus struct {
-	ID             int64               `json:"id"`
-	Name           string              `json:"name"`
-	Type           string              `json:"type"`
-	Status         string              `json:"status"`
-	UptimePercent  *float64            `json:"uptime_percent"`
-	UptimeData     []PublicUptimeDay   `json:"uptime_data"`
-	UptimeHistory  PublicUptimeHistory `json:"uptime_history"`
-	Chart          *PublicMonitorChart `json:"chart"`
-	CertExpiryDate *string             `json:"cert_expiry_date,omitempty"`
-	CertDaysLeft   *int                `json:"cert_days_left,omitempty"`
+	ID              int64               `json:"id"`
+	Name            string              `json:"name"`
+	Type            string              `json:"type"`
+	Status          string              `json:"status"`
+	UptimePercent   *float64            `json:"uptime_percent"`
+	CoveragePercent *float64            `json:"coverage_percent"`
+	UptimeData      []PublicUptimeDay   `json:"uptime_data"`
+	UptimeHistory   PublicUptimeHistory `json:"uptime_history"`
+	Chart           *PublicMonitorChart `json:"chart"`
+	CertExpiryDate  *string             `json:"cert_expiry_date,omitempty"`
+	CertDaysLeft    *int                `json:"cert_days_left,omitempty"`
 }
 
 // PublicUptimeDay is one day of the public status page's uptime bar. The bar is
@@ -225,6 +227,10 @@ func (s *StatusPageService) SetSubscriptionAvailability(a statusPageSubscription
 // SetAggregateStatus makes public status and incident recovery follow overall
 // policy for monitors assigned to a remote probe. Optional.
 func (s *StatusPageService) SetAggregateStatus(r AggregateStatusReader) { s.overall = r }
+
+// SetRegionalHealth supplies overall history and coverage for public monitors.
+// Membership in a published status page is checked before this service reads it.
+func (s *StatusPageService) SetRegionalHealth(r *MonitorHealthService) { s.regionalHealth = r }
 
 // Create creates a new public status page.
 func (s *StatusPageService) Create(ctx context.Context, sp *domain.StatusPage) error {
@@ -405,9 +411,11 @@ func (s *StatusPageService) monitorPublicStatus(ctx context.Context, monitorID i
 		ms.Status = publicMonitorStatusName(hb.Status)
 	}
 
-	ms.UptimeData, ms.UptimePercent = s.monitorUptimeBar(ctx, mon.ID)
-	ms.UptimeHistory = s.monitorUptimeHistory(ctx, mon.ID)
-	ms.Chart = s.monitorPublicChart(ctx, mon.ID)
+	if !s.populatePublicRegionalHealth(ctx, mon.ID, ms, time.Now().UTC()) {
+		ms.UptimeData, ms.UptimePercent = s.monitorUptimeBar(ctx, mon.ID)
+		ms.UptimeHistory = s.monitorUptimeHistory(ctx, mon.ID)
+		ms.Chart = s.monitorPublicChart(ctx, mon.ID)
+	}
 	s.attachPublicCert(ctx, mon.ID, ms)
 
 	return ms

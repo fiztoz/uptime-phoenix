@@ -36,7 +36,7 @@ func (FeishuSender) Send(ctx context.Context, config map[string]any, alert domai
 	if alert.MonitorTarget != "" {
 		targetLine = fmt.Sprintf("**Target:** %s\n", alert.MonitorTarget)
 	}
-	bodyContent := fmt.Sprintf("**Monitor:** %s\n**Type:** %s\n%s**Message:** %s", alert.MonitorName, alert.MonitorType, targetLine, alert.Message)
+	bodyContent := fmt.Sprintf("**Monitor:** %s\n**Type:** %s\n%s**Message:** %s", alert.MonitorName, alert.MonitorType, targetLine, alertBody(alert))
 	if isProbeConnection(alert) {
 		color = "red"
 		if alert.Status == domain.StatusUp {

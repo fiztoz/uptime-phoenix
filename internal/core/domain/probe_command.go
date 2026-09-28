@@ -25,6 +25,7 @@ type ProbeCommandMetadata struct {
 type ProtectedProbeCommand struct {
 	ProbeCommandMetadata
 	ProtectedPayload []byte
+	RequestedBy      int64
 }
 
 // ValidProbeCommandMetadata checks bounded immutable control scope. It grants no
@@ -104,6 +105,7 @@ type ProbeCredentialCommand struct {
 // ProbeAcknowledgementIssue is trusted operator input. CommandID may be omitted
 // to allocate a new UUID; retries with an explicit ID preserve original bytes.
 type ProbeAcknowledgementIssue struct {
+	RequestedBy          int64
 	CommandID            string
 	HubID                string
 	ProbeID              string

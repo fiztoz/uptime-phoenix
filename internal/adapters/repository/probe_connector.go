@@ -66,7 +66,7 @@ func (s *ProbeConnectorStore) transaction(ctx context.Context, probeID string, a
 		}
 		// Reset preparation revokes effective admission without changing the
 		// operator's enabled preference. Release callbacks can still clean up.
-		enabled := probe.Enabled
+		enabled := probe.Enabled && probe.RevokedAt == nil && probe.DeletedAt == nil
 		if err := requireNoStreamReset(ctx, tx, probeID, false); err != nil {
 			if !errors.Is(err, ports.ErrConflict) {
 				return err

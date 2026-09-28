@@ -68,10 +68,12 @@ test("multi-probe monitor shows overall latency-unavailable state and regional l
   await expect(page.getByTestId("overall-intervals")).toBeVisible();
 
   // Latency selection: the region picker offers overall plus each member.
-  const picker = page.getByLabel("Region");
+  const picker = page.getByLabel("Region", { exact: true });
   await expect(picker).toBeVisible();
   await picker.click();
-  await expect(page.getByRole("option", { name: "All regions (overall)" })).toBeVisible();
+  await expect(
+    page.getByRole("option", { name: "All regions (overall)" }),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
 
   // Selecting the remote region switches latency to the regional endpoint: the

@@ -53,7 +53,7 @@ func (SlackSender) Send(ctx context.Context, config map[string]any, alert domain
 			emoji = ":tools:"
 		}
 		fallback = fmt.Sprintf("%s %s is %s", emoji, alert.MonitorName, alert.Status)
-		sectionText = fmt.Sprintf("*Status:* %s\n*Message:* %s%s", alert.Status, alert.Message, targetLine)
+		sectionText = fmt.Sprintf("*Status:* %s\n*Message:* %s%s", alert.Status, alertBody(alert), targetLine)
 	}
 
 	header := fmt.Sprintf("%s %s", emoji, alert.MonitorName)

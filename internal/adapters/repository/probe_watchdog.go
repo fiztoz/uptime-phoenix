@@ -72,7 +72,7 @@ func (s *ProbeWatchdogStore) lockAuthority(ctx context.Context, tx bun.Tx, a dom
 	if err := tx.NewSelect().Model(&registration).Where("id=?", a.ProbeID).Scan(ctx); err != nil {
 		return zero, err
 	}
-	if !registration.Enabled || registration.Kind != domain.ProbeKindRemote {
+	if !registration.Enabled || registration.RevokedAt != nil || registration.DeletedAt != nil || registration.Kind != domain.ProbeKindRemote {
 		return zero, ports.ErrConflict
 	}
 	now, err := replayDatabaseTime(ctx, tx)

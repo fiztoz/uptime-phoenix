@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -25,6 +24,11 @@ type probeAdminRunner interface {
 	RotateCredential(context.Context, string, int64) (*domain.ProbeOperation, error)
 	ResetStream(context.Context, string, string, string) (*domain.ProbeOperation, error)
 	Operation(context.Context, string) (*domain.ProbeOperation, error)
+}
+
+type probeLifecycleRunner interface {
+	Revoke(context.Context, string, string) (*domain.ProbeOperation, error)
+	Delete(context.Context, string) error
 }
 
 // ProbeAdminHandlers exposes registration writes and durable administrative
@@ -77,7 +81,8 @@ func (h *ProbeAdminHandlers) Create(c echo.Context) error {
 		return fleetError(c, http.StatusBadRequest, "invalid_registration", "invalid registration")
 	}
 	created, err := h.svc.CreateRegistration(c.Request().Context(), services.ProbeRegistrationRequest{
-		Key: request.Key, Name: request.Name, Location: request.Location,
+		ProbeID: request.ProbeID,
+		Key:     request.Key, Name: request.Name, Location: request.Location,
 		Endpoint: request.Endpoint, TLSPin: request.TLSFingerprint,
 	})
 	if err != nil {
@@ -125,15 +130,18 @@ func (h *ProbeAdminHandlers) Enroll(c echo.Context) error {
 	if err != nil {
 		return fleetError(c, http.StatusBadRequest, "invalid_request", "invalid request body")
 	}
-	fields, err := probeAdminJSONFields(body)
-	if err != nil || len(fields) != 1 {
+	request, err := probe.DecodeEnrollmentTokenRequest(body)
+	if err != nil {
 		return fleetError(c, http.StatusBadRequest, "invalid_operation", "invalid enrollment request")
 	}
-	token, ok := fields["enrollment_token"].(string)
-	if !ok {
-		return fleetError(c, http.StatusBadRequest, "invalid_operation", "invalid enrollment request")
+	var operation *domain.ProbeOperation
+	if runner, ok := h.svc.(interface {
+		EnrollSource(context.Context, string, string, string) (*domain.ProbeOperation, error)
+	}); ok {
+		operation, err = runner.EnrollSource(c.Request().Context(), c.Param("probe_id"), request.EnrollmentToken, request.StreamID)
+	} else {
+		operation, err = h.svc.Enroll(c.Request().Context(), c.Param("probe_id"), request.EnrollmentToken)
 	}
-	operation, err := h.svc.Enroll(c.Request().Context(), c.Param("probe_id"), token)
 	if err != nil {
 		return probeAdminOperationError(c, err)
 	}
@@ -183,6 +191,54 @@ func (h *ProbeAdminHandlers) ResetStream(c echo.Context) error {
 	return c.JSON(http.StatusAccepted, toProbeOperationView(*operation))
 }
 
+// ProbeRevokeView separates committed hub revocation from remote confirmation.
+type ProbeRevokeView struct {
+	ProbeOperationView
+	RemoteConfirmed bool `json:"remote_confirmed"`
+}
+
+// Revoke durably fences hub admission and returns an unconfirmed remote receipt.
+func (h *ProbeAdminHandlers) Revoke(c echo.Context) error {
+	if !h.prepare(c) {
+		return nil
+	}
+	runner, ok := h.svc.(probeLifecycleRunner)
+	if !ok {
+		return fleetError(c, 503, "operation_unavailable", "operation unavailable")
+	}
+	body, err := readProbeAdminBody(c)
+	if err != nil {
+		return fleetError(c, 400, "invalid_operation", "invalid revocation request")
+	}
+	request, err := probe.DecodeRevokeRequest(body)
+	if err != nil {
+		return fleetError(c, 400, "invalid_operation", "invalid revocation request")
+	}
+	operation, err := runner.Revoke(c.Request().Context(), c.Param("probe_id"), request.Reason)
+	if err != nil {
+		return probeAdminOperationError(c, err)
+	}
+	return c.JSON(http.StatusAccepted, ProbeRevokeView{ProbeOperationView: toProbeOperationView(*operation)})
+}
+
+// Delete soft-deletes an unassigned identity while retaining historical rows.
+func (h *ProbeAdminHandlers) Delete(c echo.Context) error {
+	if !h.prepare(c) {
+		return nil
+	}
+	runner, ok := h.svc.(probeLifecycleRunner)
+	if !ok {
+		return fleetError(c, 503, "operation_unavailable", "operation unavailable")
+	}
+	if err := runner.Delete(c.Request().Context(), c.Param("probe_id")); err != nil {
+		if errors.Is(err, ports.ErrConflict) {
+			return fleetError(c, 409, "probe_assigned", "remove active assignments before deleting this probe")
+		}
+		return probeAdminRegistrationError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
 // Operation handles GET /api/probe-operations/:operation_id.
 func (h *ProbeAdminHandlers) Operation(c echo.Context) error {
 	if ok := h.prepare(c); !ok {
@@ -197,6 +253,9 @@ func (h *ProbeAdminHandlers) Operation(c echo.Context) error {
 			return fleetError(c, http.StatusNotFound, "operation_not_found", "operation not found")
 		}
 		return fleetError(c, http.StatusServiceUnavailable, "operation_unavailable", "operation data unavailable")
+	}
+	if operation.Kind == domain.ProbeOperationRevoke {
+		return c.JSON(http.StatusOK, ProbeRevokeView{ProbeOperationView: toProbeOperationView(*operation)})
 	}
 	return c.JSON(http.StatusOK, toProbeOperationView(*operation))
 }
@@ -277,16 +336,4 @@ func toProbeOperationView(operation domain.ProbeOperation) ProbeOperationView {
 // readProbeAdminBody bounds request bodies before contract decoding.
 func readProbeAdminBody(c echo.Context) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(c.Request().Body, 64<<10))
-}
-
-// probeAdminJSONFields decodes the body as one JSON object with string keys.
-func probeAdminJSONFields(body []byte) (map[string]any, error) {
-	var fields map[string]any
-	if err := json.Unmarshal(body, &fields); err != nil {
-		return nil, err
-	}
-	if fields == nil {
-		return nil, errors.New("expected json object")
-	}
-	return fields, nil
 }

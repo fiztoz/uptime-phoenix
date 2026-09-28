@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail closed unless an M5 Go JSON log proves the required read API coverage."""
+"""Fail closed unless an M5 Go JSON log proves its API, lifecycle and live contracts."""
 
 import argparse
 import json
@@ -8,6 +8,16 @@ from pathlib import Path
 
 ROOT = "github.com/fiztoz/uptime-phoenix/internal/"
 REQUIRED = {
+    (ROOT + "core/services", "TestPublicRegionalCoverageUsesOverallTimeline"),
+    (ROOT + "adapters/notifier", "TestRegionalNotificationAttribution"),
+    (ROOT + "adapters/http/handlers", "TestM5BrowserHealthSharesHTTPContract"),
+    (ROOT + "adapters/ws", "TestRegionalEventsRecheckAudienceAndStripPrivateFields"),
+    (ROOT + "adapters/ws", "TestRegionalCommandEventRequesterScope"),
+    (ROOT + "adapters/ws", "TestAccessChangePurgesConnectedClientScope"),
+    (ROOT + "adapters/repository", "TestM5AlertAPI/sqlite"),
+    (ROOT + "adapters/repository", "TestM5AlertAPI/mariadb"),
+    (ROOT + "adapters/repository", "TestM5RevocationFencesAndRetainsHistory/sqlite"),
+    (ROOT + "adapters/repository", "TestM5RevocationFencesAndRetainsHistory/mariadb"),
     (ROOT + "core/services", "TestMonitorRegionalServiceScopeAndFreshness"),
     (ROOT + "core/services", "TestMonitorRegionalServiceLegacyAndFailures"),
     (ROOT + "core/services", "TestMonitorRegionalHistoryRelationship"),
@@ -95,7 +105,7 @@ def main() -> int:
     if errors:
         print("M5 evidence rejected:\n" + "\n".join(errors), file=sys.stderr)
         return 1
-    print("M5 read API evidence passed: service, wire fixtures, SQLite and MariaDB (regional reads, fleet diagnostics, assignment writes, admin operations, regional history).")
+    print("M5 evidence passed: API, live wire and authorization, public coverage, notification attribution, SQLite and MariaDB lifecycle/ACK/history contracts.")
     return 0
 
 

@@ -1,5 +1,8 @@
 # M5 foundation and continuation contract
 
+> Historical slice record. Remaining M5 work was completed on 2026-09-29; see
+> [M5 completion and current acceptance](M5_COMPLETION.md).
+
 Status: first read API slice, built on M0–M4 review fixes in `7bc81c5` (original
 base `5873a79`). The second slice — safe runtime diagnostics and the admin fleet
 read API — is recorded in [fleet diagnostics](M5_FLEET_DIAGNOSTICS.md). M5 is

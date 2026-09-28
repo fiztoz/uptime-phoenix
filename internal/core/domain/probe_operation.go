@@ -5,6 +5,7 @@ import "time"
 // Administrative operation kinds. Only hub-side work that is durably recorded
 // may name one of these; there is no catch-all kind.
 const (
+	ProbeOperationRevoke           = "revoke"
 	ProbeOperationEnroll           = "enroll"
 	ProbeOperationRotateCredential = "rotate_credential"
 	ProbeOperationResetStream      = "reset_stream"
@@ -71,7 +72,7 @@ func ValidProbeOperation(o ProbeOperation) bool {
 		return false
 	}
 	switch o.Kind {
-	case ProbeOperationEnroll, ProbeOperationRotateCredential, ProbeOperationResetStream:
+	case ProbeOperationEnroll, ProbeOperationRotateCredential, ProbeOperationResetStream, ProbeOperationRevoke:
 	default:
 		return false
 	}

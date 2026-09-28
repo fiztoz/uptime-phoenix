@@ -62,6 +62,7 @@ import (
 // sees nothing; a repo that is not wired contributes no visibility. There is no
 // path through this file where an error or a missing dependency widens access.
 type AccessService struct {
+	bus      ports.EventBus
 	users    ports.UserRepository
 	perms    ports.UserPermissionRepository
 	groups   ports.MonitorGroupRepository
@@ -622,6 +623,7 @@ func (s *AccessService) invalidateScope(userID int64) {
 	s.mu.Lock()
 	delete(s.scopesByUser, userID)
 	s.mu.Unlock()
+	s.publishInvalidation(userID)
 }
 
 func cloneScope(scope visibleScope) visibleScope {
@@ -638,6 +640,12 @@ func cloneScope(scope visibleScope) visibleScope {
 // InvalidateUser drops cached flags and visibility for one user. Call after a
 // user row or grant set changes. TTL still bounds staleness if a caller forgets.
 func (s *AccessService) InvalidateUser(userID int64) {
+	s.ClearCachedPermissions(userID)
+	s.publishInvalidation(userID)
+}
+
+// ClearCachedPermissions applies a peer invalidation without rebroadcasting it.
+func (s *AccessService) ClearCachedPermissions(userID int64) {
 	s.mu.Lock()
 	delete(s.usersByID, userID)
 	delete(s.scopesByUser, userID)
@@ -1019,4 +1027,13 @@ func dedupe(ids []int64) []int64 {
 		out = append(out, id)
 	}
 	return out
+}
+
+// SetEventBus propagates permission invalidations to all API replicas.
+func (s *AccessService) SetEventBus(bus ports.EventBus) { s.bus = bus }
+
+func (s *AccessService) publishInvalidation(userID int64) {
+	if s.bus != nil {
+		_ = s.bus.Publish(context.Background(), ports.Event{Type: "access.invalidate", Payload: map[string]any{"user_id": userID}})
+	}
 }

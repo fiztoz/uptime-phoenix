@@ -177,6 +177,7 @@ type RegionalDelivery struct {
 // ProbeCommand is the hub's nonsecret durable command status. Pending means the
 // source has not confirmed a terminal result, even after the request expires.
 type ProbeCommand struct {
+	RequestedBy int64
 	ProbeCommandMetadata
 	Status                string
 	RemoteConfirmed       bool

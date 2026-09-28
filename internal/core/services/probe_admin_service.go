@@ -67,6 +67,7 @@ type ProbeCredentialRotationIssuer interface {
 // ProbeRegistrationRequest is one remote registration create. Endpoint and
 // TLSPin are the operator-declared network trust, frozen on the registration.
 type ProbeRegistrationRequest struct {
+	ProbeID  string
 	Key      string
 	Name     string
 	Location string
@@ -91,6 +92,7 @@ type ProbeRegistrationPatch struct {
 // terminal state; a remote peer may confirm later (that is separate evidence,
 // never implied by a succeeded receipt).
 type ProbeAdminService struct {
+	lifecycle    ports.ProbeLifecycleRepository
 	operations   ports.ProbeOperationRepository
 	registry     ports.ProbeRegistryRepository
 	installation ports.ProbeInstallationRepository
@@ -118,6 +120,34 @@ func NewProbeAdminService(
 	}
 }
 
+// SetLifecycle wires atomic revocation and soft deletion.
+func (s *ProbeAdminService) SetLifecycle(lifecycle ports.ProbeLifecycleRepository) {
+	s.lifecycle = lifecycle
+}
+
+// Revoke records hub revocation; it never implies a partitioned peer stopped.
+// The free-form reason is validated but deliberately not retained or echoed.
+func (s *ProbeAdminService) Revoke(ctx context.Context, probeID, reason string) (*domain.ProbeOperation, error) {
+	if s == nil || s.lifecycle == nil {
+		return nil, domain.ErrInternal
+	}
+	if !validRemoteProbeRegistrationID(probeID) || len(reason) > 255 || strings.ContainsAny(reason, "\r\n\x00") {
+		return nil, ErrInvalidOperation
+	}
+	return s.lifecycle.RevokeProbe(ctx, probeID, uuid.NewString(), s.now().UTC())
+}
+
+// Delete preserves attribution and rejects identities with active assignments.
+func (s *ProbeAdminService) Delete(ctx context.Context, probeID string) error {
+	if s == nil || s.lifecycle == nil {
+		return domain.ErrInternal
+	}
+	if !validRemoteProbeRegistrationID(probeID) {
+		return ErrInvalidRegistration
+	}
+	return s.lifecycle.DeleteProbe(ctx, probeID, uuid.NewString(), s.now().UTC())
+}
+
 // CreateRegistration creates one remote registration with its frozen network
 // trust. The reserved local row is never creatable here.
 func (s *ProbeAdminService) CreateRegistration(ctx context.Context, req ProbeRegistrationRequest) (*domain.Probe, error) {
@@ -127,7 +157,11 @@ func (s *ProbeAdminService) CreateRegistration(ctx context.Context, req ProbeReg
 	if err := validRegistrationNetworkTrust(req.Endpoint, req.TLSPin); err != nil {
 		return nil, err
 	}
+	if req.ProbeID != "" && !validRemoteProbeRegistrationID(req.ProbeID) {
+		return nil, ErrInvalidRegistration
+	}
 	probe := &domain.Probe{
+		ID:  req.ProbeID,
 		Key: req.Key, Name: req.Name, Location: req.Location,
 		Kind: domain.ProbeKindRemote, Enabled: true,
 		Endpoint: req.Endpoint, TLSPin: req.TLSPin,
@@ -164,10 +198,16 @@ func (s *ProbeAdminService) UpdateRegistration(ctx context.Context, probeID stri
 // the operator token over the pinned endpoint. The token is never stored,
 // logged or echoed; failure receipts carry bounded redacted diagnostics only.
 func (s *ProbeAdminService) Enroll(ctx context.Context, probeID, enrollmentToken string) (*domain.ProbeOperation, error) {
+	return s.EnrollSource(ctx, probeID, enrollmentToken, "")
+}
+
+// EnrollSource binds the VM's initialized stream instead of inventing a different
+// stream. An omitted stream is supported for connections prepared by the CLI.
+func (s *ProbeAdminService) EnrollSource(ctx context.Context, probeID, enrollmentToken, streamID string) (*domain.ProbeOperation, error) {
 	if s == nil || s.operations == nil || s.registry == nil || s.connections == nil || s.enroll == nil || s.installation == nil {
 		return nil, domain.ErrInternal
 	}
-	if !validRemoteProbeRegistrationID(probeID) || !ValidEnrollmentToken(enrollmentToken) {
+	if !validRemoteProbeRegistrationID(probeID) || !ValidEnrollmentToken(enrollmentToken) || streamID != "" && !domain.ValidHubID(streamID) {
 		return nil, fmt.Errorf("invalid enrollment request: %w", ErrInvalidOperation)
 	}
 	registration, err := s.registry.GetByID(ctx, probeID)
@@ -177,7 +217,11 @@ func (s *ProbeAdminService) Enroll(ctx context.Context, probeID, enrollmentToken
 	if _, err := s.installation.Get(ctx); err != nil {
 		return nil, err
 	}
-	if _, err := s.connections.GetConnection(ctx, probeID); err != nil {
+	if connection, err := s.connections.GetConnection(ctx, probeID); err == nil {
+		if streamID != "" && connection.StreamID != streamID {
+			return nil, ports.ErrConflict
+		}
+	} else {
 		if !errors.Is(err, ports.ErrNotFound) && !errors.Is(err, domain.ErrNotFound) {
 			return nil, err
 		}
@@ -190,7 +234,10 @@ func (s *ProbeAdminService) Enroll(ctx context.Context, probeID, enrollmentToken
 		if err != nil {
 			return nil, err
 		}
-		if _, err := s.enroll.Prepare(ctx, probeID, uuid.NewString(), endpoint, registration.TLSPin); err != nil {
+		if streamID == "" {
+			return nil, ErrInvalidOperation
+		}
+		if _, err := s.enroll.Prepare(ctx, probeID, streamID, endpoint, registration.TLSPin); err != nil {
 			return nil, err
 		}
 	}
@@ -289,7 +336,11 @@ func (s *ProbeAdminService) Operation(ctx context.Context, operationID string) (
 	if !domain.ValidProbeOperationID(operationID) {
 		return nil, fmt.Errorf("invalid operation id: %w", ErrInvalidOperation)
 	}
-	return s.operations.GetOperation(ctx, operationID)
+	operation, err := s.operations.GetOperation(ctx, operationID)
+	if errors.Is(err, ports.ErrNotFound) && s.lifecycle != nil {
+		return s.lifecycle.GetRevocation(ctx, operationID)
+	}
+	return operation, err
 }
 
 // begin persists the receipt before any acknowledged work starts.

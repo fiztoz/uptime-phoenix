@@ -228,7 +228,7 @@ func sameRotationIssuance(a, b domain.ProbeCredentialRotation) bool {
 
 func newPendingCommandRow(c domain.ProtectedProbeCommand, now time.Time) probeCommandRow {
 	retain := c.ExpiresAt.UTC().Add(probeCommandRetention)
-	return probeCommandRow{CommandID: c.CommandID, HubID: c.HubID, ProbeID: c.ProbeID, StreamID: c.StreamID, Kind: c.Kind, SourceAlertID: c.SourceAlertID, AssignmentGeneration: c.AssignmentGeneration, CreatedAt: c.CreatedAt.UTC(), ExpiresAt: c.ExpiresAt.UTC(), PayloadSHA256: c.PayloadSHA256, ProtectedPayload: c.ProtectedPayload, Status: "pending", NextAttemptAt: &now, RetainUntil: &retain, UpdatedAt: now}
+	return probeCommandRow{RequestedBy: c.RequestedBy, CommandID: c.CommandID, HubID: c.HubID, ProbeID: c.ProbeID, StreamID: c.StreamID, Kind: c.Kind, SourceAlertID: c.SourceAlertID, AssignmentGeneration: c.AssignmentGeneration, CreatedAt: c.CreatedAt.UTC(), ExpiresAt: c.ExpiresAt.UTC(), PayloadSHA256: c.PayloadSHA256, ProtectedPayload: c.ProtectedPayload, Status: "pending", NextAttemptAt: &now, RetainUntil: &retain, UpdatedAt: now}
 }
 
 func reserveCommandCapacity(ctx context.Context, tx bun.Tx, probeID string, now time.Time, additionalCount, additionalBytes int) error {

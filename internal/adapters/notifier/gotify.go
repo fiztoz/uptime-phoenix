@@ -54,7 +54,7 @@ func (GotifySender) Send(ctx context.Context, config map[string]any, alert domai
 			priority = 2
 		}
 		title = fmt.Sprintf("Phoenix: %s is %s", alert.MonitorName, alert.Status)
-		message = alert.Message
+		message = alertBody(alert)
 		if alert.CheckOutput != "" {
 			message += "\n" + alert.CheckOutput
 		}

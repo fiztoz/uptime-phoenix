@@ -1,0 +1,8 @@
+ALTER TABLE probes ADD COLUMN IF NOT EXISTS revoked_at DATETIME(6) NULL;
+ALTER TABLE probes ADD COLUMN IF NOT EXISTS deleted_at DATETIME(6) NULL;
+CREATE TABLE IF NOT EXISTS probe_revocations (
+    operation_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY CHECK (CHAR_LENGTH(operation_id) = 36),
+    probe_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE CHECK (probe_id <> 'local'),
+    created_at DATETIME(6) NOT NULL,
+    FOREIGN KEY (probe_id) REFERENCES probes(id) ON DELETE RESTRICT
+) ENGINE=InnoDB;

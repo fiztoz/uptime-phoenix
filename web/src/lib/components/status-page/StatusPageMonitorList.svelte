@@ -1,4 +1,5 @@
 <script lang="ts">
+	import * as m from '$lib/paraglide/messages.js';
 	import ResponseTimeChart from '$lib/components/ResponseTimeChart.svelte';
 	import StatusPill from '$lib/components/StatusPill.svelte';
 	import UptimeBar from '$lib/components/UptimeBar.svelte';
@@ -128,6 +129,9 @@
 							<div class={layout.name}>{monitor.name}</div>
 							{#if layout.showType}
 								<div class="text-xs text-muted-foreground">{monitor.type}</div>
+							{/if}
+							{#if monitor.coverage_percent != null && Number.isFinite(monitor.coverage_percent)}
+								<p class="mt-1 text-xs text-muted-foreground" data-testid="public-coverage">{m.probes_public_coverage()} <span class="font-mono">{uptimeLabel(monitor.coverage_percent)}</span></p>
 							{/if}
 							{#if layout.showType && monitor.cert_expiry_date}
 								<div class="mt-1 text-xs text-muted-foreground">

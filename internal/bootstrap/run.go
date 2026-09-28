@@ -220,6 +220,9 @@ func Run(cfg Config) error {
 	statusPageSvc.SetIncidentNotifier(subscriptionSvc)
 	statusPageSvc.SetSubscriptionAvailability(subscriptionSvc)
 	statusPageSvc.SetAggregateStatus(healthSvc)
+	if cfg.ProbesEnabled {
+		statusPageSvc.SetRegionalHealth(healthSvc)
+	}
 
 	tagSvc := services.NewTagService(repos.tag, repos.monitorTag)
 	notificationSvc.SetTagReader(tagSvc)
@@ -241,7 +244,17 @@ func Run(cfg Config) error {
 	// Health reads fail closed without the access choke point: every M5 regional
 	// route would 404 even for monitors the caller owns.
 	healthSvc.SetAccess(accessSvc)
+	accessSvc.SetEventBus(bus)
 	authSvc.SetUserChangeHook(accessSvc.InvalidateUser)
+	regionalSvc := services.NewMonitorRegionalService(healthSvc, repos.probeRegistry)
+	regionalSvc.SetDiagnostics(repos.probeDiagnostics)
+	regionalSvc.SetHistory(repo.NewRegionalCommitStore(db), repos.probeAssignments)
+	fleetSvc := services.NewProbeFleetService(repos.probeDiagnostics)
+	hub := ws.NewHub(bus, repos.monitor, repos.heartbeat, accessSvc, tagSvc, slog.Default())
+	browserPublisher := handlers.NewRegionalBrowserPublisher(regionalSvc, fleetSvc, repo.NewRegionalCommitStore(db), bus, hub.BroadcastRegional, hub.ActiveConnections)
+	if cfg.ProbesEnabled && cfg.Mode != "worker" {
+		go browserPublisher.Run(ctx)
+	}
 	log.Info("access service initialized")
 
 	backupSvc := services.NewBackupService(
@@ -447,6 +460,7 @@ func Run(cfg Config) error {
 			return err
 		}
 		stateIngest.SetGroupAlerter(groupAlertSvc)
+		stateIngest.SetBrowserPublisher(browserPublisher)
 		stateIngest.SetStatusPageRecovery(healthSvc, statusPageSvc)
 		transport := probe.NewHubTransport(policy)
 		transport.SetStateIngest(stateIngest)
@@ -456,6 +470,7 @@ func Run(cfg Config) error {
 		if err != nil {
 			return err
 		}
+		commands.SetBrowserEvents(bus, repos.probeIncident)
 		transport.SetCommands(commands)
 		connector, err := services.NewProbeConnectorService(connections, connections, connections, credentialProtector,
 			services.NewProbeConfigService(repos.probeConfig, probe.ConfigInspector{}, protector),
@@ -471,6 +486,7 @@ func Run(cfg Config) error {
 			return err
 		}
 		replay.SetGroupAlerter(groupAlertSvc)
+		replay.SetBrowserPublisher(browserPublisher)
 		replay.SetStatusPageRecovery(healthSvc, statusPageSvc)
 		connector.SetReplayIngest(replay)
 		connector.SetCredentialRotation(commandStore)
@@ -510,7 +526,6 @@ func Run(cfg Config) error {
 
 	// The hub filters every outbound frame against the receiving client's visible
 	// monitor set. Without accessSvc it would fail closed and emit nothing.
-	hub := ws.NewHub(bus, repos.monitor, repos.heartbeat, accessSvc, tagSvc, slog.Default())
 
 	// Make dropped events observable. Both the bus subscriber buffer and the
 	// per-client send buffer discard on overflow by design; without these counters
@@ -655,13 +670,12 @@ func Run(cfg Config) error {
 	insightsHandlers := handlers.NewInsightsHandlers(insightsSvc)
 	extensionHandlers := handlers.NewExtensionHandlers(cfg.ExtensionsJSON)
 
-	regionalSvc := services.NewMonitorRegionalService(healthSvc, repos.probeRegistry)
-	regionalSvc.SetDiagnostics(repos.probeDiagnostics)
-	regionalSvc.SetHistory(repo.NewRegionalCommitStore(db), repos.probeAssignments)
 	heartbeatHandlers.SetOverall(regionalSvc)
 	regionalHandlers := handlers.NewMonitorRegionalHandlers(regionalSvc, cfg.ProbesEnabled)
+	if cfg.ProbesEnabled {
+		regionalHandlers.SetBrowserPublisher(browserPublisher)
+	}
 	regionalHandlers.SetAssignments(services.NewProbeAssignmentService(repos.probeAssignWriter, repos.probeAssignments, repos.probeRegistry, repos.monitor, checkeradapter.CapabilityInspector{}))
-	fleetSvc := services.NewProbeFleetService(repos.probeDiagnostics)
 	var adminSvc *services.ProbeAdminService
 	if cfg.ProbesEnabled {
 		// Durable administrative operations wrap the same connector/rotation/
@@ -694,6 +708,14 @@ func Run(cfg Config) error {
 		}
 		adminSvc = services.NewProbeAdminService(repo.NewProbeOperationStore(db), repos.probeRegistry, repos.probeInstallation,
 			connections, adminConnector, rotations, repo.NewProbeStreamResetStore(db, protector, credentialProtector, probe.StreamResetCodec{}))
+		adminSvc.SetLifecycle(repo.NewProbeLifecycleStore(db))
+		ackStore := repo.NewProbeCommandStore(db, commandProtector, probe.AcknowledgementCodec{}, credentialProtector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
+		ackCommands, err := services.NewProbeCommandService(ackStore, connections, commandProtector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
+		if err != nil {
+			return err
+		}
+		ackCommands.SetBrowserEvents(bus, repos.probeIncident)
+		regionalHandlers.SetAlerts(services.NewProbeAlertService(accessSvc, repos.probeIncident, repos.probeRegistry, repos.probeInstallation, ackCommands, ackStore))
 	}
 	httpOpts := httppkg.RouterOptions{
 		RegionalMonitors: regionalHandlers,

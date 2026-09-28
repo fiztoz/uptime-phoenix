@@ -90,6 +90,7 @@ func TestM5AdminOperations(t *testing.T) {
 			resets := repository.NewProbeStreamResetStore(r.f.db, protector, protector, probe.StreamResetCodec{})
 			adminSvc := services.NewProbeAdminService(operations, r.f.registry, repository.NewProbeInstallationStore(r.f.db),
 				connections, connector, rotations, resets)
+			adminSvc.SetLifecycle(repository.NewProbeLifecycleStore(r.f.db))
 			fleetSvc := services.NewProbeFleetService(repository.NewProbeDiagnosticsStore(r.f.db))
 			jwt := auth.NewJWTAuthenticator(strings.Repeat("m5-admin-test-key-", 4), 1, users)
 			authSvc := services.NewAuthService(users, nil, jwt, nil)
@@ -142,7 +143,7 @@ func TestM5AdminOperations(t *testing.T) {
 			enroll := func(probeID string) probe.OperationReceipt {
 				t.Helper()
 				rec := request(http.MethodPost, "/api/probes/"+probeID+"/enroll", adminToken,
-					fmt.Sprintf(`{"enrollment_token":%q}`, authorization))
+					fmt.Sprintf(`{"enrollment_token":%q,"stream_id":%q}`, authorization, uuid.NewString()))
 				if rec.Code != http.StatusAccepted {
 					t.Fatalf("enroll: %d %s", rec.Code, rec.Body.String())
 				}
@@ -301,6 +302,55 @@ func TestM5AdminOperations(t *testing.T) {
 			}
 			if !strings.Contains(detail, "probe.example.test:443") {
 				t.Fatalf("frozen network trust missing from detail: %s", detail)
+			}
+
+			// Revocation is durable, idempotent and cannot be undone by PATCH.
+			revoked := request(http.MethodPost, "/api/probes/"+probeA+"/revoke", viewerToken, `{"reason":"retired"}`)
+			if revoked.Code != 403 {
+				t.Fatalf("viewer revoke: %d", revoked.Code)
+			}
+			revoked = request(http.MethodPost, "/api/probes/"+probeA+"/revoke", adminToken, `{"reason":"retired"}`)
+			if revoked.Code != 202 {
+				t.Fatalf("revoke: %d %s", revoked.Code, revoked.Body.String())
+			}
+			revocation, err := probe.DecodeRevokeReceipt(revoked.Body.Bytes())
+			if err != nil || revocation.RemoteConfirmed {
+				t.Fatalf("revocation claims remote stop: %+v %v", revocation, err)
+			}
+			persisted := request(http.MethodGet, "/api/probe-operations/"+revocation.OperationID, adminToken, "")
+			if persisted.Code != 200 || persisted.Body.String() != revoked.Body.String() {
+				t.Fatalf("revoke receipt not durable: %s", persisted.Body.String())
+			}
+			retried := request(http.MethodPost, "/api/probes/"+probeA+"/revoke", adminToken, `{"reason":"retry"}`)
+			if retried.Body.String() != revoked.Body.String() {
+				t.Fatal("retry changed original revocation")
+			}
+			stored, err = r.f.registry.GetByID(ctx, probeA)
+			if err != nil || stored.Enabled || stored.RevokedAt == nil {
+				t.Fatalf("revocation state: %+v %v", stored, err)
+			}
+			patch := fmt.Sprintf(`{"name":"resurrect","location":"","enabled":true,"revision":"%d"}`, stored.Revision)
+			if rec := request(http.MethodPatch, "/api/probes/"+probeA, adminToken, patch); rec.Code != 409 {
+				t.Fatalf("revoked identity reenabled: %d", rec.Code)
+			}
+			if _, err := connections.AcquireRuntime(ctx, probeA, uuid.NewString()); err == nil {
+				t.Fatal("revoked identity acquired runtime")
+			}
+			detail = request(http.MethodGet, "/api/probes/"+probeA, adminToken, "").Body.String()
+			if !strings.Contains(detail, `"connection_status":"revoked"`) || !strings.Contains(detail, `"execution_status":"revoked"`) {
+				t.Fatalf("revocation not visible: %s", detail)
+			}
+			if rec := request(http.MethodDelete, "/api/probes/"+probeA, adminToken, ""); rec.Code != 204 {
+				t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+			}
+			if rec := request(http.MethodGet, "/api/probes/"+probeA, adminToken, ""); rec.Code != 404 {
+				t.Fatalf("deleted probe still visible: %d", rec.Code)
+			}
+			if _, err := connections.GetConnection(ctx, probeA); err != nil {
+				t.Fatalf("delete discarded historical identity: %v", err)
+			}
+			if rec := request(http.MethodDelete, "/api/probes/local", adminToken, ""); rec.Code != 400 {
+				t.Fatalf("deleted local: %d", rec.Code)
 			}
 		})
 	}

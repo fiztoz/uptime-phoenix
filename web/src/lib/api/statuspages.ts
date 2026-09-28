@@ -158,6 +158,8 @@ export interface PublicStatusResponse {
     // heartbeat statuses only — it never emits "paused" on a public status page.
     status: "up" | "down" | "pending" | "maintenance" | "unknown";
     uptime_percent?: number | null;
+    /** Overall evidence coverage in the last 24h; never a regional inventory. */
+    coverage_percent?: number | null;
     // 90-day data for bar, UTC dates, oldest first, always exactly 90 entries.
     // "none" marks a day with no checks at all.
     uptime_data: Array<{

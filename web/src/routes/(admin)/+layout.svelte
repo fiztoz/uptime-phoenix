@@ -116,6 +116,7 @@
 		{ href: '/maintenance', label: () => m.nav_maintenance(), icon: CalendarClock, gate: 'maintenance' as const },
 		{ href: '/status-pages', label: () => m.nav_status_pages(), icon: Globe, gate: 'admin' as const },
 		{ href: '/incidents', label: () => m.nav_incidents(), icon: AlertTriangle },
+		{ href: '/probes', label: () => m.probes_title(), icon: Globe, gate: 'admin' as const },
 		{ href: '/backup', label: () => m.nav_backup(), icon: Archive, gate: 'admin' as const },
 		{ href: '/settings', label: () => m.nav_settings(), icon: Settings },
 	];

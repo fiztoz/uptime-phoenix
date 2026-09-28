@@ -275,6 +275,9 @@ function createWsStore() {
   let conditions = $state<Map<string, MonitorCondition>>(new Map());
   let conditionSeq = $state(0);
   let reconnectAttempt = $state(0);
+  let connectionEpoch = $state(0);
+  const listeners = new Map<string, Set<(payload: unknown) => void>>();
+  const regionalVersions = new Map<number, { version: bigint; asOf: number }>();
   let lastError = $state<string | null>(null);
   let stats = $state<StatsUpdate>({ total: 0, up: 0, down: 0, pending: 0 });
 
@@ -286,11 +289,18 @@ function createWsStore() {
   let connectGeneration = 0;
   const projectionVersions = new Map<number, number>();
   const invalidateNavigation = createProjectionInvalidator(() => {
-    monitorGroupsCatalog.clear();
-    dashboardInsights.clear();
+    monitorGroupsCatalog.invalidate();
+    dashboardInsights.invalidate();
   });
 
   function noteProjection(monitorId: number, version: number | undefined) {
+    const regional = regionalVersions.get(monitorId);
+    if (
+      regional &&
+      version !== undefined &&
+      (!Number.isSafeInteger(version) || BigInt(version) < regional.version)
+    )
+      return "stale";
     const decision = decideProjectionVersion(
       projectionVersions.get(monitorId),
       version ?? 0,
@@ -300,6 +310,63 @@ function createWsStore() {
       invalidateNavigation();
     }
     return decision;
+  }
+
+  function on(type: string, listener: (payload: unknown) => void): () => void {
+    let group = listeners.get(type);
+    if (!group) {
+      group = new Set();
+      listeners.set(type, group);
+    }
+    group.add(listener);
+    return () => {
+      group?.delete(listener);
+      if (!group?.size) listeners.delete(type);
+    };
+  }
+
+  function regionalEvent(event: WsEvent): boolean {
+    if (!event.payload || typeof event.payload !== "object") return false;
+    const payload = event.payload as Record<string, unknown>;
+    if (event.type === "monitor.health") {
+      const id = payload.monitor_id;
+      const revision = payload.projection_version;
+      if (
+        typeof id !== "number" ||
+        !Number.isSafeInteger(id) ||
+        id <= 0 ||
+        typeof revision !== "string" ||
+        !/^(0|[1-9][0-9]*)$/.test(revision)
+      )
+        return false;
+      const version = BigInt(revision);
+      if (version > 9223372036854775807n) return false;
+      const asOf = Date.parse(String(payload.as_of));
+      if (!Number.isFinite(asOf)) return false;
+      const previous = regionalVersions.get(id);
+      if (
+        previous &&
+        (version < previous.version ||
+          (version === previous.version && asOf < previous.asOf))
+      )
+        return false;
+      regionalVersions.set(id, { version, asOf });
+      if (!previous || version > previous.version) invalidateNavigation();
+      if (
+        ["up", "down", "pending", "maintenance", "unknown"].includes(
+          String(payload.status),
+        )
+      ) {
+        monitors = monitors.map((monitor) =>
+          monitor.id === id && monitor.active !== false
+            ? { ...monitor, status: payload.status as Status }
+            : monitor,
+        );
+      }
+    }
+    for (const listener of listeners.get(event.type) ?? [])
+      listener(event.payload);
+    return true;
   }
 
   function getWebSocketUrl(): string {
@@ -330,6 +397,27 @@ function createWsStore() {
 
   function handleEvent(event: WsEvent): void {
     switch (event.type) {
+      case "access.changed":
+        regionalVersions.clear();
+        projectionVersions.clear();
+        clearMonitorSnapshotCache();
+        monitors = [];
+        heartbeats = new Map();
+        lastHeartbeat = null;
+        conditions = new Map();
+        conditionSeq += 1;
+        monitorGroupsCatalog.clear();
+        dashboardInsights.clear();
+        connectionEpoch += 1;
+        break;
+      case "probe.status":
+      case "probe.config.status":
+      case "probe.command.status":
+      case "monitor.probe.heartbeat":
+      case "monitor.probe.status":
+      case "monitor.health":
+        regionalEvent(event);
+        break;
       case "monitor.list": {
         const list = Array.isArray(event.payload)
           ? (event.payload as Monitor[])
@@ -373,9 +461,11 @@ function createWsStore() {
         // A remote assignment publishes overall_status; that is the badge status.
         const pillStatus = hb.overall_status
           ? hb.overall_status
-          : hb.status === "up" || hb.status === "down"
-            ? hb.status
-            : null;
+          : regionalVersions.has(hb.monitor_id)
+            ? null
+            : hb.status === "up" || hb.status === "down"
+              ? hb.status
+              : null;
         if (pillStatus) {
           const syncedStatus = pillStatus;
           monitors = monitors.map((m) =>
@@ -480,6 +570,15 @@ function createWsStore() {
     if (source === "cache" && snapshotSource !== "none") return;
     if (source === "rest" && snapshotSource === "ws") return;
     monitors = list.map(withDefaultStatus);
+    if (source === "ws") {
+      const allowed = new Set(monitors.map((monitor) => monitor.id));
+      heartbeats = new Map([...heartbeats].filter(([id]) => allowed.has(id)));
+      conditions = new Map(
+        [...conditions].filter(([, row]) => allowed.has(row.monitor_id)),
+      );
+      if (lastHeartbeat && !allowed.has(lastHeartbeat.monitor_id))
+        lastHeartbeat = null;
+    }
     hasMonitorSnapshot = true;
     snapshotSource = source;
     if (source === "cache") return;
@@ -564,11 +663,13 @@ function createWsStore() {
       ws.onopen = () => {
         if (generation !== connectGeneration) return;
         status = "connected";
+        connectionEpoch += 1;
         reconnectAttempt = 0;
         lastError = null;
       };
 
       ws.onmessage = (e: MessageEvent) => {
+        if (generation !== connectGeneration) return;
         let event: WsEvent | null = null;
 
         if (e.data instanceof ArrayBuffer) {
@@ -589,6 +690,7 @@ function createWsStore() {
         status = "disconnected";
         ws = null;
         projectionVersions.clear();
+        regionalVersions.clear();
         invalidateNavigation();
         // 4001–4003 from the hub, plus 1008 from pre-fix servers: the JWT is
         // dead. Reconnecting with it loops 101 → close forever and the
@@ -736,6 +838,10 @@ function createWsStore() {
     get conditionSeq() {
       return conditionSeq;
     },
+    get connectionEpoch() {
+      return connectionEpoch;
+    },
+    on,
     get reconnectAttempt() {
       return reconnectAttempt;
     },

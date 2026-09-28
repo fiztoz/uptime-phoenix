@@ -123,7 +123,7 @@ func (s *ProbeStreamResetStore) PrepareStreamReset(ctx context.Context, issue do
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		if !registration.Enabled {
+		if !registration.Enabled || registration.RevokedAt != nil || registration.DeletedAt != nil {
 			return ports.ErrConflict
 		}
 		if err := requireNoStreamReset(ctx, tx, issue.ProbeID, true); err != nil {
@@ -310,7 +310,7 @@ func (s *ProbeStreamResetStore) ActivateStreamReset(ctx context.Context, receipt
 			out, err = s.operation(ctx, row)
 			return err
 		}
-		if !registration.Enabled {
+		if !registration.Enabled || registration.RevokedAt != nil || registration.DeletedAt != nil {
 			return ports.ErrConflict
 		}
 		var connection probeConnectionRow

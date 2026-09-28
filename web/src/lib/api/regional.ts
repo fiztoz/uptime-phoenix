@@ -70,7 +70,100 @@ export interface RegionalHistoryOptions {
   important?: boolean;
 }
 
+export interface MonitorRegionView {
+  probe_id: string;
+  name: string;
+  location: string;
+  status: RegionalStatus;
+  connection_status: string | null;
+  observed_at: string | null;
+  received_at: string | null;
+  fresh_until: string | null;
+  config_sync_status: string | null;
+  reason: string | null;
+}
+export interface MonitorHealthView {
+  monitor_id: number;
+  status: RegionalStatus;
+  health_policy: string;
+  projection_version: string;
+  as_of: string;
+  uptime_percent: number | null;
+  coverage_percent: number | null;
+  known_seconds: number;
+  unknown_seconds: number;
+  maintenance_seconds: number;
+  probe_counts: {
+    assigned: number;
+    up: number;
+    down: number;
+    pending: number;
+    unknown: number;
+    maintenance: number;
+    paused: number;
+  };
+  regions: MonitorRegionView[];
+}
+export interface AssignmentInput {
+  expected_revision: string;
+  probe_ids: string[];
+  health_policy: string;
+  alert_delivery: "regional";
+  bindings?: Array<{ probe_id: string; kind: string; binding_key: string }>;
+}
+
+export interface RegionalAlert {
+  source_alert_id: string;
+  monitor_id: number;
+  probe_id: string;
+  probe_name: string;
+  location: string;
+  assignment_generation: string;
+  status: string;
+  subject_kind: string;
+  reason: string;
+  started_at: string;
+  acked_at: string | null;
+  resolved_at: string | null;
+}
+export interface RegionalAckReceipt {
+  command_id: string;
+  status: "pending" | "applied" | "failed" | "expired";
+  remote_confirmed: boolean;
+}
+
 export const regionalApi = {
+  alerts(monitorId: number): Promise<RegionalAlert[]> {
+    return api.get(`/monitors/${monitorId}/probe-alerts`);
+  },
+  acknowledge(
+    monitorId: number,
+    alertId: string,
+    command_id: string,
+  ): Promise<RegionalAckReceipt> {
+    return api.post(
+      `/monitors/${monitorId}/probe-alerts/${encodeURIComponent(alertId)}/ack`,
+      { command_id },
+    );
+  },
+  acknowledgement(
+    monitorId: number,
+    alertId: string,
+    commandId: string,
+  ): Promise<RegionalAckReceipt> {
+    return api.get(
+      `/monitors/${monitorId}/probe-alerts/${encodeURIComponent(alertId)}/ack/${encodeURIComponent(commandId)}`,
+    );
+  },
+  health(monitorId: number, hours = 24): Promise<MonitorHealthView> {
+    return api.get(`/monitors/${monitorId}/health`, { hours });
+  },
+  replace(
+    monitorId: number,
+    input: AssignmentInput,
+  ): Promise<MonitorProbeAssignmentsView> {
+    return api.put(`/monitors/${monitorId}/probes`, input);
+  },
   /** Desired assignment set with safe labels (monitor-scoped, authorized). */
   assignments(monitorId: number): Promise<MonitorProbeAssignmentsView> {
     return api.get(`/monitors/${monitorId}/probes`);

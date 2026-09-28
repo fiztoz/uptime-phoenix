@@ -13,6 +13,8 @@ import (
 // ProbeCommandService issues and retries immutable requests. Operator authorization
 // belongs to its inbound adapter; source replay authorization stays in AccessService.
 type ProbeCommandService struct {
+	bus              ports.EventBus
+	incidents        ports.ProbeIncidentRepository
 	repo             ports.ProbeCommandRepository
 	connections      ports.ProbeConnectionRepository
 	protector        ports.ProbeCommandProtector
@@ -30,6 +32,31 @@ func NewProbeCommandService(repo ports.ProbeCommandRepository, connections ports
 		return nil, domain.ErrValidation
 	}
 	return &ProbeCommandService{repo: repo, connections: connections, protector: protector, codec: codec, credentialCodec: credentialCodec, certificateCodec: certificateCodec, now: time.Now}, nil
+}
+
+// SetBrowserEvents publishes redacted receipts after their durable commit.
+func (s *ProbeCommandService) SetBrowserEvents(bus ports.EventBus, incidents ports.ProbeIncidentRepository) {
+	s.bus, s.incidents = bus, incidents
+}
+
+func (s *ProbeCommandService) publishReceipt(ctx context.Context, command *domain.ProbeCommand) {
+	if s.bus == nil || s.incidents == nil || command == nil || command.Kind != "alert.ack" || command.SourceAlertID == nil {
+		return
+	}
+	incident, err := s.incidents.GetIncident(ctx, *command.SourceAlertID)
+	if err != nil {
+		return
+	}
+	status := command.Status
+	switch status {
+	case "pending", "applied", "expired":
+	default:
+		status = "failed"
+	}
+	_ = s.bus.Publish(ctx, ports.Event{Type: "probe.command.status", Payload: map[string]any{
+		"command_id": command.CommandID, "status": status, "remote_confirmed": command.RemoteConfirmed,
+		"monitor_id": incident.MonitorID, "requester_id": command.RequestedBy,
+	}})
 }
 
 // IssueAcknowledgement persists an operator's exact original-incident request.
@@ -73,13 +100,16 @@ func (s *ProbeCommandService) IssueAcknowledgement(ctx context.Context, issue do
 	if err != nil {
 		return nil, err
 	}
-	out, err := s.repo.CreateCommand(ctx, domain.ProtectedProbeCommand{ProbeCommandMetadata: meta, ProtectedPayload: protected})
+	out, err := s.repo.CreateCommand(ctx, domain.ProtectedProbeCommand{ProbeCommandMetadata: meta, ProtectedPayload: protected, RequestedBy: issue.RequestedBy})
 	if errors.Is(err, ports.ErrConflict) {
 		// A simultaneous identical issuance may have won using its own timestamp
 		// and AEAD nonce. Recover it only if every immutable operator input matches.
 		if existing, recoveryErr := s.recoverIssuance(ctx, issue); recoveryErr == nil {
 			return existing, nil
 		}
+	}
+	if err == nil {
+		s.publishReceipt(ctx, out)
 	}
 	return out, err
 }
@@ -98,7 +128,7 @@ func (s *ProbeCommandService) recoverIssuance(ctx context.Context, issue domain.
 	if err != nil {
 		return nil, err
 	}
-	if ack.CommandID != issue.CommandID || ack.ProbeID != issue.ProbeID || ack.SourceAlertID != issue.SourceAlertID || ack.AssignmentGeneration != issue.AssignmentGeneration || ack.ActorDisplayName != issue.ActorDisplayName || ack.ExpiresAt.Sub(ack.CreatedAt) != issue.Lifetime || (ack.Note == nil) != (issue.Note == nil) || ack.Note != nil && *ack.Note != *issue.Note {
+	if stored.RequestedBy != issue.RequestedBy || ack.CommandID != issue.CommandID || ack.ProbeID != issue.ProbeID || ack.SourceAlertID != issue.SourceAlertID || ack.AssignmentGeneration != issue.AssignmentGeneration || ack.ActorDisplayName != issue.ActorDisplayName || ack.ExpiresAt.Sub(ack.CreatedAt) != issue.Lifetime || (ack.Note == nil) != (issue.Note == nil) || ack.Note != nil && *ack.Note != *issue.Note {
 		return nil, ports.ErrConflict
 	}
 	return s.repo.GetCommand(ctx, issue.HubID, issue.ProbeID, issue.CommandID)
@@ -140,6 +170,9 @@ func (s *ProbeCommandService) RecordCommandResult(ctx context.Context, session d
 	}
 	if err := s.repo.CompleteCommand(ctx, session, result); err != nil {
 		return false, err
+	}
+	if confirmed, readErr := s.repo.GetCommand(ctx, session.HubID, session.ProbeID, result.CommandID); readErr == nil {
+		s.publishReceipt(ctx, confirmed)
 	}
 	return command.Kind == "credential.prepare" || command.Kind == "credential.activate" || command.Kind == "certificate.prepare" || command.Kind == "certificate.activate", nil
 }

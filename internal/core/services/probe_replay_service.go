@@ -19,6 +19,7 @@ type regionalGroupAlerter interface {
 type ProbeReplayService struct {
 	repo        ports.ProbeReplayRepository
 	authorizer  ports.ProbeReplayAuthorizer
+	browser     regionalGroupAlerter
 	groupAlerts regionalGroupAlerter
 	recovery    regionalRecovery
 }
@@ -35,6 +36,9 @@ func NewProbeReplayService(repo ports.ProbeReplayRepository, authorizer ports.Pr
 		authorizer: authorizer,
 	}, nil
 }
+
+// SetBrowserPublisher attaches best-effort post-commit browser invalidation.
+func (s *ProbeReplayService) SetBrowserPublisher(browser regionalGroupAlerter) { s.browser = browser }
 
 // SetGroupAlerter attaches hub-owned folder paging. Optional: without it,
 // committed remote evidence still ingests and direct monitor alerts stay on
@@ -92,6 +96,9 @@ func (s *ProbeReplayService) notifyRegionalEvidence(ctx context.Context, batch d
 		return
 	}
 	s.recovery.resolve(ctx, ids)
+	if s.browser != nil {
+		s.browser.OnRegionalEvidence(ctx, ids)
+	}
 	if s.groupAlerts != nil {
 		s.groupAlerts.OnRegionalEvidence(ctx, ids)
 	}

@@ -1,5 +1,8 @@
 # M5 regional history and chart routes
 
+> Historical slice record. Remaining M5 work was completed on 2026-09-29; see
+> [M5 completion and current acceptance](M5_COMPLETION.md).
+
 Status: fifth M5 slice (part 1 of "Regional history and UI"), built on the
 [read API foundation](M5_FOUNDATION.md), [fleet diagnostics](M5_FLEET_DIAGNOSTICS.md),
 [assignment writes](M5_ASSIGNMENT_WRITES.md) and

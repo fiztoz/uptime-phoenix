@@ -154,6 +154,9 @@ func NewRouter(
 		}
 		e.GET("/api/monitors/:id/probes", regional.Assignments, middleware.AuthMiddleware(authSvc))
 		e.GET("/api/monitors/:id/health", regional.Health, middleware.AuthMiddleware(authSvc))
+		e.GET("/api/monitors/:id/probe-alerts", regional.ListAlerts, middleware.AuthMiddleware(authSvc))
+		e.POST("/api/monitors/:id/probe-alerts/:alert_id/ack", regional.AcknowledgeAlert, middleware.AuthMiddleware(authSvc))
+		e.GET("/api/monitors/:id/probe-alerts/:alert_id/ack/:command_id", regional.AlertCommand, middleware.AuthMiddleware(authSvc))
 		// Admin atomic complete assignment/policy replacement (protocol section
 		// 7.1). The handler answers 503 when no write service is wired.
 		e.PUT("/api/monitors/:id/probes", regional.Replace, middleware.AuthMiddleware(authSvc), requireAdmin)
@@ -188,6 +191,8 @@ func NewRouter(
 		probeGroup.POST("/:probe_id/enroll", admin.Enroll)
 		probeGroup.POST("/:probe_id/rotate-credential", admin.RotateCredential)
 		probeGroup.POST("/:probe_id/reset-stream", admin.ResetStream)
+		probeGroup.POST("/:probe_id/revoke", admin.Revoke)
+		probeGroup.DELETE("/:probe_id", admin.Delete)
 		e.GET("/api/probe-operations/:operation_id", admin.Operation,
 			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"), requireAdmin)
 	}

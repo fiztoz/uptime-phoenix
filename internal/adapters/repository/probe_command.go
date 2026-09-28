@@ -40,6 +40,7 @@ func NewProbeCommandStore(db *bun.DB, protector ports.ProbeCommandProtector, cod
 type probeCommandRow struct {
 	bun.BaseModel                `bun:"table:probe_commands"`
 	CommandID                    string `bun:"command_id,pk"`
+	RequestedBy                  int64  `bun:"requested_by"`
 	HubID                        string `bun:"hub_id,nullzero"`
 	ProbeID                      string
 	StreamID                     string `bun:"stream_id,nullzero"`
@@ -71,7 +72,7 @@ func (r probeCommandRow) metadata() domain.ProbeCommandMetadata {
 }
 
 func (r probeCommandRow) command() *domain.ProbeCommand {
-	c := &domain.ProbeCommand{ProbeCommandMetadata: r.metadata(), Status: r.Status, RemoteConfirmed: r.RemoteConfirmed, Attempts: r.Attempts, LastAttemptAt: utcTimePtr(r.LastAttemptAt), UpdatedAt: r.UpdatedAt.UTC()}
+	c := &domain.ProbeCommand{ProbeCommandMetadata: r.metadata(), RequestedBy: r.RequestedBy, Status: r.Status, RemoteConfirmed: r.RemoteConfirmed, Attempts: r.Attempts, LastAttemptAt: utcTimePtr(r.LastAttemptAt), UpdatedAt: r.UpdatedAt.UTC()}
 	if r.NextAttemptAt != nil {
 		c.NextAttemptAt = r.NextAttemptAt.UTC()
 	}
@@ -85,7 +86,7 @@ func (r probeCommandRow) command() *domain.ProbeCommand {
 }
 
 func (r probeCommandRow) protected() *domain.ProtectedProbeCommand {
-	return &domain.ProtectedProbeCommand{ProbeCommandMetadata: r.metadata(), ProtectedPayload: r.ProtectedPayload}
+	return &domain.ProtectedProbeCommand{ProbeCommandMetadata: r.metadata(), RequestedBy: r.RequestedBy, ProtectedPayload: r.ProtectedPayload}
 }
 
 // CreateCommand authorizes an ACK of a known source incident and persists the
@@ -112,7 +113,7 @@ func (s *ProbeCommandStore) CreateCommand(ctx context.Context, c domain.Protecte
 		var existing probeCommandRow
 		err := tx.NewSelect().Model(&existing).Where("command_id = ?", c.CommandID).Scan(ctx)
 		if err == nil {
-			if !sameCommandMetadata(existing.metadata(), c.ProbeCommandMetadata) {
+			if existing.RequestedBy != c.RequestedBy || !sameCommandMetadata(existing.metadata(), c.ProbeCommandMetadata) {
 				return ports.ErrConflict
 			}
 			out = existing.command()
@@ -156,7 +157,7 @@ func (s *ProbeCommandStore) lockCommandTarget(ctx context.Context, tx bun.Tx, hu
 	if err := tx.NewSelect().Model(&registration).Where("id = ?", probeID).Scan(ctx); err != nil {
 		return err
 	}
-	if !registration.Enabled || registration.Kind != domain.ProbeKindRemote {
+	if !registration.Enabled || registration.RevokedAt != nil || registration.DeletedAt != nil || registration.Kind != domain.ProbeKindRemote {
 		return ports.ErrConflict
 	}
 	if err := requireNoStreamReset(ctx, tx, probeID, true); err != nil {

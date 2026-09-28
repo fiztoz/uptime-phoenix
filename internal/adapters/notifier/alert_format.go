@@ -72,7 +72,15 @@ func alertTitleWithPrefix(prefix string, alert domain.AlertContext) string {
 
 // alertBody expands the human-readable body. Certificate events include
 // threshold, days remaining, issuer, and NotAfter when present.
-func alertBody(alert domain.AlertContext) string {
+func alertBody(alert domain.AlertContext) (bodyText string) {
+	defer func() {
+		if alert.DeliveryScope == domain.IncidentScopeRegional && alert.ProbeID != "" {
+			bodyText += "\nRegion: " + probeAlertName(alert)
+			if alert.ProbeLocation != "" {
+				bodyText += " (" + alert.ProbeLocation + ")"
+			}
+		}
+	}()
 	if isProbeConnection(alert) {
 		body := alert.Message
 		if body == "" {
@@ -137,6 +145,8 @@ func webhookEventPayload(alert domain.AlertContext) map[string]any {
 	}
 	if isProbeConnection(alert) {
 		delete(body, "monitor")
+	}
+	if isProbeConnection(alert) || alert.DeliveryScope == domain.IncidentScopeRegional && alert.ProbeID != "" {
 		body["probe"] = map[string]any{"id": alert.ProbeID, "name": alert.ProbeName, "location": alert.ProbeLocation}
 		body["delivery_scope"], body["source_alert_id"] = alert.DeliveryScope, alert.SourceAlertID
 	}

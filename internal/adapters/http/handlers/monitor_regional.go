@@ -30,6 +30,8 @@ type assignmentWriter interface {
 // MonitorRegionalHandlers exposes the opt-in M5 read contract. The service owns
 // authorization; DTOs below are the only objects serialized to clients.
 type MonitorRegionalHandlers struct {
+	browser *RegionalBrowserPublisher
+	alerts  *services.ProbeAlertService
 	svc     monitorRegionalReader
 	writer  assignmentWriter
 	enabled bool
@@ -136,6 +138,9 @@ func (h *MonitorRegionalHandlers) Assignments(c echo.Context) error {
 	if err != nil {
 		return regionalReadError(c, err)
 	}
+	if h.browser != nil {
+		h.browser.ObserveMonitor(c.Request().Context(), id)
+	}
 	return c.JSON(http.StatusOK, toAssignmentsView(result, nil))
 }
 
@@ -196,6 +201,9 @@ func (h *MonitorRegionalHandlers) Replace(c echo.Context) error {
 	result, err := h.svc.Assignments(c.Request().Context(), userID, id, h.now().UTC())
 	if err != nil {
 		return regionalReadError(c, err)
+	}
+	if h.browser != nil {
+		h.browser.OnRegionalEvidence(c.Request().Context(), []int64{id})
 	}
 	return c.JSON(http.StatusOK, toAssignmentsView(result, written.PendingProbes))
 }
@@ -269,6 +277,9 @@ func (h *MonitorRegionalHandlers) Health(c echo.Context) error {
 	result, err := h.svc.Health(c.Request().Context(), userID, id, hours, h.now().UTC())
 	if err != nil {
 		return regionalReadError(c, err)
+	}
+	if h.browser != nil {
+		h.browser.ObserveMonitor(c.Request().Context(), id)
 	}
 	out, err := toMonitorHealthView(result)
 	if err != nil {

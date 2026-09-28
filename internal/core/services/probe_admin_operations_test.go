@@ -71,7 +71,7 @@ func TestProbeAdminOperations(t *testing.T) {
 			t.Fatal(err)
 		}
 		authorization := testEnrollmentToken()
-		operation, err := svc.Enroll(t.Context(), adminTestProbe, authorization)
+		operation, err := svc.EnrollSource(t.Context(), adminTestProbe, authorization, "44444444-4444-4444-8444-444444444444")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -82,7 +82,7 @@ func TestProbeAdminOperations(t *testing.T) {
 			t.Fatalf("operation not durable: %+v", operations.rows)
 		}
 		// First enrollment prepared the connection from the frozen trust.
-		if len(enroll.prepared) != 4 || enroll.prepared[2] != "wss://probe.example.test:443/ws/probe/v1" || enroll.prepared[3] != testTLSPin() || connections.connection != nil {
+		if len(enroll.prepared) != 4 || enroll.prepared[1] != "44444444-4444-4444-8444-444444444444" || enroll.prepared[2] != "wss://probe.example.test:443/ws/probe/v1" || enroll.prepared[3] != testTLSPin() || connections.connection != nil {
 			t.Fatalf("prepare: %v", enroll.prepared)
 		}
 		if enroll.presented != authorization {
@@ -113,7 +113,7 @@ func TestProbeAdminOperations(t *testing.T) {
 		}
 		authorization := testEnrollmentToken()
 		enroll.err = errors.New("dial failed on the pinned endpoint")
-		operation, err := svc.Enroll(t.Context(), adminTestProbe, authorization)
+		operation, err := svc.EnrollSource(t.Context(), adminTestProbe, authorization, "44444444-4444-4444-8444-444444444444")
 		if err != nil {
 			t.Fatal(err)
 		}

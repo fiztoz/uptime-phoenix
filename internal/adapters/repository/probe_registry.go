@@ -27,6 +27,8 @@ var (
 type probeRegistrationModel struct {
 	bun.BaseModel `bun:"table:probes,alias:probe"`
 	ID            string           `bun:"id,pk"`
+	RevokedAt     *time.Time       `bun:"revoked_at"`
+	DeletedAt     *time.Time       `bun:"deleted_at"`
 	Key           string           `bun:"probe_key"`
 	Name          string           `bun:"name"`
 	Location      string           `bun:"location"`
@@ -41,6 +43,7 @@ type probeRegistrationModel struct {
 
 func (m probeRegistrationModel) domain() domain.Probe {
 	return domain.Probe{
+		RevokedAt: utcTimePtr(m.RevokedAt), DeletedAt: utcTimePtr(m.DeletedAt),
 		ID: m.ID, Key: m.Key, Name: m.Name, Location: m.Location, Kind: m.Kind,
 		Enabled: m.Enabled, Endpoint: m.Endpoint, TLSPin: m.TLSPin, Revision: m.Revision,
 		CreatedAt: m.CreatedAt.UTC(), UpdatedAt: m.UpdatedAt.UTC(),
@@ -104,7 +107,7 @@ func (r *ProbeRegistryStore) GetByKey(ctx context.Context, key string) (*domain.
 // List returns all registrations in deterministic key/ID order.
 func (r *ProbeRegistryStore) List(ctx context.Context) ([]domain.Probe, error) {
 	var rows []probeRegistrationModel
-	if err := r.db.NewSelect().Model(&rows).Order("probe_key ASC", "id ASC").Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).Where("deleted_at IS NULL").Order("probe_key ASC", "id ASC").Scan(ctx); err != nil {
 		return nil, fmt.Errorf("list probes: %w", err)
 	}
 	out := make([]domain.Probe, len(rows))
@@ -137,7 +140,7 @@ func (r *ProbeRegistryStore) Update(ctx context.Context, probe *domain.Probe, ex
 	result, err := r.db.NewUpdate().Table("probes").
 		Set("name = ?", probe.Name).Set("location = ?", probe.Location).
 		Set("enabled = ?", probe.Enabled).Set("revision = revision + 1").Set("updated_at = ?", now).
-		Where("id = ? AND revision = ?", probe.ID, expectedRevision).Exec(ctx)
+		Where("id = ? AND revision = ? AND revoked_at IS NULL AND deleted_at IS NULL", probe.ID, expectedRevision).Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("update probe: %w", probeRegistryError(err))
 	}
@@ -596,7 +599,7 @@ func requireRegisteredProbe(ctx context.Context, tx bun.Tx, id string, requireEn
 	if err := tx.NewSelect().Model(probe).Where("id = ?", id).Scan(ctx); err != nil {
 		return err
 	}
-	if requireEnabled && !probe.Enabled {
+	if probe.RevokedAt != nil || probe.DeletedAt != nil || requireEnabled && !probe.Enabled {
 		return fmt.Errorf("probe is disabled: %w", domain.ErrValidation)
 	}
 	return nil

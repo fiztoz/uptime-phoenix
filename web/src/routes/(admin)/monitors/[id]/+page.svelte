@@ -11,7 +11,10 @@
   } from "$lib/api/regional.js";
   import { statsApi, type MonitorStats } from "$lib/api/stats.js";
   import { conditionsApi, type MonitorCondition } from "$lib/api/conditions";
-  import { notificationsApi, type MonitorNotification } from "$lib/api/notifications";
+  import {
+    notificationsApi,
+    type MonitorNotification,
+  } from "$lib/api/notifications";
   import { tagsApi, type MonitorTag, type Tag } from "$lib/api/tags";
   import StatusPill from "$lib/components/StatusPill.svelte";
   import MetricCard from "$lib/components/MetricCard.svelte";
@@ -53,6 +56,9 @@
     AlertTriangle,
   } from "@lucide/svelte";
   import { goto } from "$app/navigation";
+  import RegionalAlerts from "$lib/components/RegionalAlerts.svelte";
+  import RegionalHealth from "$lib/components/RegionalHealth.svelte";
+  import ProbeAssignments from "$lib/components/ProbeAssignments.svelte";
   import { untrack } from "svelte";
   import * as m from "$lib/paraglide/messages.js";
   import Select from "$lib/components/Select.svelte";
@@ -138,8 +144,61 @@
     untrack(() => {
       stopPostClearPolling();
       initialDataSource = null;
+      selectedProbeId = null;
+      regionProbes = [];
+      chartRequestGeneration += 1;
       void loadDetails();
       void loadRegionProbes();
+    });
+  });
+
+  // One bounded chart refresh per burst; regional beats never reload the catalog.
+  $effect(() => {
+    const id = monitorId;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        void loadChartData(chartHours);
+      }, 2000);
+    };
+    const offBeat = realtime.on("monitor.probe.heartbeat", (payload) => {
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("monitor_id" in payload) ||
+        payload.monitor_id !== id
+      )
+        return;
+      if ("probe_id" in payload && payload.probe_id === selectedProbeId)
+        schedule();
+    });
+    const offHealth = realtime.on("monitor.health", (payload) => {
+      if (
+        typeof payload === "object" &&
+        payload !== null &&
+        "monitor_id" in payload &&
+        payload.monitor_id === id &&
+        selectedProbeId === null
+      )
+        schedule();
+    });
+    return () => {
+      clearTimeout(timer);
+      offBeat();
+      offHealth();
+    };
+  });
+  let regionConnectionEpoch = 0;
+  $effect(() => {
+    const epoch = realtime.connectionEpoch;
+    untrack(() => {
+      if (regionConnectionEpoch && epoch !== regionConnectionEpoch) {
+        void loadRegionProbes();
+        void loadChartData(chartHours);
+      }
+      regionConnectionEpoch = epoch;
     });
   });
 
@@ -334,7 +393,9 @@
 
   async function loadRegionProbes() {
     // 503 (probes disabled) or a hidden monitor simply leaves the picker out.
-    const assignments = await regionalApi.assignments(monitorId).catch(() => null);
+    const assignments = await regionalApi
+      .assignments(monitorId)
+      .catch(() => null);
     if (assignments) {
       regionProbes = assignments.assignments;
     }
@@ -924,6 +985,26 @@
 
     <MonitorConditions conditions={monitorConditions} now={conditionClock} />
 
+    {#key monitorId}
+      <RegionalHealth {monitorId} onSelect={handleRegionChange} />
+      <RegionalAlerts {monitorId} />
+      {#if isAdminUser && monitor}
+        <details class="rounded-xl border border-border bg-card p-5">
+          <summary class="cursor-pointer text-sm font-semibold"
+            >{m.probes_regions()}</summary
+          >
+          <div class="mt-4">
+            <ProbeAssignments
+              {monitorId}
+              monitorType={monitor.type}
+              standalone
+              onSaved={loadRegionProbes}
+            />
+          </div>
+        </details>
+      {/if}
+    {/key}
+
     <!-- Response time chart -->
     <ResponseTimeChart
       chart={chartData}
@@ -1011,7 +1092,9 @@
                   options={[
                     { value: "", label: m.monitor_detail_page_select_tag() },
                     ...allTags
-                      .filter((t) => !assignedTags.some((a) => a.tag_id === t.id))
+                      .filter(
+                        (t) => !assignedTags.some((a) => a.tag_id === t.id),
+                      )
                       .map((t) => ({ value: String(t.id), label: t.name })),
                   ]}
                   value={selectedTagToAdd}
@@ -1163,7 +1246,10 @@
             <div class="flex-1 sm:w-auto">
               <Select
                 options={[
-                  { value: "", label: m.monitor_detail_page_select_to_assign() },
+                  {
+                    value: "",
+                    label: m.monitor_detail_page_select_to_assign(),
+                  },
                   ...allNotifications
                     .filter(
                       (n) => !assignedNotifications.some((a) => a.id === n.id),
@@ -1207,7 +1293,9 @@
                 <div class="text-xs text-muted-foreground">{n.type}</div>
               </div>
               <div class="flex items-center gap-3">
-                <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <label
+                  class="flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
                   <input
                     type="checkbox"
                     checked={n.include_target}

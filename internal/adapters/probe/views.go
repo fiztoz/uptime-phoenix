@@ -48,6 +48,7 @@ type ProbeList struct {
 
 // ProbeCreateRequest is the admin create-registration body.
 type ProbeCreateRequest struct {
+	ProbeID        string `json:"probe_id,omitempty"`
 	Key            string `json:"key"`
 	Name           string `json:"name"`
 	Location       string `json:"location"`
@@ -121,9 +122,9 @@ type HealthView struct {
 	AsOf               Timestamp          `json:"as_of"`
 	UptimePercent      *float64           `json:"uptime_percent"`
 	CoveragePercent    *float64           `json:"coverage_percent"`
-	KnownSeconds       int64              `json:"known_seconds"`
-	UnknownSeconds     int64              `json:"unknown_seconds"`
-	MaintenanceSeconds int64              `json:"maintenance_seconds"`
+	KnownSeconds       float64            `json:"known_seconds"`
+	UnknownSeconds     float64            `json:"unknown_seconds"`
+	MaintenanceSeconds float64            `json:"maintenance_seconds"`
 	ProbeCounts        ProbeCountView     `json:"probe_counts"`
 	Regions            []HealthRegionView `json:"regions"`
 }
@@ -141,16 +142,16 @@ type ProbeCountView struct {
 
 // HealthRegionView is one region's public health row. Fleet totals are omitted.
 type HealthRegionView struct {
-	ProbeID          string    `json:"probe_id"`
-	Name             string    `json:"name"`
-	Location         string    `json:"location"`
-	Status           string    `json:"status"`
-	ConnectionStatus string    `json:"connection_status"`
-	ObservedAt       Timestamp `json:"observed_at"`
-	ReceivedAt       Timestamp `json:"received_at"`
-	FreshUntil       Timestamp `json:"fresh_until"`
-	ConfigSyncStatus string    `json:"config_sync_status"`
-	Reason           *string   `json:"reason"`
+	ProbeID          string     `json:"probe_id"`
+	Name             string     `json:"name"`
+	Location         string     `json:"location"`
+	Status           string     `json:"status"`
+	ConnectionStatus *string    `json:"connection_status"`
+	ObservedAt       *Timestamp `json:"observed_at"`
+	ReceivedAt       *Timestamp `json:"received_at"`
+	FreshUntil       *Timestamp `json:"fresh_until"`
+	ConfigSyncStatus *string    `json:"config_sync_status"`
+	Reason           *string    `json:"reason"`
 }
 
 // BrowserEvent is a hub-to-browser WebSocket frame, not the probe transport.
@@ -176,14 +177,14 @@ type ProbeStatusEvent struct {
 
 // MonitorProbeStatusEvent reports one region's freshness without fleet data.
 type MonitorProbeStatusEvent struct {
-	MonitorID        int64     `json:"monitor_id"`
-	ProbeID          string    `json:"probe_id"`
-	Status           string    `json:"status"`
-	ConnectionStatus string    `json:"connection_status"`
-	ObservedAt       Timestamp `json:"observed_at"`
-	ReceivedAt       Timestamp `json:"received_at"`
-	FreshUntil       Timestamp `json:"fresh_until"`
-	Reason           *string   `json:"reason"`
+	MonitorID        int64      `json:"monitor_id"`
+	ProbeID          string     `json:"probe_id"`
+	Status           string     `json:"status"`
+	ConnectionStatus *string    `json:"connection_status"`
+	ObservedAt       *Timestamp `json:"observed_at"`
+	ReceivedAt       *Timestamp `json:"received_at"`
+	FreshUntil       *Timestamp `json:"fresh_until"`
+	Reason           *string    `json:"reason"`
 }
 
 // ProbeConfigStatusEvent reports sync state with redacted validation errors.
@@ -310,8 +311,13 @@ func DecodeProbeCreateRequest(data []byte) (ProbeCreateRequest, error) {
 	if err != nil {
 		return ProbeCreateRequest{}, err
 	}
-	if err := rejectUnknownKeys(fields, "key", "name", "location", "endpoint", "tls_fingerprint"); err != nil {
+	if err := rejectUnknownKeys(fields, "probe_id", "key", "name", "location", "endpoint", "tls_fingerprint"); err != nil {
 		return ProbeCreateRequest{}, err
+	}
+	if _, present := fields["probe_id"]; present {
+		if err := requiredUUID(fields, "probe_id", &request.ProbeID); err != nil {
+			return ProbeCreateRequest{}, errors.New("invalid source probe identity")
+		}
 	}
 	if err := decodeRequiredFields(fields,
 		field{"key", &request.Key}, field{"name", &request.Name}, field{"location", &request.Location},
@@ -497,7 +503,7 @@ func DecodeHealthView(data []byte) (HealthView, error) {
 	if err := json.Unmarshal(countsRaw, &view.ProbeCounts); err != nil {
 		return HealthView{}, err
 	}
-	if view.MonitorID <= 0 || view.ProjectionVersion <= 0 || !validHTTPStatus(view.Status) {
+	if view.MonitorID <= 0 || view.ProjectionVersion < 0 || !validHTTPStatus(view.Status) {
 		return HealthView{}, errors.New("invalid health view identity")
 	}
 	if view.HealthPolicy != "any_down" && view.HealthPolicy != "all_down" {
@@ -506,12 +512,15 @@ func DecodeHealthView(data []byte) (HealthView, error) {
 	if view.KnownSeconds < 0 || view.UnknownSeconds < 0 || view.MaintenanceSeconds < 0 {
 		return HealthView{}, errors.New("health durations must be nonnegative")
 	}
-	if view.ProbeCounts.Assigned < 1 {
-		return HealthView{}, errors.New("health view requires a nonempty assignment set")
+	if view.ProbeCounts.Assigned < 0 {
+		return HealthView{}, errors.New("health view requires nonnegative assignment counts")
 	}
 	var regions []json.RawMessage
 	if err := required(fields, "regions", &regions); err != nil {
 		return HealthView{}, err
+	}
+	if view.ProbeCounts.Assigned != len(regions) {
+		return HealthView{}, errors.New("health assignment count does not match regions")
 	}
 	view.Regions = make([]HealthRegionView, 0, len(regions))
 	for _, raw := range regions {
@@ -599,18 +608,28 @@ func decodeMonitorProbeStatusEvent(data []byte) (MonitorProbeStatusEvent, error)
 	}
 	if err := decodeRequiredFields(fields,
 		field{"monitor_id", &event.MonitorID}, field{"status", &event.Status},
-		field{"connection_status", &event.ConnectionStatus}, field{"observed_at", &event.ObservedAt},
-		field{"received_at", &event.ReceivedAt}, field{"fresh_until", &event.FreshUntil},
 	); err != nil {
 		return MonitorProbeStatusEvent{}, err
 	}
 	if err := requiredProbeID(fields, "probe_id", &event.ProbeID); err != nil {
 		return MonitorProbeStatusEvent{}, err
 	}
+	if err := nullable(fields, "connection_status", &event.ConnectionStatus); err != nil {
+		return MonitorProbeStatusEvent{}, err
+	}
+	if err := nullable(fields, "observed_at", &event.ObservedAt); err != nil {
+		return MonitorProbeStatusEvent{}, err
+	}
+	if err := nullable(fields, "received_at", &event.ReceivedAt); err != nil {
+		return MonitorProbeStatusEvent{}, err
+	}
+	if err := nullable(fields, "fresh_until", &event.FreshUntil); err != nil {
+		return MonitorProbeStatusEvent{}, err
+	}
 	if err := nullable(fields, "reason", &event.Reason); err != nil {
 		return MonitorProbeStatusEvent{}, err
 	}
-	if event.MonitorID <= 0 || !validHTTPStatus(event.Status) || !validConnectionStatus(event.ConnectionStatus) {
+	if event.MonitorID <= 0 || !validHTTPStatus(event.Status) || (event.ConnectionStatus != nil && !validConnectionStatus(*event.ConnectionStatus)) {
 		return MonitorProbeStatusEvent{}, errors.New("invalid monitor probe status event")
 	}
 	return event, nil
@@ -705,16 +724,28 @@ func decodeHealthRegion(data []byte) (HealthRegionView, error) {
 	}
 	if err := decodeRequiredFields(fields,
 		field{"name", &region.Name}, field{"location", &region.Location}, field{"status", &region.Status},
-		field{"connection_status", &region.ConnectionStatus}, field{"observed_at", &region.ObservedAt},
-		field{"received_at", &region.ReceivedAt}, field{"fresh_until", &region.FreshUntil},
-		field{"config_sync_status", &region.ConfigSyncStatus},
 	); err != nil {
+		return HealthRegionView{}, err
+	}
+	if err := nullable(fields, "connection_status", &region.ConnectionStatus); err != nil {
+		return HealthRegionView{}, err
+	}
+	if err := nullable(fields, "observed_at", &region.ObservedAt); err != nil {
+		return HealthRegionView{}, err
+	}
+	if err := nullable(fields, "received_at", &region.ReceivedAt); err != nil {
+		return HealthRegionView{}, err
+	}
+	if err := nullable(fields, "fresh_until", &region.FreshUntil); err != nil {
+		return HealthRegionView{}, err
+	}
+	if err := nullable(fields, "config_sync_status", &region.ConfigSyncStatus); err != nil {
 		return HealthRegionView{}, err
 	}
 	if err := nullable(fields, "reason", &region.Reason); err != nil {
 		return HealthRegionView{}, err
 	}
-	if !validHTTPStatus(region.Status) || !validConnectionStatus(region.ConnectionStatus) || (region.ConfigSyncStatus != "pending" && region.ConfigSyncStatus != "applied" && region.ConfigSyncStatus != "rejected") {
+	if !validHTTPStatus(region.Status) || (region.ConnectionStatus != nil && !validConnectionStatus(*region.ConnectionStatus)) || (region.ConfigSyncStatus != nil && *region.ConfigSyncStatus != "pending" && *region.ConfigSyncStatus != "applied" && *region.ConfigSyncStatus != "rejected") {
 		return HealthRegionView{}, errors.New("invalid health region")
 	}
 	return region, nil

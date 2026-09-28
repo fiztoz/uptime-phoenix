@@ -1,9 +1,14 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type WebSocketRoute } from "@playwright/test";
 import { API_BASE, authToken, loginViaUI, uniqueName } from "./helpers";
 
 test("folder navigation retains content while catalogs refresh", async ({
   page,
 }) => {
+  let liveSocket: WebSocketRoute | undefined;
+  await page.routeWebSocket(/\/ws(?:\?|$)/, (socket) => {
+    liveSocket = socket;
+    socket.connectToServer();
+  });
   await loginViaUI(page);
   const token = await authToken(page);
   const headers = { Authorization: `Bearer ${token}` };
@@ -52,6 +57,26 @@ test("folder navigation retains content while catalogs refresh", async ({
     await expect(
       page.getByText("No monitors found. Create your first one."),
     ).not.toBeVisible();
+    // A regional projection can arrive between visits while HTTP is held.
+    // Refresh its rollups without erasing the cached folder structure.
+    expect(liveSocket).toBeDefined();
+    liveSocket?.send(
+      JSON.stringify({
+        type: "monitor.health",
+        payload: {
+          monitor_id: monitor.id,
+          projection_version: "1",
+          as_of: new Date().toISOString(),
+          status: "unknown",
+        },
+      }),
+    );
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
     await page.getByRole("link", { name: "Dashboard", exact: true }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
     await expect(

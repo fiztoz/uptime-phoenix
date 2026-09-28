@@ -1,5 +1,8 @@
 # M5 durable administrative operations
 
+> Historical slice record. Remaining M5 work was completed on 2026-09-29; see
+> [M5 completion and current acceptance](M5_COMPLETION.md).
+
 Status: fourth M5 slice, built on the [read API foundation](M5_FOUNDATION.md),
 [fleet diagnostics](M5_FLEET_DIAGNOSTICS.md) and [assignment writes](M5_ASSIGNMENT_WRITES.md).
 It implements the third of the foundation's ordered next slices: **durable

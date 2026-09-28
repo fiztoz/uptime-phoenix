@@ -178,7 +178,7 @@ func (s *ProbeDiagnosticsStore) ListProbeDiagnostics(ctx context.Context, after 
 	var rows []domain.ProbeDiagnostics
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		var registrations []probeRegistrationModel
-		q := tx.NewSelect().Model(&registrations).OrderExpr("probe.id ASC").Limit(limit)
+		q := tx.NewSelect().Model(&registrations).Where("probe.deleted_at IS NULL").OrderExpr("probe.id ASC").Limit(limit)
 		if after != "" {
 			q = q.Where("probe.id > ?", after)
 		}
@@ -210,7 +210,7 @@ func (s *ProbeDiagnosticsStore) GetProbeDiagnostics(ctx context.Context, probeID
 	var result *domain.ProbeDiagnostics
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		registration := new(probeRegistrationModel)
-		if err := tx.NewSelect().Model(registration).Where("probe.id = ?", probeID).Scan(ctx); err != nil {
+		if err := tx.NewSelect().Model(registration).Where("probe.id = ? AND probe.deleted_at IS NULL", probeID).Scan(ctx); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ports.ErrNotFound
 			}

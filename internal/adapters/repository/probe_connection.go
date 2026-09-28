@@ -111,7 +111,7 @@ func (s *ProbeConnectorStore) GetConnection(ctx context.Context, probeID string)
 // ListConnections returns at most the supported fleet bound for enabled probes.
 func (s *ProbeConnectorStore) ListConnections(ctx context.Context) ([]domain.ProbeConnection, error) {
 	var rows []probeConnectionRow
-	err := s.db.NewSelect().Model(&rows).Join("JOIN probes AS p ON p.id = pc.probe_id").Where("p.enabled = ?", true).Where("NOT EXISTS (SELECT 1 FROM probe_stream_resets r WHERE r.probe_id = pc.probe_id AND r.state = ?)", "prepared").OrderExpr("pc.probe_id ASC").Limit(1001).Scan(ctx)
+	err := s.db.NewSelect().Model(&rows).Join("JOIN probes AS p ON p.id = pc.probe_id").Where("p.enabled = ? AND p.revoked_at IS NULL AND p.deleted_at IS NULL", true).Where("NOT EXISTS (SELECT 1 FROM probe_stream_resets r WHERE r.probe_id = pc.probe_id AND r.state = ?)", "prepared").OrderExpr("pc.probe_id ASC").Limit(1001).Scan(ctx)
 	if err != nil {
 		return nil, probeConnectionError(ctx, err)
 	}

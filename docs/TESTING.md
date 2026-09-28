@@ -1430,7 +1430,8 @@ CGO-free build and linter remain required for changes to these paths.
 
 ## M5 read API foundation
 
-The first M5 slice exposes scoped health and desired assignments. See the
+M5 is complete; [completion evidence](multi-region/M5_COMPLETION.md) extends the
+earlier scoped health and desired-assignment slices. See the
 [contract and continuation guide](multi-region/M5_FOUNDATION.md) before extending
 it; null runtime diagnostics are deliberate and do not imply application.
 The [fleet diagnostics slice](multi-region/M5_FLEET_DIAGNOSTICS.md) adds the
@@ -1448,12 +1449,38 @@ that MariaDB tests executed.
 ```sh
 : "${TEST_MARIADB_DSN:?Set a disposable MariaDB test DSN}"
 export TEST_MARIADB_DSN
-rtk proxy go test -race -count=1 -timeout 2400s -json ./internal/core/services ./internal/adapters/http/handlers ./internal/adapters/repository -run 'TestMonitorRegional|TestRegionalDisplayHealthBoundaries|TestM5ReadAPI|TestM5HistoryAPI|TestMonitorRegionalHistory|TestM5FleetAPI|TestM5AssignmentWrites|TestM5AdminOperations|TestProbeFleet|TestProbeDiagnostics|TestProbeAdmin|TestValidateDesired|TestProbeAssignmentService|TestMonitorServiceClone|TestValidEnrollment|TestRuntimeEndpoint' > /tmp/m5-read.jsonl
+rtk proxy go test -race -count=1 -timeout 2400s -json ./internal/core/services ./internal/adapters/http/handlers ./internal/adapters/repository ./internal/adapters/ws ./internal/adapters/notifier -run 'TestMonitorRegional|TestRegionalDisplayHealthBoundaries|TestM5|TestProbeFleet|TestProbeDiagnostics|TestProbeAdmin|TestValidateDesired|TestProbeAssignmentService|TestMonitorServiceClone|TestValidEnrollment|TestRuntimeEndpoint|TestPublicRegionalCoverage|TestRegionalNotificationAttribution|TestRegionalEventsRecheck|TestRegionalCommandEvent|TestAccessChangePurges' > /tmp/m5-read.jsonl
 rtk proxy python3 scripts/m5_read_evidence.py /tmp/m5-read.jsonl
 ```
 
-The audit also accepts a full `go test -race -count=1 -timeout 2400s -json ./...`
+The audit also accepts a full `go test -race -count=1 -timeout 60m -json ./...`
 log. It requires successful completion of the affected packages and named SQLite
 and MariaDB cases, rejects failed tests and rejects required skips/missing passes.
-Full backend build, race tests, lint and vulnerability checks remain applicable;
-frontend gates become applicable when the browser slice changes frontend files.
+The suite now includes source revocation/deletion, ACK requester authority,
+current browser audience, public overall coverage and notification attribution.
+Full backend build, race tests, lint, vulnerability checks, frontend type/unit/
+build/lint and browser gates remain applicable. Run frontend generation/check,
+unit tests, build and E2E sequentially: the browser harness embeds `web/dist`,
+and Paraglide generation replaces files under the unit-test search root.
+
+### M5 real enrollment and partition acceptance
+
+`scripts/m5_runtime_smoke.py` starts a real hub, autonomous edge, pinned-TLS
+partition relay, local checker target and webhook sink. Use a **fresh disposable**
+localhost MariaDB database whose name ends in `_smoke`; the script refuses other
+DSNs. Set `DB_DSN` with `parseTime=true&loc=UTC&multiStatements=true`, then:
+
+```sh
+rtk proxy env CGO_ENABLED=0 go build -o /tmp/m5-app ./cmd/app
+rtk proxy env CGO_ENABLED=0 go build -o /tmp/m5-probe ./cmd/probe
+rtk proxy python3 scripts/m5_runtime_smoke.py --app-binary /tmp/m5-app --probe-binary /tmp/m5-probe --output /tmp/m5-runtime-acceptance
+```
+
+Use an unused output directory. It contains private runtime identities and logs;
+only its redacted `report.json` is suitable for a committed evidence record.
+The harness exercises API registration/enrollment from initialized source IDs,
+two regional streams, offline pending configuration and ACK, stale UNKNOWN,
+reconnect/application receipts, and one original remote outage incident/delivery.
+It terminates its own processes in `finally`. This process test complements
+browser and scoped-authority tests; it does not establish M6 load, populated
+production migration, kill-point or deployment acceptance.

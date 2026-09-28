@@ -227,8 +227,20 @@ func (s *MonitorRegionalService) Health(ctx context.Context, userID, monitorID i
 	if hours < 1 || hours > 720 || now.IsZero() {
 		return nil, domain.ErrValidation
 	}
+	if err := s.health.denyIfHidden(ctx, userID, monitorID); err != nil {
+		return nil, err
+	}
+	return s.HealthForPublication(ctx, monitorID, hours, now)
+}
+
+// HealthForPublication builds a system event after persistence commits. It grants
+// no browser access: the event adapter must authorize every recipient at fan-out.
+func (s *MonitorRegionalService) HealthForPublication(ctx context.Context, monitorID int64, hours int, now time.Time) (*MonitorRegionalHealth, error) {
+	if s == nil || s.health == nil || s.registry == nil || hours < 1 || hours > 720 || now.IsZero() {
+		return nil, domain.ErrValidation
+	}
 	now = now.UTC()
-	current, err := s.health.Current(ctx, userID, monitorID, now)
+	current, err := s.health.evaluate(ctx, monitorID, now)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +248,7 @@ func (s *MonitorRegionalService) Health(ctx context.Context, userID, monitorID i
 	if err != nil {
 		return nil, err
 	}
-	history, err := s.health.History(ctx, userID, monitorID, now.Add(-time.Duration(hours)*time.Hour), now)
+	history, err := s.health.reconstruct(ctx, monitorID, now.Add(-time.Duration(hours)*time.Hour), now, now)
 	if err != nil {
 		return nil, err
 	}

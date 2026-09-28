@@ -509,7 +509,10 @@ func healProbeNetworkIdentity(t *testing.T, f probeRegistryFixture, downgraded *
 	if err := runEngineMigration(t, f.db, f.engine, "071_probe_operations", "up"); err != nil {
 		t.Fatal(err)
 	}
-	*downgraded = slices.DeleteFunc(*downgraded, func(name string) bool { return name == "071_probe_operations" })
+	if err := runEngineMigration(t, f.db, f.engine, "072_probe_revocation", "up"); err != nil {
+		t.Fatal(err)
+	}
+	*downgraded = slices.DeleteFunc(*downgraded, func(name string) bool { return name == "071_probe_operations" || name == "072_probe_revocation" })
 }
 
 func probeTableColumns(t *testing.T, db *bun.DB, table string) []string {

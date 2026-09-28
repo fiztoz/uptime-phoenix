@@ -36,6 +36,8 @@ const (
 // workflow, never an ordinary update. Enrollment copies them into the prepared
 // connection; neither value is authentication material.
 type Probe struct {
+	RevokedAt *time.Time
+	DeletedAt *time.Time
 	ID        string
 	Key       string
 	Name      string

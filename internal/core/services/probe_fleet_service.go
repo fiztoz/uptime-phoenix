@@ -10,9 +10,7 @@ import (
 
 // Diagnostic vocabulary (protocol section 7). Empty string always means
 // unreported: null on the wire, never online, applied, ready or failed.
-// The reserved values "revoked" (connection and execution) and "failed"
-// (enrollment) require the durable operation evidence of a later slice and
-// are deliberately not synthesized here.
+// Revocation is derived only from its durable registration timestamp.
 const (
 	ProbeEnrollmentUnconfigured = "unconfigured"
 	ProbeEnrollmentPending      = "pending"
@@ -106,6 +104,10 @@ func ProbeDiagnosticsSummary(at time.Time, d domain.ProbeDiagnostics) ProbeDiagn
 		summary.EnrollmentState = ProbeEnrollmentPending
 	}
 
+	if d.Registration.RevokedAt != nil {
+		summary.ConnectionStatus, summary.ExecutionStatus = "revoked", "revoked"
+		return summary
+	}
 	summary.ConnectionStatus = probeConnectionStatus(at, d)
 	if !d.Registration.Enabled {
 		summary.ExecutionStatus = ProbeExecutionPaused

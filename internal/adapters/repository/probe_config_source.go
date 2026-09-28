@@ -82,7 +82,7 @@ func readProbeConfigSource(ctx context.Context, tx bun.Tx, probeID string) (*dom
 	if probeID == domain.LocalProbeID {
 		kind = domain.ProbeKindLocal
 	}
-	if !registration.Enabled || registration.Kind != kind {
+	if !registration.Enabled || registration.RevokedAt != nil || registration.DeletedAt != nil || registration.Kind != kind {
 		return nil, domain.ErrValidation
 	}
 	if probeID == domain.LocalProbeID {

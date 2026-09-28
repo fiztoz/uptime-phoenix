@@ -1,5 +1,8 @@
 # M5 fleet diagnostics and admin read API
 
+> Historical slice record. Remaining M5 work was completed on 2026-09-29; see
+> [M5 completion and current acceptance](M5_COMPLETION.md).
+
 Status: second M5 slice, built on the [read API foundation](M5_FOUNDATION.md).
 It implements the first of the foundation's ordered next slices: **safe runtime
 diagnostics and fleet read API**. Assignment writes, operations, regional

@@ -79,7 +79,7 @@ func (TeamsSender) Send(ctx context.Context, config map[string]any, alert domain
 			themeColor = "808080"
 		}
 		title = fmt.Sprintf("Phoenix Alert: %s is %s", alert.MonitorName, alert.Status)
-		text = alert.Message + targetLine
+		text = alertBody(alert) + targetLine
 		if alert.CheckOutput != "" {
 			text += "\n" + alert.CheckOutput
 		}

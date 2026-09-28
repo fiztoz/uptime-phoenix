@@ -415,7 +415,10 @@ expiry are normalized to UTC before database writes. See
 
 ## 7. Hub administrative HTTP API
 
-These are proposed endpoints under the existing Echo router. Feature-disabled routes return a typed unavailable/not-implemented response; they do not return fake success. Use explicit Views and the existing auth/error helpers.
+These endpoints are implemented under the existing Echo router as of
+[M5 completion](M5_COMPLETION.md). Feature-disabled routes return typed
+unavailable responses; they do not return fake success. Use explicit Views and
+the existing auth/error helpers.
 
 Implementation boundary: the [M5 foundation](M5_FOUNDATION.md) implements only the
 two scoped GET routes for monitor `probes` and `health`. The
@@ -425,10 +428,10 @@ implements `PUT /api/monitors/:id/probes`, the monitor-create extension and the
 clone rule. The [administrative operations slice](M5_ADMIN_OPERATIONS.md)
 implements `POST /api/probes`, `PATCH /api/probes/:probe_id`, the
 enroll/rotate-credential/reset-stream routes and `GET /api/probe-operations/:operation_id`;
-revoke and delete remain proposed. The [regional history slice](M5_REGIONAL_HISTORY.md)
+the [completion slice](M5_COMPLETION.md) implements revoke/delete, incident reads,
+ACK commands and requester-scoped receipt reads. The [regional history slice](M5_REGIONAL_HISTORY.md)
 implements the relationship-checked `GET /api/monitors/:id/probes/:probe_id/heartbeats`
-and its `/chart` route. The other routes in this table remain
-proposed until their acceptance is recorded.
+and its `/chart` route. The route table below is the accepted V1 surface.
 
 Endpoint and TLS pin are frozen on the registration (create-only immutable
 identity; enrollment copies them into the prepared connection), and
@@ -440,10 +443,10 @@ Fleet routes require an authenticated admin; follow the established session-or-w
 | Method and path | Request / result |
 |---|---|
 | `GET /api/probes` | Admin fleet list with pagination; returns `items`, `next_cursor` |
-| `POST /api/probes` | Create registration using `key`, `name`, `location`, `endpoint`, `tls_fingerprint`; returns 201 ProbeView, initially `unconfigured` |
+| `POST /api/probes` | Create registration using `key`, `name`, `location`, `endpoint`, `tls_fingerprint` and optional `probe_id` from source initialization; returns 201 ProbeView, initially `unconfigured` |
 | `GET /api/probes/:probe_id` | Admin ProbeView |
 | `PATCH /api/probes/:probe_id` | Update `name`, `location`, `enabled` with expected `revision`; endpoint/pin changes require explicit identity workflow |
-| `POST /api/probes/:probe_id/enroll` | Write-only body `{ "enrollment_token": "<phx_probe_enroll_…>" }`; returns 202 operation receipt |
+| `POST /api/probes/:probe_id/enroll` | Write-only body `{ "enrollment_token": "<phx_probe_enroll_…>", "stream_id": "<source UUID>" }`; returns 202 operation receipt; stream_id can be omitted only when the connection is already prepared |
 | `POST /api/probes/:probe_id/rotate-credential` | Body `{ "credential_version": "<positive decimal>" }`; returns 202 operation receipt; no plaintext token in the request or response |
 | `POST /api/probes/:probe_id/revoke` | Body `{ "reason": "<redacted string>" }`; returns 202 revoke receipt |
 | `POST /api/probes/:probe_id/reset-stream` | Body `{ "stream_id": "<uuid>", "enrollment_operation_id": "<uuid>" }`; returns 202 operation receipt |
@@ -454,7 +457,26 @@ Fleet routes require an authenticated admin; follow the established session-or-w
 | `GET /api/monitors/:id/probes/:probe_id/heartbeats` | Authorized regional history, preserving existing `hours`, `limit`, `order`, `important` query semantics |
 | `GET /api/monitors/:id/probes/:probe_id/heartbeats/chart` | Regional chart; validates monitor/probe relationship before access |
 | `GET /api/monitors/:id/health` | Overall health, regional counts, coverage, policy and projection version |
+| `GET /api/monitors/:id/probe-alerts` | Bare array of authorized source incidents with safe region attribution |
 | `POST /api/monitors/:id/probe-alerts/:alert_id/ack` | Existing authenticated monitor-visibility acknowledgement authority (no new capability flag); returns 202 command receipt pending remote application |
+| `GET /api/monitors/:id/probe-alerts/:alert_id/ack/:command_id` | Command receipt for its requester or admin with current monitor visibility |
+
+Manual enrollment uses the exact `probe_id`, `stream_id`, and certificate
+fingerprint emitted by probe initialization. The UI requires the source ID at
+registration. Omitted `probe_id` remains supported for older registration
+callers; that generated registration can only enroll a source with the same
+identity. The hub never invents a replacement stream to fit an initialized edge.
+Both source IDs must be canonical non-nil lowercase UUIDs. A supplied stream
+must match an already prepared connection.
+
+Incident rows contain `source_alert_id`, `monitor_id`, `probe_id`, `probe_name`,
+`location`, `assignment_generation` (decimal string), `status`, `subject_kind`,
+`reason`, `started_at`, nullable `acked_at`, and nullable `resolved_at`. The ACK
+body accepts optional `command_id` (UUID) and `note`; the authenticated user
+supplies the actor identity. An exact retry preserves the command; conflicting
+reuse returns 409. Availability incidents support ACK. Capacity, certificate,
+and watchdog ACK are not enabled by this endpoint. A queued command never edits
+the source incident mirror into an acknowledged state before source telemetry.
 
 `ProbeView` fields: `id`, `key`, `name`, `location`, `kind`, `enabled`, `enrollment_state`, `connection_status`, `execution_status`, `last_seen_at`, `agent_version`, `protocol_version`, `desired_config_revision`, `applied_config_revision`, `queue_bytes`, `oldest_queued_at`, `revision`, `created_at`, `updated_at`. Admin detail additionally exposes `endpoint`, `tls_fingerprint`, `certificate_expires_at`, `credential_version`, and `capabilities`; none of those grant runtime authentication. Per the frozen M0 decoder these read shapes are load-bearing: config revisions render the decimal string `"0"` when unreported, `capabilities` renders `[]`, the lifecycle statuses always carry a vocabulary value, and `protocol_version` is a nullable number. Unknown values are null.
 
@@ -462,9 +484,10 @@ Admin detail also carries a `diagnostics` object with the nonsecret evidence
 sections `enrollment`, `connection`, `runtime`, `watchdog`, and `config`
 (`desired`, `applied`, `sync_status`), as specified by the
 [fleet diagnostics slice](M5_FLEET_DIAGNOSTICS.md). `agent_version`,
-`protocol_version`, `queue_bytes`, `oldest_queued_at`, and `capabilities` stay
-null until their evidence sources exist; document digests, stream identities,
-key hashes and credential bytes are never disclosed on any surface.
+`protocol_version`, `queue_bytes`, and `oldest_queued_at` stay null until their
+evidence sources exist; `capabilities` stays `[]` when unreported. Document
+digests, stream identities, key hashes and credential bytes are never disclosed
+by these read views.
 
 Connection states are `never_connected`, `online`, `suspect`, `disconnected`, `revoked`; enrollment states are `unconfigured`, `pending`, `active`, `failed`; execution states are `unconfigured`, `ready`, `degraded`, `paused`, `revoked`. Keep these independent of target availability status.
 
@@ -482,6 +505,14 @@ An operation receipt has exactly:
 | `error` | Null unless `status` is `failed`; otherwise `{ "code": "<machine code>", "message": "<redacted>" }` |
 
 A command receipt has exactly `command_id` (canonical UUID), `status` (`pending`, `applied`, `failed`, `expired`), and `remote_confirmed` (boolean). A revoke receipt is an operation receipt plus `remote_confirmed` (boolean): `true` only after the probe confirmed revocation; `false` means the hub recorded it and the remote side is unconfirmed. None of these receipts includes a token or private key. Feature-disabled handlers for these paths must not return 2xx for unperformed work.
+
+V1 revocation commits a hub receipt with `status: "succeeded"`,
+`phase: "revoked_locally"`, and `remote_confirmed: false`. It fences admission,
+connector ownership and command writes in storage; it does not prove an offline
+edge has stopped executing its accepted configuration. Soft deletion performs
+that same revocation and retains historical identities/receipts. Migrations 072
+and 073 preserve revocation and command-requester authority; their down migrations
+refuse to discard populated authority data.
 
 ### 7.1 Assignment replacement
 
@@ -533,6 +564,15 @@ GET additionally includes safe `name`, `location`, and `bindings` (`kind`,
 `binding_key`) per member. See the foundation's executable JSON fixtures before
 writing browser callers.
 
+Health `projection_version` may be `"0"` before any projection, and durations
+are numbers that may contain fractional seconds. An empty assignment set has
+zero counts. Region timestamps and connection/config diagnostics are nullable
+in both HTTP and browser decoders. Public monitor views expose only nullable
+`coverage_percent` for the overall last 24 hours; overall history supplies
+uptime and history bars for remote assignments. They expose no regional inventory
+and no synthetic overall latency. Local-only views retain their prior history
+behavior and omit a coverage value (`null`).
+
 ### 7.3 Error semantics
 
 Preserve the existing error key: `{ "error": "human-readable explanation", "code": "machine_code" }`. The additive machine-readable `code` does not rename `error` to `message`. New validation endpoints may add `fields`, mapping paths to error codes. The important statuses are 400 malformed input; 401 missing/invalid credential; 403 authenticated but missing administrative authority; 404 hidden or absent monitor; 409 revision/identity/assignment conflict; 413 size limit; 422 supported request with invalid configuration; 429 rate limit; 503 transient unavailable storage/feature activation; 501 endpoint deliberately not implemented in a staged build. Never report 200/204 for an unperformed mutation.
@@ -550,10 +590,21 @@ The browser WebSocket is not the probe transport. Continue to use `internal/adap
 | `monitor.health` | Authorized monitor viewers; HealthView without unrelated fleet data |
 | `probe.config.status` | Admin operation views; probe/revision/sync state and redacted validation errors |
 | `probe.command.status` | Authorized operation requester/admin; command receipt |
+| `access.changed` | Affected authenticated user; empty payload invalidates private browser caches and is followed by a newly scoped monitor snapshot |
 
 Every payload containing a monitor ID is filtered through the existing AccessService monitor set. Administrative status streams require admin independently of monitor grants. Permission revocation takes effect on subsequent fan-out and refresh. No channel sends raw snapshot/provider configuration to browsers.
 
 Use monotonically increasing `projection_version` to invalidate existing dashboard/Insights/navigation caches. The browser ignores older versions and resynchronizes after reconnect/gap. Batch regional updates per animation frame or bounded interval; never introduce a full-monitor-list query for every regional heartbeat. Tests must retain baseline query-count budgets.
+
+Decimal versions are compared as integers without Number precision loss; equal
+versions use `as_of` to reject older freshness snapshots. API replicas publish
+from bounded queues after committed ingestion, with freshness expiry refreshes.
+Regional heartbeat events name actual persisted observations, never reconstructed
+current snapshots. Projection changes supersede in-flight catalog reads while
+retaining their bounded first-paint data across navigation; permission changes
+clear that data immediately. Private command routing metadata is removed before
+the receipt reaches the browser. Every regional fan-out rechecks AccessService
+instead of relying on the WebSocket hub's older cached audience.
 
 ## 9. Contract fixtures required before parallel implementation
 

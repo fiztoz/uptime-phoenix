@@ -11,6 +11,7 @@ import (
 type ProbeStateService struct {
 	repository  ports.ProbeStateRepository
 	authorizer  ports.ProbeStateAuthorizer
+	browser     regionalGroupAlerter
 	groupAlerts regionalGroupAlerter
 	recovery    regionalRecovery
 }
@@ -22,6 +23,9 @@ func NewProbeStateService(repository ports.ProbeStateRepository, authorizer port
 	}
 	return &ProbeStateService{repository: repository, authorizer: authorizer}, nil
 }
+
+// SetBrowserPublisher attaches best-effort post-commit browser invalidation.
+func (s *ProbeStateService) SetBrowserPublisher(browser regionalGroupAlerter) { s.browser = browser }
 
 // SetGroupAlerter attaches hub-owned folder paging after a current snapshot
 // commits. Optional, and never consulted when the snapshot is rejected.
@@ -48,6 +52,9 @@ func (s *ProbeStateService) ApplySnapshot(ctx context.Context, session domain.Pr
 	// MonitorIDs are the active assignments this snapshot reconciled, including
 	// omissions. An identical retry leaves the list empty so it cannot page twice.
 	s.recovery.resolve(ctx, receipt.MonitorIDs)
+	if s.browser != nil {
+		s.browser.OnRegionalEvidence(ctx, receipt.MonitorIDs)
+	}
 	if s.groupAlerts != nil {
 		s.groupAlerts.OnRegionalEvidence(ctx, receipt.MonitorIDs)
 	}

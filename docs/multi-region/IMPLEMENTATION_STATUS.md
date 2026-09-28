@@ -1,12 +1,16 @@
 # Multi-region implementation status
 
-Updated 2026-09-27 with the [M5 regional history routes](M5_REGIONAL_HISTORY.md),
+Updated 2026-09-29 with [M5 completion](M5_COMPLETION.md) and
+[executed evidence](M5_COMPLETION_EVIDENCE.json): fleet/enrollment UI, durable
+revocation/delete, regional views and ACKs, authorized live updates and public
+overall coverage. The next milestone is M6 validation and controlled activation.
+This follows the [M5 regional history routes](M5_REGIONAL_HISTORY.md),
 following the [M5 durable administrative operations](M5_ADMIN_OPERATIONS.md),
 the [M5 fleet diagnostics and admin read API](M5_FLEET_DIAGNOSTICS.md),
 the [M5 read API foundation](M5_FOUNDATION.md) and the
 [M0–M4 review fixes](M4_REVIEW_FIXES.md) for escalation
 delivery, stream-scoped history clearing, restore activation and remote public
-incident recovery. The latest feature slice remains M4 maintenance and notification sync; see
+incident recovery. Earlier M4 maintenance and notification sync is recorded in
 [maintenance and notification sync](M4_MAINTENANCE_NOTIFICATIONS.md). The previous
 capability advertisement slice is recorded in
 [capability advertisement](M4_CAPABILITY_ADVERTISEMENT.md). The previous
@@ -24,7 +28,7 @@ This is the current status. Check HEAD and newer acceptance records before start
 | M2 autonomous runtime and enrollment | Accepted for HTTP/TCP/DNS | [M2 acceptance](M2_ACCEPTANCE_REPORT.md), [operator guide](M2_OPERATOR_GUIDE.md) |
 | M3 synchronization and recovery | Complete for the supported runtime | [Final acceptance](M3_COMPLETION_ACCEPTANCE.md), [hashed evidence](M3_COMPLETION_EVIDENCE.json) |
 | M4 compatibility | Pull-checker, TLS evidence, certificate paging, capacity state, capacity paging, escalation, group/status-page recovery, Insights, backup/config, lifecycle/recovery, deployment compatibility, group-notification, capability advertisement, and maintenance/notification sync slices accepted | [Initial coverage](M4_PULL_CHECKER_ACCEPTANCE.md), [Docker bindings](M4_DOCKER_BINDINGS.md), [TLS evidence](M4_TLS_EVIDENCE.md), [certificate paging](M4_CERT_PAGING.md), [capacity state](M4_CAPACITY_STATE.md), [capacity paging](M4_CAPACITY_PAGING.md), [escalation](M4_ESCALATION.md), [group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md), [Insights](M4_INSIGHTS.md), [backup/config](M4_BACKUP_CONFIG.md), [lifecycle/recovery](M4_LIFECYCLE_RECOVERY.md), [deployment compatibility](M4_DEPLOYMENT_COMPAT.md), [group notifications](M4_GROUP_NOTIFICATIONS.md), [capability advertisement](M4_CAPABILITY_ADVERTISEMENT.md), [maintenance and notification sync](M4_MAINTENANCE_NOTIFICATIONS.md). M4 compatibility rows are accepted
-| M5 fleet UI and API | Started: scoped monitor reads, fleet diagnostics/admin reads, revisioned assignment writes, durable administrative operations and regional history routes; not complete | [Regional history](M5_REGIONAL_HISTORY.md), [admin operations](M5_ADMIN_OPERATIONS.md), [assignment writes](M5_ASSIGNMENT_WRITES.md), [fleet diagnostics](M5_FLEET_DIAGNOSTICS.md), [frozen fixtures and next slices](M5_FOUNDATION.md). Revocation/delete, the history-slice UI (views, i18n, browser tests), the section-7.2 compatibility activation and browser events remain |
+| M5 fleet UI and API | Complete for V1 | [Completion](M5_COMPLETION.md), [hashed evidence](M5_COMPLETION_EVIDENCE.json), [wire contract](M5_COMPLETION_CONTRACT.md). Full dual-engine race suite, 18 browser cases and real pinned-TLS process partition/recovery acceptance passed |
 | M6 release validation | Not complete | Cross-feature failure tests and controlled V1 activation |
 | M7–M9 | Future work | Optional aggregate paging, SSH provisioning and push gateway |
 
@@ -94,8 +98,8 @@ not get separate wire names ([capability advertisement](M4_CAPABILITY_ADVERTISEM
 A published snapshot keeps the maintenance schedule, direct links, provider and
 template settings, target visibility, tags, effective owner and escalation policy
 the edge executes. Hub and probe binaries embed the IANA database
-([maintenance and notification sync](M4_MAINTENANCE_NOTIFICATIONS.md)). Fleet
-UI remains M5. Watchdog ACK is
+([maintenance and notification sync](M4_MAINTENANCE_NOTIFICATIONS.md)). Fleet and
+regional UI are complete in [M5](M5_COMPLETION.md). Watchdog ACK is
 not supported by the regional positive-assignment-generation command target.
 Provider delivery retains its documented external-acceptance ambiguity. A WAL
 admission threshold is not a hard filesystem quota. Local acceptance does not

@@ -32,7 +32,7 @@ func lockProbeSession(ctx context.Context, tx bun.Tx, session domain.ProbeReplay
 	if err := tx.NewSelect().Model(&registration).Where("id = ?", session.ProbeID).Scan(ctx); err != nil {
 		return replaySessionAuthority{}, err
 	}
-	if !registration.Enabled || registration.Kind != domain.ProbeKindRemote {
+	if !registration.Enabled || registration.RevokedAt != nil || registration.DeletedAt != nil || registration.Kind != domain.ProbeKindRemote {
 		return replaySessionAuthority{}, ports.ErrConflict
 	}
 	if err := requireNoStreamReset(ctx, tx, session.ProbeID, false); err != nil {

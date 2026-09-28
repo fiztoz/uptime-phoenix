@@ -1,6 +1,8 @@
 # Multi-region continuation guide
 
-**M5 continuation starts at [the foundation and frozen read contracts](M5_FOUNDATION.md).**
+**M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then
+choose authorized M6 validation/activation work.**
+The earlier [foundation and frozen read contracts](M5_FOUNDATION.md) remain useful.
 The first slice exposes scoped health and desired assignments. The second,
 [fleet diagnostics](M5_FLEET_DIAGNOSTICS.md), adds the safe runtime diagnostic
 read model and the admin `GET /api/probes` list/detail reads. The third,
@@ -10,9 +12,9 @@ replacement, atomic create-with-assignments and the clone rule. The fifth,
 network trust and lands registration writes plus durable enroll/rotate/reset
 operations. The sixth,
 [regional history](M5_REGIONAL_HISTORY.md), adds the relationship-checked
-regional history/chart routes. Revocation, the UI half of the history slice
-(views, i18n, browser tests), regional charts UI and browser events remain;
-do not infer completion from the full proposed route table.
+regional history/chart routes. [M5 completion](M5_COMPLETION.md) adds durable
+revocation/delete, fleet and regional UI, incident ACK, public overall coverage,
+and authorized browser events, with actual SQLite/MariaDB and process evidence.
 
 M3 is complete at implementation `a12a3fa`, recorded in `8b455d4`; the first
 M4 pull-checker slice is recorded in
@@ -61,9 +63,9 @@ before choosing work. Completed M2/M3 handoffs are not active assignments.
    relevant [architecture](ARCHITECTURE.md) and [protocol](PROTOCOL.md) sections.
 2. Inspect HEAD, the working tree and current migrations. Preserve unrelated work;
    do not recreate completed types, enrollment, replay or recovery mechanisms.
-3. Select a bounded requirement from [M4](IMPLEMENTATION_PLAN.md#7-m4--existing-feature-and-operational-compatibility)
-   or [M5](IMPLEMENTATION_PLAN.md#8-m5--admin-api-and-regional-user-experience) under
-   the user's requested scope. Those milestones are not authorized by an old M3 ledger.
+3. Select a bounded requirement from [M6](IMPLEMENTATION_PLAN.md#9-m6--failure-validation-and-v1-activation)
+   under the user's requested scope. Production activation needs the operator's
+   approval; M5 acceptance does not authorize deployment.
 4. Trace the production entry points and actual DTOs, freeze file ownership when
    delegating, and write effect-based acceptance before claiming completion.
 5. Run the relevant gates from the testing guide, inspect actual MariaDB pass/skip
@@ -97,7 +99,7 @@ their original incident. Cleanup preserves unresolved dependencies and tombstone
 No lease lock spans provider I/O. See [the retrospective](../postmortems/2026-09-21-m3-integration.md)
 for the reproduced failures behind these rules.
 
-M4 compatibility and M5 UI must preserve local-only defaults, current authorization,
+Further work must preserve M4 compatibility, M5 UI, local-only defaults, current authorization,
 JSON names and the locked monitor/provider inventory. Complete design tables may
 include future behavior; the status and acceptance records define what runs today.
 Historical checkpoint evidence remains committed. Superseded delegation and progress

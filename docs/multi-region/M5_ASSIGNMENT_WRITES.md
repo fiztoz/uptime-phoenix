@@ -1,5 +1,8 @@
 # M5 revisioned assignment writes
 
+> Historical slice record. Remaining M5 work was completed on 2026-09-29; see
+> [M5 completion and current acceptance](M5_COMPLETION.md).
+
 Status: third M5 slice, built on the [read API foundation](M5_FOUNDATION.md)
 and [fleet diagnostics](M5_FLEET_DIAGNOSTICS.md). It implements the second of
 the foundation's ordered next slices: **revisioned assignment writes**.
