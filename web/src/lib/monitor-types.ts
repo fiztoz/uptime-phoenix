@@ -112,6 +112,13 @@ export interface Heartbeat {
   message: string;
   time: string;
   important: boolean;
+  /**
+   * Section-7.2 compatibility markers. `overall` rows are policy-evaluated
+   * segments with the unmeasured zero ping; only `local`/`regional` rows carry
+   * measured latency. Optional: legacy browser WebSocket rows do not send them.
+   */
+  scope?: "local" | "overall" | "regional";
+  latency_available?: boolean;
 }
 
 export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {

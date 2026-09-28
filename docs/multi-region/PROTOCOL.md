@@ -508,6 +508,16 @@ Existing HTTP heartbeat wire names remain `id`, `monitor_id`, `status`, `ping`, 
 
 The existing unqualified monitor heartbeat endpoint represents overall monitor history for a multi-probe monitor. Add `scope: "overall"` and `latency_available: false`; `ping` is the existing unmeasured zero sentinel. Overall chart responses have no synthetic latency buckets and carry downtime/unknown intervals. The updated UI uses selected regional endpoints for latency. A local-only monitor preserves today's measured response behavior. This is an explicit compatibility change to verify against every dashboard, badge, status-page, and external client contract before activation.
 
+Activation record (regional history slice): the markers live **per row** on
+the unqualified list (the response stays a bare array for compatibility) and
+on the chart envelope; `scope` values are `local`, `overall`, `regional`. A
+multi-probe monitor's rows are synthesized policy segments with `id` as a
+1-based window sequence (interval identity is not persisted), `message` as the
+bounded interval reason, and `important` marking status changes. The frozen
+baseline heartbeat contract gained the two additive fields in the same commit,
+and the full browser suite verified the dashboard, monitor, status-page, RBAC,
+escalation and ack contracts before activation.
+
 Overall HealthView fields: `monitor_id`, `status`, `health_policy`, `projection_version`, `as_of`, `uptime_percent` (number or null), `coverage_percent` (number or null), `known_seconds`, `unknown_seconds`, `maintenance_seconds`, `probe_counts` (assigned/up/down/pending/unknown/maintenance/paused), and `regions`. A region contains only `probe_id`, `name`, `location`, `status`, `connection_status`, `observed_at`, `received_at`, `fresh_until`, `config_sync_status`, and `reason` (nullable). Public status views omit `regions` in V1.
 
 The first M5 read slice accepts one `hours` integer from 1 through 720 (default

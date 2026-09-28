@@ -389,12 +389,15 @@ function createWsStore() {
         break;
       }
       case "status.change": {
-        const { monitor_id, status: newStatus, projection_version } =
-          event.payload as {
-            monitor_id: number;
-            status: string;
-            projection_version?: number;
-          };
+        const {
+          monitor_id,
+          status: newStatus,
+          projection_version,
+        } = event.payload as {
+          monitor_id: number;
+          status: string;
+          projection_version?: number;
+        };
         if (noteProjection(monitor_id, projection_version) === "stale") break;
         appendWsDebugEvent("status.change", monitor_id);
         monitors = monitors.map((m) =>

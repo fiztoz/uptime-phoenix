@@ -5,6 +5,10 @@
     type Heartbeat as WsHeartbeat,
   } from "$lib/stores/ws.svelte.js";
   import { heartbeatsApi, type Heartbeat } from "$lib/api/heartbeats.js";
+  import {
+    regionalApi,
+    type MonitorProbeAssignmentView,
+  } from "$lib/api/regional.js";
   import { statsApi, type MonitorStats } from "$lib/api/stats.js";
   import { conditionsApi, type MonitorCondition } from "$lib/api/conditions";
   import { notificationsApi, type MonitorNotification } from "$lib/api/notifications";
@@ -86,6 +90,9 @@
   let chartHours = $state(24);
   let chartLoading = $state(false);
   let chartRequestGeneration = 0;
+  /** Regional members for the latency-selection picker (empty for local-only). */
+  let regionProbes = $state<MonitorProbeAssignmentView[]>([]);
+  let selectedProbeId = $state<string | null>(null);
   let lastKnownStatus = $state<string | null>(null);
   let lastProcessedHeartbeatTime = $state<string | null>(null);
 
@@ -132,6 +139,7 @@
       stopPostClearPolling();
       initialDataSource = null;
       void loadDetails();
+      void loadRegionProbes();
     });
   });
 
@@ -302,12 +310,34 @@
     chartHours = hours;
     const generation = ++chartRequestGeneration;
     chartLoading = true;
-    const nextChart = await heartbeatsApi
-      .chart(monitorId, hours)
-      .catch(() => null);
+    // Latency selection: a selected region reads its own measured regional
+    // endpoint; the overall stream carries no measured latency.
+    const nextChart = await (selectedProbeId
+      ? regionalApi
+          .chart(monitorId, selectedProbeId, hours)
+          .then((c) => ({
+            ...c,
+            scope: "regional" as const,
+            latency_available: true,
+          }))
+          .catch(() => null)
+      : heartbeatsApi.chart(monitorId, hours).catch(() => null));
     if (generation !== chartRequestGeneration) return;
     chartData = nextChart;
     chartLoading = false;
+  }
+
+  function handleRegionChange(probeId: string) {
+    selectedProbeId = probeId === "all" ? null : probeId;
+    void loadChartData(chartHours);
+  }
+
+  async function loadRegionProbes() {
+    // 503 (probes disabled) or a hidden monitor simply leaves the picker out.
+    const assignments = await regionalApi.assignments(monitorId).catch(() => null);
+    if (assignments) {
+      regionProbes = assignments.assignments;
+    }
   }
 
   async function loadDetails() {
@@ -900,7 +930,28 @@
       selectedHours={chartHours}
       onRangeChange={handleChartRangeChange}
       loading={chartLoading}
-    />
+    >
+      {#snippet regionPicker()}
+        {#if regionProbes.length > 1}
+          <div class="w-44">
+            <Select
+              options={[
+                { value: "all", label: m.monitor_detail_region_all() },
+                ...regionProbes.map((p) => ({
+                  value: p.probe_id,
+                  label: p.name || p.probe_id,
+                })),
+              ]}
+              value={selectedProbeId ?? "all"}
+              onValueChange={handleRegionChange}
+              ariaLabel={m.monitor_detail_region_label()}
+              size="sm"
+              class="w-full"
+            />
+          </div>
+        {/if}
+      {/snippet}
+    </ResponseTimeChart>
 
     <!-- Status history table (clearing destroys data: admin-only, like the API) -->
     <StatusHistoryTable

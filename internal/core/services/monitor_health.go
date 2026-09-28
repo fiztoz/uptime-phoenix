@@ -42,6 +42,15 @@ func (s *MonitorHealthService) SetProjections(store ports.MonitorHealthProjectio
 	s.projections = store
 }
 
+// SetAccess wires the authorization choke point after construction. Health
+// reads without it treat every monitor as hidden (fail closed), so production
+// wiring must always call this before serving.
+func (s *MonitorHealthService) SetAccess(access monitorViewer) {
+	if s != nil {
+		s.access = access
+	}
+}
+
 // Current evaluates overall health at now from the authorized assignment set.
 // Unauthorized or missing monitors return ErrNotFound so callers cannot confirm existence.
 func (s *MonitorHealthService) Current(ctx context.Context, userID, monitorID int64, now time.Time) (*domain.CurrentMonitorHealth, error) {

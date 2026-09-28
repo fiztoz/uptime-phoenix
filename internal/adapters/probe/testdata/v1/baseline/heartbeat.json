@@ -5,5 +5,7 @@
   "ping": 12,
   "message": "OK",
   "time": "2026-09-15T10:00:00Z",
-  "important": true
+  "important": true,
+  "scope": "local",
+  "latency_available": true
 }

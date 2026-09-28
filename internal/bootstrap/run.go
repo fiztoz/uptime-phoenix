@@ -238,6 +238,9 @@ func Run(cfg Config) error {
 	// and monitor repos a group grant cannot be expanded, and the service would
 	// (correctly, but uselessly) fail closed on every non-admin.
 	accessSvc := services.NewAccessService(repos.user, repos.userPerm, repos.monitorGroup, repos.monitor)
+	// Health reads fail closed without the access choke point: every M5 regional
+	// route would 404 even for monitors the caller owns.
+	healthSvc.SetAccess(accessSvc)
 	authSvc.SetUserChangeHook(accessSvc.InvalidateUser)
 	log.Info("access service initialized")
 
@@ -655,6 +658,7 @@ func Run(cfg Config) error {
 	regionalSvc := services.NewMonitorRegionalService(healthSvc, repos.probeRegistry)
 	regionalSvc.SetDiagnostics(repos.probeDiagnostics)
 	regionalSvc.SetHistory(repo.NewRegionalCommitStore(db), repos.probeAssignments)
+	heartbeatHandlers.SetOverall(regionalSvc)
 	regionalHandlers := handlers.NewMonitorRegionalHandlers(regionalSvc, cfg.ProbesEnabled)
 	regionalHandlers.SetAssignments(services.NewProbeAssignmentService(repos.probeAssignWriter, repos.probeAssignments, repos.probeRegistry, repos.monitor, checkeradapter.CapabilityInspector{}))
 	fleetSvc := services.NewProbeFleetService(repos.probeDiagnostics)

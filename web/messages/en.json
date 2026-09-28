@@ -931,5 +931,8 @@
   "dashboard_capacity_attention": "Capacity signals need attention on {count} monitor(s)",
   "dashboard_capacity_attention_help": "Availability remains separate; review resource pressure or auxiliary-check errors.",
   "monitor_conditions_heading": "Capacity signals",
-  "monitor_conditions_description": "Resource pressure and query health are tracked separately from availability."
+  "monitor_conditions_description": "Resource pressure and query health are tracked separately from availability.",
+  "monitor_detail_chart_latency_unavailable": "Latency is unavailable for the overall view. Select a region for measured response times.",
+  "monitor_detail_region_label": "Region",
+  "monitor_detail_region_all": "All regions (overall)"
 }

@@ -931,5 +931,8 @@
   "dashboard_capacity_attention": "สัญญาณความจุต้องตรวจสอบใน {count} มอนิเตอร์",
   "dashboard_capacity_attention_help": "สถานะความพร้อมใช้งานยังแยกจากกัน โปรดตรวจสอบแรงกดดันของทรัพยากรหรือข้อผิดพลาดของการตรวจเสริม",
   "monitor_conditions_heading": "สัญญาณความจุ",
-  "monitor_conditions_description": "ติดตามแรงกดดันของทรัพยากรและสุขภาพของคำสั่งตรวจแยกจากความพร้อมใช้งาน"
+  "monitor_conditions_description": "ติดตามแรงกดดันของทรัพยากรและสุขภาพของคำสั่งตรวจแยกจากความพร้อมใช้งาน",
+  "monitor_detail_chart_latency_unavailable": "ไม่มีข้อมูลเวลาตอบสนองสำหรับมุมมองภาพรวม เลือกภูมิภาคเพื่อดูเวลาตอบสนองที่วัดได้",
+  "monitor_detail_region_label": "ภูมิภาค",
+  "monitor_detail_region_all": "ทุกภูมิภาค (ภาพรวม)"
 }

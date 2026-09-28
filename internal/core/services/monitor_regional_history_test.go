@@ -142,3 +142,78 @@ func TestMonitorRegionalHistoryFailures(t *testing.T) {
 		}
 	})
 }
+
+func TestMonitorRegionalOverallHistory(t *testing.T) {
+	from := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
+	to := from.Add(time.Hour)
+	remote := "11111111-1111-4111-8111-111111111111"
+
+	t.Run("LocalOnlyPreservesMeasuredStream", func(t *testing.T) {
+		svc := regionalHistoryService(&regionalHistoryObsFake{}, healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{7: {MonitorID: 7, Revision: 3, HealthPolicy: domain.HealthPolicyAnyDown, Assignments: []domain.ProbeAssignment{{ProbeID: domain.LocalProbeID, Generation: 1}}}}}, map[int64]bool{7: true})
+		got, err := svc.OverallHistory(context.Background(), 1, 7, from, to)
+		if err != nil || !got.LocalOnly || len(got.Rows) != 0 {
+			t.Fatalf("local-only must stay measured: %+v %v", got, err)
+		}
+	})
+
+	t.Run("LegacyMonitorReadsAsLocal", func(t *testing.T) {
+		svc := regionalHistoryService(&regionalHistoryObsFake{}, healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{7: {MonitorID: 7}}}, map[int64]bool{7: true})
+		got, err := svc.OverallHistory(context.Background(), 1, 7, from, to)
+		if err != nil || !got.LocalOnly {
+			t.Fatalf("legacy monitor must read as local: %+v %v", got, err)
+		}
+	})
+
+	t.Run("RemoteMemberServesOverallSegments", func(t *testing.T) {
+		assignments := healthAssignmentRepo{
+			sets: map[int64]*domain.MonitorProbeAssignments{7: {MonitorID: 7, Revision: 3, HealthPolicy: domain.HealthPolicyAnyDown, Assignments: []domain.ProbeAssignment{{ProbeID: domain.LocalProbeID, Generation: 1}, {ProbeID: remote, Generation: 1}}}},
+			history: map[int64][]domain.AssignmentInterval{7: {
+				{ProbeID: domain.LocalProbeID, From: from, To: to, Policy: domain.HealthPolicyAnyDown, Revision: 3},
+				{ProbeID: remote, From: from, To: to, Policy: domain.HealthPolicyAnyDown, Revision: 3},
+			}},
+		}
+		region := &healthRegionalRepo{observations: map[int64][]domain.RegionalObservation{7: {
+			{MonitorID: 7, ProbeID: remote, Status: domain.StatusUp, ObservedAt: from.Add(time.Minute), ReceivedAt: from.Add(time.Minute), AssignmentGeneration: 1, ConfigRevision: 1, Seq: 1, StreamID: "s"},
+		}}}
+		health := NewMonitorHealthService(healthMonitorRepo{monitors: map[int64]*domain.Monitor{7: {ID: 7, Active: true, Interval: 60, Timeout: 5}}}, assignments, region, healthAccess{allow: map[int64]bool{7: true}})
+		svc := NewMonitorRegionalService(health, &regionalLabelRepo{})
+		svc.SetHistory(&regionalHistoryObsFake{}, assignments)
+
+		got, err := svc.OverallHistory(context.Background(), 1, 7, from, to)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.LocalOnly {
+			t.Fatal("a remote member must switch the stream to overall")
+		}
+		if len(got.Rows) != len(got.Intervals) || len(got.Rows) == 0 {
+			t.Fatalf("rows must mirror the policy intervals: %+v", got)
+		}
+		for i, row := range got.Rows {
+			if row.From != got.Intervals[i].From || row.Status != got.Intervals[i].Status || row.Reason != got.Intervals[i].Reason {
+				t.Fatalf("row %d drifted from its interval: %+v vs %+v", i, row, got.Intervals[i])
+			}
+			if i > 0 && row.Important != (row.Status != got.Rows[i-1].Status) {
+				t.Fatalf("row %d importance must mark status changes: %+v", i, row)
+			}
+		}
+	})
+
+	t.Run("HistoryBoundsAreUTC", func(t *testing.T) {
+		// healthAssignmentRepo.ListHistory rejects non-UTC bounds outright, so a
+		// local-zoned input that reached storage would fail here.
+		local := time.FixedZone("UTC+7", 7*3600)
+		at := time.Date(2026, 9, 27, 12, 0, 0, 0, local)
+		svc := regionalHistoryService(&regionalHistoryObsFake{}, healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{7: {MonitorID: 7, Revision: 3, HealthPolicy: domain.HealthPolicyAnyDown, Assignments: []domain.ProbeAssignment{{ProbeID: remote, Generation: 1}}}}}, map[int64]bool{7: true})
+		if _, err := svc.OverallHistory(context.Background(), 1, 7, at.Add(-time.Hour), at); err != nil {
+			t.Fatalf("bounds must be normalized to UTC before storage: %v", err)
+		}
+	})
+
+	t.Run("HiddenMonitorStaysNotFound", func(t *testing.T) {
+		svc := regionalHistoryService(&regionalHistoryObsFake{}, healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{7: {MonitorID: 7, Revision: 3, HealthPolicy: domain.HealthPolicyAnyDown, Assignments: []domain.ProbeAssignment{{ProbeID: remote, Generation: 1}}}}}, map[int64]bool{})
+		if _, err := svc.OverallHistory(context.Background(), 1, 7, from, to); !errors.Is(err, domain.ErrNotFound) && !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("want ErrNotFound, got %v", err)
+		}
+	})
+}

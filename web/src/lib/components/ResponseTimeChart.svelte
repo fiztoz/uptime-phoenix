@@ -36,6 +36,9 @@
 		buckets: ChartBucket[];
 		downtime_intervals: Array<{ start: string; end: string }>;
 		unknown_intervals?: Array<{ start: string; end: string }>;
+		/** Section-7.2 markers: overall charts carry no measured latency. */
+		scope?: "local" | "overall" | "regional";
+		latency_available?: boolean;
 	}
 
 	interface Props {
@@ -49,6 +52,8 @@
 		 * series with no range API.
 		 */
 		showRangeSelector?: boolean;
+		/** Optional region picker rendered in the header (latency selection). */
+		regionPicker?: import('svelte').Snippet;
 	}
 
 	const RANGE_OPTIONS = [
@@ -65,7 +70,11 @@
 		onRangeChange,
 		loading = false,
 		showRangeSelector = true,
+		regionPicker,
 	}: Props = $props();
+
+	/** True when the response deliberately carries no measured latency (overall). */
+	const latencyUnavailable = $derived(chart?.latency_available === false);
 
 	let hoverPoint = $state<TooltipPoint | null>(null);
 
@@ -124,6 +133,31 @@
 	const selectedRange = $derived(
 		RANGE_OPTIONS.find((option) => option.hours === selectedHours)?.label ?? `${selectedHours}h`,
 	);
+
+	/** Band positions for the intervals-only (no latency) mode, in percent. */
+	const intervalBands = $derived.by((): Array<{
+		kind: 'down' | 'unknown';
+		left: number;
+		width: number;
+	}> => {
+		const [from, to] = xDomain;
+		const span = to.getTime() - from.getTime();
+		if (span <= 0) return [];
+		const bands: Array<{ kind: 'down' | 'unknown'; left: number; width: number }> = [];
+		const push = (kind: 'down' | 'unknown', iv: DowntimeInterval) => {
+			const start = Math.max(iv.start.getTime(), from.getTime());
+			const end = Math.min(iv.end.getTime(), to.getTime());
+			if (end <= start) return;
+			bands.push({
+				kind,
+				left: ((start - from.getTime()) / span) * 100,
+				width: ((end - start) / span) * 100,
+			});
+		};
+		for (const iv of downtimeIntervals) push('down', iv);
+		for (const iv of unknownIntervals) push('unknown', iv);
+		return bands;
+	});
 </script>
 
 <section class="overflow-hidden rounded-xl border border-border bg-card" aria-busy={loading}>
@@ -155,6 +189,9 @@
 		</div>
 		{#if loading || showRangeSelector}
 			<div class="flex items-center gap-2">
+				{#if regionPicker}
+					{@render regionPicker()}
+				{/if}
 				{#if loading}
 					<span class="text-[11px] text-muted-foreground">
 						{m.monitor_detail_chart_updating()}
@@ -179,7 +216,26 @@
 		{/if}
 	</div>
 
-	{#if chartData.length > 0}
+	{#if latencyUnavailable}
+		<div class="mx-2 my-3 sm:mx-4" data-testid="overall-intervals">
+			<div class="relative h-16 w-full overflow-hidden rounded-lg border border-border bg-muted/30">
+				{#each intervalBands as band (band.kind + band.left)}
+					<div
+						class="absolute top-0 h-full"
+						class:bg-danger={band.kind === 'down'}
+						class:bg-muted-foreground={band.kind === 'unknown'}
+						class:opacity-25={band.kind === 'unknown'}
+						class:opacity-70={band.kind === 'down'}
+						style:left={`${band.left}%`}
+						style:width={`${band.width}%`}
+					></div>
+				{/each}
+			</div>
+			<p class="mt-3 text-center text-sm text-muted-foreground" data-testid="latency-unavailable-hint">
+				{m.monitor_detail_chart_latency_unavailable()}
+			</p>
+		</div>
+	{:else if chartData.length > 0}
 		<div
 			class="chart-container mx-2 my-3 transition-opacity duration-200 sm:mx-4"
 			class:opacity-50={loading}

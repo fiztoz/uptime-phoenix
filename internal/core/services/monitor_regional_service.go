@@ -100,6 +100,69 @@ func (s *MonitorRegionalService) RegionalHistory(ctx context.Context, userID, mo
 	return rows, nil
 }
 
+// OverallHistoryRow is one synthesized overall availability segment for the
+// unqualified heartbeat endpoint on a multi-probe monitor. Rows are derived
+// from the policy-evaluated intervals, never from pooled regional samples, and
+// carry no measured latency.
+type OverallHistoryRow struct {
+	From      time.Time
+	Status    domain.Status
+	Reason    string
+	Important bool
+}
+
+// OverallHistoryResult tells the unqualified endpoint which stream it serves:
+// the local recorder's measured rows (LocalOnly) or the synthesized overall
+// timeline with its downtime/unknown intervals.
+type OverallHistoryResult struct {
+	LocalOnly bool
+	Rows      []OverallHistoryRow
+	Intervals []domain.MonitorHealthInterval
+}
+
+// OverallHistory answers the section-7.2 compatibility question for the
+// unqualified heartbeat endpoints: a monitor whose only member is the hub's
+// local prober keeps today's measured stream, and any monitor with a remote
+// member serves the policy-evaluated overall timeline instead. Access is
+// checked before any evidence read and bounds are normalized to UTC.
+func (s *MonitorRegionalService) OverallHistory(ctx context.Context, userID, monitorID int64, from, to time.Time) (*OverallHistoryResult, error) {
+	if s == nil || s.health == nil {
+		return nil, domain.ErrInternal
+	}
+	if from.IsZero() || to.IsZero() || !from.Before(to) {
+		return nil, domain.ErrValidation
+	}
+	from, to = from.UTC(), to.UTC()
+	history, err := s.health.History(ctx, userID, monitorID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	_, set, _, err := s.health.loadMonitorEvidence(ctx, monitorID)
+	if err != nil {
+		return nil, err
+	}
+	localOnly := true
+	for _, assignment := range set.Assignments {
+		if assignment.ProbeID != domain.LocalProbeID {
+			localOnly = false
+			break
+		}
+	}
+	if localOnly {
+		return &OverallHistoryResult{LocalOnly: true}, nil
+	}
+	rows := make([]OverallHistoryRow, 0, len(history.Intervals))
+	for i, interval := range history.Intervals {
+		rows = append(rows, OverallHistoryRow{
+			From:      interval.From,
+			Status:    interval.Status,
+			Reason:    interval.Reason,
+			Important: i == 0 || interval.Status != history.Intervals[i-1].Status,
+		})
+	}
+	return &OverallHistoryResult{Rows: rows, Intervals: history.Intervals}, nil
+}
+
 // probeRelated proves the monitor/probe relationship from the current desired
 // set or the recorded assignment intervals overlapping the window.
 func (s *MonitorRegionalService) probeRelated(ctx context.Context, monitorID int64, probeID string, from, to time.Time) (bool, error) {

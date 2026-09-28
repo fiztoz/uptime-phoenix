@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"strconv"
@@ -20,13 +21,23 @@ import (
 // additionally admin-only (destroying a monitor's history is a monitor mutation)
 // and is wrapped in middleware.RequireAdmin by the router.
 type HeartbeatHandlers struct {
-	svc    *services.HeartbeatService
-	access *services.AccessService
+	svc     *services.HeartbeatService
+	access  *services.AccessService
+	overall overallHistoryReader
 }
 
 // NewHeartbeatHandlers creates handlers for heartbeat queries.
 func NewHeartbeatHandlers(svc *services.HeartbeatService, access *services.AccessService) *HeartbeatHandlers {
 	return &HeartbeatHandlers{svc: svc, access: access}
+}
+
+// SetOverall binds the section-7.2 overall-history reader that switches the
+// unqualified endpoints to the policy-evaluated timeline for multi-probe
+// monitors. A local-only monitor keeps today's measured rows either way.
+func (h *HeartbeatHandlers) SetOverall(overall overallHistoryReader) {
+	if h != nil {
+		h.overall = overall
+	}
 }
 
 type heartbeatView struct {
@@ -37,6 +48,11 @@ type heartbeatView struct {
 	Message   string `json:"message"`
 	Time      string `json:"time"`
 	Important bool   `json:"important"`
+	// Scope and latency_available are the section-7.2 compatibility markers:
+	// overall rows are policy-evaluated segments with the unmeasured zero ping,
+	// and only local/regional rows carry measured latency.
+	Scope            string `json:"scope"`
+	LatencyAvailable bool   `json:"latency_available"`
 }
 
 type chartBucketView struct {
@@ -55,6 +71,15 @@ type chartDataView struct {
 	Buckets           []chartBucketView      `json:"buckets"`
 	DowntimeIntervals []downtimeIntervalView `json:"downtime_intervals"`
 	UnknownIntervals  []downtimeIntervalView `json:"unknown_intervals"`
+	Scope             string                 `json:"scope"`
+	LatencyAvailable  bool                   `json:"latency_available"`
+}
+
+// overallHistoryReader is the optional section-7.2 surface that decides which
+// stream the unqualified endpoints serve. Without it the endpoints keep
+// today's local measured behavior exactly.
+type overallHistoryReader interface {
+	OverallHistory(context.Context, int64, int64, time.Time, time.Time) (*services.OverallHistoryResult, error)
 }
 
 // ListByMonitor handles GET /api/monitors/:id/heartbeats.
@@ -77,6 +102,17 @@ func (h *HeartbeatHandlers) ListByMonitor(c echo.Context) error {
 	// the server's UTC offset. See heartbeatWindow.
 	from, to := heartbeatWindow(hours)
 	ctx := c.Request().Context()
+	if h.overall != nil {
+		if userID, ok := userIDFromContext(c); ok {
+			result, err := h.overall.OverallHistory(ctx, userID, monitorID, from, to)
+			if err != nil {
+				return mapMonitorError(c, err)
+			}
+			if !result.LocalOnly {
+				return c.JSON(http.StatusOK, toOverallHeartbeatViews(result.Rows, monitorID, limit, order, importantOnly))
+			}
+		}
+	}
 	var heartbeats []*domain.Heartbeat
 	// `important=true` has to scan the window first (the cap applies after
 	// filtering). Everything else — including dashboard sparklines — can take
@@ -115,6 +151,17 @@ func (h *HeartbeatHandlers) GetChartData(c echo.Context) error {
 
 	hours := parseHeartbeatHours(c)
 	from, to := heartbeatWindow(hours)
+	if h.overall != nil {
+		if userID, ok := userIDFromContext(c); ok {
+			result, err := h.overall.OverallHistory(c.Request().Context(), userID, monitorID, from, to)
+			if err != nil {
+				return mapMonitorError(c, err)
+			}
+			if !result.LocalOnly {
+				return c.JSON(http.StatusOK, toOverallChartView(result.Intervals))
+			}
+		}
+	}
 	heartbeats, err := h.svc.ListByMonitor(c.Request().Context(), monitorID, from, to)
 	if err != nil {
 		return mapMonitorError(c, err)
@@ -134,6 +181,8 @@ func (h *HeartbeatHandlers) GetChartData(c echo.Context) error {
 		Buckets:           make([]chartBucketView, 0, len(buckets)),
 		DowntimeIntervals: make([]downtimeIntervalView, 0, len(intervals)),
 		UnknownIntervals:  make([]downtimeIntervalView, 0, len(unknown)),
+		Scope:             "local",
+		LatencyAvailable:  true,
 	}
 	for _, b := range buckets {
 		view.Buckets = append(view.Buckets, chartBucketView{
@@ -242,16 +291,114 @@ func toHeartbeatViews(heartbeats []*domain.Heartbeat) []heartbeatView {
 	views := make([]heartbeatView, 0, len(heartbeats))
 	for _, hb := range heartbeats {
 		views = append(views, heartbeatView{
-			ID:        hb.ID,
-			MonitorID: hb.MonitorID,
-			Status:    strings.ToLower(hb.Status.String()),
-			Ping:      hb.Ping,
-			Message:   hb.Msg,
-			Time:      hb.Time.Format(time.RFC3339Nano),
-			Important: hb.Important,
+			ID:               hb.ID,
+			MonitorID:        hb.MonitorID,
+			Status:           strings.ToLower(hb.Status.String()),
+			Ping:             hb.Ping,
+			Message:          hb.Msg,
+			Time:             hb.Time.Format(time.RFC3339Nano),
+			Important:        hb.Important,
+			Scope:            "local",
+			LatencyAvailable: true,
 		})
 	}
 	return views
+}
+
+// toOverallHeartbeatViews renders the section-7.2 overall stream: policy
+// segments with the unmeasured zero ping sentinel. The id is a 1-based window
+// sequence (interval identity is not persisted), never an existing heartbeat
+// row id.
+func toOverallHeartbeatViews(rows []services.OverallHistoryRow, monitorID int64, limit int, order string, importantOnly *bool) []heartbeatView {
+	filtered := make([]services.OverallHistoryRow, 0, len(rows))
+	for _, row := range rows {
+		if importantOnly != nil && *importantOnly && !row.Important {
+			continue
+		}
+		filtered = append(filtered, row)
+	}
+	// Newest-first cap, then the requested order: the cap applies to the most
+	// recent segments, same as the local row path.
+	sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].From.After(filtered[j].From) })
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		if order == "asc" {
+			return filtered[i].From.Before(filtered[j].From)
+		}
+		return filtered[i].From.After(filtered[j].From)
+	})
+	views := make([]heartbeatView, 0, len(filtered))
+	for i, row := range filtered {
+		views = append(views, heartbeatView{
+			ID:               int64(i + 1),
+			MonitorID:        monitorID,
+			Status:           overallStatusName(row.Status),
+			Ping:             0,
+			Message:          row.Reason,
+			Time:             row.From.Format(time.RFC3339Nano),
+			Important:        row.Important,
+			Scope:            "overall",
+			LatencyAvailable: false,
+		})
+	}
+	return views
+}
+
+// overallStatusName renders the lowercase regional vocabulary for overall
+// segments; UNKNOWN stays visible.
+func overallStatusName(status domain.Status) string {
+	switch status {
+	case domain.StatusUp, domain.StatusDown, domain.StatusPending, domain.StatusMaintenance:
+		return strings.ToLower(status.String())
+	default:
+		return "unknown"
+	}
+}
+
+// toOverallChartView renders the section-7.2 overall chart: no synthetic
+// latency buckets, only the downtime and unknown intervals of the overall
+// timeline (down/pending runs and unknown runs, mirroring the local detectors).
+func toOverallChartView(intervals []domain.MonitorHealthInterval) chartDataView {
+	view := chartDataView{
+		Buckets:           []chartBucketView{},
+		DowntimeIntervals: []downtimeIntervalView{},
+		UnknownIntervals:  []downtimeIntervalView{},
+		Scope:             "overall",
+		LatencyAvailable:  false,
+	}
+	appendRuns := func(target *[]downtimeIntervalView, in []domain.MonitorHealthInterval) {
+		for _, iv := range in {
+			*target = append(*target, downtimeIntervalView{
+				Start: iv.From.Format(time.RFC3339),
+				End:   iv.To.Format(time.RFC3339),
+			})
+		}
+	}
+	appendRuns(&view.DowntimeIntervals, overallRuns(intervals, func(s domain.Status) bool {
+		return s == domain.StatusDown || s == domain.StatusPending
+	}))
+	appendRuns(&view.UnknownIntervals, overallRuns(intervals, func(s domain.Status) bool {
+		return s == domain.StatusUnknown
+	}))
+	return view
+}
+
+// overallRuns merges consecutive intervals matching pred into one run each.
+func overallRuns(intervals []domain.MonitorHealthInterval, pred func(domain.Status) bool) []domain.MonitorHealthInterval {
+	var runs []domain.MonitorHealthInterval
+	for _, iv := range intervals {
+		if !pred(iv.Status) {
+			continue
+		}
+		if n := len(runs); n > 0 && runs[n-1].To.Equal(iv.From) {
+			runs[n-1].To = iv.To
+			continue
+		}
+		runs = append(runs, iv)
+	}
+	return runs
 }
 
 func filterHeartbeats(heartbeats []*domain.Heartbeat, importantOnly *bool) []*domain.Heartbeat {

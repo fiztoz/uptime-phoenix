@@ -5,44 +5,48 @@
   "engines": ["sqlite", "mariadb"],
   "mariadb_dsn": "TEST_MARIADB_DSN set to a disposable mariadb:11 database (phoenix_ci, 127.0.0.1:43316, parseTime=true&loc=UTC&multiStatements=true)",
   "commands": [
-    "GOTOOLCHAIN=go1.26.6 go test -race -count=1 -timeout 2400s -json ./... > /tmp/m5-full-race4.jsonl",
-    "python3 scripts/m5_read_evidence.py /tmp/m5-full-race4.jsonl",
+    "GOTOOLCHAIN=go1.26.6 go test -race -count=1 -timeout 2400s -json ./... > /tmp/m5-full-race7.jsonl",
+    "python3 scripts/m5_read_evidence.py /tmp/m5-full-race7.jsonl",
     "GOTOOLCHAIN=go1.26.6 CGO_ENABLED=0 go build ./...",
     "GOTOOLCHAIN=go1.26.6 ~/go/bin/golangci-lint run",
     "gofmt -l internal/",
-    "git diff --check"
+    "git diff --check",
+    "cd web && bun run check && bun run build && bun test src/lib",
+    "cd web && ./node_modules/.bin/prettier --check . && ./node_modules/.bin/eslint .",
+    "cd web && GOTOOLCHAIN=go1.26.6 bunx playwright test --config=tests/e2e.config.ts"
   ],
   "totals": {
     "packages_ok": 22,
-    "named_passes": 4195,
+    "named_passes": 4211,
     "failed": 0,
-    "skipped": 10,
+    "skipped": 2,
     "skipped_names": [
       "TestDatabaseChecker_Check_MongoDB_RealServer",
-      "TestTelegramSender_Send_DownSeverity",
-      "TestDNSChecker_Check_A",
-      "TestDNSChecker_Check_MX",
-      "TestDNSChecker_Check_TXT",
-      "TestDNSChecker_Check_ExpectedValue_Pass",
-      "TestDNSChecker_Check_ExpectedValue_Fail",
-      "TestDNSChecker_Check_NonexistentDomain",
-      "TestDNSChecker_Check_DefaultServer",
-      "TestTCPChecker_Check_GoogleDNS"
+      "TestTelegramSender_Send_DownSeverity"
     ],
-    "skip_note": "The two longstanding skips are unrelated environment tests; the eight DNS/TCP checker skips are live-network self-skips (public resolver unavailable). Zero M5 skips."
+    "skip_note": "The two longstanding skips are unrelated environment tests; the eight live-network DNS/TCP checker self-skips did not trigger in the recorded run. Zero M5 skips."
+  },
+  "frontend": {
+    "svelte_check": "0 errors, 0 warnings",
+    "unit_tests": "255 passed, 0 failed",
+    "e2e": "13 passed, 0 failed (chromium; probes enabled in the e2e server for the regional spec)",
+    "e2e_contracts_verified": ["login/dashboard", "http monitor + heartbeats", "notifications", "status page", "RBAC", "escalation", "alert ack", "navigation performance", "regional history + latency selection"]
   },
   "named_passes": [
-    "services/TestMonitorRegionalHistoryRelationship/CurrentAssignmentIsRelated",
-    "services/TestMonitorRegionalHistoryRelationship/HistoricalAssignmentIsRelated",
-    "services/TestMonitorRegionalHistoryRelationship/ClosedHistoryOutsideWindowIsUnrelated",
-    "services/TestMonitorRegionalHistoryRelationship/UnrelatedProbeReadsAsMissing",
-    "services/TestMonitorRegionalHistoryRelationship/HiddenMonitorStaysNotFound",
+    "services/TestMonitorRegionalHistoryRelationship",
     "services/TestMonitorRegionalHistoryBoundsAreUTC",
     "services/TestMonitorRegionalHistoryFailures",
+    "services/TestMonitorRegionalOverallHistory/LocalOnlyPreservesMeasuredStream",
+    "services/TestMonitorRegionalOverallHistory/LegacyMonitorReadsAsLocal",
+    "services/TestMonitorRegionalOverallHistory/RemoteMemberServesOverallSegments",
+    "services/TestMonitorRegionalOverallHistory/HistoryBoundsAreUTC",
+    "services/TestMonitorRegionalOverallHistory/HiddenMonitorStaysNotFound",
     "handlers/TestMonitorRegionalHistoryFixtures",
     "handlers/TestMonitorRegionalHistoryQuerySemantics",
     "handlers/TestMonitorRegionalHistoryChart",
     "handlers/TestMonitorRegionalHistoryHTTPErrors",
+    "handlers/TestHeartbeatOverallStreamActivation",
+    "handlers/TestHeartbeatLocalStreamKeepsMeasuredLatency",
     "repository/TestM5HistoryAPI/sqlite",
     "repository/TestM5HistoryAPI/mariadb"
   ],
@@ -57,7 +61,9 @@
   "contract_parity": [
     "Every engine-tested history row decodes with the frozen probe.DecodeRegionalHeartbeat",
     "The checked-in fixture testdata/m5/regional_history.json satisfies the same decoder in both directions and equals the handler output field for field",
-    "Chart shape is the existing chart envelope (buckets/downtime_intervals/unknown_intervals) with never-null arrays"
+    "Chart shape is the existing chart envelope (buckets/downtime_intervals/unknown_intervals) with never-null arrays",
+    "The frozen baseline heartbeat contract (testdata/v1/baseline/heartbeat.json) gained scope/latency_available in the same commit and its key-preservation test requires them",
+    "web/src/lib/api/regional.ts types mirror the frozen m5 fixture shapes (decimal strings kept as strings)"
   ],
   "mutation_checks": [
     {
@@ -65,27 +71,37 @@
       "mutation": "probeRelated returns true unconditionally",
       "caught_by": "services/TestMonitorRegionalHistoryRelationship/ClosedHistoryOutsideWindowIsUnrelated and /UnrelatedProbeReadsAsMissing",
       "reverted": true,
-      "note": "A restorative git checkout also reverted the uncommitted service work; the service edits were re-applied and the full suite re-passed afterwards (the recorded run is the post-restore one)."
+      "note": "A restorative git checkout also reverted the uncommitted service work; the service edits were re-applied and the full suite re-passed afterwards."
+    },
+    {
+      "guard": "a remote member switches the unqualified endpoints to the overall stream",
+      "mutation": "the local-only detection ignores remote members",
+      "caught_by": "services/TestMonitorRegionalOverallHistory/RemoteMemberServesOverallSegments and repository/TestM5HistoryAPI",
+      "reverted": true
     }
   ],
+  "production_wiring_defect": {
+    "finding": "internal/bootstrap/run.go constructed MonitorHealthService with a nil access service, so every M5 regional route answered monitor_not_found for owned monitors in the real app",
+    "found_by": "web/tests/e2e/09-regional-history.spec.ts (the engine tests construct the service with access wired and could not see it)",
+    "fix": "MonitorHealthService.SetAccess wired in the composition root; health reads without the choke point keep failing closed"
+  },
   "source_hashes_sha256": {
-    "internal/core/ports/regional_history.go": "0023c5d4dad8241798efd5a523737d1ad2646e7f49881feb5703cb094280a293",
-    "internal/core/services/monitor_regional_service.go": "79c4384c8e94ffff3fc5b410186cf192de2368cc091beeef704a7bcea928947a",
-    "internal/adapters/http/handlers/monitor_regional_history.go": "6c48f9503e836a76f068fb2e8aa82578764cb87a23c7e768012ba366d400dae1",
-    "internal/adapters/http/router.go": "08648996dd39b58ea96b9218e7dfe26a0961879fb3f169f003d9e30fbe08af6f",
-    "internal/bootstrap/run.go": "da0b02fc27471abf8a0fefe44fe10680e1045ad1f33302d7f34f06c1c1df062e",
-    "scripts/m5_read_evidence.py": "cb2595ba50fd88fdb5a1f27adc7a81650794aaf362f55bf1bd1e5da0968856d1",
-    "internal/core/services/monitor_regional_history_test.go": "636a92e7bc8110138b657366af0248a9ac14919a57dc1eda4c3194e651267ec8",
-    "internal/adapters/http/handlers/monitor_regional_history_test.go": "3c72d65b3155ee9475fa57e0f00cdbf8b0742a61a12e19b649ba9f30f2f688ce",
-    "internal/adapters/repository/m5_history_api_test.go": "307942921ab07ab193da0d8f14d526b53f6ab376b0afe078ac233fc8ec654a33",
-    "internal/adapters/http/handlers/testdata/m5/regional_history.json": "8e6cc28232999788548925d8efba7abd94f8b7764d1bf5973e3b1debbd7f17e1",
-    "internal/adapters/http/handlers/testdata/m5/regional_chart.json": "afa95b324cb531d5395010f5237f5d11b176933eca29d2b35135a5b44cab04d1"
+    "internal/core/services/monitor_health.go": "a76f18ed1965663c14d9f7ed0a06449ea37f7745a39942fb957a5ae7a070a788",
+    "internal/bootstrap/run.go": "36351a0c7d68cef47c67a0ed8a2fe40911b5346f2cb3fdcc8ac7f978fece6599",
+    "internal/adapters/http/handlers/heartbeat.go": "4d64f9814e9a0096e142ebe4535ee890d1a1fe92591ad49bcaba01e5fea1e404",
+    "internal/adapters/http/handlers/heartbeat_overall_test.go": "cc75d6d38230623b163980c861a68dd85812c23edd708d1484253c2bbf7e4a0d",
+    "web/src/lib/api/regional.ts": "5ff4ebb601a768d90c59d9aae9d51e29d9da47cfd6484e1ee1dc94b501a86d65",
+    "web/src/lib/components/ResponseTimeChart.svelte": "309a58c45995e6ddd273718523cfc16d35fd8591605b56b42d967123ef71c565",
+    "web/src/routes/(admin)/monitors/[id]/+page.svelte": "cf2493ea1eabd7aa63210ed977cbbd1be9468a06367e49f773d0a10de84f6826",
+    "web/tests/e2e/09-regional-history.spec.ts": "f640d24cb1cd999e1fa06f6181eb6ab4f68d5b45c5ed10f47a3122d0eaaf828e",
+    "web/tests/start-e2e-server.sh": "634b196757b063f8ebec2d735810ae01fa70c7c2419383c45c714570f449e176",
+    "internal/adapters/probe/testdata/v1/baseline/heartbeat.json": "072412e9c7267fe1faffe5d1e629d7ab8c63991306662f2ee4e99a384c4b80f0"
   },
   "unverified": [
-    "the UI half of the slice (TypeScript contracts, latency selection, fleet/monitor views, English/Thai messages, browser tests)",
-    "the section 7.2 compatibility activation on the unqualified heartbeat/chart endpoints (deliberately not changed here)",
-    "frontend/browser E2E",
+    "fleet/monitor regional views (probe fleet page, region status/diagnostics panels)",
+    "full M5 browser acceptance (grant revocation after subscription, reconnect, stale caches, pending config and pending ACK — slice 5)",
     "production process restart and deployment",
-    "load/performance benchmarks"
+    "load/performance benchmarks",
+    "badge and public status-page rendering were verified only through the shared browser suite, not re-screenshotted"
   ]
 }

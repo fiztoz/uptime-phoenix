@@ -83,7 +83,7 @@ func TestRegionalHeartbeatKeepsMessageAndLowercaseStatus(t *testing.T) {
 
 func TestBaselineFixturesPreserveExistingFieldNames(t *testing.T) {
 	required := map[string][]string{
-		"heartbeat.json":             {"id", "monitor_id", "status", "ping", "message", "time", "important"},
+		"heartbeat.json":             {"id", "monitor_id", "status", "ping", "message", "time", "important", "scope", "latency_available"},
 		"monitor.json":               {"accepted_statuscodes", "message"},
 		"alert.json":                 {"id", "monitor_id", "status", "message"},
 		"maintenance.json":           {"monitor_ids", "timezone", "duration"},

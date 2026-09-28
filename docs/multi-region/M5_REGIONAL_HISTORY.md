@@ -4,9 +4,9 @@ Status: fifth M5 slice (part 1 of "Regional history and UI"), built on the
 [read API foundation](M5_FOUNDATION.md), [fleet diagnostics](M5_FLEET_DIAGNOSTICS.md),
 [assignment writes](M5_ASSIGNMENT_WRITES.md) and
 [administrative operations](M5_ADMIN_OPERATIONS.md). It implements the
-**relationship-checked regional history/chart routes**. The UI half of the
-slice (fleet/monitor views, latency selection, English/Thai messages, browser
-tests) and the section-7.2 compatibility activation follow separately.
+**relationship-checked regional history/chart routes**. Part 2 (the UI half
+with latency selection and the section-7.2 compatibility activation) is
+recorded below; the fleet/monitor views and their browser coverage remain.
 
 ## What is implemented
 
@@ -60,14 +60,45 @@ Query semantics mirror the unqualified list exactly: `hours` (1–720, default
 24), `limit` (default 100, cap 500) applied to the **most recent** rows before
 the requested `order`, `important=true` filtering after a full-window scan.
 
-## Scope note (what this slice deliberately does not change)
+## Scope note — section 7.2 activation (part 2)
 
 The unqualified `GET /api/monitors/:id/heartbeats` and `/chart` endpoints are
-**unchanged** here. The section-7.2 compatibility change (marking them
-`scope: "overall"` / `latency_available: false` and switching the UI's latency
-to selected regional endpoints) is an explicit compatibility change that must
-be verified against every dashboard, badge, status-page and external client
-contract before activation; it lands with the UI half of this slice.
+now **activated** per section 7.2, together with the UI that consumes them:
+
+- Rows carry `scope` and `latency_available`. A **local-only** monitor keeps
+today's measured rows and buckets exactly (`scope: "local"`,
+`latency_available: true` — only additive markers).
+- A monitor with any remote member serves the **policy-evaluated overall
+timeline**: synthesized segments (`scope: "overall"`, `latency_available:
+false`, `ping: 0` — the unmeasured zero sentinel) derived from
+`MonitorHealthService.History` intervals, never pooled regional samples. `id`
+is a 1-based window sequence (interval identity is not persisted), `message`
+is the bounded interval reason, and `important` marks status changes.
+UNKNOWN stays visible as `"unknown"`.
+- The overall chart carries **no synthetic latency buckets** — only downtime
+runs (down/pending) and unknown runs of the overall timeline.
+- The monitor detail UI selects regions for latency: the region picker switches
+the response-time chart to the relationship-checked regional chart endpoint,
+and the overall view shows the interval bands plus the latency-unavailable
+hint instead of a fabricated curve.
+
+The browser suite (`web/tests/e2e/09-regional-history.spec.ts`, with probes
+elementabled in the e2e server) asserts the overall compatibility state and
+the regional latency selection end to end; the full 13-spec suite verifies the
+dashboard, monitor, status-page, RBAC, escalation and ack contracts against
+the changed read shapes.
+
+**Production wiring defect found by the browser test:**
+`internal/bootstrap/run.go` constructed `MonitorHealthService` with a nil
+access service, so every M5 regional route answered `monitor_not_found` even
+for monitors the caller owned (the engine tests built the service with access
+wired and could not see it). Fixed with `MonitorHealthService.SetAccess` in the
+composition root; health reads without the choke point keep failing closed.
+
+Also fixed here: the pre-existing e2e expectation in `01-login-dashboard` that
+predated `unknown` joining `DEFAULT_STATUS_ORDER` (commit `7cc0c23`), and one
+pre-existing prettier drift in `web/src/lib/stores/ws.svelte.ts` so the lint
+gate is green.
 
 ## Files
 
@@ -76,12 +107,19 @@ contract before activation; it lands with the UI half of this slice.
 | Evidence and relationship ports | `internal/core/ports/regional_history.go` |
 | Relationship-checked read composition | `internal/core/services/monitor_regional_service.go` |
 | Wire rows, chart and error codes | `internal/adapters/http/handlers/monitor_regional_history.go` |
+| Section-7.2 overall stream and markers | `internal/adapters/http/handlers/heartbeat.go` |
 | Route activation | `internal/adapters/http/router.go`, `internal/bootstrap/run.go` |
 | Frozen fixtures | `internal/adapters/http/handlers/testdata/m5/regional_history.json`, `regional_chart.json` |
+| TypeScript contracts and client | `web/src/lib/api/regional.ts` |
+| Intervals-only chart mode and picker | `web/src/lib/components/ResponseTimeChart.svelte` |
+| Latency selection | `web/src/routes/(admin)/monitors/[id]/+page.svelte` |
+| Browser coverage | `web/tests/e2e/09-regional-history.spec.ts` |
 
 No new dependency and no schema migration were added. The route guard in
 `internal/adapters/probe/commands_test.go` no longer fences these routes
-(their acceptance now exists); revoke/delete stay fenced.
+(their acceptance now exists); revoke/delete stay fenced. The frozen baseline
+heartbeat contract (`testdata/v1/baseline/heartbeat.json`) gained the two
+additive markers in the same commit.
 
 ## Verification
 
@@ -97,40 +135,60 @@ Use [the committed gate](../TESTING.md#m5-read-api-foundation) and
 ### Executed evidence — 2026-09-27
 
 Commands executed (Go 1.26.6; `TEST_MARIADB_DSN` pointed at a disposable
-`mariadb:11` database — the live engine matrix, not a skipped one):
+`mariadb:11` database — the live engine matrix, not a skipped one; frontend
+gates from `web/`):
 
 ```sh
-GOTOOLCHAIN=go1.26.6 go test -race -count=1 -timeout 2400s -json ./... > /tmp/m5-full-race4.jsonl
-python3 scripts/m5_read_evidence.py /tmp/m5-full-race4.jsonl
+GOTOOLCHAIN=go1.26.6 go test -race -count=1 -timeout 2400s -json ./... > /tmp/m5-full-race7.jsonl
+python3 scripts/m5_read_evidence.py /tmp/m5-full-race7.jsonl
 GOTOOLCHAIN=go1.26.6 CGO_ENABLED=0 go build ./...
 GOTOOLCHAIN=go1.26.6 /Users/fizto/go/bin/golangci-lint run
 gofmt -l internal/
 git diff --check
+bun run check && bun run build && bun test src/lib
+./node_modules/.bin/prettier --check . && ./node_modules/.bin/eslint .
+GOTOOLCHAIN=go1.26.6 bunx playwright test --config=tests/e2e.config.ts
 ```
 
 The fail-closed audit passed over the full-suite log and requires
 `TestM5HistoryAPI/mariadb` and `TestM5HistoryAPI/sqlite` as passes.
 
-Passed / failed / skipped: all 22 test packages passed with 4,195 named
-test/subtest passes and zero failures. Ten skips: the two longstanding
-unrelated skips plus eight live-network DNS/TCP checker self-skips. Zero M5
-skips. Contract parity is executable: every engine-tested row decodes with
-the frozen `probe.DecodeRegionalHeartbeat`, and the checked-in fixture
-satisfies the same decoder in both directions and equals the handler output
-field for field. CGO-free build passed, golangci-lint reported 0 issues, gofmt
-and `git diff --check` were clean.
+Passed / failed / skipped: all 22 test packages passed with 4,211 named
+test/subtest passes and zero failures (two longstanding unrelated skips). Zero
+M5 skips. Frontend: `svelte-check` 0 errors/0 warnings, 255 unit tests pass,
+prettier and eslint clean, CGO-free build and golangci-lint 0 issues.
+Browser: **13/13 Playwright specs pass**, including the new
+`09-regional-history` (overall latency-unavailable state, interval bands,
+region picker, regional latency selection and back) and the login/dashboard,
+http-monitor, notifications, status-page, RBAC, escalation, alert-ack and
+navigation specs that verify the changed read shapes against every in-repo
+consumer contract.
 
-Mutation check (reverted): making `probeRelated` return true unconditionally
-failed `TestMonitorRegionalHistoryRelationship/ClosedHistoryOutsideWindowIsUnrelated`
-and `/UnrelatedProbeReadsAsMissing`. The restorative `git checkout` also
-reverted the uncommitted service work; the edits were re-applied and the
-recorded full-suite run is the post-restore one.
+Contract parity is executable: every engine-tested row decodes with the frozen
+`probe.DecodeRegionalHeartbeat`, the checked-in fixture decodes both
+directions and equals the handler output field for field, the frozen baseline
+heartbeat contract gained the two additive markers and requires them, and the
+TypeScript contracts mirror the fixture shapes.
 
-Acceptance criteria still unverified: the UI half of the slice (TypeScript
-contracts, latency selection, fleet/monitor views, English/Thai messages,
-browser tests), the section-7.2 compatibility activation (the unqualified
-endpoints are deliberately unchanged here), frontend/browser E2E, production
-restart and load/performance.
+Mutation checks (both reverted, file hashes verified): bypassing the
+relationship proof failed `TestMonitorRegionalHistoryRelationship` cases; making
+the local-only detection ignore remote members failed
+`TestMonitorRegionalOverallHistory/RemoteMemberServesOverallSegments` and
+`TestM5HistoryAPI`.
+
+The browser test also exposed a production wiring defect —
+`MonitorHealthService` was built with a nil access service in
+`internal/bootstrap/run.go`, so every M5 regional route answered
+`monitor_not_found` for owned monitors in the real app while the engine tests
+(green, with access wired) could not see it. Fixed with `SetAccess` in the
+composition root. Also fixed: a pre-existing stale e2e expectation
+(`01-login-dashboard`, predating `unknown` joining `DEFAULT_STATUS_ORDER`) and
+a pre-existing prettier drift in `web/src/lib/stores/ws.svelte.ts`.
+
+Acceptance criteria still unverified: fleet/monitor regional views (probe
+fleet page, region status/diagnostics panels), full M5 browser acceptance
+(grant revocation after subscription, reconnect, stale caches, pending config
+and pending ACK — slice 5), production restart and load/performance.
 Hashed evidence: [M5_REGIONAL_HISTORY_EVIDENCE.json](M5_REGIONAL_HISTORY_EVIDENCE.json).
 
 ## Next

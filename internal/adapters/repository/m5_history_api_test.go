@@ -69,6 +69,8 @@ func TestM5HistoryAPI(t *testing.T) {
 			health.SetProjections(r.f.projections)
 			reader := services.NewMonitorRegionalService(health, r.f.registry)
 			reader.SetHistory(r.f.commits, r.f.assignments)
+			hbHandlers := handlers.NewHeartbeatHandlers(services.NewHeartbeatService(repos.heartbeats, nil), access)
+			hbHandlers.SetOverall(reader)
 			jwt := auth.NewJWTAuthenticator(strings.Repeat("m5-history-test-key", 4), 1, repos.users)
 			authSvc := services.NewAuthService(repos.users, nil, jwt, nil)
 			viewerToken, err := jwt.IssueSession(ctx, viewer)
@@ -83,7 +85,7 @@ func TestM5HistoryAPI(t *testing.T) {
 				return httppkg.NewRouter(
 					handlers.NewHealthHandlers(func() bool { return true }), handlers.NewAuthHandlers(authSvc), nil, nil, nil,
 					nil, nil, nil, nil, nil,
-					nil, nil, nil, nil, nil,
+					nil, nil, nil, nil, hbHandlers,
 					nil, nil, nil, nil, nil,
 					nil, nil, nil, nil, nil,
 					authSvc, access, nil, nil, embed.FS{}, httppkg.RouterOptions{RegionalMonitors: handlers.NewMonitorRegionalHandlers(reader, enabled)}, nil, "")
@@ -153,19 +155,49 @@ func TestM5HistoryAPI(t *testing.T) {
 			if rec.Code != 200 {
 				t.Fatalf("chart: %d %s", rec.Code, rec.Body.String())
 			}
-			var chart struct {
+
+			// Section 7.2 activation: this monitor has a remote member, so the
+			// unqualified endpoints serve the overall stream with the unmeasured
+			// zero ping and no synthetic latency buckets.
+			overallPath := fmt.Sprintf("/api/monitors/%d/heartbeats", r.monitor)
+			rec = request(e, overallPath, viewerToken)
+			if rec.Code != 200 {
+				t.Fatalf("overall list: %d %s", rec.Code, rec.Body.String())
+			}
+			var overallRows []map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &overallRows); err != nil {
+				t.Fatal(err)
+			}
+			if len(overallRows) == 0 {
+				t.Fatalf("overall timeline must not be empty for a multi-probe monitor: %s", rec.Body.String())
+			}
+			for i, row := range overallRows {
+				if row["scope"] != "overall" || row["latency_available"] != false {
+					t.Fatalf("row %d lost its section-7.2 markers: %v", i, row)
+				}
+				if row["ping"] != float64(0) {
+					t.Fatalf("row %d must carry the unmeasured zero sentinel: %v", i, row)
+				}
+			}
+			rec = request(e, overallPath+"/chart", viewerToken)
+			if rec.Code != 200 {
+				t.Fatalf("overall chart: %d %s", rec.Code, rec.Body.String())
+			}
+			var overallChart struct {
 				Buckets           []json.RawMessage `json:"buckets"`
 				DowntimeIntervals []json.RawMessage `json:"downtime_intervals"`
 				UnknownIntervals  []json.RawMessage `json:"unknown_intervals"`
+				Scope             string            `json:"scope"`
+				LatencyAvailable  bool              `json:"latency_available"`
 			}
-			if err := json.Unmarshal(rec.Body.Bytes(), &chart); err != nil {
+			if err := json.Unmarshal(rec.Body.Bytes(), &overallChart); err != nil {
 				t.Fatal(err)
 			}
-			if chart.Buckets == nil || chart.DowntimeIntervals == nil || chart.UnknownIntervals == nil {
-				t.Fatalf("chart arrays must never be null: %s", rec.Body.String())
+			if overallChart.Scope != "overall" || overallChart.LatencyAvailable || len(overallChart.Buckets) != 0 {
+				t.Fatalf("overall chart must carry no synthetic latency: %s", rec.Body.String())
 			}
-			if len(chart.DowntimeIntervals) == 0 {
-				t.Fatalf("downtime must stay visible: %s", rec.Body.String())
+			if overallChart.DowntimeIntervals == nil || overallChart.UnknownIntervals == nil {
+				t.Fatalf("chart arrays must never be null: %s", rec.Body.String())
 			}
 
 			// Relationship is historical: unassigning the probe must not erase
