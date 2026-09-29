@@ -1585,22 +1585,37 @@ already-applied `001`–`037` files before invoking it; **do not** describe thos
 neither synthetic run is the M6 production-sized, application-led upgrade gate,
 full section-13 matrix, or canary.
 
-## M6 edge disk-full acceptance (T20 slice)
+## M6 fresh dual-engine backend race gate
+
+Run `python3 -B scripts/m6_dual_engine_gate.py`. It requires a local Unix Docker
+socket, cached `mariadb:11` image, Go 1.26.6 toolchain and modules. The gate
+creates and deletes **its own** localhost-bound MariaDB test container, runs
+`go test -race -count=1 -json -timeout 2400s -p 4 ./...`, and refuses missing
+MariaDB passes or unrecognized skips. It never uses the caller's DB DSN or
+provider credentials. See [executed evidence and limits](multi-region/M6_DUAL_ENGINE_GATE.md).
+This broad regression gate is **not** a row-by-row section-13 matrix run,
+production-sized upgrade rehearsal or canary.
+
+## M6 edge disk-full and process-kill acceptance (T20 + T06 slices)
 
 Run `python3 -B scripts/m6_edge_disk_full.py` from the project root with a local
 Unix Docker socket and cached `mariadb:11` image. The script cross-compiles the
 edge test binary with the installed local Go toolchain and cached modules only,
 starts its own no-network container with a **32 MiB tmpfs**, and requires the
-named `TestEdgeDiskFullCriticalCommit` **PASS**, not a skip. It fills only that
-isolated mount until actual kernel ENOSPC and checks failed recording, storage
-unhealthiness, no persisted partial state after restart, and exact-once retry
-state after freeing space. It removes the container on exit. The image supplies
-only Linux userspace; there is no MariaDB server or hub database in this gate.
+named `TestEdgeDiskFullCriticalCommit` and both
+`TestEdgeCheckCrashAroundCommit` process-kill subtests **PASS**, not skips. The
+first fills only that isolated mount until actual kernel ENOSPC and checks failed
+recording, storage unhealthiness, no persisted partial state after restart, and
+exact-once retry state after freeing space. The second kills a child inside a
+real transaction and after commit returns, asserting all-or-nothing state on
+reopen. It removes the container on exit. The image supplies only Linux
+userspace; there is no MariaDB server or hub database in this gate.
 
 Also run `GOTOOLCHAIN=go1.26.6 go test -count=1 -run '^TestEdgeHealthStorageUnavailable$' ./cmd/probe`
 for the production health mapping (`ready=false`, `db_writable=false`,
 `storage_unavailable`). See [the evidence and limits](multi-region/M6_DISK_FULL_ACCEPTANCE.md).
+Also run `GOTOOLCHAIN=go1.26.6 go test -race -count=1 -run '^TestEdgeCheckCrashAroundCommit$' ./internal/adapters/repository/edge`
+for a race-instrumented local-host T06 run. See the [crash evidence and limits](multi-region/M6_EDGE_COMMIT_CRASH.md).
 A normal `go test ./...` SKIPS the disk-full test outside its guarded container;
-a package PASS therefore does not establish T20. This slice does not exercise
-actual runtime health frames, a SIGKILL at the write boundary, or the full M6
-matrix.
+a package PASS therefore does not establish T20. Neither slice exercises the
+compiled probe runtime through its health frames or the full M6 matrix.

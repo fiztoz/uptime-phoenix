@@ -9,7 +9,7 @@ python3 -B scripts/m6_edge_disk_full.py
 GOTOOLCHAIN=go1.26.6 go test -count=1 -run '^TestEdgeHealthStorageUnavailable$' ./cmd/probe
 ```
 
-The script requires a **local Unix Docker socket** and a *cached* `mariadb:11` image; it fails before starting anything if either precondition is missing. It cross-compiles the `internal/adapters/repository/edge` Go test binary for the container's Linux architecture using the locally installed Go toolchain (`CGO_ENABLED=0`, `GOTOOLCHAIN=local`, `GOPROXY=off`, `GOSUMDB=off`) so a missing dependency cannot trigger a download. It starts a random-name container with **no network**, no published port, no MariaDB server and a **32 MiB `/data` tmpfs** (512 MiB container memory cap). It copies the binary, runs exactly `TestEdgeDiskFullCriticalCommit` with `TMPDIR=/data`, requires a named `PASS` and no `SKIP`, then removes its own container in `finally`.
+The script requires a **local Unix Docker socket** and a *cached* `mariadb:11` image; it fails before starting anything if either precondition is missing. It cross-compiles the `internal/adapters/repository/edge` Go test binary for the container's Linux architecture using the locally installed Go toolchain (`CGO_ENABLED=0`, `GOTOOLCHAIN=local`, `GOPROXY=off`, `GOSUMDB=off`) so a missing dependency cannot trigger a download. It starts a random-name container with **no network**, no published port, no MariaDB server and a **32 MiB `/data` tmpfs** (512 MiB container memory cap). It copies the binary, runs `TestEdgeDiskFullCriticalCommit` with `TMPDIR=/data`, then runs the [T06 process-kill test](M6_EDGE_COMMIT_CRASH.md) in the same isolated container. It requires the exact named passes and no skips before removing its own container in `finally`.
 
 The test first verifies that `/data` really is a Linux tmpfs mount; an environment flag alone cannot make it fill an arbitrary host directory. It opens the real CGO-free SQLite edge store on that mount, enrolls and activates a configuration, verifies normal write health and truncates the WAL. A separate file consumes the remaining mount space until the kernel returns **ENOSPC**. With the volume still full:
 
@@ -21,14 +21,14 @@ The check exercises an actual disk-capacity failure on the driver and the produc
 
 ## Executed evidence (2026-09-29 UTC)
 
-- `python3 -B scripts/m6_edge_disk_full.py`: **1 named Linux/tmpfs test pass**, 0 skips, real `modernc.org/sqlite` store. No container left behind.
+- `python3 -B scripts/m6_edge_disk_full.py`: originally **1 named T20 Linux/tmpfs pass**, 0 skips; after adding [T06](M6_EDGE_COMMIT_CRASH.md), **4 named passes** (T20 + T06 parent + both kill points), 0 skips. Real `modernc.org/sqlite`; no container left behind.
 - `GOTOOLCHAIN=go1.26.6 go test -count=1 -run '^TestEdgeHealthStorageUnavailable$' ./cmd/probe`: **1 pass**.
 - `GOTOOLCHAIN=go1.26.6 go build ./...` passed; `go test -race -count=1 -timeout 2400s -p 4 ./...` passed 22 packages; `~/go/bin/golangci-lint run ./...` returned 0 issues. No MariaDB test DSN was configured, so those Go MariaDB legs did not execute.
 - The normal Go test suite **skips** `TestEdgeDiskFullCriticalCommit` when the isolated-container flag is absent: JSON-audited focused output was `skip TestEdgeDiskFullCriticalCommit`, `pass TestEdgeHealthStorageUnavailable`. A normal package-level PASS is not T20 evidence. The script requires the exact named pass and refuses a skip. The Linux/tmpfs acceptance is not a `-race` process: it cross-compiles a CGO-free Go test binary for the container.
 
 SHA-256 of tested inputs:
 
-- `scripts/m6_edge_disk_full.py`: `959a522eab641093254a91244d529ef781d219ad6723644d3225f6ed13f341ac`
+- `scripts/m6_edge_disk_full.py` (expanded T20+T06): `54b47f1d0ee63db7c722a4237c1e2ac0ef3b4ed2f622f4d6dfd51a14ea335654`
 - `internal/adapters/repository/edge/disk_full_test.go`: `3c8f538a3310101d90e811dd6076f3d7cd85bb46b6ec70260479f91dbd9aba55`
 - `cmd/probe/runtime_health_test.go`: `279cb3569046d3057d699f4c5ec4758fcd44a3897b9644bb286b73feb6a8cc3d`
 

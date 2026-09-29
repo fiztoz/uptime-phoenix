@@ -14,8 +14,12 @@ durability, clock, disk, backup and provider bounds the code enforces. A
 measures migration 037 on 100k partitioned heartbeats. A
 [Go-runner follow-up](M6_MIGRATION_RUNNER_REHEARSAL.md) applies 038–074 to that
 populated schema; neither run closes the production-sized migration gate. The
-[real edge ENOSPC test](M6_DISK_FULL_ACCEPTANCE.md) covers a T20 recording/health
-slice on an isolated tmpfs, not the full 40-case matrix. None of these records
+[fresh dual-engine race gate](M6_DUAL_ENGINE_GATE.md) audits named MariaDB
+passes and skips on a disposable database; it is not a scenario-by-scenario
+matrix. The [real edge ENOSPC test](M6_DISK_FULL_ACCEPTANCE.md) covers a T20 recording/health
+slice; [abrupt edge-process crashes](M6_EDGE_COMMIT_CRASH.md) cover the T06
+local-transaction kill boundary on an isolated tmpfs. Neither is the full
+40-case matrix. None of these records
 authorizes a canary. The remaining M6 requirements are listed in
 [the plan](IMPLEMENTATION_PLAN.md#9-m6--failure-validation-and-v1-activation).
 The earlier [foundation and frozen read contracts](M5_FOUNDATION.md) remain useful.
