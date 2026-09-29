@@ -23,7 +23,10 @@ Let one private Phoenix hub manage independent execution probes, assign each mon
 6. [Original Gemini research](../../research/distributed-agent-worker-az-architecture.md): historical rationale and illustrations. Its executable-looking examples are not implementation contracts.
 
 The implemented standalone key tool is documented in
-[key provisioning and recovery](KEY_PROVISIONING.md).
+[key provisioning and recovery](KEY_PROVISIONING.md). Egress, durability, clock,
+disk, backup and provider requirements for a remote assignment are in
+[operator requirements](M6_OPERATOR_REQUIREMENTS.md). That record does not
+authorize a canary.
 
 Verification records sit alongside these contracts. [Timezone/UTC audit
 verification](SECURITY_AUDIT.md) records which reported findings were already

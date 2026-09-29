@@ -121,3 +121,9 @@ func TestAccessReplayDeliveryUsesExactAcceptedParentAndLinkedChannel(t *testing.
 		})
 	}
 }
+
+func TestMaxFutureClockSkewIsOperatorBound(t *testing.T) {
+	if services.MaxFutureClockSkew != 30*time.Second {
+		t.Fatalf("future-evidence bound = %s; docs/multi-region/M6_OPERATOR_REQUIREMENTS.md says 30s", services.MaxFutureClockSkew)
+	}
+}

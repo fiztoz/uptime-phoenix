@@ -19,6 +19,10 @@ spec:
         - protocol: TCP
           port: 3000
   egress:
+    # Probe runtime (default :8443) and non-443 providers (SMTP 587/465/25,
+    # custom webhook ports) are intentionally absent. See
+    # docs/multi-region/M6_OPERATOR_REQUIREMENTS.md before enabling probes
+    # with this policy — the hub dialer does not use HTTP_PROXY.
     # DNS
     - ports:
         - protocol: UDP

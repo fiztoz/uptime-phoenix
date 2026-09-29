@@ -167,10 +167,11 @@ MariaDB leg passes before trusting any result.
 
 ## 5. Remaining M6 scope
 
-Unchanged and still open: the full section 13 matrix as a single recorded run,
-migration rehearsal on a **populated partitioned** MariaDB with timing/lock/disk
-measurements, the bounded load cases and 24-hour backlog drain rate, kill tests
-at every durable boundary, the operator requirements document (egress, durability,
-clock sync, disk sizing, backup consistency, provider reachability), and the
-canary. The canary and any production enrollment require the operator's own
-deployment approval.
+The operator requirements (egress, durability, clock sync, disk sizing, backup
+consistency, provider reachability) are recorded in
+[M6_OPERATOR_REQUIREMENTS.md](M6_OPERATOR_REQUIREMENTS.md). Still open: the full
+section 13 matrix as a single recorded run, migration rehearsal on a
+**populated partitioned** MariaDB with timing/lock/disk measurements, the
+bounded load cases and 24-hour backlog drain rate, kill tests at every durable
+boundary, and the canary. The canary and any production enrollment require the
+operator's own deployment approval.

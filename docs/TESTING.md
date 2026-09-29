@@ -1535,3 +1535,22 @@ both remote-write entry points (`ProbeAssignmentService.Replace`,
 `MonitorService.CreateWithAssignments`, which `Clone` also uses), and the
 `Restore` exemption — a backup import or config apply must still succeed on a
 degraded or mid-rollout fleet.
+
+## M6 operator requirements
+
+Egress, durability, clock, disk, backup and provider bounds are recorded in
+[multi-region/M6_OPERATOR_REQUIREMENTS.md](multi-region/M6_OPERATOR_REQUIREMENTS.md).
+That record is not a load envelope, a populated migration rehearsal, or a canary.
+The admission numbers it cites are frozen by
+`TestOperatorStorageBudgetsMatchDocumentedContract`:
+
+```sh
+GOTOOLCHAIN=go1.26.6 go test -count=1 -run 'TestOperatorStorageBudgetsMatchDocumentedContract' \
+  ./internal/adapters/repository/edge/
+```
+
+Changing `walCheckpointBytes`, the page-cap formula, the 64 MiB delivery or
+metadata budgets, or the 1 GiB stream-reset archive cap requires updating the
+requirements document in the same change. The chart NetworkPolicy still does
+not open the default probe port; `helm template` with `networkPolicy.enabled=true`
+must not grow an 8443 egress rule unless the requirements document changes too.

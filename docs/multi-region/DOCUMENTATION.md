@@ -5,7 +5,8 @@
 [README](README.md) → [status](IMPLEMENTATION_STATUS.md) →
 [continuation](CONTINUATION_GUIDE.md), then the relevant architecture/protocol and
 implementation-plan sections. Operator instructions live in
-[the runtime guide](M2_OPERATOR_GUIDE.md), [key provisioning](KEY_PROVISIONING.md)
+[the runtime guide](M2_OPERATOR_GUIDE.md), [key provisioning](KEY_PROVISIONING.md),
+[operator requirements](M6_OPERATOR_REQUIREMENTS.md)
 and the explicit [reset workflow](M3_HUB_RESET_ACCEPTANCE.md).
 
 ## Keep in version control

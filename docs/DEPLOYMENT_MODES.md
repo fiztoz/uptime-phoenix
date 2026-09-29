@@ -210,6 +210,11 @@ What you get in every mode:
 
 Registration, enrollment, watchdogs, ACK and rotation stay operator actions on
 the probe hosts; see the [operator guide](multi-region/M2_OPERATOR_GUIDE.md).
+Before the first remote member, satisfy
+[operator requirements](multi-region/M6_OPERATOR_REQUIREMENTS.md): the hub dials
+the probe (default `:8443`), the dialer ignores `HTTP_PROXY`, and
+`networkPolicy.enabled=true` does not open that port or SMTP 587. Enabling the
+flag is not enrollment and not a canary.
 For the hub-side feature flag, secret reference and recovery rules see the
 [deployment compatibility record](multi-region/M4_DEPLOYMENT_COMPAT.md) and the
 [lifecycle/recovery contracts](multi-region/M4_LIFECYCLE_RECOVERY.md).
