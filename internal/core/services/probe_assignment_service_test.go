@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -83,6 +84,25 @@ func (f fakeAssignmentRepo) GetByMonitorID(_ context.Context, _ int64) (*domain.
 		return nil, ports.ErrNotFound
 	}
 	return f.set, nil
+}
+
+// awareFleetReadiness is the permissive ports.HubWorkerReadiness double for tests
+// that are not about the T34 gate: every live worker attests assignment
+// ownership, so remote activation is allowed. The dedicated gate tests substitute
+// their own double.
+type awareFleetReadiness struct{}
+
+func (awareFleetReadiness) DeclareWorker(context.Context, string, int, time.Duration) error {
+	return nil
+}
+
+func (awareFleetReadiness) UnawareWorkers(context.Context, int, time.Duration) ([]string, error) {
+	return nil, nil
+}
+
+// awareFleetGate builds a gate that permits remote activation.
+func awareFleetGate() FleetActivationGate {
+	return NewFleetActivationGate(awareFleetReadiness{}, time.Minute)
 }
 
 func assignmentTestCaps() ports.ProbeAssignmentCapabilities {
@@ -178,7 +198,7 @@ func TestProbeAssignmentServiceReplace(t *testing.T) {
 
 	t.Run("StaleRevisionWritesNothing", func(t *testing.T) {
 		writer := &fakeAssignmentWriter{}
-		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{set: previous}, assignmentTestProbes(), fakeMonitorLookup{monitor: monitor}, assignmentTestCaps())
+		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{set: previous}, assignmentTestProbes(), fakeMonitorLookup{monitor: monitor}, assignmentTestCaps(), awareFleetGate())
 		_, err := svc.Replace(t.Context(), 7, ProbeAssignmentRequest{ExpectedRevision: 3, ProbeIDs: []string{domain.LocalProbeID}, HealthPolicy: domain.HealthPolicyAnyDown})
 		if !errors.Is(err, ErrStaleRevision) || writer.replaced {
 			t.Fatalf("stale write: %v replaced=%v", err, writer.replaced)
@@ -191,7 +211,7 @@ func TestProbeAssignmentServiceReplace(t *testing.T) {
 
 	t.Run("ConflictBecomesStaleRevision", func(t *testing.T) {
 		writer := &fakeAssignmentWriter{err: ports.ErrConflict}
-		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{set: previous}, assignmentTestProbes(), fakeMonitorLookup{monitor: monitor}, assignmentTestCaps())
+		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{set: previous}, assignmentTestProbes(), fakeMonitorLookup{monitor: monitor}, assignmentTestCaps(), awareFleetGate())
 		if _, err := svc.Replace(t.Context(), 7, ProbeAssignmentRequest{ExpectedRevision: 4, ProbeIDs: []string{domain.LocalProbeID}, HealthPolicy: domain.HealthPolicyAnyDown}); !errors.Is(err, ErrStaleRevision) {
 			t.Fatalf("conflict mapping: %v", err)
 		}
@@ -199,7 +219,7 @@ func TestProbeAssignmentServiceReplace(t *testing.T) {
 
 	t.Run("LegacyMonitorInitializesAtRevisionOne", func(t *testing.T) {
 		writer := &fakeAssignmentWriter{result: newSet(1, domain.HealthPolicyAnyDown, domain.LocalProbeID)}
-		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{}, assignmentTestProbes(), fakeMonitorLookup{monitor: monitor}, assignmentTestCaps())
+		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{}, assignmentTestProbes(), fakeMonitorLookup{monitor: monitor}, assignmentTestCaps(), awareFleetGate())
 		if _, err := svc.Replace(t.Context(), 7, ProbeAssignmentRequest{ExpectedRevision: 5, ProbeIDs: []string{domain.LocalProbeID}, HealthPolicy: domain.HealthPolicyAnyDown}); !errors.Is(err, ErrStaleRevision) {
 			t.Fatalf("legacy precondition must expect revision one: %v", err)
 		}
@@ -231,7 +251,7 @@ func TestProbeAssignmentServiceReplace(t *testing.T) {
 		probes.probes["22222222-2222-4222-8222-222222222222"] = domain.Probe{ID: "22222222-2222-4222-8222-222222222222", Kind: domain.ProbeKindRemote, Enabled: true}
 		newBinding := domain.ProbeAssignmentBinding{ProbeID: "22222222-2222-4222-8222-222222222222", ProbeResourceBinding: domain.ProbeResourceBinding{Kind: "docker_api", BindingKey: "docker-api"}}
 		bindings := []domain.ProbeAssignmentBinding{kept, newBinding}
-		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{set: previous}, probes, fakeMonitorLookup{monitor: docker}, assignmentTestCaps())
+		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{set: previous}, probes, fakeMonitorLookup{monitor: docker}, assignmentTestCaps(), awareFleetGate())
 		result, err := svc.Replace(t.Context(), 7, ProbeAssignmentRequest{ExpectedRevision: 4,
 			ProbeIDs:     []string{domain.LocalProbeID, assignmentTestProbe, "22222222-2222-4222-8222-222222222222"},
 			HealthPolicy: domain.HealthPolicyAnyDown, Bindings: &bindings})
@@ -256,7 +276,7 @@ func TestProbeAssignmentServiceReplace(t *testing.T) {
 
 	t.Run("NoOpProvesNothingNew", func(t *testing.T) {
 		writer := &fakeAssignmentWriter{result: previous}
-		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{set: previous}, assignmentTestProbes(), fakeMonitorLookup{monitor: monitor}, assignmentTestCaps())
+		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{set: previous}, assignmentTestProbes(), fakeMonitorLookup{monitor: monitor}, assignmentTestCaps(), awareFleetGate())
 		result, err := svc.Replace(t.Context(), 7, ProbeAssignmentRequest{ExpectedRevision: 4, ProbeIDs: []string{domain.LocalProbeID}, HealthPolicy: domain.HealthPolicyAnyDown})
 		if err != nil || len(result.PendingProbes) != 0 {
 			t.Fatalf("no-op write: %v %v", result, err)
@@ -282,7 +302,7 @@ func TestMonitorServiceCloneAuthority(t *testing.T) {
 			{MonitorID: src.ID, ProbeID: assignmentTestProbe, Generation: 1, ResourceBinding: &binding},
 		}}
 	writer := &fakeAssignmentWriter{result: set}
-	svc.SetAssignmentProvisioning(writer, assignmentTestProbes(), assignmentTestCaps())
+	svc.SetAssignmentProvisioning(writer, assignmentTestProbes(), assignmentTestCaps(), awareFleetGate())
 	svc.SetAssignmentReader(fakeAssignmentRepo{set: set})
 
 	if _, err := svc.Clone(t.Context(), src.ID, 1, false); !errors.Is(err, ErrRemoteCloneForbidden) || writer.created {

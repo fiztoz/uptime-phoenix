@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -172,4 +174,146 @@ func TestProbeAdminRegister_ReenrollsRestoredIdentity(t *testing.T) {
 			t.Fatalf("failed adoption not reported: %v", err)
 		}
 	})
+}
+
+// fakeCLIReadiness is a controllable ports.HubWorkerReadiness double for the
+// operator CLI gate.
+type fakeCLIReadiness struct {
+	unaware []string
+	err     error
+	calls   int
+}
+
+func (f *fakeCLIReadiness) DeclareWorker(context.Context, string, int, time.Duration) error {
+	return nil
+}
+
+func (f *fakeCLIReadiness) UnawareWorkers(context.Context, int, time.Duration) ([]string, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.unaware, nil
+}
+
+// TestProbeAdminAssignGate proves the operator CLI's `assign` command is gated by
+// the same T34 rule as the admin API. The CLI writes the desired set directly
+// through the assignment store, so without this it would be an activation path
+// the fleet guarantee does not cover — and it is precisely the tool an operator
+// reaches for during a rollout.
+func TestProbeAdminAssignGate(t *testing.T) {
+	ctx := context.Background()
+	cfg := Config{ShardLeaseTTL: 300}
+	remote := []string{"9a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"}
+	localOnly := []string{domain.LocalProbeID}
+
+	t.Run("local only is never gated", func(t *testing.T) {
+		f := &fakeCLIReadiness{unaware: []string{"worker-old"}}
+		if msg := probeAdminAssignGate(ctx, f, cfg, localOnly); msg != "" {
+			t.Fatalf("local-only assign refused: %q", msg)
+		}
+		if f.calls != 0 {
+			t.Fatalf("local-only assign consulted readiness %d times", f.calls)
+		}
+	})
+
+	t.Run("aware fleet is allowed", func(t *testing.T) {
+		if msg := probeAdminAssignGate(ctx, &fakeCLIReadiness{}, cfg, remote); msg != "" {
+			t.Fatalf("aware fleet refused: %q", msg)
+		}
+	})
+
+	t.Run("unaware fleet is refused and names the worker", func(t *testing.T) {
+		msg := probeAdminAssignGate(ctx, &fakeCLIReadiness{unaware: []string{"worker-old-7d9f"}}, cfg, remote)
+		if msg == "" {
+			t.Fatal("unaware fleet was allowed to activate remote monitoring")
+		}
+		if !strings.Contains(msg, "worker-old-7d9f") {
+			t.Fatalf("CLI refusal must name the straggler for the operator: %q", msg)
+		}
+		if !strings.Contains(msg, "rollout") {
+			t.Fatalf("CLI refusal must say what to do: %q", msg)
+		}
+	})
+
+	// A CLI invoked on a hub whose readiness table cannot be read must not
+	// conclude the fleet is fine. This also covers a nil store, which is what an
+	// older or minimal composition produces.
+	t.Run("unreadable readiness fails closed", func(t *testing.T) {
+		msg := probeAdminAssignGate(ctx, &fakeCLIReadiness{err: errors.New("readiness table unreadable")}, cfg, remote)
+		if msg == "" || !strings.Contains(msg, "readiness") {
+			t.Fatalf("unreadable readiness allowed activation: %q", msg)
+		}
+		if msg := probeAdminAssignGate(ctx, nil, cfg, remote); msg == "" {
+			t.Fatal("a nil readiness store allowed remote activation")
+		}
+		// Local-only still works with no store at all, so a probes-disabled
+		// install keeps its CLI.
+		if msg := probeAdminAssignGate(ctx, nil, cfg, localOnly); msg != "" {
+			t.Fatalf("local-only assign refused with no readiness store: %q", msg)
+		}
+	})
+
+	t.Run("a very short lease TTL cannot blind the gate", func(t *testing.T) {
+		// fleetLeaseLookback floors the window; a sub-minute SHARD_LEASE_TTL must
+		// not make a running unaware worker look dead.
+		if got := fleetLeaseLookback(Config{ShardLeaseTTL: 1}); got != time.Minute {
+			t.Fatalf("lookback for a 1s TTL = %v, want the 1m floor", got)
+		}
+		if got := fleetLeaseLookback(Config{ShardLeaseTTL: 900}); got != 15*time.Minute {
+			t.Fatalf("lookback for a 900s TTL = %v, want 15m", got)
+		}
+		// 300 is the documented SHARD_LEASE_TTL default, applied by the env loader.
+		if got := fleetLeaseLookback(Config{ShardLeaseTTL: 300}); got != 5*time.Minute {
+			t.Fatalf("lookback for the 300s default TTL = %v, want 5m", got)
+		}
+		// A bare zero-value Config carries no TTL at all (envDefault is applied by
+		// the loader, not by the struct), which must land on the floor rather than
+		// produce a zero window that sees no live worker.
+		if got := fleetLeaseLookback(Config{}); got != time.Minute {
+			t.Fatalf("lookback for an unset TTL = %v, want the 1m floor", got)
+		}
+	})
+}
+
+// TestProbeAdminAssignConsultsTheFleetGate guards the CALL SITE, which the
+// decision-logic test above cannot: deleting the gate invocation from the assign
+// command would leave every other test green while silently reopening the
+// activation path. It asserts the ordering in source, the same technique this
+// repository already uses for route-registration guards, because driving
+// `RunProbeAdmin assign` end to end needs a provisioned key file, an initialized
+// installation and an enrolled probe.
+//
+// Order matters, not just presence: the gate must run BEFORE the write, or a
+// refusal would arrive after the desired set had already changed.
+func TestProbeAdminAssignConsultsTheFleetGate(t *testing.T) {
+	source, err := os.ReadFile("probe_admin.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(source)
+	start := strings.Index(body, `case "assign":`)
+	if start < 0 {
+		t.Fatal("the assign command disappeared from probe_admin.go")
+	}
+	end := strings.Index(body[start:], "\n\tcase \"")
+	if end < 0 {
+		end = len(body) - start
+	}
+	block := body[start : start+end]
+
+	gate := strings.Index(block, "probeAdminAssignGate(")
+	write := strings.Index(block, "ReplaceWithBindings(")
+	if gate < 0 {
+		t.Fatal("the assign command no longer consults probeAdminAssignGate; remote activation via the CLI is ungated")
+	}
+	if write < 0 {
+		t.Fatal("the assign command no longer writes a desired set; this guard is stale, update it")
+	}
+	if gate > write {
+		t.Fatal("the fleet gate runs after ReplaceWithBindings, so a refusal would arrive after the desired set already changed")
+	}
+	if !strings.Contains(block, "repos.hubWorkerReadiness") {
+		t.Fatal("the assign gate is not wired to the readiness store")
+	}
 }

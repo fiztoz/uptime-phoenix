@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -196,6 +197,14 @@ func (h *MonitorRegionalHandlers) Replace(c echo.Context) error {
 	}
 	written, err := h.writer.Replace(c.Request().Context(), id, req)
 	if err != nil {
+		if errors.Is(err, services.ErrFleetNotAssignmentAware) {
+			// The wrapped error names the offending workers. That is operator
+			// infrastructure detail, so it goes to the log and not into the
+			// response body, which keeps the documented fixed message.
+			slog.WarnContext(c.Request().Context(),
+				"regional assignment refused: hub workers do not all enforce assignment ownership",
+				"monitor_id", id, "reason", err.Error())
+		}
 		return regionalWriteError(c, err)
 	}
 	result, err := h.svc.Assignments(c.Request().Context(), userID, id, h.now().UTC())
@@ -247,6 +256,12 @@ func regionalWriteError(c echo.Context, err error) error {
 		return regionalError(c, http.StatusBadRequest, "invalid_alert_delivery", "alert_delivery must be regional")
 	case errors.Is(err, services.ErrInvalidBindings):
 		return regionalError(c, http.StatusBadRequest, "invalid_bindings", "bindings must reference member probes with a supported resource")
+	case errors.Is(err, services.ErrFleetNotAssignmentAware):
+		// T34: the rollout is not finished, so the fleet would run this monitor
+		// both remotely and locally. Retryable once every worker attests.
+		return regionalError(c, http.StatusConflict, "worker_fleet_unaware", "one or more hub workers do not enforce probe assignment ownership")
+	case errors.Is(err, services.ErrFleetReadinessUnavailable):
+		return regionalError(c, http.StatusServiceUnavailable, "worker_readiness_unavailable", "hub worker readiness could not be verified")
 	case errors.Is(err, ports.ErrNotFound), errors.Is(err, domain.ErrNotFound):
 		return regionalError(c, http.StatusNotFound, "monitor_not_found", "monitor not found")
 	case errors.Is(err, domain.ErrValidation):

@@ -146,7 +146,13 @@ func Run(cfg Config) error {
 	defer bus.Close()
 
 	monitorSvc := services.NewMonitorService(repos.monitor, bus)
-	monitorSvc.SetAssignmentProvisioning(repos.probeAssignWriter, repos.probeRegistry, checkeradapter.CapabilityInspector{})
+	// T34 activation gate for the two HTTP-facing remote-write entry points
+	// (assignment replacement and create/clone with assignments). The operator
+	// CLI's assign command builds its own from the same store and lookback. The
+	// lookback follows the configured shard lease TTL so a running worker cannot
+	// look dead.
+	fleetGate := services.NewFleetActivationGate(repos.hubWorkerReadiness, fleetLeaseLookback(cfg))
+	monitorSvc.SetAssignmentProvisioning(repos.probeAssignWriter, repos.probeRegistry, checkeradapter.CapabilityInspector{}, fleetGate)
 	monitorSvc.SetAssignmentReader(repos.probeAssignments)
 	monitorSvc.SetProxyRepo(repos.proxy)
 	// Without this the service rejects every monitor that carries a GroupID, so
@@ -560,6 +566,11 @@ func Run(cfg Config) error {
 			)
 			sharded.SetProxyRepo(repos.proxy)
 			sharded.SetAssignmentRepo(repos.probeAssignments)
+			// Only sharded workers attest: they are the ones enumerable through
+			// monitors.worker_id. A local-mode worker holds no lease, so it has no
+			// identity to attest under and no mixed-version window (one process,
+			// upgraded atomically).
+			sharded.SetFleetReadiness(repos.hubWorkerReadiness)
 			if cfg.ProbeSecretKeyFile != "" {
 				sharded.SetActivationRepo(repos.probeActivation)
 			}
@@ -675,7 +686,7 @@ func Run(cfg Config) error {
 	if cfg.ProbesEnabled {
 		regionalHandlers.SetBrowserPublisher(browserPublisher)
 	}
-	regionalHandlers.SetAssignments(services.NewProbeAssignmentService(repos.probeAssignWriter, repos.probeAssignments, repos.probeRegistry, repos.monitor, checkeradapter.CapabilityInspector{}))
+	regionalHandlers.SetAssignments(services.NewProbeAssignmentService(repos.probeAssignWriter, repos.probeAssignments, repos.probeRegistry, repos.monitor, checkeradapter.CapabilityInspector{}, fleetGate))
 	var adminSvc *services.ProbeAdminService
 	if cfg.ProbesEnabled {
 		// Durable administrative operations wrap the same connector/rotation/
@@ -931,6 +942,20 @@ type repoBundle struct {
 	probeIncident          ports.ProbeIncidentRepository
 	probeConfig            ports.ProbeConfigRepository
 	localProbeConfigSource ports.LocalProbeConfigSourceRepository
+	hubWorkerReadiness     ports.HubWorkerReadiness
+}
+
+// fleetLeaseLookback bounds how old a monitor lease may be and still count as
+// live for the T34 remote-activation gate. It must cover the fleet's shard lease
+// TTL, otherwise a running worker that has not attested assignment ownership
+// would age out of the roster and the gate would pass on false evidence. The
+// floor keeps a misconfigured sub-minute TTL from blinding it.
+func fleetLeaseLookback(cfg Config) time.Duration {
+	lookback := time.Duration(cfg.ShardLeaseTTL) * time.Second
+	if lookback < time.Minute {
+		lookback = time.Minute
+	}
+	return lookback
 }
 
 func wireRepositories(engine string, db *bun.DB) repoBundle {
@@ -938,6 +963,7 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 	b.notificationThrottle = repo.NewNotificationThrottleStore(db)
 	b.probeRegistry = repo.NewProbeRegistryStore(db)
 	b.probeDiagnostics = repo.NewProbeDiagnosticsStore(db)
+	b.hubWorkerReadiness = repo.NewHubWorkerReadinessStore(db)
 	switch engine {
 	case "mariadb":
 		r := mariadbrepo.NewRepository(db)

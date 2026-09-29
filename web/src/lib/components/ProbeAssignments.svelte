@@ -10,6 +10,7 @@
     regionalApi,
     type MonitorProbeAssignmentsView,
   } from "$lib/api/regional";
+  import { probeWriteErrorMessage } from "$lib/probe-errors";
   import ProbeStatus from "./ProbeStatus.svelte";
   import * as m from "$lib/paraglide/messages.js";
   let {
@@ -157,10 +158,7 @@
       onSaved?.();
       return true;
     } catch (e) {
-      error =
-        errorCode(e) === "stale_revision"
-          ? m.probes_stale()
-          : errorMessage(e, m.probes_save_failed());
+      error = probeWriteErrorMessage(e, m.probes_save_failed());
       return false;
     } finally {
       saving = false;

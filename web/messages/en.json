@@ -1000,6 +1000,8 @@
   "probes_confirm": "Confirm action",
   "probes_cancel": "Cancel",
   "probes_stale": "This configuration changed elsewhere. Reload it before saving again.",
+  "probes_fleet_unaware": "Some hub workers are still being upgraded and do not honor probe assignments yet. Remote regions stay disabled until every worker is updated.",
+  "probes_readiness_unavailable": "Hub worker readiness could not be verified. Try again shortly.",
   "probes_regions": "Check regions",
   "probes_regions_help": "Choose where this monitor runs. Saving updates desired configuration; applied status confirms execution.",
   "probes_any_down": "Down if any region is down",

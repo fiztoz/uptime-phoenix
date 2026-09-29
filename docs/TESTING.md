@@ -1484,3 +1484,54 @@ reconnect/application receipts, and one original remote outage incident/delivery
 It terminates its own processes in `finally`. This process test complements
 browser and scoped-authority tests; it does not establish M6 load, populated
 production migration, kill-point or deployment acceptance.
+
+## M6 fleet assignment-ownership gate (T34)
+
+Guards the mixed-version rollout: a desired set containing any member other than
+`local` is refused with `409 worker_fleet_unaware` while a live hub worker cannot
+be shown to enforce assignment ownership. Design, detection boundary and
+acceptance are in
+[multi-region/M6_FLEET_ACTIVATION_GATE.md](multi-region/M6_FLEET_ACTIVATION_GATE.md).
+
+```sh
+# Service gate, scheduler attestation ordering, and the store on SQLite.
+GOTOOLCHAIN=go1.26.6 go test -race -count=1 \
+  -run 'TestFleetActivationGate|TestProbeAssignmentServiceReplaceFleetGate|TestMonitorServiceCreateWithAssignmentsFleetGate' \
+  ./internal/core/services/
+GOTOOLCHAIN=go1.26.6 go test -race -count=1 -run 'TestShardedScheduler' ./internal/adapters/scheduler/
+GOTOOLCHAIN=go1.26.6 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
+
+# The same store cases against real MariaDB. REQUIRED: without the DSN every
+# mariadb subtest silently SKIPS and the run still prints "ok".
+TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43316)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
+  GOTOOLCHAIN=go1.26.6 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
+```
+
+Confirm the MariaDB legs actually ran before trusting the result — count named
+passes with `go test -json` and require `skips=0`:
+
+```sh
+TEST_MARIADB_DSN=... GOTOOLCHAIN=go1.26.6 go test -count=1 -json \
+  -run 'TestHubWorkerReadiness' ./internal/adapters/repository/ \
+  | python3 -c 'import sys,json;p=s=f=0
+for l in sys.stdin:
+    l=l.strip()
+    if not l.startswith("{"): continue
+    e=json.loads(l); a,t=e.get("Action"),e.get("Test")
+    if not t: continue
+    p,s,f = (p+1,s,f) if a=="pass" else (p,s+1,f) if a=="skip" else (p,s,f+1) if a=="fail" else (p,s,f)
+print(f"passes={p} skips={s} fails={f}")'
+```
+
+This case is engine-sensitive, not just engine-parity: SQLite's driver normalizes
+a local-zoned `time.Time` on write while MariaDB stores the local wall clock, so
+`TestHubWorkerReadinessAttestationIsUtcBound` only discriminates a missing
+`.UTC()` on the MariaDB leg. A SQLite-only run of that test proves nothing about
+rule 6.
+
+Regression areas if you touch this gate: `scheduler.ShardedScheduler` claim and
+refresh ordering, `MonitorRepo.ClaimBatch`'s `LocalHubExecutionSQL` predicate,
+both remote-write entry points (`ProbeAssignmentService.Replace`,
+`MonitorService.CreateWithAssignments`, which `Clone` also uses), and the
+`Restore` exemption — a backup import or config apply must still succeed on a
+degraded or mid-rollout fleet.

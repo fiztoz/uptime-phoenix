@@ -1,0 +1,272 @@
+{
+  "slice": "M6_FLEET_ACTIVATION_GATE",
+  "milestone_requirement": "M6: verify all upgraded workers enforce assignment ownership before enabling remote monitoring (verification matrix T34)",
+  "recorded": "2026-09-29",
+  "toolchain": "GOTOOLCHAIN=go1.26.6",
+  "engines": [
+    "sqlite (modernc.org/sqlite, CGO-free)",
+    "mariadb:11 (11.8.9) live container"
+  ],
+  "mariadb_dsn": "TEST_MARIADB_DSN set to a disposable local mariadb:11 database (phoenix_ci) with parseTime=true&loc=UTC&multiStatements=true; credentials withheld",
+  "authorization": "Local verification only. Not a push, not a deployment, not V1 activation approval, and not a production canary.",
+  "commands": [
+    "GOTOOLCHAIN=go1.26.6 go build ./...",
+    "GOTOOLCHAIN=go1.26.6 go vet ./internal/...",
+    "GOTOOLCHAIN=go1.26.6 gofmt -l internal/  (empty)",
+    "GOTOOLCHAIN=go1.26.6 ~/go/bin/golangci-lint run ./internal/core/services/... ./internal/adapters/repository/... ./internal/adapters/scheduler/... ./internal/adapters/http/... ./internal/bootstrap/...",
+    "TEST_MARIADB_DSN=... GOTOOLCHAIN=go1.26.6 go test -race -json -count=1 -timeout 2400s -p 4 ./...",
+    "GOTOOLCHAIN=go1.26.6 go test -count=1 -json -run TestHubWorkerReadiness ./internal/adapters/repository/  (with and without TEST_MARIADB_DSN)",
+    "GOTOOLCHAIN=go1.26.6 go test -race -count=1 -run 'TestFleetActivationGate|TestProbeAssignmentServiceReplaceFleetGate|TestMonitorServiceCreateWithAssignmentsFleetGate' ./internal/core/services/",
+    "GOTOOLCHAIN=go1.26.6 go test -race -count=1 -run TestShardedScheduler ./internal/adapters/scheduler/",
+    "cd web && bun run check  (paraglide compile + svelte-kit sync + svelte-check)",
+    "cd web && bun run lint  (prettier --check . && eslint .)",
+    "cd web && bun run build",
+    "cd web && bun test src/lib",
+    "cd web && bun run test:e2e"
+  ],
+  "totals": {
+    "packages_ok": 22,
+    "packages_failed": 0,
+    "named_passes": 4289,
+    "failed": 0,
+    "skipped": 2,
+    "skipped_names": [
+      "TestDatabaseChecker_Check_MongoDB_RealServer",
+      "TestTelegramSender_Send_DownSeverity"
+    ],
+    "skip_note": "Both are the longstanding external-service environment skips carried in the M5 record; neither touches this slice.",
+    "baseline_note": "M5 completion recorded 4211 named passes over the same 22 packages. The intermediate run of this slice was 4282; the final run after the CLI gate landed is 4289, 0 failures, race enabled, both engines live.",
+    "race": true,
+    "final_gate": "GOTOOLCHAIN=go1.26.6 go test -race -json -count=1 -timeout 2400s -p 4 ./... with TEST_MARIADB_DSN exported"
+  },
+  "slice_named_passes": 58,
+  "slice_mariadb_live_legs": 8,
+  "frontend": {
+    "svelte_check": "0 errors, 0 warnings",
+    "lint": "prettier --check . && eslint . clean",
+    "unit_tests": "256 passed, 0 failed (621 expect calls, 27 files)",
+    "build": "vite build succeeded; probe-errors.js chunk emitted",
+    "e2e": "18 passed, 0 failed (chromium, 32.7s; PROBES_ENABLED=true, real Go binary built by the harness)",
+    "e2e_significance": "tests/e2e/10-probe-fleet.spec.ts 'monitor creation assigns selected regions and an assignment retry never creates a duplicate monitor' drives the remote create-with-assignments path through the real composition root and still passes. That is the process-level proof the gate does not wedge a single-pod local-mode install, which engine-level tests cannot establish because they construct services by hand."
+  },
+  "mutation_checks": [
+    {
+      "id": "R1",
+      "target": "repository/hub_worker_readiness.go",
+      "mutation": "DeclareWorker writes time.Now() (local-zoned) instead of time.Now().UTC()",
+      "caught_by": "TestHubWorkerReadinessAttestationIsUtcBound/mariadb"
+    },
+    {
+      "id": "R1b",
+      "target": "repository/hub_worker_readiness.go",
+      "mutation": "UnawareWorkers derives leaseCutoff from local-zoned time.Now()",
+      "caught_by": "TestHubWorkerReadinessAttestationIsUtcBound/mariadb + TestHubWorkerReadinessDeadWorkerStopsBlocking"
+    },
+    {
+      "id": "R2",
+      "target": "repository/hub_worker_readiness.go",
+      "mutation": "arm1 inverted to c.lease_until <= ? (ignores attestation expiry)",
+      "caught_by": "TestHubWorkerReadinessExpiredAttestationBlocksAgain"
+    },
+    {
+      "id": "R3",
+      "target": "repository/hub_worker_readiness.go",
+      "mutation": "arm1 protocol compare inverted to < ?",
+      "caught_by": "TestHubWorkerReadinessUnattestedLeaseHolderBlocks"
+    },
+    {
+      "id": "R4",
+      "target": "repository/hub_worker_readiness.go",
+      "mutation": "arm2 neutralized (< ? - 99) so stale-protocol workers never reported",
+      "caught_by": "TestHubWorkerReadinessStaleProtocolBlocks"
+    },
+    {
+      "id": "R5",
+      "target": "repository/hub_worker_readiness.go",
+      "mutation": "leaseCutoff pushed 100 years back so every lease counts as live",
+      "caught_by": "TestHubWorkerReadinessDeadWorkerStopsBlocking"
+    },
+    {
+      "id": "R6",
+      "target": "repository/hub_worker_readiness.go",
+      "mutation": "prune predicate neutralized so expired attestations accumulate",
+      "caught_by": "TestHubWorkerReadinessPrunesExpired"
+    },
+    {
+      "id": "R7",
+      "target": "repository/hub_worker_readiness.go",
+      "mutation": "DeclareWorker input validation removed",
+      "caught_by": "TestHubWorkerReadinessRejectsInvalidInput"
+    },
+    {
+      "id": "R8",
+      "target": "repository/hub_worker_readiness.go",
+      "mutation": "DeclareWorker always inserts (update-then-insert refresh removed)",
+      "caught_by": "TestHubWorkerReadinessUnattestedLeaseHolderBlocks (idempotency)"
+    },
+    {
+      "id": "G1",
+      "target": "services/fleet_activation_gate.go",
+      "mutation": "remote/local test inverted: local-only gated, remote exempt",
+      "caught_by": "TestFleetActivationGate/LocalOnlyNeverConsultsReadiness + RemoteRefusedAndNamesTheOffender"
+    },
+    {
+      "id": "G2",
+      "target": "services/fleet_activation_gate.go",
+      "mutation": "unwired gate returns nil (fails open)",
+      "caught_by": "TestFleetActivationGate/UnwiredGateFailsClosedOnRemote"
+    },
+    {
+      "id": "G3",
+      "target": "services/fleet_activation_gate.go",
+      "mutation": "readiness error returns nil (fails open)",
+      "caught_by": "TestFleetActivationGate/ReadinessFailureFailsClosed"
+    },
+    {
+      "id": "G4",
+      "target": "services/fleet_activation_gate.go",
+      "mutation": "non-empty offender list ignored",
+      "caught_by": "TestFleetActivationGate/RemoteRefusedAndNamesTheOffender"
+    },
+    {
+      "id": "G5",
+      "target": "services/fleet_activation_gate.go",
+      "mutation": "named-worker bound removed (unbounded message)",
+      "caught_by": "TestFleetActivationGate/RefusalBoundsTheNamedWorkerList"
+    },
+    {
+      "id": "S1",
+      "target": "services/probe_assignment_service.go",
+      "mutation": "gate call deleted from Replace",
+      "caught_by": "TestProbeAssignmentServiceReplaceFleetGate/UnawareFleetWritesNothing"
+    },
+    {
+      "id": "S2",
+      "target": "services/probe_assignment_service.go",
+      "mutation": "gate call deleted from CreateWithAssignments",
+      "caught_by": "TestMonitorServiceCreateWithAssignmentsFleetGate/UnawareFleetCreatesNothing"
+    },
+    {
+      "id": "W1",
+      "target": "scheduler/sharded.go",
+      "mutation": "declareReadiness removed from refreshAndClaim",
+      "caught_by": "TestShardedSchedulerAttestsBeforeClaiming"
+    },
+    {
+      "id": "W2",
+      "target": "scheduler/sharded.go",
+      "mutation": "declareReadiness removed before Run's initial claim",
+      "caught_by": "TestShardedSchedulerRunAttestsBeforeInitialClaim"
+    },
+    {
+      "id": "W3",
+      "target": "scheduler/sharded.go",
+      "mutation": "nil-readiness guard removed",
+      "caught_by": "TestShardedSchedulerWithoutReadinessStillRuns"
+    },
+    {
+      "id": "W4",
+      "target": "scheduler/sharded.go",
+      "mutation": "attests protocol-1 instead of the required protocol",
+      "caught_by": "TestShardedSchedulerAttestsBeforeClaiming (protocol assertion)"
+    },
+    {
+      "id": "W5",
+      "target": "scheduler/sharded.go",
+      "mutation": "attests with leaseTTL/2 instead of leaseTTL",
+      "caught_by": "TestShardedSchedulerAttestsBeforeClaiming (ttl assertion)"
+    },
+    {
+      "id": "C1",
+      "target": "bootstrap/probe_admin.go",
+      "mutation": "gate call deleted from the assign command",
+      "caught_by": "TestProbeAdminAssignConsultsTheFleetGate"
+    },
+    {
+      "id": "C2",
+      "target": "bootstrap/probe_admin.go",
+      "mutation": "gate moved to after ReplaceWithBindings (refusal arrives post-write)",
+      "caught_by": "TestProbeAdminAssignConsultsTheFleetGate"
+    },
+    {
+      "id": "C3",
+      "target": "bootstrap/probe_admin.go",
+      "mutation": "ErrFleetNotAssignmentAware branch disabled so the gate always allows",
+      "caught_by": "TestProbeAdminAssignGate/unaware_fleet_is_refused_and_names_the_worker"
+    },
+    {
+      "id": "C4",
+      "target": "bootstrap/probe_admin.go",
+      "mutation": "assign gate wired to nil instead of repos.hubWorkerReadiness",
+      "caught_by": "TestProbeAdminAssignConsultsTheFleetGate"
+    },
+    {
+      "id": "C5",
+      "target": "bootstrap/run.go",
+      "mutation": "fleetLeaseLookback floor removed so a sub-minute SHARD_LEASE_TTL blinds the gate",
+      "caught_by": "TestProbeAdminAssignGate/a_very_short_lease_TTL_cannot_blind_the_gate"
+    }
+  ],
+  "mutation_summary": {
+    "applied": 26,
+    "caught": 26,
+    "missed": 0,
+    "noop": 0,
+    "unrestored": 0,
+    "method": "Each mutation applied by exact string replacement with a uniqueness precondition (anchor count must be 1), the target test run, then the file restored from its in-memory original and verified by SHA-256 equality. Backups were written to a real /tmp path via the bash tool, never from the sandboxed executor whose /tmp is not the host /tmp.",
+    "noop_note": "One anchor (C5) was first aimed at probe_admin.go where it does not occur; the harness reported it NOOP rather than silently passing, and it was re-run against run.go where fleetLeaseLookback is defined. Counted once."
+  },
+  "harness_defect_found": {
+    "finding": "The first mutation run reported R1 (local-time attestation bound) as MISSED. The guard was not blind: the run had not exported TEST_MARIADB_DSN, so every mariadb subtest silently skipped and only SQLite executed, while the run still printed ok.",
+    "proof": "A throwaway probe wrote the same instant as time.Now().UTC() and as a UTC+7-zoned time.Time. SQLite stored both as 2026-09-29 00:05:44+00:00 (driver normalizes). MariaDB stored 00:05:44.271906 and 07:05:44.273294 respectively (no normalization on write, despite loc=UTC in the DSN).",
+    "consequence": "The .UTC() normalization in DeclareWorker and UnawareWorkers is load-bearing on MariaDB only, so a SQLite-only run of TestHubWorkerReadinessAttestationIsUtcBound proves nothing about AGENTS.md rule 6.",
+    "fix": "The mutation harness now asserts the mariadb subtest reports exactly one PASS before trusting any result, and the repo mutations were re-run with the DSN exported: 9 of 9 caught.",
+    "related": "Same class as the documented 'go test -run X without TEST_MARIADB_DSN silently skips' trap; recorded here because it defeated a mutation check rather than a coverage claim."
+  },
+  "local_mode_noop_proof": {
+    "claim": "The gate cannot wedge a default single-pod install.",
+    "reasoning": "UnawareWorkers arm 1 selects monitors with worker_id IS NOT NULL and a live lease; arm 2 selects current attestations declaring an older protocol. monitors.worker_id is written only by MonitorRepo.ClaimBatch, which runs only in sharded mode (WORKER_ID set), and cleared only by ReleaseLeases. Local mode never sets it and never attests, so both arms are empty and every remote-write is allowed.",
+    "verified_by": "grep of every worker_id write in the mariadb and sqlite monitor repositories, plus TestShardedSchedulerWithoutReadinessStillRuns for the unattested-scheduler direction. Confirmed at process level by the passing e2e remote-assignment spec: the e2e hub runs in local mode (no WORKER_ID), so no lease roster exists and the gate allows the write."
+  },
+  "source_hashes_sha256": {
+    "internal/core/ports/hub_worker_readiness.go": "5641491755c23842846a725299fdf9af93e032319a7a772395cf10979208f7f9",
+    "internal/core/services/fleet_activation_gate.go": "8e835cae555264aa6c9685a6b8dc8c853faedafaad2db8bb33bf8ea419ae6585",
+    "internal/core/services/fleet_activation_gate_test.go": "4f22e0958c13eba89f9f836b235b3f7e1335280ad8bd533f955cfab12d71ade1",
+    "internal/core/services/probe_assignment_service.go": "2b256b9a6714e2e8c21633ae62252f68742b9f572cfa08ba5b272ebfa478506f",
+    "internal/adapters/repository/hub_worker_readiness.go": "ba9b631c74bf24a66951bf7498ef1ca958d42e1dfadf8f7ef13c204d30cfe408",
+    "internal/adapters/repository/hub_worker_readiness_test.go": "d44c35836e927eba71a7da4685d40d35dfbe6f7a63dedb53b39587cff43ee805",
+    "internal/adapters/scheduler/sharded.go": "d716a30e89f9ba6dc1485196af2a9f1077236d26b4bec44ad9f4b5844cd616f8",
+    "internal/adapters/scheduler/fleet_readiness_test.go": "209c1242bb0bfbeb4b9e500518667f9e3eeede0187b67840bf23031005cb6e9f",
+    "internal/adapters/http/handlers/monitor_regional.go": "f672d86c40491f31d03a979cb5c70a5a6edca9d730b526270ee20118cfa393ef",
+    "internal/bootstrap/run.go": "170c6188b55864a1d9b5b892840f7da4356326663f6ed1f50fb45621f5393bfd",
+    "internal/adapters/repository/mariadb/migrations/074_hub_worker_capabilities.up.sql": "bdb23a4ffe97968d9daf3aa3ea1ed1a2768102e01cb74a7e65e0752bc2f5f683",
+    "internal/adapters/repository/sqlite/migrations/074_hub_worker_capabilities.up.sql": "9b3827debc314f8d858f03537d13d080f1f869d2c022175b3089e62331f5aa38",
+    "web/src/lib/probe-errors.ts": "81f955fb2d7644bd9fc7c8c95ec775302849902933b9eb4fb79345403dd0535e",
+    "internal/core/services/probe_assignment_service_test.go": "e53fad6a52a6b6a120d39a8c57022a3f7ded1497710c99b7fe5a931c30dfa71d",
+    "internal/adapters/repository/m5_assignment_write_test.go": "b5102d08cae64f8ea9839e61aa40c68d8dfdda69fd806bad5d2606c8214635b5",
+    "internal/core/services/monitor_service.go": "d6d12de8597765709a82f6ff0dcdfce1d88adf2d77f8b607e0b6ec9f3af260a1",
+    "web/src/lib/components/ProbeAssignments.svelte": "0fdcade2eb3b267279181bab8421fdde6743abaf197d66ea280dc24090acdb0b",
+    "web/src/routes/(admin)/probes/[id]/+page.svelte": "2f007cc6ed37e34c9bce9d52a186aa5cd3c7aba7e1b15b32f51575ab7607c313",
+    "internal/adapters/repository/mariadb/migrations/074_hub_worker_capabilities.down.sql": "debb00c5decc1d733d4a2f371aa113e568b9c5279223de3769904dba3bc8887e",
+    "internal/adapters/repository/sqlite/migrations/074_hub_worker_capabilities.down.sql": "d7387199b8fcae1ca634571b025b9972ba765f1bd0ac4bc4331737d2b6d76ac1",
+    "docs/multi-region/M6_FLEET_ACTIVATION_GATE.md": "65c99077ed37ae4783af9cf5d9faf21bd62279fd916feda303fe7dddbadaa224",
+    "internal/bootstrap/probe_admin.go": "e86f75866be19b3ae7cb5fa43475a7830686a92a80c875c98db88e7c3a48fbb4",
+    "internal/bootstrap/probe_admin_test.go": "af3ac5545eb19a1bb321b5bcfa8bfd1cd0a80c7d20f8575ea532dad55df01cb3"
+  },
+  "unverified": [
+    "A real mixed-version fleet: no pre-M1 worker binary was executed against this hub. The unaware-worker population is modeled by a live lease with no attestation, which is exactly what such a binary produces, but the old binary itself was not run.",
+    "Local-mode workers are not enumerable and are not covered by the gate; this is a documented detection boundary, not a tested behavior.",
+    "The residual window where an unaware worker joins AFTER a remote assignment was committed. The gate is point-in-time at write and does not re-check.",
+    "Multi-replica sharded behavior under a real rolling Kubernetes upgrade (lease handoff, replica count changes, SHARD_LEASE_TTL divergence between API and worker pods).",
+    "Load, populated partitioned migration timing/lock/disk behavior, backlog drain rate, kill points at every durable boundary, and the canary. All remain open M6 scope.",
+    "Restore-path exemption is asserted by construction and by the absence of a gate call on that path; no end-to-end backup-import-while-fleet-degraded process test was run in this slice.",
+    "The CLI assign gate is verified by decision-logic unit tests plus a source-ordering assertion on the call site; `RunProbeAdmin assign` was not driven end to end, which would need a provisioned key file, an initialized installation and an enrolled probe."
+  ],
+  "cli_path_finding": {
+    "finding": "Auditing callers of ProbeAssignmentWriter.ReplaceWithBindings found internal/bootstrap/probe_admin.go's `assign` command writing the desired set directly through repository.NewProbeAssignmentStore, bypassing the service-level gate. It is a genuine remote-activation path and the tool an operator reaches for mid-rollout.",
+    "found_by": "grep of every ReplaceWithBindings / CreateMonitorWithAssignments / Restore caller in non-test source, to verify the documented Restore exemption rather than to look for this.",
+    "fix": "probeAdminAssignGate wraps services.FleetActivationGate with fleetLeaseLookback(cfg) and runs before the write; refusals name the straggler workers, which is appropriate for an operator console and deliberately not done in the HTTP response body.",
+    "call_site_guard": "TestProbeAdminAssignConsultsTheFleetGate asserts the invocation exists, is wired to repos.hubWorkerReadiness, and precedes ReplaceWithBindings in the assign block. A decision-logic unit test alone cannot catch deletion of the call.",
+    "restore_still_exempt": "Restore is reached only from backup_service.go and configascode.go directly on the repository port, never through a gated service method, so the documented exemption holds by construction."
+  }
+}

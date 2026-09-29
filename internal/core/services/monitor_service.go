@@ -28,6 +28,7 @@ type MonitorService struct {
 	assignReader      ports.MonitorProbeAssignmentRepository // optional: clone honors the source set
 	probeRegistry     ports.ProbeRegistryRepository          // optional: validates explicit members
 	probeCapabilities ports.ProbeAssignmentCapabilities      // optional: validates remote executability
+	fleetGate         FleetActivationGate                    // required for remote members: T34 mixed-version guard
 }
 
 // SetConditionRepository wires cleanup for auxiliary observations whose

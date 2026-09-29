@@ -1,6 +1,7 @@
 package repository_test
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/auth"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
@@ -20,6 +22,23 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
+
+// m5AwareFleetReadiness is the permissive ports.HubWorkerReadiness double for
+// this suite: the T34 mixed-version gate is exercised by its own tests, and these
+// assignment-write cases need remote activation to be allowed.
+type m5AwareFleetReadiness struct{}
+
+func (m5AwareFleetReadiness) DeclareWorker(context.Context, string, int, time.Duration) error {
+	return nil
+}
+
+func (m5AwareFleetReadiness) UnawareWorkers(context.Context, int, time.Duration) ([]string, error) {
+	return nil, nil
+}
+
+func m5AwareFleetGate() services.FleetActivationGate {
+	return services.NewFleetActivationGate(m5AwareFleetReadiness{}, time.Minute)
+}
 
 // TestM5AssignmentWrites proves the revisioned desired-set write surface end
 // to end on both engines: atomic complete-set replacement with optimistic
@@ -72,9 +91,9 @@ func TestM5AssignmentWrites(t *testing.T) {
 			reader.SetDiagnostics(diagnostics)
 			caps := checker.CapabilityInspector{}
 			writer := repository.NewProbeAssignmentStore(r.f.db)
-			assignmentSvc := services.NewProbeAssignmentService(writer, r.f.assignments, r.f.registry, repos.monitors, caps)
+			assignmentSvc := services.NewProbeAssignmentService(writer, r.f.assignments, r.f.registry, repos.monitors, caps, m5AwareFleetGate())
 			monitorSvc := services.NewMonitorService(repos.monitors, eventbus.NewMemoryBus())
-			monitorSvc.SetAssignmentProvisioning(writer, r.f.registry, caps)
+			monitorSvc.SetAssignmentProvisioning(writer, r.f.registry, caps, m5AwareFleetGate())
 			monitorSvc.SetAssignmentReader(r.f.assignments)
 			jwt := auth.NewJWTAuthenticator(strings.Repeat("m5-assignment-test-key-", 4), 1, repos.users)
 			authSvc := services.NewAuthService(repos.users, nil, jwt, nil)

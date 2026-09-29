@@ -577,6 +577,8 @@ behavior and omit a coverage value (`null`).
 
 Preserve the existing error key: `{ "error": "human-readable explanation", "code": "machine_code" }`. The additive machine-readable `code` does not rename `error` to `message`. New validation endpoints may add `fields`, mapping paths to error codes. The important statuses are 400 malformed input; 401 missing/invalid credential; 403 authenticated but missing administrative authority; 404 hidden or absent monitor; 409 revision/identity/assignment conflict; 413 size limit; 422 supported request with invalid configuration; 429 rate limit; 503 transient unavailable storage/feature activation; 501 endpoint deliberately not implemented in a staged build. Never report 200/204 for an unperformed mutation.
 
+Remote activation adds two machine codes under the existing 409/503 semantics. A desired set containing any member other than `local` is refused with `409 worker_fleet_unaware` while at least one live hub worker cannot be shown to enforce assignment ownership — a mixed-version rollout state, retryable once the upgrade completes, and never a defect in the request. When the readiness evidence itself cannot be read the same write returns `503 worker_readiness_unavailable`, because the hub must not guess. Both fail closed; a local-only set is never gated. The offending worker identities are logged server-side and stay out of the response body. See [the fleet activation gate](M6_FLEET_ACTIVATION_GATE.md).
+
 ## 8. Browser WebSocket and caching
 
 The browser WebSocket is not the probe transport. Continue to use `internal/adapters/ws/events.go` and explicit wire mappers, paired with `web/src/lib/stores/ws.svelte.ts`.

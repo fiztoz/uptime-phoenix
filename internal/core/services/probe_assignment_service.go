@@ -67,17 +67,22 @@ type ProbeAssignmentService struct {
 	registry     ports.ProbeRegistryRepository
 	monitors     ports.MonitorRepository
 	capabilities ports.ProbeAssignmentCapabilities
+	fleet        FleetActivationGate
 }
 
-// NewProbeAssignmentService binds the assignment write dependencies.
+// NewProbeAssignmentService binds the assignment write dependencies. fleet is
+// required to commit any set with a remote member and is consulted only then; a
+// zero-value gate makes those writes fail closed instead of silently skipping
+// the mixed-version check.
 func NewProbeAssignmentService(
 	writer ports.ProbeAssignmentWriter,
 	assignments ports.MonitorProbeAssignmentRepository,
 	registry ports.ProbeRegistryRepository,
 	monitors ports.MonitorRepository,
 	capabilities ports.ProbeAssignmentCapabilities,
+	fleet FleetActivationGate,
 ) *ProbeAssignmentService {
-	return &ProbeAssignmentService{writer: writer, assignments: assignments, registry: registry, monitors: monitors, capabilities: capabilities}
+	return &ProbeAssignmentService{writer: writer, assignments: assignments, registry: registry, monitors: monitors, capabilities: capabilities, fleet: fleet}
 }
 
 // Replace commits one complete desired set. expectedRevision is mandatory and
@@ -107,6 +112,12 @@ func (s *ProbeAssignmentService) Replace(ctx context.Context, monitorID int64, r
 		return nil, ErrStaleRevision
 	}
 	if err := ValidateDesiredAssignments(ctx, monitor, previous, req.ProbeIDs, req.HealthPolicy, req.Bindings, req.AlertDelivery, s.registry, s.capabilities); err != nil {
+		return nil, err
+	}
+	// T34: a set with a remote member makes this monitor remote-executed, so the
+	// whole live fleet must already honor assignment ownership. Checked after
+	// input validation and before any write, so a refusal leaves no partial state.
+	if err := s.fleet.EnsureRemoteActivationAllowed(ctx, req.ProbeIDs); err != nil {
 		return nil, err
 	}
 	var bindings []domain.ProbeAssignmentBinding
@@ -267,6 +278,12 @@ func (s *MonitorService) CreateWithAssignments(ctx context.Context, m *domain.Mo
 	if err := ValidateDesiredAssignments(ctx, m, nil, initial.ProbeIDs, initial.HealthPolicy, initial.Bindings, "", s.probeRegistry, s.probeCapabilities); err != nil {
 		return err
 	}
+	// T34, same rule as Replace: creating a monitor that is remote-executed from
+	// birth is a remote activation and needs an assignment-aware fleet. This also
+	// covers Clone, which reproduces a remote source set through this path.
+	if err := s.fleetGate.EnsureRemoteActivationAllowed(ctx, initial.ProbeIDs); err != nil {
+		return err
+	}
 	normalizeHTTPMonitorURL(m)
 	if m.Weight == 0 {
 		m.Weight = 2000
@@ -292,10 +309,18 @@ func (s *MonitorService) CreateWithAssignments(ctx context.Context, m *domain.Mo
 }
 
 // SetAssignmentProvisioning wires the atomic create-with-assignments path.
-func (s *MonitorService) SetAssignmentProvisioning(writer ports.ProbeAssignmentWriter, registry ports.ProbeRegistryRepository, capabilities ports.ProbeAssignmentCapabilities) {
+// fleet gates remote members on fleet-wide assignment ownership (T34); leaving
+// it zero makes a create with remote members fail closed.
+//
+// Deliberately not applied to Restore: a backup import or config apply must
+// succeed while the fleet is degraded or mid-rollout, and restored identities
+// are created disabled pending reenrollment, so a restore does not hand live
+// work to a remote probe.
+func (s *MonitorService) SetAssignmentProvisioning(writer ports.ProbeAssignmentWriter, registry ports.ProbeRegistryRepository, capabilities ports.ProbeAssignmentCapabilities, fleet FleetActivationGate) {
 	s.assignWriter = writer
 	s.probeRegistry = registry
 	s.probeCapabilities = capabilities
+	s.fleetGate = fleet
 }
 
 // SetAssignmentReader wires assignment reads so Clone can honor the source

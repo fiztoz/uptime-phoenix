@@ -23,6 +23,7 @@ type ShardedScheduler struct {
 	leaseReader    ports.WorkerMonitorReader
 	assignments    ports.MonitorProbeAssignmentRepository
 	activation     ports.ProbeConfigActivationRepository
+	fleet          ports.HubWorkerReadiness
 	checkerFn      func(string) (ports.Checker, bool)
 	heartbeatSvc   *services.HeartbeatService
 	maintenanceSvc *services.MaintenanceService
@@ -104,6 +105,29 @@ func (s *ShardedScheduler) SetActivationRepo(repo ports.ProbeConfigActivationRep
 	s.activation = repo
 }
 
+// SetFleetReadiness attaches the attestation store this worker uses to declare
+// that it enforces probe assignment ownership (verification matrix T34).
+func (s *ShardedScheduler) SetFleetReadiness(repo ports.HubWorkerReadiness) {
+	s.fleet = repo
+}
+
+// declareReadiness attests this worker's assignment protocol. It runs before any
+// claim: a worker that leased monitors first would sit in the fleet roster as an
+// unattested executor and block remote activation for the very fleet it belongs
+// to. The attestation shares the lease TTL, so it expires on the same clock as
+// the leases it vouches for and a departed worker cannot block activation
+// forever. Failure is logged rather than fatal — staying unattested simply keeps
+// remote activation refused, which is the safe direction.
+func (s *ShardedScheduler) declareReadiness(ctx context.Context) {
+	if s.fleet == nil {
+		return
+	}
+	if err := s.fleet.DeclareWorker(ctx, s.workerID, ports.HubWorkerAssignmentProtocol, s.leaseTTL); err != nil {
+		s.logger.Error("sharded scheduler: failed to declare assignment ownership",
+			"worker_id", s.workerID, "error", err)
+	}
+}
+
 // Run starts the sharded scheduler loop. Blocks until ctx is canceled.
 func (s *ShardedScheduler) Run(ctx context.Context) error {
 	if s.leaseReader == nil || s.workerID == "" {
@@ -123,7 +147,8 @@ func (s *ShardedScheduler) Run(ctx context.Context) error {
 		}
 	}()
 
-	// Initial claim.
+	// Attest before the initial claim, then claim.
+	s.declareReadiness(ctx)
 	s.claim(ctx)
 
 	ticker := time.NewTicker(1 * time.Second)
@@ -158,6 +183,9 @@ func (s *ShardedScheduler) claim(ctx context.Context) {
 
 // refreshAndClaim refreshes the lease on existing monitors and claims new ones.
 func (s *ShardedScheduler) refreshAndClaim(ctx context.Context) {
+	// Keep the attestation as fresh as the leases it vouches for.
+	s.declareReadiness(ctx)
+
 	// Refresh existing leases.
 	if n, err := s.monitorRepo.RefreshLease(ctx, s.workerID); err != nil {
 		s.logger.Error("sharded scheduler: failed to refresh lease", "error", err)

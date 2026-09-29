@@ -13,6 +13,7 @@
     type ProbeDetailView,
     type ProbeOperationView,
   } from "$lib/api/probes";
+  import { probeWriteErrorMessage } from "$lib/probe-errors";
   import ProbeStatus from "$lib/components/ProbeStatus.svelte";
   import ProbeOperation from "$lib/components/ProbeOperation.svelte";
   import * as m from "$lib/paraglide/messages.js";
@@ -77,10 +78,7 @@
     try {
       await action();
     } catch (e) {
-      error =
-        errorCode(e) === "stale_revision"
-          ? m.probes_stale()
-          : errorMessage(e, m.probes_save_failed());
+      error = probeWriteErrorMessage(e, m.probes_save_failed());
     } finally {
       busy = false;
     }

@@ -274,11 +274,15 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		if err != nil {
 			return fail("Monitor assignment state is unavailable")
 		}
+		desiredMembers := strings.Split(members, ",")
 		bindings, err := readProbeAssignmentBindings(ctx, bindingsFile)
 		if err != nil {
 			return fail("Assignment binding file must be a private bounded JSON array of probe_id, binding_key and kind")
 		}
-		set, err := repository.NewProbeAssignmentStore(db).ReplaceWithBindings(ctx, monitorID, revision, strings.Split(members, ","), current.HealthPolicy, bindings)
+		if refusal := probeAdminAssignGate(ctx, repos.hubWorkerReadiness, cfg, desiredMembers); refusal != "" {
+			return fail(refusal)
+		}
+		set, err := repository.NewProbeAssignmentStore(db).ReplaceWithBindings(ctx, monitorID, revision, desiredMembers, current.HealthPolicy, bindings)
 		if err != nil {
 			return fail("Assignment replacement failed; check the current revision and enabled registrations")
 		}
@@ -373,6 +377,33 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 // restored disabled identity by re-enabling it. Backup import creates remote
 // identities disabled pending reenrollment, so this is the documented
 // reenrollment entry point — it runs before the runtime credential is prepared.
+// probeAdminAssignGate applies the T34 fleet gate to the operator CLI's assign
+// path and returns the refusal to show the operator, or "" when the write may
+// proceed.
+//
+// The CLI is gated for the same reason the admin API is: `assign` hands live work
+// to a remote probe immediately, and an explicit administrative tool is exactly
+// what an operator reaches for mid-rollout. Leaving it open would make the
+// guarantee something the API enforces but the fleet does not. Restore stays
+// exempt — that is disaster recovery, and it creates identities disabled pending
+// reenrollment rather than assigning live work.
+//
+// Worker identities go into the CLI message on purpose. This is an operator
+// console pointed at their own infrastructure, and naming the stragglers is the
+// actionable part; the same detail is kept out of the HTTP response body.
+func probeAdminAssignGate(ctx context.Context, readiness ports.HubWorkerReadiness, cfg Config, members []string) string {
+	err := services.NewFleetActivationGate(readiness, fleetLeaseLookback(cfg)).
+		EnsureRemoteActivationAllowed(ctx, members)
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, services.ErrFleetNotAssignmentAware):
+		return "Remote activation refused: " + err.Error() + ". Finish the hub worker rollout, then retry."
+	default:
+		return "Remote activation refused: hub worker readiness could not be verified."
+	}
+}
+
 func probeAdminRegistration(ctx context.Context, registry ports.ProbeRegistryRepository, probeID, key, name, location string) (*domain.Probe, error) {
 	p, err := registry.GetByID(ctx, probeID)
 	if errors.Is(err, ports.ErrNotFound) {
