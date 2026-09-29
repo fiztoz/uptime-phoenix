@@ -1,6 +1,6 @@
 # M6 — first populated partitioned MariaDB migration rehearsal
 
-Status: **bounded engineering rehearsal, not the full M6 production-sized migration gate**. This record covers the most disruptive M1 upgrade (`037_probe_heartbeat.up.sql`): new regional columns/index on the partitioned `heartbeats` table and replacement of all three legacy rollup unique keys. It does not authorize applying the upgrade to a running deployment. Stop all writers for a real schema migration; MariaDB DDL auto-commits.
+Status: **bounded engineering rehearsal, not the full M6 production-sized migration gate**. This record covers the most disruptive M1 upgrade (`037_probe_heartbeat.up.sql`): new regional columns/index on the partitioned `heartbeats` table and replacement of all three legacy rollup unique keys. A [later rehearsal](M6_MIGRATION_RUNNER_REHEARSAL.md) additionally exercises the application's Go runner for `038`–`074` on the populated schema. It does not authorize applying the upgrade to a running deployment. Stop all writers for a real schema migration; MariaDB DDL auto-commits.
 
 ## Reproduction and isolation
 
@@ -26,7 +26,7 @@ Image: `mariadb:11`, resolved server version `11.8.9-MariaDB-ubu2404`; Colima Do
 
 Observed data-dir growth was **528 KiB**. The ~2.95 s difference between the two elapsed times is consistent with the deliberately held reader, not a claim that DDL is generally lock-free. A queued DDL can also block later readers; this test only observes the writer's metadata-lock wait, **not** reader latency or live application impact. The 0.163 s result is a tmpfs/small-dataset result, not a production estimate.
 
-Hashes for the executed inputs (SHA-256):
+Hashes for the **original c939db4 run** (SHA-256; the Python harness has since gained an optional `--run-tail` path, with its new hash in the later rehearsal):
 
 - `scripts/rehearse_probe_heartbeat_migration.py`: `a9d46c77348c4d17a5ef5a4cbd09076b18963aa41bf1a79d8d8baf509b4a6c8a`
 - `037_probe_heartbeat.up.sql`: `8a779becef619d1d52e9ff4341d19e133308ae6288240ff4080f6d9d599a07ac`
@@ -38,7 +38,7 @@ Executed `GOTOOLCHAIN=go1.26.6 go build ./...`, `go test -race -count=1 -timeout
 
 ## What remains unverified
 
-- The harness executes **checked-in SQL via the MariaDB client**, not `repository.RunMigrations` or a whole in-place application upgrade. Earlier migrations run on an *empty* schema. It does not measure the full chain through current migration `074` on populated legacy data or an operational rollback through dependent newer schema.
+- This original run executed **checked-in SQL via the MariaDB client**, not `repository.RunMigrations` or a whole in-place application upgrade. Earlier migrations ran on an *empty* schema. The [follow-up](M6_MIGRATION_RUNNER_REHEARSAL.md) uses `repository.RunMigrations` for `038`–`074` on the populated schema, but neither run measures a production-sized application-led upgrade from a real legacy snapshot or an operational rollback through dependent newer schema.
 - 100,000 synthetic heartbeats and 3,000 rollups are not a copy of a production distribution, disk layout, retention policy, concurrency pattern, or representative payloads. No real writer raced the migration. Peak total disk growth (including temp space) and reader/write latency during the metadata-lock queue are **not** established.
 - Rollback refusal was checked for a **remote rollup**. Other remote/scoped identities and other migrations' downgrade guards have separate existing engine tests; this rehearsal does not replace those tests.
 

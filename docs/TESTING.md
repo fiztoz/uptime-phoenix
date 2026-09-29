@@ -1572,6 +1572,15 @@ python3 -B scripts/rehearse_probe_heartbeat_migration.py --rows 100000 --hold-re
 
 Both commands must exit zero and print JSON. The second must observe a metadata
 lock wait; the first must not. Compare wall times, sampled data-directory size,
-legacy IDs/counts, index definitions and downgrade refusal. The sampling is not
-a true disk peak, and this synthetic migration-037-only run is **not** the M6
-full-chain, production-sized upgrade gate, full section-13 matrix, or canary.
+legacy IDs/counts, index definitions and downgrade refusal. To additionally
+exercise the production `repository.RunMigrations` for `038`–`074` on this
+populated schema, use `--run-tail` on both commands; see the
+[runner evidence](multi-region/M6_MIGRATION_RUNNER_REHEARSAL.md). The helper is
+cross-compiled for the isolated container using the installed local Go toolchain
+and cached dependencies only (`GOPROXY=off`); it has a fixed Unix-socket test
+DSN and refuses execution outside the tagged container. The harness also
+refuses a remote Docker socket or uncached image. It records the
+already-applied `001`–`037` files before invoking it; **do not** describe those
+37 migrations as Go-runner-executed. The sampling is not a true disk peak, and
+neither synthetic run is the M6 production-sized, application-led upgrade gate,
+full section-13 matrix, or canary.

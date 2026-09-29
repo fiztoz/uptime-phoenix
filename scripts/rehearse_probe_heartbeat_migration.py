@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rehearse migration 037 on a populated, isolated MariaDB container.
+"""Rehearse migration 037, optionally followed by the real Go migration runner.
 
 Requires a cached mariadb:11 image and Docker. The container has no network and
 no published ports. Never points at an operator-supplied database. Only removes
@@ -8,8 +8,11 @@ its own uniquely named container, and prints no credentials.
 
 import argparse
 import json
+import os
 from pathlib import Path
+import re
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -100,14 +103,111 @@ def seed(r, rows):
               + ",".join(values) + ";")
 
 
-def run(rows, hold_seconds):
+def run_tail(r, rows, before_ids, legacy_rollups, partition_before):
+    # The first 37 SQL files have already run via the client on this *new*
+    # database. Record those exact names so RunMigrations applies 038 onward;
+    # never let a caller supply a DSN or a migration prefix.
+    files = sorted(MIGRATIONS.glob("*.up.sql"))
+    applied = [p.name for p in files if int(p.name[:3]) <= 37]
+    assert applied[-1] == "037_probe_heartbeat.up.sql" and int(files[-1].name[:3]) >= 74
+    assert all(re.fullmatch(r"[a-zA-Z0-9_.-]+", name) for name in applied)
+    r.sql("CREATE TABLE _migrations (id INT AUTO_INCREMENT PRIMARY KEY, "
+          "filename VARCHAR(255) NOT NULL UNIQUE, "
+          "applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+    r.sql("INSERT INTO _migrations (filename) VALUES " + ",".join(
+        f"('{name}')" for name in applied
+    ))
+    assert r.query("SELECT COUNT(*) FROM _migrations") == str(len(applied))
+    arch = docker("exec", r.name, "uname", "-m").stdout.strip()
+    go_arch = {"x86_64": "amd64", "aarch64": "arm64"}.get(arch)
+    if go_arch is None:
+        raise RuntimeError(f"unsupported rehearsal container architecture: {arch}")
+    with tempfile.TemporaryDirectory(prefix="phoenix-m6-runner-") as tmp:
+        binary = Path(tmp) / "migrate-tail"
+        # Use the installed Go (must satisfy go.mod); module/toolchain downloads
+        # are forbidden for this offline harness.
+        env = dict(os.environ, GOTOOLCHAIN="local", CGO_ENABLED="0",
+                   GOOS="linux", GOARCH=go_arch, GOPROXY="off", GOSUMDB="off")
+        build = subprocess.run(
+            ["go", "build", "-o", str(binary), "./scripts/rehearse_tail_migrations.go"],
+            cwd=ROOT, env=env, text=True, capture_output=True, check=False
+        )
+        if build.returncode:
+            raise RuntimeError(f"build isolated Go migration runner failed: {build.stderr[-1200:]}")
+        docker("cp", str(binary), f"{r.name}:/tmp/migrate-tail")
+    start_disk = r.disk_kib()
+    sample_start = len(r.samples)
+    r.start_sampler()
+    try:
+        started = time.monotonic()
+        result = docker("exec", r.name, "/tmp/migrate-tail", check=False)
+        elapsed = time.monotonic() - started
+        if result.returncode:
+            raise RuntimeError(f"real migration runner failed: {result.stderr[-1800:]}")
+    finally:
+        r.stop_sampler()
+    final_disk = r.disk_kib()
+    assert r.query("SELECT COUNT(*) FROM _migrations") == str(len(files))
+    assert r.query("SELECT filename FROM _migrations ORDER BY filename DESC LIMIT 1") == files[-1].name
+    assert r.query("SELECT COUNT(*), MIN(id), MAX(id) FROM heartbeats") == f"{rows}\t{before_ids}"
+    assert r.query("SELECT COUNT(*) FROM heartbeats WHERE probe_id <> 'local'") == "0"
+    assert r.query("SELECT COUNT(*) FROM monitors") == "100"
+    assert r.query("SELECT COUNT(*) FROM heartbeats WHERE time < '2026-09-01'") == str(rows // 2)
+    assert r.query("SELECT GROUP_CONCAT(PARTITION_NAME ORDER BY PARTITION_ORDINAL_POSITION) "
+                   "FROM information_schema.PARTITIONS WHERE TABLE_SCHEMA=DATABASE() "
+                   "AND TABLE_NAME='heartbeats'") == partition_before
+    for table, expected in legacy_rollups.items():
+        # The remote rollup inserted after 037 remains separate from the 1,000
+        # local rows; the later coverage migration must not discard either.
+        if table == "heartbeat_1m":
+            assert r.query(f"SELECT COUNT(*), SUM(id) FROM {table} "
+                           "WHERE probe_id='local'") == expected
+            assert r.query("SELECT COUNT(*) FROM heartbeat_1m WHERE probe_id='remote-test'") == "1"
+        else:
+            assert r.query(f"SELECT COUNT(*), SUM(id) FROM {table}") == expected
+        assert r.query("SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) "
+                       "FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() "
+                       f"AND TABLE_NAME='{table}' AND INDEX_NAME='uq_monitor_probe_bucket' "
+                       "AND NON_UNIQUE=0") == "monitor_id,probe_id,bucket"
+    assert r.query("SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) "
+                   "FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() "
+                   "AND TABLE_NAME='heartbeats' AND INDEX_NAME='idx_hb_monitor_probe_time'") == "monitor_id,probe_id,time,id"
+    assert r.query("SELECT COUNT(*) FROM information_schema.TABLES "
+                   "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='hub_worker_capabilities'") == "1"
+    # Second call is a no-op: the real runner consults its ledger rather than
+    # retrying non-transactional MariaDB DDL on a partly populated schema.
+    again = docker("exec", r.name, "/tmp/migrate-tail", check=False)
+    if again.returncode:
+        raise RuntimeError(f"second migration run failed: {again.stderr[-1200:]}")
+    assert r.query("SELECT COUNT(*) FROM _migrations") == str(len(files))
+    return {
+        "runner": "repository.RunMigrations", "runner_first_migration": files[len(applied)].name,
+        "runner_last_migration": files[-1].name, "runner_migrations_applied": len(files) - len(applied),
+        "total_migration_ledger_rows": len(files), "elapsed_seconds": round(elapsed, 3),
+        "data_dir_kib_before": start_disk, "data_dir_kib_after": final_disk,
+        "sampled_peak_data_dir_kib": max(start_disk, final_disk, *r.samples[sample_start:]),
+        "disk_samples": len(r.samples) - sample_start, "rerun_noop": True,
+        "row_id_partition_rollup_preservation": "passed",
+    }
+
+
+def run(rows, hold_seconds, tail_enabled):
     name = "phoenix-m6-rehearsal-" + uuid.uuid4().hex[:10]
     r = Rehearsal(name)
+    # Refuse remote Docker daemons and image pulls: this script is strictly a
+    # local offline rehearsal, not a container deployment procedure.
+    host = os.environ.get("DOCKER_HOST") or docker(
+        "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"
+    ).stdout.strip()
+    if not host.startswith("unix://"):
+        raise RuntimeError("rehearsal requires a local Unix Docker socket")
+    docker("image", "inspect", "mariadb:11")
     # Empty root password is safe ONLY because this disposable container has no
     # network and no published ports. Never use this configuration on a host DB.
     docker("run", "-d", "--name", name, "--network", "none", "--cpus", "2",
            "--memory", "2g", "--tmpfs", "/var/lib/mysql:rw,size=1536m",
-           "-e", "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1", "mariadb:11")
+           "-e", "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1",
+           "-e", "PHOENIX_REHEARSAL_CONTAINER=1", "mariadb:11")
     try:
         for _ in range(90):
             if docker("exec", name, "mariadb", "-uroot", "-N", "-e", "SELECT 1", check=False).returncode == 0:
@@ -230,6 +330,7 @@ def run(rows, hold_seconds):
         assert r.query("SELECT COUNT(*) FROM heartbeat_1m WHERE probe_id='remote-test'") == "1"
         assert r.query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() "
                        "AND TABLE_NAME='heartbeats' AND COLUMN_NAME='probe_id'") == "1"
+        tail = run_tail(r, rows, before_ids, legacy_rollups, partition_before) if tail_enabled else None
         report = {
             "migration": "037_probe_heartbeat", "image": "mariadb:11", "version": version,
             "rows": rows, "partitions": partition_count, "rollups_each": 1000,
@@ -242,7 +343,13 @@ def run(rows, hold_seconds):
             "disk_samples": len(r.samples),
             "backfill_and_id_preservation": "passed", "indexes_and_partitioning": "passed",
             "remote_bucket_coexistence": "passed", "remote_downgrade_refused": "passed",
-            "limitations": "Observed disk peak is sampled, not guaranteed true peak; controlled read lock only; synthetic data; raw checked-in SQL through MariaDB client, not Go RunMigrations; no production approval."
+            "tail": tail,
+            "limitations": ("Observed disk peak is sampled, not guaranteed true peak; "
+                            "controlled read lock only; synthetic data; 001-037 "
+                            "checked-in SQL through MariaDB client; "
+                            + ("ledger backfilled and 038+ applied by Go runner; "
+                               if tail_enabled else "Go migration runner not executed; ")
+                            + "no production approval.")
         }
         print(json.dumps(report, indent=2))
     finally:
@@ -253,7 +360,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rows", type=int, default=100_000)
     parser.add_argument("--hold-reader-seconds", type=int, default=3)
+    parser.add_argument("--run-tail", action="store_true",
+                        help="apply 038+ via repository.RunMigrations after 037")
     args = parser.parse_args()
     if args.rows < 2 or args.rows % 2 or not 0 <= args.hold_reader_seconds <= 10:
         parser.error("--rows must be even and >= 2; --hold-reader-seconds must be 0..10")
-    run(args.rows, args.hold_reader_seconds)
+    run(args.rows, args.hold_reader_seconds, args.run_tail)

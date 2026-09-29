@@ -150,7 +150,9 @@ two controls are independent — enabling probes does not turn the CronJob on.
 Each additional probe multiplies rows by its own interval. Do not reuse a
 local-only PVC size as a distributed sizing proof. A
 [synthetic rehearsal](M6_PARTITIONED_MIGRATION_REHEARSAL.md) measured migration
-037 on 100k partitioned rows and observed a metadata-lock wait. Populated
+037 on 100k partitioned rows and observed a metadata-lock wait. A
+[follow-up](M6_MIGRATION_RUNNER_REHEARSAL.md) ran the 038–074 tail through the
+application migrator on that schema. Populated
 **production-sized** migration lock impact and true peak disk growth are not
 yet measured; do not run an untimed `ALTER` on a large partitioned table and
 call it rehearsed.
