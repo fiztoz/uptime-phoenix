@@ -1,6 +1,7 @@
 # Multi-region implementation status
 
 Updated 2026-09-29 with the
+[real edge ENOSPC check (T20 slice)](M6_DISK_FULL_ACCEPTANCE.md),
 [bounded populated partitioned migration rehearsal](M6_PARTITIONED_MIGRATION_REHEARSAL.md)
 and [Go-runner tail follow-up](M6_MIGRATION_RUNNER_REHEARSAL.md), the
 [operator requirements](M6_OPERATOR_REQUIREMENTS.md) (egress, durability,
@@ -36,7 +37,7 @@ This is the current status. Check HEAD and newer acceptance records before start
 | M3 synchronization and recovery | Complete for the supported runtime | [Final acceptance](M3_COMPLETION_ACCEPTANCE.md), [hashed evidence](M3_COMPLETION_EVIDENCE.json) |
 | M4 compatibility | Pull-checker, TLS evidence, certificate paging, capacity state, capacity paging, escalation, group/status-page recovery, Insights, backup/config, lifecycle/recovery, deployment compatibility, group-notification, capability advertisement, and maintenance/notification sync slices accepted | [Initial coverage](M4_PULL_CHECKER_ACCEPTANCE.md), [Docker bindings](M4_DOCKER_BINDINGS.md), [TLS evidence](M4_TLS_EVIDENCE.md), [certificate paging](M4_CERT_PAGING.md), [capacity state](M4_CAPACITY_STATE.md), [capacity paging](M4_CAPACITY_PAGING.md), [escalation](M4_ESCALATION.md), [group and status-page recovery](M4_GROUP_STATUS_RECOVERY.md), [Insights](M4_INSIGHTS.md), [backup/config](M4_BACKUP_CONFIG.md), [lifecycle/recovery](M4_LIFECYCLE_RECOVERY.md), [deployment compatibility](M4_DEPLOYMENT_COMPAT.md), [group notifications](M4_GROUP_NOTIFICATIONS.md), [capability advertisement](M4_CAPABILITY_ADVERTISEMENT.md), [maintenance and notification sync](M4_MAINTENANCE_NOTIFICATIONS.md). M4 compatibility rows are accepted
 | M5 fleet UI and API | Complete for V1 | [Completion](M5_COMPLETION.md), [hashed evidence](M5_COMPLETION_EVIDENCE.json), [wire contract](M5_COMPLETION_CONTRACT.md). Full dual-engine race suite, 18 browser cases and real pinned-TLS process partition/recovery acceptance passed |
-| M6 release validation | In progress | [Fleet assignment-ownership gate (T34)](M6_FLEET_ACTIVATION_GATE.md), [operator requirements](M6_OPERATOR_REQUIREMENTS.md), a [100k-row synthetic rehearsal of migration 037](M6_PARTITIONED_MIGRATION_REHEARSAL.md) and [038–074 through the real migration runner](M6_MIGRATION_RUNNER_REHEARSAL.md) recorded. Still open: the full section 13 matrix as one recorded run, production-sized application-led migration with actual lock/disk impact, load envelopes and backlog drain rate, kill tests at every durable boundary, and the canary |
+| M6 release validation | In progress | [Fleet assignment-ownership gate (T34)](M6_FLEET_ACTIVATION_GATE.md), [operator requirements](M6_OPERATOR_REQUIREMENTS.md), a [100k-row synthetic rehearsal of migration 037](M6_PARTITIONED_MIGRATION_REHEARSAL.md), [038–074 through the real migration runner](M6_MIGRATION_RUNNER_REHEARSAL.md), and a [real tmpfs ENOSPC edge check (T20 slice)](M6_DISK_FULL_ACCEPTANCE.md) recorded. Still open: the full section 13 matrix as one recorded run, production-sized application-led migration with actual lock/disk impact, load envelopes and backlog drain rate, kill tests at every durable boundary, and the canary |
 | M7–M9 | Future work | Optional aggregate paging, SSH provisioning and push gateway |
 
 ## Accepted M3 behavior

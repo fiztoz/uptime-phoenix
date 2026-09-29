@@ -77,3 +77,12 @@ func TestEdgeHealthPressureGapAndAcknowledgedDrain(t *testing.T) {
 	}
 	assertHealth(0, false, false)
 }
+
+func TestEdgeHealthStorageUnavailable(t *testing.T) {
+	// The real SQLite ENOSPC test asserts CheckWritable returns ErrStorage;
+	// this guards the production probe health projection of that result.
+	health := edgeHealth(edge.Diagnostics{}, false, true, 1, false)
+	if health.Ready || health.DBWritable || !slices.Contains(health.Errors, "storage_unavailable") {
+		t.Fatalf("unwritable edge advertised ready: %+v", health)
+	}
+}

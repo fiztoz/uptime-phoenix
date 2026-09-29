@@ -13,9 +13,10 @@ durability, clock, disk, backup and provider bounds the code enforces. A
 [synthetic populated MariaDB rehearsal](M6_PARTITIONED_MIGRATION_REHEARSAL.md)
 measures migration 037 on 100k partitioned heartbeats. A
 [Go-runner follow-up](M6_MIGRATION_RUNNER_REHEARSAL.md) applies 038–074 to that
-populated schema; neither run closes the production-sized migration gate or
-authorizes a canary. The
-remaining M6 requirements are listed in
+populated schema; neither run closes the production-sized migration gate. The
+[real edge ENOSPC test](M6_DISK_FULL_ACCEPTANCE.md) covers a T20 recording/health
+slice on an isolated tmpfs, not the full 40-case matrix. None of these records
+authorizes a canary. The remaining M6 requirements are listed in
 [the plan](IMPLEMENTATION_PLAN.md#9-m6--failure-validation-and-v1-activation).
 The earlier [foundation and frozen read contracts](M5_FOUNDATION.md) remain useful.
 The first slice exposes scoped health and desired assignments. The second,
