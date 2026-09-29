@@ -1554,3 +1554,24 @@ metadata budgets, or the 1 GiB stream-reset archive cap requires updating the
 requirements document in the same change. The chart NetworkPolicy still does
 not open the default probe port; `helm template` with `networkPolicy.enabled=true`
 must not grow an 8443 egress rule unless the requirements document changes too.
+
+## M6 bounded partitioned MariaDB migration rehearsal
+
+See [the recorded run](multi-region/M6_PARTITIONED_MIGRATION_REHEARSAL.md) and
+`scripts/rehearse_probe_heartbeat_migration.py`. Requires Docker and a cached
+`mariadb:11` image. The script starts and deletes its **own** randomly named
+no-network, no-published-port disposable container; it never reads a DSN or
+connects to the shared `TEST_MARIADB_DSN` database. Do not aim these SQL files
+at a live deployment. The empty root password is confined to this isolated
+container and is not a deployment example.
+
+```sh
+python3 -B scripts/rehearse_probe_heartbeat_migration.py --rows 100000 --hold-reader-seconds 0
+python3 -B scripts/rehearse_probe_heartbeat_migration.py --rows 100000 --hold-reader-seconds 3
+```
+
+Both commands must exit zero and print JSON. The second must observe a metadata
+lock wait; the first must not. Compare wall times, sampled data-directory size,
+legacy IDs/counts, index definitions and downgrade refusal. The sampling is not
+a true disk peak, and this synthetic migration-037-only run is **not** the M6
+full-chain, production-sized upgrade gate, full section-13 matrix, or canary.

@@ -148,9 +148,12 @@ The partition CronJob is off unless enabled; when enabled it keeps
 `retentionMonths` (chart default 12) and drops older monthly partitions. Those
 two controls are independent — enabling probes does not turn the CronJob on.
 Each additional probe multiplies rows by its own interval. Do not reuse a
-local-only PVC size as a distributed sizing proof. Populated migration lock
-time and peak disk growth are not yet measured; do not run an untimed
-`ALTER` on a large partitioned table and call it rehearsed.
+local-only PVC size as a distributed sizing proof. A
+[synthetic rehearsal](M6_PARTITIONED_MIGRATION_REHEARSAL.md) measured migration
+037 on 100k partitioned rows and observed a metadata-lock wait. Populated
+**production-sized** migration lock impact and true peak disk growth are not
+yet measured; do not run an untimed `ALTER` on a large partitioned table and
+call it rehearsed.
 
 The optional backup CronJob is off by default. Its PVC default is 20 GiB and
 it keeps 14 days of `phoenix-*.sql.gz`. That is a logical dump of the hub

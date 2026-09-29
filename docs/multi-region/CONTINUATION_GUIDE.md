@@ -9,8 +9,11 @@ any lease, and a desired set with a remote member is refused with
 detection boundary before relying on it — local-mode workers are not enumerable
 and the check is point-in-time at write. The
 [operator requirements](M6_OPERATOR_REQUIREMENTS.md) record the egress,
-durability, clock, disk, backup and provider bounds the code enforces. They
-do not authorize a canary. The remaining M6 requirements are listed in
+durability, clock, disk, backup and provider bounds the code enforces. A
+[synthetic populated MariaDB rehearsal](M6_PARTITIONED_MIGRATION_REHEARSAL.md)
+measures migration 037 on 100k partitioned heartbeats, but is not the full
+production-sized migration gate. Neither record authorizes a canary. The
+remaining M6 requirements are listed in
 [the plan](IMPLEMENTATION_PLAN.md#9-m6--failure-validation-and-v1-activation).
 The earlier [foundation and frozen read contracts](M5_FOUNDATION.md) remain useful.
 The first slice exposes scoped health and desired assignments. The second,
