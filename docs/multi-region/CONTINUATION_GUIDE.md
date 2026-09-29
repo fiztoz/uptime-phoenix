@@ -13,7 +13,10 @@ durability, clock, disk, backup and provider bounds the code enforces. A
 [synthetic populated MariaDB rehearsal](M6_PARTITIONED_MIGRATION_REHEARSAL.md)
 measures migration 037 on 100k partitioned heartbeats. A
 [Go-runner follow-up](M6_MIGRATION_RUNNER_REHEARSAL.md) applies 038–074 to that
-populated schema; neither run closes the production-sized migration gate. The
+populated schema. A [published-release upgrade rehearsal](M6_RELEASE_UPGRADE_REHEARSAL.md)
+starts the actual `v0.4.5` image, seeds 100,000 old partitioned rows and
+upgrades them through the working-tree application (34 → 74 migrations); it
+still does not close the production-sized disk/lock gate. The
 [fresh dual-engine race gate](M6_DUAL_ENGINE_GATE.md) audits named MariaDB
 passes and skips on a disposable database; it is not a scenario-by-scenario
 matrix. The [real edge ENOSPC test](M6_DISK_FULL_ACCEPTANCE.md) covers a T20 recording/health

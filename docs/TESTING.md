@@ -1596,6 +1596,25 @@ provider credentials. See [executed evidence and limits](multi-region/M6_DUAL_EN
 This broad regression gate is **not** a row-by-row section-13 matrix run,
 production-sized upgrade rehearsal or canary.
 
+## M6 published-release to working-tree migration rehearsal
+
+After confirming the operator's deployed version, rehearse the current public
+`v0.4.5` image against a **new local** database with 100,000 synthetic
+heartbeats, then let the working-tree `cmd/app` perform migrations `035`–`074`:
+
+```sh
+# If uncached: docker pull ghcr.io/fiztoz/uptime-phoenix:0.4.5
+python3 -B scripts/m6_release_upgrade.py
+```
+
+This never uses the shared MariaDB test DB or an Argo CD cluster, never publishes
+the database port, and removes only its own containers and network. It checks
+old-version readiness, authenticated monitor reads, the full application-led
+migration ledger, data/partition/rollup preservation, login after the upgrade,
+and no-op restart. [Evidence and limitations](multi-region/M6_RELEASE_UPGRADE_REHEARSAL.md).
+It **does not** establish production-sized disk/lock behavior or Helm canary
+approval; the operator owns backup and GitOps deployment.
+
 ## M6 edge disk-full and process-kill acceptance (T20 + T06 slices)
 
 Run `python3 -B scripts/m6_edge_disk_full.py` from the project root with a local
