@@ -109,7 +109,7 @@ before choosing work. Completed M2/M3 handoffs are not active assignments.
 | Wire, TLS and sessions | `internal/adapters/probe/` |
 | Hub authority and history | `internal/adapters/repository/probe_*`, `internal/adapters/repository/incident.go` |
 | Edge persistence, cursor and retention | `internal/adapters/repository/edge/` |
-| Production-process verification | `scripts/probe_runtime_smoke.py`, [testing guide](../TESTING.md) |
+| Production-process verification | External campaigns described in the [testing guide](../TESTING.md#11-reproduce-validation-and-create-external-uatload-tests) |
 
 The [operator guide](M2_OPERATOR_GUIDE.md) covers manual enrollment, configuration,
 watchdogs, ACK and rotation. [Reset acceptance](M3_HUB_RESET_ACCEPTANCE.md) records
