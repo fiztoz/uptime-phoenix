@@ -8,19 +8,24 @@
   plot. Dots make a 1-2 point series visible.
 -->
 <script lang="ts">
-	import { getContext } from 'svelte';
+  import { getLayerCakeContext } from "layercake";
 
-	interface Props {
-		fill?: string;
-		r?: number;
-	}
+  interface Props {
+    fill?: string;
+    r?: number;
+  }
 
+  const k = getLayerCakeContext();
 
-	const { data, xGet, yGet } = getContext<any>('LayerCake');
-
-	let { fill = 'var(--color-success)', r = 3 }: Props = $props();
+  let { fill = "var(--color-success)", r = 3 }: Props = $props();
 </script>
 
-{#each $data as d (`${$xGet(d)}-${$yGet(d)}`)}
-	<circle cx={$xGet(d)} cy={$yGet(d)} {r} {fill} style:pointer-events="none" />
+{#each k.data as d (`${k.xGet(d)}-${k.yGet(d)}`)}
+  <circle
+    cx={k.xGet(d)}
+    cy={k.yGet(d)}
+    {r}
+    {fill}
+    style:pointer-events="none"
+  />
 {/each}
