@@ -11,6 +11,44 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-04
+
+### Added
+
+- **Opt-in multi-region probes.** Autonomous probes continue checks and
+  source-owned alert delivery while disconnected, then synchronize configuration,
+  current state, and durable telemetry with the hub. Includes protected enrollment,
+  credential/certificate rotation, watchdogs, and recovery operations. (#49)
+- **Regional monitoring and fleet administration.** Regional health/history,
+  probe assignments, diagnostics, source-aware alerts, and backup/config admission.
+  Helm supports probe configuration for API/worker deployments, and releases now
+  include the standalone probe image and operator binaries. (#49)
+
+### Fixed
+
+- Hardened MariaDB migrations and concurrent monitor changes, deterministic
+  latest-heartbeat ordering, and indexed history queue selection. (#49)
+- Migrated chart layers to LayerCake 11's reactive context and synchronized the
+  Bun lockfile. Browser coverage verifies rendering, resizing, range changes,
+  and tooltip values. (#48)
+
+### Changed
+
+- Updated Go dependencies and Docker QEMU setup; preserved CGO-free builds. (#45, #48)
+- Consolidated validation results and reproduction guidance; environment-specific
+  UAT/load scripts and raw artifacts are kept outside version control. (#50)
+
+### Upgrade notes
+
+- Probes remain disabled by default. Enabling them requires an installation-key
+  Secret; follow the [operator requirements](docs/multi-region/M6_OPERATOR_REQUIREMENTS.md).
+- Before upgrading a populated MariaDB installation, back up the database,
+  preserve credentials/PVCs, and stop old application writers during migration.
+- Delayed or incomplete historical uptime is an accepted limitation. Full
+  operational acceptance, including representative off-host restore and the
+  24-hour fault/recovery campaign, remains incomplete; see the
+  [validation summary](docs/multi-region/M6_VALIDATION_REPORT_2026-10-04.md).
+
 ## [0.4.5] — 2026-09-10
 
 ### Performance
