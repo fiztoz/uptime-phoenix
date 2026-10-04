@@ -139,21 +139,30 @@ test("response chart reacts to data and viewport changes", async ({ page }) => {
   const line = chart.locator(".path-line");
   await expect(line).toHaveAttribute("d", /^M.+L/, { timeout: 10_000 });
   await expect(chart.locator("circle")).toHaveCount(2);
+  const clip = chart.locator("clipPath rect");
+  const initialWidth = Number(await clip.getAttribute("width"));
   const initialPath = await line.getAttribute("d");
   await page.setViewportSize({ width: 1000, height: 900 });
+  await expect
+    .poll(async () => Number(await clip.getAttribute("width")))
+    .toBeLessThan(initialWidth);
   await expect.poll(() => line.getAttribute("d")).not.toBe(initialPath);
   await page.getByLabel("Chart time range").click();
   await page.getByRole("option", { name: "1h", exact: true }).click();
+  await expect(page.getByRole("listbox")).not.toBeVisible();
   const point = chart.locator("circle").last();
   await expect
     .poll(async () => {
+      await page.mouse.move(0, 0);
       const bounds = await point.boundingBox();
       if (bounds)
         await page.mouse.move(
           bounds.x + bounds.width / 2,
           bounds.y + bounds.height / 2,
         );
-      return chart.locator(".chart-tooltip").textContent();
+      return (await chart.locator(".chart-tooltip").allTextContents()).join(
+        " ",
+      );
     })
     .toContain("Avg 180 ms");
   expect(await line.getAttribute("d")).not.toMatch(/NaN|Infinity/);
