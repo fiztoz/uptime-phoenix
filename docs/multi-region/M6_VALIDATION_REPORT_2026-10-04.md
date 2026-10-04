@@ -54,3 +54,11 @@ After this scope cleanup, `make release-image-gate m6-backend-harness-gate`,
 changed Markdown were checked against the publishable tree, with no references to the
 excluded files. Application and core-test source hashes are unchanged; full
 application suites were not rerun for this documentation/tooling cleanup.
+
+The tracked-script follow-up also passed Go build and the retained Helm, release
+and coverage-parser checks from a tracked-files-only export with all 14 retired
+files absent. Local lint reported zero issues. The replacement guide recipe
+executed `TestEdgeDiskFullCriticalCommit` and both crash-around-commit subtests
+on real Linux tmpfs (modernc SQLite), with four named passes and zero skips;
+its temporary container was removed. Application logic and core test assertions
+were unchanged. Full follow-up CI is recorded on PR #50.

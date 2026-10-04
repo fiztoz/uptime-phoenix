@@ -1696,14 +1696,20 @@ case "$(docker info --format '{{.Architecture}}')" in
 esac
 CGO_ENABLED=0 GOOS=linux GOARCH="$EDGE_GOARCH" go test -c \
   -o "$VALIDATION_DIR/edge-test" ./internal/adapters/repository/edge
-docker run --rm --network none --cpus 2 --memory 512m \
-  --tmpfs /data:rw,size=32m,mode=1777 \
-  -v "$VALIDATION_DIR/edge-test:/tmp/edge-test:ro" \
-  -e TMPDIR=/data -e PHOENIX_EDGE_DISK_FULL_TEST=1 \
-  --entrypoint /tmp/edge-test mariadb:11 \
-  -test.v -test.timeout=180s \
-  '-test.run=^(TestEdgeDiskFullCriticalCommit|TestEdgeCheckCrashAroundCommit)$' \
-  2>&1 | tee "$VALIDATION_DIR/edge-storage.log"
+EDGE_TEST_CONTAINER="phoenix-edge-test-$(date +%s)-$$"
+# Use a subshell so cleanup does not replace the caller's traps.
+(
+  trap 'docker rm -f "$EDGE_TEST_CONTAINER" >/dev/null 2>&1 || true' EXIT
+  docker create --name "$EDGE_TEST_CONTAINER" --network none --cpus 2 --memory 512m \
+    --tmpfs /data:rw,size=32m,mode=1777 \
+    -e TMPDIR=/data -e PHOENIX_EDGE_DISK_FULL_TEST=1 \
+    --entrypoint /tmp/edge-test mariadb:11 \
+    -test.v -test.timeout=180s \
+    '-test.run=^(TestEdgeDiskFullCriticalCommit|TestEdgeCheckCrashAroundCommit)$'
+  docker cp "$VALIDATION_DIR/edge-test" "$EDGE_TEST_CONTAINER:/tmp/edge-test"
+  docker start -a "$EDGE_TEST_CONTAINER" 2>&1 | tee "$VALIDATION_DIR/edge-storage.log"
+  test "$(docker inspect --format '{{.State.ExitCode}}' "$EDGE_TEST_CONTAINER")" = 0
+)
 ```
 
 Require `TestEdgeDiskFullCriticalCommit` and both
