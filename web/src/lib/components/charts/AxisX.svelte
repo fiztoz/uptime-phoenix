@@ -3,7 +3,8 @@
   Time axis for LayerCake charts using d3-scale time + d3-time-format.
 -->
 <script lang="ts">
-  import { getContext } from "svelte";
+  import { getLayerCakeContext } from "layercake";
+  import type { ScaleTime } from "d3-scale";
   import { timeFormat } from "d3-time-format";
 
   interface Props {
@@ -13,8 +14,7 @@
     snapLabels?: boolean;
   }
 
-
-  const { width, height, xScale, yRange } = getContext<any>("LayerCake");
+  const k = getLayerCakeContext<{ x: ScaleTime<number, number> }>();
 
   let {
     format = timeFormat("%H:%M"),
@@ -33,9 +33,9 @@
 
   const tickVals = $derived.by(() => {
     if (Array.isArray(ticks)) return ticks;
-    if (typeof ticks === "function") return ticks($xScale.ticks());
-    if (typeof ticks === "number") return $xScale.ticks(ticks);
-    return $xScale.ticks();
+    if (typeof ticks === "function") return ticks(k.xScale.ticks());
+    if (typeof ticks === "number") return k.xScale.ticks(ticks);
+    return k.xScale.ticks();
   });
 </script>
 
@@ -43,10 +43,10 @@
   {#each tickVals as tick, i (tick.getTime())}
     <g
       class="tick tick-{i}"
-      transform="translate({$xScale(tick)},{Math.max(...$yRange)})"
+      transform="translate({k.xScale(tick)},{Math.max(...k.yRange)})"
     >
       {#if gridlines}
-        <line class="gridline" x1="0" x2="0" y1={-$height} y2="0" />
+        <line class="gridline" x1="0" x2="0" y1={-k.height} y2="0" />
       {/if}
       <text x="0" y="0" dy="14" text-anchor={textAnchor(i, snapLabels)}
         >{format(tick)}</text

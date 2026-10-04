@@ -3,6 +3,7 @@ import {
   API_BASE,
   BASE_URL,
   authToken,
+  createHttpMonitorViaApi,
   loginViaUI,
   uniqueName,
   type MonitorView,
@@ -92,4 +93,69 @@ test("create HTTP monitor persists advanced settings and records a heartbeat", a
       { timeout: 20_000, intervals: [250, 500, 1_000] },
     )
     .toContain("up");
+});
+
+test("response chart reacts to data and viewport changes", async ({ page }) => {
+  await loginViaUI(page);
+  const token = await authToken(page);
+  const monitor = await createHttpMonitorViaApi(
+    page,
+    token,
+    uniqueName("Chart"),
+  );
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route(
+    `**/api/monitors/${monitor.id}/**/chart?*`,
+    async (route) => {
+      const hours = new URL(route.request().url()).searchParams.get("hours");
+      const value = hours === "1" ? 180 : 60;
+      await route.fulfill({
+        json: {
+          buckets: [
+            {
+              time: new Date(Date.now() - 3_000_000).toISOString(),
+              min: 10,
+              avg: 20,
+              max: 30,
+            },
+            {
+              time: new Date(Date.now() - 300_000).toISOString(),
+              min: value - 10,
+              avg: value,
+              max: value + 10,
+            },
+          ],
+          downtime_intervals: [],
+          unknown_intervals: [],
+          latency_available: true,
+        },
+      });
+    },
+  );
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`${BASE_URL}/monitors/${monitor.id}`);
+  const chart = page.getByTestId("response-chart");
+  const line = chart.locator(".path-line");
+  await expect(line).toHaveAttribute("d", /^M.+L/, { timeout: 10_000 });
+  await expect(chart.locator("circle")).toHaveCount(2);
+  const initialPath = await line.getAttribute("d");
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await expect.poll(() => line.getAttribute("d")).not.toBe(initialPath);
+  await page.getByLabel("Chart time range").click();
+  await page.getByRole("option", { name: "1h", exact: true }).click();
+  const point = chart.locator("circle").last();
+  await expect
+    .poll(async () => {
+      const bounds = await point.boundingBox();
+      if (bounds)
+        await page.mouse.move(
+          bounds.x + bounds.width / 2,
+          bounds.y + bounds.height / 2,
+        );
+      return chart.locator(".chart-tooltip").textContent();
+    })
+    .toContain("Avg 180 ms");
+  expect(await line.getAttribute("d")).not.toMatch(/NaN|Infinity/);
+  expect(errors).toEqual([]);
 });

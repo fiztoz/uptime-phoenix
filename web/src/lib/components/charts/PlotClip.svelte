@@ -4,27 +4,27 @@
   paint outside the chart bounds.
 -->
 <script lang="ts">
-	import { getContext, type Snippet } from 'svelte';
+  import type { Snippet } from "svelte";
+  import { getLayerCakeContext } from "layercake";
 
-	interface Props {
-		children?: Snippet;
-	}
+  interface Props {
+    children?: Snippet;
+  }
 
+  const k = getLayerCakeContext();
 
-	const { width, height } = getContext<any>('LayerCake');
+  let { children }: Props = $props();
 
-	let { children }: Props = $props();
-
-	const clipId = `phx-plot-clip-${Math.random().toString(36).slice(2, 9)}`;
+  const clipId = `phx-plot-clip-${Math.random().toString(36).slice(2, 9)}`;
 </script>
 
 <defs>
-	<clipPath id={clipId}>
-		<rect x="0" y="0" width={$width} height={$height} />
-	</clipPath>
+  <clipPath id={clipId}>
+    <rect x="0" y="0" width={k.width} height={k.height} />
+  </clipPath>
 </defs>
 <g clip-path="url(#{clipId})">
-	{#if children}
-		{@render children()}
-	{/if}
+  {#if children}
+    {@render children()}
+  {/if}
 </g>
