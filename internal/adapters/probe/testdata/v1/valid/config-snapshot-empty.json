@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "hub_id": "b1123604-32c5-40aa-89f9-b62f93dceac2",
+  "probe_id": "e645246b-b176-4422-8ae5-b79629ee6a29",
+  "revision": "12",
+  "created_at": "2026-09-14T10:00:00Z",
+  "effective_at": "2026-09-14T10:01:00Z",
+  "assignments": [],
+  "notification_channels": [],
+  "notification_templates": [],
+  "maintenance_windows": [],
+  "proxy_bindings": [],
+  "escalation_policies": [],
+  "watchdog": {
+    "enabled": false,
+    "lost_after_seconds": 90,
+    "recover_after_seconds": 30,
+    "notification_ids": [],
+    "resend_interval": 5
+  },
+  "future_optional": {
+    "note": "Hash the original bytes, including this optional field."
+  }
+}

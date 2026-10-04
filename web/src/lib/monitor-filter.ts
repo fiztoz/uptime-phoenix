@@ -16,6 +16,7 @@ export type MonitorStatus =
   | "up"
   | "down"
   | "pending"
+  | "unknown"
   | "maintenance"
   | "paused";
 
@@ -23,6 +24,7 @@ export const STATUS_FILTERS: readonly MonitorStatus[] = [
   "up",
   "down",
   "pending",
+  "unknown",
   "maintenance",
   "paused",
 ];
@@ -47,6 +49,7 @@ export const DASHBOARD_SORTS: readonly DashboardSort[] = [
 /** Default urgency order when status sorting is first selected. */
 export const DEFAULT_STATUS_ORDER: readonly MonitorStatus[] = [
   "down",
+  "unknown",
   "pending",
   "maintenance",
   "paused",
@@ -408,6 +411,7 @@ export interface MonitorTally {
   up: number;
   down: number;
   pending: number;
+  unknown: number;
   /** Paused + in-maintenance: present, but deliberately not being checked. */
   idle: number;
 }
@@ -418,7 +422,14 @@ export interface GroupSummary extends MonitorTally {
 }
 
 export function tallyMonitors(monitors: FilterableMonitor[]): MonitorTally {
-  const t: MonitorTally = { total: 0, up: 0, down: 0, pending: 0, idle: 0 };
+  const t: MonitorTally = {
+    total: 0,
+    up: 0,
+    down: 0,
+    pending: 0,
+    unknown: 0,
+    idle: 0,
+  };
   for (const m of monitors) {
     t.total++;
     switch (m.status) {
@@ -430,6 +441,9 @@ export function tallyMonitors(monitors: FilterableMonitor[]): MonitorTally {
         break;
       case "pending":
         t.pending++;
+        break;
+      case "unknown":
+        t.unknown++;
         break;
       default:
         t.idle++; // maintenance | paused

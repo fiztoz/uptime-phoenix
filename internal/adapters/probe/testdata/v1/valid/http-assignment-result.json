@@ -1,0 +1,23 @@
+{
+  "revision": "5",
+  "health_policy": "any_down",
+  "alert_delivery": "regional",
+  "assignments": [
+    {
+      "probe_id": "local",
+      "generation": "1",
+      "desired_config_revision": "12",
+      "applied_config_revision": "12",
+      "sync_status": "applied",
+      "binding_key": null
+    },
+    {
+      "probe_id": "e645246b-b176-4422-8ae5-b79629ee6a29",
+      "generation": "9223372036854775807",
+      "desired_config_revision": "9223372036854775807",
+      "applied_config_revision": "0",
+      "sync_status": "pending",
+      "binding_key": "docker-local"
+    }
+  ]
+}

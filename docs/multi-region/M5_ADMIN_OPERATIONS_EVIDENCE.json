@@ -1,0 +1,97 @@
+{
+  "slice": "M5_ADMIN_OPERATIONS",
+  "recorded": "2026-09-27",
+  "toolchain": "GOTOOLCHAIN=go1.26.6",
+  "engines": ["sqlite", "mariadb"],
+  "mariadb_dsn": "TEST_MARIADB_DSN set to a disposable mariadb:11 database (phoenix_ci, 127.0.0.1:43316, parseTime=true&loc=UTC&multiStatements=true)",
+  "commands": [
+    "GOTOOLCHAIN=go1.26.6 go test -race -count=1 -timeout 2400s -json ./... > /tmp/m5-full-race3.jsonl",
+    "python3 scripts/m5_read_evidence.py /tmp/m5-full-race3.jsonl",
+    "GOTOOLCHAIN=go1.26.6 CGO_ENABLED=0 go build ./...",
+    "GOTOOLCHAIN=go1.26.6 ~/go/bin/golangci-lint run",
+    "gofmt -l internal/",
+    "git diff --check"
+  ],
+  "totals": {
+    "packages_ok": 22,
+    "named_passes": 4169,
+    "failed": 0,
+    "skipped": 10,
+    "skipped_names": [
+      "TestDatabaseChecker_Check_MongoDB_RealServer",
+      "TestTelegramSender_Send_DownSeverity",
+      "TestDNSChecker_Check_A",
+      "TestDNSChecker_Check_MX",
+      "TestDNSChecker_Check_TXT",
+      "TestDNSChecker_Check_ExpectedValue_Pass",
+      "TestDNSChecker_Check_ExpectedValue_Fail",
+      "TestDNSChecker_Check_NonexistentDomain",
+      "TestDNSChecker_Check_DefaultServer",
+      "TestTCPChecker_Check_GoogleDNS"
+    ],
+    "skip_note": "The two longstanding skips are unrelated environment tests; the eight DNS/TCP checker skips are live-network self-skips (public resolver unavailable). Zero M5 skips."
+  },
+  "named_passes": [
+    "services/TestValidEnrollmentToken",
+    "services/TestRuntimeEndpoint",
+    "services/TestProbeAdminRegistrationLifecycle",
+    "services/TestProbeAdminOperations/EnrollPersistsBeforeAcknowledgement",
+    "services/TestProbeAdminOperations/InvalidRequestPersistsNothing",
+    "services/TestProbeAdminOperations/FailedExchangeRedactsInput",
+    "services/TestProbeAdminOperations/RotateCredentialUsesTheOperationIdentity",
+    "services/TestProbeAdminOperations/ResetStreamRetainsTheCallerIdentity",
+    "services/TestProbeAdminOperations/TerminalReceiptsAreImmutable",
+    "handlers/TestProbeAdminContractParity",
+    "handlers/TestProbeAdminHTTPErrors",
+    "repository/TestM5AdminOperations/sqlite",
+    "repository/TestM5AdminOperations/mariadb",
+    "repository/TestProbeRegistryContract/sqlite/LegacyBackfillAndDown",
+    "repository/TestProbeRegistryContract/mariadb/LegacyBackfillAndDown"
+  ],
+  "mariadb_live_matrix_passes": [
+    "repository/TestM5AdminOperations/mariadb",
+    "repository/TestM5AssignmentWrites/mariadb",
+    "repository/TestM5FleetAPI/mariadb",
+    "repository/TestM5ReadAPI/mariadb",
+    "repository/TestProbeRegistryContract/mariadb/LegacyBackfillAndDown"
+  ],
+  "mariadb_live_matrix_skips": [],
+  "contract_parity": [
+    "Requests decoded by the frozen M0 decoders: probe.DecodeProbeCreateRequest, DecodeProbePatchRequest, DecodeRotateCredentialRequest, DecodeResetStreamRequest",
+    "Responses validated by probe.DecodeProbeView and probe.DecodeOperationReceipt on both engines",
+    "Engine test drives the M0 fixtures http-probe-create.json, http-probe-patch.json, http-rotate-credential-request.json, http-reset-stream-request.json as request bodies"
+  ],
+  "mutation_checks": [
+    {
+      "guard": "an acknowledged operation is persisted first (never a 202 without a row)",
+      "mutation": "CreateOperation removed from begin()",
+      "caught_by": "services/TestProbeAdminOperations/EnrollPersistsBeforeAcknowledgement and /FailedExchangeRedactsInput",
+      "reverted": true
+    },
+    {
+      "guard": "registration host:port normalizes to the pinned runtime URL",
+      "mutation": "RuntimeEndpoint returns the declaration unchanged",
+      "caught_by": "services/TestRuntimeEndpoint and services/TestProbeAdminOperations",
+      "reverted": true
+    }
+  ],
+  "source_hashes_sha256": {
+    "internal/core/domain/probe_operation.go": "c4b80110c7e9a406448a0b66051323b72da752495dace58f9cbcb4e7a54075ba",
+    "internal/core/ports/probe_operation.go": "bc5d100bf51676d8e007f53a30c81bfdf8d93cad0888ced4610ea6b45388a13c",
+    "internal/adapters/repository/probe_operation.go": "b3c107bb5051ea01597a85e03c7df7e9feb6c15d4c8f3571cc9a5ad48fbdbfbf",
+    "internal/core/services/probe_admin_service.go": "62188936ecbb4e568c31d119e0806f5b46a9e57b658c0bc67ba6cc82e124bf02",
+    "internal/adapters/http/handlers/probe_admin.go": "0ebea8d4d6131f82e26ae9f3a7c6665ee04e9edf4cc4f03fd174abfe390c1ecd",
+    "internal/adapters/repository/mariadb/migrations/071_probe_operations.up.sql": "8b840a87f8b517a49112a7254b8a55bcbcd064f86701e0b0de8fd6420dc58fa9",
+    "internal/adapters/http/router.go": "2380afa2167a483339c318ef4f8ffff91f1e75a24c6947f4283454b807cf5dcd",
+    "internal/bootstrap/run.go": "afca3cc5442010e723e4f9238095b11f77db3afd8b9ca44fd621fd5f737e5497",
+    "scripts/m5_read_evidence.py": "4799b391afbf6c37ce92455966e47345acb456544433328ae150b00002955956"
+  },
+  "unverified": [
+    "frontend/browser E2E (no M5 UI in this slice)",
+    "production process restart and deployment (including the 071 migration on a production database)",
+    "load/performance benchmarks",
+    "revoke and soft-delete (no durable revocation state exists; routes stay unregistered)",
+    "remote application confirmation of rotation/reset (receipts prove hub-side durable work only)",
+    "endpoint/pin identity-change workflow (immutability enforced; the workflow itself is future work)"
+  ]
+}

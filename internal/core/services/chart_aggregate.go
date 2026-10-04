@@ -95,8 +95,22 @@ func BucketHeartbeats(heartbeats []*domain.Heartbeat, bucketDuration time.Durati
 	return out
 }
 
+// DetectUnknownIntervals returns contiguous periods whose status is UNKNOWN.
+// Unknown evidence is not downtime and is not healthy uptime.
+func DetectUnknownIntervals(heartbeats []*domain.Heartbeat) []DowntimeInterval {
+	return detectStatusIntervals(heartbeats, func(s domain.Status) bool {
+		return s == domain.StatusUnknown
+	})
+}
+
 // DetectDowntimeIntervals returns contiguous periods where status is down or pending.
 func DetectDowntimeIntervals(heartbeats []*domain.Heartbeat) []DowntimeInterval {
+	return detectStatusIntervals(heartbeats, func(s domain.Status) bool {
+		return s == domain.StatusDown || s == domain.StatusPending
+	})
+}
+
+func detectStatusIntervals(heartbeats []*domain.Heartbeat, match func(domain.Status) bool) []DowntimeInterval {
 	if len(heartbeats) == 0 {
 		return nil
 	}
@@ -107,15 +121,11 @@ func DetectDowntimeIntervals(heartbeats []*domain.Heartbeat) []DowntimeInterval 
 		return sorted[i].Time.Before(sorted[j].Time)
 	})
 
-	isDown := func(s domain.Status) bool {
-		return s == domain.StatusDown || s == domain.StatusPending
-	}
-
 	var out []DowntimeInterval
 	var cur *DowntimeInterval
 
 	for _, hb := range sorted {
-		if !isDown(hb.Status) {
+		if !match(hb.Status) {
 			cur = nil
 			continue
 		}

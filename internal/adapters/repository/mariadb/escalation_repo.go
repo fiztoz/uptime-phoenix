@@ -247,6 +247,18 @@ var _ ports.AlertEscalationRepository = (*AlertEscalationRepo)(nil)
 
 // Create starts the ladder for an alert.
 func (r *AlertEscalationRepo) Create(ctx context.Context, e *domain.AlertEscalation) error {
+	if e == nil {
+		return domain.ErrValidation
+	}
+	valid, err := r.db.NewSelect().TableExpr("alerts").
+		Where("id = ? AND monitor_id = ?", e.AlertID, e.MonitorID).Exists(ctx)
+	if err != nil {
+		return translateError(err)
+	}
+	if !valid {
+		return domain.ErrValidation
+	}
+
 	m := repository.AlertEscalationModelFromDomain(e)
 	now := time.Now().UTC()
 	if m.CreatedAt.IsZero() {
@@ -256,13 +268,14 @@ func (r *AlertEscalationRepo) Create(ctx context.Context, e *domain.AlertEscalat
 	if m.NextRunAt.IsZero() {
 		m.NextRunAt = now
 	}
+	m.NextRunAt = m.NextRunAt.UTC()
 	if _, err := r.db.NewInsert().Model(m).Exec(ctx); err != nil {
 		return translateError(err)
 	}
 	e.ID = m.ID
 	e.CreatedAt = m.CreatedAt
 	e.UpdatedAt = m.UpdatedAt
-	e.NextRunAt = m.NextRunAt
+	e.NextRunAt = m.NextRunAt.UTC()
 	return nil
 }
 

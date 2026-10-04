@@ -1,0 +1,60 @@
+-- Regional incident mirrors and delivery outcomes. Existing alerts rows stay
+-- monitor-scoped and are not reinterpreted. Hub mirror IDs are auto-increment
+-- values distinct from source_alert_id.
+
+CREATE TABLE IF NOT EXISTS probe_incidents (
+    hub_incident_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    source_alert_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
+    scope VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    monitor_id BIGINT NULL,
+    probe_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    assignment_generation BIGINT NULL,
+    status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    transition_version BIGINT NOT NULL CHECK (transition_version >= 1),
+    started_at DATETIME(6) NOT NULL,
+    resolved_at DATETIME(6) NULL,
+    acked_at DATETIME(6) NULL,
+    reason TEXT NOT NULL,
+    config_revision BIGINT NOT NULL CHECK (config_revision >= 1),
+    subject_kind VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    condition_kind VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    certificate_threshold INT NULL,
+    ack_command_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    ack_actor_display_name VARCHAR(256) NULL,
+    ack_note TEXT NULL,
+    escalation_policy_id BIGINT NULL,
+    escalation_policy_version BIGINT NULL,
+    escalation_status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    escalation_next_step BIGINT NULL,
+    escalation_next_run_at DATETIME(6) NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    CHECK (scope IN ('regional', 'probe_connection')),
+    CHECK (status IN ('firing', 'acked', 'resolved')),
+    CHECK (subject_kind IN ('availability', 'capacity', 'certificate', 'watchdog')),
+    INDEX idx_probe_incidents_monitor (monitor_id, started_at, hub_incident_id),
+    INDEX idx_probe_incidents_probe (probe_id, started_at),
+    FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE,
+    FOREIGN KEY (probe_id) REFERENCES probes(id) ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS probe_delivery_events (
+    delivery_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+    source_alert_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    source_transition_version BIGINT NOT NULL CHECK (source_transition_version >= 1),
+    probe_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    notification_id BIGINT NOT NULL CHECK (notification_id >= 1),
+    notification_version BIGINT NOT NULL CHECK (notification_version >= 1),
+    event_kind VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    attempt BIGINT NOT NULL CHECK (attempt >= 0),
+    status VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    error_code VARCHAR(128) NULL,
+    observed_at DATETIME(6) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    CHECK (status IN ('sent', 'retrying', 'failed', 'superseded')),
+    CHECK (event_kind IN ('status_change', 'certificate_expiry', 'capacity_condition', 'probe_connection', 'incident_summary')),
+    INDEX idx_probe_delivery_incident (source_alert_id, observed_at),
+    FOREIGN KEY (source_alert_id) REFERENCES probe_incidents(source_alert_id) ON DELETE CASCADE,
+    FOREIGN KEY (probe_id) REFERENCES probes(id) ON DELETE RESTRICT
+) ENGINE=InnoDB;

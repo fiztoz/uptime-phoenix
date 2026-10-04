@@ -148,6 +148,13 @@
 				filterTags.length > 0,
 		),
 	);
+	function clearFilters() {
+		searchQuery = '';
+		filterTypes = [];
+		filterStatuses = [];
+		filterTags = [];
+	}
+
 	/** null = no filter active (show everything); otherwise the set of monitor ids that matched. */
 	let matchedMonitorIds = $derived(filterActive ? new Set(filteredMonitors.map((m) => m.id)) : null);
 
@@ -155,7 +162,7 @@
 	// stay stable while the user narrows the list.
 	let statusCounts = $derived.by(() => {
 		const counts: Record<MonitorStatus, number> = {
-			up: 0, down: 0, pending: 0, maintenance: 0, paused: 0,
+			up: 0, down: 0, pending: 0, unknown: 0, maintenance: 0, paused: 0,
 		};
 		for (const mo of realtime.monitors) {
 			if (mo.status in counts) counts[mo.status as MonitorStatus]++;
@@ -185,6 +192,7 @@
 		up: m.dashboard_up(),
 		down: m.status_down(),
 		pending: m.status_pending(),
+		unknown: m.status_unknown(),
 		maintenance: m.status_maintenance(),
 		paused: m.status_paused(),
 	});
@@ -193,6 +201,7 @@
 		up: 'dot-up',
 		down: 'dot-down',
 		pending: 'dot-warn',
+		unknown: 'dot-muted',
 		maintenance: 'dot-info',
 		paused: 'dot-muted',
 	};
@@ -257,7 +266,10 @@
 		const withStatus = all.map((m) => ({
 			id: m.id,
 			group_id: m.group_id ?? null,
-			status: monitorToRollupStatus(m.status, hbMap.get(m.id)?.status),
+			status: monitorToRollupStatus(
+				m.status,
+				hbMap.get(m.id)?.overall_status ?? hbMap.get(m.id)?.status,
+			),
 		}));
 		return resolveGroupStatuses(groups, withStatus);
 	});
@@ -616,7 +628,12 @@
 	<div class="space-y-3 md:hidden">
 		{#if displayRows.length === 0 && !groupsLoading && !groupsError}
 			<div class="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-				{m.monitors_page_none_found()}
+				{#if realtime.monitors.length > 0 && filterActive}
+                    <p>{m.dashboard_no_matches()}</p>
+                    <button type="button" onclick={clearFilters} class="mt-3 text-primary underline underline-offset-2">{m.dashboard_filters_clear()}</button>
+                {:else}
+                    {m.monitors_page_none_found()}
+                {/if}
 			</div>
 		{:else}
 			{#each displayRows as row (row.key)}
@@ -718,7 +735,12 @@
 				{#if displayRows.length === 0 && !groupsLoading && !groupsError}
 					<tr>
 						<td colspan="6" class="px-4 py-12 text-center text-muted-foreground">
-							{m.monitors_page_none_found()}
+							{#if realtime.monitors.length > 0 && filterActive}
+                    <p>{m.dashboard_no_matches()}</p>
+                    <button type="button" onclick={clearFilters} class="mt-3 text-primary underline underline-offset-2">{m.dashboard_filters_clear()}</button>
+                {:else}
+                    {m.monitors_page_none_found()}
+                {/if}
 						</td>
 					</tr>
 				{:else}

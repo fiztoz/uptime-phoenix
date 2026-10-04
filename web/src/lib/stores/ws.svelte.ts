@@ -6,7 +6,13 @@
  *   realtime.connect();
  *   $effect(() => { console.log(realtime.status); });
  */
+import { dashboardInsights } from "$lib/api/insights";
+import { monitorGroupsCatalog } from "$lib/api/monitorGroups";
 import type { Status } from "$lib/monitor-types";
+import {
+  createProjectionInvalidator,
+  decideProjectionVersion,
+} from "$lib/projection-version";
 import {
   clearMonitorSnapshotCache,
   readMonitorSnapshotCache,
@@ -54,7 +60,7 @@ export interface Monitor {
    * (up/down/pending/maintenance) plus one frontend-only addition: "paused"
    * means `active === false`, a state no Heartbeat ever reports.
    */
-  status: "up" | "down" | "pending" | "maintenance" | "paused";
+  status: "up" | "down" | "pending" | "maintenance" | "unknown" | "paused";
   active?: boolean;
   /** Seconds between checks (top-level API/WS field, not inside config). */
   interval?: number;
@@ -116,6 +122,10 @@ export interface MonitorTagView {
 export interface Heartbeat {
   monitor_id: number;
   status: Status;
+  /** Policy status for a remotely assigned monitor. Absent on local-only checks. */
+  overall_status?: Status;
+  /** Newest overall projection applied for this check. Absent on local-only checks. */
+  projection_version?: number;
   time: string;
   ping: number;
   msg?: string;
@@ -167,6 +177,8 @@ function normalizeWireStatus(statusRaw: string): Status {
     case "maintenance":
     case "paused":
       return "maintenance";
+    case "unknown":
+      return "unknown";
     default:
       return "up";
   }
@@ -183,12 +195,22 @@ function normalizeHeartbeat(raw: unknown): Heartbeat | null {
     typeof statusField === "string" ? statusField : ""
   ).toLowerCase();
   const status: Status = normalizeWireStatus(statusRaw);
+  const overallRaw = o.overall_status ?? o.OverallStatus;
+  const overall_status =
+    typeof overallRaw === "string" && overallRaw !== ""
+      ? normalizeWireStatus(overallRaw.toLowerCase())
+      : undefined;
+  const versionRaw = Number(o.projection_version ?? o.ProjectionVersion ?? 0);
+  const projection_version =
+    Number.isFinite(versionRaw) && versionRaw > 0 ? versionRaw : undefined;
   const time = String(o.time ?? o.Time ?? "");
   const ping = Number(o.ping ?? o.Ping ?? 0);
   const msg = o.msg ?? o.Msg;
   return {
     monitor_id: monitorId,
     status,
+    overall_status,
+    projection_version,
     time,
     ping: Number.isFinite(ping) ? ping : 0,
     msg: typeof msg === "string" && msg ? msg : undefined,
@@ -253,6 +275,9 @@ function createWsStore() {
   let conditions = $state<Map<string, MonitorCondition>>(new Map());
   let conditionSeq = $state(0);
   let reconnectAttempt = $state(0);
+  let connectionEpoch = $state(0);
+  const listeners = new Map<string, Set<(payload: unknown) => void>>();
+  const regionalVersions = new Map<number, { version: bigint; asOf: number }>();
   let lastError = $state<string | null>(null);
   let stats = $state<StatsUpdate>({ total: 0, up: 0, down: 0, pending: 0 });
 
@@ -262,6 +287,87 @@ function createWsStore() {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let connectUrl = "";
   let connectGeneration = 0;
+  const projectionVersions = new Map<number, number>();
+  const invalidateNavigation = createProjectionInvalidator(() => {
+    monitorGroupsCatalog.invalidate();
+    dashboardInsights.invalidate();
+  });
+
+  function noteProjection(monitorId: number, version: number | undefined) {
+    const regional = regionalVersions.get(monitorId);
+    if (
+      regional &&
+      version !== undefined &&
+      (!Number.isSafeInteger(version) || BigInt(version) < regional.version)
+    )
+      return "stale";
+    const decision = decideProjectionVersion(
+      projectionVersions.get(monitorId),
+      version ?? 0,
+    );
+    if (decision === "newer") {
+      projectionVersions.set(monitorId, version ?? 0);
+      invalidateNavigation();
+    }
+    return decision;
+  }
+
+  function on(type: string, listener: (payload: unknown) => void): () => void {
+    let group = listeners.get(type);
+    if (!group) {
+      group = new Set();
+      listeners.set(type, group);
+    }
+    group.add(listener);
+    return () => {
+      group?.delete(listener);
+      if (!group?.size) listeners.delete(type);
+    };
+  }
+
+  function regionalEvent(event: WsEvent): boolean {
+    if (!event.payload || typeof event.payload !== "object") return false;
+    const payload = event.payload as Record<string, unknown>;
+    if (event.type === "monitor.health") {
+      const id = payload.monitor_id;
+      const revision = payload.projection_version;
+      if (
+        typeof id !== "number" ||
+        !Number.isSafeInteger(id) ||
+        id <= 0 ||
+        typeof revision !== "string" ||
+        !/^(0|[1-9][0-9]*)$/.test(revision)
+      )
+        return false;
+      const version = BigInt(revision);
+      if (version > 9223372036854775807n) return false;
+      const asOf = Date.parse(String(payload.as_of));
+      if (!Number.isFinite(asOf)) return false;
+      const previous = regionalVersions.get(id);
+      if (
+        previous &&
+        (version < previous.version ||
+          (version === previous.version && asOf < previous.asOf))
+      )
+        return false;
+      regionalVersions.set(id, { version, asOf });
+      if (!previous || version > previous.version) invalidateNavigation();
+      if (
+        ["up", "down", "pending", "maintenance", "unknown"].includes(
+          String(payload.status),
+        )
+      ) {
+        monitors = monitors.map((monitor) =>
+          monitor.id === id && monitor.active !== false
+            ? { ...monitor, status: payload.status as Status }
+            : monitor,
+        );
+      }
+    }
+    for (const listener of listeners.get(event.type) ?? [])
+      listener(event.payload);
+    return true;
+  }
 
   function getWebSocketUrl(): string {
     if (connectUrl) return connectUrl;
@@ -291,6 +397,27 @@ function createWsStore() {
 
   function handleEvent(event: WsEvent): void {
     switch (event.type) {
+      case "access.changed":
+        regionalVersions.clear();
+        projectionVersions.clear();
+        clearMonitorSnapshotCache();
+        monitors = [];
+        heartbeats = new Map();
+        lastHeartbeat = null;
+        conditions = new Map();
+        conditionSeq += 1;
+        monitorGroupsCatalog.clear();
+        dashboardInsights.clear();
+        connectionEpoch += 1;
+        break;
+      case "probe.status":
+      case "probe.config.status":
+      case "probe.command.status":
+      case "monitor.probe.heartbeat":
+      case "monitor.probe.status":
+      case "monitor.health":
+        regionalEvent(event);
+        break;
       case "monitor.list": {
         const list = Array.isArray(event.payload)
           ? (event.payload as Monitor[])
@@ -321,6 +448,9 @@ function createWsStore() {
       case "heartbeat": {
         const hb = normalizeHeartbeat(event.payload);
         if (!hb) break;
+        if (noteProjection(hb.monitor_id, hb.projection_version) === "stale") {
+          break;
+        }
         appendWsDebugEvent("heartbeat", hb.monitor_id);
         const next = new Map(heartbeats);
         next.set(hb.monitor_id, hb);
@@ -328,11 +458,16 @@ function createWsStore() {
         lastHeartbeat = hb;
         heartbeatSeq += 1;
         // Keep monitor status in sync with the latest check result (skip paused).
-        if (hb.status === "up" || hb.status === "down") {
-          // Narrow into a local so the union stays "up" | "down" inside the
-          // closure below (property narrowing on `hb.status` does not persist
-          // across the .map() callback boundary).
-          const syncedStatus = hb.status;
+        // A remote assignment publishes overall_status; that is the badge status.
+        const pillStatus = hb.overall_status
+          ? hb.overall_status
+          : regionalVersions.has(hb.monitor_id)
+            ? null
+            : hb.status === "up" || hb.status === "down"
+              ? hb.status
+              : null;
+        if (pillStatus) {
+          const syncedStatus = pillStatus;
           monitors = monitors.map((m) =>
             m.id === hb.monitor_id &&
             m.active !== false &&
@@ -344,10 +479,16 @@ function createWsStore() {
         break;
       }
       case "status.change": {
-        const { monitor_id, status: newStatus } = event.payload as {
+        const {
+          monitor_id,
+          status: newStatus,
+          projection_version,
+        } = event.payload as {
           monitor_id: number;
           status: string;
+          projection_version?: number;
         };
+        if (noteProjection(monitor_id, projection_version) === "stale") break;
         appendWsDebugEvent("status.change", monitor_id);
         monitors = monitors.map((m) =>
           m.id === monitor_id
@@ -429,6 +570,15 @@ function createWsStore() {
     if (source === "cache" && snapshotSource !== "none") return;
     if (source === "rest" && snapshotSource === "ws") return;
     monitors = list.map(withDefaultStatus);
+    if (source === "ws") {
+      const allowed = new Set(monitors.map((monitor) => monitor.id));
+      heartbeats = new Map([...heartbeats].filter(([id]) => allowed.has(id)));
+      conditions = new Map(
+        [...conditions].filter(([, row]) => allowed.has(row.monitor_id)),
+      );
+      if (lastHeartbeat && !allowed.has(lastHeartbeat.monitor_id))
+        lastHeartbeat = null;
+    }
     hasMonitorSnapshot = true;
     snapshotSource = source;
     if (source === "cache") return;
@@ -513,11 +663,13 @@ function createWsStore() {
       ws.onopen = () => {
         if (generation !== connectGeneration) return;
         status = "connected";
+        connectionEpoch += 1;
         reconnectAttempt = 0;
         lastError = null;
       };
 
       ws.onmessage = (e: MessageEvent) => {
+        if (generation !== connectGeneration) return;
         let event: WsEvent | null = null;
 
         if (e.data instanceof ArrayBuffer) {
@@ -537,6 +689,9 @@ function createWsStore() {
         if (generation !== connectGeneration) return;
         status = "disconnected";
         ws = null;
+        projectionVersions.clear();
+        regionalVersions.clear();
+        invalidateNavigation();
         // 4001–4003 from the hub, plus 1008 from pre-fix servers: the JWT is
         // dead. Reconnecting with it loops 101 → close forever and the
         // dashboard never leaves "pending".
@@ -683,6 +838,10 @@ function createWsStore() {
     get conditionSeq() {
       return conditionSeq;
     },
+    get connectionEpoch() {
+      return connectionEpoch;
+    },
+    on,
     get reconnectAttempt() {
       return reconnectAttempt;
     },

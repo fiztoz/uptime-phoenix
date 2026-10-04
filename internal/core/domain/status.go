@@ -11,6 +11,8 @@ const (
 	StatusUp          Status = 1
 	StatusPending     Status = 2
 	StatusMaintenance Status = 3
+	// StatusUnknown represents missing or stale regional evidence. It is not a checker result.
+	StatusUnknown Status = 4
 )
 
 // String returns the human-readable representation of the status.

@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS probe_telemetry_receipts (
+    probe_id TEXT NOT NULL REFERENCES probes(id) ON DELETE RESTRICT,
+    stream_id TEXT NOT NULL,
+    seq INTEGER NOT NULL CHECK (seq > 0),
+    digest TEXT NOT NULL CHECK (length(digest) = 64),
+    kind TEXT NOT NULL CHECK (length(kind) BETWEEN 1 AND 64),
+    rejection_code TEXT NOT NULL CHECK (length(rejection_code) <= 128),
+    received_at TIMESTAMP NOT NULL,
+    source_alert_id TEXT,
+    transition_version INTEGER,
+    monitor_id INTEGER,
+    assignment_generation INTEGER,
+    config_revision INTEGER,
+    status TEXT,
+    started_at TIMESTAMP,
+    resolved_at TIMESTAMP,
+    PRIMARY KEY (probe_id, stream_id, seq),
+    UNIQUE (source_alert_id, transition_version),
+    FOREIGN KEY (probe_id, stream_id) REFERENCES probe_streams(probe_id, stream_id) ON DELETE RESTRICT
+);

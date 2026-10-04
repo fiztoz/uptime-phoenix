@@ -1,0 +1,451 @@
+{
+  "baseline_commit": "1396ebf",
+  "scope": "Edge watchdog source checkpoint/lifecycle/telemetry/outbox persistence; enabled configuration remains guarded; M3 incomplete",
+  "full_race_command": "GOTOOLCHAIN=go1.26.6 GOCACHE=/private/tmp/phoenix-go-cache-template-race TEST_MARIADB_DSN=<disposable localhost MariaDB> go test -race -count=1 -timeout=20m -json ./...",
+  "database": "phoenix_m3_history_ci (hub schema 058); temporary real edge SQLite stores (edge schema 005)",
+  "full_race": {
+    "path": "/private/tmp/phoenix-m3-watchdog-source-full.jsonl",
+    "sha256": "1af787f00cc5bc919e1489c554e3b844050b682ccfc1d2294b1b4c97f42e39a0",
+    "exit_code": 0,
+    "package_passes": [
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/cmd/phoenix-config",
+        "seconds": 1.345
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/cmd/phoenix-probe-key",
+        "seconds": 1.376
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/http",
+        "seconds": 1.521
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/auth",
+        "seconds": 2.046
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/cmd/probe",
+        "seconds": 2.326
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/http/middleware",
+        "seconds": 1.5699999999999998
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/metrics",
+        "seconds": 1.428
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/importer/uptimekuma",
+        "seconds": 1.943
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb",
+        "seconds": 1.342
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/bootstrap",
+        "seconds": 1.7189999999999999
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/core/domain",
+        "seconds": 1.159
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier",
+        "seconds": 10.531
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/ws",
+        "seconds": 8.265
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/edge",
+        "seconds": 13.268
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/core/services",
+        "seconds": 17.484
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/scheduler",
+        "seconds": 23.068
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/probe",
+        "seconds": 41.328
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/checker",
+        "seconds": 42.973
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/sqlite",
+        "seconds": 69.107
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/repository",
+        "seconds": 343.713
+      },
+      {
+        "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/http/handlers",
+        "seconds": 357.329
+      }
+    ],
+    "mariadb_named_pass_count": 202,
+    "mariadb_named_skip_count": 0,
+    "mariadb_named_passes": [
+      "TestMariaDBDisksQueryDedupesDevice",
+      "TestDatabaseChecker_Validate/mariadb_valid",
+      "TestMariaDBOpenMissingDSN",
+      "TestDatabaseChecker_Check_MariaDB_BadHost",
+      "TestMigration015_AlertLifecycle_MariaDB",
+      "TestAlertSourceContract/mariadb/IdentityAndScope",
+      "TestAlertSourceContract/mariadb/Transitions",
+      "TestAlertSourceContract/mariadb/Migration",
+      "TestAlertSourceContract/mariadb",
+      "TestMonitorCreateInitializesLocalAssignment/mariadb",
+      "TestClaimBatchSkipsRemoteOnlyAndKeepsLegacy/mariadb",
+      "TestDeliveryOutboxContract/mariadb/AtomicRecording",
+      "TestDeliveryOutboxContract/mariadb/LeaseRestartAndRetry",
+      "TestDeliveryOutboxContract/mariadb/CompletionRollback",
+      "TestDeliveryOutboxContract/mariadb/ConcurrentClaims",
+      "TestDeliveryOutboxContract/mariadb/RegionalScope",
+      "TestDeliveryOutboxContract/mariadb/SnapshotAndMigration",
+      "TestDeliveryOutboxContract/mariadb/Validation",
+      "TestDeliveryOutboxContract/mariadb",
+      "TestRepositoryContract_SQLite/TestMariaDBRegression_ZeroTimeInsert",
+      "TestRepositoryContract_SQLite/TestMariaDBRegression_HeartbeatLatestTimestampTie",
+      "TestRepositoryContract_SQLite/TestMariaDBRegression_HeartbeatBatchLatestTimestampTie",
+      "TestRepositoryContract_SQLite/TestMariaDBRegression_HeartbeatBatchResolvesStaleMonitors",
+      "TestRepositoryContract_SQLite/TestMariaDBRegression_LatestImportantBeforeTimestampTie",
+      "TestRepositoryContract_SQLite/TestMariaDBRegression_GetByMonitorIDJoin",
+      "TestRepositoryContract_SQLite/TestMariaDBRegression_ReorderMonitorsObservableOrder",
+      "TestRepositoryContract_MariaDB/CRUDAndFiltering",
+      "TestRepositoryContract_MariaDB/TestMariaDBRegression_ZeroTimeInsert",
+      "TestRepositoryContract_MariaDB/TestMariaDBRegression_HeartbeatLatestTimestampTie",
+      "TestRepositoryContract_MariaDB/TestMariaDBRegression_HeartbeatBatchLatestTimestampTie",
+      "TestRepositoryContract_MariaDB/TestMariaDBRegression_HeartbeatBatchResolvesStaleMonitors",
+      "TestRepositoryContract_MariaDB/TestMariaDBRegression_LatestImportantBeforeTimestampTie",
+      "TestRepositoryContract_MariaDB/TestMariaDBRegression_GetByMonitorIDJoin",
+      "TestRepositoryContract_MariaDB/TestMariaDBRegression_ReorderMonitorsObservableOrder",
+      "TestRepositoryContract_MariaDB/GroupDeleteRehomesChildren",
+      "TestRepositoryContract_MariaDB/UserPermissionUpsert",
+      "TestRepositoryContract_MariaDB",
+      "TestMariaDBDSNSafety",
+      "TestEscalationContract_MariaDB/PolicyRoundTripWithSteps",
+      "TestEscalationContract_MariaDB/UpdateReplacesTheWholeStepLadder",
+      "TestEscalationContract_MariaDB/UpdateUnknownPolicyIsNotFound",
+      "TestEscalationContract_MariaDB/AssignmentIsAtMostOnePerEntity",
+      "TestEscalationContract_MariaDB/StateCreateIsUniquePerAlert",
+      "TestEscalationContract_MariaDB/ClaimDueIsExactlyOnceAcrossWorkers",
+      "TestEscalationContract_MariaDB/ClaimSkipsFutureAndRespectsLiveLease",
+      "TestEscalationContract_MariaDB/AdvanceAndFinishAreGuardedByTheClaimToken",
+      "TestEscalationContract_MariaDB/CancelBeatsALiveLease",
+      "TestEscalationContract_MariaDB/ClaimOrderBreaksTimestampTieByID",
+      "TestEscalationContract_MariaDB/DeletingAPolicyCascades",
+      "TestEscalationContract_MariaDB",
+      "TestEscalationOutboxContract/mariadb/RollbackAndClaimFence",
+      "TestEscalationOutboxContract/mariadb/ProviderRetrySurvivesRunnerRestart",
+      "TestEscalationOutboxContract/mariadb/AckBetweenQueueAndSend",
+      "TestEscalationOutboxContract/mariadb/ColdReaderRejectsUnappliedChannel",
+      "TestEscalationOutboxContract/mariadb",
+      "TestRegionalCommitMarksDirtyBucketsAndProjectsOverallHistory/mariadb",
+      "TestHeartbeatProbeIDAndRollupUniqueKey/mariadb",
+      "TestLocalStreamTwoMonitors/mariadb",
+      "TestLocalStreamExplicitSequenceControl/mariadb",
+      "TestHeartbeatRecordWritesLocalRegionalState/mariadb",
+      "TestRegionalIncidentsAreIndependentPerProbe/mariadb",
+      "TestInsightsFilterContract/mariadb/descendants",
+      "TestInsightsFilterContract/mariadb/empty-groups",
+      "TestInsightsFilterContract/mariadb/empty-grants",
+      "TestInsightsFilterContract/mariadb/intersect-grants",
+      "TestInsightsFilterContract/mariadb/intersect-single-group",
+      "TestInsightsFilterContract/mariadb/intersect-ungrouped",
+      "TestInsightsFilterContract/mariadb/disabled",
+      "TestInsightsFilterContract/mariadb/type",
+      "TestInsightsFilterContract/mariadb",
+      "TestLocalDeliveryContract/mariadb/NewConfigDuringOutage",
+      "TestLocalDeliveryContract/mariadb/DefaultAvailabilitySend",
+      "TestLocalDeliveryContract/mariadb/ResendAfterInterval",
+      "TestLocalDeliveryContract/mariadb/AckBetweenClaimAndFirstSend",
+      "TestLocalDeliveryContract/mariadb/DownAfterMaintenance",
+      "TestLocalDeliveryContract/mariadb/RecoveryAfterAck",
+      "TestLocalDeliveryContract/mariadb/RejectForeignSnapshotKey",
+      "TestLocalDeliveryContract/mariadb/Existing045Upgrade",
+      "TestLocalDeliveryContract/mariadb/DelayedSummaryKeepsDurableRetry",
+      "TestLocalDeliveryContract/mariadb/ChannelEditRequiresNewAppliedVersion",
+      "TestLocalDeliveryContract/mariadb/FirstActivationAndRefresh",
+      "TestLocalDeliveryContract/mariadb/InheritedAndDisabledChannels",
+      "TestLocalDeliveryContract/mariadb/MaintenanceParity",
+      "TestLocalDeliveryContract/mariadb/RestartReclaim",
+      "TestLocalDeliveryContract/mariadb/CompleteEscalationBehavior",
+      "TestLocalDeliveryContract/mariadb/SourceEditsThroughSupportedAppPath",
+      "TestLocalDeliveryContract/mariadb/BootstrapWiringMustCreateOutboxWork",
+      "TestLocalDeliveryContract/mariadb/ChannelEditMustRefreshWithoutManualTrigger",
+      "TestLocalDeliveryContract/mariadb/EscalationMustNotUseUnappliedChannel",
+      "TestLocalDeliveryContract/mariadb/AckURLMustIncludePublicURL",
+      "TestLocalDeliveryContract/mariadb",
+      "TestProbeInstallationRacesSnapshotWriter/mariadb",
+      "TestLocalHeartbeatContract/mariadb/Rollback",
+      "TestLocalHeartbeatContract/mariadb/ConcurrentConnections",
+      "TestLocalHeartbeatContract/mariadb/StaleStateAndAssignments",
+      "TestLocalHeartbeatContract/mariadb/RestartDeletionAndExhaustion",
+      "TestLocalHeartbeatContract/mariadb/Migration",
+      "TestLocalHeartbeatContract/mariadb/LifecycleAndOutbox",
+      "TestLocalHeartbeatContract/mariadb/LifecycleFaultInjection",
+      "TestLocalHeartbeatContract/mariadb/AckAndResolveCancellation",
+      "TestLocalHeartbeatContract/mariadb",
+      "TestMigration016_UpDownUp_MariaDB",
+      "TestWorkerMonitorReaderScopesCurrentLeases/mariadb",
+      "TestClaimBatchReturnsOnlyItsBoundedClaim/mariadb",
+      "TestMariaDBLeaseTimestampPrecisionControl",
+      "TestClaimBatchConcurrentWorkers/mariadb",
+      "TestMonitorHealthReaderUsesPersistedRegionalState/mariadb",
+      "TestNotificationThrottleContract/mariadb/ScopeRestartAndClock",
+      "TestNotificationThrottleContract/mariadb/ConcurrentReservations",
+      "TestNotificationThrottleContract/mariadb/Dispatcher",
+      "TestNotificationThrottleContract/mariadb/MigrationAndRollback",
+      "TestNotificationThrottleContract/mariadb",
+      "TestProbeActivationLocksSourceThroughCommit/mariadb/monitor_update",
+      "TestProbeActivationLocksSourceThroughCommit/mariadb/tag_link_insert",
+      "TestProbeActivationContract/mariadb/ConcurrentRaces",
+      "TestProbeActivationContract/mariadb/EmptyConfiguration",
+      "TestProbeActivationContract/mariadb/DowngradeGuards",
+      "TestProbeActivationContract/mariadb/FirstValidAndIdempotentRetry",
+      "TestProbeActivationContract/mariadb/OlderRevisionAndHashConflict",
+      "TestProbeActivationContract/mariadb/WrongTargetAndDisabledProbe",
+      "TestProbeActivationContract/mariadb/SourceFreshnessTwoConnections",
+      "TestProbeActivationContract/mariadb",
+      "TestAssignmentHistoryPreservesMembershipPolicyAndGeneration/mariadb",
+      "TestAssignmentHistoryFailureRollsBackEntireReplacement/mariadb",
+      "TestAssignmentHistoryLocalDowngradeAndConstraints/mariadb",
+      "TestAssignmentHistoryMigrationBackfillsOnlyKnownRevision/mariadb",
+      "TestPreparedProbeConfigFileKeyRestart/mariadb",
+      "TestLocalConfigSourceContract/mariadb/CompleteProtectedGraph",
+      "TestLocalConfigSourceContract/mariadb/ConsistentConcurrentEdit",
+      "TestLocalConfigSourceContract/mariadb/EmptyLegacyAndFailure",
+      "TestLocalConfigSourceContract/mariadb",
+      "TestRemoteConfigSyncContract/mariadb/ConcurrentPublication",
+      "TestRemoteConfigSyncContract/mariadb/ReceiptFencingAndLateRollback",
+      "TestRemoteConfigSyncContract/mariadb/SourceEditsAndRestart",
+      "TestRemoteConfigSyncContract/mariadb",
+      "TestPreparedProbeConfigContract/mariadb/ConcurrentWriters",
+      "TestPreparedProbeConfigContract/mariadb/RollbackMigrationBounds",
+      "TestPreparedProbeConfigContract/mariadb/RoundTripRotation",
+      "TestPreparedProbeConfigContract/mariadb",
+      "TestLocalConfigValidationProtectedRevisions/mariadb",
+      "TestProbeConnectionPreparationContract/mariadb",
+      "TestProbeConnectorLeaseContract/mariadb",
+      "TestProbeCurrentStateAcceptance/mariadb/UpgradePreservesExactObservation",
+      "TestProbeCurrentStateAcceptance/mariadb/EmptyInitialSnapshotThenFirstEvidence",
+      "TestProbeCurrentStateAcceptance/mariadb/SameObservationAllowsIncidentMetadataOnly",
+      "TestProbeCurrentStateAcceptance/mariadb/KnownIncidentMustMatchSnapshotAssignment",
+      "TestProbeCurrentStateAcceptance/mariadb/AheadOfBacklogAndDurableReceipt",
+      "TestProbeCurrentStateAcceptance/mariadb/OmittedAssignmentStaysUnknownUntilNewEvidence",
+      "TestProbeCurrentStateAcceptance/mariadb/SequenceOrdersBackwardClock",
+      "TestProbeCurrentStateAcceptance/mariadb/AuthorityAndFinalReceiptRollback",
+      "TestProbeCurrentStateAcceptance/mariadb",
+      "TestProbeHistoryAcceptance/mariadb/ReplayAndGapBeyondRollupLookback",
+      "TestProbeHistoryAcceptance/mariadb/LastWriteRollbackAndRestart",
+      "TestProbeHistoryAcceptance/mariadb/RevisionSurvivesConsumeReinsertABA",
+      "TestProbeHistoryAcceptance/mariadb",
+      "TestProbeHistoryLegacyRollupsPreserveManagedCoverage/mariadb",
+      "TestProbeHistoryWindowReplacementPreservesBothSides/mariadb",
+      "TestProbeHistoryAssignmentRemovalClosesRegionalDenominator/mariadb",
+      "TestProbeHistoryLateClockRegressionRepairsBeyondFreshness/mariadb",
+      "TestProbeHistoryParentsPreserveLegacySampleStatistics/mariadb",
+      "TestProbeInstallationContract/mariadb/DowngradeGuards",
+      "TestProbeInstallationContract/mariadb/InitializationAndIdempotency",
+      "TestProbeInstallationContract/mariadb/ConcurrentInitializers",
+      "TestProbeInstallationContract/mariadb/RetainedSnapshots",
+      "TestProbeInstallationContract/mariadb",
+      "TestProbeRegistryContract/mariadb/RegistryAndIdentity",
+      "TestProbeRegistryContract/mariadb/ReplacementAndTombstones",
+      "TestProbeRegistryContract/mariadb/ConcurrentReplacement",
+      "TestProbeRegistryContract/mariadb/AtomicRollbackAndOverflow",
+      "TestProbeRegistryContract/mariadb/LegacyBackfillAndDown",
+      "TestProbeRegistryContract/mariadb/SchemaConstraints",
+      "TestProbeRegistryContract/mariadb",
+      "TestProbeReplayAcceptance/mariadb/LeaseAndStreamFences",
+      "TestProbeReplayAcceptance/mariadb/HistoricalAuthority",
+      "TestProbeReplayAcceptance/mariadb/ExactConfigAndParent",
+      "TestProbeReplayAcceptance/mariadb/TimestampPrecision",
+      "TestProbeReplayAcceptance/mariadb/ConcurrentDuplicate",
+      "TestProbeReplayAcceptance/mariadb/LeaseExpiresDuringBatch",
+      "TestProbeReplayAcceptance/mariadb/MixedDurableOutcomes",
+      "TestProbeReplayAcceptance/mariadb/LateRollback",
+      "TestProbeReplayAcceptance/mariadb",
+      "TestProbeReplayGapAcceptance/mariadb/DurableGapAndOverlap",
+      "TestProbeReplayGapAcceptance/mariadb/AuthorityAndLateRollback",
+      "TestProbeReplayGapAcceptance/mariadb",
+      "TestProbeRuntimeOwnership/mariadb",
+      "TestProbeRuntimeAdoptsLegacyAndFencesDisable/mariadb",
+      "TestProbeRuntimeReleaseRollback/mariadb",
+      "TestProbeRuntimeTakeoverFencesReplay/mariadb",
+      "TestProbeRuntimeRenewalCannotShortenExistingDeadline/mariadb",
+      "TestRegionalAlertContract/mariadb/IsolationAndGeneration",
+      "TestRegionalAlertContract/mariadb/ConcurrentOpenAndTransitions",
+      "TestRegionalAlertContract/mariadb/DispatcherAndRunner",
+      "TestRegionalAlertContract/mariadb/PopulatedMigration",
+      "TestRegionalAlertContract/mariadb",
+      "TestRegionalAuxiliaryContract/mariadb/IndependentPromotionAndRecovery",
+      "TestRegionalAuxiliaryContract/mariadb/IndependentCertificates",
+      "TestRegionalAuxiliaryContract/mariadb/CurrentLocalAndCleanup",
+      "TestRegionalAuxiliaryContract/mariadb/MigrationAndGuards",
+      "TestRegionalAuxiliaryContract/mariadb/LocalRecorder",
+      "TestRegionalAuxiliaryContract/mariadb",
+      "TestRegionalCommitKeepsIndependentRetryCounters/mariadb",
+      "TestProbeIngestIsIdempotentAndRejectsGaps/mariadb"
+    ]
+  },
+  "watchdog_passes": [
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/duplicate_channel",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/future_transition",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/invalid_diagnostic",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/duplicate_delivery_id",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/availability_event",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/resolving_unknown_incident",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/fake_assignment_scope",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/invalid_reason_encoding",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/foreign_channel_version",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/unarmed_loss",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/state_overflow",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/healthy_with_open_incident",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/fake_monitor_scope",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/escalation_payload",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/foreign_delivery_incident",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/negative_measured_time",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects/stray_ack_metadata",
+    "TestProbeWatchdogCommitRejectsInvalidSourceEffects",
+    "TestProbeWatchdogRecoveryCannotInventAcknowledgement",
+    "TestProbeWatchdogRecoveryCheckpointCannotPageAgain",
+    "TestProbeWatchdogCommitPreservesAcknowledgementOnRecovery/command",
+    "TestProbeWatchdogCommitPreservesAcknowledgementOnRecovery/actor",
+    "TestProbeWatchdogCommitPreservesAcknowledgementOnRecovery/note",
+    "TestProbeWatchdogCommitPreservesAcknowledgementOnRecovery/time",
+    "TestProbeWatchdogCommitPreservesAcknowledgementOnRecovery/reopen",
+    "TestProbeWatchdogCommitPreservesAcknowledgementOnRecovery/identity",
+    "TestProbeWatchdogCommitPreservesAcknowledgementOnRecovery",
+    "TestProbeWatchdogCheckpointAndResendDoNotChangeLifecycle",
+    "TestEdgeWatchdogAtomicEffects/edge_alerts",
+    "TestEdgeWatchdogAtomicEffects/edge_telemetry_outbox",
+    "TestEdgeWatchdogAtomicEffects/edge_delivery_outbox",
+    "TestEdgeWatchdogAtomicEffects/edge_watchdog_state",
+    "TestEdgeWatchdogAtomicEffects",
+    "TestEdgeWatchdogRestartAckRecoveryAndOutcome",
+    "TestEdgeWatchdogAuthorityAndVersionFences/foreign_installation",
+    "TestEdgeWatchdogAuthorityAndVersionFences/foreign_probe",
+    "TestEdgeWatchdogAuthorityAndVersionFences/hub_runtime_authority",
+    "TestEdgeWatchdogAuthorityAndVersionFences/missing_incident",
+    "TestEdgeWatchdogAuthorityAndVersionFences/wrong_channel_version",
+    "TestEdgeWatchdogAuthorityAndVersionFences/version_overflow",
+    "TestEdgeWatchdogAuthorityAndVersionFences/foreign_stream",
+    "TestEdgeWatchdogAuthorityAndVersionFences/future_health_generation",
+    "TestEdgeWatchdogAuthorityAndVersionFences/obsolete_configuration",
+    "TestEdgeWatchdogAuthorityAndVersionFences/fake_monitor",
+    "TestEdgeWatchdogAuthorityAndVersionFences",
+    "TestEdgeWatchdogMigrationPreservesExistingWork",
+    "TestEdgeWatchdogDowngradeRetainsCheckpoint",
+    "TestEdgeWatchdogCompetingCommitsAndDuplicateDelivery",
+    "TestEdgeWatchdogDisableReenableAndNewOutage",
+    "TestEdgeWatchdogFinalCounterFailureRollsBack",
+    "TestProbeWatchdogStartupArmingAndExactBoundaries",
+    "TestProbeWatchdogApplicationFailureCannotRenewDeadline",
+    "TestProbeWatchdogRecoveryRequiresSpanningHealthySamples",
+    "TestProbeWatchdogRecoveryInterruptedByHealthGapOrDisconnect/degraded",
+    "TestProbeWatchdogRecoveryInterruptedByHealthGapOrDisconnect/disconnect",
+    "TestProbeWatchdogRecoveryInterruptedByHealthGapOrDisconnect/silence",
+    "TestProbeWatchdogRecoveryInterruptedByHealthGapOrDisconnect",
+    "TestProbeWatchdogRestartRetainsOpenIncidentWithoutImmediateRecovery",
+    "TestProbeWatchdogDelayedTickCannotEraseObservedOutage",
+    "TestProbeWatchdogRejectsClockRegressionAndOverflow",
+    "TestProbeWatchdogHandoffPreservesMeasuredLossWithoutWallClock",
+    "TestProbeWatchdogHandoffCannotInheritRecoveryStreak",
+    "TestProbeWatchdogInvalidCheckpointCannotArmUnknownInstallation"
+  ],
+  "regression_red": {
+    "path": "/private/tmp/phoenix-m3-watchdog-validation-red.log",
+    "sha256": "e64b251fbfce0cb86b0e8801f443b9c4d9e826e6f128e57de8c7d55bd0b3f8ab"
+  },
+  "focused_race": {
+    "path": "/private/tmp/phoenix-m3-watchdog-source-green.log",
+    "sha256": "345573c91615a8fd5beda32084d9fbe43e9e1aaaf7b309c759dbf4d615642889",
+    "exit_code": 0
+  },
+  "build": {
+    "path": "/private/tmp/phoenix-m3-watchdog-source-build.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "exit_code": 0,
+    "command": "GOTOOLCHAIN=go1.26.6 CGO_ENABLED=0 go build ./..."
+  },
+  "lint": {
+    "path": "/private/tmp/phoenix-m3-watchdog-source-lint.log",
+    "sha256": "e92606b0bf483111dff0a120c315ea165821348f31365020e2468a0059095c47",
+    "exit_code": 0,
+    "issues": 0
+  },
+  "antigravity": {
+    "conversation_id": "c5f163cb-aa28-4b9d-a788-27af6ded5a13",
+    "mode": "read-only supplied source; no tools/edits",
+    "audit": {
+      "path": "/private/tmp/phoenix-m3-watchdog-source-review.jsonl",
+      "sha256": "d2bb6ecb60020b2359ee5581e014d76632371ba97b365ae14ddcd826f3acf996"
+    },
+    "feedback": {
+      "path": "/private/tmp/phoenix-m3-watchdog-source-feedback.jsonl",
+      "sha256": "01b275111efae0734d33858185d17eb91769380d5bdffe9aea67384f68f71ed2"
+    }
+  },
+  "source_manifest": [
+    {
+      "path": "internal/adapters/probe/edge_telemetry.go",
+      "sha256": "d442f00f076a976319d2f253a2d65f553dbbb84cab94a7b91b275b6c8cc99ec4"
+    },
+    {
+      "path": "internal/adapters/repository/edge/delivery.go",
+      "sha256": "94163912cf704be61a83af00ccb98d913205d6b843c86a2377bcf608f8a22cec"
+    },
+    {
+      "path": "internal/adapters/repository/edge/record.go",
+      "sha256": "a25950119e76ac4c306cc568c5f812141422195d2104a3e0bca264b9d8cca13d"
+    },
+    {
+      "path": "internal/core/domain/probe_watchdog.go",
+      "sha256": "6cb7b7ef9f0c24d0b960b785b404a12cf60447f955fb979e5ec0f1f753fad95d"
+    },
+    {
+      "path": "internal/adapters/repository/edge/migrations/005_watchdog_source.tx.down.sql",
+      "sha256": "979310c8f05ca2b4310a62cc391eef13b1d1959274804eee78014e47c79f0553"
+    },
+    {
+      "path": "internal/adapters/repository/edge/migrations/005_watchdog_source.tx.up.sql",
+      "sha256": "880b85ecac45b20dd28abee4aabf1dcd35aff72d4061e846728dbea26c03922a"
+    },
+    {
+      "path": "internal/adapters/repository/edge/watchdog.go",
+      "sha256": "fcb39c78a20e2457f3799ad86c95021662c40c3c6d2d0dd38713b0464b62f06f"
+    },
+    {
+      "path": "internal/adapters/repository/edge/watchdog_test.go",
+      "sha256": "60321d84eb01166d10928ea24674ad06ecb4be8f4188f8bcc3d4564fffaa22da"
+    },
+    {
+      "path": "internal/core/domain/probe_watchdog_commit.go",
+      "sha256": "2875cfe894c1b254b2e30d4ce968dcca981e65b3f9b8fef5e6098b8dba11fbd5"
+    },
+    {
+      "path": "internal/core/domain/probe_watchdog_commit_test.go",
+      "sha256": "421dc3558fd6d97e6d43ffe1f30ea179b0931be8de3893a8d2314f7a38600214"
+    }
+  ],
+  "limitations": [
+    "No hub watchdog source store or mirror ingest added",
+    "No enabled watchdog config/runtime/provider integration",
+    "ACK persistence is not a command workflow",
+    "No process watchdog or 15-minute partition acceptance",
+    "No frontend, Helm or dependency changes",
+    "No push or deployment"
+  ]
+}

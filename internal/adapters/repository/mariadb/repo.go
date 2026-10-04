@@ -132,8 +132,7 @@ func (r *MonitorRepo) Create(ctx context.Context, m *domain.Monitor) error {
 	if len(model.AcceptedStatusCodes) == 0 {
 		model.AcceptedStatusCodes = repository.StringListField{"200-299"}
 	}
-	_, err := r.db.NewInsert().Model(model).Exec(ctx)
-	if err != nil {
+	if err := repository.CreateMonitorWithLocalAssignment(ctx, r.db, model); err != nil {
 		return translateError(err)
 	}
 	m.ID = model.ID
@@ -228,48 +227,84 @@ func (r *MonitorRepo) ListActive(ctx context.Context) ([]*domain.Monitor, error)
 	return out, nil
 }
 
+// ListByWorker returns active monitors with a current lease owned by workerID.
+func (r *MonitorRepo) ListByWorker(ctx context.Context, workerID string, leaseExpiry time.Time) ([]*domain.Monitor, error) {
+	var models []*repository.MonitorModel
+	if err := r.db.NewSelect().Model(&models).
+		Where("active = TRUE AND worker_id = ? AND leased_at >= ?", workerID, leaseExpiry.UTC()).
+		Order("id ASC").Scan(ctx); err != nil {
+		return nil, translateError(err)
+	}
+	out := make([]*domain.Monitor, len(models))
+	for i, m := range models {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
 func (r *MonitorRepo) Update(ctx context.Context, m *domain.Monitor) error {
 	model := repository.MonitorModelFromDomain(m)
 	model.UpdatedAt = time.Now().UTC()
-	_, err := r.db.NewUpdate().Model(model).WherePK().Exec(ctx)
+	err := r.mutateWithLocalSourceLock(ctx, sql.LevelRepeatableRead, func(ctx context.Context, tx bun.Tx) error {
+		// Only claim/refresh/release operations own worker lease columns.
+		_, err := tx.NewUpdate().Model(model).ExcludeColumn("worker_id", "leased_at").WherePK().Exec(ctx)
+		return err
+	})
 	return translateError(err)
 }
 
 func (r *MonitorRepo) Delete(ctx context.Context, id int64) error {
-	res, err := r.db.NewDelete().Model((*repository.MonitorModel)(nil)).Where("id = ?", id).Exec(ctx)
-	if err != nil {
-		return translateError(err)
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return ports.ErrNotFound
-	}
-	return nil
+	// The cascade must see remote source rows committed while waiting for
+	// their locks, rather than a snapshot from the registration existence read.
+	err := r.mutateWithLocalSourceLock(ctx, sql.LevelReadCommitted, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewDelete().Model((*repository.MonitorModel)(nil)).Where("id = ?", id).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ports.ErrNotFound
+		}
+		return nil
+	})
+	return translateError(err)
 }
 
 // ClaimBatch atomically claims up to batchSize active monitors for a worker.
-// Uses UPDATE ... WHERE to set worker_id and leased_at for unclaimed or expired leases.
+// Locks the selected rows until their lease updates commit.
 func (r *MonitorRepo) ClaimBatch(ctx context.Context, workerID string, batchSize int, leaseTTL time.Duration) ([]*domain.Monitor, error) {
 	now := time.Now().UTC()
 	leaseExpiry := now.Add(-leaseTTL)
 
-	// Step 1: Claim monitors by updating their lease columns.
-	// This is atomic — only one worker can claim each monitor.
-	_, err := r.db.NewRaw(
-		"UPDATE monitors SET worker_id = ?, leased_at = ? WHERE active = TRUE AND (worker_id IS NULL OR leased_at < ? OR worker_id = ?) ORDER BY id LIMIT ?",
-		workerID, now, leaseExpiry, workerID, batchSize,
-	).Exec(ctx)
+	// leased_at is a second-precision TIMESTAMP. It cannot identify a batch:
+	// fractional equality loses rows, while truncating it can return an earlier
+	// batch from the same worker. Lock the selected rows and return those exact
+	// IDs only after their leases commit. Concurrent owners serialize here.
+	var models []*repository.MonitorModel
+	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := tx.NewRaw(
+			"SELECT * FROM monitors WHERE active = TRUE AND (worker_id IS NULL OR leased_at < ? OR worker_id = ?) AND "+repository.LocalHubExecutionSQL("monitors.id")+" ORDER BY id LIMIT ? FOR UPDATE",
+			leaseExpiry, workerID, batchSize,
+		).Scan(ctx, &models); err != nil {
+			return fmt.Errorf("select claim candidates: %w", err)
+		}
+		if len(models) == 0 {
+			return nil
+		}
+		ids := make([]int64, len(models))
+		for i, model := range models {
+			ids[i] = model.ID
+		}
+		_, err := tx.NewUpdate().Table("monitors").
+			Set("worker_id = ?", workerID).Set("leased_at = ?", now).
+			Where("id IN (?)", bun.List(ids)).Exec(ctx)
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("claim monitors: %w", err)
-	}
-
-	// Step 2: Select the monitors we just claimed.
-	var models []*repository.MonitorModel
-	if err := r.db.NewSelect().Model(&models).
-		Where("worker_id = ? AND leased_at = ?", workerID, now).
-		Order("id ASC").
-		Scan(ctx); err != nil {
-		return nil, fmt.Errorf("select claimed monitors: %w", err)
 	}
 
 	out := make([]*domain.Monitor, len(models))
@@ -571,11 +606,18 @@ func (r *HeartbeatRepo) GetLatestForMonitors(ctx context.Context, monitorIDs []i
 
 // ListByMonitor returns heartbeats in [from, to].
 //
-// The bounds are forced to UTC at the boundary. The MySQL driver does convert to
-// the DSN's loc=UTC, so this is belt-and-braces here — but the SQLite repo shares
-// these callers and does NOT convert, and a query that behaves differently on the
-// two engines is worse than one that is simply wrong. Keep both identical. See
-// AGENTS.md rule 6.
+// The bounds are forced to UTC at the boundary, and that conversion is
+// load-bearing rather than belt-and-braces: go-sql-driver renders a time.Time
+// parameter as *its own* wall-clock even when the DSN carries loc=UTC, so a
+// UTC+7-zoned bound is emitted seven hours later and silently matches nothing.
+// (loc=UTC governs how stored values are parsed back into Go, not how a bound is
+// written.) Verified against real MariaDB by
+// TestHeartbeatUTCBound_MariaDB_LocalZonedBoundShiftsSQL, which shows a raw bun
+// query losing the row and this normalization rescuing it.
+//
+// The SQLite repo shares these callers and keeps the identical conversion, so the
+// two engines behave the same way here; a query that differs between engines is
+// worse than one that is simply wrong. See AGENTS.md rule 6.
 func (r *HeartbeatRepo) ListByMonitor(ctx context.Context, monitorID int64, from, to time.Time) ([]*domain.Heartbeat, error) {
 	var models []*repository.HeartbeatModel
 	err := r.db.NewSelect().Model(&models).
@@ -647,15 +689,16 @@ func (r *HeartbeatRepo) SaveAggregate1m(ctx context.Context, agg *ports.Aggregat
 	_, err := r.db.NewInsert().Model(m).
 		ModelTableExpr("heartbeat_1m").
 		On("DUPLICATE KEY UPDATE").
-		Set("up_count = VALUES(up_count)").
-		Set("down_count = VALUES(down_count)").
-		Set("pending_count = VALUES(pending_count)").
-		Set("maint_count = VALUES(maint_count)").
-		Set("avg_ping = VALUES(avg_ping)").
-		Set("min_ping = VALUES(min_ping)").
-		Set("max_ping = VALUES(max_ping)").
-		Set("ping_count = VALUES(ping_count)").
-		Set("total_checks = VALUES(total_checks)").
+		Set("up_count = IF(history_managed, up_count, VALUES(up_count))").
+		Set("down_count = IF(history_managed, down_count, VALUES(down_count))").
+		Set("pending_count = IF(history_managed, pending_count, VALUES(pending_count))").
+		Set("maint_count = IF(history_managed, maint_count, VALUES(maint_count))").
+		Set("unknown_count = IF(history_managed, unknown_count, VALUES(unknown_count))").
+		Set("avg_ping = IF(history_managed, avg_ping, VALUES(avg_ping))").
+		Set("min_ping = IF(history_managed, min_ping, VALUES(min_ping))").
+		Set("max_ping = IF(history_managed, max_ping, VALUES(max_ping))").
+		Set("ping_count = IF(history_managed, ping_count, VALUES(ping_count))").
+		Set("total_checks = IF(history_managed, total_checks, VALUES(total_checks))").
 		Exec(ctx)
 	return translateError(err)
 }
@@ -665,15 +708,16 @@ func (r *HeartbeatRepo) SaveAggregate1h(ctx context.Context, agg *ports.Aggregat
 	_, err := r.db.NewInsert().Model(m).
 		ModelTableExpr("heartbeat_1h").
 		On("DUPLICATE KEY UPDATE").
-		Set("up_count = VALUES(up_count)").
-		Set("down_count = VALUES(down_count)").
-		Set("pending_count = VALUES(pending_count)").
-		Set("maint_count = VALUES(maint_count)").
-		Set("avg_ping = VALUES(avg_ping)").
-		Set("min_ping = VALUES(min_ping)").
-		Set("max_ping = VALUES(max_ping)").
-		Set("ping_count = VALUES(ping_count)").
-		Set("total_checks = VALUES(total_checks)").
+		Set("up_count = IF(history_managed, up_count, VALUES(up_count))").
+		Set("down_count = IF(history_managed, down_count, VALUES(down_count))").
+		Set("pending_count = IF(history_managed, pending_count, VALUES(pending_count))").
+		Set("maint_count = IF(history_managed, maint_count, VALUES(maint_count))").
+		Set("unknown_count = IF(history_managed, unknown_count, VALUES(unknown_count))").
+		Set("avg_ping = IF(history_managed, avg_ping, VALUES(avg_ping))").
+		Set("min_ping = IF(history_managed, min_ping, VALUES(min_ping))").
+		Set("max_ping = IF(history_managed, max_ping, VALUES(max_ping))").
+		Set("ping_count = IF(history_managed, ping_count, VALUES(ping_count))").
+		Set("total_checks = IF(history_managed, total_checks, VALUES(total_checks))").
 		Exec(ctx)
 	return translateError(err)
 }
@@ -683,15 +727,16 @@ func (r *HeartbeatRepo) SaveAggregate1d(ctx context.Context, agg *ports.Aggregat
 	_, err := r.db.NewInsert().Model(m).
 		ModelTableExpr("heartbeat_1d").
 		On("DUPLICATE KEY UPDATE").
-		Set("up_count = VALUES(up_count)").
-		Set("down_count = VALUES(down_count)").
-		Set("pending_count = VALUES(pending_count)").
-		Set("maint_count = VALUES(maint_count)").
-		Set("avg_ping = VALUES(avg_ping)").
-		Set("min_ping = VALUES(min_ping)").
-		Set("max_ping = VALUES(max_ping)").
-		Set("ping_count = VALUES(ping_count)").
-		Set("total_checks = VALUES(total_checks)").
+		Set("up_count = IF(history_managed, up_count, VALUES(up_count))").
+		Set("down_count = IF(history_managed, down_count, VALUES(down_count))").
+		Set("pending_count = IF(history_managed, pending_count, VALUES(pending_count))").
+		Set("maint_count = IF(history_managed, maint_count, VALUES(maint_count))").
+		Set("unknown_count = IF(history_managed, unknown_count, VALUES(unknown_count))").
+		Set("avg_ping = IF(history_managed, avg_ping, VALUES(avg_ping))").
+		Set("min_ping = IF(history_managed, min_ping, VALUES(min_ping))").
+		Set("max_ping = IF(history_managed, max_ping, VALUES(max_ping))").
+		Set("ping_count = IF(history_managed, ping_count, VALUES(ping_count))").
+		Set("total_checks = IF(history_managed, total_checks, VALUES(total_checks))").
 		Exec(ctx)
 	return translateError(err)
 }
@@ -702,7 +747,7 @@ func (r *HeartbeatRepo) GetAggregate1m(ctx context.Context, monitorID int64, fro
 		ModelTableExpr("heartbeat_1m AS aggregate_model").
 		Where("monitor_id = ?", monitorID).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("bucket ASC").
+		OrderExpr("bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -720,7 +765,7 @@ func (r *HeartbeatRepo) GetAggregate1h(ctx context.Context, monitorID int64, fro
 		ModelTableExpr("heartbeat_1h AS aggregate_model").
 		Where("monitor_id = ?", monitorID).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("bucket ASC").
+		OrderExpr("bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -738,7 +783,7 @@ func (r *HeartbeatRepo) GetAggregate1d(ctx context.Context, monitorID int64, fro
 		ModelTableExpr("heartbeat_1d AS aggregate_model").
 		Where("monitor_id = ?", monitorID).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("bucket ASC").
+		OrderExpr("bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -762,7 +807,7 @@ func (r *HeartbeatRepo) GetAggregate1hForMonitors(ctx context.Context, monitorID
 		ModelTableExpr("heartbeat_1h AS aggregate_model").
 		Where("monitor_id IN (?)", bun.List(monitorIDs)).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("monitor_id ASC, bucket ASC").
+		OrderExpr("monitor_id ASC, bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -785,7 +830,7 @@ func (r *HeartbeatRepo) GetAggregate1dForMonitors(ctx context.Context, monitorID
 		ModelTableExpr("heartbeat_1d AS aggregate_model").
 		Where("monitor_id IN (?)", bun.List(monitorIDs)).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("monitor_id ASC, bucket ASC").
+		OrderExpr("monitor_id ASC, bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -2148,14 +2193,22 @@ func (r *MaintenanceWindowMonitorRepo) ListByMonitor(ctx context.Context, monito
 // ---------------------------------------------------------------------------
 
 // TLSInfoRepo implements ports.TLSInfoRepository.
-type TLSInfoRepo struct{ db *bun.DB }
+type TLSInfoRepo struct {
+	db    *bun.DB
+	scope repository.AuxiliaryScope
+}
 
 // NewTLSInfoRepo creates a MariaDB-backed TLS info repository.
 func NewTLSInfoRepo(db *bun.DB) *TLSInfoRepo { return &TLSInfoRepo{db: db} }
 
 func (r *TLSInfoRepo) Upsert(ctx context.Context, info *ports.TLSInfo) error {
+	scope, err := r.scope.Resolve(ctx, r.db, info.MonitorID)
+	if err != nil {
+		return err
+	}
 	m := repository.TLSInfoModelFromPort(info)
-	_, err := r.db.NewInsert().Model(m).
+	m.ProbeID, m.AssignmentGeneration = scope.ProbeID, scope.Generation
+	_, err = r.db.NewInsert().Model(m).
 		On("DUPLICATE KEY UPDATE").
 		Set("info_json = VALUES(info_json)").
 		Set("checked_at = VALUES(checked_at)").
@@ -2165,11 +2218,22 @@ func (r *TLSInfoRepo) Upsert(ctx context.Context, info *ports.TLSInfo) error {
 
 func (r *TLSInfoRepo) GetByMonitorID(ctx context.Context, monitorID int64) (*ports.TLSInfo, error) {
 	m := new(repository.TLSInfoModel)
-	if err := r.db.NewSelect().Model(m).Where("monitor_id = ?", monitorID).Scan(ctx); err != nil {
+	if err := r.scope.Filter(r.db.NewSelect().Model(m), "tls_info_model").Where("monitor_id = ?", monitorID).Scan(ctx); err != nil {
 		return nil, translateError(err)
 	}
 	return m.ToPort()
 }
+
+// ForAssignment returns an isolated certificate state view for a trusted worker.
+func (r *TLSInfoRepo) ForAssignment(probeID string, generation int64) (ports.TLSInfoRepository, error) {
+	scope, err := repository.NewAuxiliaryScope(probeID, generation)
+	if err != nil {
+		return nil, err
+	}
+	return &TLSInfoRepo{db: r.db, scope: scope}, nil
+}
+
+var _ ports.RegionalTLSInfoRepository = (*TLSInfoRepo)(nil)
 
 // ---------------------------------------------------------------------------
 // Repository — unified facade embedding all individual repos.

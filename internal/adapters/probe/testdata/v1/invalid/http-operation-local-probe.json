@@ -1,0 +1,9 @@
+{
+  "operation_id": "d1123604-32c5-40aa-89f9-b62f93dceac2",
+  "probe_id": "local",
+  "status": "pending",
+  "phase": "exchanging",
+  "created_at": "2026-09-15T10:00:00Z",
+  "updated_at": "2026-09-15T10:00:00Z",
+  "error": null
+}

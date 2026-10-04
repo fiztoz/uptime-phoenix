@@ -77,3 +77,18 @@ docs/F5-*.md
 # Local progress docs (handoffs, contracts kept for operators only)
 docs/local/
 actionlint
+
+# Local validation/session notes (portable reports live under docs/multi-region)
+/plans/
+
+# Python validation-runner caches
+__pycache__/
+*.py[cod]
+
+# Local UAT/load campaign tooling (not part of repository CI)
+/scripts/cloud/
+/scripts/m6_kubernetes_split.py
+/scripts/m6_local_runtime.py
+/scripts/m6_local_scenarios.py
+/scripts/test_m6_local_scenarios.py
+/scripts/release/image-smoke.py

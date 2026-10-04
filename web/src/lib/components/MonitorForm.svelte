@@ -25,6 +25,7 @@
   import { toast } from "svelte-sonner";
   import { AlertTriangle, BookOpen, Braces, Download, X } from "@lucide/svelte";
   import Select from "$lib/components/Select.svelte";
+  import ProbeAssignments from "$lib/components/ProbeAssignments.svelte";
   import DockerSetupGuide from "$lib/components/DockerSetupGuide.svelte";
   import MqttSetupGuide from "$lib/components/MqttSetupGuide.svelte";
   import DatabaseSetupGuide from "$lib/components/DatabaseSetupGuide.svelte";
@@ -58,6 +59,8 @@
   // shared WS Monitor type yet (see MonitorWithGroup in $lib/api/monitors).
   const editingMonitor = initialMonitor as MonitorWithGroup | undefined;
 
+  let assignmentEditor: ProbeAssignments | undefined = $state();
+  let persistedMonitorId = $state(initialMonitor?.id);
   let open = $state(true);
   let loading = $state(false);
   let selectedType = $state(initialMonitor?.type || "http");
@@ -531,8 +534,8 @@
         proxy_id: selectedProxyId === "" ? null : Number(selectedProxyId),
       };
 
-      if (monitor) {
-        const updated = await monitorsApi.update(monitor.id, input);
+      if (persistedMonitorId) {
+        const updated = await monitorsApi.update(persistedMonitorId, input);
         // Optimistically patch WS store so interval/timeout show immediately.
         // Clear `target` (a WS-only computed field) so the detail page's
         // targetUrl derived falls through to config.url, which reflects the
@@ -543,14 +546,26 @@
           ...updated,
           interval: updated.interval ?? input.interval,
           timeout: updated.timeout ?? input.timeout,
-          status: monitor.status,
+          status: monitor?.status ?? "pending",
         };
         realtime.patchMonitor(patch);
-        await syncEscalationAssignment(monitor.id);
+        await syncEscalationAssignment(persistedMonitorId);
+        if (
+          assignmentEditor &&
+          !(await assignmentEditor.save(persistedMonitorId))
+        ) {
+          toast.error(m.probes_assignment_failed());
+          return;
+        }
         toast.success(m.monitor_form_updated_toast());
       } else {
         const created = await monitorsApi.create(input);
+        persistedMonitorId = created.id;
         await syncEscalationAssignment(created.id);
+        if (assignmentEditor && !(await assignmentEditor.save(created.id))) {
+          toast.error(m.probes_assignment_failed());
+          return;
+        }
         toast.success(m.monitor_form_created_toast());
       }
       onSaved?.();
@@ -1148,6 +1163,14 @@
             {/each}
           </div>
         </div>
+
+        {#if auth.user?.is_admin}
+          <ProbeAssignments
+            bind:this={assignmentEditor}
+            monitorId={initialMonitor?.id}
+            monitorType={selectedType}
+          />
+        {/if}
 
         <!-- Advanced settings (applies to all monitor types) -->
         <div class="border-t border-border pt-6">

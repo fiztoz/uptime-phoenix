@@ -84,3 +84,34 @@ test("failed refresh keeps prior data and can be retried; empty is cached", asyn
   resource.clear();
   expect(resource.peek()).toBeUndefined();
 });
+
+test("projection changes preserve first paint but supersede pending reads", async () => {
+  let clock = 0;
+  let finish!: (value: string[]) => void;
+  let calls = 0;
+  const resource = createSessionResource(
+    () => {
+      calls++;
+      return calls === 2
+        ? new Promise<string[]>((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve([calls === 1 ? "cached" : "fresh"]);
+    },
+    () => "session",
+    () => clock,
+  );
+  await resource.refresh();
+  const old = resource.refresh();
+  resource.invalidate();
+  expect(resource.peek()).toEqual(["cached"]);
+  finish(["superseded"]);
+  expect(await old).toEqual(["fresh"]);
+  expect(resource.peek()).toEqual(["fresh"]);
+  clock = 60_000;
+  resource.invalidate();
+  expect(resource.peek()).toBeUndefined();
+  await resource.refresh();
+  resource.clear();
+  expect(resource.peek()).toBeUndefined();
+});

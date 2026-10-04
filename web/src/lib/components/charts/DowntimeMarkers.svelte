@@ -8,12 +8,14 @@
 
 	interface Props {
 		intervals: DowntimeInterval[];
+		fill?: string;
+		opacity?: number;
 	}
 
 
 	const { xScale, height } = getContext<any>('LayerCake');
 
-	let { intervals }: Props = $props();
+	let { intervals, fill = 'var(--color-danger)', opacity = 0.12 }: Props = $props();
 </script>
 
 <g class="downtime-markers" pointer-events="none">
@@ -30,8 +32,8 @@
 				{width}
 				height={$height}
 				rx="2"
-				fill="var(--color-danger)"
-				fill-opacity="0.12"
+				fill={fill}
+				fill-opacity={opacity}
 			/>
 		{/if}
 	{/each}

@@ -30,6 +30,12 @@ go build -o "$e2e_tmp_dir/webhook-stub" ./web/tests/webhook_stub.go
 "$e2e_tmp_dir/webhook-stub" &
 stub_pid=$!
 
+# M5 regional/latency-selection coverage needs the probe surface enabled; the
+# key file is exactly 32 raw bytes read once at startup.
+probe_key="$e2e_tmp_dir/probe-secret.key"
+dd if=/dev/urandom of="$probe_key" bs=32 count=1 2>/dev/null
+chmod 600 "$probe_key"
+
 DB_ENGINE=sqlite \
 	DB_DSN="file:$e2e_tmp_dir/uptime-phoenix.db?cache=shared" \
 	JWT_SECRET=e2e_secret \
@@ -37,6 +43,8 @@ DB_ENGINE=sqlite \
 	BOOTSTRAP_PASSWORD='ChangeMe123!' \
 	PUBLIC_URL='http://127.0.0.1:3100' \
 	PORT=3100 \
+	PROBES_ENABLED=true \
+	PROBE_SECRET_KEY_FILE="$probe_key" \
 	ESCALATION_POLL_SECONDS=1 \
 	"$e2e_tmp_dir/uptime-phoenix" &
 app_pid=$!

@@ -1,0 +1,16 @@
+{
+  "protocol_version": 1,
+  "type": "telemetry.gap",
+  "message_id": "637c39e5-0d90-41db-82c8-4a8bc65f16e5",
+  "sent_at": "2026-09-13T09:00:05Z",
+  "connection_generation": "7",
+  "payload": {
+    "stream_id": "1395c134-da65-4d86-9b11-c9ce20c61748",
+    "from_seq": "1",
+    "through_seq": "0",
+    "reason": "retention_age",
+    "observed_from": "2026-09-01T09:00:00Z",
+    "observed_through": "2026-09-03T09:00:00Z",
+    "affected_monitor_ids": []
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "base_commit": "5072e42",
+  "scope": "Saved watchdog settings, complete source dependencies, bounded probe display metadata, real operator CLI and migration stdout fix; enabled runtime remains guarded",
+  "commands_executed": [
+    "GOTOOLCHAIN=go1.26.6 go test -race -count=1 -timeout=20m -json ./... (TEST_MARIADB_DSN set to established disposable local DB)",
+    "GOTOOLCHAIN=go1.26.6 CGO_ENABLED=0 go build ./...",
+    "GOTOOLCHAIN=go1.26.6 golangci-lint run",
+    "git diff --check"
+  ],
+  "engines": [
+    "SQLite (hub, edge and CLI process fixture)",
+    "MariaDB (explicit disposable DB; named tests executed)"
+  ],
+  "package_pass_count": 22,
+  "package_no_test_files_count": 13,
+  "test_fail_count": 0,
+  "named_test_skips": [
+    "TestDatabaseChecker_Check_MongoDB_RealServer",
+    "TestTelegramSender_Send_DownSeverity"
+  ],
+  "mariadb_named_pass_event_count": 231,
+  "mariadb_named_skip_count": 0,
+  "critical_mariadb_cases": [
+    "TestProbeWatchdogSettingsContract/mariadb/SavedGraphWithoutMonitors",
+    "TestProbeWatchdogSettingsContract/mariadb/ConcurrentCASAndRestart",
+    "TestProbeWatchdogSettingsContract/mariadb/LateRollbackAndBounds",
+    "TestProbeWatchdogSettingsContract/mariadb/MigrationRoundTrip"
+  ],
+  "process_regression": "TestProbeAdminWatchdogSettingsAcrossProcesses",
+  "build_exit_code": 0,
+  "lint_exit_code": 0,
+  "lint_output": "0 issues.",
+  "full_race_log": {
+    "path": "/private/tmp/phoenix-m3-watchdog-settings-full-final.jsonl",
+    "sha256": "e6fdad5dd4ea4672eaf04360f20a4e537c67af016120a1acb312bb6a5e05b893"
+  },
+  "source_sha256": {
+    "cmd/phoenix-probe-admin/main_test.go": "76965db79888d52c64885cf17615c33d26b7d60ccb237825d05d4f883a55fc2d",
+    "internal/adapters/probe/config_encoder.go": "b7efdfd5924417090d79ac6321e71f2ac8dc8a6bfb002c15316e70c455450eb2",
+    "internal/adapters/probe/config_snapshot.go": "7f7e6634c900844e13e711d46570d833b5e576a9b1b11db993edeef3b5c9c504",
+    "internal/adapters/probe/config_watchdog.go": "0d632b06d52a0fc515046d3a9922824d1c8b889f232b7d6f95a4e9b5962868d1",
+    "internal/adapters/probe/config_watchdog_test.go": "bf1b0dc5cfa2dc62313286b26bd6c7c6d74cfc4cdf5d0aa77d294b38a726ed8d",
+    "internal/adapters/probe/edge_config.go": "0495f242326a25f4cda9a9cb0f6f86c01ee30a95031930620f9b36196cb1cfdf",
+    "internal/adapters/repository/mariadb/migrations/060_probe_watchdog_settings.down.sql": "cc63ed1d1f61f07ef7a36103fbb6cbe52dc797c0a89d677adc2e40ec9d6f9e2f",
+    "internal/adapters/repository/mariadb/migrations/060_probe_watchdog_settings.up.sql": "936ea809aca28fa6ae4d0af0d8e950b53e40d481d70a0ffe89e2cfbbeea58db8",
+    "internal/adapters/repository/migrate.go": "c1029d12faea54aeccd6be5c56a66587a646afab7c36cda0cb162dd1e54bf257",
+    "internal/adapters/repository/probe_config_source.go": "d36bbf229833a5f6536e0be3e7d3a702e63bf6e00c8ae177667cfc5ed9fff914",
+    "internal/adapters/repository/probe_registry_test.go": "871118c3a54fcce8b64796c39dfde4e0dc2520b1d2a7beb9588c6a28576aec10",
+    "internal/adapters/repository/probe_watchdog_settings.go": "5a9d6d314e90d9971b5f66adb35f1340dfd1b4f5d7b6af2fed06821716fb812a",
+    "internal/adapters/repository/probe_watchdog_settings_test.go": "2245307d9bb1ef253f03d30807d2855672b9995b534ce7e468a85065527f3439",
+    "internal/adapters/repository/sqlite/migrations/060_probe_watchdog_settings.down.sql": "cc63ed1d1f61f07ef7a36103fbb6cbe52dc797c0a89d677adc2e40ec9d6f9e2f",
+    "internal/adapters/repository/sqlite/migrations/060_probe_watchdog_settings.up.sql": "adad30c96b5ae34527c57202ef5cfdef813f8851c1de25c15edb7153bbd3ae5b",
+    "internal/bootstrap/probe_admin.go": "8f50f772c8436236a91f98766e6e6c89db8862faabbb04d2048fa578b1b42a75",
+    "internal/bootstrap/probe_admin_test.go": "633d1b636527197b3c1416ddfbccec1bfbc56c670e0a57f80ebfff1c1afb1573",
+    "internal/core/domain/edge_runtime.go": "44b7aeaa3dcd86a8d667c8ce9706308031b88a61f44fe029c346641acdfef15b",
+    "internal/core/domain/probe_config_build.go": "d45d4baa71fcc8eec4d01a1400027f0d9a92f60a57b22bfc93c2dbccb6a31db5",
+    "internal/core/domain/probe_watchdog_settings.go": "298982cadebb823374c3450f3a5036ef66bc79c885a4f07c175e983aaf45f4ed",
+    "internal/core/domain/probe_watchdog_settings_test.go": "21dc38caa76498ce738ab0a8e06e509042c653f449dde3453808d409c106a8cd",
+    "internal/core/services/probe_config_build.go": "25b0504d333df3efc30fd1468b97b0bcaa6808e5f2db27fedcc67435ab285e64"
+  },
+  "antigravity_read_only_audits": [
+    {
+      "conversation_id": "b5e7f7af-0f46-4e0a-b9d5-39f805dc2767",
+      "report": "/private/tmp/phoenix-m3-watchdog-settings-review.jsonl",
+      "feedback": "/private/tmp/phoenix-m3-watchdog-settings-feedback.jsonl",
+      "disposition": "Two claimed settings defects rejected by executed dual-engine tests; corrections acknowledged."
+    },
+    {
+      "conversation_id": "86a2b92a-ff91-40ff-9ed2-256d9d2be834",
+      "report": "/private/tmp/phoenix-m3-watchdog-admission-review.jsonl",
+      "feedback": "/private/tmp/phoenix-m3-watchdog-admission-feedback.jsonl",
+      "disposition": "Design only; speculative-state/generation risks accepted for upcoming runtime work; hard jitter bound rejected and acknowledged."
+    }
+  ],
+  "acceptance_still_unverified": [
+    "Both running watchdogs and provider delivery/reconciliation",
+    "Receipt admission ordering and bounded durable-progress renewal",
+    "Watchdog replay authorization",
+    "Durable commands/offline incident-specific ACK",
+    "Credential/certificate rotation and explicit stream reset",
+    "Bounded shutdown flushing and queue diagnostics",
+    "Real fifteen-minute partition with target transitions, restart, retained replay and pending ACK",
+    "Final whole-M3 frontend and process gates"
+  ]
+}

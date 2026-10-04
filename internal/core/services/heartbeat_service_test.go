@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,9 @@ type fakeHeartbeatRepo struct {
 	latest           map[int64]*domain.Heartbeat // monitorID -> latest
 	errOnSave        error
 	lastDeleteCutoff time.Time // last bound passed to DeleteOlderThan
+	lastListFrom     time.Time // last lower bound passed to ListByMonitor
+	lastListTo       time.Time // last upper bound passed to ListByMonitor
+	listCalled       bool      // distinguishes a zero bound from "never called"
 }
 
 func newFakeHeartbeatRepo() *fakeHeartbeatRepo {
@@ -54,6 +58,7 @@ func (r *fakeHeartbeatRepo) GetLatest(_ context.Context, monitorID int64) (*doma
 func (r *fakeHeartbeatRepo) ListByMonitor(_ context.Context, monitorID int64, from, to time.Time) ([]*domain.Heartbeat, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.lastListFrom, r.lastListTo, r.listCalled = from, to, true
 	var out []*domain.Heartbeat
 	for _, h := range r.heartbeats {
 		if h.MonitorID == monitorID && !h.Time.Before(from) && !h.Time.After(to) {
@@ -152,6 +157,53 @@ func (b *fakeBus) publishedEvents() []ports.Event {
 	out := make([]ports.Event, len(b.events))
 	copy(out, b.events)
 	return out
+}
+
+type fakeRegionalRepo struct {
+	mu     sync.Mutex
+	states map[string]domain.RegionalState
+	obs    []domain.RegionalObservation
+}
+
+var _ ports.RegionalCommitRepository = (*fakeRegionalRepo)(nil)
+
+func newFakeRegionalRepo() *fakeRegionalRepo {
+	return &fakeRegionalRepo{states: make(map[string]domain.RegionalState)}
+}
+
+func regionalStateKey(monitorID int64, probeID string) string {
+	return strconv.FormatInt(monitorID, 10) + ":" + probeID
+}
+
+func (r *fakeRegionalRepo) Commit(_ context.Context, commit domain.RegionalCommit) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.obs = append(r.obs, commit.Observation)
+	r.states[regionalStateKey(commit.State.MonitorID, commit.State.ProbeID)] = commit.State
+	return nil
+}
+
+func (r *fakeRegionalRepo) GetState(_ context.Context, monitorID int64, probeID string) (*domain.RegionalState, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	state, ok := r.states[regionalStateKey(monitorID, probeID)]
+	if !ok {
+		return nil, ports.ErrNotFound
+	}
+	out := state
+	return &out, nil
+}
+
+func (r *fakeRegionalRepo) ListStates(context.Context, int64) ([]domain.RegionalState, error) {
+	return nil, nil
+}
+
+func (r *fakeRegionalRepo) ListObservations(context.Context, int64, string, time.Time, time.Time) ([]domain.RegionalObservation, error) {
+	return nil, nil
+}
+
+func (r *fakeRegionalRepo) ListObservationsInRange(context.Context, int64, time.Time, time.Time) ([]domain.RegionalObservation, error) {
+	return nil, nil
 }
 
 // --- Tests ---------------------------------------------------------------
@@ -516,6 +568,48 @@ func TestHeartbeatService_ClearHistory(t *testing.T) {
 	}
 }
 
+// fakeHistoryClearStore records the authorized clear-history action.
+type fakeHistoryClearStore struct {
+	mu        sync.Mutex
+	monitorID int64
+	at        time.Time
+	calls     int
+}
+
+func (f *fakeHistoryClearStore) ClearMonitorHistory(_ context.Context, monitorID int64, at time.Time) ([]domain.HistoryClearWatermark, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.monitorID, f.at, f.calls = monitorID, at, f.calls+1
+	return []domain.HistoryClearWatermark{{MonitorID: monitorID, ProbeID: "9a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", AssignmentGeneration: 1, ThroughObservedAt: at}}, nil
+}
+
+// With the clear-history store wired, ClearHistory is one deliberate action:
+// the store owns the whole deletion scope and the watermarks, and the clear
+// time crosses the repository boundary in UTC (AGENTS.md rule 6). Without it,
+// the legacy heartbeat-row delete still runs (the test above).
+func TestHeartbeatService_ClearHistory_UsesAuthorizedStore(t *testing.T) {
+	repo := newFakeHeartbeatRepo()
+	svc := NewHeartbeatService(repo, newFakeBus())
+	store := &fakeHistoryClearStore{}
+	svc.SetHistoryClearStore(store)
+	monitor := &domain.Monitor{ID: 7, Name: "regional", Type: "http"}
+	if err := svc.Record(context.Background(), monitor, ports.CheckResult{Status: domain.StatusUp}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if err := svc.ClearHistory(context.Background(), 7); err != nil {
+		t.Fatalf("ClearHistory: %v", err)
+	}
+	if store.calls != 1 || store.monitorID != 7 {
+		t.Fatalf("clear store not called: calls=%d monitor=%d", store.calls, store.monitorID)
+	}
+	if store.at.Location() != time.UTC {
+		t.Fatalf("clear time must cross the DB boundary in UTC, got %v", store.at.Location())
+	}
+	if store.at.IsZero() {
+		t.Fatal("clear time is zero")
+	}
+}
+
 // DeleteOlderThan must force the cutoff to UTC before calling the repo.
 // A local-zoned cutoff would delete rows up to the host offset *newer*
 // than intended (AGENTS.md rule 6). We assert Location(), not only the
@@ -541,6 +635,49 @@ func TestHeartbeatService_DeleteOlderThan_CutoffIsUTC(t *testing.T) {
 	}
 	if !got.Equal(localCutoff.UTC()) {
 		t.Errorf("cutoff = %v; want %v", got, localCutoff.UTC())
+	}
+}
+
+// ListByMonitor must force both bounds to UTC before they reach the repository.
+//
+// This is the load-bearing guard for AGENTS.md rule 6 on the read path. A
+// row-count assertion cannot catch a zone regression here: fakeHeartbeatRepo
+// compares instants, which are zone-independent, so a local-zoned bound still
+// selects the right rows and the test passes while the real driver would write
+// the wrong wall-clock into SQL. Only the Location() of the bound the repo
+// actually receives proves the normalization ran, so the fake records its bounds
+// and this test asserts on them directly.
+func TestHeartbeatService_ListByMonitor_BoundsAreUTC(t *testing.T) {
+	repo := newFakeHeartbeatRepo()
+	svc := NewHeartbeatService(repo, newFakeBus())
+
+	// A UTC+7 host's wall-clock, i.e. what time.Now() returns in Bangkok.
+	loc := time.FixedZone("UTC+7", 7*3600)
+	from := time.Date(2026, 1, 1, 0, 0, 0, 0, loc)
+	to := time.Date(2026, 1, 2, 12, 0, 0, 0, loc)
+
+	if _, err := svc.ListByMonitor(context.Background(), 1, from, to); err != nil {
+		t.Fatalf("ListByMonitor: %v", err)
+	}
+	if !repo.listCalled {
+		t.Fatal("repo.ListByMonitor was never called")
+	}
+
+	for _, tc := range []struct {
+		name string
+		got  time.Time
+		want time.Time
+	}{
+		{"from", repo.lastListFrom, from.UTC()},
+		{"to", repo.lastListTo, to.UTC()},
+	} {
+		if tc.got.Location() != time.UTC {
+			t.Errorf("%s bound Location() = %v; want time.UTC — a local-zoned bound is rendered "+
+				"into SQL as its local wall-clock, shifting the window by the host offset", tc.name, tc.got.Location())
+		}
+		if !tc.got.Equal(tc.want) {
+			t.Errorf("%s bound = %v; want %v", tc.name, tc.got, tc.want)
+		}
 	}
 }
 
@@ -603,5 +740,81 @@ func TestHeartbeatService_Record_PersistsTLSInfo(t *testing.T) {
 	}
 	if !info.NotAfter.Equal(exactExpiry) {
 		t.Errorf("NotAfter = %v, want exact %v (must not reconstruct from days)", info.NotAfter, exactExpiry)
+	}
+}
+
+func TestHeartbeatService_Record_WritesLocalRegionalState(t *testing.T) {
+	repo := newFakeHeartbeatRepo()
+	regional := newFakeRegionalRepo()
+	svc := NewHeartbeatService(repo, newFakeBus())
+	svc.SetRegionalRecorder(nil, &fakeLocalHeartbeatRecorder{fakeRegionalRepo: regional, heartbeats: repo})
+	monitor := &domain.Monitor{ID: 9, Name: "local", Type: "http", MaxRetries: 1}
+
+	if err := svc.Record(context.Background(), monitor, ports.CheckResult{Status: domain.StatusDown, Message: "timeout"}); err != nil {
+		t.Fatalf("first Record: %v", err)
+	}
+	if len(regional.obs) != 1 || regional.obs[0].Seq != 1 || regional.obs[0].Status != domain.StatusPending {
+		t.Fatalf("first observation: %+v", regional.obs)
+	}
+	if regional.obs[0].RawStatus != domain.StatusDown || regional.obs[0].ProbeID != domain.LocalProbeID {
+		t.Fatalf("raw local sample: %+v", regional.obs[0])
+	}
+
+	if err := svc.Record(context.Background(), monitor, ports.CheckResult{Status: domain.StatusDown}); err != nil {
+		t.Fatalf("second Record: %v", err)
+	}
+	if len(regional.obs) != 2 || regional.obs[1].Seq != 2 || regional.obs[1].Status != domain.StatusDown || regional.obs[1].DownCount != 2 {
+		t.Fatalf("confirmed down: %+v", regional.obs[1])
+	}
+	state, err := regional.GetState(context.Background(), 9, domain.LocalProbeID)
+	if err != nil || state.Status != domain.StatusDown || state.Seq != 2 {
+		t.Fatalf("state: %+v %v", state, err)
+	}
+}
+
+func TestHeartbeatService_Record_MaintenanceOverridesCheckerStatus(t *testing.T) {
+	repo := newFakeHeartbeatRepo()
+	regional := newFakeRegionalRepo()
+	svc := NewHeartbeatService(repo, newFakeBus())
+	svc.SetRegionalRecorder(nil, &fakeLocalHeartbeatRecorder{fakeRegionalRepo: regional, heartbeats: repo})
+	svc.SetMaintenance(&fakeMaintenance{active: true})
+	monitor := &domain.Monitor{ID: 4, Name: "maint", Type: "http", MaxRetries: 1}
+
+	if err := svc.Record(context.Background(), monitor, ports.CheckResult{Status: domain.StatusDown, Message: "timeout"}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	latest, err := repo.GetLatest(context.Background(), 4)
+	if err != nil || latest.Status != domain.StatusMaintenance || latest.DownCount != 0 {
+		t.Fatalf("heartbeat: %+v %v", latest, err)
+	}
+	if len(regional.obs) != 1 || regional.obs[0].Status != domain.StatusMaintenance || regional.obs[0].RawStatus != domain.StatusDown || regional.obs[0].DownCount != 0 {
+		t.Fatalf("regional: %+v", regional.obs)
+	}
+}
+
+type fakeOverallProjector struct {
+	calls int
+	id    int64
+}
+
+func (p *fakeOverallProjector) ProjectCurrent(_ context.Context, monitorID int64, _ time.Time) error {
+	p.calls++
+	p.id = monitorID
+	return nil
+}
+
+func TestHeartbeatService_Record_ProjectsOverallHealth(t *testing.T) {
+	repo := newFakeHeartbeatRepo()
+	regional := newFakeRegionalRepo()
+	projector := &fakeOverallProjector{}
+	svc := NewHeartbeatService(repo, newFakeBus())
+	svc.SetRegionalRecorder(nil, &fakeLocalHeartbeatRecorder{fakeRegionalRepo: regional, heartbeats: repo})
+	svc.SetOverallProjector(projector)
+	monitor := &domain.Monitor{ID: 11, Name: "local", Type: "http"}
+	if err := svc.Record(context.Background(), monitor, ports.CheckResult{Status: domain.StatusUp}); err != nil {
+		t.Fatal(err)
+	}
+	if projector.calls != 1 || projector.id != 11 {
+		t.Fatalf("projector: %+v", projector)
 	}
 }

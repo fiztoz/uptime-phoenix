@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/uptrace/bun"
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb"
@@ -66,8 +67,46 @@ func mariadbFactory(t *testing.T) repositorySet {
 	if err := repository.RunMigrations(db.DB, "mariadb"); err != nil {
 		t.Fatalf("run MariaDB migrations: %v", err)
 	}
+	healMariaDBTail(t, db)
 	resetMariaDB(t, db.DB)
 	return mariadbRepositorySet(mariadb.NewRepository(db))
+}
+
+// mariadbTailHeals lists migrations whose up script is idempotent and whose
+// post-condition a shared-schema rehearsal can remove temporarily.
+var mariadbTailHeals = []struct{ migration, table, column string }{
+	{"070_history_clear_stream", "history_clear_watermarks", "through_stream_id"},
+	{"067_probe_certificate_paging", "probe_incidents", "certificate_not_after"},
+	{"068_probe_capacity_state", "monitor_conditions", "source_seq"},
+	{"068_probe_capacity_state", "probe_observations", "conditions_json"},
+	{"068_probe_capacity_state", "monitor_probe_state", "conditions_json"},
+	// Both network-trust columns appear and disappear together; one heal entry
+	// re-applies both because 071's up adds them in one pass.
+	{"071_probe_operations", "probes", "endpoint"},
+}
+
+// healMariaDBTail re-applies idempotent tail migrations after RunMigrations.
+// The registry migration rehearsal walks the shared schema down to its own
+// boundary and restores it afterwards, and MariaDB cannot roll DDL back, so a
+// sibling test can otherwise start inside that window and fail on a column only
+// the rehearsal had removed. _migrations still records the migration as applied,
+// so RunMigrations alone can never heal the drift.
+func healMariaDBTail(t *testing.T, db *bun.DB) {
+	t.Helper()
+	for _, tail := range mariadbTailHeals {
+		var present int
+		if err := db.NewRaw(`SELECT COUNT(*) FROM information_schema.columns
+			WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`, tail.table, tail.column).
+			Scan(t.Context(), &present); err != nil {
+			t.Fatalf("inspect %s.%s: %v", tail.table, tail.column, err)
+		}
+		if present == 1 {
+			continue
+		}
+		if err := runEngineMigration(t, db, "mariadb", tail.migration, "up"); err != nil {
+			t.Fatalf("heal %s after shared-schema drift: %v", tail.migration, err)
+		}
+	}
 }
 
 func sqliteRepositorySet(repo *sqlite.Repository) repositorySet {
@@ -137,6 +176,29 @@ func resetMariaDB(t *testing.T, db *sql.DB) {
 		quoted := "`" + strings.ReplaceAll(table, "`", "``") + "`"
 		if _, err := conn.ExecContext(ctx, "TRUNCATE TABLE "+quoted); err != nil {
 			t.Fatalf("truncate MariaDB table %s: %v", table, err)
+		}
+	}
+	// Migrations own these singleton seeds. An empty application database still
+	// contains the local registration and sequence allocator; truncation must
+	// restore them before any legacy matrix creates a monitor.
+	for _, name := range []string{"035_probe_registry", "042_local_stream_sequence"} {
+		data, err := os.ReadFile(filepath.Join("mariadb", "migrations", name+".up.sql"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(string(data), "\n")
+		for i, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), "--") {
+				lines[i] = ""
+			}
+		}
+		for _, statement := range strings.Split(strings.Join(lines, "\n"), ";") {
+			if strings.TrimSpace(statement) == "" {
+				continue
+			}
+			if _, err := conn.ExecContext(ctx, statement); err != nil {
+				t.Fatalf("restore MariaDB seed %s: %v", name, err)
+			}
 		}
 	}
 }

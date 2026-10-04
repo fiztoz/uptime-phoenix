@@ -464,10 +464,12 @@ type DockerHostModel struct {
 type TLSInfoModel struct {
 	bun.BaseModel `bun:"table:tls_info"`
 
-	ID        int64     `bun:"id,pk,autoincrement"`
-	MonitorID int64     `bun:"monitor_id,notnull"`
-	InfoJSON  JSONField `bun:"info_json,notnull"`
-	CheckedAt time.Time `bun:"checked_at,notnull"`
+	ID                   int64     `bun:"id,pk,autoincrement"`
+	ProbeID              string    `bun:"probe_id,notnull"`
+	AssignmentGeneration int64     `bun:"assignment_generation,notnull"`
+	MonitorID            int64     `bun:"monitor_id,notnull"`
+	InfoJSON             JSONField `bun:"info_json,notnull"`
+	CheckedAt            time.Time `bun:"checked_at,notnull"`
 }
 
 // StatusPageCnameModel maps the status_page_cnames table.
@@ -552,18 +554,22 @@ func IncidentModelFromDomain(inc *domain.Incident) *IncidentModel {
 type AlertModel struct {
 	bun.BaseModel `bun:"table:alerts"`
 
-	ID            int64      `bun:"id,pk,autoincrement"`
-	MonitorID     int64      `bun:"monitor_id,notnull"`
-	Status        string     `bun:"status,notnull"`
-	Message       string     `bun:"message,notnull"`
-	FiredAt       time.Time  `bun:"fired_at,notnull"`
-	AckedAt       *time.Time `bun:"acked_at"`
-	AckedByUserID *int64     `bun:"acked_by_user_id"`
-	ResolvedAt    *time.Time `bun:"resolved_at"`
-	AckToken      string     `bun:"ack_token,notnull"`
-	OpenMonitorID *int64     `bun:"open_monitor_id"`
-	CreatedAt     time.Time  `bun:"created_at,notnull"`
-	UpdatedAt     time.Time  `bun:"updated_at,notnull"`
+	SourceAlertID        string     `bun:"source_alert_id,notnull"`
+	TransitionVersion    int64      `bun:"transition_version,notnull"`
+	ProbeID              string     `bun:"probe_id,notnull"`
+	AssignmentGeneration int64      `bun:"assignment_generation,notnull"`
+	ID                   int64      `bun:"id,pk,autoincrement"`
+	MonitorID            int64      `bun:"monitor_id,notnull"`
+	Status               string     `bun:"status,notnull"`
+	Message              string     `bun:"message,notnull"`
+	FiredAt              time.Time  `bun:"fired_at,notnull"`
+	AckedAt              *time.Time `bun:"acked_at"`
+	AckedByUserID        *int64     `bun:"acked_by_user_id"`
+	ResolvedAt           *time.Time `bun:"resolved_at"`
+	AckToken             string     `bun:"ack_token,notnull"`
+	OpenMonitorID        *int64     `bun:"open_monitor_id"`
+	CreatedAt            time.Time  `bun:"created_at,notnull"`
+	UpdatedAt            time.Time  `bun:"updated_at,notnull"`
 }
 
 // ToDomain converts an AlertModel to a domain.Alert.
@@ -572,36 +578,44 @@ func (m *AlertModel) ToDomain() *domain.Alert {
 		return nil
 	}
 	return &domain.Alert{
-		ID:            m.ID,
-		MonitorID:     m.MonitorID,
-		Status:        m.Status,
-		Message:       m.Message,
-		FiredAt:       m.FiredAt,
-		AckedAt:       m.AckedAt,
-		AckedByUserID: m.AckedByUserID,
-		ResolvedAt:    m.ResolvedAt,
-		AckToken:      m.AckToken,
-		OpenMonitorID: m.OpenMonitorID,
-		CreatedAt:     m.CreatedAt,
-		UpdatedAt:     m.UpdatedAt,
+		SourceAlertID:        m.SourceAlertID,
+		TransitionVersion:    m.TransitionVersion,
+		ProbeID:              m.ProbeID,
+		AssignmentGeneration: m.AssignmentGeneration,
+		ID:                   m.ID,
+		MonitorID:            m.MonitorID,
+		Status:               m.Status,
+		Message:              m.Message,
+		FiredAt:              m.FiredAt,
+		AckedAt:              m.AckedAt,
+		AckedByUserID:        m.AckedByUserID,
+		ResolvedAt:           m.ResolvedAt,
+		AckToken:             m.AckToken,
+		OpenMonitorID:        m.OpenMonitorID,
+		CreatedAt:            m.CreatedAt,
+		UpdatedAt:            m.UpdatedAt,
 	}
 }
 
 // AlertModelFromDomain converts a domain.Alert to an AlertModel.
 func AlertModelFromDomain(a *domain.Alert) *AlertModel {
 	return &AlertModel{
-		ID:            a.ID,
-		MonitorID:     a.MonitorID,
-		Status:        a.Status,
-		Message:       a.Message,
-		FiredAt:       a.FiredAt,
-		AckedAt:       a.AckedAt,
-		AckedByUserID: a.AckedByUserID,
-		ResolvedAt:    a.ResolvedAt,
-		AckToken:      a.AckToken,
-		OpenMonitorID: a.OpenMonitorID,
-		CreatedAt:     a.CreatedAt,
-		UpdatedAt:     a.UpdatedAt,
+		SourceAlertID:        a.SourceAlertID,
+		TransitionVersion:    a.TransitionVersion,
+		ProbeID:              a.ProbeID,
+		AssignmentGeneration: a.AssignmentGeneration,
+		ID:                   a.ID,
+		MonitorID:            a.MonitorID,
+		Status:               a.Status,
+		Message:              a.Message,
+		FiredAt:              a.FiredAt,
+		AckedAt:              a.AckedAt,
+		AckedByUserID:        a.AckedByUserID,
+		ResolvedAt:           a.ResolvedAt,
+		AckToken:             a.AckToken,
+		OpenMonitorID:        a.OpenMonitorID,
+		CreatedAt:            a.CreatedAt,
+		UpdatedAt:            a.UpdatedAt,
 	}
 }
 

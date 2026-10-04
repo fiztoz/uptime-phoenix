@@ -27,6 +27,11 @@ var secretConfigKeys = map[string]struct{}{
 
 var configKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
 
+// probeConfigKeyPattern mirrors the registration store's stable probe key
+// contract (`probes.probe_key`): a lowercase slug, never the reserved `local`.
+// Services cannot import the adapter, so the rule is restated here and tested.
+var probeConfigKeyPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+
 // ConfigService implements declarative config-as-code (F5 Sprint 14).
 type ConfigService struct {
 	keys          ports.ConfigKeyRepository
@@ -42,7 +47,14 @@ type ConfigService struct {
 	spMonitors    ports.StatusPageMonitorRepository
 	maintenance   ports.MaintenanceRepository
 	maintMonitors ports.MaintenanceWindowMonitorRepository
-	password      ports.PasswordHasher // for status-page access codes
+	// Optional (SetProbeRegistry/SetProbeAssignments): probe identities and
+	// monitor vantage-point sets. Probes are keyed natively by probe key and
+	// never live in config_keys. When either is missing, a document that
+	// declares probes or assignment sets is refused instead of half applying.
+	probeRegistry    ports.ProbeRegistryRepository
+	probeAssignments ports.MonitorProbeAssignmentRepository
+	fleetGate        FleetActivationGate
+	password         ports.PasswordHasher // for status-page access codes
 }
 
 // NewConfigService wires repositories for config-as-code.
@@ -75,6 +87,24 @@ func NewConfigService(
 // Validate checks the document without writing.
 func (s *ConfigService) Validate(_ context.Context, doc *ConfigDocument) []string {
 	return validateConfigDocument(doc)
+}
+
+// SetProbeRegistry attaches the probe registration store so `probes`
+// declarations can upsert registrations by their stable keys.
+func (s *ConfigService) SetProbeRegistry(repo ports.ProbeRegistryRepository) {
+	s.probeRegistry = repo
+}
+
+// SetProbeAssignments attaches the desired-assignment store so monitor
+// `probe_assignments` declarations are applied as complete sets.
+func (s *ConfigService) SetProbeAssignments(repo ports.MonitorProbeAssignmentRepository) {
+	s.probeAssignments = repo
+}
+
+// SetFleetActivationGate guards declarative activation of live remote probes.
+// An unwired gate fails closed for live activation.
+func (s *ConfigService) SetFleetActivationGate(gate FleetActivationGate) {
+	s.fleetGate = gate
 }
 
 // Plan computes the diff without writing.
@@ -240,6 +270,7 @@ func (s *ConfigService) Export(ctx context.Context, userID int64) (*ConfigDocume
 	}
 	idToMonKey := map[int64]string{}
 	idToProxyKey := map[int64]string{}
+	referencedProbes := map[string]domain.Probe{}
 	for _, k := range monKeys {
 		idToMonKey[k.ResourceID] = k.KeyName
 	}
@@ -273,6 +304,43 @@ func (s *ConfigService) Export(ctx context.Context, userID int64) (*ConfigDocume
 		if m.GroupID != nil {
 			cm.Group = idToGroupKey[*m.GroupID]
 		}
+		// Desired vantage-point set by stable probe key. The set travels only
+		// together with every member's probe declaration, so a document never
+		// contains a dangling assignment reference. Connection material stays
+		// out of the document entirely.
+		if s.probeAssignments != nil && s.probeRegistry != nil {
+			if set, err := s.probeAssignments.GetByMonitorID(ctx, m.ID); err == nil && len(set.Assignments) > 0 {
+				members := make([]ConfigMonitorProbeAssignment, 0, len(set.Assignments))
+				resolvable := true
+				for _, member := range set.Assignments {
+					key := domain.LocalProbeID
+					if member.ProbeID != domain.LocalProbeID {
+						p, err := s.probeRegistry.GetByID(ctx, member.ProbeID)
+						if err != nil {
+							resolvable = false
+							break
+						}
+						key = p.Key
+						referencedProbes[p.Key] = *p
+					}
+					a := ConfigMonitorProbeAssignment{Probe: key}
+					if member.ResourceBinding != nil {
+						a.BindingKey = member.ResourceBinding.BindingKey
+						a.BindingKind = member.ResourceBinding.Kind
+					}
+					members = append(members, a)
+				}
+				if resolvable {
+					sort.Slice(members, func(i, j int) bool { return members[i].Probe < members[j].Probe })
+					cm.ProbeAssignments = members
+					policy := set.HealthPolicy
+					if policy == "" {
+						policy = domain.HealthPolicyAnyDown
+					}
+					cm.HealthPolicy = string(policy)
+				}
+			}
+		}
 		doc.Spec.Monitors = append(doc.Spec.Monitors, cm)
 
 		// Links for this monitor when both ends are keyed.
@@ -297,6 +365,21 @@ func (s *ConfigService) Export(ctx context.Context, userID int64) (*ConfigDocume
 				}
 			}
 		}
+	}
+
+	// Probe declarations for every referenced remote probe. `enabled` is always
+	// explicit so a round trip never guesses an operator's intent.
+	probeKeys := make([]string, 0, len(referencedProbes))
+	for key := range referencedProbes {
+		probeKeys = append(probeKeys, key)
+	}
+	sort.Strings(probeKeys)
+	for _, key := range probeKeys {
+		p := referencedProbes[key]
+		enabled := p.Enabled
+		doc.Spec.Probes = append(doc.Spec.Probes, ConfigProbe{
+			Key: p.Key, Name: p.Name, Location: p.Location, Enabled: &enabled,
+		})
 	}
 
 	// Group notifications
@@ -445,6 +528,28 @@ func validateConfigDocument(doc *ConfigDocument) []string {
 			errs = append(errs, "notification "+n.Key+": name and type are required")
 		}
 	}
+	for _, p := range doc.Spec.Probes {
+		// Probe identity is keyed natively: a lowercase slug, never reserved
+		// `local` (that row exists on every install and is referenced directly).
+		if p.Key == "" {
+			errs = append(errs, "probe: key is required")
+			continue
+		}
+		if p.Key == domain.LocalProbeID || !probeConfigKeyPattern.MatchString(p.Key) {
+			errs = append(errs, "probe: invalid key "+p.Key)
+			continue
+		}
+		if seen["probe"] == nil {
+			seen["probe"] = map[string]struct{}{}
+		}
+		if _, ok := seen["probe"][p.Key]; ok {
+			errs = append(errs, "probe: duplicate key "+p.Key)
+		}
+		seen["probe"][p.Key] = struct{}{}
+		if strings.TrimSpace(p.Name) == "" {
+			errs = append(errs, "probe "+p.Key+": name is required")
+		}
+	}
 	for _, g := range doc.Spec.MonitorGroups {
 		checkKey("monitor_group", g.Key)
 		if g.Name == "" {
@@ -483,6 +588,38 @@ func validateConfigDocument(doc *ConfigDocument) []string {
 		}
 		if m.Proxy != "" && !has("proxy", m.Proxy) {
 			errs = append(errs, "monitor "+m.Key+": unknown proxy key "+m.Proxy)
+		}
+		if m.HealthPolicy != "" && m.HealthPolicy != string(domain.HealthPolicyAnyDown) && m.HealthPolicy != string(domain.HealthPolicyAllDown) {
+			errs = append(errs, "monitor "+m.Key+": unsupported health_policy "+m.HealthPolicy)
+		}
+		if len(m.ProbeAssignments) == 0 {
+			continue
+		}
+		seenMembers := map[string]struct{}{}
+		for _, a := range m.ProbeAssignments {
+			if a.Probe == "" || (a.Probe != domain.LocalProbeID && !has("probe", a.Probe)) {
+				errs = append(errs, "monitor "+m.Key+": unknown probe key "+a.Probe)
+				continue
+			}
+			if _, ok := seenMembers[a.Probe]; ok {
+				errs = append(errs, "monitor "+m.Key+": duplicate probe key "+a.Probe)
+			}
+			seenMembers[a.Probe] = struct{}{}
+			bound := a.BindingKey != "" || a.BindingKind != ""
+			// Mirror the assignment store's binding contract so a document fails
+			// validation instead of half applying.
+			if bound && (a.Probe == domain.LocalProbeID || !domain.ValidProbeResourceBinding(domain.ProbeResourceBinding{BindingKey: a.BindingKey, Kind: a.BindingKind})) {
+				errs = append(errs, "monitor "+m.Key+": invalid resource binding for probe "+a.Probe)
+			}
+			if m.Type == "docker" && a.Probe != domain.LocalProbeID && !bound {
+				errs = append(errs, "monitor "+m.Key+": docker assignment for probe "+a.Probe+" requires a resource binding")
+			}
+			if m.Type != "docker" && bound {
+				errs = append(errs, "monitor "+m.Key+": resource bindings are only valid for docker monitors")
+			}
+			if m.Type == "push" && a.Probe != domain.LocalProbeID {
+				errs = append(errs, "monitor "+m.Key+": push monitors cannot run remotely")
+			}
 		}
 	}
 	for _, g := range doc.Spec.MonitorGroups {
@@ -533,6 +670,19 @@ func (s *ConfigService) buildPlan(ctx context.Context, userID int64, doc *Config
 		case ConfigActionUnchanged:
 			plan.Unchanged++
 		}
+	}
+
+	// Probe declarations and assignment sets need the probe stores. Without
+	// them the document cannot be honored, so refuse instead of half applying.
+	declaresAssignments := false
+	for _, m := range doc.Spec.Monitors {
+		declaresAssignments = declaresAssignments || len(m.ProbeAssignments) > 0
+	}
+	if len(doc.Spec.Probes) > 0 && s.probeRegistry == nil {
+		return fmt.Errorf("config plan: %w: probes are not available on this install", domain.ErrValidation)
+	}
+	if declaresAssignments && (s.probeRegistry == nil || s.probeAssignments == nil) {
+		return fmt.Errorf("config plan: %w: monitor probe assignments are not available on this install", domain.ErrValidation)
 	}
 
 	// Tags
@@ -646,6 +796,34 @@ func (s *ConfigService) buildPlan(ctx context.Context, userID int64, doc *Config
 		}
 	}
 
+	// Probes. Identity is keyed natively by probe key (never in config_keys).
+	// There is no prune pass on purpose: registrations are retained identities
+	// with no delete path, and drift correction must never retire one.
+	effectiveProbeEnabled := map[string]bool{}
+	for _, p := range doc.Spec.Probes {
+		existing, err := s.lookupProbe(ctx, p.Key)
+		if err != nil && !isNotFound(err) {
+			return err
+		}
+		enabled := true
+		if existing != nil {
+			enabled = existing.Enabled
+		}
+		if p.Enabled != nil {
+			enabled = *p.Enabled
+		}
+		effectiveProbeEnabled[p.Key] = enabled
+		if isNotFound(err) || existing == nil {
+			add("probe", p.Key, ConfigActionCreate)
+			continue
+		}
+		if existing.Name == p.Name && existing.Location == p.Location && existing.Enabled == enabled {
+			add("probe", p.Key, ConfigActionUnchanged)
+		} else {
+			add("probe", p.Key, ConfigActionUpdate)
+		}
+	}
+
 	// Groups
 	docGroupKeys := map[string]struct{}{}
 	for _, g := range doc.Spec.MonitorGroups {
@@ -715,6 +893,50 @@ func (s *ConfigService) buildPlan(ctx context.Context, userID int64, doc *Config
 					add("monitor", k.KeyName, ConfigActionDelete)
 				}
 			}
+		}
+	}
+
+	// Monitor probe assignment sets. A set is managed only when the monitor
+	// declares one: an omitted `probe_assignments` list is never rewritten, so a
+	// document can never silently reroute a regional monitor to local execution.
+	for _, m := range doc.Spec.Monitors {
+		if len(m.ProbeAssignments) == 0 {
+			continue
+		}
+		// An assignment set is only honored for probes that will be enabled
+		// after this apply. Disabled members fail loudly here rather than
+		// stranding a monitor on an inert set.
+		for _, a := range m.ProbeAssignments {
+			if a.Probe != domain.LocalProbeID && !effectiveProbeEnabled[a.Probe] {
+				err := fmt.Sprintf("monitor %s: probe %s is disabled; enable and enroll it before assigning", m.Key, a.Probe)
+				plan.Errors = append(plan.Errors, err)
+				plan.Valid = false
+			}
+		}
+		ck, err := s.keys.GetByKey(ctx, domain.ConfigResourceMonitor, m.Key)
+		if isNotFound(err) {
+			add("probe_assignment", m.Key, ConfigActionCreate)
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		current, err := s.probeAssignments.GetByMonitorID(ctx, ck.ResourceID)
+		if isNotFound(err) {
+			add("probe_assignment", m.Key, ConfigActionCreate)
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		ids, bindings, policy, err := s.resolveDocumentSet(ctx, m)
+		if err != nil {
+			return err
+		}
+		if probeAssignmentSetEqual(current, ids, policy, bindings) {
+			add("probe_assignment", m.Key, ConfigActionUnchanged)
+		} else {
+			add("probe_assignment", m.Key, ConfigActionUpdate)
 		}
 	}
 
@@ -799,7 +1021,48 @@ func (s *ConfigService) buildPlan(ctx context.Context, userID int64, doc *Config
 
 // --- apply -----------------------------------------------------------------
 
+// ensureConfigFleetActivation refuses live changes before any document writes.
+// Unchanged assignments and registration metadata do not activate remote work.
+func (s *ConfigService) ensureConfigFleetActivation(ctx context.Context, doc *ConfigDocument, plan *ConfigPlan) error {
+	var remote []string
+	for _, change := range plan.Changes {
+		if change.Action != ConfigActionCreate && change.Action != ConfigActionUpdate {
+			continue
+		}
+		switch change.Kind {
+		case "probe_assignment":
+			for _, monitor := range doc.Spec.Monitors {
+				if monitor.Key == change.Key {
+					for _, assignment := range monitor.ProbeAssignments {
+						remote = append(remote, assignment.Probe)
+					}
+				}
+			}
+		case "probe":
+			if change.Action != ConfigActionUpdate {
+				continue
+			}
+			for _, desired := range doc.Spec.Probes {
+				if desired.Key != change.Key || desired.Enabled != nil && !*desired.Enabled {
+					continue
+				}
+				current, err := s.probeRegistry.GetByKey(ctx, desired.Key)
+				if err != nil {
+					return err
+				}
+				if !current.Enabled {
+					remote = append(remote, current.ID)
+				}
+			}
+		}
+	}
+	return s.fleetGate.EnsureRemoteActivationAllowed(ctx, remote)
+}
+
 func (s *ConfigService) applyPlan(ctx context.Context, userID int64, doc *ConfigDocument, plan *ConfigPlan, applied *[]ConfigChange) error {
+	if err := s.ensureConfigFleetActivation(ctx, doc, plan); err != nil {
+		return err
+	}
 	// Index desired by kind+key
 	tagsByKey := map[string]ConfigTag{}
 	for _, t := range doc.Spec.Tags {
@@ -829,6 +1092,10 @@ func (s *ConfigService) applyPlan(ctx context.Context, userID int64, doc *Config
 	for _, mw := range doc.Spec.MaintenanceWindows {
 		mwsByKey[mw.Key] = mw
 	}
+	probesByKey := map[string]ConfigProbe{}
+	for _, p := range doc.Spec.Probes {
+		probesByKey[p.Key] = p
+	}
 
 	// Deletes first (reverse dependency order: links handled implicitly by cascades / re-sync)
 	for _, c := range plan.Changes {
@@ -849,6 +1116,10 @@ func (s *ConfigService) applyPlan(ctx context.Context, userID int64, doc *Config
 		switch c.Kind {
 		case "tag":
 			if err := s.applyTag(ctx, tagsByKey[c.Key], c.Action); err != nil {
+				return err
+			}
+		case "probe":
+			if err := s.applyProbe(ctx, probesByKey[c.Key], c.Action); err != nil {
 				return err
 			}
 		case "proxy":
@@ -898,6 +1169,11 @@ func (s *ConfigService) applyPlan(ctx context.Context, userID int64, doc *Config
 
 	// Reconcile relationship links for resources in the document.
 	if err := s.syncLinks(ctx, doc); err != nil {
+		return err
+	}
+	// Reconcile declared monitor vantage-point sets last: probes referenced by
+	// them are already created or updated above.
+	if err := s.syncProbeAssignments(ctx, doc); err != nil {
 		return err
 	}
 	return nil
@@ -1431,6 +1707,172 @@ func (s *ConfigService) syncLinks(ctx context.Context, doc *ConfigDocument) erro
 		}
 	}
 	return nil
+}
+
+// --- probe declarations and assignment sets -------------------------------
+
+// lookupProbe resolves one stable probe key. Missing is (nil, ErrNotFound);
+// an unwired registry is a typed validation error, never a silent no-op.
+func (s *ConfigService) lookupProbe(ctx context.Context, key string) (*domain.Probe, error) {
+	if s.probeRegistry == nil {
+		return nil, fmt.Errorf("probes are not available on this install: %w", domain.ErrValidation)
+	}
+	return s.probeRegistry.GetByKey(ctx, key)
+}
+
+// applyProbe upserts one registration by stable key. Identity (id, key, kind)
+// is immutable and connection material is never part of the document: a newly
+// created registration is inert until an operator registers and enrolls it.
+func (s *ConfigService) applyProbe(ctx context.Context, p ConfigProbe, action ConfigChangeAction) error {
+	enabled := true
+	if p.Enabled != nil {
+		enabled = *p.Enabled
+	}
+	if action == ConfigActionCreate {
+		probe := &domain.Probe{
+			Key: p.Key, Name: p.Name, Location: p.Location,
+			Kind: domain.ProbeKindRemote, Enabled: enabled,
+		}
+		if err := s.probeRegistry.Create(ctx, probe); err != nil {
+			return fmt.Errorf("create probe %s: %w", p.Key, err)
+		}
+		return nil
+	}
+	cur, err := s.probeRegistry.GetByKey(ctx, p.Key)
+	if err != nil {
+		return fmt.Errorf("update probe %s: %w", p.Key, err)
+	}
+	if enabled && !cur.Enabled {
+		if err := s.fleetGate.EnsureRemoteActivationAllowed(ctx, []string{cur.ID}); err != nil {
+			return err
+		}
+	}
+	cur.Name = p.Name
+	cur.Location = p.Location
+	cur.Enabled = enabled
+	if err := s.probeRegistry.Update(ctx, cur, cur.Revision); err != nil {
+		return fmt.Errorf("update probe %s: %w", p.Key, err)
+	}
+	return nil
+}
+
+// resolveDocumentSet maps one declared assignment set onto live probe IDs,
+// bindings and policy. Members are already validated against the document.
+func (s *ConfigService) resolveDocumentSet(ctx context.Context, m ConfigMonitor) ([]string, []domain.ProbeAssignmentBinding, domain.HealthPolicy, error) {
+	policy := domain.HealthPolicyAnyDown
+	if m.HealthPolicy != "" {
+		policy = domain.HealthPolicy(m.HealthPolicy)
+	}
+	ids := make([]string, 0, len(m.ProbeAssignments))
+	bindings := []domain.ProbeAssignmentBinding{}
+	for _, a := range m.ProbeAssignments {
+		id := domain.LocalProbeID
+		if a.Probe != domain.LocalProbeID {
+			p, err := s.lookupProbe(ctx, a.Probe)
+			if err != nil {
+				return nil, nil, "", fmt.Errorf("monitor %s probe %s: %w", m.Key, a.Probe, err)
+			}
+			id = p.ID
+		}
+		ids = append(ids, id)
+		if a.BindingKey != "" || a.BindingKind != "" {
+			bindings = append(bindings, domain.ProbeAssignmentBinding{
+				ProbeID:              id,
+				ProbeResourceBinding: domain.ProbeResourceBinding{BindingKey: a.BindingKey, Kind: a.BindingKind},
+			})
+		}
+	}
+	return ids, bindings, policy, nil
+}
+
+// syncProbeAssignments commits every declared monitor set as one complete
+// desired set. Sets are managed only for monitors that declare one; members
+// must be enabled at commit time (the plan refuses disabled members) and no
+// assignment is ever invented for a monitor the document leaves unmanaged.
+func (s *ConfigService) syncProbeAssignments(ctx context.Context, doc *ConfigDocument) error {
+	declares := false
+	for _, m := range doc.Spec.Monitors {
+		declares = declares || len(m.ProbeAssignments) > 0
+	}
+	if !declares {
+		return nil
+	}
+	if s.probeRegistry == nil || s.probeAssignments == nil {
+		return fmt.Errorf("config apply: %w: monitor probe assignments are not available on this install", domain.ErrValidation)
+	}
+	for _, m := range doc.Spec.Monitors {
+		if len(m.ProbeAssignments) == 0 {
+			continue
+		}
+		ck, err := s.keys.GetByKey(ctx, domain.ConfigResourceMonitor, m.Key)
+		if err != nil {
+			return fmt.Errorf("monitor %s: %w", m.Key, err)
+		}
+		ids, bindings, policy, err := s.resolveDocumentSet(ctx, m)
+		if err != nil {
+			return err
+		}
+		// Defense in depth: re-check the live registration before writing the
+		// set. A disabled member must never be handed new work, even if the
+		// plan was computed against stale state.
+		for _, a := range m.ProbeAssignments {
+			if a.Probe == domain.LocalProbeID {
+				continue
+			}
+			p, err := s.lookupProbe(ctx, a.Probe)
+			if err != nil {
+				return fmt.Errorf("monitor %s probe %s: %w", m.Key, a.Probe, err)
+			}
+			if !p.Enabled {
+				return fmt.Errorf("monitor %s: probe %s is disabled: %w", m.Key, a.Probe, domain.ErrValidation)
+			}
+		}
+		revision := int64(1)
+		if current, err := s.probeAssignments.GetByMonitorID(ctx, ck.ResourceID); err == nil {
+			revision = current.Revision
+			if probeAssignmentSetEqual(current, ids, policy, bindings) {
+				continue
+			}
+		} else if !isNotFound(err) {
+			return err
+		}
+		if err := s.fleetGate.EnsureRemoteActivationAllowed(ctx, ids); err != nil {
+			return err
+		}
+		if _, err := s.probeAssignments.Restore(ctx, ck.ResourceID, revision, ids, policy, bindings); err != nil {
+			return fmt.Errorf("monitor %s probe assignments: %w", m.Key, err)
+		}
+	}
+	return nil
+}
+
+// probeAssignmentSetEqual compares a live set against one declared set,
+// ignoring order and generation (generations are runtime state).
+func probeAssignmentSetEqual(current *domain.MonitorProbeAssignments, ids []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) bool {
+	if current == nil || current.HealthPolicy != policy || len(current.Assignments) != len(ids) {
+		return false
+	}
+	want := map[string]domain.ProbeResourceBinding{}
+	for _, id := range ids {
+		want[id] = domain.ProbeResourceBinding{}
+	}
+	for _, b := range bindings {
+		want[b.ProbeID] = b.ProbeResourceBinding
+	}
+	for _, a := range current.Assignments {
+		wantBinding, ok := want[a.ProbeID]
+		if !ok {
+			return false
+		}
+		var have domain.ProbeResourceBinding
+		if a.ResourceBinding != nil {
+			have = *a.ResourceBinding
+		}
+		if have != wantBinding {
+			return false
+		}
+	}
+	return true
 }
 
 // --- equality / secrets helpers --------------------------------------------

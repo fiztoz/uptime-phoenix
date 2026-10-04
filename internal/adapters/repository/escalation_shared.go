@@ -136,9 +136,11 @@ func ClaimDueEscalations(ctx context.Context, db bun.IDB, claimToken string, now
 		`UPDATE alert_escalations
 		    SET lease_owner = ?, lease_until = ?, updated_at = ?
 		  WHERE status = ?
+		    AND EXISTS (SELECT 1 FROM alerts AS a WHERE a.id = alert_escalations.alert_id
+                AND a.monitor_id = alert_escalations.monitor_id AND a.probe_id = 'local')
 		    AND next_run_at <= ?
 		    AND (lease_until IS NULL OR lease_until <= ?)`,
-		claimToken, leaseUntil, now, domain.EscalationStatePending, now, now,
+		claimToken, leaseUntil.UTC(), now.UTC(), domain.EscalationStatePending, now.UTC(), now.UTC(),
 	); err != nil {
 		return nil, err
 	}
@@ -170,7 +172,7 @@ func AdvanceEscalation(ctx context.Context, db bun.IDB, id int64, claimToken str
 		`UPDATE alert_escalations
 		    SET next_step = ?, next_run_at = ?, lease_owner = NULL, lease_until = NULL, updated_at = ?
 		  WHERE id = ? AND lease_owner = ? AND status = ?`,
-		nextStep, nextRunAt, time.Now().UTC(), id, claimToken, domain.EscalationStatePending,
+		nextStep, nextRunAt.UTC(), time.Now().UTC(), id, claimToken, domain.EscalationStatePending,
 	)
 	if err != nil {
 		return false, err

@@ -1,0 +1,134 @@
+{
+  "date": "2026-09-22",
+  "baseline": "e895838",
+  "scope": "M4 remote TLS evidence slice; certificate paging and full M4 remain open",
+  "toolchain": "go1.26.6",
+  "mariadb": "11.8.9",
+  "commands": [
+    "CGO_ENABLED=0 GOTOOLCHAIN=go1.26.6 go build ./...",
+    "GOTOOLCHAIN=go1.26.6 TEST_MARIADB_DSN=<disposable,parseTime=true,loc=UTC,multiStatements=true> go test -json -race -count=1 -timeout=2400s -p 4 ./...",
+    "GOTOOLCHAIN=go1.26.6 /Users/fizto/go/bin/golangci-lint run --timeout=5m",
+    "scripts/probe_runtime_smoke.py --verify-tls --verify-docker --verify-replay --mariadb-container phoenix-m04-checker-coverage <fresh binaries, output directory and disposable schema>"
+  ],
+  "race": {
+    "named_passes": 3791,
+    "packages_passed": 22,
+    "failures": 0,
+    "mariadb_named_passes": 324,
+    "mariadb_skips": 0,
+    "skipped": [
+      "TestDatabaseChecker_Check_MongoDB_RealServer",
+      "TestTelegramSender_Send_DownSeverity"
+    ]
+  },
+  "smoke": {
+    "stages_passed": 29,
+    "passed": [
+      "TLS-only edge starts without hub",
+      "duplicate data-directory owner rejected; hub routes absent",
+      "hub API ready",
+      "background worker owns the not-yet-enrolled runtime",
+      "operator enrollment succeeds with background connectors already running",
+      "real hub connector activates accepted config",
+      "edge records healthy checks",
+      "extended pull checker telemetry reaches the hub",
+      "bound Docker telemetry reaches the hub",
+      "hub durably records exact applied receipt",
+      "saved API edit automatically reaches edge",
+      "new desired revision has durable applied receipt",
+      "live telemetry reaches a durable hub and edge cursor",
+      "closed edge session releases its connection fence",
+      "edge reconnect advances session within the same runtime owner",
+      "two hub workers preserve runtime ownership across an edge restart",
+      "HTTPS TLS evidence reaches history and current certificate projection",
+      "two hub workers retain one fenced management session",
+      "offline DOWN and provider retry persist atomically",
+      "pending provider intent resumes after offline process restart",
+      "offline UP resolves the same incident and sends recovery",
+      "offline mixed telemetry survives restart and provider recovery",
+      "reconnection advances fence without resetting source sequence",
+      "reconnected workers commit the full offline telemetry prefix",
+      "replay mirrors observations and outcomes without hub provider work",
+      "cold restart resumes beyond the acknowledged backlog",
+      "offline TLS history replays exactly after process restart",
+      "TLS current evidence survives acknowledged-history pruning and cold restart",
+      "reconnection preserves stream, accepted config and delivery history"
+    ],
+    "replay_verified": true,
+    "docker_verified": true,
+    "tls_verified": true,
+    "tls_offline_samples": 12,
+    "hub_send_intents": 0,
+    "offline_backlog_count": 41,
+    "history_watchdog_commands_rotations_reset_partition_shutdown_flags": false
+  },
+  "source_hashes": {
+    "internal/adapters/probe/current_state.go": "1b005c2f630e591c3f7d0592aa2d4d1f0a95055249cbb141442fb8cac824d5a8",
+    "internal/adapters/probe/edge_telemetry.go": "61355245719a470f5742dd3e91b6696b1fdac6c6666ec296719ea212eae51f2c",
+    "internal/adapters/probe/replay.go": "3289e6cb4b471c82ff61c4c9fa0dd42e809f0efbe4db3e802d800c49ac5af1f3",
+    "internal/adapters/probe/tls_evidence.go": "aa67c4326483c30a36332dbabc414c8d8ea11ee28c61bf31c765887fcf9e2ad2",
+    "internal/adapters/probe/tls_evidence_test.go": "b6f481678ffef2400bec4433284900f255f2e1b6cf388745b7709b4b1d3fc830",
+    "internal/adapters/repository/edge/record.go": "d08fd158b37d0fc09f46f1a987491b8ceadc244b3c9f7944dcd32ddff70e48ef",
+    "internal/adapters/repository/edge/tls_evidence_test.go": "40dbdf1fc3fcd69eae7a2aaee0e6b01ee93c31bb39239099e593d68152df76fb",
+    "internal/adapters/repository/mariadb/migrations/066_probe_tls_evidence.down.sql": "59876e922d604520520560398d12c6e6c9cef6a62838838baaa68eaa8005c8b9",
+    "internal/adapters/repository/mariadb/migrations/066_probe_tls_evidence.up.sql": "3bbab7b3fca101dd81ce7031f64d8fbee1af4014b82261f1bb17efa481f6749d",
+    "internal/adapters/repository/probe_current_state.go": "5e2b3cb413cc12d443eb9495abb2fb1d337db9d3ff140756134ad90999c1588a",
+    "internal/adapters/repository/probe_replay.go": "6326aeab0334abcc1f94783bc8de0327668358ffdac4aa88f10bf3e7ca559bde",
+    "internal/adapters/repository/probe_tls_evidence_test.go": "fac55755c7bd9d4a8d9ddd5c132a14c26c3b8b1cda53a30d99b946c20a9eb8fa",
+    "internal/adapters/repository/regional_commit.go": "b2e888e8c486450b8964193f0353ea6c03be7ec1106b677367bdd35c3644a1c8",
+    "internal/adapters/repository/sqlite/migrations/066_probe_tls_evidence.down.sql": "59876e922d604520520560398d12c6e6c9cef6a62838838baaa68eaa8005c8b9",
+    "internal/adapters/repository/sqlite/migrations/066_probe_tls_evidence.up.sql": "809fe989d21071eb23077192c248dc8f2f1b3bde1496d50876d7f66407e89369",
+    "internal/adapters/repository/tls_evidence.go": "97f266125e4013b6d49c92807c01815b0cc43208e87eaafe78b878c5d2078c60",
+    "internal/core/domain/probe_regional.go": "b200ee5b6f7fe7f34e2b4803bceb141653144c9cc219cb16e30f741baa403338",
+    "internal/core/domain/probe_state.go": "78d5b3df9f2a297b024b75a9033820e4c5ee09fd536bf19765d84e0b0b5ff29b",
+    "internal/core/domain/tls_observation.go": "0e8a9cf0623165ce642ab6c1597d14480de46b03bb0ea61dda0cfea5ec13c3b2",
+    "internal/core/services/edge_recording_service.go": "31e18f3891f89f2d7dcf3da20ccb0bcb3171d09dea6b546c9045ddd5b26cc38c",
+    "internal/core/services/edge_tls_observation.go": "7703df189b7e5f380d798044b7a5bb1248c7125ef0db830871cb7b52532376cf",
+    "internal/core/services/edge_tls_observation_test.go": "dc33809b72a2244e731bedc3adc515f29ea2bdbcf2d9083a812924b7a8cc7d52",
+    "internal/core/services/probe_replay_authorization.go": "6635af5703364a4a7eb5974791b5424ba342c61a3d3cefb3a86159bde61d674c",
+    "scripts/probe_runtime_smoke.py": "cdb804d0ca71d5ef38c8f8ce8ca67f2767445dde926fd3bfac63a69082c1a799"
+  },
+  "artifacts": {
+    "race.log": {
+      "path": "/private/tmp/phoenix-m4-tls-gate/race.log",
+      "sha256": "600e7e0ff1df2f02ae615706f632f15d9ed56979ce904503dc0375846592a35d"
+    },
+    "lint.log": {
+      "path": "/private/tmp/phoenix-m4-tls-gate/lint.log",
+      "sha256": "e92606b0bf483111dff0a120c315ea165821348f31365020e2468a0059095c47"
+    },
+    "build.log": {
+      "path": "/private/tmp/phoenix-m4-tls-gate/build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "commands.jsonl": {
+      "path": "/private/tmp/phoenix-m4-tls-gate/commands.jsonl",
+      "sha256": "64edc68d1e54560da53c0148011021b95140472254c235a683a549b11911fb7d"
+    }
+  },
+  "process_report": {
+    "path": "/private/tmp/phoenix-m4-tls-gate/smoke-1790092787/report.json",
+    "sha256": "288306bbe05c0f0b6f01ba41d705fe350ca858efe1574ad100163140a1047216"
+  },
+  "binaries": {
+    "app": {
+      "path": "/private/tmp/phoenix-m4-tls-gate/app",
+      "sha256": "e8af6b9a6a91fc08f67a21ddcb9cc12ee1129024cfaa758d5d7c4687f3eacca5"
+    },
+    "probe": {
+      "path": "/private/tmp/phoenix-m4-tls-gate/probe",
+      "sha256": "8be620e2b4bb0bcf9c079ffcbdae8e232caffcf8870338eda93cdebf98a0a0da"
+    },
+    "phoenix-probe-admin": {
+      "path": "/private/tmp/phoenix-m4-tls-gate/phoenix-probe-admin",
+      "sha256": "7d8219cefc7732d9259e4ead595f829f2eef0dba3fffc23525a46c76d9e0d86a"
+    }
+  },
+  "development_checks": "Initial focused runs exposed test-fixture mistakes in checker invocation, enrolled hub identity and batch byte bounds; corrected before the final full gate.",
+  "unverified": [
+    "Remote certificate threshold paging and capacity promotion/lifecycle (not implemented)",
+    "Mixed-version deployment rehearsal; upgrade hub before probes",
+    "Remaining M4 escalation/recovery/backup/deployment compatibility; M5 fleet UI/API",
+    "M3 extended 900-second outage/rotation/reset acceptance was not rerun for this slice"
+  ]
+}

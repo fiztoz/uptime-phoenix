@@ -65,7 +65,10 @@ func (r *proxyResolver) configFor(ctx context.Context, m *domain.Monitor) map[st
 	if r == nil || m.ProxyID == nil {
 		return nil
 	}
-	p := r.get(ctx, *m.ProxyID)
+	return proxyCheckConfig(r.get(ctx, *m.ProxyID))
+}
+
+func proxyCheckConfig(p *domain.Proxy) map[string]any {
 	if p == nil || !p.Active {
 		return nil
 	}

@@ -84,6 +84,8 @@ database:
     connMaxIdleSeconds: 30
     connMaxLifetimeSeconds: 300
   persistence:
+    # /data belongs to the all-in-one Deployment. API/worker/split modes do
+    # not create this claim; MariaDB has its own persistence settings below.
     enabled: true
     size: 1Gi
     storageClass: ""
@@ -247,6 +249,26 @@ secret:
   jwt: ""
   existingSecret: ""
   existingSecretKey: jwt-secret
+
+# ── Remote probes (multi-region connector workers) ───────────────────────────
+# Default OFF. With probes.enabled=false the rendered manifests are exactly the
+# pre-probe deployment — single pod (mode: all) or split (api/worker/web) — and
+# no probe wiring is rendered at all.
+#
+# Enabling opts the worker role (the all-in-one pod is its own worker) into
+# remote connector ownership: PROBES_ENABLED=true plus PROBE_SECRET_KEY_FILE
+# mounted from an operator-owned Secret. The API tier never runs connector
+# workers and never receives the key. The chart never generates, stores or
+# rotates the installation key — see docs/multi-region/KEY_PROVISIONING.md for
+# provisioning and permissions, and docs/multi-region/M2_OPERATOR_GUIDE.md for
+# enrollment.
+probes:
+  enabled: false
+  # Name of an existing Secret holding the installation key. Required when
+  # enabled=true (the render fails loudly without it).
+  secretName: ""
+  # Key inside that Secret; it becomes the mounted file name.
+  secretKey: installation-key
 
 # ── Redis EventBus (opt-in, only needed for multi-pod modes) ───────────────────
 redis:
@@ -436,6 +458,16 @@ podDisruptionBudget:
   minAvailable: 1
 
 # ── Health probes ─────────────────────────────────────────────────────────────
+# API/all-in-one processes migrate before listening. Suppress liveness during
+# migration/lock waits for up to 30 minutes; size from the upgrade rehearsal.
+startupProbe:
+  httpGet:
+    path: /api/health/live
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 180
+
 livenessProbe:
   httpGet:
     path: /api/health/live

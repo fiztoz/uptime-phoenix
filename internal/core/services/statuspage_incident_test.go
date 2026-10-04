@@ -498,6 +498,64 @@ func TestAutoResolveOnRecovery_FlagOffLeavesActive(t *testing.T) {
 	}
 }
 
+func TestAutoResolveOnRecovery_OverallDownDoesNotResolve(t *testing.T) {
+	spRepo := newFakeSPRepo()
+	incRepo := newFakeIncidentRepo()
+	spMon := newFakeSPMonitorRepo()
+	svc := newSPServiceForIncidentTests(spRepo, incRepo, spMon)
+	svc.SetAggregateStatus(staticAggregate{42: domain.StatusDown})
+	ctx := context.Background()
+
+	sp := &domain.StatusPage{Slug: "regional", Title: "Regional", Published: true, AutoResolveIncidents: true}
+	if err := spRepo.Create(ctx, sp); err != nil {
+		t.Fatal(err)
+	}
+	if err := spMon.AddMonitor(ctx, sp.ID, 42, 1); err != nil {
+		t.Fatal(err)
+	}
+	inc := &domain.Incident{StatusPageID: sp.ID, Title: "Outage", Active: true}
+	if err := incRepo.Create(ctx, inc); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.AutoResolveOnRecovery(ctx, 42); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := incRepo.GetByID(ctx, inc.ID)
+	if !got.Active {
+		t.Fatal("regional recovery resolved the incident while overall policy was DOWN")
+	}
+
+	svc.SetAggregateStatus(staticAggregate{42: domain.StatusUnknown})
+	if err := svc.AutoResolveOnRecovery(ctx, 42); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = incRepo.GetByID(ctx, inc.ID)
+	if !got.Active {
+		t.Fatal("UNKNOWN resolved the incident")
+	}
+
+	svc.SetAggregateStatus(staticAggregate{42: domain.StatusUp})
+	if err := svc.AutoResolveOnRecovery(ctx, 42); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = incRepo.GetByID(ctx, inc.ID)
+	if got.Active {
+		t.Fatal("fresh overall UP left the incident active")
+	}
+}
+
+func TestDayStatus_PreservesUnknown(t *testing.T) {
+	if got := dayStatus(&dayCounts{unknown: 2, total: 2}); got != "unknown" {
+		t.Fatalf("unknown day = %q", got)
+	}
+	if got := dayStatus(&dayCounts{up: 4, unknown: 1, total: 5}); got != "unknown" {
+		t.Fatalf("mixed unknown day = %q, want unknown rather than up", got)
+	}
+	if got := publicMonitorStatusName(domain.StatusUnknown); got != "unknown" {
+		t.Fatalf("public status = %q", got)
+	}
+}
+
 func TestAutoResolveOnRecovery_UnrelatedMonitorLeavesActive(t *testing.T) {
 	spRepo := newFakeSPRepo()
 	incRepo := newFakeIncidentRepo()

@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	_ "time/tzdata" // distroless has no zoneinfo; maintenance cron needs the IANA database
 
 	"github.com/fiztoz/uptime-phoenix/internal/bootstrap"
 )

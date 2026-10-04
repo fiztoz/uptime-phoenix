@@ -22,6 +22,13 @@ describe("computeOverall", () => {
     );
   });
 
+  test("is degraded when a monitor's evidence is unknown", () => {
+    expect(computeOverall([{ status: "unknown" }], [])).toBe("degraded");
+    expect(computeOverall([{ status: "up" }, { status: "unknown" }], [])).toBe(
+      "degraded",
+    );
+  });
+
   test("is an outage when any monitor is down", () => {
     expect(computeOverall([{ status: "up" }, { status: "down" }], [])).toBe(
       "outage",

@@ -1,0 +1,8 @@
+{
+  "protocol_version": 1,
+  "type": "hello",
+  "message_id": "637c39e5-0d90-41db-82c8-4a8bc65f16e5",
+  "sent_at": "2026-09-13T09:00:05+00:00",
+  "connection_generation": "0",
+  "payload": {}
+}

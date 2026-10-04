@@ -14,6 +14,10 @@ type CheckResult struct {
 	Message    string
 	Metadata   map[string]string // e.g. {"tls_days_remaining": "45"}
 	Conditions []domain.ConditionObservation
+
+	// Multi-region execution context (captured at schedule time).
+	ConfigRevision       int64
+	AssignmentGeneration int64
 }
 
 // Checker defines the interface that every monitor type must implement.

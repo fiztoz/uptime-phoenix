@@ -23,17 +23,21 @@ func TLSInfoModelFromPort(info *ports.TLSInfo) *TLSInfoModel {
 		jsonMap["last_cert_alert_not_after"] = info.LastCertAlertNotAfter.UTC().Format(time.RFC3339)
 	}
 	return &TLSInfoModel{
-		MonitorID: info.MonitorID,
-		InfoJSON:  jsonMap,
-		CheckedAt: info.CheckedAt.UTC(),
+		MonitorID:            info.MonitorID,
+		ProbeID:              info.ProbeID,
+		AssignmentGeneration: info.AssignmentGeneration,
+		InfoJSON:             jsonMap,
+		CheckedAt:            info.CheckedAt.UTC(),
 	}
 }
 
 // ToPort converts a TLSInfoModel to ports.TLSInfo.
 func (m *TLSInfoModel) ToPort() (*ports.TLSInfo, error) {
 	info := &ports.TLSInfo{
-		MonitorID: m.MonitorID,
-		CheckedAt: m.CheckedAt,
+		MonitorID:            m.MonitorID,
+		ProbeID:              m.ProbeID,
+		AssignmentGeneration: m.AssignmentGeneration,
+		CheckedAt:            m.CheckedAt.UTC(),
 	}
 
 	if m.InfoJSON != nil {

@@ -27,8 +27,10 @@ test("login renders the hydrated dashboard", async ({ page }) => {
   const moveUpEarlier = page.getByRole("button", {
     name: "Move Up earlier",
   });
-  for (let index = 0; index < 4; index++) await moveUpEarlier.click();
+  // Default order is down,unknown,pending,maintenance,paused,up (unknown stays
+  // visible in the status vocabulary): five moves bring Up to the top.
+  for (let index = 0; index < 5; index++) await moveUpEarlier.click();
   await expect
     .poll(() => new URL(page.url()).searchParams.get("status_order"))
-    .toBe("up,down,pending,maintenance,paused");
+    .toBe("up,down,unknown,pending,maintenance,paused");
 });

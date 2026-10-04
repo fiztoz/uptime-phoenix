@@ -92,7 +92,7 @@ func TestMonitorService_Clone_ClearsPushToken(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	cloned, err := svc.Clone(context.Background(), src.ID, 1)
+	cloned, err := svc.Clone(context.Background(), src.ID, 1, true)
 	if err != nil {
 		t.Fatalf("clone: %v", err)
 	}

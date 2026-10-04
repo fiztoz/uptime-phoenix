@@ -115,6 +115,7 @@ export function detectDowntimeIntervals(
   );
 
   const isDown = (s: Heartbeat["status"]) => s === "down" || s === "pending";
+  // UNKNOWN breaks a downtime run. It is not uptime; see detectUnknownIntervals.
   const out: DowntimeInterval[] = [];
   let cur: DowntimeInterval | null = null;
 

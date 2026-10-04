@@ -3,6 +3,7 @@
 	import { Download, Upload, AlertTriangle, CheckCircle2, FileJson } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import * as m from '$lib/paraglide/messages.js';
+	import { inspectBackupDocument, BackupReviewError, type BackupCollection } from '$lib/backup-review';
 
 	let exporting = $state(false);
 	let importing = $state(false);
@@ -11,7 +12,29 @@
 	let pendingDoc = $state<BackupDocument | Record<string, unknown> | null>(null);
 	let summary = $state<ImportSummary | null>(null);
 	let parseError = $state('');
-
+	const review = $derived(
+		pendingDoc ? inspectBackupDocument(pendingDoc) : null,
+	);
+	const collectionLabels = $derived<Record<BackupCollection, string>>({
+		proxies: m.backup_page_row_proxies(),
+		notification_templates: m.backup_page_row_notification_templates(),
+		notifications: m.nav_notifications(),
+		tags: m.backup_page_tags(),
+		monitor_groups: m.backup_page_monitor_groups(),
+		monitors: m.nav_monitors(),
+		monitor_tags: m.backup_page_row_monitor_tags(),
+		monitor_notifications: m.backup_page_row_monitor_notifications(),
+		group_notifications: m.backup_page_group_notifications(),
+		status_pages: m.nav_status_pages(),
+		status_page_monitors: m.backup_page_row_status_page_monitors(),
+		status_page_cnames: m.backup_page_row_cnames(),
+		incidents: m.nav_incidents(),
+		maintenance_windows: m.backup_page_row_maintenance_windows(),
+		maintenance_monitors: m.backup_page_row_maintenance_monitors(),
+		probes: m.probes_title(),
+		monitor_probe_assignments: m.backup_page_probe_assignments(),
+		status_page_subscription_channels: m.backup_page_subscription_channels(),
+	});
 	async function downloadBackup() {
 		exporting = true;
 		summary = null;
@@ -39,12 +62,20 @@
 
 	function parseDoc(raw: string): BackupDocument | Record<string, unknown> {
 		const parsed = JSON.parse(raw) as unknown;
-		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-			throw new Error(m.backup_page_must_be_object());
+		try {
+			return inspectBackupDocument(parsed).doc;
+		} catch (error) {
+			if (!(error instanceof BackupReviewError)) throw error;
+			throw new Error(
+				error.code === "object"
+					? m.backup_page_must_be_object()
+					: error.code === "version"
+						? m.backup_page_unsupported_version()
+						: m.backup_page_invalid_collections(),
+				{ cause: error },
+			);
 		}
-		return parsed as BackupDocument;
 	}
-
 	function prepareImportFromText() {
 		parseError = '';
 		summary = null;
@@ -79,7 +110,7 @@
 	}
 
 	async function runImport() {
-		if (!pendingDoc) return;
+		if (!pendingDoc || !review?.total) return;
 		importing = true;
 		try {
 			summary = await backupApi.import(pendingDoc);
@@ -238,8 +269,30 @@
 			<p class="mt-1 text-sm text-muted-foreground">
 				{m.backup_page_confirm_import_body()}
 			</p>
+      {#if review}
+        <p class="mt-3 text-sm">
+          {m.backup_page_review_version({ version: review.version })}
+        </p>
+        <p class="mt-1 text-xs text-muted-foreground">
+          {m.backup_page_review_validation_scope()}
+        </p>
+        <dl
+          class="mt-3 grid gap-2 sm:grid-cols-2"
+          data-testid="backup-review-counts"
+        >
+          {#each Object.entries(review.counts) as [key, count] (key)}
+            <div class="flex justify-between gap-3 text-sm">
+              <dt>{collectionLabels[key as BackupCollection]}</dt>
+              <dd>{count}</dd>
+            </div>
+          {/each}
+        </dl>
+        {#if review.total === 0}<p class="mt-3 text-sm">
+            {m.backup_page_no_objects()}
+          </p>{/if}
+      {/if}
 			<div class="mt-4 flex flex-wrap gap-2">
-				<button type="button" class={primaryBtn} disabled={importing} onclick={runImport}>
+				<button type="button" class={primaryBtn} disabled={importing || !review?.total} onclick={runImport}>
 					{importing ? m.backup_page_importing() : m.backup_page_confirm_import_button()}
 				</button>
 				<button type="button" class={secondaryBtn} disabled={importing} onclick={cancelImport}>

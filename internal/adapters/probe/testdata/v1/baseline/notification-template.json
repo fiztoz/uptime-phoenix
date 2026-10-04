@@ -1,0 +1,10 @@
+{
+  "id": 2,
+  "user_id": 1,
+  "name": "Default",
+  "provider": "telegram",
+  "title_template": "{{ name }}",
+  "body_template": "{{ msg }}",
+  "created_at": "2026-09-15T10:00:00Z",
+  "updated_at": "2026-09-15T10:00:00Z"
+}

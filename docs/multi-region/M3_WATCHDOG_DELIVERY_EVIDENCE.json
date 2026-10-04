@@ -1,0 +1,121 @@
+{
+  "base_commit": "32dc35ee01f9f5df60569072fed33c8748013ac5",
+  "source_sha256": {
+    "cmd/probe/runtime.go": "251bb77dac7185320080fe29ee36d74e074d90d05fd0ce6b3a9d1d2c13d1a02b",
+    "internal/adapters/notifier/alert_format.go": "c1601adb7fb88b9cc56001252e5ca60a53b2cb2f07cebf15b00ee209e1983391",
+    "internal/adapters/notifier/feishu.go": "5ab7e0ef62678d0f451371be80108b131551c560485f63285e1f8878cd4164f6",
+    "internal/adapters/notifier/gotify.go": "b33dfce9eaeafd6d94f950065c0959e08febdabfd227916c190f97b415d5dcd6",
+    "internal/adapters/notifier/mattermost.go": "b01edd6d754fc8236a027e7d53a47d482dca7e1e87973e506918b117c31aad1e",
+    "internal/adapters/notifier/slack.go": "a51e5c5cb3fc94cfa930a7eb85bd2e2da9b9ef8b8757f208d77b0d770ac253ac",
+    "internal/adapters/notifier/smtp.go": "7b83b8b73fff944737b6cd9e44c0f41224d99a5dc58805ce7cc6be452f22fa4f",
+    "internal/adapters/notifier/teams.go": "9cb84b270581c0d0d6f0853478bc8a692bc8a485431f74a7347cad0e249bb279",
+    "internal/adapters/repository/delivery_outbox.go": "f29fecf997822d8a2caa3fb31afb2a1cc4e39de5b9ec2507ddb99a55d2317b83",
+    "internal/bootstrap/run.go": "001d3ab92e7ef9c805608413dfadcb1fc3af2f3bcb7fc2be5ed6037e266a1877",
+    "internal/core/domain/notification.go": "01c61adc27ff3acae5256cd582f93367da8c7dbeb34ea5647fa798da4ca8b233",
+    "internal/core/domain/notification_template.go": "fabe7fd14f747f0006d4515e63eb8dada11d641788676859aefadad39387cc89",
+    "internal/core/ports/probe_watchdog.go": "40b6ae2629a6cc0ae7c3df8ec04813b0d75cc558cfa0d7c8f0894fc2906de636",
+    "internal/core/services/edge_delivery_service.go": "a890461549ff4342d1e049c7f29a64eee463640b03b32609fe16e507f41adc27",
+    "internal/core/services/probe_watchdog_runtime.go": "8e06d0d63fb697a062acea3e91178098ba83944cb123d36130e39a11ef0a0b39",
+    "internal/core/services/probe_watchdog_runtime_test.go": "6ac11c2ab5c19a18af9d6fe4ca9816ca0c97e81e01e68334680a3794295214fd",
+    "internal/adapters/notifier/probe_watchdog_test.go": "97f85aefda3f557299bd130052c584f213eccb95b0aad04597bb8f88283c47c6",
+    "internal/adapters/repository/edge/watchdog_delivery.go": "088070b557f3d730c290111fdb0708d1a3ee28899ffe44e3419e4e4fe9bc5384",
+    "internal/adapters/repository/edge/watchdog_delivery_test.go": "0b7a3e3b26d5f5b9346d93a6384c7030c7a271aaf6b0fda1d5f5b7f179ac9c21",
+    "internal/adapters/repository/probe_watchdog_delivery.go": "34ed690ad73e24924dd8c3648cc1f167f4a7d88f556da06ddda613944b729e54",
+    "internal/adapters/repository/probe_watchdog_delivery_test.go": "b025ea7698390314ac86927b6e790229dcc26ccf88022e93242bf6bc6851317c",
+    "internal/core/domain/probe_notification_template_test.go": "9585c11297badc7845db96b2dae88022950c6a8247a2b0d2892ea6c46efd2bfa",
+    "internal/core/domain/probe_watchdog_delivery.go": "6c03ac71249d584ca48f9d5b96f2a9c6c534abfacb29def669223d59034d03a2",
+    "internal/core/services/probe_watchdog_delivery.go": "f65c9323c2870d06e4ab62b46acc906bf8fd2a8ed9addbb074c2ca6839193786",
+    "internal/core/services/probe_watchdog_delivery_test.go": "12d8a4b96834f2f9bee48d08d1bd41c91df103a2d19f549716311e44e869843b"
+  },
+  "commands_executed": [
+    "GOTOOLCHAIN=go1.26.6 go test -race -count=1 -timeout=20m -json ./... (TEST_MARIADB_DSN supplied for disposable MariaDB)",
+    "CGO_ENABLED=0 go build ./...",
+    "golangci-lint run",
+    "git diff --check"
+  ],
+  "counts": {
+    "package_skip": 13,
+    "test_pass": 3250,
+    "package_pass": 22,
+    "mariadb_named_pass": 236,
+    "mariadb_engine_pass": 199,
+    "test_skip": 2
+  },
+  "count_note": "Named pass events include parent tests and SQLite tests named after MariaDB regressions. Lowercase /mariadb separately counts engine subtest events, not independent scenarios.",
+  "named_skips": [
+    {
+      "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/checker",
+      "test": "TestDatabaseChecker_Check_MongoDB_RealServer"
+    },
+    {
+      "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier",
+      "test": "TestTelegramSender_Send_DownSeverity"
+    }
+  ],
+  "delivery_pass_events": [
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier:TestProbeWatchdogHTTPProviderRequests/telegram",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier:TestProbeWatchdogHTTPProviderRequests/discord",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier:TestProbeWatchdogHTTPProviderRequests/slack",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier:TestProbeWatchdogHTTPProviderRequests/webhook",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier:TestProbeWatchdogHTTPProviderRequests/teams",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier:TestProbeWatchdogHTTPProviderRequests/mattermost",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier:TestProbeWatchdogHTTPProviderRequests/gotify",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier:TestProbeWatchdogHTTPProviderRequests/bark",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier:TestProbeWatchdogHTTPProviderRequests/feishu",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier:TestProbeWatchdogHTTPProviderRequests/line",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier:TestProbeWatchdogHTTPProviderRequests",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier:TestProbeWatchdogSMTPMessage",
+    "github.com/fiztoz/uptime-phoenix/internal/core/domain:TestProbeNotificationTemplateIdentityAndEscaping",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/edge:TestEdgeWatchdogSendAuthorization",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/sent",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/disabled",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/removed",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/inactive",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/rotated",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/unlinked",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/superseded",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/stale_owner",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/stale_claim",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/retry",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/finish_failure",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/template",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend/caller_context_ignored",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogDeliveryReconcilesBeforeSend",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestEdgeDeliveryDispatchesProbeWithoutMonitor",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestProbeWatchdogRuntimeDeliveryDoesNotBlockProgressAndIsJoined",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestHubWatchdogSendAuthorization/sqlite",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestHubWatchdogSendAuthorization/mariadb",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestHubWatchdogSendAuthorization"
+  ],
+  "full_race_log": "/private/tmp/phoenix-m3-watchdog-delivery-full.jsonl",
+  "full_race_sha256": "47b91ac4d3ff5ebaf7c7ae1585b81ee4abd4b3a4c475646615fbb9d317cf8022",
+  "build_exit": 0,
+  "lint_issues": 0,
+  "audit_conversation": "2099f8ff-b09c-4e17-acfe-f9c8663af768",
+  "audit_note": "Read-only provider audit, accepted Gotify finding; corrected three unsupported claims. No repository ownership.",
+  "limits": [
+    "Enabled watchdog guard retained",
+    "No enabled both-side watchdog process acceptance yet",
+    "Watchdog mirror replay and command ACK authorization unfinished",
+    "Full M3 rotations/reset, bounded flush and real fifteen-minute partition remain",
+    "No frontend/Helm/schema/dependency changes in this increment"
+  ],
+  "regression_logs": [
+    {
+      "path": "/private/tmp/phoenix-m3-watchdog-delivery-focused.jsonl",
+      "sha256": "ba527321898f445ff881c0059022127699a36f71973c883c8c0f419765383171"
+    },
+    {
+      "path": "/private/tmp/phoenix-m3-watchdog-delivery-focused-after.jsonl",
+      "sha256": "0c402389b2dc2da0c63afbf9ee7c67254f46d00baf73c09bcea06a44e278b053"
+    },
+    {
+      "path": "/private/tmp/phoenix-m3-watchdog-send-clock-repro.log",
+      "sha256": "d3ec0ccaa4d75f98fc65b2bb6ca87a7b2b25694f9722c4fb3b2cc3a66822deee"
+    },
+    {
+      "path": "/private/tmp/phoenix-m3-watchdog-send-clock-differential.log",
+      "sha256": "e415d6c1af506bbc0074955194699dad267d13572db6a2aedf96637d0aa6ebf2"
+    }
+  ]
+}

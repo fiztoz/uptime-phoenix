@@ -36,6 +36,24 @@ func NewAlertService(repo ports.AlertRepository) *AlertService {
 	}
 }
 
+// ForAssignment returns an isolated lifecycle view. It does not authorize execution.
+func (s *AlertService) ForAssignment(probeID string, generation int64) (*AlertService, error) {
+	regional, ok := s.repo.(ports.RegionalAlertRepository)
+	if !ok {
+		if probeID == domain.LocalProbeID && generation == 1 {
+			return s, nil
+		}
+		return nil, fmt.Errorf("alert service: regional repository unavailable: %w", domain.ErrValidation)
+	}
+	repo, err := regional.ForAssignment(probeID, generation)
+	if err != nil {
+		return nil, err
+	}
+	scoped := *s
+	scoped.repo = repo
+	return &scoped, nil
+}
+
 // SetEscalationCanceller wires F2.3 escalation cancellation. Both acknowledgement
 // and resolution cancel the ladder, and they do it HERE rather than in each
 // caller: ack arrives from the admin API, from the public deep link, and
@@ -96,6 +114,9 @@ func (s *AlertService) OpenOnDown(ctx context.Context, monitor *domain.Monitor, 
 		if errors.Is(err, ports.ErrConflict) {
 			// Lost the open race — return the winner.
 			won, getErr := s.repo.GetOpenByMonitorID(ctx, monitor.ID)
+			if errors.Is(getErr, ports.ErrNotFound) {
+				return nil, fmt.Errorf("alert service: create conflict: %w", err)
+			}
 			if getErr != nil {
 				return nil, fmt.Errorf("alert service: open race recovery: %w", getErr)
 			}

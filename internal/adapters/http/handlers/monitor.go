@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -85,6 +86,14 @@ type CreateMonitorRequest struct {
 	// Weight is the manual display order (lower first). Omitted/0 on create
 	// becomes 2000 (schema default). Same meaning as MonitorGroup.Weight.
 	Weight int `json:"weight"`
+	// ProbeIDs, HealthPolicy and ProbeBindings are the optional explicit
+	// initial desired assignment set (protocol section 7.1). Omission means
+	// ["local"] and any_down. Creation plus an explicit set commits atomically;
+	// explicitly requesting remote membership requires admin (a non-admin
+	// creator retains today's local behavior and receives 403 otherwise).
+	ProbeIDs      *[]string                     `json:"probe_ids"`
+	HealthPolicy  *string                       `json:"health_policy"`
+	ProbeBindings *[]MonitorProbeBindingRequest `json:"probe_bindings"`
 }
 
 // UpdateMonitorRequest is the body of PUT /api/monitors/:id.
@@ -354,13 +363,74 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 		}
 	}
 
-	if err := h.svc.Create(c.Request().Context(), monitor); err != nil {
+	initial, forbidden, err := h.initialAssignments(c.Request().Context(), userID, req)
+	if err != nil {
+		return mapMonitorError(c, err)
+	}
+	if forbidden {
+		return c.JSON(http.StatusForbidden, errorBody("explicit remote assignment requires admin"))
+	}
+	if initial != nil {
+		if err := h.svc.CreateWithAssignments(c.Request().Context(), monitor, *initial); err != nil {
+			switch {
+			case errors.Is(err, services.ErrInvalidProbeIDs), errors.Is(err, services.ErrInvalidPolicy),
+				errors.Is(err, services.ErrInvalidDelivery), errors.Is(err, services.ErrInvalidBindings):
+				return badRequest(c, err.Error())
+			case errors.Is(err, services.ErrUnknownProbe), errors.Is(err, services.ErrProbeUnavailable), errors.Is(err, services.ErrStaleRevision):
+				return c.JSON(http.StatusConflict, errorBody(err.Error()))
+			case errors.Is(err, services.ErrUnsupportedAssignment):
+				return c.JSON(http.StatusUnprocessableEntity, errorBody(err.Error()))
+			}
+			return mapMonitorError(c, err)
+		}
+	} else if err := h.svc.Create(c.Request().Context(), monitor); err != nil {
 		return mapMonitorError(c, err)
 	}
 	h.grantCreatorAccess(c, userID, monitor.ID)
 
 	// A monitor has no tags the instant it is created, so skip the lookup.
 	return c.JSON(http.StatusCreated, toMonitorView(monitor, nil, h.groupsByID(c)))
+}
+
+// initialAssignments resolves the optional explicit desired set of a create.
+// The second result reports a forbidden remote request from a non-admin; the
+// handler answers 403 rather than silently rerouting to local execution.
+func (h *MonitorHandlers) initialAssignments(ctx context.Context, userID int64, req CreateMonitorRequest) (*services.InitialAssignments, bool, error) {
+	if req.ProbeIDs == nil && req.ProbeBindings == nil && req.HealthPolicy == nil {
+		return nil, false, nil
+	}
+	initial := services.InitialAssignments{ProbeIDs: []string{domain.LocalProbeID}, HealthPolicy: domain.HealthPolicyAnyDown}
+	if req.ProbeIDs != nil {
+		initial.ProbeIDs = *req.ProbeIDs
+	}
+	if req.HealthPolicy != nil {
+		initial.HealthPolicy = domain.HealthPolicy(*req.HealthPolicy)
+	}
+	remote := false
+	if req.ProbeBindings != nil {
+		list := make([]domain.ProbeAssignmentBinding, 0, len(*req.ProbeBindings))
+		for _, binding := range *req.ProbeBindings {
+			list = append(list, domain.ProbeAssignmentBinding{ProbeID: binding.ProbeID,
+				ProbeResourceBinding: domain.ProbeResourceBinding{Kind: binding.Kind, BindingKey: binding.BindingKey}})
+		}
+		initial.Bindings = &list
+		remote = len(list) > 0
+	}
+	for _, id := range initial.ProbeIDs {
+		if id != domain.LocalProbeID {
+			remote = true
+		}
+	}
+	if remote {
+		isAdmin, err := h.access.IsAdmin(ctx, userID)
+		if err != nil {
+			return nil, false, err
+		}
+		if !isAdmin {
+			return nil, true, nil
+		}
+	}
+	return &initial, false, nil
 }
 
 // List handles GET /api/monitors.
@@ -626,8 +696,17 @@ func (h *MonitorHandlers) Clone(c echo.Context) error {
 		return c.JSON(http.StatusForbidden, errorBody("monitor creation is limited to an allowed group"))
 	}
 
-	cloned, err := h.svc.Clone(c.Request().Context(), id, userID)
+	isAdmin, err := h.access.IsAdmin(c.Request().Context(), userID)
 	if err != nil {
+		return mapMonitorError(c, err)
+	}
+	cloned, err := h.svc.Clone(c.Request().Context(), id, userID, isAdmin)
+	if err != nil {
+		// A remote clone is rejected rather than silently rerouted to local
+		// execution; the caller must be an admin to reproduce remote membership.
+		if errors.Is(err, services.ErrRemoteCloneForbidden) {
+			return c.JSON(http.StatusForbidden, errorBody("cloning a monitor assigned to remote probes requires admin"))
+		}
 		return mapMonitorError(c, err)
 	}
 	h.grantCreatorAccess(c, userID, cloned.ID)

@@ -253,10 +253,28 @@ func (h *Hub) listen() {
 	monitorDelCh := h.bus.Subscribe(EventMonitorDelete)
 	conditionCh := h.bus.Subscribe(EventConditionUpdate)
 	conditionDeleteCh := h.bus.Subscribe(EventConditionDelete)
+	accessCh := h.bus.Subscribe("access.invalidate")
+	commandCh := h.bus.Subscribe(EventProbeCommandStatus)
 	close(h.ready)
 
 	for {
 		select {
+		case ev := <-accessCh:
+			if fields, ok := ev.Payload.(map[string]any); ok && h.access != nil {
+				userID := extractInt64(fields, "user_id")
+				h.access.ClearCachedPermissions(userID)
+				h.invalidateVisibility()
+				for _, client := range h.snapshotClients() {
+					if client.UserID == userID {
+						h.send(client, []byte(`{"type":"access.changed","payload":{}}`))
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						h.sendMonitorList(ctx, client)
+						cancel()
+					}
+				}
+			}
+		case ev := <-commandCh:
+			h.BroadcastRegional(ev)
 		case ev := <-heartbeatCh:
 			h.broadcast(ev)
 		case ev := <-statusCh:
@@ -563,6 +581,11 @@ func (h *Hub) snapshotClients() []*Client {
 // drop rather than a broadcast.
 func monitorIDForEvent(event ports.Event) (int64, bool) {
 	switch p := event.Payload.(type) {
+	case domain.HeartbeatPublication:
+		if p.Heartbeat != nil {
+			return p.Heartbeat.MonitorID, p.Heartbeat.MonitorID > 0
+		}
+		return 0, false
 	case *domain.Heartbeat:
 		return p.MonitorID, p.MonitorID > 0
 	case *domain.Monitor:

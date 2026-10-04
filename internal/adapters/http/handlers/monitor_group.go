@@ -92,7 +92,7 @@ type MonitorGroupView struct {
 	// Name and parent stay locked when this is true and CanEdit is false.
 	CanEditMetadata bool `json:"can_edit_metadata"`
 	// Status is the derived status (domain.Status: 0=DOWN 1=UP 2=PENDING
-	// 3=MAINTENANCE) for this group. It is a pointer WITHOUT omitempty:
+	// 3=MAINTENANCE 4=UNKNOWN) for this group. It is a pointer WITHOUT omitempty:
 	// status 0 (DOWN) is a legitimate value that omitempty would silently
 	// swallow, turning a down folder into one with no status at all. nil
 	// means the group has no derived status (an "ignore" group, or a group

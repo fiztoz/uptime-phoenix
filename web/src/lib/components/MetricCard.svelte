@@ -9,9 +9,10 @@
     unit?: string;
     /** Underline accent for the current response metric */
     highlight?: boolean;
+    hint?: string;
   }
 
-  let { label, value, unit, highlight = false }: Props = $props();
+  let { label, value, unit, highlight = false, hint }: Props = $props();
 </script>
 
 <div class="rounded-xl border border-border bg-card p-4">
@@ -26,4 +27,5 @@
         class="ml-0.5 text-sm font-normal text-muted-foreground">{unit}</span
       >{/if}
   </div>
+  {#if hint}<p class="mt-2 text-xs text-muted-foreground">{hint}</p>{/if}
 </div>

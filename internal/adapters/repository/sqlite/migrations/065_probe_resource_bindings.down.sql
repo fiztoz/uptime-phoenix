@@ -1,0 +1,2 @@
+ALTER TABLE monitor_probe_assignments DROP COLUMN resource_binding_kind;
+ALTER TABLE monitor_probe_assignments DROP COLUMN resource_binding_key;

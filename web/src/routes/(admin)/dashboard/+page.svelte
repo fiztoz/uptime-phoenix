@@ -269,7 +269,7 @@
 	/** Per-status counts across ALL monitors (not filtered) for the multi-select dots. */
 	let statusCounts = $derived.by(() => {
 		const counts: Record<MonitorStatus, number> = {
-			up: 0, down: 0, pending: 0, maintenance: 0, paused: 0,
+			up: 0, down: 0, pending: 0, unknown: 0, maintenance: 0, paused: 0,
 		};
 		for (const m of allMonitors) {
 			if (m.status in counts) counts[m.status]++;
@@ -313,7 +313,10 @@
 		const withStatus = allMonitors.map((mon) => ({
 			id: mon.id,
 			group_id: mon.group_id ?? null,
-			status: monitorToRollupStatus(mon.status, hbMap.get(mon.id)?.status),
+			status: monitorToRollupStatus(
+				mon.status,
+				hbMap.get(mon.id)?.overall_status ?? hbMap.get(mon.id)?.status,
+			),
 		}));
 		return resolveGroupStatuses(groups, withStatus);
 	});
