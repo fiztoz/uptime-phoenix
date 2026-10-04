@@ -222,7 +222,7 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	git diff --check
 	@echo ""
 	@echo "gate-full does NOT include: the MariaDB repository contract (needs TEST_MARIADB_DSN;"
-	@echo "CI runs that in the mariadb-contract job), the fresh-DB smoke suites in scripts/,"
+	@echo "CI runs that in the mariadb-contract job), external UAT/load campaigns,"
 	@echo "or the k6 load ramp. See docs/TESTING.md. Local gate-full remains required for"
 	@echo "thoroughness and works offline even when GitHub Actions is unavailable."
 

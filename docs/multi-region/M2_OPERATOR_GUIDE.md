@@ -178,18 +178,13 @@ both stores and identities; do not delete rows or reset cursors to force progres
 
 ## Reproduce acceptance
 
-`scripts/probe_runtime_smoke.py` takes `--app-binary`, `--probe-binary`,
-`--admin-binary` and a new `--output` directory. `DB_DSN` must name a fresh local
-MariaDB database ending in `_smoke`. It uses local targets and webhook recipients,
-real enrollment/assignment commands, automatic source edits and durable receipts,
-two hub workers and a standalone edge, then stops
-all child processes. Add `--verify-replay --mariadb-container CONTAINER` to check
-hub/edge durable cursors, offline mixed-event replay, exact observation sequences,
-incident/delivery mirrors, zero hub send intents and a second cold restart. The
-container option runs read-only queries against the same disposable database.
-The report contains safe IDs, sequence/fence progress and
-outcomes; private keys and stores remain in the private output directory.
-
+Use the external campaign recipe in the [testing guide](../TESTING.md#11-reproduce-validation-and-create-external-uatload-tests).
+Build the app, probe and administration binaries from the same candidate, use a
+fresh disposable MariaDB database and private output directory, and exercise real
+enrollment, assignment edits, two hub workers and an autonomous edge. Verify hub
+and edge durable cursors, offline replay, exact observation sequences, incident
+and delivery mirrors, zero hub send intents, and a second cold restart. Stop all
+owned processes; retain private keys and stores outside the repository.
 
 ## Connection-watchdog settings
 
@@ -277,12 +272,10 @@ ACK commands, which stay pending. Hub request storage is bounded to 16,384 rows,
 are retained through expiry plus 365 days; unknown results are not discarded to
 make room. Reads expose metadata only, not encrypted payloads or operator notes.
 
-The runnable process harness is `scripts/probe_runtime_smoke.py --verify-replay
---verify-command --mariadb-container NAME` plus its required binary/output options
-and a fresh disposable localhost `_smoke` database. Its default command partition
-is 15 seconds. `--command-partition-seconds` changes that duration; a short run is
-not the complete fifteen-minute M3 acceptance.
-
+An external process campaign should combine replay and command delivery across
+a declared partition duration on a fresh disposable database. A short run does
+not establish the complete fifteen-minute M3 acceptance; use the testing guide
+to define the scenario and observable assertions.
 
 ## Rotate a remote runtime credential
 
@@ -328,10 +321,9 @@ migration 062 refuses downgrade while a rotation, credential command or unpromot
 version high-water would be lost. Stop writers and preserve the hub key and edge
 identity/database together for any operator migration/recovery work.
 
-Use `scripts/probe_runtime_smoke.py --verify-replay --verify-credential-rotation`
-with its required binaries, fresh private output directory and disposable MariaDB
-configuration to exercise queued rotation, both-side restart and subsequent
-telemetry. See [hub acceptance](M3_HUB_CREDENTIAL_ACCEPTANCE.md) and
+Use an external replay/credential-rotation campaign with fresh candidate binaries,
+a private output directory and disposable MariaDB to exercise queued rotation,
+both-side restart and subsequent telemetry. See [hub acceptance](M3_HUB_CREDENTIAL_ACCEPTANCE.md) and
 [the retrospective](../postmortems/2026-09-21-m3-integration.md#credentials-and-certificates). Certificate rotation is described below; the implemented
 [explicit reset workflow](M3_HUB_RESET_ACCEPTANCE.md) covers stream recovery.
 
@@ -368,8 +360,8 @@ operator recovery; retries never extend trust or bypass pin/expiry checks.
 Preserve the hub key/database and edge identity/key/database together. Migration
 063 refuses downgrade while any certificate operation/command, expiry or version
 high-water would be lost. Run certificate acceptance separately from credential
-acceptance, because both respect the exclusion window:
-`scripts/probe_runtime_smoke.py --verify-replay --verify-certificate-rotation`,
-with all required binary paths and a fresh disposable MariaDB/output directory.
+acceptance, because both respect the exclusion window. An external replay and
+certificate-rotation campaign needs candidate binaries and a fresh disposable
+MariaDB database/private output directory; follow the testing guide.
 See [acceptance](M3_HUB_CERTIFICATE_ACCEPTANCE.md) and
 [retrospective](../postmortems/2026-09-21-m3-integration.md#credentials-and-certificates).

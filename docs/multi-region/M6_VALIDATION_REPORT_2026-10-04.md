@@ -2,7 +2,7 @@
 
 Candidate: `0.5.0-rc.local.20261004.1`. Code validation passed as recorded below;
 full operational acceptance remains incomplete. These are historical execution
-results, not a claim that GitHub Actions or deployment passed. Reproduction
+results. Subsequent PR CI passed as recorded below; deployment remains separate. Reproduction
 instructions and the external UAT/load test recipe are in the single
 [testing guide](../TESTING.md#11-reproduce-validation-and-create-external-uatload-tests).
 
@@ -13,7 +13,8 @@ instructions and the external UAT/load test recipe are in the single
 | History queue regression | Passed on both engines. On MariaDB 12, the measured selector changed from 65,083 examined rows / 121.79 ms to one row / 0.032 ms. The old implementation failed the constructed regression. |
 | Published 0.4.5 migration | Passed on MariaDB 11 and a logical-transfer path to MariaDB 12: 100 monitors, 100,000 heartbeats, three populated rollups, migrations 34→74, held-reader lock verification, API ordering and no-op restart. Synthetic fixtures do not establish production peak disk or lock duration. |
 | Release artifacts | Built and checksum-verified 44 CGO-free binaries; chart packaging and 44 SPDX 2.3 binary SBOMs passed. Four standalone-SBOM regression tests passed after the repair. |
-| Actual image builds | Failed on Alpine repository access/timeouts. Owner deferred image validation to GitHub Actions and fixing any resulting workflow failure. |
+| Actual image builds | Local Alpine package fetches timed out. Subsequent PR CI passed Linux amd64 builds for all-in-one, API, worker, web and probe. The full multi-platform release matrix and publication remain separate. |
+| Final PR CI | [Run 37195065940](https://github.com/fiztoz/uptime-phoenix/actions/runs/37195065940) passed all seven required jobs and CodeQL on `e389cf9`; merged in PR #49 as `1802219`. Backend race tests, lint (zero issues), vulnerability scan and real MariaDB contract tests passed. |
 
 The strict suites had four classified non-MariaDB skips: optional MongoDB and
 Telegram targets, a crash-child helper, and a Linux ENOSPC case covered separately.
@@ -33,10 +34,15 @@ backup/restore, the full 24-hour fault/recovery test, matched-candidate operatio
 checks and the historical AWS DELETE overlap remain unverified. Canary samples
 used mixed binary versions and do not establish a release load-test pass.
 
-Per the owner's repository scope, new UAT/load/cloud campaign tooling, detailed
-reports, JSON receipts, reviews and raw logs stay local. Existing checked-in test
-assets remain; this summary is the only new validation report. Portable release,
-Helm and core database-test checks remain part of the repository workflow.
+Per the owner's repository scope, UAT/load/cloud campaign tooling and raw logs
+stay local, including the 12 previously tracked smoke/evidence/rehearsal scripts
+and two legacy load-test files found in the follow-up audit. Their originals and
+SHA-256 inventory were preserved before untracking. This summary remains the
+current validation report. Portable release, Helm and strict database-test
+helpers remain, along with application unit/integration and CI browser tests.
+Older milestone evidence describes historical executions; its removed harness
+paths are not current checkout prerequisites. Use the testing guide to reproduce
+coverage with external campaigns.
 
 Results and an inventory were saved before cleanup removed 270 generated targets
 containing 20.9 GB of logical data. Detailed originals, hashes and cleanup receipts
@@ -48,3 +54,11 @@ After this scope cleanup, `make release-image-gate m6-backend-harness-gate`,
 changed Markdown were checked against the publishable tree, with no references to the
 excluded files. Application and core-test source hashes are unchanged; full
 application suites were not rerun for this documentation/tooling cleanup.
+
+The tracked-script follow-up also passed Go build and the retained Helm, release
+and coverage-parser checks from a tracked-files-only export with all 14 retired
+files absent. Local lint reported zero issues. The replacement guide recipe
+executed `TestEdgeDiskFullCriticalCommit` and both crash-around-commit subtests
+on real Linux tmpfs (modernc SQLite), with four named passes and zero skips;
+its temporary container was removed. Application logic and core test assertions
+were unchanged. Full follow-up CI is recorded on PR #50.

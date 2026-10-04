@@ -61,7 +61,7 @@ func assignments(t *testing.T, repo *Repository, spID int64) []*domain.StatusPag
 // NOTE: the MariaDB implementation of this method is written differently
 // (delete-absent + ON DUPLICATE KEY UPDATE upsert, vs delete-all + insert here)
 // and is NOT covered by these tests — repo tests are SQLite-only. Any change
-// here must be smoke-run against real MariaDB; see scripts/reorder_smoke.py.
+// here must be exercised against real MariaDB; see docs/TESTING.md.
 func TestStatusPageMonitorReorder(t *testing.T) {
 	repo := setupTestDB(t)
 	ctx := context.Background()

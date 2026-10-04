@@ -1,5 +1,9 @@
 # Uptime Phoenix Load Test — Sprint D (R3.6)
 
+> Historical execution record. The referenced `tests/load/` runner is no longer
+> tracked. Use [the testing guide](TESTING.md#11-reproduce-validation-and-create-external-uatload-tests)
+> to create and run load campaigns outside this repository.
+
 **Run date:** 2026-07-25
 **Result:** the `<1 s` p95 / `<2 s` p99 heartbeat fan-out target is now **met at 100, 1,000 and
 10,000 monitors**. The 10,000-monitor stage ran in split API/worker mode and passed every

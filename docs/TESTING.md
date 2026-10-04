@@ -91,16 +91,15 @@ missing coverage, failures and unexpected skips. These are portable tooling
 regressions, not actual image builds or database execution. Before a release,
 run the real `STAGES=images` dry-run separately.
 
-New UAT/load/cloud campaigns are maintained locally, outside repository CI.
+UAT/load/cloud campaigns are maintained outside this repository and repository CI.
 Use [the reproduction recipe below](#11-reproduce-validation-and-create-external-uatload-tests).
 See the [validation summary](multi-region/M6_VALIDATION_REPORT_2026-10-04.md)
 for the latest executed results and outstanding acceptance checks.
 
 `make gate-full` does **not** include the MariaDB repository contract (needs
-`TEST_MARIADB_DSN` against a real database), the fresh-DB smoke suites under
-`scripts/`, or the k6 load ramp — those need external services and are documented
-separately (§2 and §7 below). CI runs the MariaDB contract in the `mariadb-contract`
-job (`phoenix_ci` throwaway DB). Run the smoke suites and k6 before a release.
+`TEST_MARIADB_DSN` against a real database) or external UAT/load campaigns.
+CI runs the MariaDB contract in the `mariadb-contract` job (`phoenix_ci` throwaway
+DB). Use §1.1 for external campaigns and §2.6 for disposable database setup.
 
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
@@ -108,19 +107,30 @@ you still own the local gate for work-in-progress and offline verification.
 ### 1.1 Reproduce validation and create external UAT/load tests
 
 This is the single instruction guide for the current validation work. Keep
-regression tests beside the code. Keep new environment-specific runners, UAT/load
+regression tests beside the code. Keep environment-specific runners, UAT/load
 scripts and raw results in a separate local directory or a separate test repository.
 They are not prerequisites for building Phoenix or running repository CI.
-The historical scripts already in the repository are optional utilities.
+The old smoke/evidence/rehearsal scripts and `tests/load/` are no longer tracked.
+Historical milestone reports may name them; those are records of past runs, not
+commands available in a fresh checkout. If adapting an old runner, inspect its
+version at commit `1802219` with `git show 1802219:scripts/<filename>` and save
+it outside the repository. Replace its repository-root and environment assumptions
+with explicit parameters before running it against current code.
+
+The retained Python scripts have specific repository responsibilities:
+`helm-db-secret-check.py` validates rendered chart secrets; `m6_dual_engine_gate.py`
+runs the committed backend tests and rejects missing real-engine coverage; its
+`test_m6_dual_engine_gate.py` parser tests run in CI. The Python tests under
+`scripts/release/` validate release tooling. Colima is not required by these checks.
 
 **Prepare.** Use the Go version in `go.mod`, Bun 1.3.14 (matching CI), Python 3,
 Helm, and a C compiler for Go's race detector. Install the frontend dependencies
 and browser before the full gate. Actual-engine tests also need Docker with a
 local Unix socket; Colima is optional. Select your disposable local Docker context
 and inspect its endpoint before running a database or disk-full harness. Cache
-Go modules/toolchain and the required images first; those harnesses deliberately
-refuse downloads during execution. The strict runner currently expects cached
-Go 1.26.6, while the disk-full wrapper uses the Go executable on `PATH`.
+Go modules/toolchain and the required images first; the strict database harness
+refuses downloads during execution. The strict runner currently expects cached
+Go 1.26.6. The disk-full recipe in the final section uses the installed Go toolchain.
 
 Run the following from the repository root in **Bash**. The output directory is
 outside the repository; keep this shell open for the subsequent commands.
@@ -156,13 +166,13 @@ python3 -B scripts/m6_dual_engine_gate.py --mariadb-image mariadb:11 \
   --go-json "$VALIDATION_DIR/mariadb11.jsonl" 2>&1 | tee "$VALIDATION_DIR/mariadb11.log"
 python3 -B scripts/m6_dual_engine_gate.py --mariadb-image mariadb:12.3 \
   --go-json "$VALIDATION_DIR/mariadb12.jsonl" 2>&1 | tee "$VALIDATION_DIR/mariadb12.log"
-python3 -B scripts/m6_edge_disk_full.py 2>&1 | tee "$VALIDATION_DIR/edge-storage.log"
 ```
 
 Require the actual MariaDB cases and required named cases to pass, with no
 MariaDB skips. Ordinary package success with skipped integration tests is
-insufficient. The Linux wrapper must report actual ENOSPC and both process-kill
-boundaries with zero skips; it fills only its disposable 32 MiB tmpfs.
+insufficient. For storage exhaustion, use the final section
+[M6 edge disk-full and process-kill acceptance](#m6-edge-disk-full-and-process-kill-acceptance-t20--t06-slices),
+which runs the committed Go tests directly in an isolated Linux tmpfs.
 
 **Create an external campaign.** Build a scenario table before writing a runner:
 case ID, setup, action, observable assertion, timeout and exact cleanup resources.
@@ -176,7 +186,7 @@ do not embed a personal Colima profile, cloud account, IP or temporary path.
 | Campaign | Reproduction steps and required assertions |
 | --- | --- |
 | UAT | Sign in, create a monitor, observe real checks, force target failure and recovery, and assert actual notification delivery. For one remote source, verify Recent Checks shows source observations; switching to overall shows health intervals. Verify permission denial, backup review, theme and locale behavior. Browser/API success alone is insufficient. |
-| Load | Use a fresh disposable deployment per case. Start with 100 monitors, then 1,000 assignments across ten real probe processes. Include one shared monitor observed by ten sources. Keep checking intervals shorter than observation time, count nonzero heartbeat samples, and record API/control/ingest p95, CPU/memory, DB growth and queue depth. A copied legacy `tests/load/k6-load-test.js` can seed basic API/WebSocket load, but does not create the ten-source topology or prove replay. |
+| Load | Use a fresh disposable deployment per case. Start with 100 monitors, then 1,000 assignments across ten real probe processes. Include one shared monitor observed by ten sources. Keep checking intervals shorter than observation time, count nonzero heartbeat samples, and record API/control/ingest p95, CPU/memory, DB growth and queue depth. An external k6 runner can seed API/WebSocket load; it must separately create the ten-source topology and assert replay effects. |
 | Fault/replay | Measure connected baseline, partition only the owned probe-to-hub path, retain observation IDs/timestamps, then heal while new checks continue. Verify eventual delivery without duplicate effects, current-state freshness, alert behavior and queue drain rate. A short trial does not establish the separate 24-hour fault/recovery criterion. |
 | Upgrade | Start published 0.4.5 on disposable MariaDB 11, seed 100 monitors, 100,000 heartbeats and all three rollups, then stop old writers and start the candidate on the same data. Verify ledger 34→74, IDs/counts, API ordering and no-op restart. For the MariaDB 12 path, logically transfer the populated old schema to a fresh target before candidate startup; 0.4.5 cannot bootstrap an empty 12.3 schema. Hold a reader transaction for a separate lock test and observe the actual metadata-lock wait. Record sampled disk use as sampled, not peak. |
 | Backup/restore | Back up the database and required installation/probe material, restore to an isolated destination, then prove monitoring, enrollment and delivery work. A successful backup HTTP response or downloaded export does not establish recovery. |
@@ -286,7 +296,7 @@ Follow existing patterns in the same package. Key rules:
 
 ---
 
-### 2.6 Colima multi-region runtime smoke
+### 2.6 Multi-region contracts and disposable MariaDB
 
 The local configuration semantic-validation contracts run with:
 
@@ -382,38 +392,35 @@ inside one transaction; startup does this automatically. Stop application writer
 before schema changes on either engine.
 
 
-Use a disposable MariaDB container and two separate databases: repository tests
-truncate their database; the real-app smoke creates persistent test records in a
-fresh database ending in `_smoke`. These example passwords are for this local
-throwaway container only. Do not point either command at an existing deployment.
+Use a disposable MariaDB container for repository tests, which truncate their
+database. The example credentials below are only for this localhost-bound test
+server. Docker Desktop, Colima or a Linux Docker daemon can supply the selected
+context; no personal context name is required.
 
 ```bash
-colima start
-docker --context colima run -d --name phoenix-mr-validation \
+docker run -d --name phoenix-mr-validation \
   -p 127.0.0.1:43306:3306 --tmpfs /var/lib/mysql \
   -e MARIADB_ROOT_PASSWORD=phoenix-local-test-root \
   -e MARIADB_DATABASE=phoenix_ci -e MARIADB_USER=phoenix \
   -e MARIADB_PASSWORD=phoenix mariadb:11
 
 # Wait until this succeeds before continuing.
-docker --context colima exec phoenix-mr-validation \
-  healthcheck.sh --connect --innodb_initialized
-docker --context colima exec phoenix-mr-validation \
-  mariadb -uroot -pphoenix-local-test-root -e \
-  "CREATE DATABASE phoenix_mr_smoke; GRANT ALL ON phoenix_mr_smoke.* TO 'phoenix'@'%';"
-docker --context colima exec phoenix-mr-validation \
-  mariadb -uroot -pphoenix-local-test-root -e \
-  'GRANT ALL PRIVILEGES ON `phoenix_migration_%`.* TO '\''phoenix'\''@'\''%'\'''
+docker exec phoenix-mr-validation healthcheck.sh --connect --innodb_initialized
+docker exec -i -e MYSQL_PWD=phoenix-local-test-root phoenix-mr-validation mariadb -uroot <<'SQL'
+GRANT ALL PRIVILEGES ON `phoenix_migration_%`.* TO 'phoenix'@'%';
+GRANT PROCESS ON *.* TO 'phoenix'@'%';
+SQL
 
 GOTOOLCHAIN=go1.26.6 TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43306)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
-  go test -race -count=1 ./internal/adapters/repository/...
-GOTOOLCHAIN=go1.26.6 go build -o /tmp/phoenix-mr-app ./cmd/app
-DB_DSN='phoenix:phoenix@tcp(127.0.0.1:43306)/phoenix_mr_smoke?parseTime=true&loc=UTC&multiStatements=true' \
-  python3 scripts/multi_region_smoke.py --app-binary /tmp/phoenix-mr-app
+  go test -race -count=1 -timeout 40m ./internal/adapters/repository/...
 
-# Remove only the disposable container created above; keep the Colima VM.
-docker --context colima rm -f phoenix-mr-validation
+# Remove only this disposable test container.
+docker rm -f phoenix-mr-validation
 ```
+
+Use a separate fresh database for each external runtime campaign. Build the app,
+probe and administration binaries from the same candidate and follow §1.1 to
+exercise enrollment, sharded ownership, real delivery and partition recovery.
 
 The environment name is exactly `TEST_MARIADB_DSN`. The unsupported spelling
 `MARIADB_TEST_DSN` now makes the repository test process fail. Without either
@@ -433,15 +440,6 @@ The replay/delete lock-observer tests also require `GRANT PROCESS ON *.* TO
 allows 40 minutes per race-test package; the former 15-minute repository limit
 could expire while ordinary migration fixtures were still making progress.
 
-
-The script starts two sharded app processes, two HTTP monitor targets and local
-webhook receivers. It verifies ownership, retry promotion, initial delivery,
-escalation, acknowledgement cancellation, throttle persistence across process
-restart, and recovery resolution. It stops its processes on exit and prints the
-directory containing logs and `report.json`. Ports default to 38766–38768; use
-`--port` to choose a different consecutive block. Use a fresh database for each
-run. This is local runtime coverage, not a remote probe or browser UI acceptance
-test; populated deployment migration rehearsal remains a release gate.
 
 ## 3. Frontend Checks (Svelte)
 
@@ -1065,10 +1063,9 @@ and atomically replacing the outbox table. It preserves delivery IDs and leases.
 Do not edit an already-applied migration to change an existing installation.
 A populated attempt-zero cancellation intentionally blocks downgrade to 049.
 
-Run `scripts/multi_region_smoke.py` with the disposable database setup above to
+Use an external UAT runner following §1.1 with a disposable database to
 exercise bootstrap, two sharded workers, actual webhook calls, step-zero escalation,
-acknowledgement, process restart and recovery. Its fixed five-second scheduler-rate
-assertion can be timing-sensitive; record an initial failure and any fresh-database
+acknowledgement, process restart and recovery. Record an initial failure and any fresh-database
 retry separately, rather than describing a retry as an uninterrupted pass.
 
 ## M3 source stream-reset checkpoint
@@ -1095,10 +1092,9 @@ UNKNOWN current state, exact retries, closed metadata, unresolved rotations and
 populated downgrade refusal. The source CLI exercises a pending archive failure
 and lost post-commit output through real startup.
 
-Build the ordinary app, probe and phoenix-probe-admin binaries, then run
-`scripts/probe_runtime_smoke.py` with `--verify-replay --verify-stream-reset` and
-`--mariadb-container` under the existing disposable `_smoke` DB setup. Do not
-combine the reset flag with rotation flags; their unresolved overlap intentionally
+Build the app, probe and phoenix-probe-admin binaries and exercise replay and
+stream reset through an external process runner (§1.1) on a fresh disposable DB.
+Keep reset and rotation scenarios separate; their unresolved overlap intentionally
 blocks reset. This process test exercises both recoverable restart orderings,
 metadata-only receipts, archive integrity, UNKNOWN before peer confirmation,
 actual authenticated completion and independent sequence one in old/new streams.
@@ -1144,10 +1140,9 @@ See [storage acceptance](multi-region/M3_STORAGE_BOUNDS_ACCEPTANCE.md).
 
 ## M3 complete partition process acceptance
 
-Use fresh app/probe/admin binaries and a new disposable `_smoke` MariaDB schema
-with `scripts/probe_runtime_smoke.py`. Combine `--verify-replay --verify-history
---verify-watchdog --verify-command --verify-partition --verify-shutdown
---command-partition-seconds 900`, plus the existing binary/output/container flags.
+Use fresh app/probe/admin binaries and a new disposable MariaDB schema with an
+external runner (§1.1). Cover replay, history, watchdog, command delivery and
+bounded shutdown across a 900-second partition.
 The transparent relay interrupts the management link while retaining end-to-end
 TLS. A second target fails during the partition, survives an edge restart and
 recovers before reconnection. The first target keeps its original pending ACK.
@@ -1185,9 +1180,8 @@ exhaustion, ACK fences, both rollback directions and reopen. Probe adapter
 lost-ACK reconnect through the production path. Local socket access is required.
 
 For full processes, build `cmd/app`, `cmd/probe`, `cmd/phoenix-probe-admin` with
-`CGO_ENABLED=0` and use `scripts/probe_runtime_smoke.py --verify-replay` with its
-three binary paths, a new private output directory, and `--mariadb-container`.
-`DB_DSN` must name a fresh localhost database ending in `_smoke`. This checks two
+`CGO_ENABLED=0` and pass their paths to an external replay runner (§1.1), with
+a new private output directory and a fresh disposable localhost database. This checks two
 hub workers, offline DOWN/provider retry, edge restart, UP recovery, exact backlog
 mirrors and durable cursors, zero hub send intents, then a second cold restart.
 It stops its child processes. See [replay acceptance](multi-region/M3_REPLAY_ACCEPTANCE.md).
@@ -1401,9 +1395,8 @@ Probe tests `TestResourceBindingsRejectInvalidFiles`,
 `TestEdgeConfigActivationRetainsExactBytesAndColdValidation` cover transport and
 local resource boundaries.
 
-For compiled verification, add `--verify-docker --verify-replay` to the existing
-`scripts/probe_runtime_smoke.py` invocation with fresh app/probe/admin binaries,
-a fresh disposable `_smoke` schema and `--mariadb-container`. The report must show
+For compiled verification, create an external Docker-binding and replay case
+(§1.1) with fresh app/probe/admin binaries and a disposable MariaDB schema. The report must show
 `docker_verified: true`, healthy bound Docker telemetry at the hub, successful
 source restarts, and exact offline replay without hub provider sends. All targets
 are local fixtures. See [operator details](multi-region/M4_DOCKER_BINDINGS.md).
@@ -1425,13 +1418,12 @@ of history, explicit null/omission, immutable same-sequence TLS, stale authority
 historical assignment isolation, concurrent snapshot/replay transactions, late
 rollback and populated migration 066 down/up with evidence-preserving refusal.
 
-For compiled-process acceptance, add `--verify-tls --verify-replay` to
-`scripts/probe_runtime_smoke.py` with fresh app/probe/admin binaries, a fresh
-private output directory, a fresh disposable `_smoke` schema and the existing
-MariaDB container flag. This makes the main HTTP target a local HTTPS fixture and
+For compiled-process acceptance, create an external TLS and replay case (§1.1)
+with fresh app/probe/admin binaries, a private output directory and a disposable
+MariaDB schema. This makes the main HTTP target a local HTTPS fixture and
 compares source TLS bytes with the hub's history, current state and `tls_info`
 projection across offline checks, process restarts and ACK pruning. It can be
-combined with `--verify-docker`. The fixture's per-monitor `tls_ignore` setting
+combined with the Docker-binding scenario. The fixture's per-monitor `tls_ignore` setting
 does not alter probe-management pin validation or production trust defaults.
 See [the slice acceptance](multi-region/M4_TLS_EVIDENCE.md) for executed evidence
 and the remaining certificate-alert/capacity work.
@@ -1487,9 +1479,9 @@ mirror lifecycle with zero `probe_delivery_intents`, immutable subject enforced 
 restatement, acknowledgement refused, orphan delivery refused, duplicate receipt
 adding no rows, and populated migration 067 down/up with the evidence guard.
 
-No compiled-process acceptance gate exists for this slice yet: `--verify-cert-paging`
-is not implemented in `scripts/probe_runtime_smoke.py`, and the TLS slice's
-`--verify-tls` fixture certificate is not inside the paging window. Treat the
+The historical compiled-process TLS scenario did not test certificate paging:
+its fixture certificate was outside the paging window. An external paging case
+must explicitly exercise that window and assert real notification effects. Treat the
 Go-level matrix above as the current evidence and read
 [the acceptance record](multi-region/M4_CERT_PAGING.md) for what stays unverified.
 
@@ -1566,12 +1558,11 @@ that MariaDB tests executed.
 : "${TEST_MARIADB_DSN:?Set a disposable MariaDB test DSN}"
 export TEST_MARIADB_DSN
 rtk proxy go test -race -count=1 -timeout 2400s -json ./internal/core/services ./internal/adapters/http/handlers ./internal/adapters/repository ./internal/adapters/ws ./internal/adapters/notifier -run 'TestMonitorRegional|TestRegionalDisplayHealthBoundaries|TestM5|TestProbeFleet|TestProbeDiagnostics|TestProbeAdmin|TestValidateDesired|TestProbeAssignmentService|TestMonitorServiceClone|TestValidEnrollment|TestRuntimeEndpoint|TestPublicRegionalCoverage|TestRegionalNotificationAttribution|TestRegionalEventsRecheck|TestRegionalCommandEvent|TestAccessChangePurges' > /tmp/m5-read.jsonl
-rtk proxy python3 scripts/m5_read_evidence.py /tmp/m5-read.jsonl
 ```
 
-The audit also accepts a full `go test -race -count=1 -timeout 60m -json ./...`
-log. It requires successful completion of the affected packages and named SQLite
-and MariaDB cases, rejects failed tests and rejects required skips/missing passes.
+Inspect the Go JSON events for successful completion of the affected packages
+and named SQLite/MariaDB cases; reject failures, required skips and missing passes.
+For the full suite, §1.1 provides the strict runner and its coverage parser.
 The suite now includes source revocation/deletion, ACK requester authority,
 current browser audience, public overall coverage and notification attribution.
 Full backend build, race tests, lint, vulnerability checks, frontend type/unit/
@@ -1581,25 +1572,14 @@ and Paraglide generation replaces files under the unit-test search root.
 
 ### M5 real enrollment and partition acceptance
 
-`scripts/m5_runtime_smoke.py` starts a real hub, autonomous edge, pinned-TLS
-partition relay, local checker target and webhook sink. Use a **fresh disposable**
-localhost MariaDB database whose name ends in `_smoke`; the script refuses other
-DSNs. Set `DB_DSN` with `parseTime=true&loc=UTC&multiStatements=true`, then:
-
-```sh
-rtk proxy env CGO_ENABLED=0 go build -o /tmp/m5-app ./cmd/app
-rtk proxy env CGO_ENABLED=0 go build -o /tmp/m5-probe ./cmd/probe
-rtk proxy python3 scripts/m5_runtime_smoke.py --app-binary /tmp/m5-app --probe-binary /tmp/m5-probe --output /tmp/m5-runtime-acceptance
-```
-
-Use an unused output directory. It contains private runtime identities and logs;
-only its redacted `report.json` is suitable for a committed evidence record.
-The harness exercises API registration/enrollment from initialized source IDs,
-two regional streams, offline pending configuration and ACK, stale UNKNOWN,
-reconnect/application receipts, and one original remote outage incident/delivery.
-It terminates its own processes in `finally`. This process test complements
-browser and scoped-authority tests; it does not establish M6 load, populated
-production migration, kill-point or deployment acceptance.
+Create an external campaign (§1.1) using a real hub, autonomous edge, pinned-TLS
+partition relay, local checker target and webhook sink on a fresh disposable
+MariaDB database. Build app/probe binaries from the same commit. Exercise API
+registration/enrollment, two regional streams, offline pending configuration and
+ACK, stale UNKNOWN, reconnect/application receipts, and one original remote
+outage incident/delivery. Retain private identities/logs externally and stop all
+owned processes. This complements browser and scoped-authority tests; it does
+not establish load, populated production migration or deployment acceptance.
 
 ## M6 fleet assignment-ownership gate (T34)
 
@@ -1673,33 +1653,14 @@ must not grow an 8443 egress rule unless the requirements document changes too.
 
 ## M6 bounded partitioned MariaDB migration rehearsal
 
-See [the recorded run](multi-region/M6_PARTITIONED_MIGRATION_REHEARSAL.md) and
-`scripts/rehearse_probe_heartbeat_migration.py`. Requires Docker and a cached
-`mariadb:11` image. The script starts and deletes its **own** randomly named
-no-network, no-published-port disposable container; it never reads a DSN or
-connects to the shared `TEST_MARIADB_DSN` database. Do not aim these SQL files
-at a live deployment. The empty root password is confined to this isolated
-container and is not a deployment example.
-
-```sh
-python3 -B scripts/rehearse_probe_heartbeat_migration.py --rows 100000 --hold-reader-seconds 0
-python3 -B scripts/rehearse_probe_heartbeat_migration.py --rows 100000 --hold-reader-seconds 3
-```
-
-Both commands must exit zero and print JSON. The second must observe a metadata
-lock wait; the first must not. Compare wall times, sampled data-directory size,
-legacy IDs/counts, index definitions and downgrade refusal. To additionally
-exercise the production `repository.RunMigrations` for `038`–`074` on this
-populated schema, use `--run-tail` on both commands; see the
-[runner evidence](multi-region/M6_MIGRATION_RUNNER_REHEARSAL.md). The helper is
-cross-compiled for the isolated container using the installed local Go toolchain
-and cached dependencies only (`GOPROXY=off`); it has a fixed Unix-socket test
-DSN and refuses execution outside the tagged container. The harness also
-refuses a remote Docker socket or uncached image. It records the
-already-applied `001`–`037` files before invoking it; **do not** describe those
-37 migrations as Go-runner-executed. The sampling is not a true disk peak, and
-neither synthetic run is the M6 production-sized, application-led upgrade gate,
-full section-13 matrix, or canary.
+Use the upgrade scenario in §1.1 and an external fixture generator. Preserve
+legacy IDs/counts and index definitions; exercise migration 037 with both no
+reader lock and a held reader lock, then run the remaining migrations through
+the production application. Require evidence of the actual metadata-lock wait,
+no-op restart and downgrade refusal. Use only disposable databases and owned
+containers. Sampled disk usage is not peak usage. The [historical run](multi-region/M6_PARTITIONED_MIGRATION_REHEARSAL.md)
+and [runner evidence](multi-region/M6_MIGRATION_RUNNER_REHEARSAL.md) describe the
+retired scripts and their limitations; they are not current runnable commands.
 
 ## M6 fresh dual-engine backend race gate
 
@@ -1723,18 +1684,40 @@ peak disk, physical engine upgrade or a verified rollback procedure.
 
 ## M6 edge disk-full and process-kill acceptance (T20 + T06 slices)
 
-Run `python3 -B scripts/m6_edge_disk_full.py` from the project root with a local
-Unix Docker socket and cached `mariadb:11` image. The script cross-compiles the
-edge test binary with the installed local Go toolchain and cached modules only,
-starts its own no-network container with a **32 MiB tmpfs**, and requires the
-named `TestEdgeDiskFullCriticalCommit` and both
-`TestEdgeCheckCrashAroundCommit` process-kill subtests **PASS**, not skips. The
-first fills only that isolated mount until actual kernel ENOSPC and checks failed
-recording, storage unhealthiness, no persisted partial state after restart, and
-exact-once retry state after freeing space. The second kills a child inside a
-real transaction and after commit returns, asserting all-or-nothing state on
-reopen. It removes the container on exit. The image supplies only Linux
-userspace; there is no MariaDB server or hub database in this gate.
+Run the existing Go tests directly in a disposable Linux container. From the
+repository root, use the Bash shell and external `VALIDATION_DIR` prepared in §1.1.
+Select a local Docker daemon, cache `mariadb:11`, and compile for its architecture:
+
+```bash
+case "$(docker info --format '{{.Architecture}}')" in
+  x86_64|amd64) EDGE_GOARCH=amd64 ;;
+  aarch64|arm64) EDGE_GOARCH=arm64 ;;
+  *) echo 'Unsupported Docker architecture' >&2; exit 1 ;;
+esac
+CGO_ENABLED=0 GOOS=linux GOARCH="$EDGE_GOARCH" go test -c \
+  -o "$VALIDATION_DIR/edge-test" ./internal/adapters/repository/edge
+EDGE_TEST_CONTAINER="phoenix-edge-test-$(date +%s)-$$"
+# Use a subshell so cleanup does not replace the caller's traps.
+(
+  trap 'docker rm -f "$EDGE_TEST_CONTAINER" >/dev/null 2>&1 || true' EXIT
+  docker create --name "$EDGE_TEST_CONTAINER" --network none --cpus 2 --memory 512m \
+    --tmpfs /data:rw,size=32m,mode=1777 \
+    -e TMPDIR=/data -e PHOENIX_EDGE_DISK_FULL_TEST=1 \
+    --entrypoint /tmp/edge-test mariadb:11 \
+    -test.v -test.timeout=180s \
+    '-test.run=^(TestEdgeDiskFullCriticalCommit|TestEdgeCheckCrashAroundCommit)$'
+  docker cp "$VALIDATION_DIR/edge-test" "$EDGE_TEST_CONTAINER:/tmp/edge-test"
+  docker start -a "$EDGE_TEST_CONTAINER" 2>&1 | tee "$VALIDATION_DIR/edge-storage.log"
+  test "$(docker inspect --format '{{.State.ExitCode}}' "$EDGE_TEST_CONTAINER")" = 0
+)
+```
+
+Require `TestEdgeDiskFullCriticalCommit` and both
+`TestEdgeCheckCrashAroundCommit` subtests (`inside-transaction` and `after-commit`)
+to pass with zero skips; inspect the saved output, not just the command exit code.
+The disk-full test verifies the isolated mount before filling it, checks actual
+kernel ENOSPC, rollback and exact-once retry. The crash test checks all-or-nothing
+state on reopen. The image supplies Linux userspace only; no database server runs.
 
 Also run `GOTOOLCHAIN=go1.26.6 go test -count=1 -run '^TestEdgeHealthStorageUnavailable$' ./cmd/probe`
 for the production health mapping (`ready=false`, `db_writable=false`,

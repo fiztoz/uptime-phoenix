@@ -11,7 +11,7 @@ import (
 )
 
 // TestEdgeDiskFullCriticalCommit runs only on the disposable Linux tmpfs
-// mounted by scripts/m6_edge_disk_full.py. It exercises a real kernel ENOSPC,
+// described in docs/TESTING.md. It exercises a real kernel ENOSPC,
 // not a fake repository or an injected SQLite trigger.
 func TestEdgeDiskFullCriticalCommit(t *testing.T) {
 	if os.Getenv("PHOENIX_EDGE_DISK_FULL_TEST") != "1" {

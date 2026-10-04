@@ -92,3 +92,18 @@ __pycache__/
 /scripts/m6_local_scenarios.py
 /scripts/test_m6_local_scenarios.py
 /scripts/release/image-smoke.py
+
+# Historical local smoke/evidence/rehearsal tools and load campaigns
+/scripts/capture-auth-settings-smoke.sh
+/scripts/group_notify_smoke.py
+/scripts/m4_cert_paging_evidence.py
+/scripts/m5_read_evidence.py
+/scripts/m5_runtime_smoke.py
+/scripts/m6_edge_disk_full.py
+/scripts/multi_region_smoke.py
+/scripts/probe_runtime_smoke.py
+/scripts/rbac_smoke.py
+/scripts/rehearse_probe_heartbeat_migration.py
+/scripts/rehearse_tail_migrations.go
+/scripts/reorder_smoke.py
+/tests/load/
