@@ -53,7 +53,7 @@ export const GROUP_CONDITIONS: {
  * snake_case, matches the existing handler style used by MonitorView etc.
  *
  * `status` is the derived status (domain.Status: 0=DOWN 1=UP 2=PENDING
- * 3=MAINTENANCE), null when the group has no derived status (ignore
+ * 3=MAINTENANCE 4=UNKNOWN), null when the group has no derived status (ignore
  * condition, or no children). This is only trustworthy for the FIRST paint —
  * after that, recompute live from the WS heartbeat stream via
  * `resolveGroupStatuses` below (see task contract, "Frontend contract").
@@ -156,28 +156,31 @@ export const monitorGroupsApi = {
 // must be mirrored here.
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Matches domain.Status: 0=DOWN 1=UP 2=PENDING 3=MAINTENANCE. */
-export type RollupStatus = 0 | 1 | 2 | 3;
+/** Matches domain.Status: 0=DOWN 1=UP 2=PENDING 3=MAINTENANCE 4=UNKNOWN. */
+export type RollupStatus = 0 | 1 | 2 | 3 | 4;
 export const ROLLUP_DOWN: RollupStatus = 0;
 export const ROLLUP_UP: RollupStatus = 1;
 export const ROLLUP_PENDING: RollupStatus = 2;
 export const ROLLUP_MAINTENANCE: RollupStatus = 3;
+export const ROLLUP_UNKNOWN: RollupStatus = 4;
 
 interface StatusTally {
   down: number;
   up: number;
+  unknown: number;
   /** Children NOT in maintenance — maintenance is excluded from every count. */
   active: number;
 }
 
 /** Port of monitor_group.go tallyStatuses. */
 function tallyStatuses(children: RollupStatus[]): StatusTally {
-  const t: StatusTally = { down: 0, up: 0, active: 0 };
+  const t: StatusTally = { down: 0, up: 0, unknown: 0, active: 0 };
   for (const s of children) {
     if (s === ROLLUP_MAINTENANCE) continue;
     t.active++;
     if (s === ROLLUP_DOWN) t.down++;
     else if (s === ROLLUP_UP) t.up++;
+    else if (s === ROLLUP_UNKNOWN) t.unknown++;
   }
   return t;
 }
@@ -248,6 +251,12 @@ export function rollupGroup(
 
   if (trips(group, t)) {
     return { status: ROLLUP_DOWN, ok: true };
+  }
+  if (group.condition === "all_down" && t.up > 0) {
+    return { status: ROLLUP_UP, ok: true };
+  }
+  if (t.unknown > 0) {
+    return { status: ROLLUP_UNKNOWN, ok: true };
   }
   if (t.up > 0) {
     return { status: ROLLUP_UP, ok: true };
@@ -387,8 +396,14 @@ export function resolveGroupStatuses(
  * heartbeat has been seen yet (e.g. a brand new monitor).
  */
 export function monitorToRollupStatus(
-  monitorStatus: "up" | "down" | "pending" | "maintenance" | "paused",
-  heartbeatStatus?: "up" | "down" | "pending" | "maintenance",
+  monitorStatus:
+    | "up"
+    | "down"
+    | "pending"
+    | "maintenance"
+    | "unknown"
+    | "paused",
+  heartbeatStatus?: "up" | "down" | "pending" | "maintenance" | "unknown",
 ): RollupStatus {
   const s =
     heartbeatStatus ??
@@ -400,6 +415,8 @@ export function monitorToRollupStatus(
       return ROLLUP_DOWN;
     case "maintenance":
       return ROLLUP_MAINTENANCE;
+    case "unknown":
+      return ROLLUP_UNKNOWN;
     default:
       return ROLLUP_PENDING;
   }
@@ -408,7 +425,7 @@ export function monitorToRollupStatus(
 /** Maps a RollupStatus (or null = no status) to the string union StatusPill expects. */
 export function rollupStatusToPillStatus(
   status: RollupStatus | null | undefined,
-): "up" | "down" | "pending" | "maintenance" {
+): "up" | "down" | "pending" | "maintenance" | "unknown" {
   switch (status) {
     case ROLLUP_DOWN:
       return "down";
@@ -416,6 +433,8 @@ export function rollupStatusToPillStatus(
       return "up";
     case ROLLUP_MAINTENANCE:
       return "maintenance";
+    case ROLLUP_UNKNOWN:
+      return "unknown";
     default:
       return "pending";
   }

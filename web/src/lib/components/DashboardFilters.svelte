@@ -42,7 +42,7 @@
 		typeOptions,
 		shown,
 		total,
-		statusCounts = { up: 0, down: 0, pending: 0, maintenance: 0, paused: 0 },
+		statusCounts = { up: 0, down: 0, pending: 0, unknown: 0, maintenance: 0, paused: 0 },
 		tagCounts = {},
 		cardBody = 'response',
 		onCardBodyChange,
@@ -55,6 +55,7 @@
 		up: m.dashboard_up(),
 		down: m.status_down(),
 		pending: m.status_pending(),
+		unknown: m.status_unknown(),
 		maintenance: m.status_maintenance(),
 		paused: m.status_paused(),
 	});
@@ -63,6 +64,7 @@
 		up: 'dot-up',
 		down: 'dot-down',
 		pending: 'dot-warn',
+		unknown: 'dot-muted',
 		maintenance: 'dot-info',
 		paused: 'dot-muted',
 	};

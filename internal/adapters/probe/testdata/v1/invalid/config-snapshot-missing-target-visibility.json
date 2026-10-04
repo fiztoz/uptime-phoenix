@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "hub_id": "b1123604-32c5-40aa-89f9-b62f93dceac2",
+  "probe_id": "e645246b-b176-4422-8ae5-b79629ee6a29",
+  "revision": "12",
+  "created_at": "2026-09-14T10:00:00Z",
+  "effective_at": "2026-09-14T10:01:00Z",
+  "assignments": [
+    {
+      "monitor_id": 42,
+      "generation": "3",
+      "active": true,
+      "monitor": {
+        "name": "API",
+        "description": "Public availability",
+        "owner": "Platform",
+        "effective_owner": "Operations",
+        "type": "http",
+        "interval": 60,
+        "retry_interval": 0,
+        "max_retries": 2,
+        "timeout": 2.5,
+        "config": {
+          "url": "https://example.test/health",
+          "method": "GET"
+        },
+        "accepted_statuscodes": [
+          "200-299"
+        ],
+        "upside_down": false,
+        "tls_ignore": false,
+        "cert_expiry_notify": true,
+        "resend_interval": 5,
+        "tags": [
+          {
+            "name": "environment",
+            "value": "production"
+          }
+        ]
+      },
+      "notification_ids": [
+        10
+      ],
+      "notification_links": [
+        {
+          "notification_id": 10
+        }
+      ],
+      "maintenance_ids": [
+        20
+      ],
+      "proxy_binding_key": "egress",
+      "resource_bindings": [],
+      "escalation_policy_id": 30,
+      "required_capabilities": [
+        "checker.http.v1"
+      ]
+    }
+  ],
+  "notification_channels": [
+    {
+      "id": 10,
+      "version": "12",
+      "type": "webhook",
+      "name": "Operations",
+      "active": true,
+      "config": {
+        "url": "https://example.test/hook"
+      },
+      "template_id": 11,
+      "include_ack_url": false
+    }
+  ],
+  "notification_templates": [
+    {
+      "id": 11,
+      "provider": "webhook",
+      "name": "JSON",
+      "version": "12",
+      "title_template": "",
+      "body_template": "{\"text\":{{json.message}}}",
+      "config": {}
+    }
+  ],
+  "maintenance_windows": [
+    {
+      "id": 20,
+      "active": true,
+      "strategy": "cron",
+      "start_date": null,
+      "end_date": null,
+      "cron_expr": "0 2 * * *",
+      "duration": 15,
+      "timezone": "Asia/Bangkok",
+      "monitor_ids": [
+        42
+      ]
+    }
+  ],
+  "proxy_bindings": [
+    {
+      "binding_key": "egress",
+      "version": "12",
+      "protocol": "socks5",
+      "host": "proxy.example.test",
+      "port": 1080,
+      "auth": true,
+      "username": "fixture-user",
+      "password": "fixture-secret",
+      "active": true
+    }
+  ],
+  "escalation_policies": [
+    {
+      "id": 30,
+      "version": "12",
+      "enabled": false,
+      "steps": []
+    }
+  ],
+  "watchdog": {
+    "enabled": true,
+    "lost_after_seconds": 90,
+    "recover_after_seconds": 30,
+    "notification_ids": [
+      10
+    ],
+    "resend_interval": 5
+  }
+}

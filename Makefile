@@ -148,6 +148,10 @@ build: build-backend build-frontend ## Build Go binary + frontend
 build-backend: ## Build Go binary (CGO_ENABLED=0, static)
 	CGO_ENABLED=0 go build $(GO_BUILD_FLAGS) -o bin/$(APP_NAME) ./cmd/app
 
+.PHONY: build-probe-key
+build-probe-key: ## Build the explicit probe snapshot key provisioning tool
+	CGO_ENABLED=0 go build $(GO_BUILD_FLAGS) -o bin/phoenix-probe-key ./cmd/phoenix-probe-key
+
 .PHONY: build-frontend
 build-frontend: ## Build SvelteKit frontend (production)
 	cd web && bun install --frozen-lockfile && bun run build
@@ -200,7 +204,7 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	go build ./...
 	go vet ./internal/...
 	@out="$$(gofmt -l internal/)"; if [ -n "$$out" ]; then echo "gofmt needed on:"; echo "$$out"; exit 1; fi
-	go test -race -count=1 ./...
+	go test -race -count=1 -timeout=2400s ./...
 	@test -x '$(GOLANGCI_LINT)' || go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	$(GOLANGCI_LINT) run
 	@test -d web/node_modules || (cd web && bun install --frozen-lockfile)
@@ -211,12 +215,14 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-production-split.yaml --set mariadbExternal.password=ci > /dev/null
 	helm template uptime-phoenix charts/uptime-phoenix --set redis.enabled=true --set redis.existingSecret=phoenix-redis > /dev/null
 	@$(MAKE) --no-print-directory helm-validate
+	@$(MAKE) --no-print-directory m6-backend-harness-gate
+	@$(MAKE) --no-print-directory release-image-gate
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
 	$(GOVULNCHECK) ./...
 	git diff --check
 	@echo ""
 	@echo "gate-full does NOT include: the MariaDB repository contract (needs TEST_MARIADB_DSN;"
-	@echo "CI runs that in the mariadb-contract job), the fresh-DB smoke suites in scripts/,"
+	@echo "CI runs that in the mariadb-contract job), external UAT/load campaigns,"
 	@echo "or the k6 load ramp. See docs/TESTING.md. Local gate-full remains required for"
 	@echo "thoroughness and works offline even when GitHub Actions is unavailable."
 
@@ -253,6 +259,17 @@ fmt-frontend: ## Format frontend code
 
 # ── Docker ────────────────────────────────────────────────────────────────────
 
+.PHONY: m6-backend-harness-gate
+m6-backend-harness-gate: ## Verify actual-engine coverage parsing without Docker or database access
+	python3 -B -m unittest discover -s scripts -p test_m6_dual_engine_gate.py -v
+
+.PHONY: release-image-gate
+release-image-gate: ## Verify required image/chart operations fail closed (mocked tools)
+	bash -n scripts/release/dry-run.sh scripts/release/test-image-failures.sh
+	bash scripts/release/test-image-failures.sh
+	python3 scripts/release/test-chart-publish.py
+	python3 scripts/release/test-binary-sboms.py
+
 .PHONY: build-docker
 build-docker: ## Build Docker image
 	docker build -t $(DOCKER_TAG) .
@@ -284,14 +301,15 @@ helm-validate: ## Assert the MariaDB topology renders its workload and the guard
 	helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true --set mode=worker > /dev/null
 	@echo "==> extension-only image changes must not roll Phoenix or MariaDB"
 	@./scripts/helm-checksum-scope.sh
+	@echo "==> remote-probe flag renders only with an explicit secret reference"
+	@./scripts/helm-probes-check.sh
 	@echo "==> in-release MariaDB must render StatefulSet + PVC + NetworkPolicy"
 	@out="$$(helm template uptime-phoenix charts/uptime-phoenix \
 		--set database.engine=mariadb --set mariadb.enabled=true --set networkPolicy.enabled=true)"; \
 	for want in "kind: StatefulSet" "kind: PersistentVolumeClaim" "kind: NetworkPolicy"; do \
 		printf '%s\n' "$$out" | grep -q "^$$want$$" || { echo "MISSING: $$want"; exit 1; }; \
 	done; \
-	printf '%s\n' "$$out" | grep -q 'tcp(uptime-phoenix-mariadb:3306)/phoenix' \
-		|| { echo "DSN is not wired to the in-release MariaDB Service"; exit 1; }; \
+	printf '%s\n' "$$out" | python3 -B scripts/helm-db-secret-check.py || exit 1; \
 	printf '%s\n' "$$out" | grep -q '^  name: uptime-phoenix-mariadb$$' \
 		|| { echo "MariaDB workload/Service is not named <release>-mariadb"; exit 1; }
 	@echo "==> the MariaDB Pod must not carry the labels the all-in-one Service selects on"

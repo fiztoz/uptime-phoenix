@@ -72,7 +72,7 @@ func BenchmarkInsightsReadPath(b *testing.B) {
 				b.Run("concurrent-cold", func(b *testing.B) {
 					b.ReportAllocs()
 					for b.Loop() {
-						key := newInsightsCacheKey(1, period, "http", nil, monitors)
+						key := newInsightsCacheKey(1, period, "http", nil, monitors, nil)
 						// Reset only this benchmark's process-local cache, retaining
 						// the same data/window as the sequential reference.
 						s.cache = insightsCache{}
@@ -86,7 +86,7 @@ func BenchmarkInsightsReadPath(b *testing.B) {
 					}
 				})
 				b.Run("cached", func(b *testing.B) {
-					key := newInsightsCacheKey(1, period, "http", nil, monitors)
+					key := newInsightsCacheKey(1, period, "http", nil, monitors, nil)
 					calculate := func(ctx context.Context) (*InsightsResult, error) {
 						return s.calculateInsights(ctx, newResult(), monitors)
 					}
@@ -95,7 +95,7 @@ func BenchmarkInsightsReadPath(b *testing.B) {
 					}
 					b.ReportAllocs()
 					for b.Loop() {
-						key = newInsightsCacheKey(1, period, "http", nil, monitors)
+						key = newInsightsCacheKey(1, period, "http", nil, monitors, nil)
 						result, err := s.cachedInsights(ctx, key, calculate)
 						if err != nil {
 							b.Fatal(err)

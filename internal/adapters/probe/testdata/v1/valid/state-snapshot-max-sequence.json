@@ -1,0 +1,38 @@
+{
+  "stream_id": "1395c134-da65-4d86-9b11-c9ce20c61748",
+  "config_revision": "12",
+  "created_at": "2026-09-14T09:00:00Z",
+  "last_created_seq": "9223372036854775807",
+  "states": [
+    {
+      "monitor_id": 42,
+      "assignment_generation": "3",
+      "last_observation_seq": "9223372036854775806",
+      "observed_at": "2026-09-14T09:00:00Z",
+      "status": "PENDING",
+      "down_count": 1,
+      "ping": 28,
+      "message": "Primary check succeeded",
+      "conditions": [],
+      "tls": null,
+      "active_source_alert_id": null
+    },
+    {
+      "monitor_id": 43,
+      "assignment_generation": "3",
+      "last_observation_seq": "9223372036854775807",
+      "observed_at": "2026-09-14T09:00:00Z",
+      "status": "DOWN",
+      "down_count": 2,
+      "ping": 28,
+      "message": "Primary check succeeded",
+      "conditions": [],
+      "tls": {
+        "not_after": "2026-09-13T09:00:00Z",
+        "days_remaining": -1,
+        "issuer": "Test CA"
+      },
+      "active_source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94540"
+    }
+  ]
+}

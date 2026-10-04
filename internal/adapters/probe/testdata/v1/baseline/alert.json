@@ -1,0 +1,12 @@
+{
+  "id": 8,
+  "monitor_id": 42,
+  "status": "firing",
+  "message": "DOWN",
+  "fired_at": "2026-09-15T10:00:00Z",
+  "acked_at": null,
+  "acked_by_user_id": null,
+  "resolved_at": null,
+  "created_at": "2026-09-15T10:00:00Z",
+  "updated_at": "2026-09-15T10:00:00Z"
+}

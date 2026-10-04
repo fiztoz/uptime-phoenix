@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -24,6 +25,7 @@ type MonitorGroupService struct {
 	hbRepo      ports.HeartbeatRepository
 	logger      ports.Logger
 	bus         ports.EventBus
+	overall     AggregateStatusReader
 }
 
 // SetEventBus wires the event bus so Delete can announce the monitors it
@@ -31,6 +33,10 @@ type MonitorGroupService struct {
 // already-connected clients keep showing the deleted group's membership until
 // they reload, because nothing on the wire tells them the monitors moved.
 func (s *MonitorGroupService) SetEventBus(bus ports.EventBus) { s.bus = bus }
+
+// SetAggregateStatus overlays overall policy status onto folder readers.
+// Optional: monitors without a remote assignment keep their latest heartbeat.
+func (s *MonitorGroupService) SetAggregateStatus(r AggregateStatusReader) { s.overall = r }
 
 // NewMonitorGroupService creates a new MonitorGroupService.
 func NewMonitorGroupService(
@@ -272,6 +278,13 @@ func (s *MonitorGroupService) ResolveStatuses(ctx context.Context, userID int64)
 			return nil, fmt.Errorf("monitor group service: resolve statuses: latest heartbeats: %w", err)
 		}
 	}
+	var aggregate map[int64]domain.Status
+	if s.overall != nil && len(monitorIDs) > 0 {
+		aggregate, err = s.overall.StatusForMonitors(ctx, monitorIDs, time.Now().UTC())
+		if err != nil {
+			return nil, fmt.Errorf("monitor group service: resolve statuses: overall health: %w", err)
+		}
+	}
 
 	visited := make(map[int64]bool, len(groups))
 	resolving := make(map[int64]bool, len(groups)) // cycle guard for bad data
@@ -294,6 +307,10 @@ func (s *MonitorGroupService) ResolveStatuses(ctx context.Context, userID int64)
 		var children []domain.Status
 
 		for _, m := range monitorsByGroup[g.ID] {
+			if status, ok := aggregate[m.ID]; ok {
+				children = append(children, status)
+				continue
+			}
 			hb := latest[m.ID]
 			if !batched {
 				hb, err = s.hbRepo.GetLatest(ctx, m.ID)

@@ -1,0 +1,269 @@
+{
+  "base_commit": "8e7b85bda7304d9e3ef8500fde8dd3850933b6b7",
+  "source_sha256": {
+    "cmd/probe/runtime.go": "f36923b2e8535b4759826e9c30a239fc32b07f739c2b8bedc48135a4dd23cc73",
+    "internal/adapters/probe/config_references.go": "cdc00404d53814fd818aaa2be3fbd359771c321225934053cc17caf8c9d6ad37",
+    "internal/adapters/probe/config_transfer_test.go": "b2c09a2c710db2058eaeb64650e85f6179929a9c08c531de63737c36921f67d0",
+    "internal/adapters/probe/config_watchdog_test.go": "bf2d51b87a8b0a4a205e135a9b773147d52b511810307f784faeed1b70fdbeac",
+    "internal/adapters/probe/edge_config.go": "251f211dd08cca24b32742cdc340b765ea1b620fa4d9d73f4219444e2934ab49",
+    "internal/adapters/probe/edge_config_test.go": "5b9abed66c5b029ce20efdeea88bd9c816fa9adba6bf19156dbf2abecc199e56",
+    "internal/adapters/probe/replay.go": "7fe10c2dad4ab4abc8370359f0f0b255a98174d71ed90a6cb64f81817af4ba10",
+    "internal/adapters/repository/probe_replay.go": "1cf6689fc08a53b64bcb74ee8f48aa919c7f1db6dde4730d00058603f4853ac1",
+    "internal/adapters/repository/probe_watchdog_settings_test.go": "6237d5088fe91a1c2041a0ef54bfae85ee0ec3e43d2e125e1de4e91bc816ac20",
+    "internal/core/domain/probe_replay.go": "c288dd65aa5e2bb4de7454e134b6f397eba814f17e4f50bae7cac63de4bf6892",
+    "internal/core/domain/probe_watchdog_commit.go": "7e3d3e344957796db580ff68ebd44b00a85eb516ee439f585196c2e252d227e6",
+    "internal/core/services/probe_replay_authorization.go": "3ca04440a78e699a798e3066d221002890018a463d07228ecc9b07ef9b6fd087",
+    "scripts/probe_runtime_smoke.py": "ed9786aac50ba6a0563bc44a7e6183f80c417671acc9537af1c7d4bd4e52164d",
+    "internal/adapters/probe/watchdog_replay_test.go": "32f36d1c267dbfc3b095cfa3f2e76a614467d0a3b0ed6f7cd056101bbb2ed51f",
+    "internal/adapters/repository/probe_watchdog_replay_test.go": "cef9193677145d2c876588e38429a9db3774ad43e0529e0a5450f454531a258d",
+    "internal/core/services/probe_watchdog_replay_test.go": "91c451eb6b9a57ea1dea14d5d5fa4adc9f577824a951b53728ef8612b38f5b55"
+  },
+  "commands_executed": [
+    "GOTOOLCHAIN=go1.26.6 go test -race -count=1 -timeout=20m -json ./... (TEST_MARIADB_DSN for disposable MariaDB)",
+    "CGO_ENABLED=0 go build ./...",
+    "golangci-lint run",
+    "scripts/probe_runtime_smoke.py --verify-replay --verify-history --verify-watchdog (fresh disposable schema; current binaries)",
+    "git diff --check"
+  ],
+  "counts": {
+    "package_skip": 13,
+    "test_pass": 3288,
+    "package_pass": 22,
+    "mariadb_named_pass": 241,
+    "mariadb_engine_pass": 204,
+    "test_skip": 2
+  },
+  "count_note": "Named pass counts include parents and SQLite tests named after MariaDB regressions; lowercase /mariadb counts engine subtest events, not independent scenarios.",
+  "named_skips": [
+    {
+      "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/checker",
+      "test": "TestDatabaseChecker_Check_MongoDB_RealServer"
+    },
+    {
+      "package": "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier",
+      "test": "TestTelegramSender_Send_DownSeverity"
+    }
+  ],
+  "watchdog_pass_events": [
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/probe:TestEnabledWatchdogRequiresMetadataAndCapability",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority/opening",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority/disabled",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority/missing_config",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority/hub_owner",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority/wrong_scope",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority/monitor",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority/unknown_ACK",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority/rollback_recovery",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority/administrative_disable",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority/changed_start",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority/terminal",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority/missing_opening",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayLifecycleAuthority",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayDeliveryUsesResendConfigAndSourceOrder/resend",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayDeliveryUsesResendConfigAndSourceOrder/rollback_retry",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayDeliveryUsesResendConfigAndSourceOrder/wrong_channel",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayDeliveryUsesResendConfigAndSourceOrder/missing_config",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayDeliveryUsesResendConfigAndSourceOrder/disabled",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayDeliveryUsesResendConfigAndSourceOrder/missing_parent",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayDeliveryUsesResendConfigAndSourceOrder/wrong_subject",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayDeliveryUsesResendConfigAndSourceOrder/hub_owner",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayDeliveryUsesResendConfigAndSourceOrder/older_config",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayDeliveryUsesResendConfigAndSourceOrder/terminal_result",
+    "github.com/fiztoz/uptime-phoenix/internal/core/services:TestWatchdogReplayDeliveryUsesResendConfigAndSourceOrder",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/probe:TestReplayWatchdogDTOUsesAuthenticatedProbeAndNoMonitor/batch-watchdog-firing.json",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/probe:TestReplayWatchdogDTOUsesAuthenticatedProbeAndNoMonitor/batch-watchdog-resolved.json",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/probe:TestReplayWatchdogDTOUsesAuthenticatedProbeAndNoMonitor",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestWatchdogReplayStorage/sqlite/ResendHistoryAndClockRollback",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestWatchdogReplayStorage/sqlite/HubSourceOwnership",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestWatchdogReplayStorage/sqlite/AtomicRollback",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestWatchdogReplayStorage/sqlite/AdministrativeDisable",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestWatchdogReplayStorage/sqlite",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestWatchdogReplayStorage/mariadb/ResendHistoryAndClockRollback",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestWatchdogReplayStorage/mariadb/HubSourceOwnership",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestWatchdogReplayStorage/mariadb/AtomicRollback",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestWatchdogReplayStorage/mariadb/AdministrativeDisable",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestWatchdogReplayStorage/mariadb",
+    "github.com/fiztoz/uptime-phoenix/internal/adapters/repository:TestWatchdogReplayStorage"
+  ],
+  "full_race_log": "/private/tmp/phoenix-m3-watchdog-enabled-full.jsonl",
+  "full_race_sha256": "e2081ea0aa85b538771e570328eec4041b02cdefae0d422d144040b18b357c1f",
+  "process_report": "/private/tmp/phoenix-m3-watchdog-enabled-process-acceptance/report.json",
+  "process_report_sha256": "4c61495d7ad2366f49771d0adc896cc1ac1ae3bdeaa44426827bddc1f93e5eb5",
+  "process": {
+    "passed": [
+      "TLS-only edge starts without hub",
+      "duplicate data-directory owner rejected; hub routes absent",
+      "hub API ready",
+      "background worker owns the not-yet-enrolled runtime",
+      "operator enrollment succeeds with background connectors already running",
+      "real hub connector activates accepted config",
+      "edge records healthy checks",
+      "hub durably records exact applied receipt",
+      "saved API edit automatically reaches edge",
+      "new desired revision has durable applied receipt",
+      "live telemetry reaches a durable hub and edge cursor",
+      "closed edge session releases its connection fence",
+      "edge reconnect advances session within the same runtime owner",
+      "two hub workers preserve runtime ownership across an edge restart",
+      "two hub workers retain one fenced management session",
+      "offline DOWN and provider retry persist atomically",
+      "pending provider intent resumes after offline process restart",
+      "offline UP resolves the same incident and sends recovery",
+      "offline mixed telemetry survives restart and provider recovery",
+      "reconnection advances fence without resetting source sequence",
+      "reconnected workers commit the full offline telemetry prefix",
+      "replay mirrors observations and outcomes without hub provider work",
+      "cold restart resumes beyond the acknowledged backlog",
+      "production workers recompute closed regional and overall history after restart",
+      "reconnection preserves stream, accepted config and delivery history",
+      "enabled watchdog config durably applied on both sides",
+      "both watchdogs observe healthy application frames",
+      "both live owners send watchdog DOWN during network partition",
+      "offline edge restart retains the original watchdog",
+      "watchdog restart does not duplicate the initial notification",
+      "both watchdogs send stable recovery after reconnect",
+      "edge watchdog lifecycle and provider outcomes replay durably",
+      "mirrored edge watchdog causes no hub redelivery or rejection"
+    ],
+    "identity": {
+      "probe_id": "aad6d4c2-63cf-438f-b76d-886eae0f601b",
+      "stream_id": "f2748b88-eeca-4419-926b-209a2e9283b8",
+      "certificate_fingerprint": "da1f5117f09c9d1c743c5d2ac70cd6f9d0d4c4fbd824af6149cd6f4c54579851",
+      "last_created_seq": "0",
+      "config_revision": "0",
+      "expires_at": "2026-09-20T16:10:29.911056Z"
+    },
+    "before_restart": {
+      "probe_id": "aad6d4c2-63cf-438f-b76d-886eae0f601b",
+      "stream_id": "f2748b88-eeca-4419-926b-209a2e9283b8",
+      "last_created_seq": 36,
+      "committed_seq": 32,
+      "config_revision": 2,
+      "connection_generation": 5
+    },
+    "final": {
+      "probe_id": "aad6d4c2-63cf-438f-b76d-886eae0f601b",
+      "stream_id": "f2748b88-eeca-4419-926b-209a2e9283b8",
+      "last_created_seq": 200,
+      "committed_seq": 200,
+      "config_revision": 3,
+      "connection_generation": 15
+    },
+    "incident": "1bd9ffda-6078-4ed6-9f7d-555674b12bc6",
+    "provider_attempt_statuses": [
+      503,
+      200,
+      200,
+      200,
+      200,
+      200,
+      200
+    ],
+    "successful_webhook_statuses": [
+      0,
+      1,
+      0,
+      0,
+      1,
+      1
+    ],
+    "replay_verified": true,
+    "replay": {
+      "offline_high_water": 53,
+      "offline_backlog_count": 21,
+      "mirrored_observation_sequences": [
+        33,
+        34,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        51
+      ],
+      "mirrored_incidents": [
+        {
+          "id": "1bd9ffda-6078-4ed6-9f7d-555674b12bc6",
+          "status": "resolved"
+        }
+      ],
+      "mirrored_delivery_outcomes": [
+        {
+          "id": "38068bd3-03e6-4d4b-a564-9b2506101f9e",
+          "status": "sent"
+        },
+        {
+          "id": "ed0f0677-abe0-4b66-a611-917471e03cc6",
+          "status": "sent"
+        }
+      ],
+      "hub_send_intents": 0,
+      "hub_cursor": 55,
+      "edge_cursor": 55
+    },
+    "history_verified": true,
+    "history": {
+      "total_checks": 18,
+      "known_us": 25064389,
+      "unknown_us": 2594629,
+      "managed": 1,
+      "bucket_utc_epoch": 1789920000,
+      "source_observations": 18,
+      "overall_coverage_us": 60000000,
+      "pending_minute_work": 0
+    },
+    "runtime_ownership": {
+      "epoch": 1,
+      "generation_before": 3,
+      "generation_after": 5,
+      "stable_across_backoff": true
+    },
+    "watchdog_verified": true,
+    "watchdog": {
+      "edge_source_id": "3d1f8ff3-1355-488a-a9c8-3f20c0cbdd7d",
+      "hub_source_id": "3a9491c0-3806-441d-be18-e97cdb31a894",
+      "down_after_seconds": 92.04368124998291,
+      "recovery_after_reconnect_seconds": 64.09131866600364,
+      "edge_mirror": [
+        {
+          "id": "3d1f8ff3-1355-488a-a9c8-3f20c0cbdd7d",
+          "status": "resolved",
+          "version": 2
+        }
+      ],
+      "edge_delivery_outcomes": [
+        {
+          "status": "sent",
+          "count": 2
+        }
+      ],
+      "hook_statuses": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "hub_edge_send_intents": 0,
+      "high_water": 200
+    }
+  },
+  "build_exit": 0,
+  "lint_issues": 0,
+  "audit_conversation": "6021bb6b-40c0-4daf-95f6-31c24e785d82",
+  "audit_note": "No-tools pasted-source design and implementation review; corrected version-contract and ACK-authority claims; final audit found no actionable findings but did not run tests.",
+  "limits": [
+    "Remote ACK correlation remains rejected until durable command implementation",
+    "Commands, credential/certificate rotation and explicit stream reset remain required",
+    "Short partition acceptance does not replace final real fifteen-minute partition with queued ACK",
+    "Bounded flush and final whole-M3 frontend/process gate remain",
+    "No schema/frontend/Helm/dependency changes in this increment"
+  ]
+}

@@ -142,8 +142,7 @@ func (r *MonitorRepo) Create(ctx context.Context, m *domain.Monitor) error {
 	if len(model.AcceptedStatusCodes) == 0 {
 		model.AcceptedStatusCodes = repository.StringListField{"200-299"}
 	}
-	_, err := r.db.NewInsert().Model(model).Exec(ctx)
-	if err != nil {
+	if err := repository.CreateMonitorWithLocalAssignment(ctx, r.db, model); err != nil {
 		return translateError(err)
 	}
 	m.ID = model.ID
@@ -238,10 +237,26 @@ func (r *MonitorRepo) ListActive(ctx context.Context) ([]*domain.Monitor, error)
 	return out, nil
 }
 
+// ListByWorker returns active monitors with a current lease owned by workerID.
+func (r *MonitorRepo) ListByWorker(ctx context.Context, workerID string, leaseExpiry time.Time) ([]*domain.Monitor, error) {
+	var models []*repository.MonitorModel
+	if err := r.db.NewSelect().Model(&models).
+		Where("active = TRUE AND worker_id = ? AND leased_at >= ?", workerID, leaseExpiry.UTC()).
+		Order("id ASC").Scan(ctx); err != nil {
+		return nil, translateError(err)
+	}
+	out := make([]*domain.Monitor, len(models))
+	for i, m := range models {
+		out[i] = m.ToDomain()
+	}
+	return out, nil
+}
+
 func (r *MonitorRepo) Update(ctx context.Context, m *domain.Monitor) error {
 	model := repository.MonitorModelFromDomain(m)
 	model.UpdatedAt = time.Now().UTC()
-	_, err := r.db.NewUpdate().Model(model).WherePK().Exec(ctx)
+	// Only claim/refresh/release operations own worker lease columns.
+	_, err := r.db.NewUpdate().Model(model).ExcludeColumn("worker_id", "leased_at").WherePK().Exec(ctx)
 	return translateError(err)
 }
 
@@ -266,7 +281,7 @@ func (r *MonitorRepo) ClaimBatch(ctx context.Context, workerID string, batchSize
 	// Step 1: Claim monitors by updating their lease columns.
 	// SQLite supports UPDATE ... FROM (since 3.33.0) but we use a simpler subquery approach.
 	_, err := r.db.Exec(
-		"UPDATE monitors SET worker_id = ?, leased_at = ? WHERE id IN (SELECT id FROM monitors WHERE active = TRUE AND (worker_id IS NULL OR leased_at < ? OR worker_id = ?) ORDER BY id LIMIT ?)",
+		"UPDATE monitors SET worker_id = ?, leased_at = ? WHERE id IN (SELECT id FROM monitors WHERE active = TRUE AND (worker_id IS NULL OR leased_at < ? OR worker_id = ?) AND "+repository.LocalHubExecutionSQL("monitors.id")+" ORDER BY id LIMIT ?)",
 		workerID, now, leaseExpiry, workerID, batchSize,
 	)
 	if err != nil {
@@ -582,13 +597,28 @@ func (r *HeartbeatRepo) GetLatestForMonitors(ctx context.Context, monitorIDs []i
 // ListByMonitor returns heartbeats in [from, to].
 //
 // The bounds are forced to UTC here, at the boundary, and not merely by
-// convention upstream. Rows hold a UTC wall-clock, and the SQLite driver renders
-// a bound in WHATEVER ZONE IT CARRIES (unlike the MySQL driver, which converts to
-// the DSN's loc=UTC). A local-zoned bound therefore compares a local wall-clock
-// against UTC text and silently shifts the window by the server's UTC offset —
-// which is exactly how the chart came to return zero rows on a UTC+7 host. Not
-// every caller goes through HeartbeatService (StatusPageService holds this repo
-// directly), so the guarantee has to live here. See AGENTS.md rule 6.
+// convention upstream. Rows hold a UTC wall-clock, and keeping the conversion in
+// both adapters identical is the point. Not every caller goes through
+// HeartbeatService (StatusPageService holds this repo directly), so the guarantee
+// has to live at this layer regardless. See AGENTS.md rule 6.
+//
+// Correction to an earlier version of this comment, which had the two engines
+// exactly inverted. It claimed the SQLite driver renders a bound in whatever zone
+// it carries while "the MySQL driver converts to the DSN's loc=UTC". Measured the
+// other way round, and now pinned by tests:
+//
+//   - SQLite: heartbeats.time is TEXT, and the driver serializes a time.Time to
+//     UTC before writing. One instant passed as UTC and as UTC+7 yields the
+//     identical stored string and the identical WHERE literal, so this path cannot
+//     shift. Its .UTC() is therefore redundant for correctness.
+//   - MariaDB: the driver writes the value's own wall-clock even with loc=UTC in
+//     the DSN, so a UTC+7 bound lands seven hours out and matches nothing. There
+//     the .UTC() is load-bearing.
+//
+// See TestHeartbeatUTCBound_SQLite_DriverNormalizesToUTC and
+// TestHeartbeatUTCBound_MariaDB_LocalZonedBoundShiftsSQL. The redundant conversion
+// stays deliberately: symmetry means no caller can come to rely on one engine's
+// forgiveness and quietly break on the other.
 func (r *HeartbeatRepo) ListByMonitor(ctx context.Context, monitorID int64, from, to time.Time) ([]*domain.Heartbeat, error) {
 	var models []*repository.HeartbeatModel
 	err := r.db.NewSelect().Model(&models).
@@ -654,16 +684,18 @@ func (r *HeartbeatRepo) SaveAggregate1m(ctx context.Context, agg *ports.Aggregat
 	m := repository.Aggregate1mFromDomain(agg)
 	_, err := r.db.NewInsert().Model(m).
 		ModelTableExpr("heartbeat_1m").
-		On("CONFLICT(monitor_id, bucket) DO UPDATE").
+		On(repository.AggregateConflictTarget).
 		Set("up_count = EXCLUDED.up_count").
 		Set("down_count = EXCLUDED.down_count").
 		Set("pending_count = EXCLUDED.pending_count").
 		Set("maint_count = EXCLUDED.maint_count").
+		Set("unknown_count = EXCLUDED.unknown_count").
 		Set("avg_ping = EXCLUDED.avg_ping").
 		Set("min_ping = EXCLUDED.min_ping").
 		Set("max_ping = EXCLUDED.max_ping").
 		Set("ping_count = EXCLUDED.ping_count").
 		Set("total_checks = EXCLUDED.total_checks").
+		Where("history_managed = FALSE").
 		Exec(ctx)
 	return translateError(err)
 }
@@ -672,16 +704,18 @@ func (r *HeartbeatRepo) SaveAggregate1h(ctx context.Context, agg *ports.Aggregat
 	m := repository.Aggregate1hFromDomain(agg)
 	_, err := r.db.NewInsert().Model(m).
 		ModelTableExpr("heartbeat_1h").
-		On("CONFLICT(monitor_id, bucket) DO UPDATE").
+		On(repository.AggregateConflictTarget).
 		Set("up_count = EXCLUDED.up_count").
 		Set("down_count = EXCLUDED.down_count").
 		Set("pending_count = EXCLUDED.pending_count").
 		Set("maint_count = EXCLUDED.maint_count").
+		Set("unknown_count = EXCLUDED.unknown_count").
 		Set("avg_ping = EXCLUDED.avg_ping").
 		Set("min_ping = EXCLUDED.min_ping").
 		Set("max_ping = EXCLUDED.max_ping").
 		Set("ping_count = EXCLUDED.ping_count").
 		Set("total_checks = EXCLUDED.total_checks").
+		Where("history_managed = FALSE").
 		Exec(ctx)
 	return translateError(err)
 }
@@ -690,16 +724,18 @@ func (r *HeartbeatRepo) SaveAggregate1d(ctx context.Context, agg *ports.Aggregat
 	m := repository.Aggregate1dFromDomain(agg)
 	_, err := r.db.NewInsert().Model(m).
 		ModelTableExpr("heartbeat_1d").
-		On("CONFLICT(monitor_id, bucket) DO UPDATE").
+		On(repository.AggregateConflictTarget).
 		Set("up_count = EXCLUDED.up_count").
 		Set("down_count = EXCLUDED.down_count").
 		Set("pending_count = EXCLUDED.pending_count").
 		Set("maint_count = EXCLUDED.maint_count").
+		Set("unknown_count = EXCLUDED.unknown_count").
 		Set("avg_ping = EXCLUDED.avg_ping").
 		Set("min_ping = EXCLUDED.min_ping").
 		Set("max_ping = EXCLUDED.max_ping").
 		Set("ping_count = EXCLUDED.ping_count").
 		Set("total_checks = EXCLUDED.total_checks").
+		Where("history_managed = FALSE").
 		Exec(ctx)
 	return translateError(err)
 }
@@ -710,7 +746,7 @@ func (r *HeartbeatRepo) GetAggregate1m(ctx context.Context, monitorID int64, fro
 		ModelTableExpr("heartbeat_1m AS aggregate_model").
 		Where("monitor_id = ?", monitorID).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("bucket ASC").
+		OrderExpr("bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -728,7 +764,7 @@ func (r *HeartbeatRepo) GetAggregate1h(ctx context.Context, monitorID int64, fro
 		ModelTableExpr("heartbeat_1h AS aggregate_model").
 		Where("monitor_id = ?", monitorID).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("bucket ASC").
+		OrderExpr("bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -746,7 +782,7 @@ func (r *HeartbeatRepo) GetAggregate1d(ctx context.Context, monitorID int64, fro
 		ModelTableExpr("heartbeat_1d AS aggregate_model").
 		Where("monitor_id = ?", monitorID).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("bucket ASC").
+		OrderExpr("bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -770,7 +806,7 @@ func (r *HeartbeatRepo) GetAggregate1hForMonitors(ctx context.Context, monitorID
 		ModelTableExpr("heartbeat_1h AS aggregate_model").
 		Where("monitor_id IN (?)", bun.List(monitorIDs)).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("monitor_id ASC, bucket ASC").
+		OrderExpr("monitor_id ASC, bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -793,7 +829,7 @@ func (r *HeartbeatRepo) GetAggregate1dForMonitors(ctx context.Context, monitorID
 		ModelTableExpr("heartbeat_1d AS aggregate_model").
 		Where("monitor_id IN (?)", bun.List(monitorIDs)).
 		Where("bucket >= ?", from.UTC()).
-		OrderExpr("monitor_id ASC, bucket ASC").
+		OrderExpr("monitor_id ASC, bucket ASC, probe_id ASC, id ASC").
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
@@ -2156,15 +2192,23 @@ func (r *MaintenanceWindowMonitorRepo) ListByMonitor(ctx context.Context, monito
 // ---------------------------------------------------------------------------
 
 // TLSInfoRepo implements ports.TLSInfoRepository.
-type TLSInfoRepo struct{ db *bun.DB }
+type TLSInfoRepo struct {
+	db    *bun.DB
+	scope repository.AuxiliaryScope
+}
 
 // NewTLSInfoRepo creates a SQLite-backed TLS info repository.
 func NewTLSInfoRepo(db *bun.DB) *TLSInfoRepo { return &TLSInfoRepo{db: db} }
 
 func (r *TLSInfoRepo) Upsert(ctx context.Context, info *ports.TLSInfo) error {
+	scope, err := r.scope.Resolve(ctx, r.db, info.MonitorID)
+	if err != nil {
+		return err
+	}
 	m := repository.TLSInfoModelFromPort(info)
-	_, err := r.db.NewInsert().Model(m).
-		On("CONFLICT(monitor_id) DO UPDATE").
+	m.ProbeID, m.AssignmentGeneration = scope.ProbeID, scope.Generation
+	_, err = r.db.NewInsert().Model(m).
+		On("CONFLICT(monitor_id, probe_id, assignment_generation) DO UPDATE").
 		Set("info_json = EXCLUDED.info_json").
 		Set("checked_at = EXCLUDED.checked_at").
 		Exec(ctx)
@@ -2173,11 +2217,22 @@ func (r *TLSInfoRepo) Upsert(ctx context.Context, info *ports.TLSInfo) error {
 
 func (r *TLSInfoRepo) GetByMonitorID(ctx context.Context, monitorID int64) (*ports.TLSInfo, error) {
 	m := new(repository.TLSInfoModel)
-	if err := r.db.NewSelect().Model(m).Where("monitor_id = ?", monitorID).Scan(ctx); err != nil {
+	if err := r.scope.Filter(r.db.NewSelect().Model(m), "tls_info_model").Where("monitor_id = ?", monitorID).Scan(ctx); err != nil {
 		return nil, translateError(err)
 	}
 	return m.ToPort()
 }
+
+// ForAssignment returns an isolated certificate state view for a trusted worker.
+func (r *TLSInfoRepo) ForAssignment(probeID string, generation int64) (ports.TLSInfoRepository, error) {
+	scope, err := repository.NewAuxiliaryScope(probeID, generation)
+	if err != nil {
+		return nil, err
+	}
+	return &TLSInfoRepo{db: r.db, scope: scope}, nil
+}
+
+var _ ports.RegionalTLSInfoRepository = (*TLSInfoRepo)(nil)
 
 // ---------------------------------------------------------------------------
 // Repository — unified facade embedding all individual repos.

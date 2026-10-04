@@ -1,0 +1,135 @@
+{
+  "date": "2026-09-22",
+  "baseline": "1c00241",
+  "scope": "M4 Docker probe-local resource binding slice; not full M4 completion",
+  "toolchain": "go1.26.6",
+  "mariadb": "11.8.9",
+  "commands": [
+    "CGO_ENABLED=0 GOTOOLCHAIN=go1.26.6 go build ./...",
+    "GOTOOLCHAIN=go1.26.6 TEST_MARIADB_DSN=<disposable,parseTime=true,loc=UTC,multiStatements=true> go test -json -race -count=1 -timeout=2400s -p 4 ./...",
+    "GOTOOLCHAIN=go1.26.6 /Users/fizto/go/bin/golangci-lint run --timeout=5m",
+    "scripts/probe_runtime_smoke.py --verify-docker --verify-replay --mariadb-container phoenix-m04-checker-coverage <fresh binaries, output directory and disposable schema>"
+  ],
+  "race": {
+    "named_passes": 3771,
+    "packages_passed": 22,
+    "failures": 0,
+    "mariadb_named_passes": 316,
+    "mariadb_skips": 0,
+    "skipped": [
+      "TestDatabaseChecker_Check_MongoDB_RealServer",
+      "TestTelegramSender_Send_DownSeverity"
+    ]
+  },
+  "smoke": {
+    "stages_passed": 26,
+    "passed": [
+      "TLS-only edge starts without hub",
+      "duplicate data-directory owner rejected; hub routes absent",
+      "hub API ready",
+      "background worker owns the not-yet-enrolled runtime",
+      "operator enrollment succeeds with background connectors already running",
+      "real hub connector activates accepted config",
+      "edge records healthy checks",
+      "extended pull checker telemetry reaches the hub",
+      "bound Docker telemetry reaches the hub",
+      "hub durably records exact applied receipt",
+      "saved API edit automatically reaches edge",
+      "new desired revision has durable applied receipt",
+      "live telemetry reaches a durable hub and edge cursor",
+      "closed edge session releases its connection fence",
+      "edge reconnect advances session within the same runtime owner",
+      "two hub workers preserve runtime ownership across an edge restart",
+      "two hub workers retain one fenced management session",
+      "offline DOWN and provider retry persist atomically",
+      "pending provider intent resumes after offline process restart",
+      "offline UP resolves the same incident and sends recovery",
+      "offline mixed telemetry survives restart and provider recovery",
+      "reconnection advances fence without resetting source sequence",
+      "reconnected workers commit the full offline telemetry prefix",
+      "replay mirrors observations and outcomes without hub provider work",
+      "cold restart resumes beyond the acknowledged backlog",
+      "reconnection preserves stream, accepted config and delivery history"
+    ],
+    "replay_verified": true,
+    "docker_verified": true,
+    "hub_send_intents": 0,
+    "offline_backlog_count": 41,
+    "history_watchdog_commands_rotations_reset_partition_shutdown_flags": false
+  },
+  "source_hashes": {
+    "cmd/probe/main.go": "8796cf034e604450fe2a6ede68dd39405db0688ea5b65c961813128eb00947b8",
+    "cmd/probe/runtime.go": "82c807713a90dbc73eea96472467053b9ed2f179bfa48363a9931f7fe5081af5",
+    "internal/adapters/probe/checker_capabilities.go": "dbfdcd4015e9b2f5ee8b49101935faa31721a031fd64dfc710960f9c36326bc0",
+    "internal/adapters/probe/checker_capabilities_test.go": "b6d1e7bfa5e4bf548167dbdae456978ed66683c2c5faaad3c7f0e59c2c494008",
+    "internal/adapters/probe/config_encoder.go": "b376c3895c91b9968bd40eb17892952535026fe829da6683fc707937d0ea609e",
+    "internal/adapters/probe/edge_config.go": "362ef434b1f1717c43c3a9924b6bb24da69fcbb85447332e37af8d98ed810c47",
+    "internal/adapters/probe/edge_config_test.go": "7eae266f1325a3d9bf56f664a0bb2954bdb834e8213e496568acb9f7d88c36e4",
+    "internal/adapters/probe/handshake.go": "acfe57b55afa008594f008277e4a7b523f4a6193232336820d874f24eeb43d9e",
+    "internal/adapters/probe/hub_transport.go": "11f017adc2d036983041978ba48521e4f3619344403e712a3a777c40d889ab8d",
+    "internal/adapters/probe/remote_config_encoder_test.go": "ab26bb44ac625a7b09c78e2b8ba0c3037fe1ceb7d7b5b369e8e8d87dffd278c1",
+    "internal/adapters/probe/runtime_session.go": "0b3c9ad550fbf4e2eba956be6fc8d8c89a0fae09d3645615722a1bdc7e050859",
+    "internal/adapters/repository/probe_config_source.go": "3590a1f2b304266315e36637a41a3e5a3f1b8637040304a103e09af618f2631d",
+    "internal/adapters/repository/probe_registry.go": "4813b4261085065bd550cc53d8556846dca408324c0a894024778ffb044e199f",
+    "internal/adapters/repository/probe_registry_test.go": "e93f371527d336992cb1e02aeadc6411d1e2f39e78166648946009d767c50768",
+    "internal/bootstrap/probe_admin.go": "92dd57e91d687ccde8ab709593d688b26f25a9d2f89fe3e47398e85e90f8c9f0",
+    "internal/bootstrap/run.go": "873fa504261218dda73b8369bd8a82aa53bbe86db21dd72b6792a8c16771cbdf",
+    "internal/core/domain/probe_config_build.go": "83dbe1083ebcb856388231e191fa7ce6edaf1bf3fce428d23914fc5d620feed6",
+    "internal/core/domain/probe_registry.go": "8afe4635dafa60888405ea356afeac78e1578f6f84609a4f94dd6b0b92f4f89c",
+    "scripts/probe_runtime_smoke.py": "56d9f0c656968a00fe7e142b8c42faabccaa5b89caf6f44d11fe657ca5643b35",
+    "internal/adapters/probe/resource_bindings.go": "23b29dc5538486a154104ee158b84b22e3bcb7d992eae1fd2b6d0a8198984f70",
+    "internal/adapters/probe/resource_bindings_test.go": "926d5a0810c906dc157c73be77d373b02843a774ace2aaf31945f09f74e04b02",
+    "internal/adapters/repository/mariadb/migrations/065_probe_resource_bindings.down.sql": "1692a762f5cebadd30481322daef59b9ccc114f4c45d73b96816b7ec5d86c03d",
+    "internal/adapters/repository/mariadb/migrations/065_probe_resource_bindings.up.sql": "096c0f5679e092d08b3f25fae2bea69a3e76d6e9cddff081c06f1376b654f6d5",
+    "internal/adapters/repository/probe_resource_bindings.go": "9e86873bc18b09ae19fed7450faea1fde71d90d8914412c5640f903fd82feee8",
+    "internal/adapters/repository/probe_resource_bindings_test.go": "21fc142ce118590386c5468257a0e12a44c81178cfb111641158b56a11badd22",
+    "internal/adapters/repository/sqlite/migrations/065_probe_resource_bindings.down.sql": "4275ef933017fb47283c8c2b8458ce9c19a434aa9dc5070c2505d08166a02907",
+    "internal/adapters/repository/sqlite/migrations/065_probe_resource_bindings.up.sql": "2fb7516f0162d62b144ed601aba4e8d2f1e95e9f331bdc4bcd8daa16c8ff475c",
+    "internal/bootstrap/probe_admin_bindings.go": "907fd60dcc0ea5f84b4483bc65b9156ef5a49c5e5e4f91f4e7c6012901f79aa8",
+    "internal/core/domain/probe_resource.go": "2ebad5d95cb3ac7ade8ddda0785bf06423f9bf79d7187a3a3399af4b3a3f715d"
+  },
+  "artifacts": {
+    "race.log": {
+      "path": "/private/tmp/phoenix-m4-docker-gate/race.log",
+      "sha256": "bf7635e292a2d01c3af095bcaa077cb13f66814ae2465f3969e2c68b4cd6f830"
+    },
+    "lint.log": {
+      "path": "/private/tmp/phoenix-m4-docker-gate/lint.log",
+      "sha256": "e92606b0bf483111dff0a120c315ea165821348f31365020e2468a0059095c47"
+    },
+    "build.log": {
+      "path": "/private/tmp/phoenix-m4-docker-gate/build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "commands.jsonl": {
+      "path": "/private/tmp/phoenix-m4-docker-gate/commands.jsonl",
+      "sha256": "fdc94760808f88da16f624231f9f7b125c468c12f347f2a162486a39a48bee11"
+    }
+  },
+  "process_report": {
+    "path": "/private/tmp/phoenix-m4-docker-gate/smoke-1790088072/report.json",
+    "sha256": "2db69ca20395906ec6da2033bd440ca703f85c4cc7c2cc8c17e5adb7b671c3e1"
+  },
+  "binaries": {
+    "app": {
+      "path": "/private/tmp/phoenix-m4-docker-gate/app",
+      "sha256": "293b28c615633e96c351ea00f153bcefd1a796b551a17e12b648d4719b5e29aa"
+    },
+    "probe": {
+      "path": "/private/tmp/phoenix-m4-docker-gate/probe",
+      "sha256": "68de797dff27904b1f14d76f0bb15c64a4ba4a7c21e5d889d7b79923ec4110c1"
+    },
+    "phoenix-probe-admin": {
+      "path": "/private/tmp/phoenix-m4-docker-gate/phoenix-probe-admin",
+      "sha256": "ce6ae4c39a7f8cd853086d10b660b5a381c08b0cd4ccdf07d500ccb336cb1047"
+    }
+  },
+  "initial_failure": "The first full run omitted documented MariaDB multiStatements=true, causing existing TestProbeInstallationContract/mariadb/DowngradeGuards to fail. The isolated same-config reproduction failed, the corrected-DSN run passed, and the final full run passed; no production SQL change was made.",
+  "unverified": [
+    "Docker TLS/client-certificate transport (unsupported by existing checker)",
+    "Real remote Docker daemon permissions/network policies beyond Unix/TCP local protocol fixtures",
+    "Privileged/allowed-host ICMP execution",
+    "Remaining M4 auxiliary/lifecycle/escalation/backup/deployment compatibility; M5 fleet UI/API",
+    "M3 extended 900-second outage/rotation/reset acceptance was not rerun for this slice"
+  ]
+}

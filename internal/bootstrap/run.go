@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 
 	// Module-root package is `assets` (//go:embed web/dist); import path is the module path.
@@ -27,18 +29,23 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/logger"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/metrics"
 	notifieradapter "github.com/fiztoz/uptime-phoenix/internal/adapters/notifier"
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/probe"
 	repo "github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	mariadbrepo "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb"
 	sqliterepo "github.com/fiztoz/uptime-phoenix/internal/adapters/repository/sqlite"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/scheduler"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/telemetry"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/ws"
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
 // Run starts Phoenix with the given configuration and blocks until shutdown.
 func Run(cfg Config) error {
+	if cfg.ProbesEnabled && cfg.ProbeSecretKeyFile == "" {
+		return fmt.Errorf("PROBES_ENABLED requires PROBE_SECRET_KEY_FILE")
+	}
 	if err := validateJWTExpireHours(cfg.JWTExpireH); err != nil {
 		return err
 	}
@@ -46,7 +53,8 @@ func Run(cfg Config) error {
 	log := logger.New(cfg.LogLevel)
 	log.Info("phoenix starting", "port", cfg.Port, "db_engine", cfg.DBEngine, "mode", cfg.Mode)
 
-	ctx := context.Background()
+	ctx, cancelRuntime := context.WithCancel(context.Background())
+	defer cancelRuntime()
 	otelShutdown, err := telemetry.Init(ctx, telemetry.Config{
 		Endpoint:    cfg.OTELEndpoint,
 		ServiceName: cfg.OTELService,
@@ -70,6 +78,29 @@ func Run(cfg Config) error {
 	log.Info("database migrations complete")
 
 	repos := wireRepositories(cfg.DBEngine, db)
+
+	var protector ports.ProbeConfigProtector
+	var credentialProtector ports.ProbeCredentialProtector
+	var commandProtector ports.ProbeCommandProtector
+	var installationHubID string
+	if cfg.ProbeSecretKeyFile != "" {
+		p, err := auth.NewProbeConfigProtectorFromFile(ctx, cfg.ProbeSecretKeyFile)
+		if err != nil {
+			log.Error("failed to load probe secret key", "error", err)
+			return fmt.Errorf("probe secret key: %w", err)
+		}
+		protector = p
+		credentialProtector = p
+		commandProtector = p
+		installationSvc := services.NewProbeInstallationService(repos.probeInstallation)
+		inst, err := installationSvc.InitializeOrVerify(ctx, protector, cfg.ProbeHubID)
+		if err != nil {
+			log.Error("failed to initialize or verify probe installation", "error", err)
+			return fmt.Errorf("probe installation: %w", err)
+		}
+		log.Info("probe installation verified", "hub_id", inst.HubID)
+		installationHubID = inst.HubID
+	}
 
 	jwtAuth := auth.NewJWTAuthenticator(cfg.JWTSecret, cfg.JWTExpireH, repos.user)
 	totpProvider := auth.NewTOTPProvider(cfg.TOTPIssuer)
@@ -115,6 +146,14 @@ func Run(cfg Config) error {
 	defer bus.Close()
 
 	monitorSvc := services.NewMonitorService(repos.monitor, bus)
+	// T34 activation gate for the two HTTP-facing remote-write entry points
+	// (assignment replacement and create/clone with assignments). The operator
+	// CLI's assign command builds its own from the same store and lookback. The
+	// lookback follows the configured shard lease TTL so a running worker cannot
+	// look dead.
+	fleetGate := services.NewFleetActivationGate(repos.hubWorkerReadiness, fleetLeaseLookback(cfg))
+	monitorSvc.SetAssignmentProvisioning(repos.probeAssignWriter, repos.probeRegistry, checkeradapter.CapabilityInspector{}, fleetGate)
+	monitorSvc.SetAssignmentReader(repos.probeAssignments)
 	monitorSvc.SetProxyRepo(repos.proxy)
 	// Without this the service rejects every monitor that carries a GroupID, so
 	// filing a monitor into a group would fail at runtime while the tests (which
@@ -129,8 +168,15 @@ func Run(cfg Config) error {
 	monitorGroupSvc.SetEventBus(bus)
 	heartbeatSvc := services.NewHeartbeatService(repos.heartbeat, bus)
 	heartbeatSvc.SetTLSInfoRepo(repos.tlsInfo)
+	heartbeatSvc.SetRegionalRecorder(repos.probeAssignments, repos.localHeartbeat)
+	healthSvc := services.NewMonitorHealthService(repos.monitor, repos.probeAssignments, repos.regionalCommit, nil)
+	healthSvc.SetProjections(repos.projections)
+	heartbeatSvc.SetOverallProjector(healthSvc)
+	heartbeatSvc.SetAggregateStatus(healthSvc)
+	monitorGroupSvc.SetAggregateStatus(healthSvc)
 
 	notificationSvc := services.NewNotificationService(repos.notification, repos.monitorNotif)
+	notificationSvc.SetEventBus(bus)
 	notificationSvc.SetTemplateRepository(repos.notificationTemplate)
 	notificationTemplateSvc := services.NewNotificationTemplateService(repos.notificationTemplate)
 	// Folder alerting: without this the group attach/detach routes fail closed
@@ -179,6 +225,10 @@ func Run(cfg Config) error {
 	)
 	statusPageSvc.SetIncidentNotifier(subscriptionSvc)
 	statusPageSvc.SetSubscriptionAvailability(subscriptionSvc)
+	statusPageSvc.SetAggregateStatus(healthSvc)
+	if cfg.ProbesEnabled {
+		statusPageSvc.SetRegionalHealth(healthSvc)
+	}
 
 	tagSvc := services.NewTagService(repos.tag, repos.monitorTag)
 	notificationSvc.SetTagReader(tagSvc)
@@ -188,6 +238,8 @@ func Run(cfg Config) error {
 	maintenanceSvc.SetAnnouncementNotifier(subscriptionSvc)
 	conditionSvc := services.NewMonitorConditionService(repos.monitorCondition, notificationSvc, maintenanceSvc, bus)
 	heartbeatSvc.SetConditionEvaluator(conditionSvc)
+	heartbeatSvc.SetMaintenance(maintenanceSvc)
+	heartbeatSvc.SetHistoryClearStore(repo.NewHistoryClearStore(db))
 
 	// The single authorization choke point. Every handler, every middleware and the
 	// WebSocket hub resolve "may this user see / do this?" through this one service
@@ -195,7 +247,20 @@ func Run(cfg Config) error {
 	// and monitor repos a group grant cannot be expanded, and the service would
 	// (correctly, but uselessly) fail closed on every non-admin.
 	accessSvc := services.NewAccessService(repos.user, repos.userPerm, repos.monitorGroup, repos.monitor)
+	// Health reads fail closed without the access choke point: every M5 regional
+	// route would 404 even for monitors the caller owns.
+	healthSvc.SetAccess(accessSvc)
+	accessSvc.SetEventBus(bus)
 	authSvc.SetUserChangeHook(accessSvc.InvalidateUser)
+	regionalSvc := services.NewMonitorRegionalService(healthSvc, repos.probeRegistry)
+	regionalSvc.SetDiagnostics(repos.probeDiagnostics)
+	regionalSvc.SetHistory(repo.NewRegionalCommitStore(db), repos.probeAssignments)
+	fleetSvc := services.NewProbeFleetService(repos.probeDiagnostics)
+	hub := ws.NewHub(bus, repos.monitor, repos.heartbeat, accessSvc, tagSvc, slog.Default())
+	browserPublisher := handlers.NewRegionalBrowserPublisher(regionalSvc, fleetSvc, repo.NewRegionalCommitStore(db), bus, hub.BroadcastRegional, hub.ActiveConnections)
+	if cfg.ProbesEnabled && cfg.Mode != "worker" {
+		go browserPublisher.Run(ctx)
+	}
 	log.Info("access service initialized")
 
 	backupSvc := services.NewBackupService(
@@ -216,6 +281,9 @@ func Run(cfg Config) error {
 	backupSvc.SetGroupNotificationRepo(repos.groupNotif)
 	backupSvc.SetNotificationTemplateRepo(repos.notificationTemplate)
 	backupSvc.SetSubscriberRepo(repos.spSubscriber)
+	backupSvc.SetProbeRegistry(repos.probeRegistry)
+	backupSvc.SetProbeAssignments(repos.probeAssignments)
+	backupSvc.SetFleetActivationGate(fleetGate)
 	backupSvc.SetMonitorService(monitorSvc)
 	backupSvc.SetProxyService(proxySvc)
 	backupSvc.SetMonitorGroupService(monitorGroupSvc)
@@ -236,6 +304,9 @@ func Run(cfg Config) error {
 		repos.maintMonitor,
 		passwordHasher,
 	)
+	configSvc.SetProbeRegistry(repos.probeRegistry)
+	configSvc.SetProbeAssignments(repos.probeAssignments)
+	configSvc.SetFleetActivationGate(fleetGate)
 
 	// Wire automatic alerting: the dispatcher turns confirmed status transitions
 	// into notifications (with maintenance suppression and resend throttling).
@@ -245,10 +316,14 @@ func Run(cfg Config) error {
 	// F2.2: alert lifecycle entity + ack suppression of resends.
 	alertSvc := services.NewAlertService(repos.alert)
 	notifDispatcher := services.NewNotificationDispatcher(notificationSvc, maintenanceSvc)
+	notifDispatcher.SetThrottleRepository(repos.notificationThrottle)
+	notifDispatcher.SetAssignmentRepository(repos.probeAssignments)
 	notifDispatcher.SetAutoResolver(statusPageSvc)
+	notifDispatcher.SetAggregateStatus(healthSvc)
 	notifDispatcher.SetAlertLifecycle(alertSvc)
 	notifDispatcher.SetPublicURL(cfg.PublicURL)
-	// Folder alerting rides the same heartbeat path, for the same reason: a
+	// Folder alerting rides the heartbeat path and, when probes are enabled, the
+	// worker's committed remote evidence. It does not ride the bus: a
 	// bus-subscribed alerter would fire once per worker under Redis fan-out. The
 	// remaining race — two workers moving the same folder at once — is closed by
 	// the compare-and-set inside GroupAlertService, not by this wiring.
@@ -259,6 +334,7 @@ func Run(cfg Config) error {
 		repos.heartbeat,
 		notificationSvc,
 	)
+	groupAlertSvc.SetAggregateStatus(healthSvc)
 	notifDispatcher.SetGroupEvaluator(groupAlertSvc)
 	// F2.3: escalation ladders. StartForAlert runs AFTER the dispatcher's own
 	// step-zero notification, and cancellation is wired into AlertService rather
@@ -275,6 +351,7 @@ func Run(cfg Config) error {
 		notificationSvc,
 	)
 	escalationSvc.SetWorkerID(cfg.WorkerID)
+	escalationSvc.SetAssignmentRepository(repos.probeAssignments)
 	notifDispatcher.SetEscalationStarter(escalationSvc)
 	alertSvc.SetEscalationCanceller(escalationSvc)
 	heartbeatSvc.SetDispatcher(notifDispatcher)
@@ -283,6 +360,70 @@ func Run(cfg Config) error {
 	certAlertSvc := services.NewCertificateAlertService(repos.tlsInfo, notificationSvc, maintenanceSvc)
 	heartbeatSvc.SetCertAlert(certAlertSvc)
 	log.Info("notification dispatcher wired to heartbeat service", "group_alerting", true, "cert_alerts", true, "alert_lifecycle", true, "escalation", true)
+
+	var deliveryConsumer *services.DeliveryOutboxConsumer
+	if cfg.ProbeSecretKeyFile != "" && protector != nil {
+		inspector := probe.ConfigInspector{}
+		preparedSvc := services.NewProbeConfigService(repos.probeConfig, inspector, protector)
+		validator := probe.NewLocalConfigValidator(checkeradapter.Get, notifieradapter.Get)
+		validationSvc := services.NewLocalProbeConfigValidationService(preparedSvc, validator)
+		activationSvc := services.NewLocalProbeConfigActivationService(validationSvc, repos.probeActivation)
+		encoder := probe.LocalConfigEncoder{}
+		refreshSvc := services.NewLocalProbeConfigRefreshService(
+			repos.localProbeConfigSource,
+			encoder,
+			preparedSvc,
+			activationSvc,
+			repos.probeActivation,
+			repos.probeInstallation,
+		)
+		refreshSvc.StartEventSubscription(ctx, bus)
+		activeCfg, err := refreshSvc.Refresh(ctx)
+		if err != nil {
+			log.Error("failed to activate initial probe configuration", "error", err)
+			return fmt.Errorf("probe config refresh: %w", err)
+		}
+		log.Info("probe configuration activated", "revision", activeCfg.Revision)
+
+		heartbeatSvc.SetActivationRepo(repos.probeActivation)
+		heartbeatSvc.SetMonitorNotificationRepo(repos.monitorNotif)
+		// The recorder owns availability lifecycle and durable work. Only the
+		// consumer performs availability provider I/O in this mode.
+		notifDispatcher.SetOutboxDelivery(true)
+		reader, ok := repos.probeActivation.(ports.LocalAppliedConfigReader)
+		if !ok {
+			return domain.ErrValidation
+		}
+		escalationSvc.SetAppliedConfigReader(reader)
+		escalationSvc.SetDeliveryOutbox(repo.NewEscalationOutboxStore(db, encoder))
+
+		consumerCfg := services.DefaultDeliveryConsumerConfig()
+		consumerCfg.PublicURL = cfg.PublicURL
+		deliveryConsumer = services.NewDeliveryOutboxConsumer(
+			repos.deliveryOutbox,
+			repos.notification,
+			consumerCfg,
+		)
+		deliveryConsumer.SetAssignmentRepository(repos.probeAssignments)
+		deliveryConsumer.SetActivationRepository(repos.probeActivation)
+		deliveryConsumer.SetIncidentRepository(repos.probeIncident)
+		deliveryConsumer.SetMonitorNotificationRepository(repos.monitorNotif)
+		deliveryConsumer.SetMonitorRepository(repos.monitor)
+		deliveryConsumer.SetAlertRepository(repos.alert)
+		deliveryConsumer.SetTemplateRepository(repos.notificationTemplate)
+		deliveryConsumer.SetMaintenanceChecker(maintenanceSvc)
+		deliveryConsumer.SetCronEvaluator(cronEval)
+		deliveryConsumer.SetTagReader(tagSvc)
+		for _, t := range []string{
+			"telegram", "discord", "slack", "smtp", "webhook",
+			"teams", "mattermost", "gotify",
+			"bark", "feishu", "line",
+		} {
+			if sender, ok := notifieradapter.Get(t); ok {
+				deliveryConsumer.RegisterSender(sender)
+			}
+		}
+	}
 
 	aggregateSvc := services.NewAggregateService(repos.heartbeat, repos.monitor, log)
 	monitorStatsSvc := services.NewMonitorStatsService(repos.heartbeat, repos.monitor, repos.tlsInfo, aggregateSvc)
@@ -295,6 +436,7 @@ func Run(cfg Config) error {
 		return fmt.Errorf("heartbeat repository does not support batched reliability rollups")
 	}
 	insightsSvc := services.NewInsightsService(reliabilityReader, aggregateReader, repos.monitor, repos.monitorGroup, accessSvc)
+	insightsSvc.SetProjectionReader(repos.projections)
 	log.Info("aggregate and insights services initialized")
 
 	metricsExporter := metrics.NewPrometheusExporter()
@@ -302,10 +444,96 @@ func Run(cfg Config) error {
 
 	isAPI := cfg.Mode == "all" || cfg.Mode == "api"
 	isWorker := cfg.Mode == "all" || cfg.Mode == "worker"
+	var historyDone chan struct{}
+	if isWorker {
+		historyDone = make(chan struct{})
+		historyService := services.NewProbeHistoryService(repo.NewRegionalCommitStore(db))
+		go func() { defer close(historyDone); probeHistoryLoop(ctx, historyService, log) }()
+		defer func() { cancelRuntime(); <-historyDone }()
+	}
+	var connectorDone chan struct{}
+	if cfg.ProbesEnabled && isWorker {
+		policy, err := probe.LoadEndpointPolicy(cfg.ProbeEndpointPolicyFile)
+		if err != nil {
+			return err
+		}
+		owner, err := uuid.NewRandom()
+		if err != nil {
+			return fmt.Errorf("probe connector owner unavailable")
+		}
+		replayStore := repo.NewProbeReplayStore(db, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
+		replayStore.SetCommands(commandProtector, probe.AcknowledgementCodec{})
+		stateIngest, err := services.NewProbeStateService(replayStore, accessSvc)
+		if err != nil {
+			return err
+		}
+		stateIngest.SetGroupAlerter(groupAlertSvc)
+		stateIngest.SetBrowserPublisher(browserPublisher)
+		stateIngest.SetStatusPageRecovery(healthSvc, statusPageSvc)
+		transport := probe.NewHubTransport(policy)
+		transport.SetStateIngest(stateIngest)
+		connections := repo.NewProbeConnectorStore(db)
+		commandStore := repo.NewProbeCommandStore(db, commandProtector, probe.AcknowledgementCodec{}, credentialProtector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
+		commands, err := services.NewProbeCommandService(commandStore, connections, commandProtector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
+		if err != nil {
+			return err
+		}
+		commands.SetBrowserEvents(bus, repos.probeIncident)
+		transport.SetCommands(commands)
+		connector, err := services.NewProbeConnectorService(connections, connections, connections, credentialProtector,
+			services.NewProbeConfigService(repos.probeConfig, probe.ConfigInspector{}, protector),
+			transport, installationHubID, owner.String(),
+			func(failures int, healthy time.Duration) time.Duration {
+				return probe.ReconnectDelay(failures, healthy, rand.Float64())
+			})
+		if err != nil {
+			return err
+		}
+		replay, err := services.NewProbeReplayService(replayStore, accessSvc)
+		if err != nil {
+			return err
+		}
+		replay.SetGroupAlerter(groupAlertSvc)
+		replay.SetBrowserPublisher(browserPublisher)
+		replay.SetStatusPageRecovery(healthSvc, statusPageSvc)
+		connector.SetReplayIngest(replay)
+		connector.SetCredentialRotation(commandStore)
+		connector.SetCertificateRotation(commandStore)
+		connector.SetStreamReset(repo.NewProbeStreamResetStore(db, protector, credentialProtector, probe.StreamResetCodec{}))
+		connector.SetConfigSync(repo.NewRemoteProbeConfigSyncStore(db, probe.RemoteConfigEncoder{}, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector))
+		watchdogStore := repo.NewProbeWatchdogStore(db, protector, probe.EdgeTelemetryEncoder{})
+		if err := connector.SetWatchdogFactory(func(ctx context.Context, owner domain.ProbeRuntimeLease) (*services.ProbeWatchdogRuntime, error) {
+			connection, err := connections.GetConnection(ctx, owner.ProbeID)
+			if err != nil {
+				return nil, err
+			}
+			authority := domain.ProbeWatchdogAuthority{HubID: installationHubID, ProbeID: owner.ProbeID, StreamID: connection.StreamID, RuntimeOwner: owner}
+			reader := repo.NewProbeWatchdogConfigReader(watchdogStore, authority, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get))
+			readAuthority := func(context.Context) (domain.ProbeWatchdogAuthority, error) { return authority, nil }
+			runtime, err := services.NewProbeWatchdogRuntime(watchdogStore, reader, readAuthority, "probe")
+			if err != nil {
+				return nil, err
+			}
+			delivery, err := services.NewProbeWatchdogDeliveryService(repo.NewRegionalCommitStore(db), reader, watchdogStore, readAuthority, notifieradapter.Get)
+			if err != nil {
+				return nil, err
+			}
+			runtime.SetDelivery(delivery, owner.ProbeID)
+			return runtime, nil
+		}); err != nil {
+			return err
+		}
+		connectorDone = make(chan struct{})
+		go func() {
+			defer close(connectorDone)
+			connector.Run(ctx, func(err error) { log.Warn("probe connector", "error", err) })
+		}()
+		defer func() { cancelRuntime(); <-connectorDone }()
+		log.Info("probe connector enabled", "owner_id", owner.String())
+	}
 
 	// The hub filters every outbound frame against the receiving client's visible
 	// monitor set. Without accessSvc it would fail closed and emit nothing.
-	hub := ws.NewHub(bus, repos.monitor, repos.heartbeat, accessSvc, tagSvc, slog.Default())
 
 	// Make dropped events observable. Both the bus subscriber buffer and the
 	// per-client send buffer discard on overflow by design; without these counters
@@ -339,6 +567,15 @@ func Run(cfg Config) error {
 				},
 			)
 			sharded.SetProxyRepo(repos.proxy)
+			sharded.SetAssignmentRepo(repos.probeAssignments)
+			// Only sharded workers attest: they are the ones enumerable through
+			// monitors.worker_id. A local-mode worker holds no lease, so it has no
+			// identity to attest under and no mixed-version window (one process,
+			// upgraded atomically).
+			sharded.SetFleetReadiness(repos.hubWorkerReadiness)
+			if cfg.ProbeSecretKeyFile != "" {
+				sharded.SetActivationRepo(repos.probeActivation)
+			}
 			sched = sharded
 			log.Info("sharded scheduler configured",
 				"worker_id", cfg.WorkerID,
@@ -357,6 +594,10 @@ func Run(cfg Config) error {
 				slog.Default(),
 			)
 			local.SetProxyRepo(repos.proxy)
+			local.SetAssignmentRepo(repos.probeAssignments)
+			if cfg.ProbeSecretKeyFile != "" {
+				local.SetActivationRepo(repos.probeActivation)
+			}
 			sched = local
 		}
 		var schedCtx context.Context
@@ -384,6 +625,11 @@ func Run(cfg Config) error {
 			}()
 		} else {
 			log.Info("heartbeat retention disabled (HEARTBEAT_RETENTION_DAYS=0)")
+		}
+		if deliveryConsumer != nil {
+			go func() {
+				deliveryConsumerLoop(schedCtx, deliveryConsumer, time.Second, log)
+			}()
 		}
 	}
 
@@ -422,7 +668,12 @@ func Run(cfg Config) error {
 	conditionHandlers := handlers.NewMonitorConditionHandlers(conditionSvc, accessSvc)
 	statsHandlers := handlers.NewStatsHandlers(monitorStatsSvc, accessSvc)
 	pushHandler := handlers.NewPushHandler(monitorSvc, heartbeatSvc)
+	pushHandler.SetAssignmentRepo(repos.probeAssignments)
+	if cfg.ProbeSecretKeyFile != "" {
+		pushHandler.SetActivationRepo(repos.probeActivation)
+	}
 	badgeHandlers := handlers.NewBadgeHandlers(repos.monitor, repos.heartbeat, aggregateSvc)
+	badgeHandlers.SetAggregateStatus(healthSvc)
 	backupHandlers := handlers.NewBackupHandlers(backupSvc)
 	configHandlers := handlers.NewConfigHandlers(configSvc)
 	alertHandlers := handlers.NewAlertHandlers(alertSvc, accessSvc)
@@ -432,8 +683,58 @@ func Run(cfg Config) error {
 	insightsHandlers := handlers.NewInsightsHandlers(insightsSvc)
 	extensionHandlers := handlers.NewExtensionHandlers(cfg.ExtensionsJSON)
 
+	heartbeatHandlers.SetOverall(regionalSvc)
+	regionalHandlers := handlers.NewMonitorRegionalHandlers(regionalSvc, cfg.ProbesEnabled)
+	if cfg.ProbesEnabled {
+		regionalHandlers.SetBrowserPublisher(browserPublisher)
+	}
+	regionalHandlers.SetAssignments(services.NewProbeAssignmentService(repos.probeAssignWriter, repos.probeAssignments, repos.probeRegistry, repos.monitor, checkeradapter.CapabilityInspector{}, fleetGate))
+	var adminSvc *services.ProbeAdminService
+	if cfg.ProbesEnabled {
+		// Durable administrative operations wrap the same connector/rotation/
+		// reset services the local operator flow composes. They are constructed
+		// here so the API surface can serve them without running the connector
+		// loop (an API replica does not become a worker by serving admin routes).
+		policy, err := probe.LoadEndpointPolicy(cfg.ProbeEndpointPolicyFile)
+		if err != nil {
+			return err
+		}
+		adminOwner, err := uuid.NewRandom()
+		if err != nil {
+			return fmt.Errorf("probe admin owner unavailable")
+		}
+		connections := repo.NewProbeConnectorStore(db)
+		adminConnector, err := services.NewProbeConnectorService(connections, connections, connections, credentialProtector,
+			services.NewProbeConfigService(repos.probeConfig, probe.ConfigInspector{}, protector),
+			probe.NewHubTransport(policy), installationHubID, adminOwner.String(),
+			func(failures int, healthy time.Duration) time.Duration {
+				return probe.ReconnectDelay(failures, healthy, rand.Float64())
+			})
+		if err != nil {
+			return err
+		}
+		rotations, err := services.NewProbeCredentialRotationService(
+			repo.NewProbeCommandStore(db, commandProtector, probe.AcknowledgementCodec{}, credentialProtector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{}),
+			connections, commandProtector, credentialProtector, probe.CredentialCommandCodec{})
+		if err != nil {
+			return err
+		}
+		adminSvc = services.NewProbeAdminService(repo.NewProbeOperationStore(db), repos.probeRegistry, repos.probeInstallation,
+			connections, adminConnector, rotations, repo.NewProbeStreamResetStore(db, protector, credentialProtector, probe.StreamResetCodec{}))
+		adminSvc.SetLifecycle(repo.NewProbeLifecycleStore(db))
+		ackStore := repo.NewProbeCommandStore(db, commandProtector, probe.AcknowledgementCodec{}, credentialProtector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
+		ackCommands, err := services.NewProbeCommandService(ackStore, connections, commandProtector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
+		if err != nil {
+			return err
+		}
+		ackCommands.SetBrowserEvents(bus, repos.probeIncident)
+		regionalHandlers.SetAlerts(services.NewProbeAlertService(accessSvc, repos.probeIncident, repos.probeRegistry, repos.probeInstallation, ackCommands, ackStore))
+	}
 	httpOpts := httppkg.RouterOptions{
-		Production: cfg.Production,
+		RegionalMonitors: regionalHandlers,
+		ProbeFleet:       handlers.NewProbeFleetHandlers(fleetSvc, cfg.ProbesEnabled),
+		ProbeAdmin:       handlers.NewProbeAdminHandlers(adminSvc, fleetSvc, cfg.ProbesEnabled),
+		Production:       cfg.Production,
 		RateLimit: middleware.RateLimitConfig{
 			RequestsPerSecond: cfg.RateLimitRPS,
 			Burst:             cfg.RateLimitBurst,
@@ -478,6 +779,10 @@ func Run(cfg Config) error {
 		cfg.PublicURL,
 	)
 
+	if protector != nil {
+		e.Use(middleware.ConfigRefreshAfterMutation(bus))
+	}
+
 	if isAPI {
 		go func() {
 			addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
@@ -496,6 +801,13 @@ func Run(cfg Config) error {
 
 	<-sigCtx.Done()
 	log.Info("shutdown signal received")
+	cancelRuntime()
+	if historyDone != nil {
+		<-historyDone
+	}
+	if connectorDone != nil {
+		<-connectorDone
+	}
 
 	if schedCancel != nil {
 		schedCancel()
@@ -588,40 +900,72 @@ func openDB(cfg Config, log *logger.SlogLogger) (*bun.DB, error) {
 }
 
 type repoBundle struct {
-	user                 ports.UserRepository
-	apiKey               ports.APIKeyRepository
-	monitor              ports.MonitorRepository
-	monitorGroup         ports.MonitorGroupRepository
-	heartbeat            ports.HeartbeatRepository
-	monitorCondition     ports.MonitorConditionRepository
-	tlsInfo              ports.TLSInfoRepository
-	notification         ports.NotificationRepository
-	notificationTemplate ports.NotificationTemplateRepository
-	monitorNotif         ports.MonitorNotificationRepository
-	groupNotif           ports.GroupNotificationRepository
-	statusPage           ports.StatusPageRepository
-	incident             ports.IncidentRepository
-	incidentUpdate       ports.IncidentUpdateRepository
-	cname                ports.StatusPageCNAMERepository
-	spMonitor            ports.StatusPageMonitorRepository
-	spSubscriber         ports.StatusPageSubscriberRepository
-	tag                  ports.TagRepository
-	maintenance          ports.MaintenanceRepository
-	proxy                ports.ProxyRepository
-	monitorTag           ports.MonitorTagRepository
-	maintMonitor         ports.MaintenanceWindowMonitorRepository
-	webAuthnCred         ports.WebAuthnCredentialRepository
-	userPerm             ports.UserPermissionRepository
-	oidcIdentity         ports.OIDCIdentityRepository
-	configKey            ports.ConfigKeyRepository
-	alert                ports.AlertRepository
-	escalationPolicy     ports.EscalationPolicyRepository
-	escalationAssign     ports.EscalationAssignmentRepository
-	alertEscalation      ports.AlertEscalationRepository
+	user                   ports.UserRepository
+	apiKey                 ports.APIKeyRepository
+	monitor                ports.MonitorRepository
+	monitorGroup           ports.MonitorGroupRepository
+	heartbeat              ports.HeartbeatRepository
+	monitorCondition       ports.MonitorConditionRepository
+	tlsInfo                ports.TLSInfoRepository
+	notification           ports.NotificationRepository
+	notificationTemplate   ports.NotificationTemplateRepository
+	monitorNotif           ports.MonitorNotificationRepository
+	groupNotif             ports.GroupNotificationRepository
+	statusPage             ports.StatusPageRepository
+	incident               ports.IncidentRepository
+	incidentUpdate         ports.IncidentUpdateRepository
+	cname                  ports.StatusPageCNAMERepository
+	spMonitor              ports.StatusPageMonitorRepository
+	spSubscriber           ports.StatusPageSubscriberRepository
+	tag                    ports.TagRepository
+	maintenance            ports.MaintenanceRepository
+	proxy                  ports.ProxyRepository
+	monitorTag             ports.MonitorTagRepository
+	maintMonitor           ports.MaintenanceWindowMonitorRepository
+	webAuthnCred           ports.WebAuthnCredentialRepository
+	userPerm               ports.UserPermissionRepository
+	oidcIdentity           ports.OIDCIdentityRepository
+	configKey              ports.ConfigKeyRepository
+	alert                  ports.AlertRepository
+	notificationThrottle   ports.NotificationThrottleRepository
+	escalationPolicy       ports.EscalationPolicyRepository
+	escalationAssign       ports.EscalationAssignmentRepository
+	alertEscalation        ports.AlertEscalationRepository
+	probeRegistry          ports.ProbeRegistryRepository
+	probeDiagnostics       ports.ProbeDiagnosticsRepository
+	probeAssignments       ports.MonitorProbeAssignmentRepository
+	probeAssignWriter      ports.ProbeAssignmentWriter
+	regionalCommit         ports.RegionalCommitRepository
+	localHeartbeat         ports.LocalHeartbeatRecorder
+	projections            ports.MonitorHealthProjectionRepository
+	probeInstallation      ports.ProbeInstallationRepository
+	probeActivation        ports.ProbeConfigActivationRepository
+	deliveryOutbox         ports.DeliveryOutboxRepository
+	probeIncident          ports.ProbeIncidentRepository
+	probeConfig            ports.ProbeConfigRepository
+	localProbeConfigSource ports.LocalProbeConfigSourceRepository
+	hubWorkerReadiness     ports.HubWorkerReadiness
+}
+
+// fleetLeaseLookback bounds how old a monitor lease may be and still count as
+// live for the T34 remote-activation gate. It must cover the fleet's shard lease
+// TTL, otherwise a running worker that has not attested assignment ownership
+// would age out of the roster and the gate would pass on false evidence. The
+// floor keeps a misconfigured sub-minute TTL from blinding it.
+func fleetLeaseLookback(cfg Config) time.Duration {
+	lookback := time.Duration(cfg.ShardLeaseTTL) * time.Second
+	if lookback < time.Minute {
+		lookback = time.Minute
+	}
+	return lookback
 }
 
 func wireRepositories(engine string, db *bun.DB) repoBundle {
 	var b repoBundle
+	b.notificationThrottle = repo.NewNotificationThrottleStore(db)
+	b.probeRegistry = repo.NewProbeRegistryStore(db)
+	b.probeDiagnostics = repo.NewProbeDiagnosticsStore(db)
+	b.hubWorkerReadiness = repo.NewHubWorkerReadinessStore(db)
 	switch engine {
 	case "mariadb":
 		r := mariadbrepo.NewRepository(db)
@@ -655,6 +999,20 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationPolicy = r.EscalationPolicyRepo
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
+		encoder := probe.LocalConfigEncoder{}
+		assignments := mariadbrepo.NewProbeAssignmentRepo(db)
+		b.probeAssignments = assignments
+		b.probeAssignWriter = assignments
+		b.probeInstallation = mariadbrepo.NewProbeInstallationRepo(db)
+		b.probeActivation = mariadbrepo.NewProbeActivationRepo(db, encoder)
+		b.probeConfig = mariadbrepo.NewProbeConfigRepo(db)
+		b.localProbeConfigSource = repo.NewLocalProbeConfigSourceStore(db)
+		commits := mariadbrepo.NewRegionalCommitRepo(db)
+		b.regionalCommit = commits
+		b.localHeartbeat = commits
+		b.projections = commits
+		b.deliveryOutbox = commits
+		b.probeIncident = commits
 	case "sqlite":
 		r := sqliterepo.NewRepository(db)
 		b.user = r.UserRepo
@@ -687,6 +1045,20 @@ func wireRepositories(engine string, db *bun.DB) repoBundle {
 		b.escalationPolicy = r.EscalationPolicyRepo
 		b.escalationAssign = r.EscalationAssignmentRepo
 		b.alertEscalation = r.AlertEscalationRepo
+		encoder := probe.LocalConfigEncoder{}
+		assignments := sqliterepo.NewProbeAssignmentRepo(db)
+		b.probeAssignments = assignments
+		b.probeAssignWriter = assignments
+		b.probeInstallation = sqliterepo.NewProbeInstallationRepo(db)
+		b.probeActivation = sqliterepo.NewProbeActivationRepo(db, encoder)
+		b.probeConfig = sqliterepo.NewProbeConfigRepo(db)
+		b.localProbeConfigSource = repo.NewLocalProbeConfigSourceStore(db)
+		commits := sqliterepo.NewRegionalCommitRepo(db)
+		b.regionalCommit = commits
+		b.localHeartbeat = commits
+		b.projections = commits
+		b.deliveryOutbox = commits
+		b.probeIncident = commits
 	}
 	return b
 }
@@ -781,6 +1153,14 @@ func bootstrapUser(ctx context.Context, authSvc *services.AuthService, userRepo 
 
 	slog.Info("bootstrapping initial user", "username", username)
 	if _, err := authSvc.Register(ctx, username, password); err != nil {
+		// Multiple API replicas can observe an empty user table before either
+		// commits the first registration. The unique username constraint elects
+		// one winner; the losing replica should continue booting once it sees that
+		// winner rather than treating the expected race as a fatal startup error.
+		if errors.Is(err, services.ErrUserExists) {
+			slog.Info("bootstrap user was created by another instance", "username", username)
+			return nil
+		}
 		return fmt.Errorf("creating bootstrap user: %w", err)
 	}
 	slog.Info("bootstrap user created successfully", "username", username)
@@ -942,6 +1322,33 @@ func aggregateRollupLoop(ctx context.Context, aggSvc *services.AggregateService,
 				log.Error("1d rollup failed", "error", err)
 			}
 			rollupCancel()
+		}
+	}
+}
+
+// deliveryConsumerLoop processes queued delivery intents on a schedule.
+// Blocks until ctx is canceled.
+func deliveryConsumerLoop(ctx context.Context, consumer *services.DeliveryOutboxConsumer, interval time.Duration, log *logger.SlogLogger) {
+	log.Info("delivery consumer loop starting", "interval", interval.String())
+	defer log.Info("delivery consumer loop stopped")
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runCtx, cancel := context.WithTimeout(ctx, interval*4)
+			processed, err := consumer.ProcessBatch(runCtx, domain.LocalProbeID, time.Now().UTC(), 50)
+			cancel()
+			if err != nil {
+				log.Error("delivery consumer batch failed", "error", err)
+				continue
+			}
+			if processed > 0 {
+				log.Info("deliveries processed", "count", processed)
+			}
 		}
 	}
 }

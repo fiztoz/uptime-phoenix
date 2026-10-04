@@ -156,13 +156,15 @@ export interface PublicStatusResponse {
     type: string;
     // Backend (internal/core/services/statuspage_service.go) sends the domain
     // heartbeat statuses only — it never emits "paused" on a public status page.
-    status: "up" | "down" | "pending" | "maintenance";
+    status: "up" | "down" | "pending" | "maintenance" | "unknown";
     uptime_percent?: number | null;
+    /** Overall evidence coverage in the last 24h; never a regional inventory. */
+    coverage_percent?: number | null;
     // 90-day data for bar, UTC dates, oldest first, always exactly 90 entries.
     // "none" marks a day with no checks at all.
     uptime_data: Array<{
       date: string;
-      status: "up" | "down" | "pending" | "maintenance" | "none";
+      status: "up" | "down" | "pending" | "maintenance" | "unknown" | "none";
     }>;
     // Calendar summaries are newest-first. No-data periods use null rather
     // than inventing 0% or 100%; current periods have complete=false.
@@ -180,6 +182,7 @@ export interface PublicStatusResponse {
     chart?: {
       buckets: Array<{ time: string; min: number; avg: number; max: number }>;
       downtime_intervals: Array<{ start: string; end: string }>;
+      unknown_intervals?: Array<{ start: string; end: string }>;
     } | null;
     // Present only when cached TLS data exists — never invent zeros.
     cert_expiry_date?: string | null;

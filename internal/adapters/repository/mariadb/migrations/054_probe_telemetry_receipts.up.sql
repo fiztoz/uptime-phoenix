@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS probe_telemetry_receipts (
+    probe_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    stream_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    seq BIGINT NOT NULL CHECK (seq > 0),
+    digest CHAR(64) NOT NULL,
+    kind VARCHAR(64) NOT NULL,
+    rejection_code VARCHAR(128) NOT NULL,
+    received_at DATETIME(6) NOT NULL,
+    source_alert_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    transition_version BIGINT NULL,
+    monitor_id BIGINT NULL,
+    assignment_generation BIGINT NULL,
+    config_revision BIGINT NULL,
+    status VARCHAR(16) NULL,
+    started_at DATETIME(6) NULL,
+    resolved_at DATETIME(6) NULL,
+    PRIMARY KEY (probe_id, stream_id, seq),
+    UNIQUE KEY idx_replay_transition (source_alert_id, transition_version),
+    CONSTRAINT fk_replay_probe FOREIGN KEY (probe_id) REFERENCES probes(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_replay_stream FOREIGN KEY (probe_id, stream_id) REFERENCES probe_streams(probe_id, stream_id) ON DELETE RESTRICT
+) ENGINE=InnoDB;

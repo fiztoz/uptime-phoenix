@@ -4,18 +4,7 @@ import (
 	"context"
 	"net"
 	"testing"
-	"time"
 )
-
-// canReachTCP tests whether a TCP address is reachable for test preflight.
-func canReachTCP(addr string) bool {
-	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
-	if err != nil {
-		return false
-	}
-	_ = conn.Close()
-	return true
-}
 
 func TestTCPChecker_Type(t *testing.T) {
 	c := TCPChecker{}
@@ -80,15 +69,27 @@ func TestTCPChecker_Validate(t *testing.T) {
 }
 
 func TestTCPChecker_Check_GoogleDNS(t *testing.T) {
-	if !canReachTCP("8.8.8.8:53") {
-		t.Skip("8.8.8.8:53 is not reachable (firewall or network restriction)")
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen for local TCP target: %v", err)
 	}
+	t.Cleanup(func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("close local TCP target: %v", err)
+		}
+	})
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			_ = conn.Close()
+		}
+	}()
 
 	c := TCPChecker{}
 	result, err := c.Check(context.Background(), map[string]any{
-		"hostname": "8.8.8.8",
-		"port":     float64(53),
-		"timeout":  float64(10),
+		"hostname": "127.0.0.1",
+		"port":     float64(listener.Addr().(*net.TCPAddr).Port),
+		"timeout":  float64(2),
 	})
 	if err != nil {
 		t.Errorf("Check() returned unexpected error: %v", err)
@@ -99,7 +100,7 @@ func TestTCPChecker_Check_GoogleDNS(t *testing.T) {
 	if result.LatencyMs < 0 {
 		t.Errorf("Check() latency = %d, want >= 0", result.LatencyMs)
 	}
-	t.Logf("8.8.8.8:53: status=%v latency=%dms", result.Status, result.LatencyMs)
+	t.Logf("local TCP target: status=%v latency=%dms", result.Status, result.LatencyMs)
 }
 
 func TestTCPChecker_Check_ClosedPort(t *testing.T) {

@@ -70,6 +70,9 @@ type EscalationAssignmentRepository interface {
 
 // AlertEscalationRepository persists one alert's progress through a policy.
 //
+// Scope is inherited from the immutable parent alert identity; different
+// assignments never share an alert ID. The hub ClaimDue selects local alerts only.
+//
 // Progress is a row, never memory: NextRunAt is the scheduling clock, so a
 // worker that restarts mid-ladder resumes at NextStep instead of starting over
 // or dropping the escalation entirely.

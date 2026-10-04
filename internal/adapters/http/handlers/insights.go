@@ -45,12 +45,13 @@ type insightsRowView struct {
 }
 
 type insightsView struct {
-	From          string            `json:"from"`
-	To            string            `json:"to"`
-	Period        string            `json:"period"`
-	Metric        string            `json:"metric"`
-	CoverageBasis string            `json:"coverage_basis"`
-	Rows          []insightsRowView `json:"rows"`
+	From              string            `json:"from"`
+	To                string            `json:"to"`
+	Period            string            `json:"period"`
+	Metric            string            `json:"metric"`
+	CoverageBasis     string            `json:"coverage_basis"`
+	ProjectionVersion int64             `json:"projection_version"`
+	Rows              []insightsRowView `json:"rows"`
 }
 
 // GetInsights handles GET /api/insights.
@@ -88,12 +89,13 @@ func (h *InsightsHandlers) GetInsights(c echo.Context) error {
 	}
 
 	view := insightsView{
-		From:          res.From.UTC().Format(time.RFC3339),
-		To:            res.To.UTC().Format(time.RFC3339),
-		Period:        string(res.Period),
-		Metric:        string(res.Metric),
-		CoverageBasis: res.CoverageBasis,
-		Rows:          make([]insightsRowView, 0, len(res.Rows)),
+		From:              res.From.UTC().Format(time.RFC3339),
+		To:                res.To.UTC().Format(time.RFC3339),
+		Period:            string(res.Period),
+		Metric:            string(res.Metric),
+		CoverageBasis:     res.CoverageBasis,
+		ProjectionVersion: res.ProjectionVersion,
+		Rows:              make([]insightsRowView, 0, len(res.Rows)),
 	}
 	for _, r := range res.Rows {
 		view.Rows = append(view.Rows, insightsRowView{

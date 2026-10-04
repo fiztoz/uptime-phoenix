@@ -13,4 +13,11 @@ const (
 	EventIncidentCreate  = "incident.create"
 	EventIncidentResolve = "incident.resolve"
 	EventStatsUpdate     = "stats.update"
+	// Regional browser events use explicit views and current authorization.
+	EventProbeStatus           = "probe.status"
+	EventMonitorProbeHeartbeat = "monitor.probe.heartbeat"
+	EventMonitorProbeStatus    = "monitor.probe.status"
+	EventMonitorHealth         = "monitor.health"
+	EventProbeConfigStatus     = "probe.config.status"
+	EventProbeCommandStatus    = "probe.command.status"
 )

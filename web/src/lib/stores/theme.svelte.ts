@@ -7,10 +7,11 @@ function createThemeStore() {
     typeof window !== "undefined"
       ? (localStorage.getItem("phoenix_theme") as "light" | "dark" | null)
       : null;
+  const preference = saved === "light" || saved === "dark" ? saved : null;
   const initialTheme: "light" | "dark" =
     typeof window === "undefined"
       ? "dark"
-      : (saved ??
+      : (preference ??
         (window.matchMedia("(prefers-color-scheme: dark)").matches
           ? "dark"
           : "light"));
@@ -49,6 +50,8 @@ function createThemeStore() {
     },
     toggle,
     setTheme,
+    /** Restore the private UI theme after leaving a public status page. */
+    apply: () => applyTheme(theme),
   };
 }
 

@@ -62,6 +62,16 @@ func (s *NotificationTemplateService) Delete(ctx context.Context, id int64) erro
 	return s.repo.Delete(ctx, id)
 }
 
+// ValidateNotificationTemplate checks the same provider/layout rules as CRUD
+// without changing the caller's template or persisting it.
+func ValidateNotificationTemplate(template *domain.NotificationTemplate) error {
+	if template == nil {
+		return validateNotificationTemplate(nil)
+	}
+	copy := *template
+	return validateNotificationTemplate(&copy)
+}
+
 func validateNotificationTemplate(template *domain.NotificationTemplate) error {
 	if template == nil {
 		return fmt.Errorf("notification template: %w: template is required", domain.ErrValidation)

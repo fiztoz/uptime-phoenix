@@ -1,4 +1,6 @@
-{{- if .Values.database.persistence.enabled }}
+{{- /* Only the all-in-one Deployment mounts /data. Unconsumed claims block
+Helm --wait with WaitForFirstConsumer storage classes in split/API/worker mode. */}}
+{{- if and .Values.database.persistence.enabled (eq .Values.mode "all") }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

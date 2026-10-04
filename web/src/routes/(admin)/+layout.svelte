@@ -47,6 +47,7 @@
 	let failedExtensionIcons = $state<Record<string, true>>({});
 
 	onMount(async () => {
+		themeStore.apply();
 		// Start the realtime pipeline in PARALLEL with /api/auth/me instead of
 		// after it: the JWT is already in localStorage and the monitor snapshot
 		// (what the dashboard/monitors skeletons wait on) should not sit behind
@@ -116,6 +117,7 @@
 		{ href: '/maintenance', label: () => m.nav_maintenance(), icon: CalendarClock, gate: 'maintenance' as const },
 		{ href: '/status-pages', label: () => m.nav_status_pages(), icon: Globe, gate: 'admin' as const },
 		{ href: '/incidents', label: () => m.nav_incidents(), icon: AlertTriangle },
+		{ href: '/probes', label: () => m.probes_title(), icon: Globe, gate: 'admin' as const },
 		{ href: '/backup', label: () => m.nav_backup(), icon: Archive, gate: 'admin' as const },
 		{ href: '/settings', label: () => m.nav_settings(), icon: Settings },
 	];

@@ -1,0 +1,7 @@
+{
+  "key": "local",
+  "name": "Local",
+  "location": "",
+  "endpoint": "127.0.0.1:443",
+  "tls_fingerprint": "9d4e79a57fe93ce7d74c2725d50cf987d74027cd2f9dff775587c67f5bb087c4"
+}

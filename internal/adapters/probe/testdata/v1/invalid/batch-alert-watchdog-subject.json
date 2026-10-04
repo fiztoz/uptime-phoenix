@@ -1,0 +1,40 @@
+{
+  "protocol_version": 1,
+  "type": "telemetry.batch",
+  "message_id": "637c39e5-0d90-41db-82c8-4a8bc65f16e5",
+  "sent_at": "2026-09-14T09:05:00Z",
+  "connection_generation": "7",
+  "payload": {
+    "stream_id": "1395c134-da65-4d86-9b11-c9ce20c61748",
+    "first_seq": "101",
+    "last_seq": "101",
+    "events": [
+      {
+        "seq": "101",
+        "kind": "alert.transition",
+        "observed_at": "2026-09-14T09:00:00Z",
+        "data": {
+          "source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94543",
+          "scope": "probe_connection",
+          "monitor_id": null,
+          "assignment_generation": null,
+          "status": "firing",
+          "transition_version": "1",
+          "started_at": "2026-09-14T09:00:00Z",
+          "resolved_at": null,
+          "reason": "Hub ingest unavailable",
+          "config_revision": "12",
+          "subject": {
+            "kind": "watchdog",
+            "condition_kind": null,
+            "certificate_threshold": null,
+            "certificate_not_after": null
+          },
+          "acked_at": null,
+          "acknowledgement": null,
+          "escalation": null
+        }
+      }
+    ]
+  }
+}

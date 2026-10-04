@@ -38,7 +38,9 @@ FROM web-from-context AS web-builder-1
 FROM web-builder-${USE_PREBUILT_WEB} AS web-builder
 
 # ─── Stage 2: Build the Go binaries (CGO-free, static) ───────────────────────
-FROM golang:1.27-alpine AS go-builder
+# Run module loading and compilation natively instead of under QEMU. Go still
+# cross-compiles each artifact for the requested TARGETOS/TARGETARCH.
+FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine AS go-builder
 
 # Multi-arch: buildx sets TARGETOS/TARGETARCH; never hardcode amd64.
 ARG TARGETOS=linux
@@ -61,7 +63,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOMAXPROCS=2 \
     go build -trimpath \
       -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
       -o /uptime-phoenix-api    ./cmd/api && \
-    go build -trimpath -tags noweb \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOMAXPROCS=2 go build -trimpath -tags noweb \
       -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
       -o /uptime-phoenix-worker ./cmd/worker
 
@@ -78,6 +80,7 @@ USER 65532
 ENTRYPOINT ["/uptime-phoenix-api"]
 
 # ─── Target: worker ─── scheduler + checkers + notifier (no HTTP port) ───────
+# IANA zones come from time/tzdata in cmd/worker, not from this base image.
 FROM gcr.io/distroless/static-debian12:nonroot AS worker
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Uptime Phoenix Worker" \

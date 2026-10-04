@@ -31,6 +31,7 @@ export interface InsightsResponse {
   period: InsightsPeriod;
   metric: InsightsMetric;
   coverage_basis: "observation_based";
+  projection_version: number;
   rows: InsightsRow[];
 }
 

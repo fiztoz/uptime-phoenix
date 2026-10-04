@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -313,6 +314,63 @@ func TestGroupAlert_IgnoreConditionNeverAlerts(t *testing.T) {
 	}
 }
 
+type staticAggregate map[int64]domain.Status
+
+func (s staticAggregate) StatusForMonitors(_ context.Context, ids []int64, now time.Time) (map[int64]domain.Status, error) {
+	if now.Location() != time.UTC {
+		return nil, errors.New("overall status requires UTC")
+	}
+	out := make(map[int64]domain.Status, len(ids))
+	for _, id := range ids {
+		if status, ok := s[id]; ok {
+			out[id] = status
+		}
+	}
+	return out, nil
+}
+
+// A local UP does not recover the folder while overall policy is still DOWN,
+// and UNKNOWN keeps the confirmed incident until a later fresh UP.
+func TestGroupAlert_OverallPolicyGovernsRecovery(t *testing.T) {
+	h := newGalertHarness(t)
+	g := h.addGroup(t, "edge", domain.GroupConditionWorstOfChildren, nil)
+	h.addProvider(t, "pager", g.ID)
+	api := h.addMonitor(7, g.ID)
+
+	h.beat(t, api, domain.StatusDown)
+	if got := h.sender.count(); got != 1 {
+		t.Fatalf("trip alerts = %d, want 1", got)
+	}
+
+	h.svc.SetAggregateStatus(staticAggregate{api.ID: domain.StatusDown})
+	h.beat(t, api, domain.StatusUp)
+	if got := h.sender.count(); got != 1 {
+		t.Fatalf("regional UP closed the folder (%d alerts)", got)
+	}
+	if got := h.groups.byID[g.ID].LastStatus; got == nil || *got != domain.StatusDown {
+		t.Fatalf("last status = %v, want DOWN kept through the regional UP", got)
+	}
+
+	h.svc.SetAggregateStatus(staticAggregate{api.ID: domain.StatusUnknown})
+	h.beat(t, api, domain.StatusUp)
+	if got := h.sender.count(); got != 1 {
+		t.Fatalf("UNKNOWN sent an alert (%d)", got)
+	}
+	if got := h.groups.byID[g.ID].LastStatus; got == nil || *got != domain.StatusDown {
+		t.Fatalf("last status = %v, want DOWN kept through UNKNOWN", got)
+	}
+
+	h.svc.SetAggregateStatus(staticAggregate{api.ID: domain.StatusUp})
+	h.beat(t, api, domain.StatusUp)
+	if got := h.sender.count(); got != 2 {
+		t.Fatalf("fresh overall UP alerts = %d, want the recovery", got)
+	}
+	recovery := h.sender.sent[1]
+	if recovery.Status != domain.StatusUp || recovery.PreviousStatus != domain.StatusDown {
+		t.Fatalf("recovery = %v <- %v, want UP <- DOWN", recovery.Status, recovery.PreviousStatus)
+	}
+}
+
 // The folder's condition — not "any monitor is down" — decides the alert. An
 // all_down folder with one surviving child stays quiet.
 func TestGroupAlert_RespectsCondition(t *testing.T) {
@@ -402,6 +460,47 @@ func TestGroupAlert_MonitorWithoutGroupIsNoOp(t *testing.T) {
 
 	if got := h.sender.count(); got != 0 {
 		t.Errorf("ungrouped monitor produced %d folder alerts, want 0", got)
+	}
+}
+
+// Remote evidence pages the folder's own channel from overall policy. It does
+// not send the monitor's direct notification, and a second sample of the same
+// overall status does not page again.
+func TestGroupAlert_RegionalEvidencePagesGroupChannelOnly(t *testing.T) {
+	h := newGalertHarness(t)
+	g := h.addGroup(t, "edge", domain.GroupConditionWorstOfChildren, nil)
+	h.addProvider(t, "folder-pager", g.ID)
+	remote := h.addMonitor(7, g.ID)
+	direct := &domain.Notification{UserID: 1, Name: "direct", Type: "recorder", Active: true, Config: map[string]any{"tag": "monitor-direct"}}
+	if err := h.notifs.Create(context.Background(), direct); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.SetAggregateStatus(staticAggregate{remote.ID: domain.StatusDown})
+
+	h.svc.OnRegionalEvidence(context.Background(), []int64{remote.ID, remote.ID, 0})
+	if got := h.sender.tags(); len(got) != 1 || got[0] != "folder-pager" {
+		t.Fatalf("folder pages = %v, want [folder-pager]", got)
+	}
+	sent := h.sender.sent[0]
+	if sent.AlertScope != domain.AlertScopeGroup || sent.GroupName != "edge" || sent.MonitorID != 0 || sent.Status != domain.StatusDown {
+		t.Fatalf("folder alert became a monitor alert: %+v", sent)
+	}
+
+	h.svc.OnRegionalEvidence(context.Background(), []int64{remote.ID})
+	if got := h.sender.count(); got != 1 {
+		t.Fatalf("unchanged overall status paged again (%d)", got)
+	}
+
+	h.svc.SetAggregateStatus(staticAggregate{remote.ID: domain.StatusUnknown})
+	h.svc.OnRegionalEvidence(context.Background(), []int64{remote.ID})
+	if got := h.sender.count(); got != 1 {
+		t.Fatalf("UNKNOWN cleared the folder incident (%d)", got)
+	}
+
+	h.svc.SetAggregateStatus(staticAggregate{remote.ID: domain.StatusUp})
+	h.svc.OnRegionalEvidence(context.Background(), []int64{remote.ID})
+	if got := h.sender.count(); got != 2 || h.sender.sent[1].Status != domain.StatusUp || h.sender.sent[1].PreviousStatus != domain.StatusDown {
+		t.Fatalf("fresh overall UP did not recover the folder: %+v", h.sender.sent)
 	}
 }
 

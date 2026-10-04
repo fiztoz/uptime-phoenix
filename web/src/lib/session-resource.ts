@@ -13,6 +13,13 @@ export function createSessionResource<T>(
   function clear() {
     value = undefined;
     expires = 0;
+    invalidate();
+  }
+
+  // Projection changes supersede pending reads, but keep bounded first-paint
+  // content visible across routes. Every visit still calls refresh(). Permission
+  // changes must use clear() to remove data that is no longer authorized.
+  function invalidate() {
     pending = undefined;
     generation++;
   }
@@ -59,5 +66,5 @@ export function createSessionResource<T>(
     return structuredClone(result);
   }
 
-  return { peek, refresh, clear };
+  return { peek, refresh, clear, invalidate };
 }

@@ -49,12 +49,15 @@ type MonitorFilter struct {
 
 // Aggregate1m is a 1-minute aggregation bucket.
 type Aggregate1m struct {
+	Durations    domain.HealthDurations
 	MonitorID    int64
+	ProbeID      string
 	Bucket       time.Time
 	UpCount      int
 	DownCount    int
 	PendingCount int
 	MaintCount   int
+	UnknownCount int
 	AvgPing      float64
 	MinPing      int
 	MaxPing      int
@@ -67,12 +70,15 @@ type Aggregate1m struct {
 
 // Aggregate1h is a 1-hour aggregation bucket.
 type Aggregate1h struct {
+	Durations    domain.HealthDurations
 	MonitorID    int64
+	ProbeID      string
 	Bucket       time.Time
 	UpCount      int
 	DownCount    int
 	PendingCount int
 	MaintCount   int
+	UnknownCount int
 	AvgPing      float64
 	MinPing      int
 	MaxPing      int
@@ -82,12 +88,15 @@ type Aggregate1h struct {
 
 // Aggregate1d is a 1-day aggregation bucket.
 type Aggregate1d struct {
+	Durations    domain.HealthDurations
 	MonitorID    int64
+	ProbeID      string
 	Bucket       time.Time
 	UpCount      int
 	DownCount    int
 	PendingCount int
 	MaintCount   int
+	UnknownCount int
 	AvgPing      float64
 	MinPing      int
 	MaxPing      int
@@ -114,6 +123,12 @@ type MonitorRepository interface {
 	RefreshLease(ctx context.Context, workerID string) (int64, error)
 	// ReleaseLeases releases all monitors claimed by workerID (sets worker_id=NULL).
 	ReleaseLeases(ctx context.Context, workerID string) (int64, error)
+}
+
+// WorkerMonitorReader lists active monitors whose current worker lease is valid.
+// leaseExpiry is inclusive; an older or missing lease must never be returned.
+type WorkerMonitorReader interface {
+	ListByWorker(ctx context.Context, workerID string, leaseExpiry time.Time) ([]*domain.Monitor, error)
 }
 
 // MonitorGroupRepository defines persistence operations for monitor groups.
@@ -570,12 +585,15 @@ type AlertFilter struct {
 
 // AlertRepository defines persistence for monitor alert lifecycle records (F2.2).
 type AlertRepository interface {
+	// Create persists a new source UUID (when absent) and lifecycle version one
+	// together with the legacy alert ID and acknowledgement token.
 	Create(ctx context.Context, a *domain.Alert) error
 	Update(ctx context.Context, a *domain.Alert) error
 	GetByID(ctx context.Context, id int64) (*domain.Alert, error)
 	// GetByAckToken looks up an alert by its deep-link acknowledgement token.
 	GetByAckToken(ctx context.Context, token string) (*domain.Alert, error)
-	// GetOpenByMonitorID returns the firing or acked alert for a monitor, or
+	// GetOpenByMonitorID returns the firing or acked alert for the bound
+	// assignment (current local generation on an unbound repository), or
 	// ErrNotFound when none is open.
 	GetOpenByMonitorID(ctx context.Context, monitorID int64) (*domain.Alert, error)
 	List(ctx context.Context, filter AlertFilter) ([]*domain.Alert, error)
@@ -589,11 +607,13 @@ type AlertRepository interface {
 // certificate (LastCertAlertNotAfter). A renewed certificate (different
 // NotAfter) resets both fields on the next successful evaluate+persist cycle.
 type TLSInfo struct {
-	MonitorID     int64
-	DaysRemaining int
-	NotAfter      time.Time
-	Issuer        string
-	CheckedAt     time.Time
+	ProbeID              string
+	AssignmentGeneration int64
+	MonitorID            int64
+	DaysRemaining        int
+	NotAfter             time.Time
+	Issuer               string
+	CheckedAt            time.Time
 
 	// LastCertAlertThreshold is the most urgent threshold already dispatched for
 	// LastCertAlertNotAfter (30, 14, or 7). Zero means none.

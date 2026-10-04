@@ -1,0 +1,97 @@
+{
+  "date": "2026-09-23",
+  "baseline": "bcb1f8e",
+  "scope": "M4 per-probe capacity state and two-sample promotion slice; source-owned capacity paging and full M4 remain open",
+  "toolchain": "go1.27.1 (local default; go.mod declares 1.26.6)",
+  "mariadb": "11.8.9-MariaDB-ubu2404 (disposable phoenix-m04-checker-coverage, schema phoenix_ci)",
+  "commands": [
+    "go build ./...",
+    "TEST_MARIADB_DSN=<disposable,parseTime=true,loc=UTC,multiStatements=true> go test -race -count=1 -timeout 2400s -p 4 ./...",
+    "TEST_MARIADB_DSN=<disposable,parseTime=true,loc=UTC,multiStatements=true> go test -json -race -count=1 -timeout 2400s -p 4 ./...",
+    "go vet ./internal/... ; gofmt -l internal/"
+  ],
+  "race": {
+    "named_passes": 3870,
+    "packages_passed": 22,
+    "failures": 0,
+    "mariadb_live_matrix_passes": 324,
+    "mariadb_skips": 0,
+    "skipped": [
+      "TestDatabaseChecker_Check_MongoDB_RealServer",
+      "TestTelegramSender_Send_DownSeverity",
+      "TestDNSChecker_Check_A",
+      "TestDNSChecker_Check_DefaultServer",
+      "TestDNSChecker_Check_ExpectedValue_Fail",
+      "TestDNSChecker_Check_ExpectedValue_Pass",
+      "TestDNSChecker_Check_MX",
+      "TestDNSChecker_Check_NonexistentDomain",
+      "TestDNSChecker_Check_TXT",
+      "TestTCPChecker_Check_GoogleDNS"
+    ]
+  },
+  "capacity_outcomes": {
+    "named_passes": 27,
+    "both_engines": true,
+    "suites": {
+      "TestEvaluateConditionTwoSamplePromotion": 6,
+      "TestConditionWireRoundTrip": 5,
+      "TestEdgeConditionLifecycleAndRestart": 1,
+      "TestProbeCapacityStateAcceptance": 12
+    }
+  },
+  "first_run_failures_fixed": [
+    "MixedDurableOutcomes: body-less condition.transition rejection code moved from unsupported_event to event_invalid now that the kind is supported",
+    "MigrationAndGuards: migration 041 predates 068 and its SQLite table rebuild drops source_seq; the harness now heals the 068 fence (mariadbTailHeals also covers all three 068 columns)",
+    "EvaluateCondition fixture: durable priors must carry the promoted state, not the raw observed state, or transitions fabricate a previous_state"
+  ],
+  "development_checks": {
+    "gofmt": "clean",
+    "go_vet": "clean",
+    "golangci_lint": "aborted before analysis: binary built with go1.26 cannot typecheck files requiring go1.27; documented gofmt+go vet fallback used"
+  },
+  "source_hashes": {
+    "internal/adapters/probe/condition_state.go": "6d36fe857010d9276cbc6a716183cb4adabe82a27762cbdb474e4ddabef4be39",
+    "internal/adapters/probe/condition_state_test.go": "f9e9975e025392308b5417f57393a35666b3d09bb2e6050eeab35dfea2394708",
+    "internal/adapters/probe/current_state.go": "05acfa77e8043cb063c396a6d58e3c1d5d1235f1a53f71137d940a46b3133e28",
+    "internal/adapters/probe/edge_telemetry.go": "ad0c1e89ddacd904bb5870020fa752acd2dd3b75d28c43161dbe346acc77249c",
+    "internal/adapters/probe/replay.go": "13f03d61f2d0e5050589c9af67d7f114231a2b5bd17aac0da1b55a9ea8515590",
+    "internal/adapters/repository/condition_evidence.go": "9b6384989310c729d63a0f24febe40dfa1cdf02d4e81aca850f1200deaac796a",
+    "internal/adapters/repository/condition_mirror.go": "623fbedc28974fb612aa4b92ce7c1dff9cb81a34ef7244b6d8dabd5d0dd3b1b0",
+    "internal/adapters/repository/edge/condition_state.go": "415ee54978e80b78a7430247f386ebc75cfb2256603f1917a9a484165ffd6466",
+    "internal/adapters/repository/edge/condition_state_test.go": "9d10d614b9ca1c46e7c5adbd9eb371c5dfdafb8ea56aa8aaa1b74b566be93dad",
+    "internal/adapters/repository/edge/current_snapshot.go": "bafe4e109366da3e88485eea9d83f89932b91e096d02645d5d9f5b6d6e29cff5",
+    "internal/adapters/repository/edge/metadata_retention.go": "18785407aa023ca96fdc7f9093ca86eee702814a5726b4ad29225ea4935f7f79",
+    "internal/adapters/repository/edge/migrations/012_condition_state.tx.down.sql": "77e26190f292edec8919a8e060085a7197ab8944af09d6b4227b21c81f3e7fee",
+    "internal/adapters/repository/edge/migrations/012_condition_state.tx.up.sql": "aa4f9b9d2d1030eb62e706b394174490f6410764b17a6a0b5abfa1ca9f3e0820",
+    "internal/adapters/repository/edge/record.go": "9ed0d3b6b4944f088cea7cdce02ce1cda34aa3128b495d1d5f246d3d576b3dab",
+    "internal/adapters/repository/engine_matrix_test.go": "957a2fe551b018ce19323128a95fc2b2c9ffb72ffb70f69bed677b1bfd814e57",
+    "internal/adapters/repository/mariadb/migrations/068_probe_capacity_state.down.sql": "0360db19138eb695ca0f8f1548a3dfa32a64689d07b2a96e16564d66c56c9a1e",
+    "internal/adapters/repository/mariadb/migrations/068_probe_capacity_state.up.sql": "b65059313f65ae81ec249a17d2a2b74bb1f02d65a71acb563ae08e3590f30b5a",
+    "internal/adapters/repository/monitor_condition_model.go": "b18f86dfd6d3bea672bfd03d76ac6379ea797b72c54c05bb85b8190ae6d93090",
+    "internal/adapters/repository/probe_capacity_state_test.go": "c73f8c9309b0a9f45a4632a7c77d071cab77395aa1dd19f682e3dbefadf657bb",
+    "internal/adapters/repository/probe_current_state.go": "901def7924ce7a004f87f6516a084243f5cd5b8bd073da046efe770ef1df83c5",
+    "internal/adapters/repository/probe_replay.go": "65c92267cb702728b58ec108f936df3a9826aeb6b230f3fa91f6a5900d43c0cb",
+    "internal/adapters/repository/probe_replay_acceptance_test.go": "3f4946bfac227177c6bc9d17dd3fe9db673208b6feeb0b8ea83bcb5fec04aff5",
+    "internal/adapters/repository/regional_auxiliary_test.go": "21b90b7e0ce0169485120d06105ecd145aefd66a34be9bd7d7618fdbac924805",
+    "internal/adapters/repository/regional_commit.go": "02722b3a0ecd8b18012843153c7bb27f2a5b05d2f524af5d2a1eb0569afb232d",
+    "internal/adapters/repository/sqlite/migrations/068_probe_capacity_state.down.sql": "62d703bcdb818b95d64d462f442d2a8d9158e69665b26a514b6db3e898508cdc",
+    "internal/adapters/repository/sqlite/migrations/068_probe_capacity_state.up.sql": "b3c37241dbb7701abc05054fe7075eb5f2c313fcd81139a5f06abf2084123032",
+    "internal/core/domain/edge_runtime.go": "09eab8d259b3e39ae703e7bfffd427b996d9faf528400580c373423624cf4eff",
+    "internal/core/domain/monitor_condition.go": "99533d85f1eb012b0cd289bc2a0a0a70120b7bd1ef50f56e789e5adcfb0be643",
+    "internal/core/domain/probe_regional.go": "b3a9986e4fbfc99561cb544dca4d629aab29ad8ea6c5fa3c05ebb98cd27a68c5",
+    "internal/core/domain/probe_replay.go": "d5b52c5f9f64a8e12f64c7641560a9978c0b39b5bea5043e06937286edd9ae94",
+    "internal/core/domain/probe_state.go": "b9f575d14d6758eb912616c361047841791f267ff2543d9021ad3ea27d558288",
+    "internal/core/ports/edge_runtime.go": "4c02103470d96f06de329c936a10925cff765fd21b233bea1b0692b9d6e32e28",
+    "internal/core/services/condition_state.go": "873c9f97e971bab6a3af147386151c83af2203f18b14aea37924289c9f7949c8",
+    "internal/core/services/condition_state_test.go": "5744e21271800e22d4c3f2e6fcd825380ae5356d20e706fc68a4ff92ed5dfef1",
+    "internal/core/services/edge_recording_service.go": "e6fda83189e06069428e78cb1743a92e93931ea1f9aabbaeb3f68ddee77beafa",
+    "internal/core/services/monitor_condition_service.go": "a563fbd4d743befc79441577902e31da27235c00008ff13fd2feba052d1d4bc5",
+    "internal/core/services/probe_replay_authorization.go": "1eae1fb43b1215c72eccfc0564966fb23e5b7fa16831aa2f858893e9517de398"
+  },
+  "unverified": [
+    "process-level capacity behavior (scripts/probe_runtime_smoke.py has no capacity assertions and was not run for this slice)",
+    "mixed-version upgrade rehearsal (older hub permanently rejects condition.transition events per sequence)",
+    "source-owned capacity paging and capacity incident mirroring remain unimplemented scope",
+    "GOTOOLCHAIN=go1.26.6 contract pin was not used; runs used the local go1.27.1 toolchain"
+  ]
+}

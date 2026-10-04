@@ -145,6 +145,41 @@ func TestMonitorGroup_Rollup(t *testing.T) {
 			wantStatus: StatusPending,
 			wantOK:     true,
 		},
+		{
+			name:       "worst_of_children: unknown is not up",
+			condition:  GroupConditionWorstOfChildren,
+			children:   []Status{StatusUp, StatusUnknown},
+			wantStatus: StatusUnknown,
+			wantOK:     true,
+		},
+		{
+			name:       "worst_of_children: down still wins over unknown",
+			condition:  GroupConditionWorstOfChildren,
+			children:   []Status{StatusDown, StatusUnknown},
+			wantStatus: StatusDown,
+			wantOK:     true,
+		},
+		{
+			name:       "single unknown child => unknown",
+			condition:  GroupConditionWorstOfChildren,
+			children:   []Status{StatusUnknown},
+			wantStatus: StatusUnknown,
+			wantOK:     true,
+		},
+		{
+			name:       "all_down: one fresh up survives an unknown sibling",
+			condition:  GroupConditionAllDown,
+			children:   []Status{StatusUp, StatusUnknown},
+			wantStatus: StatusUp,
+			wantOK:     true,
+		},
+		{
+			name:       "all_down: unknown without a fresh up stays unknown",
+			condition:  GroupConditionAllDown,
+			children:   []Status{StatusDown, StatusUnknown},
+			wantStatus: StatusUnknown,
+			wantOK:     true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -2273,3 +2273,5 @@ require (
 ```
 
 All libraries are **CGO-free** (except MongoDB's optional CSE, which we don't use). The final binary is a single static executable that cross-compiles for `linux/amd64`, `linux/arm64`, and `linux/arm/v7`.
+
+> **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

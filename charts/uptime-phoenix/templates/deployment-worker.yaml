@@ -28,14 +28,16 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: 60
       {{- $waitForDeps := include "phoenix.waitForDependenciesInitContainers" . | trim }}
-      {{- if or (eq .Values.mode "split") $waitForDeps }}
+      {{- if or (eq .Values.mode "split") $waitForDeps .Values.probes.enabled }}
       initContainers:
+        {{- include "phoenix.probeKeyInitContainer" . | nindent 8 }}
         {{- if $waitForDeps }}
         {{- $waitForDeps | nindent 8 }}
         {{- end }}
         {{- if eq .Values.mode "split" }}
-        # The migration runner is not concurrency-safe. In split mode the API owns
-        # migrations, so block the worker until the API Service is serving traffic.
+        # Defer worker startup until the API is serving traffic. Every process
+        # also takes the MariaDB migration lock and reads the committed ledger;
+        # an old ready API alone is not proof of the new schema version.
         - name: wait-for-api
           image: busybox:1.36
           command:
@@ -62,7 +64,7 @@ spec:
                   key: db-engine
             - name: DB_DSN
               valueFrom:
-                configMapKeyRef:
+                secretKeyRef:
                   name: {{ include "phoenix.fullname" . }}
                   key: db-dsn
             {{- include "phoenix.eventBusEnv" . | nindent 12 }}
@@ -79,12 +81,15 @@ spec:
               value: {{ .Values.worker.shards.pollEvery | quote }}
             {{- end }}
             {{- include "phoenix.envAppConfig" . | nindent 12 }}
+            {{- include "phoenix.probeEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "phoenix.probeVolumeMounts" . | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "phoenix.probeVolumes" . | nindent 8 }}
 {{- end }}

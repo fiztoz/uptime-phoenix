@@ -1,0 +1,6 @@
+{
+  "expected_revision": "4",
+  "probe_ids": ["local", "local"],
+  "health_policy": "any_down",
+  "alert_delivery": "regional"
+}

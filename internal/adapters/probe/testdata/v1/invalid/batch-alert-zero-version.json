@@ -1,0 +1,46 @@
+{
+  "protocol_version": 1,
+  "type": "telemetry.batch",
+  "message_id": "637c39e5-0d90-41db-82c8-4a8bc65f16e5",
+  "sent_at": "2026-09-14T09:05:00Z",
+  "connection_generation": "7",
+  "payload": {
+    "stream_id": "1395c134-da65-4d86-9b11-c9ce20c61748",
+    "first_seq": "101",
+    "last_seq": "101",
+    "events": [
+      {
+        "seq": "101",
+        "kind": "alert.transition",
+        "observed_at": "2026-09-14T09:00:00Z",
+        "data": {
+          "source_alert_id": "7c73a9c5-77ad-4dc0-926d-123bbab94540",
+          "scope": "regional",
+          "monitor_id": 42,
+          "assignment_generation": "3",
+          "status": "firing",
+          "transition_version": "0",
+          "started_at": "2026-09-14T09:00:00Z",
+          "resolved_at": null,
+          "reason": "Confirmed DOWN",
+          "config_revision": "12",
+          "subject": {
+            "kind": "availability",
+            "condition_kind": null,
+            "certificate_threshold": null,
+            "certificate_not_after": null
+          },
+          "acked_at": null,
+          "acknowledgement": null,
+          "escalation": {
+            "policy_id": 8,
+            "policy_version": "12",
+            "status": "pending",
+            "next_step": 1,
+            "next_run_at": "2026-09-14T09:05:00Z"
+          }
+        }
+      }
+    ]
+  }
+}

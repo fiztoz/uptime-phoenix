@@ -1,0 +1,40 @@
+ALTER TABLE monitor_probe_state ADD COLUMN ping INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE monitor_probe_state ADD COLUMN message TEXT NOT NULL DEFAULT '';
+-- Existing current rows must retain the exact observation fields when a
+-- same-sequence snapshot arrives immediately after upgrade.
+UPDATE monitor_probe_state SET
+ ping = COALESCE((SELECT o.ping FROM probe_observations AS o
+  WHERE o.stream_id = monitor_probe_state.stream_id AND o.seq = monitor_probe_state.seq
+   AND o.monitor_id = monitor_probe_state.monitor_id AND o.probe_id = monitor_probe_state.probe_id
+   AND o.assignment_generation = monitor_probe_state.assignment_generation), 0),
+ message = COALESCE((SELECT o.message FROM probe_observations AS o
+  WHERE o.stream_id = monitor_probe_state.stream_id AND o.seq = monitor_probe_state.seq
+   AND o.monitor_id = monitor_probe_state.monitor_id AND o.probe_id = monitor_probe_state.probe_id
+   AND o.assignment_generation = monitor_probe_state.assignment_generation), '');
+ALTER TABLE monitor_probe_state ADD COLUMN active_source_alert_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin;
+CREATE TABLE probe_state_receipts (
+ probe_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ stream_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ snapshot_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ sha256 VARCHAR(64) NOT NULL,
+ config_revision BIGINT NOT NULL,
+ last_created_seq BIGINT NOT NULL CHECK (last_created_seq >= 0),
+ created_at DATETIME(6) NOT NULL,
+ applied_at DATETIME(6) NOT NULL,
+ state_count INTEGER NOT NULL,
+ PRIMARY KEY (probe_id, stream_id),
+ FOREIGN KEY (probe_id, stream_id) REFERENCES probe_streams(probe_id, stream_id) ON DELETE RESTRICT
+) ENGINE=InnoDB;
+CREATE TABLE probe_missing_state (
+ monitor_id BIGINT NOT NULL,
+ probe_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ stream_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ assignment_generation BIGINT NOT NULL,
+ config_revision BIGINT NOT NULL,
+ snapshot_seq BIGINT NOT NULL CHECK (snapshot_seq >= 0),
+ created_at DATETIME(6) NOT NULL,
+ applied_at DATETIME(6) NOT NULL,
+ PRIMARY KEY (monitor_id, probe_id),
+ FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE,
+ FOREIGN KEY (probe_id, stream_id) REFERENCES probe_streams(probe_id, stream_id) ON DELETE RESTRICT
+) ENGINE=InnoDB;

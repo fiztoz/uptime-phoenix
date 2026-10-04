@@ -45,6 +45,7 @@ export const heartbeatsApi = {
   ): Promise<{
     buckets: Array<{ time: string; min: number; avg: number; max: number }>;
     downtime_intervals: Array<{ start: string; end: string }>;
+    unknown_intervals?: Array<{ start: string; end: string }>;
   }> {
     return api.get(`/monitors/${monitorId}/heartbeats/chart`, { hours });
   },

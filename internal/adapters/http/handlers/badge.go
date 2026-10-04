@@ -35,6 +35,7 @@ type BadgeHandlers struct {
 	monitors   ports.MonitorRepository
 	heartbeats ports.HeartbeatRepository
 	aggregate  *services.AggregateService
+	overall    services.AggregateStatusReader
 }
 
 // NewBadgeHandlers creates handlers for the public badge endpoints.
@@ -48,6 +49,12 @@ func NewBadgeHandlers(
 		heartbeats: heartbeats,
 		aggregate:  aggregate,
 	}
+}
+
+// SetAggregateStatus renders remotely assigned monitors from overall policy.
+// Optional: local-only monitors keep the latest heartbeat.
+func (h *BadgeHandlers) SetAggregateStatus(r services.AggregateStatusReader) {
+	h.overall = r
 }
 
 // Badge colors, chosen to match the shields.io default palette so embedded
@@ -137,7 +144,19 @@ func (h *BadgeHandlers) Ping(c echo.Context) error {
 // latestStatus resolves the monitor's current status from its latest
 // heartbeat. A monitor that exists but has no heartbeat yet is reported as
 // StatusPending (matches the UI's "pending" treatment for new monitors).
+// Read failures propagate to the caller, which renders the gray "unknown"
+// badge through its normal fallback — the same path a heartbeat-read failure
+// already takes.
 func (h *BadgeHandlers) latestStatus(ctx context.Context, monitorID int64) (domain.Status, error) {
+	if h.overall != nil {
+		got, err := h.overall.StatusForMonitors(ctx, []int64{monitorID}, time.Now().UTC())
+		if err != nil {
+			return domain.StatusUnknown, err
+		}
+		if status, ok := got[monitorID]; ok {
+			return status, nil
+		}
+	}
 	latest, err := h.heartbeats.GetLatest(ctx, monitorID)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {
@@ -208,6 +227,8 @@ func statusColor(status domain.Status) string {
 		return badgeColorBlue
 	case domain.StatusPending:
 		return badgeColorAmber
+	case domain.StatusUnknown:
+		return badgeColorGray
 	default:
 		return badgeColorGray
 	}

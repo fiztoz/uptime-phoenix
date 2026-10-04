@@ -6,7 +6,6 @@ metadata:
     {{- include "phoenix.labels" . | nindent 4 }}
 data:
   db-engine: {{ include "phoenix.dbEngine" . | quote }}
-  db-dsn: {{ include "phoenix.dbDSN" . | quote }}
   db-max-open-conns: {{ .Values.database.pool.maxOpenConns | int | quote }}
   db-max-idle-conns: {{ .Values.database.pool.maxIdleConns | int | quote }}
   db-conn-max-idle-seconds: {{ .Values.database.pool.connMaxIdleSeconds | int | quote }}

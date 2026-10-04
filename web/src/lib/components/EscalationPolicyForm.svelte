@@ -24,6 +24,7 @@
 	import { AlertCircle, ArrowDown, ArrowUp, BellOff, Plus, Trash2, X } from '@lucide/svelte';
 	import { modalFocus } from '$lib/actions/modalFocus';
 	import * as m from '$lib/paraglide/messages.js';
+	import { resolve } from '$app/paths';
 
 	interface Props {
 		/** Pass an existing policy to edit it; omit/null to create a new one. */
@@ -80,6 +81,7 @@
 	onMount(loadProviders);
 
 	function addStep() {
+		if (providersLoading || providersError || providers.length === 0) return;
 		steps = [...steps, { waitMinutes: 10, notificationIds: [] }];
 	}
 
@@ -238,6 +240,7 @@
 						<button
 							type="button"
 							onclick={addStep}
+							disabled={providersLoading || !!providersError || providers.length === 0}
 							class="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
 						>
 							<Plus class="h-3 w-3" />
@@ -272,6 +275,7 @@
 								title={m.monitor_group_form_no_providers_title()}
 								description={m.monitor_group_form_no_providers_description()}
 							/>
+							<a href={resolve('/notifications')} class="mt-2 inline-block text-sm text-primary underline underline-offset-2">{m.escalation_form_setup_providers()}</a>
 						</div>
 					{:else}
 						<div class="mt-3 space-y-3">

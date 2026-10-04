@@ -20,8 +20,10 @@
 -- second DROP FOREIGN KEY IF EXISTS below additionally covers a database
 -- that has already been through one down/up cycle of this same migration,
 -- where the restored parent_id FK is named fk_monitors_parent instead (see
--- 007_monitor_groups.down.sql) — both forms were exercised end to end
--- (up -> down -> up -> down -> up) against a real MariaDB container.
+-- 007_monitor_groups.down.sql). MariaDB 12.1+ instead generates numeric FK
+-- names (parent_id is `2` in a fresh 001 schema); dropping that name as a
+-- third alternative preserves fresh installs on both engine generations.
+-- An already-applied 007 is unaffected. Verify this on both real engines.
 
 CREATE TABLE monitor_groups (
     id                    BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -45,6 +47,7 @@ CREATE TABLE monitor_groups (
 ALTER TABLE monitors
     DROP FOREIGN KEY IF EXISTS monitors_ibfk_2,
     DROP FOREIGN KEY IF EXISTS fk_monitors_parent,
+    DROP FOREIGN KEY IF EXISTS `2`,
     DROP COLUMN parent_id,
     ADD COLUMN IF NOT EXISTS group_id BIGINT DEFAULT NULL,
     ADD CONSTRAINT fk_monitors_group FOREIGN KEY (group_id) REFERENCES monitor_groups(id) ON DELETE SET NULL,

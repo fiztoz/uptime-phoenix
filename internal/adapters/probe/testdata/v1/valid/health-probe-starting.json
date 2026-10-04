@@ -1,0 +1,19 @@
+{
+  "protocol_version": 1,
+  "type": "health",
+  "message_id": "1c73a9c5-77ad-4dc0-926d-123bbab94540",
+  "sent_at": "2026-09-13T09:00:00Z",
+  "connection_generation": "7",
+  "payload": {
+    "role": "probe",
+    "ready": false,
+    "db_writable": true,
+    "scheduler_healthy": false,
+    "config_revision": "0",
+    "committed_seq": "0",
+    "queue_bytes": 0,
+    "oldest_queued_at": null,
+    "clock_time": "2026-09-13T09:00:00Z",
+    "errors": []
+  }
+}

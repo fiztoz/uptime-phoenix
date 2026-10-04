@@ -18,6 +18,8 @@ import (
 type LocalScheduler struct {
 	monitorRepo    ports.MonitorRepository
 	heartbeatRepo  ports.HeartbeatRepository
+	assignments    ports.MonitorProbeAssignmentRepository
+	activation     ports.ProbeConfigActivationRepository
 	checkerFn      func(string) (ports.Checker, bool)
 	heartbeatSvc   *services.HeartbeatService
 	maintenanceSvc *services.MaintenanceService
@@ -59,6 +61,18 @@ func (s *LocalScheduler) SetProxyRepo(repo ports.ProxyRepository) {
 	s.proxyResolver.setRepo(repo)
 }
 
+// SetAssignmentRepo scopes hub execution to monitors the local probe may run.
+// Optional: when unset, every active monitor is eligible (tests and pre-035 data).
+func (s *LocalScheduler) SetAssignmentRepo(repo ports.MonitorProbeAssignmentRepository) {
+	s.assignments = repo
+}
+
+// SetActivationRepo attaches the active configuration store so scheduled checks
+// capture and carry the active configuration revision.
+func (s *LocalScheduler) SetActivationRepo(repo ports.ProbeConfigActivationRepository) {
+	s.activation = repo
+}
+
 // Run starts the scheduler loop. Blocks until ctx is canceled.
 func (s *LocalScheduler) Run(ctx context.Context) error {
 	s.logger.Info("scheduler starting")
@@ -79,6 +93,13 @@ func (s *LocalScheduler) Run(ctx context.Context) error {
 	}
 }
 
+type scheduledCheck struct {
+	Monitor        *domain.Monitor
+	Generation     int64
+	ConfigRevision int64
+	CheckConfig    map[string]any
+}
+
 // tick is called every second and runs checks for monitors that are due.
 func (s *LocalScheduler) tick(ctx context.Context) {
 	monitors, err := s.monitorRepo.ListActive(ctx)
@@ -86,26 +107,34 @@ func (s *LocalScheduler) tick(ctx context.Context) {
 		s.logger.Error("scheduler: failed to list active monitors", "error", err)
 		return
 	}
+	runnable, err := filterLocalRunnable(ctx, s.assignments, monitors)
+	if err != nil {
+		s.logger.Error("scheduler: failed to filter local assignments", "error", err)
+		return
+	}
 
+	checks, err := captureScheduledChecks(ctx, runnable, s.activation, s.proxyResolver)
+	if err != nil {
+		s.logger.Error("scheduler: capture applied settings failed", "error", err)
+		return
+	}
 	now := time.Now().UTC()
-
-	for _, m := range monitors {
-		if !s.shouldRun(m, now) {
+	for _, check := range checks {
+		if !s.shouldRun(check.Monitor, now) {
 			continue
 		}
-
-		s.lastCheck.Store(m.ID, now)
-		s.startCheck(ctx, m)
+		s.lastCheck.Store(check.Monitor.ID, now)
+		s.startCheck(ctx, check)
 	}
 }
 
-func (s *LocalScheduler) startCheck(ctx context.Context, m *domain.Monitor) {
+func (s *LocalScheduler) startCheck(ctx context.Context, check scheduledCheck) {
 	go func() {
 		if !s.slots.acquire(ctx) {
 			return
 		}
 		defer s.slots.release()
-		s.runCheck(ctx, m)
+		s.runCheck(ctx, check)
 	}()
 }
 
@@ -149,7 +178,8 @@ func (s *LocalScheduler) shouldRun(m *domain.Monitor, now time.Time) bool {
 }
 
 // runCheck executes a single monitor check in a goroutine with panic recovery.
-func (s *LocalScheduler) runCheck(ctx context.Context, m *domain.Monitor) {
+func (s *LocalScheduler) runCheck(ctx context.Context, check scheduledCheck) {
+	m := check.Monitor
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Error("scheduler: panic in check goroutine",
@@ -164,8 +194,10 @@ func (s *LocalScheduler) runCheck(ctx context.Context, m *domain.Monitor) {
 	if s.maintenanceSvc != nil {
 		if active, _ := s.maintenanceSvc.IsActive(ctx, m.ID); active {
 			if err := s.heartbeatSvc.Record(heartbeatRecordContext(), m, ports.CheckResult{
-				Status:  domain.StatusMaintenance,
-				Message: "maintenance window active",
+				Status:               domain.StatusMaintenance,
+				Message:              "maintenance window active",
+				ConfigRevision:       check.ConfigRevision,
+				AssignmentGeneration: check.Generation,
 			}); err != nil {
 				s.logger.Warn("scheduler: record maintenance heartbeat failed", "monitor_id", m.ID, "error", err)
 			}
@@ -191,14 +223,8 @@ func (s *LocalScheduler) runCheck(ctx context.Context, m *domain.Monitor) {
 		return
 	}
 
-	// Perform the check. Merge monitor-level fields into config for checkers.
-	// If m.ProxyID is set, inject the resolved proxy under "_proxy" (nil
-	// otherwise, which checkers safely ignore) — the checker never sees the
-	// monitor, only this config map, so resolution has to happen here (see
-	// proxy_resolver.go).
-	checkConfig := checkConfigForMonitor(m)
-	checkConfig["_proxy"] = s.proxyResolver.configFor(ctx, m)
-	result, err := checker.Check(checkCtx, checkConfig)
+	// Perform the check using the captured execution settings.
+	result, err := checker.Check(checkCtx, check.CheckConfig)
 	if err != nil {
 		s.logger.Error("scheduler: check failed",
 			"monitor_id", m.ID,
@@ -211,6 +237,8 @@ func (s *LocalScheduler) runCheck(ctx context.Context, m *domain.Monitor) {
 			Message: err.Error(),
 		}
 	}
+	result.ConfigRevision = check.ConfigRevision
+	result.AssignmentGeneration = check.Generation
 
 	// Apply upside-down mode.
 	if m.UpsideDown {

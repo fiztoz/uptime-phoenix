@@ -1,0 +1,29 @@
+# Build the independently deployable remote probe image.
+# Download modules and compile on the native builder to avoid emulated Go
+# runtime failures; the resulting probe remains cross-compiled for the target.
+FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine AS go-builder
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG VERSION=dev
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+COPY . .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOMAXPROCS=2 go build -trimpath \
+    -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
+    -o /uptime-phoenix-probe ./cmd/probe
+
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="Uptime Phoenix Probe" \
+      org.opencontainers.image.description="Remote monitoring probe runtime" \
+      org.opencontainers.image.source="https://github.com/fiztoz/uptime-phoenix" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.vendor="Uptime Phoenix"
+COPY --from=go-builder /uptime-phoenix-probe /uptime-phoenix-probe
+USER 65532
+EXPOSE 8443
+# The operator must mount persistent storage at PROBE_DATA_DIR (default
+# /var/lib/uptime-phoenix/probe), run `init` once, then restart with `run`.
+# Identity and key material are never generated implicitly by the image.
+ENTRYPOINT ["/uptime-phoenix-probe"]

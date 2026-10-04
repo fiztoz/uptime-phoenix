@@ -482,7 +482,7 @@ func TestJSONAcceptsAsBackupDocument(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatalf("BackupDocument unmarshal: %v", err)
 	}
-	if doc.Version != 1 {
+	if doc.Version != services.BackupDocumentVersion {
 		t.Fatalf("version %d", doc.Version)
 	}
 	// Required slices non-nil after marshal round-trip from our writer.

@@ -1,0 +1,17 @@
+{
+  "protocol_version": 1,
+  "type": "enroll.request",
+  "message_id": "1c73a9c5-77ad-4dc0-926d-123bbab94540",
+  "sent_at": "2026-09-15T10:00:00Z",
+  "connection_generation": "0",
+  "payload": {
+    "hub_id": "b1123604-32c5-40aa-89f9-b62f93dceac2",
+    "probe_id": "e645246b-b176-4422-8ae5-b79629ee6a29",
+    "enrollment_id": "00000000-0000-0000-0000-000000000000",
+    "protocol_min": 1,
+    "protocol_max": 1,
+    "capabilities": ["checker.http.v1", "snapshot.v1"],
+    "credential_version": "1",
+    "token": "phx_probe_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+  }
+}

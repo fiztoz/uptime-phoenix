@@ -1,0 +1,133 @@
+{
+  "slice": "M5_ASSIGNMENT_WRITES",
+  "recorded": "2026-09-27",
+  "toolchain": "GOTOOLCHAIN=go1.26.6",
+  "engines": ["sqlite", "mariadb"],
+  "mariadb_dsn": "TEST_MARIADB_DSN set to a disposable mariadb:11 database (phoenix_ci, 127.0.0.1:43316, parseTime=true&loc=UTC&multiStatements=true)",
+  "commands": [
+    "GOTOOLCHAIN=go1.26.6 go test -race -count=1 -timeout 2400s -json ./... > /tmp/m5-full-race2.jsonl",
+    "python3 scripts/m5_read_evidence.py /tmp/m5-full-race2.jsonl",
+    "GOTOOLCHAIN=go1.26.6 CGO_ENABLED=0 go build ./...",
+    "GOTOOLCHAIN=go1.26.6 ~/go/bin/golangci-lint run",
+    "gofmt -l internal/",
+    "git diff --check"
+  ],
+  "totals": {
+    "packages_ok": 22,
+    "named_passes": 4127,
+    "failed": 0,
+    "skipped": 10,
+    "skipped_names": [
+      "TestDatabaseChecker_Check_MongoDB_RealServer",
+      "TestTelegramSender_Send_DownSeverity",
+      "TestDNSChecker_Check_A",
+      "TestDNSChecker_Check_MX",
+      "TestDNSChecker_Check_TXT",
+      "TestDNSChecker_Check_ExpectedValue_Pass",
+      "TestDNSChecker_Check_ExpectedValue_Fail",
+      "TestDNSChecker_Check_NonexistentDomain",
+      "TestDNSChecker_Check_DefaultServer",
+      "TestTCPChecker_Check_GoogleDNS"
+    ],
+    "skip_note": "The two longstanding skips are unrelated environment tests. The eight DNS/TCP checker skips are live-network tests that self-skip when public resolver access is unavailable; they are unrelated to this slice (and passed in the preceding slice's run). Zero M5 skips."
+  },
+  "named_passes": [
+    "services/TestValidateDesiredAssignments",
+    "services/TestValidateDesiredAssignments/empty_set",
+    "services/TestValidateDesiredAssignments/duplicate_members",
+    "services/TestValidateDesiredAssignments/malformed_member",
+    "services/TestValidateDesiredAssignments/bad_policy",
+    "services/TestValidateDesiredAssignments/bad_delivery",
+    "services/TestValidateDesiredAssignments/unknown_probe",
+    "services/TestValidateDesiredAssignments/disabled_probe",
+    "services/TestValidateDesiredAssignments/push_remote",
+    "services/TestValidateDesiredAssignments/unavailable_capability",
+    "services/TestValidateDesiredAssignments/docker_remote_without_binding",
+    "services/TestValidateDesiredAssignments/binding_on_non-docker",
+    "services/TestValidateDesiredAssignments/binding_on_local",
+    "services/TestValidateDesiredAssignments/binding_for_non-member",
+    "services/TestValidateDesiredAssignments/proxy_on_ignoring_checker",
+    "services/TestValidateDesiredAssignments/local_only",
+    "services/TestValidateDesiredAssignments/remote_http",
+    "services/TestValidateDesiredAssignments/docker_remote_bound",
+    "services/TestValidateDesiredAssignments/proxy_on_capable_checker",
+    "services/TestValidateDesiredAssignments/OmittedBindingsPreserveRetainedDocker",
+    "services/TestProbeAssignmentServiceReplace",
+    "services/TestProbeAssignmentServiceReplace/StaleRevisionWritesNothing",
+    "services/TestProbeAssignmentServiceReplace/ConflictBecomesStaleRevision",
+    "services/TestProbeAssignmentServiceReplace/LegacyMonitorInitializesAtRevisionOne",
+    "services/TestProbeAssignmentServiceReplace/PendingMarksChangedMembersOnly",
+    "services/TestProbeAssignmentServiceReplace/NoOpProvesNothingNew",
+    "services/TestMonitorServiceCloneAuthority",
+    "handlers/TestMonitorRegionalHTTPReplace",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/unauthenticated",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/disabled",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/no_writer",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/malformed_body",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/missing_revision",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/zero_revision",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/non-decimal_revision",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/overflow_revision",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/invalid_members",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/invalid_policy",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/invalid_delivery",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/invalid_bindings",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/stale_revision",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/unknown_probe",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/disabled_probe",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/unsupported_assignment",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/missing_monitor",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/bad_request",
+    "handlers/TestMonitorRegionalHTTPReplaceErrors/storage",
+    "repository/TestM5AssignmentWrites",
+    "repository/TestM5AssignmentWrites/sqlite",
+    "repository/TestM5AssignmentWrites/mariadb"
+  ],
+  "mariadb_live_matrix_passes": [
+    "repository/TestM5AssignmentWrites/mariadb",
+    "repository/TestM5FleetAPI/mariadb",
+    "repository/TestM5ReadAPI/mariadb"
+  ],
+  "mariadb_live_matrix_skips": [],
+  "mutation_checks": [
+    {
+      "guard": "stale expected revision is rejected before any write",
+      "mutation": "service precondition comparison removed",
+      "caught_by": "services/TestProbeAssignmentServiceReplace/StaleRevisionWritesNothing",
+      "reverted": true
+    },
+    {
+      "guard": "the write response marks its changed members pending",
+      "mutation": "pending override in toAssignmentsView removed",
+      "caught_by": "handlers/TestMonitorRegionalHTTPReplace (fixture drift)",
+      "reverted": true
+    },
+    {
+      "guard": "omitted bindings preserve retained bindings",
+      "mutation": "omitted bindings treated as explicit clear",
+      "caught_by": "repository/TestM5AssignmentWrites/sqlite (preserve case)",
+      "reverted": true
+    }
+  ],
+  "source_hashes_sha256": {
+    "internal/core/ports/probe_assignment_write.go": "041382ddb9b8ca0027bdc706d93724519d2e4d1c9399f7ec8e44780ca95ea0de",
+    "internal/adapters/checker/capability_inspector.go": "c02adb48a01602c53cf666689c0b3c694ceddbecb7d04f0afea2bff2f5fbf8e7",
+    "internal/adapters/repository/probe_registry.go": "4d46ae71e749685ecdec586d1f8545fe09455e22379add5f82e016be98d30cc2",
+    "internal/core/services/probe_assignment_service.go": "147cf444049666527dbecc98a73855345dd7e906f8f68733d20ff0c99fe0fedb",
+    "internal/adapters/http/handlers/monitor_regional.go": "aba05c71c2b11b3acb52a9a88d87d5cb75f349026c741cc0ed2714abecf069bb",
+    "internal/adapters/http/handlers/monitor.go": "058593e86a50b7b91e2312c7835285f6132966076dc7fe4274745122f5caa0c6",
+    "internal/adapters/http/handlers/testdata/m5/assignment_replace.json": "8aa24a905c8b0dc9e9836659bdbc48971dce2fe76f9cab059e87d69a2ff62289",
+    "internal/adapters/http/router.go": "46067479b7ec53b416aa760f2c1f9c08c98f4487ec84f8f8119e7ab51a30f03e",
+    "internal/bootstrap/run.go": "2891b463be319dd1b0ebd11d113e4237e3022ee2af87f8a1f4138a7ebae61ac4",
+    "scripts/m5_read_evidence.py": "0c0f3552887e8b06a1502dc7d8cf75f757e6bfa125bced57b6292705a9533b96"
+  },
+  "unverified": [
+    "frontend/browser E2E (no M5 UI in this slice)",
+    "production process restart and deployment",
+    "load/performance benchmarks",
+    "concurrent multi-writer races on one assignment set beyond the in-transaction revision checks (single-process tests cover the fencing)",
+    "probe-side capability advertisement rejection at publication/activation (unchanged M4 behavior; not re-run here)",
+    "alert_delivery accepts only 'regional'; aggregate/both remain unimplemented"
+  ]
+}

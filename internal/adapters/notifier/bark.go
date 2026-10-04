@@ -49,7 +49,7 @@ func (BarkSender) Send(ctx context.Context, config map[string]any, alert domain.
 			emoji = "⏳"
 		}
 		title = fmt.Sprintf("%s %s", emoji, alert.MonitorName)
-		body = fmt.Sprintf("Status: %s\n%s", alert.Status, alert.Message)
+		body = fmt.Sprintf("Status: %s\n%s", alert.Status, alertBody(alert))
 	}
 
 	// Bark supports both GET and POST. Use POST for reliability.

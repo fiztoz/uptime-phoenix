@@ -3,6 +3,7 @@ package handlers_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -163,6 +164,7 @@ func (r *badgeFakeHeartbeatRepo) GetAggregate1d(_ context.Context, _ int64, _ ti
 
 type badgeTestHarness struct {
 	router        *echo.Echo
+	badge         *handlers.BadgeHandlers
 	monitorRepo   *badgeFakeMonitorRepo
 	heartbeatRepo *badgeFakeHeartbeatRepo
 }
@@ -184,7 +186,7 @@ func newBadgeHarness(t *testing.T) *badgeTestHarness {
 	badgeGroup.GET("/uptime.svg", badgeH.Uptime)
 	badgeGroup.GET("/ping.svg", badgeH.Ping)
 
-	return &badgeTestHarness{router: e, monitorRepo: monitorRepo, heartbeatRepo: heartbeatRepo}
+	return &badgeTestHarness{router: e, badge: badgeH, monitorRepo: monitorRepo, heartbeatRepo: heartbeatRepo}
 }
 
 func (h *badgeTestHarness) get(t *testing.T, path string) *httptest.ResponseRecorder {
@@ -283,6 +285,40 @@ func TestBadgeHandlers_Status_NonNumericID_Returns200Gray(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "unknown") {
 		t.Errorf("expected 'unknown' value for non-numeric id, got: %s", rec.Body.String())
+	}
+}
+
+// badgeFailingOverall fails every projection read.
+type badgeFailingOverall struct{}
+
+func (badgeFailingOverall) StatusForMonitors(context.Context, []int64, time.Time) (map[int64]domain.Status, error) {
+	return nil, errors.New("projection unavailable")
+}
+
+// A projection failure must render the gray "unknown" badge through the
+// endpoint's fallback — not a 404/500, and not the monitor's heartbeat status.
+// The heartbeat below is DOWN on purpose: a failed overall read degrades to
+// UNKNOWN and must not fall through to the raw heartbeat.
+func TestBadgeHandlers_Status_ProjectionFailure_Returns200Gray(t *testing.T) {
+	h := newBadgeHarness(t)
+	h.monitorRepo.seed(&domain.Monitor{ID: 5, Name: "api", Type: "http", Active: true})
+	h.heartbeatRepo.setLatest(&domain.Heartbeat{MonitorID: 5, Status: domain.StatusDown, Time: time.Now().UTC()})
+	h.badge.SetAggregateStatus(badgeFailingOverall{})
+
+	rec := h.get(t, "/api/badge/5/status.svg")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (a badge must render even when the projection fails)", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "unknown") {
+		t.Errorf("expected 'unknown' value on projection failure, got: %s", body)
+	}
+	if !strings.Contains(body, "#9f9f9f") {
+		t.Errorf("expected gray color on projection failure, got: %s", body)
+	}
+	if strings.Contains(strings.ToLower(body), "down") {
+		t.Errorf("projection failure fell through to the raw heartbeat, got: %s", body)
 	}
 }
 

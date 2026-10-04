@@ -1,0 +1,18 @@
+{
+  "protocol_version": 1,
+  "type": "state.begin",
+  "message_id": "637c39e5-0d90-41db-82c8-4a8bc65f16e5",
+  "sent_at": "2026-09-14T09:00:00Z",
+  "connection_generation": "7",
+  "payload": {
+    "snapshot_id": "1c73a9c5-77ad-4dc0-926d-123bbab94540",
+    "stream_id": "1395c134-da65-4d86-9b11-c9ce20c61748",
+    "config_revision": "12",
+    "state_schema_version": 2,
+    "created_at": "2026-09-14T09:00:00Z",
+    "last_created_seq": "0",
+    "total_bytes": 213,
+    "chunk_count": 2,
+    "sha256": "34d6420b693d64e206dd21fb7e98708844acd118412984a00a12c007d6c3b9ae"
+  }
+}

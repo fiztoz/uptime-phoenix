@@ -19,6 +19,16 @@ import (
 
 // RouterOptions configures global HTTP middleware (Phase 3 hardening).
 type RouterOptions struct {
+	// RegionalMonitors is the M5 read surface. A nil handler keeps the routes
+	// registered but unavailable, so staged builds never serve SPA HTML as data.
+	RegionalMonitors *handlers.MonitorRegionalHandlers
+	// ProbeFleet is the M5 administrative fleet read surface. A nil handler
+	// keeps the routes registered but unavailable with the same typed 503.
+	ProbeFleet *handlers.ProbeFleetHandlers
+	// ProbeAdmin is the registration-write and durable-operation surface
+	// (protocol section 7). A nil handler keeps the routes registered but
+	// unavailable; operation routes never fake a 202.
+	ProbeAdmin *handlers.ProbeAdminHandlers
 	Production bool
 	RateLimit  middleware.RateLimitConfig
 	CORS       middleware.CORSConfig
@@ -137,6 +147,55 @@ func NewRouter(
 	requireExtensions := middleware.RequireCapability(accessSvc, middleware.CapViewExtensions)
 	requireCreateMonitors := middleware.RequireCapability(accessSvc, middleware.CapCreateMonitors)
 	requireCreateGroups := middleware.RequireCapability(accessSvc, middleware.CapCreateGroups)
+	if authSvc != nil {
+		regional := opts.RegionalMonitors
+		if regional == nil {
+			regional = handlers.NewMonitorRegionalHandlers(nil, false)
+		}
+		e.GET("/api/monitors/:id/probes", regional.Assignments, middleware.AuthMiddleware(authSvc))
+		e.GET("/api/monitors/:id/health", regional.Health, middleware.AuthMiddleware(authSvc))
+		e.GET("/api/monitors/:id/probe-alerts", regional.ListAlerts, middleware.AuthMiddleware(authSvc))
+		e.POST("/api/monitors/:id/probe-alerts/:alert_id/ack", regional.AcknowledgeAlert, middleware.AuthMiddleware(authSvc))
+		e.GET("/api/monitors/:id/probe-alerts/:alert_id/ack/:command_id", regional.AlertCommand, middleware.AuthMiddleware(authSvc))
+		// Admin atomic complete assignment/policy replacement (protocol section
+		// 7.1). The handler answers 503 when no write service is wired.
+		e.PUT("/api/monitors/:id/probes", regional.Replace, middleware.AuthMiddleware(authSvc), requireAdmin)
+
+		// Relationship-checked regional history and chart (protocol section 7).
+		// The monitor/probe relationship is validated before any evidence read.
+		e.GET("/api/monitors/:id/probes/:probe_id/heartbeats", regional.ListHistory, middleware.AuthMiddleware(authSvc))
+		e.GET("/api/monitors/:id/probes/:probe_id/heartbeats/chart", regional.GetHistoryChart, middleware.AuthMiddleware(authSvc))
+
+		// Administrative fleet reads (protocol section 7): authenticated admin
+		// via session or write-scope API key. Non-admins are rejected before the
+		// handler runs; the routes never widen monitor visibility.
+		fleet := opts.ProbeFleet
+		if fleet == nil {
+			fleet = handlers.NewProbeFleetHandlers(nil, false)
+		}
+		probeGroup := e.Group("/api/probes",
+			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"),
+			requireAdmin)
+		probeGroup.GET("", fleet.List)
+		probeGroup.GET("/:probe_id", fleet.Detail)
+
+		// Registration writes and durable administrative operations (protocol
+		// section 7). A receipt is persisted before any 202; a router built
+		// without the admin service keeps the routes registered but unavailable.
+		admin := opts.ProbeAdmin
+		if admin == nil {
+			admin = handlers.NewProbeAdminHandlers(nil, nil, false)
+		}
+		probeGroup.POST("", admin.Create)
+		probeGroup.PATCH("/:probe_id", admin.Update)
+		probeGroup.POST("/:probe_id/enroll", admin.Enroll)
+		probeGroup.POST("/:probe_id/rotate-credential", admin.RotateCredential)
+		probeGroup.POST("/:probe_id/reset-stream", admin.ResetStream)
+		probeGroup.POST("/:probe_id/revoke", admin.Revoke)
+		probeGroup.DELETE("/:probe_id", admin.Delete)
+		e.GET("/api/probe-operations/:operation_id", admin.Operation,
+			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"), requireAdmin)
+	}
 
 	// Reliability read model. The handler applies monitor visibility before it
 	// computes any rows, so this route needs authentication but no install-wide

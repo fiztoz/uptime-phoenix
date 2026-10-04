@@ -276,3 +276,30 @@ func TestDispatcher_CarriesPersistedAlertLifecycleTiming(t *testing.T) {
 		}
 	}
 }
+
+type countingResolver struct{ ids []int64 }
+
+func (c *countingResolver) AutoResolveOnRecovery(_ context.Context, monitorID int64) error {
+	c.ids = append(c.ids, monitorID)
+	return nil
+}
+
+func TestDispatcher_OverallUpResolvesWithoutLocalTransition(t *testing.T) {
+	d := newDispatcher(&fakeNotifier{}, &fakeMaintenance{})
+	resolver := &countingResolver{}
+	d.SetAutoResolver(resolver)
+	d.SetAggregateStatus(staticAggregate{4: domain.StatusDown})
+	monitor := &domain.Monitor{ID: 4, Name: "edge"}
+	hb := &domain.Heartbeat{MonitorID: 4, Status: domain.StatusUp}
+
+	d.OnHeartbeat(context.Background(), monitor, hb, ptrStatus(domain.StatusUp))
+	if len(resolver.ids) != 0 {
+		t.Fatalf("resolved while overall was DOWN: %v", resolver.ids)
+	}
+
+	d.SetAggregateStatus(staticAggregate{4: domain.StatusUp})
+	d.OnHeartbeat(context.Background(), monitor, hb, ptrStatus(domain.StatusUp))
+	if len(resolver.ids) != 1 || resolver.ids[0] != 4 {
+		t.Fatalf("overall UP resolutions = %v", resolver.ids)
+	}
+}

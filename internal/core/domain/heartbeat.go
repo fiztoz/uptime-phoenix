@@ -13,4 +13,26 @@ type Heartbeat struct {
 	Duration  int // total check duration in ms
 	Important bool
 	DownCount int // consecutive down count
+	// ProbeID is the vantage point that produced this sample. Empty means local.
+	ProbeID string
+	// StreamID/SourceSeq identify a remote telemetry event. Empty/zero on local rows.
+	StreamID  string
+	SourceSeq int64
+	// AssignmentGeneration is the assignment epoch at observation time.
+	AssignmentGeneration int64
+	// ReceivedAt is hub ingest time. Zero on unread legacy rows.
+	ReceivedAt time.Time
+	// ConfigRevision is the accepted snapshot revision at observation time.
+	ConfigRevision int64
+}
+
+// HeartbeatPublication is the in-process event payload for one recorded check.
+// Overall is the policy status when the monitor has a remote assignment.
+// A nil Overall means the local sample is the aggregate status.
+type HeartbeatPublication struct {
+	Heartbeat *Heartbeat
+	Overall   *Status
+	// ProjectionVersion is the stored overall version after this check.
+	// Zero means the monitor has no overall projection.
+	ProjectionVersion int64
 }

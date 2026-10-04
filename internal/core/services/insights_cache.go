@@ -27,7 +27,7 @@ type insightsCacheKey struct {
 	monitors [sha256.Size]byte
 }
 
-func newInsightsCacheKey(userID int64, period InsightsPeriod, typ string, groupID *int64, monitors []*domain.Monitor) insightsCacheKey {
+func newInsightsCacheKey(userID int64, period InsightsPeriod, typ string, groupID *int64, monitors []*domain.Monitor, versions map[int64]int64) insightsCacheKey {
 	key := insightsCacheKey{userID: userID, period: period, typ: typ, hasGroup: groupID != nil}
 	if groupID != nil {
 		key.groupID = *groupID
@@ -44,6 +44,14 @@ func newInsightsCacheKey(userID int64, period InsightsPeriod, typ string, groupI
 			group = *m.GroupID
 		}
 		_, _ = fmt.Fprintf(hash, "%d:%q:%q:%d:%t:%d;", m.ID, m.Name, m.Type, m.Interval, m.GroupID != nil, group)
+	}
+	versionIDs := make([]int64, 0, len(versions))
+	for id := range versions {
+		versionIDs = append(versionIDs, id)
+	}
+	sort.Slice(versionIDs, func(i, j int) bool { return versionIDs[i] < versionIDs[j] })
+	for _, id := range versionIDs {
+		_, _ = fmt.Fprintf(hash, "v:%d:%d;", id, versions[id])
 	}
 	copy(key.monitors[:], hash.Sum(nil))
 	return key

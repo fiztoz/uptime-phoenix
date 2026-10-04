@@ -1,6 +1,6 @@
 <script lang="ts">
 	interface Props {
-		data: Array<{ date: string; status: 'up' | 'down' | 'pending' | 'maintenance' | 'none' }>;
+		data: Array<{ date: string; status: 'up' | 'down' | 'pending' | 'maintenance' | 'unknown' | 'none' }>;
 	}
 
 	let { data = [] }: Props = $props();
@@ -25,6 +25,7 @@
 		if (status === 'up') return 'bg-success';
 		if (status === 'down') return 'bg-danger';
 		if (status === 'pending') return 'bg-warning';
+		if (status === 'unknown') return 'bg-muted-foreground/30';
 		if (status === 'maintenance') return 'bg-muted-foreground/50';
 		return 'bg-muted';
 	}
