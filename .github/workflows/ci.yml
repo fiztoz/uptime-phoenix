@@ -27,7 +27,7 @@ jobs:
   backend:
     name: backend
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -65,7 +65,7 @@ jobs:
           fi
 
       - name: Test (race)
-        run: go test -race -count=1 ./... -timeout 20m
+        run: go test -race -count=1 ./... -timeout 40m
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
@@ -148,7 +148,7 @@ jobs:
   mariadb-contract:
     name: mariadb-contract
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 50
     services:
       mariadb:
         image: mariadb:11
@@ -177,16 +177,20 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Allow isolated migration test schemas
+      - name: Grant disposable database test privileges
         env:
           MARIADB_CONTAINER: ${{ job.services.mariadb.id }}
           MYSQL_PWD: root
-        run: >-
-          docker exec -e MYSQL_PWD "$MARIADB_CONTAINER" mariadb -uroot -e
-          'GRANT ALL PRIVILEGES ON `phoenix_migration_%`.* TO '\''phoenix'\''@'\''%'\'''
+        # PROCESS lets concurrency tests observe held InnoDB lock dependencies.
+        # These grants apply only to this job's disposable service database.
+        run: |
+          docker exec -i -e MYSQL_PWD "$MARIADB_CONTAINER" mariadb -uroot <<'SQL'
+          GRANT ALL PRIVILEGES ON `phoenix_migration_%`.* TO 'phoenix'@'%';
+          GRANT PROCESS ON *.* TO 'phoenix'@'%';
+          SQL
 
       - name: Repository contract tests
-        run: go test -race -count=1 ./internal/adapters/repository/... -timeout 15m
+        run: go test -race -count=1 ./internal/adapters/repository/... -timeout 40m
 
   helm:
     name: helm
@@ -262,6 +266,16 @@ jobs:
               -f Dockerfile.split \
               .
           done
+
+      - name: Build probe image (no push)
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --build-arg VERSION=ci \
+            -t uptime-phoenix-probe:ci \
+            --load \
+            -f Dockerfile.probe \
+            .
 
   actionlint:
     name: actionlint

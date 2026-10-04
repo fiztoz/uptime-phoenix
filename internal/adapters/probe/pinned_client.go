@@ -226,6 +226,10 @@ func NewPinnedHTTPClient(endpoint, fingerprint string, policy EndpointPolicy) (*
 		}
 	}
 
+	// Probe certificates are self-signed and authenticated by the enrollment pin,
+	// not by public CA/hostname trust. Skip only the default verifier: the callback
+	// below requires the exact leaf SHA-256 and validity window before HTTP data
+	// is sent. Keep ClientSessionCache nil so every connection verifies its leaf.
 	tlsConfig := &tls.Config{
 		MinVersion:         tls.VersionTLS13,
 		MaxVersion:         tls.VersionTLS13,

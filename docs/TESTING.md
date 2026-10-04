@@ -428,6 +428,10 @@ on that disposable server. The test principal needs the prefix-scoped grant
 above in addition to access to `phoenix_ci`. Missing permissions fail these
 tests; they do not silently skip them. CI and `m6_dual_engine_gate.py` provision
 the same grant. This grant is for test servers only, not application deployment.
+The replay/delete lock-observer tests also require `GRANT PROCESS ON *.* TO
+'phoenix'@'%';` on that disposable server. Both automated paths supply it. CI
+allows 40 minutes per race-test package; the former 15-minute repository limit
+could expire while ordinary migration fixtures were still making progress.
 
 
 The script starts two sharded app processes, two HTTP monitor targets and local

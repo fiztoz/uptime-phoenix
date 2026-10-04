@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DRY_RUN="${ROOT}/scripts/release/dry-run.sh"
-TMP_BASE="${TMPDIR:-/private/tmp}"
+TMP_BASE="${TMPDIR:-/tmp}"
 TEST_ROOT="$(mktemp -d "${TMP_BASE%/}/phoenix-image-gate.XXXXXX")"
 chmod 700 "$TEST_ROOT"
 trap 'rm -rf "$TEST_ROOT"' EXIT
