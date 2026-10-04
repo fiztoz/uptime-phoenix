@@ -1,5 +1,10 @@
 # Multi-region continuation guide
 
+Current results and accepted exceptions are consolidated in the
+[October 4 validation summary](M6_VALIDATION_REPORT_2026-10-04.md).
+Earlier checkpoints below retain their historical scope; M6 operational
+acceptance remains incomplete. UAT/load campaign details stay local.
+
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then
 choose authorized M6 validation/activation work.**
 The first M6 slice is the [fleet assignment-ownership gate](M6_FLEET_ACTIVATION_GATE.md):
@@ -13,14 +18,14 @@ durability, clock, disk, backup and provider bounds the code enforces. A
 [synthetic populated MariaDB rehearsal](M6_PARTITIONED_MIGRATION_REHEARSAL.md)
 measures migration 037 on 100k partitioned heartbeats. A
 [Go-runner follow-up](M6_MIGRATION_RUNNER_REHEARSAL.md) applies 038–074 to that
-populated schema. A [published-release upgrade rehearsal](M6_RELEASE_UPGRADE_REHEARSAL.md)
+populated schema. A [published-release upgrade rehearsal](M6_VALIDATION_REPORT_2026-10-04.md)
 starts the actual `v0.4.5` image, seeds 100,000 old partitioned rows and
 upgrades them through the working-tree application (34 → 74 migrations); it
 still does not close the production-sized disk/lock gate. The
-[fresh dual-engine race gate](M6_DUAL_ENGINE_GATE.md) audits named MariaDB
+[fresh dual-engine race gate](M6_VALIDATION_REPORT_2026-10-04.md) audits named MariaDB
 passes and skips on a disposable database; it is not a scenario-by-scenario
-matrix. The [real edge ENOSPC test](M6_DISK_FULL_ACCEPTANCE.md) covers a T20 recording/health
-slice; [abrupt edge-process crashes](M6_EDGE_COMMIT_CRASH.md) cover the T06
+matrix. The [real edge ENOSPC test](M6_VALIDATION_REPORT_2026-10-04.md) covers a T20 recording/health
+slice; [abrupt edge-process crashes](M6_VALIDATION_REPORT_2026-10-04.md) cover the T06
 local-transaction kill boundary on an isolated tmpfs. Neither is the full
 40-case matrix. None of these records
 authorizes a canary. The remaining M6 requirements are listed in

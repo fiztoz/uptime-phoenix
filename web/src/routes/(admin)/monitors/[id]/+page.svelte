@@ -10,6 +10,11 @@
     type MonitorProbeAssignmentView,
   } from "$lib/api/regional.js";
   import { statsApi, type MonitorStats } from "$lib/api/stats.js";
+  import {
+    defaultCheckProbe,
+    mergeRecentChecks,
+    regionalCheckEvent,
+  } from "$lib/recent-checks";
   import { conditionsApi, type MonitorCondition } from "$lib/api/conditions";
   import {
     notificationsApi,
@@ -37,6 +42,7 @@
     monitorFromApi,
     resolveDisplayedMonitor,
     shouldStopPostClearPolling,
+    heartbeatsAfterClear,
   } from "$lib/monitor-detail-state";
   import { confirmAction } from "$lib/stores/confirm.svelte";
   import { toast } from "svelte-sonner";
@@ -99,6 +105,21 @@
   /** Regional members for the latency-selection picker (empty for local-only). */
   let regionProbes = $state<MonitorProbeAssignmentView[]>([]);
   let selectedProbeId = $state<string | null>(null);
+  let regionalChecks = $state<Heartbeat[]>([]);
+  let regionalChecksError = $state(false);
+  let regionalChecksClearedAt = $state<string | null>(null);
+  let selectionInitialized = false;
+  let assignmentRequestGeneration = 0;
+  let checksRequestGeneration = 0;
+  let regionalChecksVersion = 0;
+  const hasRemoteRegions = $derived(
+    regionProbes.some((probe) => probe.probe_id !== "local"),
+  );
+  const overallTimeline = $derived(
+    selectedProbeId === null &&
+      (hasRemoteRegions ||
+        timelineHeartbeats.some((beat) => beat.scope === "overall")),
+  );
   let lastKnownStatus = $state<string | null>(null);
   let lastProcessedHeartbeatTime = $state<string | null>(null);
 
@@ -145,6 +166,12 @@
       stopPostClearPolling();
       initialDataSource = null;
       selectedProbeId = null;
+      selectionInitialized = false;
+      regionalChecks = [];
+      regionalChecksError = false;
+      regionalChecksClearedAt = null;
+      checksRequestGeneration += 1;
+      assignmentRequestGeneration += 1;
       regionProbes = [];
       chartRequestGeneration += 1;
       void loadDetails();
@@ -164,6 +191,18 @@
       }, 2000);
     };
     const offBeat = realtime.on("monitor.probe.heartbeat", (payload) => {
+      const check = regionalCheckEvent(payload, id, selectedProbeId);
+      if (
+        check &&
+        acceptLiveHeartbeat({
+          clearedAt: regionalChecksClearedAt,
+          hbTime: check.time,
+          lastProcessedTime: null,
+        })
+      ) {
+        regionalChecksVersion += 1;
+        regionalChecks = mergeRecentChecks(regionalChecks, [check]);
+      }
       if (
         typeof payload !== "object" ||
         payload === null ||
@@ -200,6 +239,15 @@
       }
       regionConnectionEpoch = epoch;
     });
+  });
+
+  $effect(() => {
+    const id = monitorId;
+    const timer = setInterval(() => {
+      if (!document.hidden && id === monitorId && selectedProbeId)
+        void loadRegionalChecks();
+    }, 30_000);
+    return () => clearInterval(timer);
   });
 
   function stopPostClearPolling() {
@@ -349,6 +397,7 @@
     if (history.length > 0) statusHistory = history;
     if (timeline.length > 0) timelineHeartbeats = timeline;
     if (statsData) stats = statsData;
+    if (selectedProbeId) await loadRegionalChecks();
     if (history[0]) {
       lastKnownStatus = history[0].status;
     }
@@ -388,21 +437,82 @@
 
   function handleRegionChange(probeId: string) {
     selectedProbeId = probeId === "all" ? null : probeId;
+    selectionInitialized = true;
+    regionalChecks = [];
+    regionalChecksError = false;
+    checksRequestGeneration += 1;
+    void loadRegionalChecks();
     void loadChartData(chartHours);
   }
 
   async function loadRegionProbes() {
+    const id = monitorId;
+    const generation = ++assignmentRequestGeneration;
     // 503 (probes disabled) or a hidden monitor simply leaves the picker out.
-    const assignments = await regionalApi
-      .assignments(monitorId)
-      .catch(() => null);
+    const assignments = await regionalApi.assignments(id).catch(() => null);
+    if (generation !== assignmentRequestGeneration || id !== monitorId) return;
     if (assignments) {
       regionProbes = assignments.assignments;
+      if (
+        !selectionInitialized ||
+        (selectedProbeId &&
+          !regionProbes.some((probe) => probe.probe_id === selectedProbeId))
+      ) {
+        selectedProbeId = defaultCheckProbe(regionProbes);
+        selectionInitialized = true;
+        regionalChecks = [];
+        checksRequestGeneration += 1;
+        void loadRegionalChecks();
+        void loadChartData(chartHours);
+      } else if (selectedProbeId) {
+        void loadRegionalChecks();
+      }
+    }
+  }
+
+  async function loadRegionalChecks() {
+    const id = monitorId;
+    const probeId = selectedProbeId;
+    const generation = ++checksRequestGeneration;
+    const version = regionalChecksVersion;
+    if (!probeId) return;
+    try {
+      const rows = await regionalApi.history(id, probeId, {
+        hours: 24,
+        limit: 60,
+        order: "asc",
+      });
+      if (
+        generation !== checksRequestGeneration ||
+        id !== monitorId ||
+        probeId !== selectedProbeId
+      )
+        return;
+      const snapshot = heartbeatsAfterClear(rows, regionalChecksClearedAt).map(
+        (beat) => ({
+          ...beat,
+          scope: "regional" as const,
+          latency_available: true,
+        }),
+      );
+      regionalChecks = mergeRecentChecks(
+        snapshot,
+        version === regionalChecksVersion ? [] : regionalChecks,
+      );
+      regionalChecksError = false;
+    } catch {
+      if (
+        generation === checksRequestGeneration &&
+        id === monitorId &&
+        probeId === selectedProbeId
+      )
+        regionalChecksError = true;
     }
   }
 
   async function loadDetails() {
     const generation = ++detailsGeneration;
+    const chartGeneration = chartRequestGeneration;
     loading = true;
     loadError = null;
     try {
@@ -429,7 +539,11 @@
 
       stats = statsData;
       statusHistory = history;
-      chartData = chart;
+      if (
+        selectedProbeId === null &&
+        chartGeneration === chartRequestGeneration
+      )
+        chartData = chart;
       timelineHeartbeats = timeline;
       realtime.applyConditionSnapshot(conditions, snapshotAt, monitorId);
 
@@ -675,15 +789,21 @@
     clearingHistory = true;
     try {
       const anchor =
-        latestObservedTime([...statusHistory, ...timelineHeartbeats]) ??
-        "1970-01-01T00:00:00.000Z";
+        latestObservedTime([
+          ...statusHistory,
+          ...timelineHeartbeats,
+          ...regionalChecks,
+        ]) ?? "1970-01-01T00:00:00.000Z";
       lastKnownStatus = null;
       lastProcessedHeartbeatTime = anchor;
       await heartbeatsApi.clear(monitorId);
       historyClearedAt = anchor;
+      regionalChecksClearedAt = anchor;
       statusHistory = [];
       chartData = { buckets: [], downtime_intervals: [] };
       timelineHeartbeats = [];
+      regionalChecks = [];
+      checksRequestGeneration += 1;
       stats = stats
         ? {
             ...stats,
@@ -704,13 +824,17 @@
   }
 
   const currentPing = $derived(() => {
+    if (selectedProbeId) return regionalChecks.at(-1)?.ping ?? 0;
+    if (overallTimeline) return 0;
     const live = realtime.heartbeats.get(monitorId);
     if (live?.ping && live.ping > 0) return live.ping;
     return stats?.current_ping_ms ?? 0;
   });
 
   const avgPing24h = $derived(
-    stats?.avg_ping_24h != null ? Math.round(stats.avg_ping_24h) : null,
+    !hasRemoteRegions && !overallTimeline && stats?.avg_ping_24h != null
+      ? Math.round(stats.avg_ping_24h)
+      : null,
   );
 
   const uptime24h = $derived(
@@ -945,7 +1069,40 @@
       </div>
     </div>
 
-    <RecentCheckBar heartbeats={timelineHeartbeats} />
+    {#if hasRemoteRegions}
+      <div class="flex items-center gap-3">
+        <span class="text-sm text-muted-foreground"
+          >{m.monitor_detail_region_label()}</span
+        >
+        <div class="w-56">
+          <Select
+            options={[
+              { value: "all", label: m.monitor_detail_region_all() },
+              ...regionProbes.map((probe) => ({
+                value: probe.probe_id,
+                label: probe.name || probe.probe_id,
+              })),
+            ]}
+            value={selectedProbeId ?? "all"}
+            onValueChange={handleRegionChange}
+            ariaLabel={m.monitor_detail_region_label()}
+            size="sm"
+            class="w-full"
+          />
+        </div>
+      </div>
+    {/if}
+    {#if selectedProbeId && regionalChecksError}
+      <p role="alert" class="text-sm text-danger">
+        {m.monitor_detail_regional_checks_failed()}
+      </p>
+    {/if}
+    {#key `${monitorId}:${selectedProbeId ?? "overall"}`}
+      <RecentCheckBar
+        heartbeats={selectedProbeId ? regionalChecks : timelineHeartbeats}
+        overall={overallTimeline}
+      />
+    {/key}
 
     <!-- Metrics row (Uptime Kuma style) -->
     <div
@@ -958,19 +1115,39 @@
         value={currentPing() > 0 ? currentPing() : "—"}
         unit={currentPing() > 0 ? "ms" : undefined}
         highlight
+        hint={selectedProbeId
+          ? m.monitor_detail_selected_region({
+              region:
+                regionProbes.find((probe) => probe.probe_id === selectedProbeId)
+                  ?.name || selectedProbeId,
+            })
+          : overallTimeline
+            ? m.monitor_detail_overall_latency_hint()
+            : undefined}
       />
       <MetricCard
-        label={m.monitor_detail_page_metric_avg_response()}
+        label={hasRemoteRegions
+          ? m.monitor_detail_overall_avg_response()
+          : m.monitor_detail_page_metric_avg_response()}
         value={avgPing24h != null ? avgPing24h : "—"}
         unit={avgPing24h != null ? "ms" : undefined}
+        hint={hasRemoteRegions
+          ? m.monitor_detail_overall_latency_hint()
+          : undefined}
       />
       <MetricCard
         label={m.monitor_detail_page_metric_uptime_24h()}
         value={uptime24h}
+        hint={hasRemoteRegions
+          ? m.monitor_detail_overall_uptime_hint()
+          : undefined}
       />
       <MetricCard
         label={m.monitor_detail_page_metric_uptime_30d()}
         value={uptime30d}
+        hint={hasRemoteRegions
+          ? m.monitor_detail_overall_uptime_hint()
+          : undefined}
       />
       {#if showCert}
         <MetricCard
@@ -1011,28 +1188,7 @@
       selectedHours={chartHours}
       onRangeChange={handleChartRangeChange}
       loading={chartLoading}
-    >
-      {#snippet regionPicker()}
-        {#if regionProbes.length > 1}
-          <div class="w-44">
-            <Select
-              options={[
-                { value: "all", label: m.monitor_detail_region_all() },
-                ...regionProbes.map((p) => ({
-                  value: p.probe_id,
-                  label: p.name || p.probe_id,
-                })),
-              ]}
-              value={selectedProbeId ?? "all"}
-              onValueChange={handleRegionChange}
-              ariaLabel={m.monitor_detail_region_label()}
-              size="sm"
-              class="w-full"
-            />
-          </div>
-        {/if}
-      {/snippet}
-    </ResponseTimeChart>
+    ></ResponseTimeChart>
 
     <!-- Status history table (clearing destroys data: admin-only, like the API) -->
     <StatusHistoryTable

@@ -20,7 +20,22 @@ import (
 //	resolve_server   (string, optional, default "8.8.8.8") — DNS server to query (IP, no port)
 //	expected_value  (string, optional) — if set, at least one answer must contain this value
 //	timeout         (float64, optional, default 10) — query timeout in seconds
-type DNSChecker struct{}
+type DNSChecker struct {
+	exchangeFunc dnsExchange
+}
+
+// dnsExchange is an instance-scoped seam for exercising DNS checks against a
+// local server while retaining the configured resolver address contract.
+type dnsExchange func(context.Context, *dns.Client, *dns.Msg, string) (*dns.Msg, time.Duration, error)
+
+// exchange performs a DNS query with the production client unless a test
+// supplies an instance-scoped exchange function.
+func (checker DNSChecker) exchange(ctx context.Context, client *dns.Client, msg *dns.Msg, address string) (*dns.Msg, time.Duration, error) {
+	if checker.exchangeFunc != nil {
+		return checker.exchangeFunc(ctx, client, msg, address)
+	}
+	return client.ExchangeContext(ctx, msg, address)
+}
 
 func init() { Register(DNSChecker{}) }
 
@@ -58,7 +73,7 @@ func (DNSChecker) Validate(c map[string]any) error {
 	return nil
 }
 
-func (DNSChecker) Check(ctx context.Context, c map[string]any) (ports.CheckResult, error) {
+func (checker DNSChecker) Check(ctx context.Context, c map[string]any) (ports.CheckResult, error) {
 	// --- Extract config with defaults ---
 	hostname, _ := c["hostname"].(string)
 	hostname = strings.TrimSpace(hostname)
@@ -106,7 +121,7 @@ func (DNSChecker) Check(ctx context.Context, c map[string]any) (ports.CheckResul
 
 	// --- Execute query ---
 	start := time.Now()
-	resp, rtt, err := client.ExchangeContext(ctx, msg, resolveServer+":53")
+	resp, rtt, err := checker.exchange(ctx, client, msg, resolveServer+":53")
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {

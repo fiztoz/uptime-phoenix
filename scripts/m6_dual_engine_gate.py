@@ -6,16 +6,18 @@ backend regression run, NOT proof that the full section-13 matrix or a canary
 was executed. Never accepts an externally supplied test DSN.
 """
 
+import argparse
 import collections
 import json
 import os
+import secrets
 from pathlib import Path
 import subprocess
 import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-IMAGE = "mariadb:11"
+DEFAULT_IMAGE = "mariadb:11"
 SKIPS_ALLOWED = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",  # optional external target
     "TestTelegramSender_Send_DownSeverity",          # optional provider
@@ -26,30 +28,62 @@ REQUIRED = {
     "TestEdgeCheckCrashAroundCommit/inside-transaction",
     "TestEdgeCheckCrashAroundCommit/after-commit",
     "TestHubWorkerReadinessAttestationIsUtcBound/mariadb",
+    "TestSession_IncomingFrameRejections/oversized_inbound_frame_terminates_the_reader",
+    "TestMariaDB037ResumesEveryCommittedStatementPrefix",
+    "TestMariaDB037RejectsMalformedExistingIndex",
+    "TestMariaDBMigrationOwnershipBlocksUntilOwnerReleases",
+    "TestMariaDBMigrationDiscardsConnectionWhenLockReleaseFails",
+    "TestDeclarativeRestoreFleetAdmission/mariadb",
+    "TestMonitorUpdatePreservesConcurrentWorkerLease/sqlite",
+    "TestMonitorUpdatePreservesConcurrentWorkerLease/mariadb",
+    # These exact unsuffixed leaves use MariaDB-only fixtures. They must run;
+    # aggregate engine counts or a parent PASS cannot establish their coverage.
+    "TestMonitorMutationsWaitBeforeAppliedSourceGraph/update",
+    "TestMonitorMutationsWaitBeforeAppliedSourceGraph/delete",
+    "TestMonitorMutationsRejectMissingLocalRegistration/update",
+    "TestMonitorMutationsRejectMissingLocalRegistration/delete",
+    "TestMonitorDeleteConcurrencyDiagnostic/AppliedSourceReaderVersusDelete",
+    "TestMonitorDeleteConcurrencyDiagnostic/DeleteVersusWorkerLeaseLifecycle",
+    "TestMonitorDeleteReplayDiagnostic/ReplayCommitVersusDelete",
+    "TestMonitorDeleteReplayDiagnostic/CurrentSnapshotCommitVersusDelete",
 }
 
 
-def docker(*args):
-    result = subprocess.run(["docker", *args], text=True, capture_output=True, timeout=90, check=False)
+def docker(*args, env=None):
+    result = subprocess.run(["docker", *args], env=env, text=True, capture_output=True, timeout=90, check=False)
     if result.returncode:
         raise RuntimeError(f"docker {args[0]} failed (exit {result.returncode})")
     return result.stdout.strip()
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mariadb-image", choices=(DEFAULT_IMAGE, "mariadb:12.3"),
+                        default=DEFAULT_IMAGE, help="cached disposable DB image, never a live instance")
+    parser.add_argument("--go-json", type=Path,
+                        help="save complete Go JSON events to a NEW private file for scenario evaluation")
+    args = parser.parse_args()
+    event_log = None
+    if args.go_json:
+        # Exclusive creation preserves earlier evidence; raw migration logs may
+        # contain connection details and must never be world-readable.
+        descriptor = os.open(args.go_json, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        event_log = os.fdopen(descriptor, "w")
     host = os.environ.get("DOCKER_HOST") or docker(
         "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"
     )
     if not host.startswith("unix://"):
         raise RuntimeError("requires a local Unix Docker socket; refuses remote Docker")
-    docker("image", "inspect", IMAGE)  # Do not pull an image on demand.
+    docker("image", "inspect", args.mariadb_image)  # Do not pull an image on demand.
     name = "phoenix-m6-matrix-" + uuid.uuid4().hex[:10]
     summary = None
+    root_password = secrets.token_urlsafe(32)
     try:
         docker("run", "-d", "--name", name, "--memory", "1g", "--cpus", "2",
-               "-p", "127.0.0.1::3306", "-e", "MARIADB_RANDOM_ROOT_PASSWORD=yes",
+               "-p", "127.0.0.1::3306", "-e", "MARIADB_ROOT_PASSWORD",
                "-e", "MARIADB_DATABASE=phoenix_ci", "-e", "MARIADB_USER=phoenix",
-               "-e", "MARIADB_PASSWORD=phoenix", IMAGE)
+               "-e", "MARIADB_PASSWORD=phoenix", args.mariadb_image,
+               env={**os.environ, "MARIADB_ROOT_PASSWORD": root_password})
         port = int(docker("port", name, "3306/tcp").split(":")[-1])
         if not 1024 < port <= 65535:
             raise RuntimeError("Docker did not bind a random localhost test port")
@@ -64,6 +98,18 @@ def main():
             time.sleep(1)
         else:
             raise RuntimeError("disposable database did not become ready")
+        # Migration failure/restart tests need their own schemas on this owned
+        # disposable server. Schema access for the ordinary test principal remains
+        # scoped to phoenix_ci plus this test-only schema-name prefix.
+        # Exact Delete diagnostics observe the held InnoDB transaction/lock
+        # dependency. PROCESS permits this metadata read only on the freshly
+        # created disposable server; it is not an application deployment grant.
+        docker("exec", "-e", "MYSQL_PWD", name, "mariadb", "-uroot", "-e",
+               "GRANT PROCESS ON *.* TO 'phoenix'@'%'",
+               env={**os.environ, "MYSQL_PWD": root_password})
+        docker("exec", "-e", "MYSQL_PWD", name, "mariadb", "-uroot", "-e",
+               "GRANT ALL PRIVILEGES ON `phoenix_migration_%`.* TO 'phoenix'@'%'",
+               env={**os.environ, "MYSQL_PWD": root_password})
         # Do not pass caller DB/provider credentials or integration-test toggles
         # into a disposable acceptance run. Only toolchain/cache paths survive.
         safe = {"PATH", "HOME", "TMPDIR", "GOPATH", "GOCACHE", "GOMODCACHE",
@@ -93,6 +139,8 @@ def main():
         with subprocess.Popen(cmd, cwd=ROOT, env=env, text=True, stdout=subprocess.PIPE,
                               stderr=subprocess.DEVNULL) as proc:
             for line in proc.stdout:
+                if event_log:
+                    event_log.write(line)
                 try:
                     event = json.loads(line)
                 except json.JSONDecodeError:
@@ -124,13 +172,15 @@ def main():
             "missing_required": sorted(REQUIRED - passed),
             "unrecognized_skips": sorted(set(skipped) - SKIPS_ALLOWED),
             "malformed_json_lines": malformed,
-            "database": "fresh disposable MariaDB 11 on random localhost port",
+            "database": f"fresh disposable {args.mariadb_image} on random localhost port",
             "full_section_13_matrix": False,
         }
-        if (code or malformed or mariadb["pass"] < 300 or mariadb["skip"]
+        if (code or failed or malformed or mariadb["pass"] < 300 or mariadb["skip"]
                 or REQUIRED - passed or set(skipped) - SKIPS_ALLOWED):
             summary["result"] = "failed"
     finally:
+        if event_log:
+            event_log.close()
         exists = subprocess.run(["docker", "container", "inspect", name],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 check=False)

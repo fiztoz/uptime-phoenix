@@ -49,6 +49,9 @@ jobs:
       - name: Build
         run: go build ./...
 
+      - name: Release and backend harness regressions
+        run: make release-image-gate m6-backend-harness-gate
+
       - name: Vet
         run: go vet ./internal/...
 
@@ -173,6 +176,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Allow isolated migration test schemas
+        env:
+          MARIADB_CONTAINER: ${{ job.services.mariadb.id }}
+          MYSQL_PWD: root
+        run: >-
+          docker exec -e MYSQL_PWD "$MARIADB_CONTAINER" mariadb -uroot -e
+          'GRANT ALL PRIVILEGES ON `phoenix_migration_%`.* TO '\''phoenix'\''@'\''%'\'''
 
       - name: Repository contract tests
         run: go test -race -count=1 ./internal/adapters/repository/... -timeout 15m

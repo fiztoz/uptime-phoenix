@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Monitor, Heartbeat } from '$lib/stores/ws.svelte.js';
+	import type { Heartbeat as HistoryHeartbeat } from '$lib/api/heartbeats';
 	import StatusPill from './StatusPill.svelte';
 	import Sparkline from './charts/Sparkline.svelte';
 	import { sparklinePoints } from '$lib/utils/chart.js';
@@ -17,7 +18,7 @@
 	interface Props {
 		monitor: Monitor;
 		heartbeat?: Heartbeat;
-		heartbeatHistory?: Heartbeat[];
+		heartbeatHistory?: HistoryHeartbeat[];
 		conditions?: MonitorCondition[];
 		conditionNow?: number;
 		cardBody?: DashboardCardBody;
@@ -36,6 +37,7 @@
 
 	/** Transform heartbeats into sparkline data points. */
 	const sparklineData = $derived(sparklinePoints(heartbeatHistory));
+	const overallHistory = $derived(heartbeatHistory.some((beat) => beat.scope === 'overall'));
 
 	const isDown = $derived(monitor.status === 'down');
 	const showSignals = $derived(cardUsesSignals(cardBody, conditions.length));
@@ -101,7 +103,7 @@
 				<div
 					class="flex h-12 items-center justify-center rounded-md border border-dashed border-border/70 text-[11px] text-faint"
 				>
-					{m.monitor_card_no_history()}
+					{overallHistory ? m.monitor_card_regional_history() : m.monitor_card_no_history()}
 				</div>
 			{/if}
 		</div>

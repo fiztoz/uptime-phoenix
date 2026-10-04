@@ -18,6 +18,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
+	"github.com/fiztoz/uptime-phoenix/internal/version"
 )
 
 func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIdentity, store *edge.Store, configs *services.EdgeConfigService, enrollment *services.EdgeEnrollmentService, tlsManager *probe.EdgeTLSManager, resources *probe.LocalResourceBindings) error {
@@ -77,7 +78,7 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 			capabilities = append(capabilities, "notifier."+name+".v1")
 		}
 	}
-	runtime, err := probe.NewEdgeRuntime(state, store, configs, probe.EdgeRuntimeConfig{AgentVersion: "phoenix-m4", Capabilities: capabilities, ResourceBindings: resources.Inventory()}, diagnostic)
+	runtime, err := probe.NewEdgeRuntime(state, store, configs, probe.EdgeRuntimeConfig{AgentVersion: version.Version, Capabilities: capabilities, ResourceBindings: resources.Inventory()}, diagnostic)
 	if err != nil {
 		return err
 	}

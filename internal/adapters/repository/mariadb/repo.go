@@ -245,20 +245,32 @@ func (r *MonitorRepo) ListByWorker(ctx context.Context, workerID string, leaseEx
 func (r *MonitorRepo) Update(ctx context.Context, m *domain.Monitor) error {
 	model := repository.MonitorModelFromDomain(m)
 	model.UpdatedAt = time.Now().UTC()
-	_, err := r.db.NewUpdate().Model(model).WherePK().Exec(ctx)
+	err := r.mutateWithLocalSourceLock(ctx, sql.LevelRepeatableRead, func(ctx context.Context, tx bun.Tx) error {
+		// Only claim/refresh/release operations own worker lease columns.
+		_, err := tx.NewUpdate().Model(model).ExcludeColumn("worker_id", "leased_at").WherePK().Exec(ctx)
+		return err
+	})
 	return translateError(err)
 }
 
 func (r *MonitorRepo) Delete(ctx context.Context, id int64) error {
-	res, err := r.db.NewDelete().Model((*repository.MonitorModel)(nil)).Where("id = ?", id).Exec(ctx)
-	if err != nil {
-		return translateError(err)
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return ports.ErrNotFound
-	}
-	return nil
+	// The cascade must see remote source rows committed while waiting for
+	// their locks, rather than a snapshot from the registration existence read.
+	err := r.mutateWithLocalSourceLock(ctx, sql.LevelReadCommitted, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewDelete().Model((*repository.MonitorModel)(nil)).Where("id = ?", id).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ports.ErrNotFound
+		}
+		return nil
+	})
+	return translateError(err)
 }
 
 // ClaimBatch atomically claims up to batchSize active monitors for a worker.

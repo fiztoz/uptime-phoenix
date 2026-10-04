@@ -283,6 +283,7 @@ func Run(cfg Config) error {
 	backupSvc.SetSubscriberRepo(repos.spSubscriber)
 	backupSvc.SetProbeRegistry(repos.probeRegistry)
 	backupSvc.SetProbeAssignments(repos.probeAssignments)
+	backupSvc.SetFleetActivationGate(fleetGate)
 	backupSvc.SetMonitorService(monitorSvc)
 	backupSvc.SetProxyService(proxySvc)
 	backupSvc.SetMonitorGroupService(monitorGroupSvc)
@@ -305,6 +306,7 @@ func Run(cfg Config) error {
 	)
 	configSvc.SetProbeRegistry(repos.probeRegistry)
 	configSvc.SetProbeAssignments(repos.probeAssignments)
+	configSvc.SetFleetActivationGate(fleetGate)
 
 	// Wire automatic alerting: the dispatcher turns confirmed status transitions
 	// into notifications (with maintenance suppression and resend throttling).
@@ -1151,6 +1153,14 @@ func bootstrapUser(ctx context.Context, authSvc *services.AuthService, userRepo 
 
 	slog.Info("bootstrapping initial user", "username", username)
 	if _, err := authSvc.Register(ctx, username, password); err != nil {
+		// Multiple API replicas can observe an empty user table before either
+		// commits the first registration. The unique username constraint elects
+		// one winner; the losing replica should continue booting once it sees that
+		// winner rather than treating the expected race as a fatal startup error.
+		if errors.Is(err, services.ErrUserExists) {
+			slog.Info("bootstrap user was created by another instance", "username", username)
+			return nil
+		}
 		return fmt.Errorf("creating bootstrap user: %w", err)
 	}
 	slog.Info("bootstrap user created successfully", "username", username)

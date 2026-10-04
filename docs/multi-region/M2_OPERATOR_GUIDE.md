@@ -94,8 +94,9 @@ channels, then replace its complete assignment set with
 policy and checks the assignment revision. Tombstones retain generations; never
 guess a recreated generation.
 
-Start compatible normal hub workers with `PROBES_ENABLED=true`. Only worker/all
-mode claims connectors. Workers retain a database-clock runtime lease through
+Enable `PROBES_ENABLED=true` with the same installation key on API replicas
+for management/enrollment and compatible hub workers for connector ownership.
+Only worker/all mode claims connectors. Workers retain a database-clock runtime lease through
 reconnect backoff; individual sessions advance their own generation. Failed
 renewal cancels the socket; stale callbacks cannot release or update a successor.
 Use a uniform worker version when adopting migration 058: older workers do not

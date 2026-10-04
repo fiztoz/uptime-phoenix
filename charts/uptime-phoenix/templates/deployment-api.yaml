@@ -28,8 +28,9 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: 30
       {{- $waitForDeps := include "phoenix.waitForDependenciesInitContainers" . | trim }}
-      {{- if $waitForDeps }}
+      {{- if or $waitForDeps .Values.probes.enabled }}
       initContainers:
+        {{- include "phoenix.probeKeyInitContainer" . | nindent 8 }}
         {{- $waitForDeps | nindent 8 }}
       {{- end }}
       containers:
@@ -52,10 +53,11 @@ spec:
                   key: db-engine
             - name: DB_DSN
               valueFrom:
-                configMapKeyRef:
+                secretKeyRef:
                   name: {{ include "phoenix.fullname" . }}
                   key: db-dsn
             {{- include "phoenix.eventBusEnv" . | nindent 12 }}
+            {{- include "phoenix.probeEnv" . | nindent 12 }}
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -106,6 +108,9 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "phoenix.probeVolumeMounts" . | nindent 12 }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /api/health/live
@@ -121,4 +126,5 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "phoenix.probeVolumes" . | nindent 8 }}
 {{- end }}

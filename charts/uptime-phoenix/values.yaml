@@ -84,6 +84,8 @@ database:
     connMaxIdleSeconds: 30
     connMaxLifetimeSeconds: 300
   persistence:
+    # /data belongs to the all-in-one Deployment. API/worker/split modes do
+    # not create this claim; MariaDB has its own persistence settings below.
     enabled: true
     size: 1Gi
     storageClass: ""
@@ -456,6 +458,16 @@ podDisruptionBudget:
   minAvailable: 1
 
 # ── Health probes ─────────────────────────────────────────────────────────────
+# API/all-in-one processes migrate before listening. Suppress liveness during
+# migration/lock waits for up to 30 minutes; size from the upgrade rehearsal.
+startupProbe:
+  httpGet:
+    path: /api/health/live
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 180
+
 livenessProbe:
   httpGet:
     path: /api/health/live

@@ -377,13 +377,17 @@ func TestProbeHistorySQLiteSerializesSourceRemark(t *testing.T) {
 type historySelectionBarrier struct {
 	entered, release chan struct{}
 	fired            atomic.Bool
+	resolution       string
 }
 
 func (h *historySelectionBarrier) BeforeQuery(ctx context.Context, _ *bun.QueryEvent) context.Context {
 	return ctx
 }
 func (h *historySelectionBarrier) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
-	if strings.Contains(event.Query, "CASE resolution") && h.fired.CompareAndSwap(false, true) {
+	if strings.HasPrefix(event.Query, "SELECT ") && strings.Contains(event.Query, "probe_dirty_buckets") &&
+		strings.Contains(event.Query, "resolution = '"+h.resolution+"'") &&
+		strings.Contains(event.Query, "ORDER BY") && strings.HasSuffix(event.Query, "LIMIT 1") &&
+		h.fired.CompareAndSwap(false, true) {
 		close(h.entered)
 		select {
 		case <-h.release:
@@ -401,7 +405,7 @@ func TestProbeHistoryParentRechecksChildrenAfterQueueSelection(t *testing.T) {
 			if err := r.f.projections.MarkDirty(t.Context(), []domain.DirtyBucket{{MonitorID: r.monitor, ProbeID: r.session.ProbeID, Resolution: resolution, Bucket: r.at}}); err != nil {
 				t.Fatal(err)
 			}
-			barrier := &historySelectionBarrier{entered: make(chan struct{}), release: make(chan struct{})}
+			barrier := &historySelectionBarrier{entered: make(chan struct{}), release: make(chan struct{}), resolution: resolution}
 			r.f.db.AddQueryHook(barrier)
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()

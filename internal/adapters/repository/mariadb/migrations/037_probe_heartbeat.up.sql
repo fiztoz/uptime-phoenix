@@ -2,6 +2,9 @@
 -- Keep PRIMARY KEY (id, time) and PARTITION BY RANGE (UNIX_TIMESTAMP(time)).
 -- Do not add UNIQUE (stream_id, seq): a unique key that omits the partition
 -- expression is illegal on this table. Dedup lives in probe_streams.
+-- The repository runner resumes this migration statement-by-statement after
+-- validating any already-committed columns and named index definitions. Keep
+-- the object names and definitions synchronized with migrate_readiness_037.go.
 -- Adding columns/indexes on a populated partitioned table is not instant;
 -- measure lock and disk cost on real MariaDB before production rollout.
 

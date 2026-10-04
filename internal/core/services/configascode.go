@@ -53,6 +53,7 @@ type ConfigService struct {
 	// declares probes or assignment sets is refused instead of half applying.
 	probeRegistry    ports.ProbeRegistryRepository
 	probeAssignments ports.MonitorProbeAssignmentRepository
+	fleetGate        FleetActivationGate
 	password         ports.PasswordHasher // for status-page access codes
 }
 
@@ -98,6 +99,12 @@ func (s *ConfigService) SetProbeRegistry(repo ports.ProbeRegistryRepository) {
 // `probe_assignments` declarations are applied as complete sets.
 func (s *ConfigService) SetProbeAssignments(repo ports.MonitorProbeAssignmentRepository) {
 	s.probeAssignments = repo
+}
+
+// SetFleetActivationGate guards declarative activation of live remote probes.
+// An unwired gate fails closed for live activation.
+func (s *ConfigService) SetFleetActivationGate(gate FleetActivationGate) {
+	s.fleetGate = gate
 }
 
 // Plan computes the diff without writing.
@@ -1014,7 +1021,48 @@ func (s *ConfigService) buildPlan(ctx context.Context, userID int64, doc *Config
 
 // --- apply -----------------------------------------------------------------
 
+// ensureConfigFleetActivation refuses live changes before any document writes.
+// Unchanged assignments and registration metadata do not activate remote work.
+func (s *ConfigService) ensureConfigFleetActivation(ctx context.Context, doc *ConfigDocument, plan *ConfigPlan) error {
+	var remote []string
+	for _, change := range plan.Changes {
+		if change.Action != ConfigActionCreate && change.Action != ConfigActionUpdate {
+			continue
+		}
+		switch change.Kind {
+		case "probe_assignment":
+			for _, monitor := range doc.Spec.Monitors {
+				if monitor.Key == change.Key {
+					for _, assignment := range monitor.ProbeAssignments {
+						remote = append(remote, assignment.Probe)
+					}
+				}
+			}
+		case "probe":
+			if change.Action != ConfigActionUpdate {
+				continue
+			}
+			for _, desired := range doc.Spec.Probes {
+				if desired.Key != change.Key || desired.Enabled != nil && !*desired.Enabled {
+					continue
+				}
+				current, err := s.probeRegistry.GetByKey(ctx, desired.Key)
+				if err != nil {
+					return err
+				}
+				if !current.Enabled {
+					remote = append(remote, current.ID)
+				}
+			}
+		}
+	}
+	return s.fleetGate.EnsureRemoteActivationAllowed(ctx, remote)
+}
+
 func (s *ConfigService) applyPlan(ctx context.Context, userID int64, doc *ConfigDocument, plan *ConfigPlan, applied *[]ConfigChange) error {
+	if err := s.ensureConfigFleetActivation(ctx, doc, plan); err != nil {
+		return err
+	}
 	// Index desired by kind+key
 	tagsByKey := map[string]ConfigTag{}
 	for _, t := range doc.Spec.Tags {
@@ -1694,6 +1742,11 @@ func (s *ConfigService) applyProbe(ctx context.Context, p ConfigProbe, action Co
 	if err != nil {
 		return fmt.Errorf("update probe %s: %w", p.Key, err)
 	}
+	if enabled && !cur.Enabled {
+		if err := s.fleetGate.EnsureRemoteActivationAllowed(ctx, []string{cur.ID}); err != nil {
+			return err
+		}
+	}
 	cur.Name = p.Name
 	cur.Location = p.Location
 	cur.Enabled = enabled
@@ -1781,6 +1834,9 @@ func (s *ConfigService) syncProbeAssignments(ctx context.Context, doc *ConfigDoc
 				continue
 			}
 		} else if !isNotFound(err) {
+			return err
+		}
+		if err := s.fleetGate.EnsureRemoteActivationAllowed(ctx, ids); err != nil {
 			return err
 		}
 		if _, err := s.probeAssignments.Restore(ctx, ck.ResourceID, revision, ids, policy, bindings); err != nil {

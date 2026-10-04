@@ -255,7 +255,8 @@ func (r *MonitorRepo) ListByWorker(ctx context.Context, workerID string, leaseEx
 func (r *MonitorRepo) Update(ctx context.Context, m *domain.Monitor) error {
 	model := repository.MonitorModelFromDomain(m)
 	model.UpdatedAt = time.Now().UTC()
-	_, err := r.db.NewUpdate().Model(model).WherePK().Exec(ctx)
+	// Only claim/refresh/release operations own worker lease columns.
+	_, err := r.db.NewUpdate().Model(model).ExcludeColumn("worker_id", "leased_at").WherePK().Exec(ctx)
 	return translateError(err)
 }
 

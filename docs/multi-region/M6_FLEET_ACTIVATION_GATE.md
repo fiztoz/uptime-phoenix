@@ -62,8 +62,9 @@ The CLI path was found while auditing callers of `ReplaceWithBindings` rather th
 by design: it writes the desired set straight through the assignment store, so it
 was an activation path the guarantee did not cover — and it is precisely the tool
 an operator reaches for during a rollout. It now returns an operator-facing
-refusal naming the straggler workers. `Restore` (backup import, config apply)
-remains exempt; see §3.
+refusal naming the straggler workers. Backup import and config apply now also
+gate changes that reuse an enabled remote registration; see §3. This follow-up
+fix closes the blanket Restore exemption found in the release audit.
 
 `UnawareWorkers` reports two populations, both of which matter:
 
@@ -98,11 +99,22 @@ Stated plainly, because an overstated safety claim is worse than none:
   that joins the fleet *after* a remote assignment was committed. That residual
   window is inherent to a rolling upgrade; the mitigation is operational — finish
   the rollout before activating remote assignments, not after.
-- **`Restore` is exempt by design.** A backup import or config apply must succeed
-  while the fleet is degraded or mid-rollout, and restored identities are created
-  disabled pending reenrollment, so a restore does not hand live work to a probe.
+- **Only inert restore work is exempt.** Newly restored identities are disabled
+  pending reenrollment. A backup or declarative change that assigns work to an
+  existing enabled remote registration must pass fleet readiness. Config apply
+  preflights changed assignments and disabled-to-enabled registrations before
+  writes, and rechecks the applicable write boundary. An unchanged declarative
+  assignment set remains a no-op and does not activate new work.
 
 ## 4. Verification
+
+The 2026-09-30 follow-up adds backup/config service regressions, fixed 409/503
+HTTP error mapping, and `TestDeclarativeRestoreFleetAdmission` on SQLite and
+real MariaDB 11/12.3. That integration case uses the production `ClaimBatch`
+lease path, refuses reuse of a live remote registration while an old worker is
+present, asserts no monitor or assignment persisted, then declares the current
+protocol and verifies the same import commits. The original evidence below
+predates this follow-up; see the [validation summary](M6_VALIDATION_REPORT_2026-10-04.md) for final gates.
 
 All commands `GOTOOLCHAIN=go1.26.6`, MariaDB leg against a disposable
 `mariadb:11` container. See

@@ -41,8 +41,8 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 | `database.pool.maxIdleConns` | int | `2` | MariaDB idle connections kept in the pool (`DB_MAX_IDLE_CONNS`) |
 | `database.pool.connMaxIdleSeconds` | int | `30` | Close idle MariaDB connections after this many seconds (`DB_CONN_MAX_IDLE_SECONDS`) |
 | `database.pool.connMaxLifetimeSeconds` | int | `300` | Recycle MariaDB connections after this many seconds (`DB_CONN_MAX_LIFETIME_SECONDS`) |
-| `database.persistence.enabled` | bool | `true` | Enable PVC for `/data` (SQLite DB file) |
-| `database.persistence.size` | string | `1Gi` | PVC size for data |
+| `database.persistence.enabled` | bool | `true` | Enable PVC for `/data` in `mode: all` (SQLite DB file); API/worker/split modes use their configured database and do not create this claim |
+| `database.persistence.size` | string | `1Gi` | PVC size for all-in-one data |
 | `mariadb.enabled` | bool | `false` | Deploy an in-release, PVC-backed MariaDB (StatefulSet + Service). Requires `database.engine=mariadb` and is mutually exclusive with `mariadbExternal.host` |
 | `mariadb.rootPassword` | string | `""` | Root password. Empty generates one and retains it across upgrades via the release Secret; **must** be set for render-only GitOps |
 | `mariadb.auth.database` / `mariadb.auth.username` | string | `phoenix` / `phoenix` | Database and user the image bootstraps and that the Phoenix DSN connects as |
@@ -67,7 +67,7 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 | `valkey.auth.managedSecret` | bool | `true` | Generate and retain the Valkey password Secret |
 | `valkey.dataStorage.requestedSize` | string | `1Gi` | Standalone Valkey PVC size |
 | `valkey.replica.enabled` | bool | `false` | Enable a primary plus persistent Valkey replicas |
-| `probes.enabled` | bool | `false` | Remote-probe hub mode: renders `PROBES_ENABLED` + `PROBE_SECRET_KEY_FILE` on the worker role only (the `mode=all` pod is its own worker). Off by default — no probe wiring is rendered at all |
+| `probes.enabled` | bool | `false` | Remote-probe hub mode: renders `PROBES_ENABLED` + `PROBE_SECRET_KEY_FILE` on API and worker roles (`MODE` still limits background work to workers). Off by default — no probe wiring is rendered at all |
 | `probes.secretName` | string | `""` | Existing Secret holding the installation key. **Required** when `probes.enabled=true`; the render fails without it. The chart never generates or stores the key |
 | `probes.secretKey` | string | `installation-key` | Key inside that Secret; it becomes the mounted file name at `/etc/uptime-phoenix/probe-key/` |
 | `web.split` | bool | `false` | Split frontend to separate Deployment (opt-in) |
@@ -106,7 +106,7 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 | `extensions[].database.secretKey` | string | `dsn` | Key within `database.secretName` |
 | `extensions[].uiToken` | string | `""` | Optional. Sets `UI_TOKEN` on the extension pod (via the managed Secret) and makes Phoenix's gated `/api/extensions/:id/frame` redirect hand it to the browser as `ui_token=…` — one value configures both sides. Never returned by `GET /api/extensions` |
 
-Env vars exposed to container: `DB_ENGINE`, `DB_DSN`, `JWT_SECRET` (auto-generated for Helm CLI, supplied by `secret.jwt`, or read from `secret.existingSecret`), `JWT_EXPIRE_HOURS`, `TOTP_ISSUER`, `HOST`, `PORT`, `LOG_LEVEL`, `PHOENIX_EXTENSIONS` (JSON catalogue of `{id,title,path}` plus any `uiToken`, sourced from the managed Secret), and optional `REDIS_URL`.
+Env vars exposed to container: `DB_ENGINE`, `DB_DSN`, `JWT_SECRET` (auto-generated for Helm CLI, supplied by `secret.jwt`, or read from `secret.existingSecret`), `JWT_EXPIRE_HOURS`, `TOTP_ISSUER`, `HOST`, `PORT`, `LOG_LEVEL`, `PHOENIX_EXTENSIONS` (JSON catalogue of `{id,title,path}` plus any `uiToken`, sourced from the managed Secret), and optional `REDIS_URL`. `DB_DSN` is read from the chart-managed Secret's `db-dsn` key, **not** a ConfigMap; chart upgrades remove the old ConfigMap field. Protect the GitOps values and Helm release records too: a Secret reference in the Pod does not erase credentials supplied as inline values upstream.
 
 ## Usage Examples
 
@@ -369,10 +369,10 @@ Public Hostname route themselves — the chart only wires cluster Ingress.
 
 ### Remote probes (multi-region hub)
 
-Off by default. Enabling renders the probe wiring on the **worker role only**
-(the `mode=all` Deployment or `uptime-phoenix-worker`); the API tier never
-receives the key, and single-pod defaults and split-image behavior are
-unchanged.
+Off by default. Enabling renders the probe configuration and shared
+installation key on API and worker roles. API replicas need it for fleet
+management and enrollment; only `worker`/`all` processes own background
+connector sessions.
 
 ```bash
 # The installation key is operator-owned; the chart never generates it.
@@ -393,6 +393,20 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix --reuse-values \
   `docs/multi-region/M2_OPERATOR_GUIDE.md` and
   `docs/multi-region/M4_DEPLOYMENT_COMPAT.md`. The same assertions run in
   `make helm-validate` (`scripts/helm-probes-check.sh`).
+
+### Application data claims when upgrading split deployments
+
+Only `mode: all` mounts the application `<fullname>-data` claim at `/data`.
+API, worker and split modes no longer render that unused claim, so a
+`WaitForFirstConsumer` StorageClass can complete Helm readiness. The separate
+MariaDB persistence settings still control its database claim.
+
+Before upgrading an existing non-all release, inspect any old `-data` claim.
+It may contain data retained from a previous all-in-one installation. Back it
+up and preserve it with `helm.sh/resource-policy: keep` or the corresponding
+GitOps retention policy before upgrading; otherwise Helm or a pruning
+controller may remove a claim that disappears from the rendered manifest.
+Changing the mode or database engine does not transfer SQLite data to MariaDB.
 
 ## Verification
 
@@ -430,3 +444,24 @@ All produce valid Kubernetes manifests. Reserved extension paths (`/api`,
 ## License
 
 MIT — see the [LICENSE](../../LICENSE) file at the repository root.
+
+
+### First multi-region upgrade from 0.4.x
+
+Use matched candidate chart/API/worker/probe versions for the M6 rehearsal.
+Before the first 0.5 schema upgrade, stop **all** old API/all-in-one and worker
+pods (and pause GitOps reconciliation/HPA that would recreate them). Migration
+050 copies the outbox; migration locking does not quiesce existing application
+writers. Back up MariaDB and the installation key and verify restoration on a
+disposable database before changing the live schema. Do not use a UI export as
+an SQL downgrade or erase the migration ledger to retry an upgrade.
+
+With old writers stopped, start one new API (or all-in-one) pod, observe successful
+migration and authenticated API readiness, then scale the new API/worker fleet.
+Each MariaDB startup holds a connection-scoped database lock through migration
+and ledger commit, so concurrent new replicas wait and re-read committed state.
+The `startupProbe` allows 180 checks at ten-second intervals (30 minutes) before
+liveness takes over. Size this budget and the Helm/GitOps rollout timeout from
+your measured populated rehearsal; exceeding it is an investigation signal.
+After all workers run the candidate, activate one probe/monitor and verify the
+canary before broader activation. See [operator requirements](../../docs/multi-region/M6_OPERATOR_REQUIREMENTS.md).

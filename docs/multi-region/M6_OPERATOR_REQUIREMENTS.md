@@ -25,10 +25,12 @@ see a worker that joins after the write. Do not start an old binary beside a
 fleet that already has remote members. Detection limits are in the
 [fleet gate record](M6_FLEET_ACTIVATION_GATE.md).
 
-`PROBES_ENABLED=true` belongs on the worker role only (`mode=all`, or the
-worker Deployment). The API tier must not receive the installation key. The
-process refuses to boot without `PROBE_SECRET_KEY_FILE`. The chart does not
-generate that key; see [key provisioning](KEY_PROVISIONING.md).
+Set `PROBES_ENABLED=true` on API replicas that serve management/enrollment
+and on worker/all processes that own connectors. Every enabled replica needs
+the same installation key; API-only mode does not start background connectors.
+The process refuses to boot without `PROBE_SECRET_KEY_FILE`. The chart does
+not generate that key; see [key provisioning](KEY_PROVISIONING.md) and the
+[deployment compatibility](M4_DEPLOYMENT_COMPAT.md).
 
 ## 2. Egress and listener
 
@@ -45,9 +47,9 @@ TCP/TLS to each probe endpoint and no inbound probe port of its own.
 | Credential | `Authorization: Bearer` on the runtime socket. A query string, a second Authorization header, whitespace in the token, or an `Origin` header is rejected (`edge_server.go`). |
 | Subprotocol | `Sec-WebSocket-Protocol: phoenix.probe.v1` is required. A proxy that strips it fails the session. |
 | Proxy | The hub dialer sets `Proxy: nil` and ignores `HTTP_PROXY` / `HTTPS_PROXY`. A TLS-intercepting proxy cannot satisfy the pin. Allow direct worker egress to the probe address. |
-| Connector placement | Connector ownership runs in `all` or `worker`, never on an API-only replica. Egress rules belong on the worker pods. |
+| Connector placement | Continuous connector ownership runs in `all` or `worker`, never on an API-only replica. API enrollment also dials the probe through `ProbeAdminService.Enroll`; allow the chosen endpoint from both API and worker pods (and the operator CLI host when used). |
 
-On the probe host, allow inbound TCP on the chosen port from the hub workers'
+On the probe host, allow inbound TCP on the chosen port from the hub API/worker
 egress addresses. NAT is not that permission. DNS for the enrolled endpoint
 must resolve to that listener from the worker pods. Optional SSH install is a
 different port and is not part of V1.

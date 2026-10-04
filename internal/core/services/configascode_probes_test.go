@@ -2,6 +2,7 @@ package services_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -235,6 +236,7 @@ func newConfigProbeSvc(t *testing.T) (
 	assignments := newCfgAssignmentRepo(registry)
 	svc.SetProbeRegistry(registry)
 	svc.SetProbeAssignments(assignments)
+	svc.SetFleetActivationGate(services.NewFleetActivationGate(&configFleetReadiness{}, time.Minute))
 	return svc, registry, assignments, mons
 }
 
@@ -495,4 +497,75 @@ func containsSubstring(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// Config writes are live declarations, including re-enabling an existing identity.
+type configFleetReadiness struct {
+	unaware []string
+	err     error
+}
+
+func (*configFleetReadiness) DeclareWorker(context.Context, string, int, time.Duration) error {
+	return nil
+}
+func (r *configFleetReadiness) UnawareWorkers(context.Context, int, time.Duration) ([]string, error) {
+	return r.unaware, r.err
+}
+
+func TestConfigApplyFleetGate(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		gate services.FleetActivationGate
+		want error
+	}{
+		{"unaware", services.NewFleetActivationGate(&configFleetReadiness{unaware: []string{"old-worker"}}, time.Minute), services.ErrFleetNotAssignmentAware},
+		{"unavailable", services.NewFleetActivationGate(&configFleetReadiness{err: errors.New("db down")}, time.Minute), services.ErrFleetReadinessUnavailable},
+		{"unwired", services.FleetActivationGate{}, services.ErrFleetReadinessUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, registry, assignments, mons := newConfigProbeSvc(t)
+			// Reproduce the live-identity path, not only a new disabled registration.
+			p := &domain.Probe{ID: "11111111-1111-4111-8111-111111111111", Key: "us-east", Name: "original", Kind: domain.ProbeKindRemote, Enabled: true}
+			if err := registry.Create(t.Context(), p); err != nil {
+				t.Fatal(err)
+			}
+			svc.SetFleetActivationGate(tc.gate)
+			_, err := svc.Apply(t.Context(), 1, probeDoc(), services.ConfigApplyOptions{})
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("got %v want %v", err, tc.want)
+			}
+			if len(mons.byID) != 0 || len(assignments.sets) != 0 {
+				t.Fatal("refused config applied monitor/assignment state")
+			}
+			stored, err := registry.GetByID(t.Context(), p.ID)
+			if err != nil || stored.Name != "original" {
+				t.Fatal("refused config changed registration")
+			}
+		})
+	}
+}
+
+func TestConfigApplyUnchangedRemoteSetDoesNotActivate(t *testing.T) {
+	svc, _, assignments, _ := newConfigProbeSvc(t)
+	doc := probeDoc()
+	if _, err := svc.Apply(t.Context(), 1, doc, services.ConfigApplyOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var revision int64
+	for _, set := range assignments.sets {
+		revision = set.Revision
+	}
+	svc.SetFleetActivationGate(services.NewFleetActivationGate(&configFleetReadiness{unaware: []string{"old-worker"}}, time.Minute))
+	result, err := svc.Apply(t.Context(), 1, doc, services.ConfigApplyOptions{})
+	if err != nil {
+		t.Fatalf("no-op apply gated: %v", err)
+	}
+	if result.Creates != 0 || result.Updates != 0 || result.Deletes != 0 {
+		t.Fatalf("no-op mutated: %+v", result)
+	}
+	for _, set := range assignments.sets {
+		if set.Revision != revision {
+			t.Fatal("no-op changed assignment revision")
+		}
+	}
 }

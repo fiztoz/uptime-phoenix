@@ -312,10 +312,8 @@ func (s *MonitorService) CreateWithAssignments(ctx context.Context, m *domain.Mo
 // fleet gates remote members on fleet-wide assignment ownership (T34); leaving
 // it zero makes a create with remote members fail closed.
 //
-// Deliberately not applied to Restore: a backup import or config apply must
-// succeed while the fleet is degraded or mid-rollout, and restored identities
-// are created disabled pending reenrollment, so a restore does not hand live
-// work to a remote probe.
+// Backup and config services wire their own fleet gate. Only backup assignments
+// to disabled restored identities are exempt; reused live registrations are not.
 func (s *MonitorService) SetAssignmentProvisioning(writer ports.ProbeAssignmentWriter, registry ports.ProbeRegistryRepository, capabilities ports.ProbeAssignmentCapabilities, fleet FleetActivationGate) {
 	s.assignWriter = writer
 	s.probeRegistry = registry

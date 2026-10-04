@@ -1,10 +1,8 @@
 <script lang="ts">
   import type { Heartbeat, Monitor } from "$lib/stores/ws.svelte.js";
+  import type { Heartbeat as HistoryHeartbeat } from "$lib/api/heartbeats";
   import type { MonitorCondition } from "$lib/api/conditions";
-  import {
-    cardUsesSignals,
-    type DashboardCardBody,
-  } from "$lib/dashboard-card";
+  import { cardUsesSignals, type DashboardCardBody } from "$lib/dashboard-card";
   import {
     WALLBOARD_CARD_DEFAULT_PX,
     wallboardCardScale,
@@ -15,11 +13,12 @@
   import MonitorCardSignals from "./MonitorCardSignals.svelte";
   import { whenVisible } from "$lib/actions/whenVisible";
   import * as m from "$lib/paraglide/messages.js";
+  import { resolve } from "$app/paths";
 
   interface Props {
     monitor: Monitor;
     heartbeat?: Heartbeat;
-    heartbeatHistory?: Heartbeat[];
+    heartbeatHistory?: HistoryHeartbeat[];
     conditions?: MonitorCondition[];
     conditionNow?: number;
     cardBody?: DashboardCardBody;
@@ -39,6 +38,9 @@
   }: Props = $props();
 
   const sparklineData = $derived(sparklinePoints(heartbeatHistory));
+  const overallHistory = $derived(
+    heartbeatHistory.some((beat) => beat.scope === "overall"),
+  );
   const isDown = $derived(monitor.status === "down");
   const isPending = $derived(monitor.status === "pending");
   const showSignals = $derived(cardUsesSignals(cardBody, conditions.length));
@@ -110,7 +112,15 @@
         <Sparkline data={sparklineData} width="100%" height={sparkHeight} />
       {:else}
         <div class="grid h-full place-items-center text-[11px] text-faint">
-          {m.monitor_card_no_history()}
+          {#if overallHistory}
+            <a
+              href={resolve(`/monitors/${monitor.id}`)}
+              class="px-2 text-center underline underline-offset-2"
+              >{m.monitor_card_regional_history()}</a
+            >
+          {:else}
+            {m.monitor_card_no_history()}
+          {/if}
         </div>
       {/if}
     </div>
@@ -122,7 +132,9 @@
   >
     {#if !showSignals}
       <div>
-        <div class="text-[10px] font-medium uppercase tracking-wider text-faint">
+        <div
+          class="text-[10px] font-medium uppercase tracking-wider text-faint"
+        >
           {m.dashboard_wallboard_response()}
         </div>
         <div

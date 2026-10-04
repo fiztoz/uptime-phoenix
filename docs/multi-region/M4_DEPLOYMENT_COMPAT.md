@@ -11,14 +11,14 @@ are exactly the pre-probe deployment.
 
 | Value | Default | Effect |
 |---|---|---|
-| `probes.enabled` | `false` | Renders `PROBES_ENABLED=true` on the **worker role** only — the `mode=all` Deployment or `uptime-phoenix-worker`. Off by default renders **no** probe wiring at all |
+| `probes.enabled` | `false` | Renders probe configuration and the shared installation key on API and worker roles. Only worker/all mode starts background connectors. Off by default renders no probe wiring |
 | `probes.secretName` | `""` | Existing Secret holding the installation key. **Required** when enabled: the render fails loudly without it, because the process refuses to boot with `PROBES_ENABLED` and no `PROBE_SECRET_KEY_FILE` |
 | `probes.secretKey` | `installation-key` | Key inside that Secret; becomes the mounted file name at `/etc/uptime-phoenix/probe-key/` |
 
 The key is a read-only Secret mount; the chart never generates, stores or
-rotates it ([key provisioning](KEY_PROVISIONING.md) owns that). The API tier
-never receives the flag or the key — connector workers are a worker-role
-capability. No workload is added or removed: the remote probe itself remains an
+rotates it ([key provisioning](KEY_PROVISIONING.md) owns that). API replicas
+require it for fleet management and enrollment; connector ownership remains a
+worker/all-mode capability. No workload is added or removed: the remote probe itself remains an
 operator-deployed process ([operator guide](M2_OPERATOR_GUIDE.md)), exactly as
 in V1.
 
@@ -28,7 +28,7 @@ Topology preservation:
   plus nothing;
 - `mode=api` / `worker` / `split` keep the split-image wiring
   (`Dockerfile.split` api/worker/web images) unchanged; the flag attaches to
-  the worker Deployment in every mode;
+  both the API and worker Deployments where those roles are present;
 - turning the flag off again removes every trace of probe wiring (no orphan
   volumes or env).
 
@@ -49,7 +49,11 @@ Topology preservation:
 
 ## Verification
 
-Executed in this checkout:
+The following records the original M4 slice. Its API exclusion was corrected
+by the [M6 validation summary](M6_VALIDATION_REPORT_2026-10-04.md); the current gate asserts
+positive API wiring as well as worker wiring.
+
+Executed in the original slice:
 
 - `helm lint charts/uptime-phoenix` — clean.
 - `make helm-validate` — full render matrix passes, now including

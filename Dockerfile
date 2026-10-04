@@ -24,7 +24,9 @@ FROM web-builder-${USE_PREBUILT_WEB} AS web-builder
 # ─── Stage 2: Build Go binary ────────────────────────────────────────────────
 # Wait for web-builder before go mod download so BuildKit does not run both
 # heavy stages in parallel (peak RAM spike → BuildKit EOF on Colima/low-memory hosts).
-FROM golang:1.27-alpine AS go-builder
+# Run the compiler natively to avoid QEMU failures during module loading and
+# compilation; GOOS/GOARCH below still produce the requested target binary.
+FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine AS go-builder
 
 # Multi-arch: buildx sets TARGETOS/TARGETARCH; never hardcode amd64.
 ARG TARGETOS=linux
@@ -41,10 +43,10 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOMAXPROCS=2 \
     go build -trimpath \
       -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
       -o /uptime-phoenix ./cmd/app && \
-    go build -trimpath \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOMAXPROCS=2 go build -trimpath \
       -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
       -o /uptime-phoenix-api ./cmd/api && \
-    go build -trimpath \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOMAXPROCS=2 go build -trimpath \
       -ldflags="-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=${VERSION}" \
       -o /uptime-phoenix-worker ./cmd/worker
 

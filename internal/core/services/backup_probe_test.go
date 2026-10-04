@@ -268,6 +268,7 @@ func newBackupProbeHarness() (*backupHarness, *backupFakeProbeRegistry, *backupF
 	assignments := newBackupFakeAssignmentRepo(registry)
 	h.svc.SetProbeRegistry(registry)
 	h.svc.SetProbeAssignments(assignments)
+	h.svc.SetFleetActivationGate(awareFleetGate())
 	return h, registry, assignments
 }
 
@@ -618,5 +619,62 @@ func TestBackupProbeWireShape_ExcludesRuntimeSecrets(t *testing.T) {
 		if strings.Contains(strings.ToLower(string(raw)), forbidden) {
 			t.Fatalf("assignment wire shape leaks %q: %s", forbidden, raw)
 		}
+	}
+}
+
+func TestBackupRestoreFleetGate(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		enabled     bool
+		readiness   *fakeFleetReadiness
+		unwired     bool
+		wantCreated int
+	}{
+		{name: "live-unaware", enabled: true, readiness: &fakeFleetReadiness{unaware: []string{"old-worker"}}},
+		{name: "live-unavailable", enabled: true, readiness: &fakeFleetReadiness{err: errors.New("unavailable")}},
+		{name: "live-unwired", enabled: true, unwired: true},
+		{name: "live-aware", enabled: true, readiness: &fakeFleetReadiness{}, wantCreated: 1},
+		{name: "disabled-unaware", readiness: &fakeFleetReadiness{unaware: []string{"old-worker"}}, wantCreated: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, registry, assignments := newBackupProbeHarness()
+			p := seedProbe(t, registry, backupProbeTestID)
+			p.Enabled = tc.enabled
+			if err := registry.Update(t.Context(), p, p.Revision); err != nil {
+				t.Fatal(err)
+			}
+			if tc.unwired {
+				h.svc.SetFleetActivationGate(FleetActivationGate{})
+			} else {
+				h.svc.SetFleetActivationGate(fleetGate(tc.readiness))
+			}
+			doc := &BackupDocument{Version: BackupDocumentVersion,
+				Probes:                  []BackupProbe{{ID: p.ID, Key: p.Key, Name: p.Name, Kind: domain.ProbeKindRemote}},
+				Monitors:                []BackupMonitor{{ID: 7, Name: "regional", Type: "http", Active: true, Interval: 60, Timeout: 30, Config: map[string]any{}}},
+				MonitorProbeAssignments: []BackupMonitorAssignmentSet{{MonitorID: 7, HealthPolicy: domain.HealthPolicyAnyDown, Members: []BackupMonitorAssignmentMember{{ProbeKey: p.Key}}}},
+			}
+			summary, err := h.svc.Import(t.Context(), 1, doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if summary.MonitorsCreated != tc.wantCreated || len(h.monitors.byID) != tc.wantCreated {
+				t.Fatalf("unsafe import: %+v monitors=%d", summary, len(h.monitors.byID))
+			}
+			if tc.wantCreated == 0 {
+				if len(summary.Skipped) != 1 || !strings.Contains(summary.Skipped[0].Reason, "worker") {
+					t.Fatalf("missing refusal: %+v", summary)
+				}
+				for _, set := range assignments.sets {
+					for _, a := range set.Assignments {
+						if a.ProbeID != domain.LocalProbeID {
+							t.Fatal("remote assignment written before fleet admission")
+						}
+					}
+				}
+			}
+			if !tc.enabled && tc.readiness.calls != 0 {
+				t.Fatal("disabled restore consulted readiness")
+			}
+		})
 	}
 }

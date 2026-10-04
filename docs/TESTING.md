@@ -19,6 +19,7 @@
 ## Table of Contents
 
 1. [Quick Reference — Gate Commands](#1-quick-reference--gate-commands)
+   - [Reproduce validation and create external UAT/load tests](#11-reproduce-validation-and-create-external-uatload-tests)
 2. [Backend Tests (Go)](#2-backend-tests-go)
 3. [Frontend Checks (Svelte)](#3-frontend-checks-svelte)
 4. [Linting](#4-linting)
@@ -82,6 +83,19 @@ Or, in one shot:
 make gate-full
 ```
 
+The gate also runs `make release-image-gate`: nine fake-Docker cases check image
+build, extraction and architecture failure handling; two fake-Helm cases check
+the actual chart-publish workflow; four cases check standalone binary SBOMs.
+`make m6-backend-harness-gate` checks that the database-test result parser rejects
+missing coverage, failures and unexpected skips. These are portable tooling
+regressions, not actual image builds or database execution. Before a release,
+run the real `STAGES=images` dry-run separately.
+
+New UAT/load/cloud campaigns are maintained locally, outside repository CI.
+Use [the reproduction recipe below](#11-reproduce-validation-and-create-external-uatload-tests).
+See the [validation summary](multi-region/M6_VALIDATION_REPORT_2026-10-04.md)
+for the latest executed results and outstanding acceptance checks.
+
 `make gate-full` does **not** include the MariaDB repository contract (needs
 `TEST_MARIADB_DSN` against a real database), the fresh-DB smoke suites under
 `scripts/`, or the k6 load ramp — those need external services and are documented
@@ -90,6 +104,95 @@ job (`phoenix_ci` throwaway DB). Run the smoke suites and k6 before a release.
 
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
+
+### 1.1 Reproduce validation and create external UAT/load tests
+
+This is the single instruction guide for the current validation work. Keep
+regression tests beside the code. Keep new environment-specific runners, UAT/load
+scripts and raw results in a separate local directory or a separate test repository.
+They are not prerequisites for building Phoenix or running repository CI.
+The historical scripts already in the repository are optional utilities.
+
+**Prepare.** Use the Go version in `go.mod`, Bun 1.3.14 (matching CI), Python 3,
+Helm, and a C compiler for Go's race detector. Install the frontend dependencies
+and browser before the full gate. Actual-engine tests also need Docker with a
+local Unix socket; Colima is optional. Select your disposable local Docker context
+and inspect its endpoint before running a database or disk-full harness. Cache
+Go modules/toolchain and the required images first; those harnesses deliberately
+refuse downloads during execution. The strict runner currently expects cached
+Go 1.26.6, while the disk-full wrapper uses the Go executable on `PATH`.
+
+Run the following from the repository root in **Bash**. The output directory is
+outside the repository; keep this shell open for the subsequent commands.
+
+```bash
+set -euo pipefail
+umask 077
+export VALIDATION_DIR="$(mktemp -d "${TMPDIR:-/tmp}/phoenix-validation.XXXXXX")"
+git rev-parse HEAD > "$VALIDATION_DIR/commit.txt"
+git status --porcelain > "$VALIDATION_DIR/worktree.txt"
+go version > "$VALIDATION_DIR/go-version.txt"
+bun --version > "$VALIDATION_DIR/bun-version.txt"
+go mod download
+(cd web && bun install --frozen-lockfile && bunx playwright install chromium && bun run build)
+make gate-full 2>&1 | tee "$VALIDATION_DIR/code-gate.log"
+```
+
+On Linux, Playwright may also need its documented OS dependencies (CI uses
+`bunx playwright install --with-deps chromium`). `pipefail` ensures that logging
+does not turn a failed gate into a successful shell command. Record a failed run
+before retrying; use a new output directory for each candidate or attempt.
+
+**Exercise real storage.** These commands run the committed Go tests through
+isolated wrappers; they do not launch a UAT/cloud campaign. The image tags below
+are the runner's supported inputs. Record their resolved image IDs and the engine
+versions printed in the results, because tags can change.
+
+```bash
+docker pull mariadb:11
+docker pull mariadb:12.3
+docker image inspect mariadb:11 mariadb:12.3 > "$VALIDATION_DIR/database-images.json"
+python3 -B scripts/m6_dual_engine_gate.py --mariadb-image mariadb:11 \
+  --go-json "$VALIDATION_DIR/mariadb11.jsonl" 2>&1 | tee "$VALIDATION_DIR/mariadb11.log"
+python3 -B scripts/m6_dual_engine_gate.py --mariadb-image mariadb:12.3 \
+  --go-json "$VALIDATION_DIR/mariadb12.jsonl" 2>&1 | tee "$VALIDATION_DIR/mariadb12.log"
+python3 -B scripts/m6_edge_disk_full.py 2>&1 | tee "$VALIDATION_DIR/edge-storage.log"
+```
+
+Require the actual MariaDB cases and required named cases to pass, with no
+MariaDB skips. Ordinary package success with skipped integration tests is
+insufficient. The Linux wrapper must report actual ENOSPC and both process-kill
+boundaries with zero skips; it fills only its disposable 32 MiB tmpfs.
+
+**Create an external campaign.** Build a scenario table before writing a runner:
+case ID, setup, action, observable assertion, timeout and exact cleanup resources.
+Derive API requests from the current handler DTOs and use disposable accounts,
+databases, monitor targets and notification sinks. Build API/worker/probe binaries
+from one commit and record their hashes, selected DB version, CPU/RAM/disk limits,
+monitor interval, retry settings and assignment topology. Configure endpoints,
+Docker/Kubernetes contexts, credentials and output paths through parameters;
+do not embed a personal Colima profile, cloud account, IP or temporary path.
+
+| Campaign | Reproduction steps and required assertions |
+| --- | --- |
+| UAT | Sign in, create a monitor, observe real checks, force target failure and recovery, and assert actual notification delivery. For one remote source, verify Recent Checks shows source observations; switching to overall shows health intervals. Verify permission denial, backup review, theme and locale behavior. Browser/API success alone is insufficient. |
+| Load | Use a fresh disposable deployment per case. Start with 100 monitors, then 1,000 assignments across ten real probe processes. Include one shared monitor observed by ten sources. Keep checking intervals shorter than observation time, count nonzero heartbeat samples, and record API/control/ingest p95, CPU/memory, DB growth and queue depth. A copied legacy `tests/load/k6-load-test.js` can seed basic API/WebSocket load, but does not create the ten-source topology or prove replay. |
+| Fault/replay | Measure connected baseline, partition only the owned probe-to-hub path, retain observation IDs/timestamps, then heal while new checks continue. Verify eventual delivery without duplicate effects, current-state freshness, alert behavior and queue drain rate. A short trial does not establish the separate 24-hour fault/recovery criterion. |
+| Upgrade | Start published 0.4.5 on disposable MariaDB 11, seed 100 monitors, 100,000 heartbeats and all three rollups, then stop old writers and start the candidate on the same data. Verify ledger 34→74, IDs/counts, API ordering and no-op restart. For the MariaDB 12 path, logically transfer the populated old schema to a fresh target before candidate startup; 0.4.5 cannot bootstrap an empty 12.3 schema. Hold a reader transaction for a separate lock test and observe the actual metadata-lock wait. Record sampled disk use as sampled, not peak. |
+| Backup/restore | Back up the database and required installation/probe material, restore to an isolated destination, then prove monitoring, enrollment and delivery work. A successful backup HTTP response or downloaded export does not establish recovery. |
+
+For a load run, declare latency/resource limits and minimum drain rate before
+execution. Missing samples, incomplete duration, mismatched candidate versions,
+timeouts or failed cleanup mean incomplete/failed coverage. Historical uptime
+lag may be recorded as an accepted exception; it is not a current-state or alert
+correctness exception. Use an explicit run ID, ownership labels, stop deadline
+and cleanup inventory. New cloud resources or spend require owner authorization.
+
+**Report.** Keep logs, Go JSON events, screenshots, load samples and cleanup
+receipts outside Git. Update the single validation summary with the commit and
+versions, commands, engines, pass/fail/skip counts, failures, accepted exceptions
+and unverified criteria. For release binaries/images use `docs/RELEASING.md`;
+mocked release-tool tests do not establish actual image builds or runtime health.
 
 ---
 
@@ -298,6 +401,9 @@ docker --context colima exec phoenix-mr-validation \
 docker --context colima exec phoenix-mr-validation \
   mariadb -uroot -pphoenix-local-test-root -e \
   "CREATE DATABASE phoenix_mr_smoke; GRANT ALL ON phoenix_mr_smoke.* TO 'phoenix'@'%';"
+docker --context colima exec phoenix-mr-validation \
+  mariadb -uroot -pphoenix-local-test-root -e \
+  'GRANT ALL PRIVILEGES ON `phoenix_migration_%`.* TO '\''phoenix'\''@'\''%'\'''
 
 GOTOOLCHAIN=go1.26.6 TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43306)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
   go test -race -count=1 ./internal/adapters/repository/...
@@ -316,6 +422,12 @@ therefore does not prove both engines ran. For acceptance, capture `go test -jso
 and verify the relevant `/mariadb` or `_MariaDB` cases have `pass` events, not
 `skip` events. Also confirm the selected test names ran: a malformed `-run`
 expression can return success with `[no tests to run]`.
+
+Startup migration tests create and drop isolated `phoenix_migration_*` schemas
+on that disposable server. The test principal needs the prefix-scoped grant
+above in addition to access to `phoenix_ci`. Missing permissions fail these
+tests; they do not silently skip them. CI and `m6_dual_engine_gate.py` provision
+the same grant. This grant is for test servers only, not application deployment.
 
 
 The script starts two sharded app processes, two HTTP monitor targets and local
@@ -1587,33 +1699,23 @@ full section-13 matrix, or canary.
 
 ## M6 fresh dual-engine backend race gate
 
-Run `python3 -B scripts/m6_dual_engine_gate.py`. It requires a local Unix Docker
-socket, cached `mariadb:11` image, Go 1.26.6 toolchain and modules. The gate
+Run `python3 -B scripts/m6_dual_engine_gate.py` for MariaDB 11, or add
+`--mariadb-image mariadb:12.3` for the operator's engine. It requires a local
+Unix Docker socket, the selected cached image, Go 1.26.6 toolchain and modules. The gate
 creates and deletes **its own** localhost-bound MariaDB test container, runs
 `go test -race -count=1 -json -timeout 2400s -p 4 ./...`, and refuses missing
 MariaDB passes or unrecognized skips. It never uses the caller's DB DSN or
-provider credentials. See [executed evidence and limits](multi-region/M6_DUAL_ENGINE_GATE.md).
+provider credentials. See [executed evidence and limits](multi-region/M6_VALIDATION_REPORT_2026-10-04.md).
 This broad regression gate is **not** a row-by-row section-13 matrix run,
 production-sized upgrade rehearsal or canary.
 
 ## M6 published-release to working-tree migration rehearsal
 
-After confirming the operator's deployed version, rehearse the current public
-`v0.4.5` image against a **new local** database with 100,000 synthetic
-heartbeats, then let the working-tree `cmd/app` perform migrations `035`–`074`:
-
-```sh
-# If uncached: docker pull ghcr.io/fiztoz/uptime-phoenix:0.4.5
-python3 -B scripts/m6_release_upgrade.py
-```
-
-This never uses the shared MariaDB test DB or an Argo CD cluster, never publishes
-the database port, and removes only its own containers and network. It checks
-old-version readiness, authenticated monitor reads, the full application-led
-migration ledger, data/partition/rollup preservation, login after the upgrade,
-and no-op restart. [Evidence and limitations](multi-region/M6_RELEASE_UPGRADE_REHEARSAL.md).
-It **does not** establish production-sized disk/lock behavior or Helm canary
-approval; the operator owns backup and GitOps deployment.
+Use the upgrade case in [the external campaign recipe](#11-reproduce-validation-and-create-external-uatload-tests).
+Keep its fixture generator and orchestration outside this repository. The
+[validation summary](multi-region/M6_VALIDATION_REPORT_2026-10-04.md) records the
+executed synthetic results and their limits; these do not establish production
+peak disk, physical engine upgrade or a verified rollback procedure.
 
 ## M6 edge disk-full and process-kill acceptance (T20 + T06 slices)
 
@@ -1632,9 +1734,9 @@ userspace; there is no MariaDB server or hub database in this gate.
 
 Also run `GOTOOLCHAIN=go1.26.6 go test -count=1 -run '^TestEdgeHealthStorageUnavailable$' ./cmd/probe`
 for the production health mapping (`ready=false`, `db_writable=false`,
-`storage_unavailable`). See [the evidence and limits](multi-region/M6_DISK_FULL_ACCEPTANCE.md).
+`storage_unavailable`). See [the evidence and limits](multi-region/M6_VALIDATION_REPORT_2026-10-04.md).
 Also run `GOTOOLCHAIN=go1.26.6 go test -race -count=1 -run '^TestEdgeCheckCrashAroundCommit$' ./internal/adapters/repository/edge`
-for a race-instrumented local-host T06 run. See the [crash evidence and limits](multi-region/M6_EDGE_COMMIT_CRASH.md).
+for a race-instrumented local-host T06 run. See the [crash evidence and limits](multi-region/M6_VALIDATION_REPORT_2026-10-04.md).
 A normal `go test ./...` SKIPS the disk-full test outside its guarded container;
 a package PASS therefore does not establish T20. Neither slice exercises the
 compiled probe runtime through its health frames or the full M6 matrix.

@@ -617,6 +617,54 @@ func TestSession_IncomingFrameRejections(t *testing.T) {
 		}
 	})
 
+	t.Run("oversized inbound frame terminates the reader", func(t *testing.T) {
+		clientConn, serverConn := newLocalWSPair(t)
+		clientSess, err := probe.NewSession(clientConn, probe.SessionConfig{Generation: gen, PeerRole: "probe"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = clientSess.Close() }()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		runErrCh := make(chan error, 1)
+		handled := make(chan struct{}, 1)
+		go func() {
+			runErrCh <- clientSess.Run(ctx, func(context.Context, probe.Envelope) error {
+				handled <- struct{}{}
+				return nil
+			})
+		}()
+
+		// Bypass Session.SendControl so the peer can transmit a frame just
+		// above the transport's uncompressed one-megabyte read limit.
+		// net.Pipe has no write buffer. Drain the peer's close handshake so
+		// the library's read-limit error cannot block while sending it.
+		go func() { _, _, _ = serverConn.Read(ctx) }()
+		writeErrCh := make(chan error, 1)
+		go func() {
+			writeErrCh <- serverConn.Write(ctx, websocket.MessageText, bytes.Repeat([]byte("x"), probe.MaxFrameBytes+1))
+		}()
+		select {
+		case err := <-runErrCh:
+			if err == nil || err.Error() != "websocket read failed" {
+				t.Fatalf("oversized inbound frame was not rejected: %v", err)
+			}
+		case <-ctx.Done():
+			t.Fatal("reader stalled on oversized inbound frame")
+		}
+		select {
+		case <-writeErrCh: // The peer may observe a close while writing the oversized frame.
+		case <-ctx.Done():
+			t.Fatal("peer writer stalled after reader rejected the oversized frame")
+		}
+		select {
+		case <-handled:
+			t.Fatal("oversized frame reached the application handler")
+		default:
+		}
+	})
+
 	t.Run("binary frame rejected", func(t *testing.T) {
 		clientConn, serverConn := newLocalWSPair(t)
 		clientSess, _ := probe.NewSession(clientConn, probe.SessionConfig{Generation: gen, PeerRole: "probe"})

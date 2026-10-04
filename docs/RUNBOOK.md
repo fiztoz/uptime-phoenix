@@ -414,7 +414,7 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `SHARD_LEASE_TTL` | `300` | Lease lifetime in seconds. |
 | `SHARD_POLL_EVERY` | `30` | Claim/refresh interval in seconds. |
 | `HEARTBEAT_RETENTION_DAYS` | `180` | Raw-heartbeat retention. Set `0` to disable retention deletion. |
-| `PROBES_ENABLED` | `false` | Opt-in remote-probe hub mode: enables compatible connector **workers** (the all-in-one process is its own worker). Requires `PROBE_SECRET_KEY_FILE`; the process refuses to boot otherwise. Never set on an API-only tier. |
+| `PROBES_ENABLED` | `false` | Opt-in remote-probe hub mode: enable on API replicas for management/enrollment and worker/all processes for connectors. Every enabled process requires the same installation key through `PROBE_SECRET_KEY_FILE`; only worker/all mode owns background sessions. |
 | `PROBE_SECRET_KEY_FILE` | empty | Path to the installation key that protects hub-side recoverable probe credentials and configuration snapshots. Provision it as a file from a Kubernetes Secret or a root-owned file with restrictive permissions — see [key provisioning](multi-region/KEY_PROVISIONING.md). The chart mounts it when `probes.enabled=true`. |
 | `PUBLIC_URL` | empty | Absolute public origin for subscription links and OIDC post-login redirects. |
 | `OIDC_ISSUER` | empty | OIDC issuer URL. Empty disables SSO. |

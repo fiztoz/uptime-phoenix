@@ -1,26 +1,22 @@
 <script lang="ts">
-	import { Toaster } from 'svelte-sonner';
-	import { onMount } from 'svelte';
-	import '../app.css';
-	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-	import type { Snippet } from 'svelte';
+  import { Toaster } from "svelte-sonner";
+  import { page } from "$app/stores";
+  import { themeStore } from "$lib/stores/theme.svelte";
+  import { publicTheme } from "$lib/stores/publicTheme.svelte";
+  import "../app.css";
+  import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
+  import type { Snippet } from "svelte";
 
-	let { children }: { children: Snippet } = $props();
+  let { children }: { children: Snippet } = $props();
 
-	let theme = $state<'light' | 'dark'>('dark');
-
-	onMount(() => {
-		// Initialize theme — default to dark
-		document.documentElement.classList.add('dark');
-	});
+  const theme = $derived(
+    $page.url.pathname.startsWith("/status/")
+      ? publicTheme.resolved
+      : themeStore.theme,
+  );
 </script>
 
-<Toaster
-	position="bottom-right"
-	richColors
-	closeButton
-	theme={theme}
-/>
+<Toaster position="bottom-right" richColors closeButton {theme} />
 
 <!-- Single instance for the whole app; driven by confirmAction() from anywhere. -->
 <ConfirmDialog />

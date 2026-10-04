@@ -24,6 +24,18 @@ Evidence JSON is retained unchanged: old hashes, failures, skips and incomplete
 checkpoint claims must not be rewritten to look like the final result. Temporary
 log paths identify local execution artifacts; they are not portable dependencies.
 
+## Current validation reporting scope
+
+Keep one concise [validation summary](M6_VALIDATION_REPORT_2026-10-04.md) for
+this change. New UAT/load/cloud campaign scripts, session plans, raw logs,
+JSON receipts and detailed reviews remain local and are not CI dependencies.
+Core regression tests, release/Helm tooling and product/operator documentation
+remain in version control. Existing historical checkpoint files are unchanged.
+
+Detailed originals and the cleanup inventory are retained under ignored
+`docs/local/`; operational helpers that need their existing paths are ignored
+there instead. Results were saved before generated artifacts were removed.
+
 ## Local archive and removal — 2026-09-21
 
 The pre-cleanup baseline is `8b455d4c534adf707b1085b95b255f9569165ef3`.

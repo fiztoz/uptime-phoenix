@@ -165,7 +165,7 @@ In-release MariaDB credentials.
 
 Why the cache exists: three templates must agree on one generated password —
 secret.yaml writes it under two keys, the StatefulSet and the wait-for-mariadb
-gate read those keys, and configmap.yaml embeds it as a LITERAL inside DB_DSN.
+gate read those keys, and secret.yaml builds the DB_DSN from the same value.
 randAlphaNum returns a new value on every call, so on a first install (where
 `lookup` still sees no Secret) the naive version rendered a DSN whose password
 was not the one the MariaDB Pod booted with. The symptom is precisely the one
@@ -767,6 +767,7 @@ redis:{{ .Values.redis | toYaml }}
 oidc:{{ .Values.oidc | toYaml }}
 extensions:{{ include "phoenix.extensionsCatalog" . }}
 bootstrap:{{ .Values.bootstrap | toYaml }}
+database.dsn={{ .Values.database.dsn }}
 mariadb.enabled={{ .Values.mariadb.enabled }}
 mariadb.rootPassword={{ .Values.mariadb.rootPassword }}
 mariadb.auth:{{ .Values.mariadb.auth | toYaml }}
@@ -964,9 +965,9 @@ Remote probe hub wiring (multi-region). Rendered ONLY when probes.enabled=true,
 so the default single-pod (mode: all) and split (api/worker/web) manifests stay
 exactly the pre-probe deployment. The installation key comes from an
 operator-owned Secret; the chart never generates, stores or rotates it — see
-docs/multi-region/KEY_PROVISIONING.md. PROBES_ENABLED opts the worker role
-(the all-in-one pod is its own worker) into remote connector ownership; the API
-tier never runs connector workers and never receives the key.
+docs/multi-region/KEY_PROVISIONING.md. API and worker roles need the same key
+for management writes and encrypted configuration. MODE controls background
+connector ownership: API pods never run connector workers.
 */}}
 {{- define "phoenix.probeSecretName" -}}
 {{- if .Values.probes.enabled -}}
@@ -991,6 +992,7 @@ tier never runs connector workers and never receives the key.
 {{- if .Values.probes.enabled }}
 - name: probe-key
   mountPath: {{ include "phoenix.probeKeyPath" . }}
+  subPath: private
   readOnly: true
 {{- end }}
 {{- end }}
@@ -998,10 +1000,45 @@ tier never runs connector workers and never receives the key.
 {{- define "phoenix.probeVolumes" -}}
 {{- if .Values.probes.enabled }}
 - name: probe-key
+  emptyDir:
+    medium: Memory
+    sizeLimit: 1Mi
+- name: probe-key-source
   secret:
+    defaultMode: 0440
     secretName: {{ include "phoenix.probeSecretName" . }}
     items:
       - key: {{ .Values.probes.secretKey }}
         path: {{ .Values.probes.secretKey }}
+{{- end }}
+{{- end }}
+
+{{/* Kubernetes projected Secrets have group-writable directories. Copy only
+this key into a pod-private memory volume with the loader's strict ownership
+and permission contract; never weaken the loader to accept writable mounts. */}}
+{{- define "phoenix.probeKeyInitContainer" -}}
+{{- if .Values.probes.enabled }}
+- name: prepare-probe-key
+  image: busybox:1.36
+  securityContext:
+    {{- toYaml .Values.containerSecurityContext | nindent 4 }}
+  env:
+    - name: PROBE_KEY_NAME
+      value: {{ .Values.probes.secretKey | quote }}
+  command:
+    - sh
+    - -ec
+    - |
+      umask 077
+      mkdir -p /destination/private
+      chmod 0700 /destination/private
+      cp "/source/$PROBE_KEY_NAME" "/destination/private/$PROBE_KEY_NAME"
+      chmod 0400 "/destination/private/$PROBE_KEY_NAME"
+  volumeMounts:
+    - name: probe-key-source
+      mountPath: /source
+      readOnly: true
+    - name: probe-key
+      mountPath: /destination
 {{- end }}
 {{- end }}

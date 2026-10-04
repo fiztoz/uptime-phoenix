@@ -148,6 +148,13 @@
 				filterTags.length > 0,
 		),
 	);
+	function clearFilters() {
+		searchQuery = '';
+		filterTypes = [];
+		filterStatuses = [];
+		filterTags = [];
+	}
+
 	/** null = no filter active (show everything); otherwise the set of monitor ids that matched. */
 	let matchedMonitorIds = $derived(filterActive ? new Set(filteredMonitors.map((m) => m.id)) : null);
 
@@ -621,7 +628,12 @@
 	<div class="space-y-3 md:hidden">
 		{#if displayRows.length === 0 && !groupsLoading && !groupsError}
 			<div class="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-				{m.monitors_page_none_found()}
+				{#if realtime.monitors.length > 0 && filterActive}
+                    <p>{m.dashboard_no_matches()}</p>
+                    <button type="button" onclick={clearFilters} class="mt-3 text-primary underline underline-offset-2">{m.dashboard_filters_clear()}</button>
+                {:else}
+                    {m.monitors_page_none_found()}
+                {/if}
 			</div>
 		{:else}
 			{#each displayRows as row (row.key)}
@@ -723,7 +735,12 @@
 				{#if displayRows.length === 0 && !groupsLoading && !groupsError}
 					<tr>
 						<td colspan="6" class="px-4 py-12 text-center text-muted-foreground">
-							{m.monitors_page_none_found()}
+							{#if realtime.monitors.length > 0 && filterActive}
+                    <p>{m.dashboard_no_matches()}</p>
+                    <button type="button" onclick={clearFilters} class="mt-3 text-primary underline underline-offset-2">{m.dashboard_filters_clear()}</button>
+                {:else}
+                    {m.monitors_page_none_found()}
+                {/if}
 						</td>
 					</tr>
 				{:else}

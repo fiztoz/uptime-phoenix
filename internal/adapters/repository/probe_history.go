@@ -65,8 +65,7 @@ func (r *RegionalCommitStore) ProcessHistoryWork(ctx context.Context, now time.T
 				}
 			}
 		}
-		var row probeDirtyBucketModel
-		err := r.db.NewSelect().Model(&row).Where("(resolution IN ('1m','overall') AND bucket < ?) OR (resolution = '1h' AND bucket < ?) OR (resolution = '1d' AND bucket < ?)", now.Truncate(time.Minute), now.Truncate(time.Hour), now.Truncate(24*time.Hour)).OrderExpr("CASE resolution WHEN '1m' THEN 0 WHEN 'overall' THEN 1 WHEN '1h' THEN 2 ELSE 3 END").Order("bucket ASC", "monitor_id ASC", "probe_id ASC").Limit(1).Scan(ctx)
+		row, err := r.nextHistoryBucket(ctx, now)
 		if errors.Is(err, sql.ErrNoRows) {
 			return processed, nil
 		}
@@ -91,6 +90,24 @@ func (r *RegionalCommitStore) ProcessHistoryWork(ctx context.Context, now time.T
 		processed++
 	}
 	return processed, nil
+}
+
+func (r *RegionalCommitStore) nextHistoryBucket(ctx context.Context, now time.Time) (probeDirtyBucketModel, error) {
+	// Keep child-before-parent priority without sorting the entire backlog for
+	// every item. Each equality/range lookup can stop at the first row in
+	// idx_probe_dirty_resolution. Transactional dependency checks still decide
+	// whether the selected work can commit when writers re-mark its children.
+	for _, resolution := range []string{domain.DirtyResolution1m, domain.DirtyResolutionOverall, domain.DirtyResolution1h, domain.DirtyResolution1d} {
+		var row probeDirtyBucketModel
+		err := r.db.NewSelect().Model(&row).
+			Where("resolution = ? AND bucket < ?", resolution, now.Truncate(historyBucketWidth(resolution))).
+			Order("bucket ASC", "monitor_id ASC", "probe_id ASC").Limit(1).Scan(ctx)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		return row, err
+	}
+	return probeDirtyBucketModel{}, sql.ErrNoRows
 }
 
 func historyRevisionChanged(err error) bool {

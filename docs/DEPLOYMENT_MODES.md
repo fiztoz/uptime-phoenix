@@ -188,8 +188,8 @@ rendered at all.
 kubectl create secret generic phx-probe-key \
   --from-file=installation-key=/path/to/installation.key
 
-# 2. Enable the connector workers on the worker role (the all-in-one pod is
-#    its own worker; the API tier never receives the key).
+# 2. Enable probe management on API replicas and connectors on worker replicas.
+#    Both roles use the same installation key; MODE controls background work.
 helm upgrade uptime-phoenix ./charts/uptime-phoenix --reuse-values \
   --set probes.enabled=true \
   --set probes.secretName=phx-probe-key
@@ -197,9 +197,9 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix --reuse-values \
 
 What you get in every mode:
 
-- `PROBES_ENABLED=true` on the worker role only (the `mode=all` Deployment or
-  the `uptime-phoenix-worker` Deployment), plus `PROBE_SECRET_KEY_FILE` pointing
-  at the mounted key file.
+- `PROBES_ENABLED=true` and `PROBE_SECRET_KEY_FILE` on API and worker roles.
+  API replicas serve management/enrollment; only `worker`/`all` processes
+  claim connector sessions.
 - The key is read from the named Secret (`probes.secretKey`, default
   `installation-key`) as a read-only mount at
   `/etc/uptime-phoenix/probe-key/`. The chart never generates, stores or

@@ -347,6 +347,7 @@ type BackupService struct {
 	// silently rerouted to the local scheduler.
 	probeRegistry    ports.ProbeRegistryRepository
 	probeAssignments ports.MonitorProbeAssignmentRepository
+	fleetGate        FleetActivationGate
 	// Optional: channel Get/Set only — never used to export subscriber PII.
 	spSubscribers ports.StatusPageSubscriberRepository
 	// Optional: when set, monitor/group create goes through the service so
@@ -444,6 +445,12 @@ func (s *BackupService) SetProbeRegistry(repo ports.ProbeRegistryRepository) {
 // an assignment set is refused instead of being rerouted to local.
 func (s *BackupService) SetProbeAssignments(repo ports.MonitorProbeAssignmentRepository) {
 	s.probeAssignments = repo
+}
+
+// SetFleetActivationGate guards declarative activation of live remote probes.
+// An unwired gate fails closed for live activation.
+func (s *BackupService) SetFleetActivationGate(gate FleetActivationGate) {
+	s.fleetGate = gate
 }
 
 // Export builds a BackupDocument for everything owned by (or linked to) userID.
@@ -1603,6 +1610,23 @@ func (s *BackupService) restoreProbeIdentity(ctx context.Context, bp BackupProbe
 // The monitor was created with the placeholder local assignment, so the live
 // revision is read back instead of assumed.
 func (s *BackupService) restoreAssignmentSet(ctx context.Context, monitorID int64, ids []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) error {
+	// New restored identities are disabled, but matching identities can already
+	// be enabled and enrolled. Only the inert case is exempt from fleet admission.
+	for _, id := range ids {
+		if id == domain.LocalProbeID {
+			continue
+		}
+		probe, err := s.probeRegistry.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if probe.Enabled {
+			if err := s.fleetGate.EnsureRemoteActivationAllowed(ctx, ids); err != nil {
+				return err
+			}
+			break
+		}
+	}
 	revision := int64(1)
 	if current, err := s.probeAssignments.GetByMonitorID(ctx, monitorID); err == nil {
 		revision = current.Revision

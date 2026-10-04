@@ -417,11 +417,20 @@ func filterHeartbeats(heartbeats []*domain.Heartbeat, importantOnly *bool) []*do
 func sortHeartbeats(heartbeats []*domain.Heartbeat, order string) []*domain.Heartbeat {
 	out := make([]*domain.Heartbeat, len(heartbeats))
 	copy(out, heartbeats)
+	// heartbeats.time is second-precision on MariaDB: beats written within the
+	// same second carry an identical Time, so Time alone leaves the order to
+	// sort.Slice. Tie-break on the monotonic id (AGENTS.md rule 8).
 	sort.Slice(out, func(i, j int) bool {
-		if order == "asc" {
-			return out[i].Time.Before(out[j].Time)
+		if !out[i].Time.Equal(out[j].Time) {
+			if order == "asc" {
+				return out[i].Time.Before(out[j].Time)
+			}
+			return out[i].Time.After(out[j].Time)
 		}
-		return out[i].Time.After(out[j].Time)
+		if order == "asc" {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].ID > out[j].ID
 	})
 	return out
 }

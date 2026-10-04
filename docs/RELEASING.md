@@ -21,8 +21,8 @@ present at the repo root.
    dispatch-publish only proceeds when the git tag `v<version>` **already exists**
    and is checked out (see rule 3). Publish always requires approval on the GitHub
    Environment named `release` (configure required reviewers in repo settings).
-   Dispatch-publish lets you build only the artifacts you tick (default: chart +
-   split images) so a patch release does not rebuild every image and binary.
+   Dispatch-publish lets you build only the artifacts you tick (all five
+   selectors default on) so a patch release can choose its required artifacts.
 3. **Publish is bound to the tag commit.** On any publish path (tag-push or
    dispatch `publish=true`), every dry-run leg and every publish job checks out
    `refs/tags/v<version>` and asserts `HEAD == tag^{commit}` (via the
@@ -47,14 +47,14 @@ Supply one version string for the entire dry-run (example `0.0.0-snapshot.1`,
 | Go binaries | `-ldflags "-X github.com/fiztoz/uptime-phoenix/internal/version.Version=<v>"` |
 | Container image labels | `org.opencontainers.image.version=<v>` build-arg `VERSION` |
 | Image tags (local only for dry-run) | `uptime-phoenix:<v>-linux-<arch>` |
-| Helm chart | `appVersion: "<v>"` on a **copy** of the chart before `helm package` |
+| Helm chart | `version: "<v>"` and `appVersion: "<v>"` on a **copy** before `helm package` |
 
 No git tag is created for a dry-run. Semver tags are an explicit owner step.
 
 ## Local dry-run
 
 ```bash
-# Full local dry-run (binaries + helm + docker when available)
+# Full local dry-run (required image builds fail if Docker is unavailable)
 VERSION=0.0.0-snapshot.1 ./scripts/release/dry-run.sh
 
 # Binaries + helm only
@@ -65,9 +65,23 @@ Requirements:
 
 - Go toolchain matching `go.mod`
 - `helm` for chart lint/package/template
-- `docker` + `buildx` (+ QEMU for arm64) when not skipping images
+- `docker` + `buildx` when not skipping images; Go builders use the native
+  build platform and explicitly cross-compile each target architecture
+- Python 3 for required ELF architecture checks on all eight Go image binaries
 - optional `syft` for SBOMs (`SKIP_SBOM=1` to skip)
-- optional `file(1)` for architecture proof
+- optional `file(1)` for additional human-readable architecture output
+
+The three Go Docker builders pin Go 1.26.6, matching the current release gate.
+All-in-one, probe, API, worker and web images must build for both Linux amd64
+and arm64. Missing Docker, failed builds, failed extraction, empty binaries or
+wrong ELF architecture fail the required image stage. `SKIP_DOCKER=1` explicitly
+omits that stage and cannot establish image coverage.
+
+`make release-image-gate` runs mocked Docker/chart publication checks and
+standalone binary SBOM regressions. It verifies release-tool behavior without
+building real images or publishing artifacts. Environment-specific runtime
+smoke and load campaigns stay local; their latest results and limitations are
+in the [validation summary](multi-region/M6_VALIDATION_REPORT_2026-10-04.md).
 
 Run this before every release decision on a machine you trust. CI dry-run is a
 second copy of the same script; local runs remain fully supported offline.
@@ -88,6 +102,7 @@ dry-run                    (aggregate INVENTORY, upload combined artifact)
          ↓  (Environment "release" approval — one approval releases all)
   ├── publish / all-in-one (multi-arch image + cosign)          ┐
   ├── publish / split-*    (matrix api/worker/web + cosign)     ├─ parallel
+  ├── publish / probe      (multi-arch remote probe + cosign)   ┤
   └── publish / chart      (helm OCI push)                      ┘
          ↓  (all selected publish jobs must succeed)
 create-release             (attach binaries/chart/INVENTORY to the tag)
@@ -106,7 +121,7 @@ commit via the `./.github/actions/bind-release-ref` composite action (the
 | Trigger | Behaviour |
 |---|---|
 | `workflow_dispatch` (`publish=false`, default) | **Dry-run only.** Inputs: `version` (required), `skip_docker`. Never publishes. |
-| `workflow_dispatch` (`publish=true`) | **Selective publish** of the ticked artifacts (all four — `build_chart`/`build_split`/`build_all_in_one`/`build_binaries` — default on; untick any you want to skip). Requires the `v<version>` tag to already exist + Environment approval. Bound to the tag commit. **Use workflow from** must be the tag itself (`vX.Y.Z`), not `main` — see below. |
+| `workflow_dispatch` (`publish=true`) | **Selective publish** of the ticked artifacts (all five — `build_chart`/`build_split`/`build_all_in_one`/`build_probe`/`build_binaries` — default on; untick any you want to skip). Requires the `v<version>` tag to already exist + Environment approval. Bound to the tag commit. **Use workflow from** must be the tag itself (`vX.Y.Z`), not `main` — see below. |
 | `push` of tags matching `v*` | Dry-run bound to that tag commit, then **publish all artifacts** (after Environment approval). |
 
 ### Dry-run phase (parallel legs + aggregate)
@@ -153,8 +168,9 @@ Use this for patch releases where you do not want to rebuild every image and
 binary. The tag must already exist (create + push it by hand first).
 
 **GitHub UI:** Actions → **Release** → Run workflow → set `version`, tick
-`publish`, and untick any artifacts you want to skip (defaults: all four —
-`build_chart` + `build_split` + `build_all_in_one` + `build_binaries` — on).
+`publish`, and untick any artifacts you want to skip (defaults: all five —
+`build_chart` + `build_split` + `build_all_in_one` + `build_probe` +
+`build_binaries` — on).
 Approve the `release` Environment when prompted.
 
 **CLI:**
@@ -164,19 +180,20 @@ Approve the `release` Environment when prompted.
 # Everything (the defaults — equivalent to a tag-push full release):
 gh workflow run release.yml -f version=0.3.7 -f publish=true
 
-# Chart + split images only (skip the all-in-one image and binaries):
+# Chart + split images only:
 gh workflow run release.yml -f version=0.3.7 -f publish=true \
-  -f build_all_in_one=false -f build_binaries=false
+  -f build_all_in_one=false -f build_probe=false -f build_binaries=false
 
 # Chart only (e.g. a values/template-only fix):
 gh workflow run release.yml -f version=0.3.7 -f publish=true \
-  -f build_split=false -f build_all_in_one=false -f build_binaries=false
+  -f build_split=false -f build_all_in_one=false -f build_probe=false -f build_binaries=false
 ```
 
 ### Publish phase (owner-gated, parallel jobs)
 
 The publish phase fans out into independent jobs (`publish / all-in-one`,
-`publish / split-*` as an `api`/`worker`/`web` matrix, `publish / chart`), each
+`publish / split-*` as an `api`/`worker`/`web` matrix, `publish / probe`,
+`publish / chart`), each
 gated by its artifact flag so an unticked artifact skips its whole job. They run
 only when:
 
@@ -195,18 +212,24 @@ only when:
 What each parallel job does:
 
 1. `publish / all-in-one` — GHCR login, multi-arch (`linux/amd64,linux/arm64`)
-   buildx **push** of `ghcr.io/<owner>/uptime-phoenix:<version>` and `:latest`
+   buildx **push** of `ghcr.io/<owner>/uptime-phoenix:<version>` (plus `:latest`
+   for stable versions)
    (all-in-one `Dockerfile`), then cosign keyless sign. Runs only when
    `build_all_in_one` is ticked.
 2. `publish / split-{api,worker,web}` — one matrix job per target, each a
    multi-arch buildx **push** of `ghcr.io/<owner>/uptime-phoenix-<target>:<version>`
-   and `:latest` (`Dockerfile.split`), then cosign keyless sign. `fail-fast: false`
+   (plus `:latest` for stable versions; `Dockerfile.split`), then cosign keyless sign. `fail-fast: false`
    so one bad target does not cancel the siblings. Runs only when `build_split`
    is ticked.
-3. `publish / chart` — `helm push` the chart package to
+3. `publish / probe` — multi-arch buildx **push** of
+   `ghcr.io/<owner>/uptime-phoenix-probe:<version>` (plus `:latest` for stable
+   versions; `Dockerfile.probe`), then cosign keyless sign. Runs only when
+   `build_probe` is ticked.
+4. `publish / chart` — `helm push` the chart package to
    `oci://ghcr.io/<owner>/charts`, preferring the dry-run stamped `.tgz` from the
-   combined artifact (re-packages if absent). Runs only when `build_chart` is ticked.
-4. `create-release` (fan-in) — runs after every **selected** publish job
+   combined artifact (re-packages if absent). A failed OCI push fails this job
+   and blocks the release fan-in. Runs only when `build_chart` is ticked.
+5. `create-release` (fan-in) — runs after every **selected** publish job
    succeeds (skipped jobs are tolerated), rebinds to the tag, downloads the
    combined `release-<version>` artifact, prunes unselected artifact directories,
    and creates/updates the GitHub Release for tag `v<version>`, attaching the

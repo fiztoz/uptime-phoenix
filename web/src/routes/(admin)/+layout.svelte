@@ -47,6 +47,7 @@
 	let failedExtensionIcons = $state<Record<string, true>>({});
 
 	onMount(async () => {
+		themeStore.apply();
 		// Start the realtime pipeline in PARALLEL with /api/auth/me instead of
 		// after it: the JWT is already in localStorage and the monitor snapshot
 		// (what the dashboard/monitors skeletons wait on) should not sit behind

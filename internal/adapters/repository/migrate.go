@@ -21,8 +21,24 @@ var sqliteMigrations embed.FS
 
 // RunMigrations executes all pending migrations for the specified engine.
 func RunMigrations(db *sql.DB, engine string) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), migrationStartupTimeout)
+	defer cancel()
+	return runMigrations(ctx, db, engine)
+}
 
+func runMigrations(ctx context.Context, db *sql.DB, engine string) error {
+	var exec migrationExecutor = db
+	if engine == "mariadb" {
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			return fmt.Errorf("acquire MariaDB migration connection: %w", err)
+		}
+		return runMariaDBMigrations(ctx, db, conn)
+	}
+	return runMigrationsWithExecutor(ctx, db, exec, engine)
+}
+
+func runMigrationsWithExecutor(ctx context.Context, db *sql.DB, exec migrationExecutor, engine string) error {
 	// Create migrations tracking table if not exists.
 	// Use engine-specific syntax for the auto-increment column.
 	var createTableSQL string
@@ -46,13 +62,13 @@ func RunMigrations(db *sql.DB, engine string) error {
 	default:
 		return fmt.Errorf("unknown engine: %s", engine)
 	}
-	if _, err := db.ExecContext(ctx, createTableSQL); err != nil {
+	if _, err := exec.ExecContext(ctx, createTableSQL); err != nil {
 		return fmt.Errorf("create _migrations table: %w", err)
 	}
 
 	// Get list of already applied migrations.
 	var applied []string
-	rows, err := db.QueryContext(ctx, "SELECT filename FROM _migrations ORDER BY filename")
+	rows, err := queryMigrationRows(ctx, db, exec)
 	if err != nil {
 		return fmt.Errorf("query applied migrations: %w", err)
 	}
@@ -66,6 +82,9 @@ func RunMigrations(db *sql.DB, engine string) error {
 	}
 	if scanErr := rows.Err(); scanErr != nil {
 		return fmt.Errorf("iterate applied migrations: %w", scanErr)
+	}
+	if closeErr := rows.Close(); closeErr != nil {
+		return fmt.Errorf("close applied migrations rows: %w", closeErr)
 	}
 
 	// Determine which embedded migrations to use.
@@ -114,12 +133,27 @@ func RunMigrations(db *sql.DB, engine string) error {
 		// SQLite table rebuilds and their tracking record must commit together.
 		// In particular, rebuilding a parent must not strand its copied children.
 		slog.Info("Applying database migration", "migration", filename)
-		if err := applyMigration(ctx, db, engine, filename, string(sqlBytes)); err != nil {
+		if engine == "mariadb" && filename == "037_probe_heartbeat.up.sql" {
+			if err := applyMariaDB037AndRecord(ctx, exec, filename, string(sqlBytes)); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := applyMigrationWithExecutor(ctx, db, exec, engine, filename, string(sqlBytes)); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func queryMigrationRows(ctx context.Context, db *sql.DB, exec migrationExecutor) (*sql.Rows, error) {
+	if queryer, ok := exec.(interface {
+		QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	}); ok {
+		return queryer.QueryContext(ctx, "SELECT filename FROM _migrations ORDER BY filename")
+	}
+	return db.QueryContext(ctx, "SELECT filename FROM _migrations ORDER BY filename")
 }
 
 type migrationExecutor interface {
@@ -128,6 +162,11 @@ type migrationExecutor interface {
 
 func applyMigration(ctx context.Context, db *sql.DB, engine, filename, source string) error {
 	var exec migrationExecutor = db
+	return applyMigrationWithExecutor(ctx, db, exec, engine, filename, source)
+}
+
+func applyMigrationWithExecutor(ctx context.Context, db *sql.DB, executor migrationExecutor, engine, filename, source string) error {
+	exec := executor
 	var tx *sql.Tx
 	if engine == "sqlite" {
 		var err error
@@ -146,8 +185,7 @@ func applyMigration(ctx context.Context, db *sql.DB, engine, filename, source st
 			return fmt.Errorf("execute migration %s (statement %d): %w", filename, i+1, err)
 		}
 	}
-	if _, err := exec.ExecContext(ctx, "INSERT INTO _migrations (filename, applied_at) VALUES (?, ?)",
-		filename, time.Now().UTC()); err != nil {
+	if err := recordMigration(ctx, exec, filename); err != nil {
 		return fmt.Errorf("record migration %s: %w", filename, err)
 	}
 	if tx != nil {
@@ -156,6 +194,11 @@ func applyMigration(ctx context.Context, db *sql.DB, engine, filename, source st
 		}
 	}
 	return nil
+}
+
+func recordMigration(ctx context.Context, exec migrationExecutor, filename string) error {
+	_, err := exec.ExecContext(ctx, "INSERT INTO _migrations (filename, applied_at) VALUES (?, ?)", filename, time.Now().UTC())
+	return err
 }
 
 func contains(slice []string, item string) bool {
