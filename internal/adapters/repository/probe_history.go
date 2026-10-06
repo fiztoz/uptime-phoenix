@@ -341,7 +341,7 @@ func readHistoryChildren(ctx context.Context, tx bun.Tx, row probeDirtyBucketMod
 		return nil, nil
 	}
 	var children []AggregateModel
-	if err := tx.NewSelect().Model(&children).ModelTableExpr("heartbeat_"+resolution+" AS aggregate_model").Where("monitor_id = ? AND probe_id = ? AND bucket >= ? AND bucket < ?", row.MonitorID, row.ProbeID, row.Bucket.UTC(), row.Bucket.UTC().Add(historyBucketWidth(row.Resolution))).Order("bucket ASC", "id ASC").Limit(limit + 1).Scan(ctx); err != nil {
+	if err := tx.NewSelect().Model(&children).ModelTableExpr("heartbeat_"+resolution+" AS aggregate_model").Where("monitor_id = ? AND probe_id = ? AND bucket >= ? AND bucket < ?", row.MonitorID, row.ProbeID, row.Bucket.UTC(), row.Bucket.UTC().Add(historyBucketWidth(row.Resolution))).Order("bucket ASC", "id ASC").Limit(int64(limit + 1)).Scan(ctx); err != nil {
 		return nil, err
 	}
 	if len(children) > limit {

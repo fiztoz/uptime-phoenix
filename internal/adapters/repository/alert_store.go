@@ -276,10 +276,10 @@ func (r *AlertStore) List(ctx context.Context, filter ports.AlertFilter) ([]*dom
 		q = q.Where("status IN (?)", bun.List(filter.Statuses))
 	}
 	if filter.Limit > 0 {
-		q = q.Limit(filter.Limit)
+		q = q.Limit(int64(filter.Limit))
 	}
 	if filter.Offset > 0 {
-		q = q.Offset(filter.Offset)
+		q = q.Offset(int64(filter.Offset))
 	}
 	if err := q.Order("fired_at DESC", "id DESC").Scan(ctx); err != nil {
 		return nil, r.translate(err)

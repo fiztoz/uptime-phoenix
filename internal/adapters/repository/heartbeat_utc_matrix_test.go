@@ -185,7 +185,7 @@ func TestHeartbeatUTCBound_MariaDB_LocalZonedBoundShiftsSQL(t *testing.T) {
 		if err != nil {
 			t.Fatalf("count: %v", err)
 		}
-		return n
+		return int(n)
 	}
 	if got := countRaw(utcFrom, utcTo); got != 1 {
 		t.Fatalf("raw UTC-bounded window returned %d rows; want 1 — fixture is broken", got)

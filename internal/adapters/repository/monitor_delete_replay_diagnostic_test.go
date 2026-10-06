@@ -526,7 +526,7 @@ func diagnosticCount(t *testing.T, ctx context.Context, db *bun.DB, table, where
 	if err != nil {
 		t.Fatalf("read diagnostic table %s failed (%s)", table, safeDiagnosticErrorType(err))
 	}
-	return count
+	return int(count)
 }
 
 // Successful DELETE must remove every seeded monitor-owned cascade row.

@@ -375,5 +375,5 @@ func monitorCount(t *testing.T, r replayFixture) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return count
+	return int(count)
 }

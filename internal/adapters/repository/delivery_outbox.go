@@ -498,7 +498,7 @@ func (r *RegionalCommitStore) ClaimDeliveries(ctx context.Context, probeID strin
  OR (intent.event_kind <> 'probe_connection' AND intent.assignment_generation = (SELECT assignment.generation FROM monitor_probe_assignments AS assignment
  WHERE assignment.monitor_id = intent.monitor_id AND assignment.probe_id = intent.probe_id
  AND assignment.active = ?)))`, true, true).
-			OrderExpr("intent.available_at ASC, intent.created_at ASC, intent.delivery_id ASC").Limit(limit)
+			OrderExpr("intent.available_at ASC, intent.created_at ASC, intent.delivery_id ASC").Limit(int64(limit))
 		if tx.Dialect().Name() == dialect.MySQL {
 			q = q.For("UPDATE SKIP LOCKED")
 		}

@@ -44,7 +44,7 @@ func assertAckStorage(t *testing.T, s *Store, status string, version, seq int64,
 		t.Fatalf("wrong telemetry counter: %+v %v", i, err)
 	}
 	count, err := s.db.NewSelect().Model((*edgeCommandRow)(nil)).Count(t.Context())
-	if err != nil || count != receipts {
+	if err != nil || count != int64(receipts) {
 		t.Fatalf("wrong receipt count: %d %v", count, err)
 	}
 }
@@ -310,7 +310,7 @@ func TestEdgeAcknowledgementSourceServiceLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 		count, err := s.db.NewSelect().Model((*edgeDeliveryRow)(nil)).Count(t.Context())
-		if err != nil || count != n+1 {
+		if err != nil || count != int64(n+1) {
 			t.Fatal("ACK suppressed recovery or allowed resend", count, err)
 		}
 		switch n {

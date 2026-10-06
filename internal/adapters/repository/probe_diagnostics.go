@@ -178,7 +178,7 @@ func (s *ProbeDiagnosticsStore) ListProbeDiagnostics(ctx context.Context, after 
 	var rows []domain.ProbeDiagnostics
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		var registrations []probeRegistrationModel
-		q := tx.NewSelect().Model(&registrations).Where("probe.deleted_at IS NULL").OrderExpr("probe.id ASC").Limit(limit)
+		q := tx.NewSelect().Model(&registrations).Where("probe.deleted_at IS NULL").OrderExpr("probe.id ASC").Limit(int64(limit))
 		if after != "" {
 			q = q.Where("probe.id > ?", after)
 		}

@@ -92,7 +92,7 @@ func (s *Store) ReadReplayBatch(ctx context.Context, fromSeq int64, maxEvents in
 			Model(&rows).
 			Where("seq >= ?", fromSeq).
 			Order("seq ASC").
-			Limit(maxEvents)
+			Limit(int64(maxEvents))
 		if gapErr == nil {
 			query = query.Where("seq < ?", gap.FromSeq)
 		}

@@ -208,10 +208,10 @@ func (r *MonitorRepo) List(ctx context.Context, filter ports.MonitorFilter) ([]*
 		}
 	}
 	if filter.Limit > 0 {
-		q = q.Limit(filter.Limit)
+		q = q.Limit(int64(filter.Limit))
 	}
 	if filter.Offset > 0 {
-		q = q.Offset(filter.Offset)
+		q = q.Offset(int64(filter.Offset))
 	}
 	// Display order: weight (manual sort), then name, then id as a stable tie-break.
 	q = q.Order("weight ASC", "name ASC", "id ASC")
@@ -716,7 +716,7 @@ func (r *HeartbeatRepo) ListRecentByMonitor(ctx context.Context, monitorID int64
 		Where("time >= ?", from.UTC()).
 		Where("time <= ?", to.UTC()).
 		OrderExpr("time DESC, id DESC").
-		Limit(limit).
+		Limit(int64(limit)).
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)
