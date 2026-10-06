@@ -120,9 +120,21 @@ func TestMariaDBMigrationOwnershipBlocksUntilOwnerReleases(t *testing.T) {
 			t.Fatal("concurrent migration restart timed out")
 		}
 	}
+	// Compare to the embedded migration set, not a historical hard-coded
+	// count: new schema migrations must also be applied exactly once.
+	entries, err := mariadbMigrations.ReadDir("mariadb/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := 0
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".up.sql") {
+			want++
+		}
+	}
 	var total, distinct int
-	if err := db.QueryRowContext(ctx, "SELECT COUNT(*), COUNT(DISTINCT filename) FROM _migrations").Scan(&total, &distinct); err != nil || total != 74 || distinct != 74 {
-		t.Fatalf("concurrent restart ledger: total=%d distinct=%d err=%v", total, distinct, err)
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*), COUNT(DISTINCT filename) FROM _migrations").Scan(&total, &distinct); err != nil || want == 0 || total != want || distinct != want {
+		t.Fatalf("concurrent restart ledger: total=%d distinct=%d want=%d err=%v", total, distinct, want, err)
 	}
 }
 

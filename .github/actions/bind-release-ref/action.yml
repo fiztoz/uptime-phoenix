@@ -1,5 +1,8 @@
 # Composite action: on a publish run, rebind the already-checked-out repo to the
 # release tag commit and assert HEAD == tag^{commit} before any build/push.
+# When `expected_sha` is set (always in this workflow), the tag must still
+# resolve to that pinned commit — a tag moved after prepare is rejected BEFORE
+# the checkout (issue #56 hardening).
 #
 # Chicken-and-egg note: a local composite action is only available AFTER the
 # repository is checked out, so the calling job MUST run actions/checkout first
@@ -20,6 +23,10 @@ inputs:
     description: "Release tag (e.g. v0.1.0). Required when publish == '1'."
     required: false
     default: ""
+  expected_sha:
+    description: "Immutable release SHA pinned once in the prepare job. Required when publish == '1'; the bind fails closed if the tag no longer resolves to it (issue #56 hardening)."
+    required: false
+    default: ""
   version_regex:
     description: "SemVer-compatible validation regex for the version."
     required: false
@@ -33,6 +40,7 @@ runs:
       env:
         PUBLISH: ${{ inputs.publish }}
         TAG_NAME: ${{ inputs.tag_name }}
+        EXPECTED_SHA: ${{ inputs.expected_sha }}
         VERSION_REGEX: ${{ inputs.version_regex }}
       run: |
         set -euo pipefail
@@ -42,6 +50,10 @@ runs:
         fi
         if [ -z "${TAG_NAME}" ]; then
           echo "ERROR: publish=1 but tag_name is empty." >&2
+          exit 2
+        fi
+        if [ -z "${EXPECTED_SHA}" ]; then
+          echo "ERROR: publish=1 but expected_sha is empty (prepare must pin the release SHA)." >&2
           exit 2
         fi
         if ! printf '%s' "${TAG_NAME}" | grep -Eq "${VERSION_REGEX}"; then
@@ -56,11 +68,20 @@ runs:
           echo "Push the tag by hand first (this workflow never creates tags)." >&2
           exit 1
         fi
-        git checkout --force "refs/tags/${TAG_NAME}"
+        # Validate BEFORE checkout: the tag is a mutable ref, the pin is not.
+        # If the tag moved after prepare resolved it, refusing here guarantees
+        # this job never builds a different commit than the one CI verified.
         tag_commit="$(git rev-list -n1 "refs/tags/${TAG_NAME}")"
+        if [ "${tag_commit}" != "${EXPECTED_SHA}" ]; then
+          echo "ERROR: tag ${TAG_NAME} now resolves to ${tag_commit}, but the release SHA" >&2
+          echo "pinned in prepare is ${EXPECTED_SHA}. The tag moved after this release run" >&2
+          echo "began — refusing to bind to a different commit than was verified." >&2
+          exit 1
+        fi
+        git checkout --force "refs/tags/${TAG_NAME}"
         head_commit="$(git rev-parse HEAD)"
-        if [ "${tag_commit}" != "${head_commit}" ]; then
-          echo "ERROR: HEAD (${head_commit}) != tag ${TAG_NAME} (${tag_commit})" >&2
+        if [ "${head_commit}" != "${EXPECTED_SHA}" ]; then
+          echo "ERROR: HEAD (${head_commit}) != pinned release SHA (${EXPECTED_SHA})" >&2
           exit 1
         fi
         echo "Bound checkout to ${TAG_NAME} @ ${head_commit}"

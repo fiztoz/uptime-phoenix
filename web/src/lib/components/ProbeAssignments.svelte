@@ -10,6 +10,7 @@
     regionalApi,
     type MonitorProbeAssignmentsView,
   } from "$lib/api/regional";
+  import type { MonitorInitialAssignments } from "$lib/api/monitors";
   import { probeWriteErrorMessage } from "$lib/probe-errors";
   import ProbeStatus from "./ProbeStatus.svelte";
   import * as m from "$lib/paraglide/messages.js";
@@ -110,6 +111,36 @@
     };
     bindingsEdited = true;
     saved = false;
+  }
+  /**
+   * The initial assignment draft for the atomic create path (issue #60).
+   *
+   * Throws while the editor cannot answer honestly — still loading, load
+   * failed, or nothing selected — so the form aborts before any request and
+   * shows the message. When probes are disabled on this server the local
+   * default is returned and no explicit-assignment API is ever needed: the
+   * create POST omits the set and the backend local-default path runs the
+   * monitor on "local". Only bindings of SELECTED probes ride the draft.
+   */
+  export function initialAssignments(): MonitorInitialAssignments {
+    if (unavailable) return { probe_ids: ["local"], health_policy: "any_down" };
+    if (loading) throw new Error(m.probes_loading());
+    if (error) throw new Error(error);
+    if (selected.length === 0) {
+      error = m.probes_select_one();
+      throw new Error(error);
+    }
+    return {
+      probe_ids: [...selected],
+      health_policy: policy,
+      probe_bindings: selected.flatMap((id) => {
+        const binding = bindings[id];
+        const binding_key = binding?.binding_key.trim();
+        return binding && binding_key
+          ? [{ probe_id: id, kind: binding.kind, binding_key }]
+          : [];
+      }),
+    };
   }
   export async function save(id: number): Promise<boolean> {
     if (unavailable) return true;

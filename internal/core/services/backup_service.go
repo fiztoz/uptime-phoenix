@@ -1159,9 +1159,15 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 			m.Active = false
 		}
 
+		// The restored monitor brings its own notification relationships (or
+		// deliberately has none). They are attached further below from the
+		// document, so new-monitor defaults must be bypassed: the destination's
+		// default channels would otherwise leak into the imported graph and
+		// collide with backed-up links (issue #65).
+		normalizePushToken(m)
 		var createErr error
 		if s.monitorSvc != nil {
-			createErr = s.monitorSvc.Create(ctx, m)
+			createErr = s.monitorSvc.CreateWithoutDefaultNotifications(ctx, m)
 		} else {
 			createErr = s.monitors.Create(ctx, m)
 		}

@@ -23,6 +23,9 @@ type HealthReceipt struct {
 // Both callbacks must honor cancellation. They run concurrently with each other,
 // but each lane has one worker. Overload closes the session rather than silently
 // dropping or coalescing health samples. All callbacks are joined before return.
+// The result follows the Run contract: a session closed internally while the
+// caller's context is live reports ErrSessionClosed (or the recorded failure
+// cause), never success.
 func (s *Session) RunWithHealth(ctx context.Context, handle func(context.Context, Envelope) error, health func(context.Context, HealthReceipt) error) error {
 	return s.RunWithHealthAdmission(ctx, handle, health, nil)
 }

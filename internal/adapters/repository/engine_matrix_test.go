@@ -83,6 +83,9 @@ var mariadbTailHeals = []struct{ migration, table, column string }{
 	// Both network-trust columns appear and disappear together; one heal entry
 	// re-applies both because 071's up adds them in one pass.
 	{"071_probe_operations", "probes", "endpoint"},
+	// A rehearsal can cycle 075's down/up and briefly remove the lease epoch
+	// from the shared monitors table while a sibling fixture starts.
+	{"075_monitor_lease_epoch", "monitors", "lease_epoch"},
 }
 
 // healMariaDBTail re-applies idempotent tail migrations after RunMigrations.

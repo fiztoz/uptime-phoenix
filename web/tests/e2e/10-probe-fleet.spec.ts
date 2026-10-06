@@ -373,7 +373,7 @@ test("regional acknowledgement stays pending until its durable receipt confirms 
   ).toBeVisible();
 });
 
-test("monitor creation assigns selected regions and an assignment retry never creates a duplicate monitor", async ({
+test("atomic monitor creation preserves selected regions across a rejected create and retry", async ({
   page,
 }) => {
   await loginViaUI(page);
@@ -394,17 +394,25 @@ test("monitor creation assigns selected regions and an assignment retry never cr
   expect(registration.ok()).toBe(true);
   const probe = await registration.json();
   const monitorName = uniqueName("create-regional");
-  let firstWrite = true;
-  await page.route("**/api/monitors/*/probes", (route) => {
-    if (route.request().method() === "PUT" && firstWrite) {
-      firstWrite = false;
-      return route.fulfill({
-        status: 503,
-        json: {
-          code: "assignment_unavailable",
-          error: "Assignment temporarily unavailable",
-        },
-      });
+  let createAttempts = 0;
+  // Fault injection is confined to the atomic create request. The second
+  // attempt reaches the real backend and persists the selected set together
+  // with the monitor; there is no later assignment PUT to retry.
+  await page.route("**/api/monitors", (route) => {
+    if (route.request().method() === "POST") {
+      createAttempts++;
+      expect(route.request().postDataJSON().probe_ids).toEqual(
+        expect.arrayContaining(["local", probe.id]),
+      );
+      if (createAttempts === 1) {
+        return route.fulfill({
+          status: 503,
+          json: {
+            code: "assignment_unavailable",
+            error: "Assignment temporarily unavailable",
+          },
+        });
+      }
     }
     return route.continue();
   });
@@ -424,12 +432,21 @@ test("monitor creation assigns selected regions and an assignment retry never cr
   await dialog
     .getByRole("button", { name: "Create Monitor", exact: true })
     .click();
-  await expect(regions.getByRole("alert")).toContainText(
-    "Assignment temporarily unavailable",
-  );
+  await expect(
+    page.getByText("Assignment temporarily unavailable", { exact: true }),
+  ).toBeVisible();
   await expect(dialog).toBeVisible();
-  await regions.getByRole("button", { name: "Refresh", exact: true }).click();
-  await regions.getByRole("checkbox", { name: new RegExp(probeName) }).check();
+  const rejectedList = await page.request.get(`${API_BASE}/api/monitors`, {
+    headers,
+  });
+  expect(
+    ((await rejectedList.json()) as Array<{ name: string }>).filter(
+      (monitor) => monitor.name === monitorName,
+    ),
+  ).toHaveLength(0);
+  await expect(
+    regions.getByRole("checkbox", { name: new RegExp(probeName) }),
+  ).toBeChecked();
   await dialog
     .getByRole("button", { name: "Create Monitor", exact: true })
     .click();
@@ -439,6 +456,7 @@ test("monitor creation assigns selected regions and an assignment retry never cr
     (await list.json()) as Array<{ id: number; name: string }>
   ).filter((monitor) => monitor.name === monitorName);
   expect(monitors).toHaveLength(1);
+  expect(createAttempts).toBe(2);
   const response = await page.request.get(
     `${API_BASE}/api/monitors/${monitors[0].id}/probes`,
     { headers },

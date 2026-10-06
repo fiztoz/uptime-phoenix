@@ -44,12 +44,12 @@ func (r *recordingLeaseRepo) ClaimBatch(ctx context.Context, worker string, n in
 	return r.mockMonitorRepo.ClaimBatch(ctx, worker, n, ttl)
 }
 
-func (r *recordingLeaseRepo) RefreshLease(context.Context, string) (int64, error) {
+func (r *recordingLeaseRepo) RefreshLease(context.Context, string, time.Duration) (int64, error) {
 	r.log.add("refresh")
 	return 0, nil
 }
 
-func (r *recordingLeaseRepo) ListByWorker(context.Context, string, time.Time) ([]*domain.Monitor, error) {
+func (r *recordingLeaseRepo) ListByWorker(context.Context, string, time.Time) ([]*domain.LeasedMonitor, error) {
 	return nil, nil
 }
 

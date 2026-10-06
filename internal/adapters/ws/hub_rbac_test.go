@@ -95,7 +95,9 @@ func (r *hubFakeMonitorRepo) Delete(_ context.Context, _ int64) error           
 func (r *hubFakeMonitorRepo) ClaimBatch(_ context.Context, _ string, _ int, _ time.Duration) ([]*domain.Monitor, error) {
 	return nil, nil
 }
-func (r *hubFakeMonitorRepo) RefreshLease(_ context.Context, _ string) (int64, error)  { return 0, nil }
+func (r *hubFakeMonitorRepo) RefreshLease(_ context.Context, _ string, _ time.Duration) (int64, error) {
+	return 0, nil
+}
 func (r *hubFakeMonitorRepo) ReleaseLeases(_ context.Context, _ string) (int64, error) { return 0, nil }
 
 type hubFakeHeartbeatRepo struct {

@@ -37,8 +37,13 @@ type MonitorModel struct {
 	DockerHostID        *int64          `bun:"docker_host_id"`
 	WorkerID            *string         `bun:"worker_id"`
 	LeasedAt            *time.Time      `bun:"leased_at"`
-	CreatedAt           time.Time       `bun:"created_at,notnull"`
-	UpdatedAt           time.Time       `bun:"updated_at,notnull"`
+	// LeaseEpoch identifies the current lease instance. ClaimBatch increments
+	// it whenever a lease is newly established (fresh claim, takeover, or
+	// reacquisition after expiry); renewals leave it unchanged. Only
+	// claim/refresh/release operations own this column.
+	LeaseEpoch int64     `bun:"lease_epoch,notnull,default:0"`
+	CreatedAt  time.Time `bun:"created_at,notnull"`
+	UpdatedAt  time.Time `bun:"updated_at,notnull"`
 }
 
 // ToDomain converts a MonitorModel to a domain.Monitor.
@@ -70,6 +75,20 @@ func (m *MonitorModel) ToDomain() *domain.Monitor {
 		CreatedAt:           m.CreatedAt,
 		UpdatedAt:           m.UpdatedAt,
 	}
+}
+
+// LeasedMonitorFromModel converts a loaded monitor row into the monitor with
+// its lease identity. The lease columns are owned by claim/refresh/release and
+// deliberately never enter domain.Monitor.
+func LeasedMonitorFromModel(m *MonitorModel) *domain.LeasedMonitor {
+	out := &domain.LeasedMonitor{Monitor: m.ToDomain(), LeaseEpoch: m.LeaseEpoch}
+	if m.WorkerID != nil {
+		out.WorkerID = *m.WorkerID
+	}
+	if m.LeasedAt != nil {
+		out.LeasedAt = m.LeasedAt.UTC()
+	}
+	return out
 }
 
 // MonitorModelFromDomain converts a domain.Monitor to a MonitorModel.

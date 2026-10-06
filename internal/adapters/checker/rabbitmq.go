@@ -79,7 +79,10 @@ func rabbitMQURL(config map[string]any) string {
 		u.User = url.UserPassword(username, password)
 	}
 	if vhost, _ := config["vhost"].(string); strings.TrimSpace(vhost) != "" {
-		u.Path = "/" + url.PathEscape(strings.TrimSpace(vhost))
+		// URL.Path holds the DECODED path and URL.String() escapes it exactly once.
+		// Pre-escaping here (url.PathEscape) made String() escape the percent signs
+		// again, so vhost "/" reached connection.open as "%2F" (issue #54).
+		u.Path = "/" + strings.TrimSpace(vhost)
 	}
 	return u.String()
 }

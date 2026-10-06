@@ -86,6 +86,12 @@ make gate-full
 The gate also runs `make release-image-gate`: nine fake-Docker cases check image
 build, extraction and architecture failure handling; two fake-Helm cases check
 the actual chart-publish workflow; four cases check standalone binary SBOMs.
+It also runs `scripts/release/test-ci-gate.py`, which exercises exact-SHA CI
+verification, pinned release-source propagation, moved-tag rejection and
+fail-closed publication dependencies using temporary repositories and a fake
+GitHub API. `make helm-validate` runs
+`scripts/issue67-ext-token-checksum.sh` to prove deterministic, per-extension
+pod-template changes when a chart-managed UI token rotates.
 `make m6-backend-harness-gate` checks that the database-test result parser rejects
 missing coverage, failures and unexpected skips. These are portable tooling
 regressions, not actual image builds or database execution. Before a release,
@@ -207,6 +213,30 @@ mocked release-tool tests do not establish actual image builds or runtime health
 ---
 
 ## 2. Backend Tests (Go)
+
+### Issue #52–#67 regression coverage
+
+See [the fix and verification record](ISSUE_FIXES_52_67.md) for the issue-to-test
+mapping and the executed dual-engine/browser evidence. The lease-fencing
+regressions require real MariaDB in addition to SQLite; a package pass with
+MariaDB skips is not sufficient. With `TEST_MARIADB_DSN` set to a **disposable**
+database, run the following focused gate (never print the DSN):
+
+```bash
+go test -race -count=1 -timeout 40m -v ./internal/adapters/repository/ \
+  -run 'Lease|LocalHeartbeat|ClaimBatch|ConfigApplyPushLookupLifecycle|BackupImportNotificationLinkFidelity|MariaDBMigrationOwnership'
+```
+
+Require named `/mariadb` passes for the expired-lease refresh, same-worker
+reacquisition and lock-wait cases. The renewal fixtures deliberately backdate a
+still-live lease: MariaDB's second-precision `leased_at` can otherwise make an
+immediate refresh a no-op with zero changed rows.
+
+Rebuild the frontend **before** browser tests: the Playwright server builds Go
+but can reuse an existing `web/dist`. New browser regressions live in
+`web/tests/e2e/issue-monitor-form.spec.ts` and `issue-live-monitor.spec.ts`.
+The latter explicitly labels mocked WebSocket/history/chart inputs; it tests
+browser behavior, not real probe-to-hub transport.
 
 ### 2.1 Run All Tests
 

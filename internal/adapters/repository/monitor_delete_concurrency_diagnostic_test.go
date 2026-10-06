@@ -418,7 +418,7 @@ func TestMonitorDeleteConcurrencyDiagnostic(t *testing.T) {
 		go func() { <-start; results <- operationResult{name: "delete", err: deleteRepo.Delete(ctx, target)} }()
 		go func() {
 			<-start
-			_, refreshErr := repo.RefreshLease(ctx, "delete-diagnostic-worker")
+			_, refreshErr := repo.RefreshLease(ctx, "delete-diagnostic-worker", time.Minute)
 			results <- operationResult{name: "refresh", err: refreshErr}
 		}()
 		go func() {

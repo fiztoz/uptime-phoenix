@@ -571,19 +571,30 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
   grpc: {
     label: "gRPC Health",
     description: "gRPC health-check protocol probe",
+    // Field keys are the checker's config contract — internal/adapters/
+    // checker/grpc.go reads url (required), service_name, tls, timeout.
+    // Keep these in lockstep: UI-created monitors are validated server-side
+    // against these keys, and API-created monitors are edited through them.
     fields: [
       {
-        key: "hostname",
+        key: "url",
         label: "Hostname:Port",
         type: "text",
         required: true,
         placeholder: "grpc.example.com:50051",
       },
       {
-        key: "service",
+        key: "service_name",
         label: "Service Name",
         type: "text",
         placeholder: "optional",
+      },
+      {
+        key: "tls",
+        label: "Use TLS",
+        type: "checkbox",
+        default: false,
+        help: "Use a TLS channel instead of a plaintext (insecure) gRPC channel.",
       },
       { key: "timeout", label: "Timeout (s)", type: "number", default: 10 },
     ],
@@ -961,6 +972,37 @@ export function parseHeadersInput(
 }
 
 /** Render a stored headers object back into "Key: Value" lines for editing. */
+/**
+ * Fold a legacy gRPC config into the canonical checker keys (internal/
+ * adapters/checker/grpc.go: url, service_name, tls, timeout).
+ *
+ * Older gRPC forms stored the target as `hostname` and the service as
+ * `service`, so those monitors fail `url is required` on every save and an
+ * API-created `url`/`service_name` monitor never populated the form. Same
+ * compatibility idea as the MQTT `url` → `broker` and database `dsn` →
+ * `connection_string` folds in MonitorForm.buildInitialConfig. Mutates the
+ * given map and returns it for chaining. Canonical values always win.
+ */
+export function migrateLegacyGrpcConfig(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  if (
+    (config.url === undefined || config.url === "") &&
+    typeof config.hostname === "string" &&
+    config.hostname
+  ) {
+    config.url = config.hostname;
+  }
+  if (
+    (config.service_name === undefined || config.service_name === "") &&
+    typeof config.service === "string" &&
+    config.service
+  ) {
+    config.service_name = config.service;
+  }
+  return config;
+}
+
 export function stringifyHeaders(headers: unknown): string {
   if (!headers || typeof headers !== "object") return "";
   return Object.entries(headers as Record<string, unknown>)

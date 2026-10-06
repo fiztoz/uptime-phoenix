@@ -1853,6 +1853,28 @@ func (s *LocalScheduler) runCheck(ctx context.Context, m *domain.Monitor) {
 }
 ```
 
+### Sharded worker authority
+
+Migration `075_monitor_lease_epoch` adds a lease-instance epoch to `monitors`
+on both engines. `ClaimBatch` increments it for a fresh claim, takeover, or
+same-worker reacquisition after expiry; ordinary renewal keeps it unchanged.
+`RefreshLease(ctx, workerID, leaseTTL)` extends only still-live leases. Both
+operations classify expiry using UTC time sampled **after** acquiring their
+storage locks, so a lock wait cannot revive an expired instance.
+
+`ListByWorker` returns monitor data and lease identity together. The sharded
+scheduler captures `{worker_id, lease_epoch, lease_ttl}` at queue time and
+carries it through `CheckResult` into `LocalHeartbeatCommit`. The recorder
+locks the monitor after the local sequence allocator and before the assignment
+set, then validates stored owner, epoch and expiry in the same transaction as
+all heartbeat effects. `ErrStaleLease` rolls back the sequence, history, state,
+incident and delivery writes and is not retried as an evaluation-state race.
+Local scheduler and push ingestion deliberately carry no worker fence. A
+fenced result on the legacy non-transactional save path fails closed.
+
+Do not rely on this fencing during a mixed-version rollout while old sharded
+workers can still write unfenced results; drain/stop those workers first.
+
 ### Heartbeat Service
 
 ```go

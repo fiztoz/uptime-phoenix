@@ -182,7 +182,22 @@ func (r *cfgMonRepo) GetByID(_ context.Context, id int64) (*domain.Monitor, erro
 	cp := *m
 	return &cp, nil
 }
-func (r *cfgMonRepo) GetByPushToken(context.Context, string) (*domain.Monitor, error) {
+
+// GetByPushToken resolves through the persisted PushToken lookup column,
+// mirroring the SQL adapters which query only that column. A fake that always
+// misses hides a monitor persisted without the dedicated field (issue #66).
+func (r *cfgMonRepo) GetByPushToken(_ context.Context, pushToken string) (*domain.Monitor, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if pushToken == "" {
+		return nil, ports.ErrNotFound
+	}
+	for _, m := range r.byID {
+		if m.PushToken == pushToken {
+			cp := *m
+			return &cp, nil
+		}
+	}
 	return nil, ports.ErrNotFound
 }
 func (r *cfgMonRepo) List(context.Context, ports.MonitorFilter) ([]*domain.Monitor, error) {
@@ -211,7 +226,9 @@ func (r *cfgMonRepo) Delete(_ context.Context, id int64) error {
 func (r *cfgMonRepo) ClaimBatch(context.Context, string, int, time.Duration) ([]*domain.Monitor, error) {
 	return nil, nil
 }
-func (r *cfgMonRepo) RefreshLease(context.Context, string) (int64, error)  { return 0, nil }
+func (r *cfgMonRepo) RefreshLease(context.Context, string, time.Duration) (int64, error) {
+	return 0, nil
+}
 func (r *cfgMonRepo) ReleaseLeases(context.Context, string) (int64, error) { return 0, nil }
 
 // stubs for unused repos in focused tests
