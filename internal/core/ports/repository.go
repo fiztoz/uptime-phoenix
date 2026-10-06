@@ -119,16 +119,25 @@ type MonitorRepository interface {
 	// Monitors are claimed if they are unclaimed (worker_id IS NULL) or the lease
 	// has expired (leased_at < now - leaseTTL). Returns the claimed monitors.
 	ClaimBatch(ctx context.Context, workerID string, batchSize int, leaseTTL time.Duration) ([]*domain.Monitor, error)
-	// RefreshLease extends the lease for all monitors claimed by workerID.
-	RefreshLease(ctx context.Context, workerID string) (int64, error)
+	// RefreshLease extends the lease for monitors this worker still validly
+	// holds. leaseTTL is the same validity window ClaimBatch uses: a row is
+	// extended only while leased_at >= now - leaseTTL, evaluated after the
+	// engine's lease rows are locked (an earlier reading is stale by the time
+	// a contended write proceeds). An expired row is left untouched —
+	// ClaimBatch reacquires it as a NEW lease instance (epoch bump), which is
+	// what rejects work queued under the previous instance. Returns the number
+	// of extended leases.
+	RefreshLease(ctx context.Context, workerID string, leaseTTL time.Duration) (int64, error)
 	// ReleaseLeases releases all monitors claimed by workerID (sets worker_id=NULL).
 	ReleaseLeases(ctx context.Context, workerID string) (int64, error)
 }
 
 // WorkerMonitorReader lists active monitors whose current worker lease is valid.
 // leaseExpiry is inclusive; an older or missing lease must never be returned.
+// Each entry carries the lease instance (worker + epoch) so the caller can
+// fence queued work against later lease expiry or replacement.
 type WorkerMonitorReader interface {
-	ListByWorker(ctx context.Context, workerID string, leaseExpiry time.Time) ([]*domain.Monitor, error)
+	ListByWorker(ctx context.Context, workerID string, leaseExpiry time.Time) ([]*domain.LeasedMonitor, error)
 }
 
 // MonitorGroupRepository defines persistence operations for monitor groups.

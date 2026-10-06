@@ -285,6 +285,13 @@ func (s *MonitorService) CreateWithAssignments(ctx context.Context, m *domain.Mo
 		return err
 	}
 	normalizeHTTPMonitorURL(m)
+	// Same create-time push-token contract as ordinary create and declarative
+	// apply (issue #65/#66 follow-up): a push monitor without a supplied lookup
+	// token gets a generated one. Clone pre-generates its own token, so this is
+	// a no-op there.
+	if err := ensurePushToken(m); err != nil {
+		return fmt.Errorf("monitor service: create: %w", err)
+	}
 	if m.Weight == 0 {
 		m.Weight = 2000
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
@@ -35,6 +36,9 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		hb.DownCount < 0 || hb.Ping < 0 || hb.Duration < 0 {
 		return nil, fmt.Errorf("local heartbeat identity: %w", domain.ErrValidation)
 	}
+	if fence := commit.LeaseFence; fence != nil && (fence.WorkerID == "" || fence.LeaseTTL <= 0) {
+		return nil, fmt.Errorf("local heartbeat lease fence: %w", domain.ErrValidation)
+	}
 	hb.Time, hb.ReceivedAt = hb.Time.UTC(), hb.ReceivedAt.UTC()
 	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		result, err := tx.NewUpdate().TableExpr("probe_local_sequence").
@@ -51,6 +55,31 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		}
 		if err := tx.NewSelect().TableExpr("probe_local_sequence").Column("last_seq").Where("id = 1").Scan(ctx, &hb.SourceSeq); err != nil {
 			return err
+		}
+
+		// A lease fence must still authorize this result where its writes land:
+		// the stored owner, lease instance, and expiry are validated under the
+		// same row lock that serializes claim takeovers. Lock the monitor before
+		// the assignment set — matching claim and assignment replacement order
+		// (monitors first) — and after the allocator that serializes commits.
+		// Rejection rolls the whole transaction back, including the allocation.
+		if fence := commit.LeaseFence; fence != nil {
+			lease := new(MonitorModel)
+			leaseQuery := tx.NewSelect().Model(lease).
+				Column("worker_id", "lease_epoch", "leased_at").
+				Where("id = ?", hb.MonitorID)
+			if tx.Dialect().Name() == dialect.MySQL {
+				leaseQuery = leaseQuery.For("UPDATE")
+			}
+			if err := leaseQuery.Scan(ctx); err != nil {
+				return fmt.Errorf("lock local monitor lease: %w", probeRegistryError(err))
+			}
+			now := time.Now().UTC()
+			if lease.WorkerID == nil || *lease.WorkerID != fence.WorkerID ||
+				lease.LeaseEpoch != fence.LeaseEpoch ||
+				lease.LeasedAt == nil || lease.LeasedAt.UTC().Before(now.Add(-fence.LeaseTTL)) {
+				return ports.ErrStaleLease
+			}
 		}
 
 		// Lock the set before the member, matching assignment replacement order.

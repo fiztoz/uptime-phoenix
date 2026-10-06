@@ -18,6 +18,10 @@ type CheckResult struct {
 	// Multi-region execution context (captured at schedule time).
 	ConfigRevision       int64
 	AssignmentGeneration int64
+	// LeaseFence pins this result to the worker lease instance that authorized
+	// the check (captured at queue time by the sharded scheduler). Nil for
+	// ordinary local and push recording, which carry no worker authority.
+	LeaseFence *domain.LeaseFence
 }
 
 // Checker defines the interface that every monitor type must implement.

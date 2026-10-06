@@ -248,7 +248,9 @@ func (r *grpFakeMonitorRepo) Delete(_ context.Context, id int64) error {
 func (r *grpFakeMonitorRepo) ClaimBatch(_ context.Context, _ string, _ int, _ time.Duration) ([]*domain.Monitor, error) {
 	return nil, nil
 }
-func (r *grpFakeMonitorRepo) RefreshLease(_ context.Context, _ string) (int64, error)  { return 0, nil }
+func (r *grpFakeMonitorRepo) RefreshLease(_ context.Context, _ string, _ time.Duration) (int64, error) {
+	return 0, nil
+}
 func (r *grpFakeMonitorRepo) ReleaseLeases(_ context.Context, _ string) (int64, error) { return 0, nil }
 
 func newGroupTestService() (*MonitorGroupService, *grpFakeMonitorRepo, *fakeHeartbeatRepo) {

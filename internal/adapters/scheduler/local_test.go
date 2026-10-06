@@ -109,7 +109,9 @@ func (r *mockMonitorRepo) Delete(_ context.Context, id int64) error {
 func (r *mockMonitorRepo) ClaimBatch(_ context.Context, _ string, _ int, _ time.Duration) ([]*domain.Monitor, error) {
 	return nil, nil
 }
-func (r *mockMonitorRepo) RefreshLease(_ context.Context, _ string) (int64, error)  { return 0, nil }
+func (r *mockMonitorRepo) RefreshLease(_ context.Context, _ string, _ time.Duration) (int64, error) {
+	return 0, nil
+}
 func (r *mockMonitorRepo) ReleaseLeases(_ context.Context, _ string) (int64, error) { return 0, nil }
 
 type mockAssignments struct {

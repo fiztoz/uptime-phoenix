@@ -12,6 +12,8 @@ export interface LiveHeartbeat {
   time: string;
   ping: number;
   msg?: string;
+  /** Policy status for a remotely assigned monitor (WS wire `overall_status`). */
+  overall_status?: Status;
 }
 
 /**
@@ -44,15 +46,57 @@ function toMonitorStatusHint(
   return status;
 }
 
-/** Prefer history, then live WS, then stats ping presence. */
+/** Timestamp in ms, or null when the value cannot be parsed. */
+function parsedTime(value: string | undefined): number | null {
+  if (value == null) return null;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * Prefer the newer of the history row and the live heartbeat; the versioned
+ * live stream wins same-second ties (heartbeat timestamps are second-precision
+ * on MariaDB, so ties are common). An older history row therefore can never
+ * regress the displayed status — GitHub #57.
+ */
+function newerStatusHint(
+  historyStatus: MonitorStatus | undefined,
+  historyTime: string | undefined,
+  liveStatus: MonitorStatus | undefined,
+  liveTime: string | undefined,
+): MonitorStatus | undefined {
+  if (liveStatus == null) return historyStatus;
+  if (historyStatus == null) return liveStatus;
+  const historyMs = parsedTime(historyTime);
+  const liveMs = parsedTime(liveTime);
+  if (historyMs == null) return liveStatus;
+  if (liveMs == null) return historyStatus;
+  return liveMs >= historyMs ? liveStatus : historyStatus;
+}
+
+/**
+ * Status hint from live WS data (newest first), then history, then stats ping
+ * presence. A live heartbeat contributes its policy status (`overall_status`)
+ * when present — its raw `status` is only the local measurement and must not
+ * surface as overall health for a mixed-source monitor.
+ */
 export function deriveStatusHint(
   latestHistory: HistoryHeartbeat | null | undefined,
   liveHb: LiveHeartbeat | null | undefined,
   stats: StatsHint | null | undefined,
 ): MonitorStatus | null {
+  const liveStatus = liveHb
+    ? toMonitorStatusHint(
+        liveHb.overall_status ?? (liveHb.status as Status | undefined),
+      )
+    : undefined;
   return (
-    toMonitorStatusHint(latestHistory?.status) ??
-    toMonitorStatusHint(liveHb?.status as Status | undefined) ??
+    newerStatusHint(
+      toMonitorStatusHint(latestHistory?.status),
+      latestHistory?.time,
+      liveStatus,
+      liveHb?.time,
+    ) ??
     (stats?.current_ping_ms != null && stats.current_ping_ms > 0 ? "up" : null)
   );
 }
@@ -87,6 +131,63 @@ export function resolveDisplayedMonitor(
     };
   }
   return live ?? fetched ?? null;
+}
+
+/**
+ * The monitor the detail page displays: live WS row + API fetch + optional
+ * status hint. The live row carries the current, versioned overall projection,
+ * so the hint only fills the API-only case — letting older history overwrite
+ * live health kept the badge UP through outages (GitHub #57).
+ */
+export function displayedMonitor(
+  live: Monitor | null | undefined,
+  fetched: Monitor | null | undefined,
+  hint: MonitorStatus | null,
+): Monitor | null {
+  const base = resolveDisplayedMonitor(live, fetched);
+  if (!base || base.active === false) return base;
+  if (live) return base;
+  return hint && hint !== base.status ? { ...base, status: hint } : base;
+}
+
+/** Display fields a live WS heartbeat contributes to history/timeline rows. */
+export interface LiveDisplayRow {
+  status: Status;
+  ping: number;
+  message: string;
+  time: string;
+  scope: "local" | "overall";
+  latency_available: boolean;
+}
+
+/**
+ * The row a live WS heartbeat contributes to the detail page's history and
+ * timeline streams. A remote assignment reports the policy result in
+ * `overall_status`; its raw `status` is one local measurement and must never
+ * drive the overall streams — an `any_down` monitor stays DOWN while local
+ * checks are UP. Overall rows follow the section-7.2 shape: zero ping,
+ * `latency_available: false` (GitHub #57).
+ */
+export function liveDisplayRow(live: LiveHeartbeat): LiveDisplayRow {
+  const overall = live.overall_status;
+  if (overall != null) {
+    return {
+      status: overall,
+      ping: 0,
+      message: live.msg ?? "",
+      time: live.time,
+      scope: "overall",
+      latency_available: false,
+    };
+  }
+  return {
+    status: live.status as Status,
+    ping: live.ping,
+    message: live.msg ?? "",
+    time: live.time,
+    scope: "local",
+    latency_available: true,
+  };
 }
 
 export interface AcceptLiveHeartbeatInput {

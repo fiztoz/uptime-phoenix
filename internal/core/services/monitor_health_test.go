@@ -46,7 +46,9 @@ func (r healthMonitorRepo) Delete(context.Context, int64) error                 
 func (r healthMonitorRepo) ClaimBatch(context.Context, string, int, time.Duration) ([]*domain.Monitor, error) {
 	return nil, nil
 }
-func (r healthMonitorRepo) RefreshLease(context.Context, string) (int64, error)  { return 0, nil }
+func (r healthMonitorRepo) RefreshLease(context.Context, string, time.Duration) (int64, error) {
+	return 0, nil
+}
 func (r healthMonitorRepo) ReleaseLeases(context.Context, string) (int64, error) { return 0, nil }
 
 type healthAssignmentRepo struct {

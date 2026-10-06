@@ -16,6 +16,26 @@ spec:
     metadata:
       labels:
         {{- include "phoenix.extensionSelectorLabels" (dict "root" $ "id" .id) | nindent 8 }}
+      {{- if .uiToken | default "" | toString }}
+      annotations:
+        {{- /* Issue #67: UI_TOKEN reaches the container as a Secret-backed env,
+        so rotating extensions[].uiToken changes neither the Secret reference
+        nor the pod spec — the running extension keeps the stale token until
+        something restarts it, and new iframe launches then 401. This checksum
+        is a fingerprint of the chart-managed token (raw value never appears in
+        the annotation) and is scoped to THIS extension only, so `helm upgrade`
+        rolls exactly the rotated extension and never its siblings. It is
+        deterministic across renders with unchanged values.
+
+        Externally managed Secret-backed env (envFromSecret, database.secretName)
+        is deliberately NOT fingerprinted: the chart cannot see those Secret
+        contents, so a checksum over their references would never change when
+        they do. Supported rotation contract for them: update the referenced
+        Secret, then restart this extension
+        (kubectl rollout restart deployment/<fullname>-ext-<id>) or touch a
+        chart-managed value in the same helm upgrade. */}}
+        checksum/ui-token: {{ printf "ext-%s-ui-token=%s" .id (.uiToken | default "" | toString) | sha256sum }}
+      {{- end }}
     spec:
       {{- with $.Values.imagePullSecrets }}
       imagePullSecrets:

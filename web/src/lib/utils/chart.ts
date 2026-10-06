@@ -61,6 +61,58 @@ export function chartTimeDomain(hours: number, now = new Date()): [Date, Date] {
   ];
 }
 
+/** Payload fields the rolling chart window boundary reads (chart response). */
+export interface ChartTimeSource {
+  buckets?: Array<{ time: string }>;
+  downtime_intervals?: Array<{ start: string; end: string }>;
+  unknown_intervals?: Array<{ start: string; end: string }>;
+}
+
+/** Newest instant referenced by a chart payload, or null when there is none. */
+export function latestChartTime(
+  source: ChartTimeSource | null | undefined,
+): number | null {
+  let latest: number | null = null;
+  const take = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const ms = Date.parse(value);
+    if (!Number.isFinite(ms)) return;
+    if (latest === null || ms > latest) latest = ms;
+  };
+  for (const bucket of source?.buckets ?? []) take(bucket.time);
+  for (const interval of source?.downtime_intervals ?? []) {
+    take(interval.start);
+    take(interval.end);
+  }
+  for (const interval of source?.unknown_intervals ?? []) {
+    take(interval.start);
+    take(interval.end);
+  }
+  return latest;
+}
+
+/**
+ * Rolling window end for the response-time chart (GitHub #62). The end advances
+ * alongside accepted chart responses, never moves backward for stale ones, and
+ * never lands before the newest datum so freshly arrived buckets and DOWN/
+ * UNKNOWN intervals stay inside the domain even when the server clock runs
+ * ahead of the browser.
+ */
+export function advanceChartWindowEnd(
+  previousEnd: number | null,
+  nowMs: number,
+  source: ChartTimeSource | null | undefined,
+): number {
+  const candidates: number[] = [];
+  if (Number.isFinite(nowMs)) candidates.push(nowMs);
+  if (previousEnd != null && Number.isFinite(previousEnd)) {
+    candidates.push(previousEnd);
+  }
+  const dataEnd = latestChartTime(source);
+  if (dataEnd != null) candidates.push(dataEnd);
+  return candidates.length > 0 ? Math.max(...candidates) : 0;
+}
+
 /** Group heartbeats into fixed-width buckets with min/avg/max ping. */
 export function bucketHeartbeats(
   heartbeats: Heartbeat[],

@@ -104,7 +104,9 @@ func (r *certFakeMon) Delete(context.Context, int64) error                   { r
 func (r *certFakeMon) ClaimBatch(context.Context, string, int, time.Duration) ([]*domain.Monitor, error) {
 	return nil, nil
 }
-func (r *certFakeMon) RefreshLease(context.Context, string) (int64, error) { return 0, nil }
+func (r *certFakeMon) RefreshLease(context.Context, string, time.Duration) (int64, error) {
+	return 0, nil
+}
 func (r *certFakeMon) ReleaseLeases(context.Context, string) (int64, error) {
 	return 0, nil
 }

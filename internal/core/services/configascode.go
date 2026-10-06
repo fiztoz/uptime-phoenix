@@ -23,6 +23,9 @@ var secretConfigKeys = map[string]struct{}{
 	"smtp_password": {}, "smtppassword": {}, "app_secret": {},
 	"appsecret": {}, "channel_secret": {}, "channelsecret": {},
 	"secret_key": {}, "secretkey": {}, "session_token": {}, "sessiontoken": {},
+	// push_token authorizes heartbeats (and keys push HMAC signatures): it is
+	// redacted on export and preserved on redacted/empty apply like any secret.
+	"push_token": {}, "pushtoken": {},
 }
 
 var configKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
@@ -627,6 +630,11 @@ func validateConfigDocument(doc *ConfigDocument) []string {
 			errs = append(errs, "monitor_group "+g.Key+": unknown parent key "+g.Parent)
 		}
 	}
+	// A cyclic parent graph must be a validation error: apply's ordering walks
+	// parent chains and used to recurse forever on one (issue #64).
+	if err := detectGroupParentCycle(doc.Spec.MonitorGroups); err != nil {
+		errs = append(errs, err.Error())
+	}
 	for _, l := range doc.Spec.MonitorTags {
 		if !has("monitor", l.Monitor) || !has("tag", l.Tag) {
 			errs = append(errs, "monitor_tags: unknown monitor/tag ref")
@@ -1060,6 +1068,13 @@ func (s *ConfigService) ensureConfigFleetActivation(ctx context.Context, doc *Co
 }
 
 func (s *ConfigService) applyPlan(ctx context.Context, userID int64, doc *ConfigDocument, plan *ConfigPlan, applied *[]ConfigChange) error {
+	// Order groups before ANY write so a cyclic parent graph aborts the whole
+	// apply cleanly (issue #64) instead of failing partway through — or, before
+	// the defensive check existed, exhausting the stack mid-apply.
+	orderedGroups, err := orderConfigGroups(doc.Spec.MonitorGroups)
+	if err != nil {
+		return fmt.Errorf("config apply: %w: %s", domain.ErrValidation, err)
+	}
 	if err := s.ensureConfigFleetActivation(ctx, doc, plan); err != nil {
 		return err
 	}
@@ -1145,7 +1160,7 @@ func (s *ConfigService) applyPlan(ctx context.Context, userID int64, doc *Config
 	}
 
 	// Groups in dependency order
-	for _, g := range orderConfigGroups(doc.Spec.MonitorGroups) {
+	for _, g := range orderedGroups {
 		for _, c := range plan.Changes {
 			if c.Kind == "monitor_group" && c.Key == g.Key && (c.Action == ConfigActionCreate || c.Action == ConfigActionUpdate) {
 				if err := s.applyGroup(ctx, userID, g, c.Action); err != nil {
@@ -1365,6 +1380,20 @@ func (s *ConfigService) applyMonitor(ctx context.Context, userID int64, m Config
 	if timeout <= 0 {
 		timeout = 30
 	}
+	// Weight 0 and an empty accepted-code list mean "unset" in a document —
+	// the same defaults MonitorService.create and the repositories apply on
+	// insert (schema weight DEFAULT 2000, accepted_statuscodes DEFAULT
+	// ["200-299"]). Normalize once for both branches so a re-apply can never
+	// silently rewrite the stored defaults (weight 0 sorts to the top) and so
+	// monitorEqual compares exactly the values that get persisted.
+	weight := m.Weight
+	if weight == 0 {
+		weight = 2000
+	}
+	codes := m.AcceptedStatusCodes
+	if len(codes) == 0 {
+		codes = []string{"200-299"}
+	}
 	cfg := m.Config
 	if cfg == nil {
 		cfg = map[string]any{}
@@ -1390,9 +1419,16 @@ func (s *ConfigService) applyMonitor(ctx context.Context, userID int64, m Config
 			InheritGroupOwner: m.InheritGroupOwner, Type: m.Type,
 			Active: active, Interval: interval, RetryInterval: m.RetryInterval,
 			MaxRetries: m.MaxRetries, Timeout: timeout, Config: stripRedacted(cfg),
-			AcceptedStatusCodes: m.AcceptedStatusCodes, ProxyID: proxyID, GroupID: groupID,
-			UpsideDown: m.UpsideDown, ResendInterval: m.ResendInterval, Weight: m.Weight,
+			AcceptedStatusCodes: codes, ProxyID: proxyID, GroupID: groupID,
+			UpsideDown: m.UpsideDown, ResendInterval: m.ResendInterval, Weight: weight,
 			TLSIgnore: m.TLSIgnore, CertExpiryNotify: m.CertExpiryNotify,
+		}
+		// Keep the push lookup column in step with config.push_token and mint a
+		// token when the document expresses none (omitted/empty/redacted), so a
+		// declaratively created push monitor can actually receive heartbeats
+		// (issue #66 follow-up: create must never ship a dead empty lookup).
+		if err := ensurePushToken(mon); err != nil {
+			return fmt.Errorf("create monitor %s: %w", m.Key, err)
 		}
 		if err := s.monitors.Create(ctx, mon); err != nil {
 			return fmt.Errorf("create monitor %s: %w", m.Key, err)
@@ -1418,14 +1454,17 @@ func (s *ConfigService) applyMonitor(ctx context.Context, userID int64, m Config
 	cur.MaxRetries = m.MaxRetries
 	cur.Timeout = timeout
 	cur.Config = mergeConfigMaps(cur.Config, cfg)
-	cur.AcceptedStatusCodes = m.AcceptedStatusCodes
+	cur.AcceptedStatusCodes = codes
 	cur.ProxyID = proxyID
 	cur.GroupID = groupID
 	cur.UpsideDown = m.UpsideDown
 	cur.ResendInterval = m.ResendInterval
-	cur.Weight = m.Weight
+	cur.Weight = weight
 	cur.TLSIgnore = m.TLSIgnore
 	cur.CertExpiryNotify = m.CertExpiryNotify
+	// Same synchronization as create: explicit token changes rotate the lookup,
+	// redacted/omitted values preserve it (issue #66).
+	normalizePushToken(cur)
 	return s.monitors.Update(ctx, cur)
 }
 
@@ -2028,20 +2067,38 @@ func monitorEqual(cur *domain.Monitor, want ConfigMonitor, s *ConfigService, ctx
 	if timeout <= 0 {
 		timeout = 30
 	}
+	// Mirror applyMonitor's normalization of the "unset" defaults so a
+	// document omitting weight/accepted codes reads as unchanged instead of
+	// drifting against the values that were persisted at create.
+	weight := want.Weight
+	if weight == 0 {
+		weight = 2000
+	}
+	codes := want.AcceptedStatusCodes
+	if len(codes) == 0 {
+		codes = []string{"200-299"}
+	}
 	if cur.Name != want.Name || cur.Description != want.Description || cur.Owner != want.Owner ||
 		cur.InheritGroupOwner != want.InheritGroupOwner || cur.Type != want.Type ||
 		cur.Active != active || cur.Interval != interval || cur.RetryInterval != want.RetryInterval ||
 		cur.MaxRetries != want.MaxRetries || cur.Timeout != timeout ||
 		cur.UpsideDown != want.UpsideDown || cur.ResendInterval != want.ResendInterval ||
-		cur.Weight != want.Weight || cur.TLSIgnore != want.TLSIgnore ||
+		cur.Weight != weight || cur.TLSIgnore != want.TLSIgnore ||
 		cur.CertExpiryNotify != want.CertExpiryNotify {
 		return false
 	}
-	if !stringSliceEqual(cur.AcceptedStatusCodes, want.AcceptedStatusCodes) {
+	if !stringSliceEqual(cur.AcceptedStatusCodes, codes) {
 		return false
 	}
-	if !configMapsEqualIgnoringSecrets(cur.Config, want.Config) {
+	if !configMapsEqualIgnoringSecrets(pushComparableConfig(cur, want), want.Config) {
 		return false
+	}
+	if want.Type == "push" {
+		// A drifted lookup column (config carries a real token the dedicated
+		// field does not) is worth an update: apply heals it (issue #66).
+		if tok, ok := want.Config["push_token"].(string); ok && tok != "" && tok != ConfigSecretRedacted && cur.PushToken != tok {
+			return false
+		}
 	}
 	var wantProxy, wantGroup *int64
 	if want.Proxy != "" {
@@ -2055,6 +2112,34 @@ func monitorEqual(cur *domain.Monitor, want ConfigMonitor, s *ConfigService, ctx
 		}
 	}
 	return ptrInt64Equal(cur.ProxyID, wantProxy) && ptrInt64Equal(cur.GroupID, wantGroup)
+}
+
+// withoutConfigKey returns a shallow copy of cfg without the given key.
+func withoutConfigKey(cfg map[string]any, key string) map[string]any {
+	out := make(map[string]any, len(cfg))
+	for k, v := range cfg {
+		if k != key {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// pushComparableConfig hides the stored push lookup token from config drift
+// comparison when the document expresses no token intent. A create-time
+// generated (or preserved) token is invisible-by-contract for an omitted,
+// empty, or redacted document value, and must not read as config drift on
+// every re-apply: that would break the documented idempotence of Apply and
+// rewrite the monitor with a spurious update on each run.
+func pushComparableConfig(cur *domain.Monitor, want ConfigMonitor) map[string]any {
+	if want.Type != "push" {
+		return cur.Config
+	}
+	tok, ok := want.Config["push_token"].(string)
+	if ok && tok != "" && tok != ConfigSecretRedacted {
+		return cur.Config
+	}
+	return withoutConfigKey(cur.Config, "push_token")
 }
 
 func statusPageEqual(cur *domain.StatusPage, want ConfigStatusPage) bool {
@@ -2160,7 +2245,71 @@ func ptrInt64Equal(a, b *int64) bool {
 	return *a == *b
 }
 
-func orderConfigGroups(groups []ConfigMonitorGroup) []ConfigMonitorGroup {
+// detectGroupParentCycle walks the monitor-group parent graph and returns an
+// error naming the first cycle found (e.g. "monitor_group parent cycle: a ->
+// b -> a"). A parent key absent from the document is not a cycle: ordering
+// tolerates it. Recursion depth is bounded by the number of groups because a
+// node is closed out once visited, so this can never exhaust the stack.
+func detectGroupParentCycle(groups []ConfigMonitorGroup) error {
+	parentOf := map[string]string{}
+	for _, g := range groups {
+		if _, ok := parentOf[g.Key]; !ok {
+			parentOf[g.Key] = g.Parent
+		}
+	}
+	const (
+		unvisited = iota
+		visiting
+		done
+	)
+	state := map[string]int{}
+	var chain []string
+	var walk func(key string) error
+	walk = func(key string) error {
+		switch state[key] {
+		case visiting:
+			start := 0
+			for i, k := range chain {
+				if k == key {
+					start = i
+					break
+				}
+			}
+			cycle := append(append([]string{}, chain[start:]...), key)
+			return fmt.Errorf("monitor_group parent cycle: %s", strings.Join(cycle, " -> "))
+		case done:
+			return nil
+		}
+		state[key] = visiting
+		chain = append(chain, key)
+		if parent, ok := parentOf[key]; ok && parent != "" {
+			if err := walk(parent); err != nil {
+				return err
+			}
+		}
+		chain = chain[:len(chain)-1]
+		state[key] = done
+		return nil
+	}
+	for _, g := range groups {
+		if err := walk(g.Key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// orderConfigGroups returns the groups parent-before-child so applyGroup can
+// resolve each parent's new ID, tolerating out-of-order declarations and
+// parent keys absent from the document. A cyclic parent graph is rejected with
+// an error: the pre-fix traversal recursed into the parent before marking the
+// node seen, so a cycle recursed until the Go runtime died of stack exhaustion
+// (issue #64). Validation refuses such documents before apply; this check is
+// the defensive backstop.
+func orderConfigGroups(groups []ConfigMonitorGroup) ([]ConfigMonitorGroup, error) {
+	if err := detectGroupParentCycle(groups); err != nil {
+		return nil, err
+	}
 	byKey := map[string]ConfigMonitorGroup{}
 	for _, g := range groups {
 		byKey[g.Key] = g
@@ -2185,5 +2334,5 @@ func orderConfigGroups(groups []ConfigMonitorGroup) []ConfigMonitorGroup {
 	for _, g := range groups {
 		visit(g.Key)
 	}
-	return out
+	return out, nil
 }

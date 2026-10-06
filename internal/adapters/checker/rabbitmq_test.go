@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 func TestRabbitMQURL(t *testing.T) {
@@ -29,6 +31,54 @@ func TestRabbitMQURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := rabbitMQURL(tt.cfg); got != tt.want {
 				t.Fatalf("rabbitMQURL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRabbitMQURL_VhostRoundTrip (issue #54) proves the hostname/host config
+// form escapes the AMQP virtual host exactly once: parsing the built URL with
+// the pinned amqp client's parser must return the configured vhost verbatim.
+func TestRabbitMQURL_VhostRoundTrip(t *testing.T) {
+	vhosts := []string{"/", "prod/app", "prod apps", "50%", "a%2Fb", "simple"}
+	for _, hostKey := range []string{"hostname", "host"} {
+		for _, vhost := range vhosts {
+			t.Run(hostKey+"_"+vhost, func(t *testing.T) {
+				raw := rabbitMQURL(map[string]any{hostKey: "broker.example.test", "port": 5672.0, "username": "monitor", "password": "secret", "vhost": vhost})
+				parsed, err := amqp.ParseURI(raw)
+				if err != nil {
+					t.Fatalf("amqp.ParseURI(%q): %v", raw, err)
+				}
+				if parsed.Vhost != vhost {
+					t.Fatalf("parsed vhost = %q, want %q (url %q)", parsed.Vhost, vhost, raw)
+				}
+			})
+		}
+	}
+}
+
+func TestRabbitMQURL_DirectURLPassthrough(t *testing.T) {
+	// Direct canonical URLs are returned verbatim and stay singly encoded.
+	tests := []struct {
+		raw       string
+		wantVhost string
+	}{
+		{"amqp://u:p@rabbit:5672/%2F", "/"},
+		{"amqps://u:p@rabbit:5671/prod%2Fapp", "prod/app"},
+		{"amqp://u:p@rabbit:5672/prod%20apps", "prod apps"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			got := rabbitMQURL(map[string]any{"url": tt.raw})
+			if got != tt.raw {
+				t.Fatalf("rabbitMQURL() = %q, want unchanged %q", got, tt.raw)
+			}
+			parsed, err := amqp.ParseURI(got)
+			if err != nil {
+				t.Fatalf("amqp.ParseURI(%q): %v", got, err)
+			}
+			if parsed.Vhost != tt.wantVhost {
+				t.Fatalf("parsed vhost = %q, want %q", parsed.Vhost, tt.wantVhost)
 			}
 		})
 	}
@@ -81,6 +131,41 @@ func TestRabbitMQChecker_Check_Down(t *testing.T) {
 	}
 }
 
+// TestRabbitMQChecker_Check_VhostSelected (issue #54) asserts the AMQP
+// connection.open on the wire carries exactly the configured virtual host for
+// the hostname/host configuration form.
+func TestRabbitMQChecker_Check_VhostSelected(t *testing.T) {
+	for _, vhost := range []string{"/", "prod/app", "prod apps"} {
+		for _, hostKey := range []string{"hostname", "host"} {
+			t.Run(hostKey+"_"+vhost, func(t *testing.T) {
+				addr, opened := rabbitMQTestBrokerObserving(t)
+				host, port, err := net.SplitHostPort(addr)
+				if err != nil {
+					t.Fatalf("split broker address %q: %v", addr, err)
+				}
+				result, err := (RabbitMQChecker{}).Check(context.Background(), map[string]any{
+					hostKey: host, "port": port, "username": "guest", "password": "guest",
+					"vhost": vhost, "timeout": 2.0,
+				})
+				if err != nil {
+					t.Fatalf("Check: %v", err)
+				}
+				if result.Status != domain.StatusUp {
+					t.Fatalf("result = %+v; want UP", result)
+				}
+				select {
+				case got := <-opened:
+					if got != vhost {
+						t.Fatalf("connection.open vhost = %q, want %q", got, vhost)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatal("broker never saw connection.open")
+				}
+			})
+		}
+	}
+}
+
 type amqpFrame struct {
 	frameType byte
 	channel   uint16
@@ -89,11 +174,21 @@ type amqpFrame struct {
 
 func rabbitMQTestBroker(t *testing.T) string {
 	t.Helper()
+	addr, _ := rabbitMQTestBrokerObserving(t)
+	return "amqp://guest:guest@" + addr + "/%2F"
+}
+
+// rabbitMQTestBrokerObserving speaks just enough AMQP 0-9-1 to accept a single
+// connection and reports the virtual host carried by connection.open, so tests
+// can assert which vhost the checker actually selected.
+func rabbitMQTestBrokerObserving(t *testing.T) (string, <-chan string) {
+	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
 	t.Cleanup(func() { _ = listener.Close() })
+	openedVhost := make(chan string, 1)
 
 	go func() {
 		conn, acceptErr := listener.Accept()
@@ -126,8 +221,18 @@ func rabbitMQTestBroker(t *testing.T) string {
 		)); err != nil {
 			return
 		}
-		if !readAMQPMethod(reader, 0, 10, 31) || !readAMQPMethod(reader, 0, 10, 40) {
+		if !readAMQPMethod(reader, 0, 10, 31) {
 			return
+		}
+		openPayload, ok := readAMQPMethodPayload(reader, 0, 10, 40)
+		if !ok {
+			return
+		}
+		if vhost, ok := amqpOpenVirtualHost(openPayload); ok {
+			select {
+			case openedVhost <- vhost:
+			default:
+			}
 		}
 		if err := writeAMQPMethod(conn, 0, methodPayload(10, 41, amqpShortstr(""))); err != nil {
 			return
@@ -158,7 +263,20 @@ func rabbitMQTestBroker(t *testing.T) string {
 		}
 	}()
 
-	return "amqp://guest:guest@" + listener.Addr().String() + "/%2F"
+	return listener.Addr().String(), openedVhost
+}
+
+// amqpOpenVirtualHost extracts the virtual-host shortstr from a
+// connection.open method payload (class 10, method 40).
+func amqpOpenVirtualHost(payload []byte) (string, bool) {
+	if len(payload) < 5 {
+		return "", false
+	}
+	n := int(payload[4])
+	if len(payload) < 5+n {
+		return "", false
+	}
+	return string(payload[5 : 5+n]), true
 }
 
 func readAMQPFrame(reader *bufio.Reader) (amqpFrame, error) {
@@ -182,12 +300,20 @@ func readAMQPFrame(reader *bufio.Reader) (amqpFrame, error) {
 }
 
 func readAMQPMethod(reader *bufio.Reader, channel, classID, methodID uint16) bool {
+	_, ok := readAMQPMethodPayload(reader, channel, classID, methodID)
+	return ok
+}
+
+func readAMQPMethodPayload(reader *bufio.Reader, channel, classID, methodID uint16) ([]byte, bool) {
 	frame, err := readAMQPFrame(reader)
 	if err != nil {
-		return false
+		return nil, false
 	}
 	gotClassID, gotMethodID, ok := frameMethod(frame)
-	return ok && frame.channel == channel && gotClassID == classID && gotMethodID == methodID
+	if !ok || frame.channel != channel || gotClassID != classID || gotMethodID != methodID {
+		return nil, false
+	}
+	return frame.payload, true
 }
 
 func frameMethod(frame amqpFrame) (uint16, uint16, bool) {

@@ -21,6 +21,13 @@ var (
 	// ErrStaleLocalState means another check committed after retry evaluation.
 	// No part of the rejected check has been persisted.
 	ErrStaleLocalState = errors.New("local regional state changed")
+	// ErrStaleLease means the worker lease that authorized a queued check no
+	// longer authorizes it: the lease expired, was released, or its instance
+	// was replaced (including by the same worker reacquiring after expiry).
+	// No part of the rejected check has been persisted. Callers must NOT retry:
+	// unlike ErrStaleLocalState, re-evaluation cannot restore authority — the
+	// work must be re-queued under current lease ownership.
+	ErrStaleLease = errors.New("worker lease is stale")
 	// ErrMonitorAlreadyLinked is a specific conflict returned when a
 	// monitor is already assigned to a status page. This is more precise
 	// than ErrConflict and produces a clearer user-facing message than

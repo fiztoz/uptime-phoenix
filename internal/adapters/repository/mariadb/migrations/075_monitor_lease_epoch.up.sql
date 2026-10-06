@@ -1,0 +1,15 @@
+-- Worker lease fencing (issue #63): a monitor lease is now a lease instance.
+--
+-- lease_epoch identifies the instance. ClaimBatch increments it whenever a
+-- lease is newly established (fresh claim, takeover from another worker, or
+-- same-worker reacquisition after expiry); renewals leave it unchanged. A
+-- queued check captures (worker_id, lease_epoch) as its fence, and heartbeat
+-- recording validates owner, epoch, and expiry inside the same transaction
+-- that writes the result, so a check from an expired or replaced lease can
+-- never overwrite the replacement worker's health.
+--
+-- Existing rows start at epoch 0; the first claim after upgrade creates
+-- epoch 1. ADD COLUMN IF NOT EXISTS keeps the script idempotent: the
+-- shared-schema tail-heal harness re-applies it after a migration rehearsal
+-- removes the column (documented 068 tail-heal idiom).
+ALTER TABLE monitors ADD COLUMN IF NOT EXISTS lease_epoch BIGINT NOT NULL DEFAULT 0;

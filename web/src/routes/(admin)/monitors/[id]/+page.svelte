@@ -37,10 +37,11 @@
   import {
     acceptLiveHeartbeat,
     deriveStatusHint,
+    displayedMonitor,
     latestObservedTime,
+    liveDisplayRow,
     monitorDataSource,
     monitorFromApi,
-    resolveDisplayedMonitor,
     shouldStopPostClearPolling,
     heartbeatsAfterClear,
   } from "$lib/monitor-detail-state";
@@ -79,19 +80,19 @@
   let monitorId = $derived(Number($page.params.id));
   let fetchedMonitor = $state<Monitor | null>(null);
   let monitor = $derived.by(() => {
-    const base = resolveDisplayedMonitor(
+    const latestTimeline = timelineHeartbeats[timelineHeartbeats.length - 1];
+    // displayedMonitor keeps the live row's current, versioned overall status
+    // and only fills the API-only case from the hint — older history rows must
+    // never overwrite live health (GitHub #57).
+    return displayedMonitor(
       realtime.monitors.find((mo) => mo.id === monitorId) ?? null,
       fetchedMonitor,
+      deriveStatusHint(
+        statusHistory[0] ?? latestTimeline,
+        realtime.heartbeats.get(monitorId),
+        stats,
+      ),
     );
-    if (!base) return null;
-    const latestTimeline = timelineHeartbeats[timelineHeartbeats.length - 1];
-    const hint = deriveStatusHint(
-      statusHistory[0] ?? latestTimeline,
-      realtime.heartbeats.get(monitorId),
-      stats,
-    );
-    if (!hint || base.active === false) return base;
-    return hint !== base.status ? { ...base, status: hint } : base;
   });
 
   let chartData = $state<ChartPayload | null>(null);
@@ -122,6 +123,7 @@
   );
   let lastKnownStatus = $state<string | null>(null);
   let lastProcessedHeartbeatTime = $state<string | null>(null);
+  let historyRequestGeneration = 0;
 
   let assignedNotifications = $state<MonitorNotification[]>([]);
   let allNotifications = $state<any[]>([]);
@@ -174,6 +176,7 @@
       assignmentRequestGeneration += 1;
       regionProbes = [];
       chartRequestGeneration += 1;
+      historyRequestGeneration += 1;
       void loadDetails();
       void loadRegionProbes();
     });
@@ -183,11 +186,22 @@
   $effect(() => {
     const id = monitorId;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let historyTimer: ReturnType<typeof setTimeout> | undefined;
     const schedule = () => {
       if (timer) return;
       timer = setTimeout(() => {
         timer = undefined;
         void loadChartData(chartHours);
+      }, 2000);
+    };
+    // Overall transitions rewrite the synthesized overall stream: refetch the
+    // overall history/timeline so Status History advances without a reload
+    // (GitHub #57).
+    const scheduleHistory = () => {
+      if (historyTimer) return;
+      historyTimer = setTimeout(() => {
+        historyTimer = undefined;
+        void refreshOverallHistory();
       }, 2000);
     };
     const offBeat = realtime.on("monitor.probe.heartbeat", (payload) => {
@@ -218,13 +232,15 @@
         typeof payload === "object" &&
         payload !== null &&
         "monitor_id" in payload &&
-        payload.monitor_id === id &&
-        selectedProbeId === null
-      )
-        schedule();
+        payload.monitor_id === id
+      ) {
+        scheduleHistory();
+        if (selectedProbeId === null) schedule();
+      }
     });
     return () => {
       clearTimeout(timer);
+      clearTimeout(historyTimer);
       offBeat();
       offHealth();
     };
@@ -280,14 +296,11 @@
     void runPostClearPoll(gen, 0);
   }
 
-  function liveHeartbeatEntry(live: WsHeartbeat): Heartbeat {
+  function liveHistoryEntry(live: WsHeartbeat): Heartbeat {
     return {
       id: -Date.now(),
       monitor_id: monitorId,
-      status: live.status as Heartbeat["status"],
-      ping: live.ping,
-      message: live.msg ?? "",
-      time: live.time,
+      ...liveDisplayRow(live),
       important: true,
     };
   }
@@ -309,8 +322,12 @@
     }
 
     lastProcessedHeartbeatTime = live.time;
-    const newStatus = live.status;
-    const entry = liveHeartbeatEntry(live);
+    // Overall streams carry policy status: a remote assignment reports the
+    // aggregate in `overall_status` and its raw status is only the local
+    // measurement (an any_down monitor stays DOWN while local checks are UP).
+    const row = liveDisplayRow(live);
+    const newStatus = row.status;
+    const entry = liveHistoryEntry(live);
 
     if (lastKnownStatus !== null && lastKnownStatus !== newStatus) {
       // Status transition — prepend a new history row.
@@ -329,9 +346,9 @@
       statusHistory = [
         {
           ...statusHistory[0],
-          ping: live.ping,
-          message: live.msg ?? statusHistory[0].message,
-          time: live.time,
+          ping: row.ping,
+          message: row.message || statusHistory[0].message,
+          time: row.time,
         },
         ...statusHistory.slice(1),
       ];
@@ -344,10 +361,7 @@
     const timelineEntry: Heartbeat = {
       id: 0,
       monitor_id: monitorId,
-      status: live.status as Heartbeat["status"],
-      ping: live.ping,
-      message: live.msg ?? "",
-      time: live.time,
+      ...row,
       important: false,
     };
     if (timelineHeartbeats.length === 0) {
@@ -374,9 +388,40 @@
     }
 
     if (stats) {
-      stats = { ...stats, current_ping_ms: live.ping };
+      stats = { ...stats, current_ping_ms: row.ping };
     }
   });
+
+  /**
+   * Refetch the synthesized overall history/timeline. Overall health changes
+   * (monitor.health) rewrite that stream server-side; without this the page
+   * kept showing rows fetched at mount (GitHub #57).
+   */
+  async function refreshOverallHistory() {
+    const id = monitorId;
+    const generation = ++historyRequestGeneration;
+    const [history, timeline] = await Promise.all([
+      heartbeatsApi
+        .listOptions(id, {
+          hours: 720,
+          limit: 100,
+          order: "desc",
+          important: true,
+        })
+        .catch(() => []),
+      heartbeatsApi
+        .listOptions(id, { hours: 24, limit: 60, order: "asc" })
+        .catch(() => []),
+    ]);
+    if (generation !== historyRequestGeneration || id !== monitorId) return;
+    // Same rule as refreshObservabilityAfterClear: never clobber live rows with
+    // a stale empty response right after a clear.
+    if (history.length > 0) {
+      statusHistory = history;
+      lastKnownStatus = history[0].status;
+    }
+    if (timeline.length > 0) timelineHeartbeats = timeline;
+  }
 
   async function refreshObservabilityAfterClear() {
     const [history, timeline, statsData] = await Promise.all([
@@ -804,6 +849,7 @@
       timelineHeartbeats = [];
       regionalChecks = [];
       checksRequestGeneration += 1;
+      historyRequestGeneration += 1;
       stats = stats
         ? {
             ...stats,

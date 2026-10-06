@@ -237,17 +237,18 @@ func (r *MonitorRepo) ListActive(ctx context.Context) ([]*domain.Monitor, error)
 	return out, nil
 }
 
-// ListByWorker returns active monitors with a current lease owned by workerID.
-func (r *MonitorRepo) ListByWorker(ctx context.Context, workerID string, leaseExpiry time.Time) ([]*domain.Monitor, error) {
+// ListByWorker returns active monitors with a current lease owned by workerID,
+// each with its lease instance so callers can fence queued work.
+func (r *MonitorRepo) ListByWorker(ctx context.Context, workerID string, leaseExpiry time.Time) ([]*domain.LeasedMonitor, error) {
 	var models []*repository.MonitorModel
 	if err := r.db.NewSelect().Model(&models).
 		Where("active = TRUE AND worker_id = ? AND leased_at >= ?", workerID, leaseExpiry.UTC()).
 		Order("id ASC").Scan(ctx); err != nil {
 		return nil, translateError(err)
 	}
-	out := make([]*domain.Monitor, len(models))
+	out := make([]*domain.LeasedMonitor, len(models))
 	for i, m := range models {
-		out[i] = m.ToDomain()
+		out[i] = repository.LeasedMonitorFromModel(m)
 	}
 	return out, nil
 }
@@ -256,7 +257,7 @@ func (r *MonitorRepo) Update(ctx context.Context, m *domain.Monitor) error {
 	model := repository.MonitorModelFromDomain(m)
 	model.UpdatedAt = time.Now().UTC()
 	// Only claim/refresh/release operations own worker lease columns.
-	_, err := r.db.NewUpdate().Model(model).ExcludeColumn("worker_id", "leased_at").WherePK().Exec(ctx)
+	_, err := r.db.NewUpdate().Model(model).ExcludeColumn("worker_id", "leased_at", "lease_epoch").WherePK().Exec(ctx)
 	return translateError(err)
 }
 
@@ -273,48 +274,111 @@ func (r *MonitorRepo) Delete(ctx context.Context, id int64) error {
 }
 
 // ClaimBatch atomically claims up to batchSize active monitors for a worker.
-// SQLite uses a simpler approach — update in a subquery with LIMIT.
+// Candidates run through a bounded subquery; the claim itself is a two-phase
+// write inside one transaction.
+//
+// The lease epoch identifies one lease instance: it increments only when a
+// lease is newly established (unclaimed row, takeover from another worker, or
+// same-worker reacquisition after expiry). A re-stamp of a lease this worker
+// still validly holds is a renewal and keeps the epoch, so in-flight checks
+// fenced on it keep their authority.
+//
+// The renewal-vs-reacquisition verdict uses a clock read AFTER the writer
+// lock is held. A "now" sampled before a lock wait is stale by the time the
+// rows are ours: a lease that expired during the wait would read as a renewal,
+// keep its epoch, and silently re-authorize work queued under the previous
+// lease instance.
 func (r *MonitorRepo) ClaimBatch(ctx context.Context, workerID string, batchSize int, leaseTTL time.Duration) ([]*domain.Monitor, error) {
-	now := time.Now().UTC()
-	leaseExpiry := now.Add(-leaseTTL)
-
-	// Step 1: Claim monitors by updating their lease columns.
-	// SQLite supports UPDATE ... FROM (since 3.33.0) but we use a simpler subquery approach.
-	_, err := r.db.Exec(
-		"UPDATE monitors SET worker_id = ?, leased_at = ? WHERE id IN (SELECT id FROM monitors WHERE active = TRUE AND (worker_id IS NULL OR leased_at < ? OR worker_id = ?) AND "+repository.LocalHubExecutionSQL("monitors.id")+" ORDER BY id LIMIT ?)",
-		workerID, now, leaseExpiry, workerID, batchSize,
-	)
+	// Admission window only — which rows are claim candidates. The
+	// authoritative expiry verdict happens under the lock below.
+	admissionCutoff := time.Now().UTC().Add(-leaseTTL)
+	candidates := "SELECT id FROM monitors WHERE active = TRUE AND (worker_id IS NULL OR leased_at < ? OR worker_id = ?) AND " + repository.LocalHubExecutionSQL("monitors.id") + " ORDER BY id LIMIT ?"
+	var claimed []*repository.MonitorModel
+	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		// Phase 1: take SQLite's single-writer lock by touching exactly the
+		// claim candidates (a no-op write still opens the write transaction).
+		// This serializes the claim against every other lease writer before any
+		// expiry decision is made.
+		if _, err := tx.Exec("UPDATE monitors SET leased_at = leased_at WHERE id IN ("+candidates+")",
+			admissionCutoff, workerID, batchSize); err != nil {
+			return fmt.Errorf("lock claim candidates: %w", err)
+		}
+		// The writer lock is held: this clock is fresh at decision time.
+		now := time.Now().UTC()
+		leaseExpiry := now.Add(-leaseTTL)
+		var models []*repository.MonitorModel
+		if err := tx.NewSelect().Model(&models).
+			Where("id IN ("+candidates+")", admissionCutoff, workerID, batchSize).
+			Order("id ASC").Scan(ctx); err != nil {
+			return fmt.Errorf("select claim candidates: %w", err)
+		}
+		if len(models) == 0 {
+			return nil
+		}
+		ids := make([]int64, len(models))
+		// Renewal of a lease this worker still validly holds keeps the lease
+		// instance; every other acquisition creates one.
+		reacquired := make([]int64, 0, len(models))
+		for i, model := range models {
+			ids[i] = model.ID
+			if model.WorkerID != nil && *model.WorkerID == workerID && model.LeasedAt != nil && !model.LeasedAt.UTC().Before(leaseExpiry) {
+				continue
+			}
+			reacquired = append(reacquired, model.ID)
+		}
+		update := tx.NewUpdate().Table("monitors").
+			Set("worker_id = ?", workerID).Set("leased_at = ?", now)
+		if len(reacquired) > 0 {
+			update = update.Set("lease_epoch = lease_epoch + CASE WHEN id IN (?) THEN 1 ELSE 0 END", bun.List(reacquired))
+		}
+		if _, err := update.Where("id IN (?)", bun.List(ids)).Exec(ctx); err != nil {
+			return fmt.Errorf("claim monitors: %w", err)
+		}
+		claimed = models
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("claim monitors: %w", err)
+		return nil, err
 	}
 
-	// Step 2: Select the monitors we just claimed.
-	var models []*repository.MonitorModel
-	if err := r.db.NewSelect().Model(&models).
-		Where("worker_id = ? AND leased_at = ?", workerID, now).
-		Order("id ASC").
-		Scan(ctx); err != nil {
-		return nil, fmt.Errorf("select claimed monitors: %w", err)
-	}
-
-	out := make([]*domain.Monitor, len(models))
-	for i, m := range models {
+	out := make([]*domain.Monitor, len(claimed))
+	for i, m := range claimed {
 		out[i] = m.ToDomain()
 	}
 	return out, nil
 }
 
-// RefreshLease extends the lease for all monitors claimed by workerID.
-func (r *MonitorRepo) RefreshLease(ctx context.Context, workerID string) (int64, error) {
-	now := time.Now().UTC()
-	res, err := r.db.Exec(
-		"UPDATE monitors SET leased_at = ? WHERE worker_id = ?",
-		now, workerID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("refresh lease: %w", err)
+// RefreshLease extends the lease for monitors this worker still validly holds.
+// Rows are extended only while leased_at >= now - leaseTTL with the clock read
+// after the writer lock is held: a lease that expires while we wait must not be
+// extended as a renewal (that would revive it without an epoch bump). Expired
+// rows are left untouched so the next ClaimBatch reacquires them as a NEW
+// lease instance and rejects work queued under the previous one.
+func (r *MonitorRepo) RefreshLease(ctx context.Context, workerID string, leaseTTL time.Duration) (int64, error) {
+	if leaseTTL <= 0 {
+		return 0, fmt.Errorf("refresh lease: non-positive lease TTL %v: %w", leaseTTL, domain.ErrValidation)
 	}
-	return res.RowsAffected()
+	var extended int64
+	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		// Take the writer lock before the validity window is evaluated (a
+		// no-op write still opens the write transaction).
+		if _, err := tx.Exec("UPDATE monitors SET leased_at = leased_at WHERE worker_id = ?", workerID); err != nil {
+			return fmt.Errorf("lock lease rows: %w", err)
+		}
+		now := time.Now().UTC()
+		res, err := tx.Exec("UPDATE monitors SET leased_at = ? WHERE worker_id = ? AND leased_at >= ?",
+			now, workerID, now.Add(-leaseTTL))
+		if err != nil {
+			return fmt.Errorf("extend lease: %w", err)
+		}
+		n, err := res.RowsAffected()
+		extended = n
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return extended, nil
 }
 
 // ReleaseLeases releases all monitors claimed by workerID.

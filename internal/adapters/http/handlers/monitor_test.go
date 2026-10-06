@@ -156,7 +156,9 @@ func (r *fakeMonitorRepo) Delete(_ context.Context, id int64) error {
 func (r *fakeMonitorRepo) ClaimBatch(_ context.Context, _ string, _ int, _ time.Duration) ([]*domain.Monitor, error) {
 	return nil, nil
 }
-func (r *fakeMonitorRepo) RefreshLease(_ context.Context, _ string) (int64, error)  { return 0, nil }
+func (r *fakeMonitorRepo) RefreshLease(_ context.Context, _ string, _ time.Duration) (int64, error) {
+	return 0, nil
+}
 func (r *fakeMonitorRepo) ReleaseLeases(_ context.Context, _ string) (int64, error) { return 0, nil }
 
 func contains(s, substr string) bool {

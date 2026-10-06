@@ -186,8 +186,12 @@ func (s *ShardedScheduler) refreshAndClaim(ctx context.Context) {
 	// Keep the attestation as fresh as the leases it vouches for.
 	s.declareReadiness(ctx)
 
-	// Refresh existing leases.
-	if n, err := s.monitorRepo.RefreshLease(ctx, s.workerID); err != nil {
+	// Refresh existing leases. TTL-aware and lock-safe: only leases still
+	// inside their validity window extend. An expired lease is deliberately
+	// left untouched so the ClaimBatch below reacquires it as a NEW lease
+	// instance (epoch bump) — a refresh must never revive a lease in place, or
+	// work queued under the pre-expiry instance would keep its authority.
+	if n, err := s.monitorRepo.RefreshLease(ctx, s.workerID, s.leaseTTL); err != nil {
 		s.logger.Error("sharded scheduler: failed to refresh lease", "error", err)
 	} else if n > 0 {
 		s.logger.Debug("refreshed leases", "count", n)
@@ -210,7 +214,20 @@ func (s *ShardedScheduler) tick(ctx context.Context) {
 		s.logger.Error("sharded scheduler: failed to list leased monitors", "error", err)
 		return
 	}
-	runnable, err := filterLocalRunnable(ctx, s.assignments, monitors)
+	// Capture the lease fence NOW: this read is the queue-time evidence of
+	// lease ownership. Recording re-validates it against the stored lease, so
+	// a result from an expired or replaced lease instance cannot commit.
+	fences := make(map[int64]*domain.LeaseFence, len(monitors))
+	owned := make([]*domain.Monitor, 0, len(monitors))
+	for _, leased := range monitors {
+		fences[leased.Monitor.ID] = &domain.LeaseFence{
+			WorkerID:   leased.WorkerID,
+			LeaseEpoch: leased.LeaseEpoch,
+			LeaseTTL:   s.leaseTTL,
+		}
+		owned = append(owned, leased.Monitor)
+	}
+	runnable, err := filterLocalRunnable(ctx, s.assignments, owned)
 	if err != nil {
 		s.logger.Error("sharded scheduler: failed to filter local assignments", "error", err)
 		return
@@ -225,6 +242,15 @@ func (s *ShardedScheduler) tick(ctx context.Context) {
 		if !s.shouldRun(check.Monitor, now) {
 			continue
 		}
+		fence, ok := fences[check.Monitor.ID]
+		if !ok {
+			// Fail closed: a queued check without lease evidence would record
+			// without authority.
+			s.logger.Error("sharded scheduler: skipping check without lease fence",
+				"monitor_id", check.Monitor.ID)
+			continue
+		}
+		check.LeaseFence = fence
 		s.lastCheck.Store(check.Monitor.ID, now)
 		s.startCheck(ctx, check)
 	}
@@ -276,6 +302,7 @@ func (s *ShardedScheduler) runCheck(ctx context.Context, check scheduledCheck) {
 				Message:              "maintenance window active",
 				ConfigRevision:       check.ConfigRevision,
 				AssignmentGeneration: check.Generation,
+				LeaseFence:           check.LeaseFence,
 			}); err != nil {
 				s.logger.Warn("scheduler: record maintenance heartbeat failed", "monitor_id", m.ID, "error", err)
 			}
@@ -309,6 +336,7 @@ func (s *ShardedScheduler) runCheck(ctx context.Context, check scheduledCheck) {
 	}
 	result.ConfigRevision = check.ConfigRevision
 	result.AssignmentGeneration = check.Generation
+	result.LeaseFence = check.LeaseFence
 
 	// Apply upside-down mode.
 	if m.UpsideDown {

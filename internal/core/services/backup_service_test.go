@@ -92,7 +92,7 @@ func (r *backupFakeMonitorRepo) Delete(_ context.Context, id int64) error {
 func (r *backupFakeMonitorRepo) ClaimBatch(_ context.Context, _ string, _ int, _ time.Duration) ([]*domain.Monitor, error) {
 	return nil, nil
 }
-func (r *backupFakeMonitorRepo) RefreshLease(_ context.Context, _ string) (int64, error) {
+func (r *backupFakeMonitorRepo) RefreshLease(_ context.Context, _ string, _ time.Duration) (int64, error) {
 	return 0, nil
 }
 func (r *backupFakeMonitorRepo) ReleaseLeases(_ context.Context, _ string) (int64, error) {
@@ -250,9 +250,18 @@ type backupFakeMonitorNotifRepo struct {
 	links []domain.MonitorNotification
 }
 
+// Attach mirrors the SQL adapters: a plain INSERT, so an existing
+// (monitor, notification) pair conflicts instead of updating its flag. A fake
+// that silently accepted duplicates would hide the default-link collision of
+// backup restore (issue #65).
 func (r *backupFakeMonitorNotifRepo) Attach(_ context.Context, monitorID, notificationID int64, includeTarget bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	for _, l := range r.links {
+		if l.MonitorID == monitorID && l.NotificationID == notificationID {
+			return ports.ErrConflict
+		}
+	}
 	r.links = append(r.links, domain.MonitorNotification{MonitorID: monitorID, NotificationID: notificationID, IncludeTarget: includeTarget})
 	return nil
 }
@@ -266,7 +275,19 @@ func (r *backupFakeMonitorNotifRepo) SetIncludeTarget(_ context.Context, monitor
 	}
 	return nil
 }
-func (r *backupFakeMonitorNotifRepo) Detach(_ context.Context, _, _ int64) error { return nil }
+func (r *backupFakeMonitorNotifRepo) Detach(_ context.Context, monitorID, notificationID int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	kept := r.links[:0]
+	for _, l := range r.links {
+		if l.MonitorID == monitorID && l.NotificationID == notificationID {
+			continue
+		}
+		kept = append(kept, l)
+	}
+	r.links = kept
+	return nil
+}
 func (r *backupFakeMonitorNotifRepo) ListByMonitor(_ context.Context, monitorID int64) ([]*domain.MonitorNotification, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -728,6 +749,10 @@ func newBackupHarness() *backupHarness {
 	h.svc.SetMonitorService(NewMonitorService(h.monitors, newFakeBus()))
 	h.svc.monitorSvc.SetProxyRepo(h.proxies)
 	h.svc.monitorSvc.SetGroupRepo(h.groups)
+	// Production-equivalent wiring (bootstrap/run.go): new monitors auto-attach
+	// every active is_default notification. Without this the harness cannot
+	// reproduce the default-link leak of backup restore (issue #65).
+	h.svc.monitorSvc.SetDefaultNotificationLinker(h.notifs, h.monitorNotifs)
 	h.svc.SetMonitorGroupService(NewMonitorGroupService(h.groups, h.monitors, newFakeHeartbeatRepo(), testLogger()))
 	return h
 }
