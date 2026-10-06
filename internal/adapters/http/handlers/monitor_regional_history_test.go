@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -135,6 +136,54 @@ func TestMonitorRegionalHistoryQuerySemantics(t *testing.T) {
 	}
 }
 
+// Equal observed times must be ordered by ID before selecting the most recent
+// rows, and again when presenting that selection in ascending order.
+func TestMonitorRegionalHistoryTimestampTies(t *testing.T) {
+	at := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	observations := []domain.RegionalObservation{
+		{ID: 1, ObservedAt: at.Add(-time.Minute), Important: true},
+		{ID: 2, ObservedAt: at, Important: true},
+		{ID: 3, ObservedAt: at, Important: true},
+		{ID: 4, ObservedAt: at},
+		// A replayed older sample must not outrank a newer timestamp by ID.
+		{ID: 5, ObservedAt: at.Add(-time.Minute)},
+	}
+	for _, tc := range []struct {
+		name, query string
+		want        []int64
+	}{
+		{"descending", "order=desc", []int64{4, 3, 2, 5, 1}},
+		{"ascending", "order=asc", []int64{1, 5, 2, 3, 4}},
+		{"latest_descending", "order=desc&limit=1", []int64{4}},
+		{"latest_ascending", "order=asc&limit=1", []int64{4}},
+		{"cut_tie_descending", "order=desc&limit=2", []int64{4, 3}},
+		{"cut_tie_ascending", "order=asc&limit=2", []int64{3, 4}},
+		{"cross_tie_descending", "order=desc&limit=4", []int64{4, 3, 2, 5}},
+		{"cross_tie_ascending", "order=asc&limit=4", []int64{5, 2, 3, 4}},
+		{"important_latest", "important=true&order=desc&limit=1", []int64{3}},
+		{"important_ascending", "important=true&order=asc&limit=2", []int64{2, 3}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := NewMonitorRegionalHandlers(&regionalReadFake{observations: observations}, true)
+			rec := regionalHistoryRequest(h, listHistoryHandler, "/api/monitors/42/probes/local/heartbeats?"+tc.query, "42", "local", 1)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("history: %d %s", rec.Code, rec.Body.String())
+			}
+			var rows []RegionalHeartbeatView
+			if err := json.Unmarshal(rec.Body.Bytes(), &rows); err != nil {
+				t.Fatal(err)
+			}
+			got := make([]int64, len(rows))
+			for i, row := range rows {
+				got[i] = row.ID
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("IDs = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestMonitorRegionalHistoryChart(t *testing.T) {
 	base := time.Date(2026, 9, 15, 10, 0, 0, 0, time.UTC)
 	observations := []domain.RegionalObservation{
@@ -164,6 +213,30 @@ func TestMonitorRegionalHistoryChart(t *testing.T) {
 	}
 	if len(chart.DowntimeIntervals) != 1 || len(chart.UnknownIntervals) != 1 {
 		t.Fatalf("UNKNOWN must stay visible as an interval: %s", rec.Body.String())
+	}
+}
+
+func TestMonitorRegionalHistoryChartTimestampTieAtCap(t *testing.T) {
+	at := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	observations := make([]domain.RegionalObservation, 2001)
+	for i := range observations {
+		observations[i] = domain.RegionalObservation{
+			ID: int64(i + 1), ObservedAt: at, Status: domain.StatusUp, Ping: i + 1,
+		}
+	}
+	h := NewMonitorRegionalHandlers(&regionalReadFake{observations: observations}, true)
+	rec := regionalHistoryRequest(h, historyChartHandler, "/api/monitors/42/probes/local/heartbeats/chart", "42", "local", 1)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("chart: %d %s", rec.Code, rec.Body.String())
+	}
+	var chart chartDataView
+	if err := json.Unmarshal(rec.Body.Bytes(), &chart); err != nil {
+		t.Fatal(err)
+	}
+	// The 2000-row chart cap must discard ID 1, retaining the newest tied
+	// sample (ID 2001). Ping identifies each sample in the aggregate.
+	if len(chart.Buckets) != 1 || chart.Buckets[0].Min != 2 || chart.Buckets[0].Max != 2001 {
+		t.Fatalf("chart selected older tied samples: %+v", chart.Buckets)
 	}
 }
 

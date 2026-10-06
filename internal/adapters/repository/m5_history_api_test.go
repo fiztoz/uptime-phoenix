@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,8 @@ func TestM5HistoryAPI(t *testing.T) {
 			events := make([]domain.ProbeReplayEvent, 0, 3)
 			for i := 1; i <= 3; i++ {
 				ev := r.observation(int64(i))
-				at := r.at.Add(time.Duration(i) * time.Second)
+				// The newest two events deliberately share a stored timestamp.
+				at := r.at.Add(time.Duration(min(i, 2)) * time.Second)
 				ev.ObservedAt = at
 				ev.Observation.ObservedAt = at
 				ev.Observation.ReceivedAt = at.Add(2 * time.Second)
@@ -141,6 +143,46 @@ func TestM5HistoryAPI(t *testing.T) {
 			}
 			if statuses[0] != "up" || statuses[1] != "down" || statuses[2] != "maintenance" {
 				t.Fatalf("lowercase regional status vocabulary broken: %v", statuses)
+			}
+
+			// Exercise selection and presentation through the real replay store,
+			// service and authenticated router on each supported database.
+			var allRows []handlers.RegionalHeartbeatView
+			if err := json.Unmarshal(rec.Body.Bytes(), &allRows); err != nil {
+				t.Fatal(err)
+			}
+			if allRows[1].Time != allRows[2].Time || allRows[1].ID >= allRows[2].ID {
+				t.Fatalf("fixture must have increasing IDs with identical newest times: %+v", allRows)
+			}
+			for _, tc := range []struct {
+				query string
+				want  []int64
+			}{
+				{"order=desc&limit=1", []int64{allRows[2].ID}},
+				{"order=asc&limit=1", []int64{allRows[2].ID}},
+				{"order=desc&limit=2", []int64{allRows[2].ID, allRows[1].ID}},
+				{"order=asc&limit=2", []int64{allRows[1].ID, allRows[2].ID}},
+				{"order=desc&limit=3", []int64{allRows[2].ID, allRows[1].ID, allRows[0].ID}},
+				{"order=asc&limit=3", []int64{allRows[0].ID, allRows[1].ID, allRows[2].ID}},
+			} {
+				t.Run(tc.query, func(t *testing.T) {
+					path := fmt.Sprintf("/api/monitors/%d/probes/%s/heartbeats?%s", r.monitor, related, tc.query)
+					response := request(e, path, viewerToken)
+					if response.Code != http.StatusOK {
+						t.Fatalf("history: %d %s", response.Code, response.Body.String())
+					}
+					var selected []handlers.RegionalHeartbeatView
+					if err := json.Unmarshal(response.Body.Bytes(), &selected); err != nil {
+						t.Fatal(err)
+					}
+					got := make([]int64, len(selected))
+					for i, row := range selected {
+						got[i] = row.ID
+					}
+					if !slices.Equal(got, tc.want) {
+						t.Fatalf("IDs = %v, want %v", got, tc.want)
+					}
+				})
 			}
 
 			// A probe that never belonged to this monitor reads exactly like a

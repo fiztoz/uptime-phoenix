@@ -176,9 +176,17 @@ func regionalHistoryError(c echo.Context, err error) error {
 
 func sortRegionalObservations(rows []*domain.RegionalObservation, order string) {
 	sort.SliceStable(rows, func(i, j int) bool {
-		if order == "asc" {
-			return rows[i].ObservedAt.Before(rows[j].ObservedAt)
+		if !rows[i].ObservedAt.Equal(rows[j].ObservedAt) {
+			if order == "asc" {
+				return rows[i].ObservedAt.Before(rows[j].ObservedAt)
+			}
+			return rows[i].ObservedAt.After(rows[j].ObservedAt)
 		}
-		return rows[i].ObservedAt.After(rows[j].ObservedAt)
+		// Match the repository and local history tie-break before applying
+		// the cap, so the most recently inserted tied row is retained.
+		if order == "asc" {
+			return rows[i].ID < rows[j].ID
+		}
+		return rows[i].ID > rows[j].ID
 	})
 }
