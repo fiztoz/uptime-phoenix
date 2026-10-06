@@ -27,6 +27,18 @@ type sendItem struct {
 	done chan error
 }
 
+// ErrSessionClosed reports that the session was closed internally while the
+// run and the caller's context were still live. It is deliberately distinct
+// from context.Canceled: caller-requested cancellation is reported as the
+// caller's own context error, never as this failure.
+var ErrSessionClosed = errors.New("session closed internally")
+
+// isRunFailure reports whether err carries failure information rather than a
+// cancellation or the generic internal-close state.
+func isRunFailure(err error) bool {
+	return err != nil && !errors.Is(err, ErrSessionClosed) && !errors.Is(err, context.Canceled)
+}
+
 // Session manages the bidirectional transport over an established WebSocket connection.
 type Session struct {
 	conn           *websocket.Conn
@@ -35,6 +47,7 @@ type Session struct {
 	closed         chan struct{}
 	closeErr       error
 	isClosed       bool
+	runCause       error // first recorded termination cause, tracked apart from any context
 	runStarted     int32
 	sessCtx        context.Context
 	cancelSess     context.CancelFunc
@@ -77,6 +90,9 @@ func NewSession(conn *websocket.Conn, cfg SessionConfig) (*Session, error) {
 
 // Run executes the reader loop and writer loop. It is single-use and blocks until
 // the session closes, the context is canceled, or an unrecoverable error occurs.
+// A session that ends while the caller's context is live never reports success:
+// internal closure is reported as ErrSessionClosed, caller-requested cancellation
+// as the caller's own context error, and failures as themselves.
 func (s *Session) Run(ctx context.Context, handle func(context.Context, Envelope) error) error {
 	if handle == nil {
 		return errors.New("handler function is required")
@@ -121,16 +137,32 @@ func (s *Session) runAdmission(ctx context.Context, handle func(context.Context,
 	cancel()
 	writerErr := <-writerErrCh
 
-	if readerErr != nil && !errors.Is(readerErr, context.Canceled) {
+	// Classify the outcome by the recorded cause, not by whichever loop error
+	// happened to win the race: reader and writer see plain cancellation both
+	// when the caller cancels and when Close tears the session down internally.
+	// The cause is recorded before the closure each error path triggers, so a
+	// real failure keeps its information while an internal Close is never
+	// mistaken for success.
+	if cause := s.cause(); isRunFailure(cause) {
+		return cause
+	}
+	if err := ctx.Err(); err != nil {
+		// Caller-requested cancellation stays distinguishable from internal closure.
+		return err
+	}
+	if cause := s.cause(); cause != nil {
+		// The caller's context is still live, so only an internal Close could
+		// have ended the run. That is a failure, never success.
+		return cause
+	}
+	// Defensive: cancellation reached the loops without a recorded cause.
+	if isRunFailure(readerErr) {
 		return readerErr
 	}
-	if writerErr != nil && !errors.Is(writerErr, context.Canceled) {
+	if isRunFailure(writerErr) {
 		return writerErr
 	}
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	return nil
+	return ErrSessionClosed
 }
 
 // SendControl sends a control-plane frame (such as health, config, or ack).
@@ -249,6 +281,10 @@ func (s *Session) Close() error {
 	if s.isClosed {
 		return s.closeErr
 	}
+	// Record the internal-close state before tearing anything down: the
+	// transport errors this close provokes must never be mistaken for the
+	// run's terminating cause.
+	s.settleLocked(ErrSessionClosed)
 	s.isClosed = true
 	close(s.closed)
 	s.cancelSess()
@@ -256,6 +292,30 @@ func (s *Session) Close() error {
 		s.closeErr = s.conn.CloseNow()
 	}
 	return s.closeErr
+}
+
+// settle records the first termination cause of the session. Later calls are
+// ignored: the earliest cause is the real one. Causes are recorded separately
+// from any context so internal closure and caller-requested cancellation stay
+// distinguishable in the run result.
+func (s *Session) settle(cause error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.settleLocked(cause)
+}
+
+// settleLocked records cause if none has been recorded yet. Caller must hold s.mu.
+func (s *Session) settleLocked(cause error) {
+	if s.runCause == nil {
+		s.runCause = cause
+	}
+}
+
+// cause reports the first recorded termination cause, or nil when none exists.
+func (s *Session) cause() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.runCause
 }
 
 func (s *Session) checkSendState(ctx context.Context) error {
@@ -279,11 +339,23 @@ func (s *Session) readerLoop(ctx context.Context, handle func(context.Context, E
 		readCancel()
 
 		if err != nil {
-			_ = s.Close()
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if errors.Is(err, context.Canceled) {
+				// Cancellation is attributed by runAdmission from the caller's
+				// context or the session's own close, not from this artifact.
+				_ = s.Close()
 				return err
 			}
-			return errors.New("websocket read failed")
+			cause := err
+			if !errors.Is(err, context.DeadlineExceeded) {
+				// Peer close and transport failures carry untrusted details;
+				// report only the bounded shape.
+				cause = errors.New("websocket read failed")
+			}
+			// Record the cause before Close so a real failure is not attributed
+			// to the closure it triggers.
+			s.settle(cause)
+			_ = s.Close()
+			return cause
 		}
 
 		var envelope Envelope
@@ -305,6 +377,7 @@ func (s *Session) readerLoop(ctx context.Context, handle func(context.Context, E
 			_, err = decode(receivedAt)
 		}
 		if err != nil {
+			s.settle(err)
 			_ = s.Close()
 			return err
 		}
@@ -318,8 +391,10 @@ func (s *Session) readerLoop(ctx context.Context, handle func(context.Context, E
 		handleCancel()
 
 		if err != nil {
+			wrapped := fmt.Errorf("handler failed: %w", err)
+			s.settle(wrapped)
 			_ = s.Close()
-			return fmt.Errorf("handler failed: %w", err)
+			return wrapped
 		}
 	}
 }
@@ -384,15 +459,22 @@ func (s *Session) writerLoop(ctx context.Context) error {
 
 		if err != nil {
 			// An interrupted or failed write closes the session because partial frame delivery is uncertain.
+			// A write aborted by cancellation is not itself the terminating cause;
+			// a genuine write failure is recorded before Close so it is not
+			// attributed to the closure it triggers.
+			writeErr := errors.New("websocket write failed")
+			if item.ctx.Err() == nil && ctx.Err() == nil {
+				s.settle(writeErr)
+			}
 			_ = s.Close()
 			if item.ctx.Err() != nil {
 				item.done <- item.ctx.Err()
 			} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				item.done <- err
 			} else {
-				item.done <- errors.New("websocket write failed")
+				item.done <- writeErr
 			}
-			return errors.New("websocket write failed")
+			return writeErr
 		}
 
 		item.done <- nil

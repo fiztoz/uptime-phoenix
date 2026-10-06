@@ -109,7 +109,9 @@ func (r *fakeMonitorRepo) GetByPushToken(_ context.Context, _ string) (*domain.M
 func (r *fakeMonitorRepo) ClaimBatch(_ context.Context, _ string, _ int, _ time.Duration) ([]*domain.Monitor, error) {
 	return nil, nil
 }
-func (r *fakeMonitorRepo) RefreshLease(_ context.Context, _ string) (int64, error)  { return 0, nil }
+func (r *fakeMonitorRepo) RefreshLease(_ context.Context, _ string, _ time.Duration) (int64, error) {
+	return 0, nil
+}
 func (r *fakeMonitorRepo) ReleaseLeases(_ context.Context, _ string) (int64, error) { return 0, nil }
 
 // --- Tests -------------------------------------------------------------

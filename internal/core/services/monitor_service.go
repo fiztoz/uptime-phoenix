@@ -73,7 +73,23 @@ func (s *MonitorService) SetDefaultNotificationLinker(
 // After persist, every active notification with is_default=true for the
 // same owner is auto-linked (mirrors Proxy.IsDefault auto-selection).
 func (s *MonitorService) Create(ctx context.Context, m *domain.Monitor) error {
+	return s.create(ctx, m, true)
+}
+
+// CreateWithoutDefaultNotifications creates a monitor exactly as Create but
+// without the new-monitor default notification links. Backup restore uses it:
+// the imported document carries the complete notification graph (possibly
+// deliberately empty) and the destination's default channels must not leak
+// into it. Validation, provisioning and the monitor.update event are unchanged.
+func (s *MonitorService) CreateWithoutDefaultNotifications(ctx context.Context, m *domain.Monitor) error {
+	return s.create(ctx, m, false)
+}
+
+func (s *MonitorService) create(ctx context.Context, m *domain.Monitor, linkDefaults bool) error {
 	normalizeHTTPMonitorURL(m)
+	if err := ensurePushToken(m); err != nil {
+		return fmt.Errorf("monitor service: create: %w", err)
+	}
 	// Default display order matches the schema DEFAULT (2000). Zero is treated
 	// as "unset" on create so clients that omit the field still get a stable
 	// middle-of-list weight rather than sorting ahead of every explicit value.
@@ -89,8 +105,10 @@ func (s *MonitorService) Create(ctx context.Context, m *domain.Monitor) error {
 	if err := s.repo.Create(ctx, m); err != nil {
 		return fmt.Errorf("monitor service: create: %w", err)
 	}
-	if err := s.attachDefaultNotifications(ctx, m); err != nil {
-		return fmt.Errorf("monitor service: create: attach defaults: %w", err)
+	if linkDefaults {
+		if err := s.attachDefaultNotifications(ctx, m); err != nil {
+			return fmt.Errorf("monitor service: create: attach defaults: %w", err)
+		}
 	}
 	_ = s.bus.Publish(ctx, ports.Event{Type: "monitor.update", Payload: m})
 	return nil
@@ -186,6 +204,7 @@ func (s *MonitorService) ListActive(ctx context.Context) ([]*domain.Monitor, err
 // Update updates a monitor and publishes a monitor.update event.
 func (s *MonitorService) Update(ctx context.Context, m *domain.Monitor) error {
 	normalizeHTTPMonitorURL(m)
+	normalizePushToken(m)
 	if err := s.validateGroup(ctx, m); err != nil {
 		return err
 	}
@@ -270,6 +289,62 @@ func normalizeHTTPMonitorURL(m *domain.Monitor) {
 		raw = "https://" + raw
 	}
 	m.Config["url"] = raw
+}
+
+// normalizePushToken keeps the push ingestion lookup column
+// (domain.Monitor.PushToken) and Config["push_token"] consistent. It runs at
+// the shared service boundary used by ordinary and declarative workflows so
+// both persist the same lookup value (issue #66).
+//
+// Contract:
+//   - only push monitors carry a lookup token; other types are left untouched
+//   - a real config value is authoritative and is copied into PushToken
+//   - an omitted, empty, or ConfigSecretRedacted config value preserves the
+//     persisted token and back-fills the config from it, so a redacted or
+//     partial update can never erase or desynchronize a live lookup token
+//   - with nothing to preserve, a redacted placeholder is dropped instead of
+//     being persisted as if it were a real token
+//
+// Create paths wrap this with ensurePushToken so an empty result becomes a
+// freshly generated token; update paths call this directly and never mint one.
+func normalizePushToken(m *domain.Monitor) {
+	if m == nil || m.Type != "push" {
+		return
+	}
+	if m.Config == nil {
+		m.Config = map[string]any{}
+	}
+	token, _ := m.Config["push_token"].(string)
+	switch {
+	case token != "" && token != ConfigSecretRedacted:
+		m.PushToken = token
+	case m.PushToken != "":
+		m.Config["push_token"] = m.PushToken
+	case token == ConfigSecretRedacted:
+		delete(m.Config, "push_token")
+	}
+}
+
+// ensurePushToken is the create-time wrapper around normalizePushToken: after
+// syncing, a push monitor that still has no lookup token gets a freshly
+// generated one. Every supported create path runs through it — ordinary create
+// (which backup restore shares), create-with-assignments, and declarative apply
+// — so a created push monitor always comes up with a working ingest token,
+// whether the caller supplied one, omitted it, or sent the redacted sentinel
+// (the API contract the UI reports as "generated"). Update paths keep the
+// preserve-on-redaction semantics of normalizePushToken and never mint a token.
+func ensurePushToken(m *domain.Monitor) error {
+	normalizePushToken(m)
+	if m == nil || m.Type != "push" || m.PushToken != "" {
+		return nil
+	}
+	token, err := generatePushToken()
+	if err != nil {
+		return fmt.Errorf("generate push token: %w", err)
+	}
+	m.PushToken = token
+	m.Config["push_token"] = token
+	return nil
 }
 
 // Delete deletes a monitor by its ID and publishes a monitor.delete event.

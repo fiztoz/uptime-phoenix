@@ -38,8 +38,14 @@ func TestWorkerMonitorReaderScopesCurrentLeases(t *testing.T) {
 			reader := newEngineMonitorRepo(f).(ports.WorkerMonitorReader)
 			// A non-UTC caller must query the same UTC wall-clock boundary.
 			got, err := reader.ListByWorker(ctx, "worker-a", cutoff.In(time.FixedZone("UTC+7", 7*60*60)))
-			if err != nil || len(got) != 1 || got[0].ID != want {
+			if err != nil || len(got) != 1 || got[0].Monitor.ID != want {
 				t.Fatalf("current leases: %+v, err=%v", got, err)
+			}
+			// The lease identity must survive the read: schedulers fence queued
+			// work on it, so dropping it silently disarms commit-side fencing.
+			lease := got[0]
+			if lease.WorkerID != "worker-a" || lease.LeasedAt.IsZero() || lease.LeasedAt.Location() != time.UTC || lease.LeaseEpoch != 0 {
+				t.Fatalf("lease identity dropped: %+v", lease)
 			}
 		})
 	}

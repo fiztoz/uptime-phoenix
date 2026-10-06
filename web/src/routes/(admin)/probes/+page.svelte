@@ -11,6 +11,7 @@
     errorMessage,
     type ProbeView,
   } from "$lib/api/probes";
+  import { probeEventMatches } from "$lib/probe-detail-events";
   import ProbeStatus from "$lib/components/ProbeStatus.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import * as m from "$lib/paraglide/messages.js";
@@ -95,17 +96,21 @@
   }
   onMount(() => {
     void load();
-    const changed = (payload: unknown) => {
+    // Each event type identifies the probe with its own payload key: probe.status
+    // sends `id`, probe.config.status sends `probe_id` (GitHub #61 — the same
+    // probe_id-only check dropped every status event on this list).
+    const offStatus = realtime.on("probe.status", (payload) => {
+      if (items.some((p) => probeEventMatches("probe.status", payload, p.id)))
+        schedule();
+    });
+    const offConfig = realtime.on("probe.config.status", (payload) => {
       if (
-        typeof payload === "object" &&
-        payload !== null &&
-        "probe_id" in payload &&
-        items.some((p) => p.id === payload.probe_id)
+        items.some((p) =>
+          probeEventMatches("probe.config.status", payload, p.id),
+        )
       )
         schedule();
-    };
-    const offStatus = realtime.on("probe.status", changed);
-    const offConfig = realtime.on("probe.config.status", changed);
+    });
     return () => {
       clearTimeout(eventTimer);
       offStatus();

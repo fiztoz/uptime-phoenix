@@ -2,10 +2,13 @@ package checker
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
 
@@ -14,7 +17,11 @@ import (
 )
 
 // GRPCChecker performs gRPC health check protocol queries.
-type GRPCChecker struct{}
+// The zero value validates TLS targets against the host's system trust roots;
+// tlsRootCAs overrides that trust store (test seam for local TLS servers).
+type GRPCChecker struct {
+	tlsRootCAs *x509.CertPool
+}
 
 func init() { Register(GRPCChecker{}) }
 
@@ -34,12 +41,13 @@ func (GRPCChecker) Validate(config map[string]any) error {
 //   - url (required, string) — target gRPC server address, e.g. "host:50051"
 //   - service_name (optional, string, default "") — gRPC service name for health check;
 //     empty string means the server's overall health status
-//   - tls (optional, bool, default false) — whether to use TLS; when false, uses
-//     insecure.NewCredentials()
+//   - tls (optional, bool, default false) — whether to use TLS; when true, the
+//     server certificate is validated against the system trust roots and the
+//     target host name; when false, uses insecure.NewCredentials()
 //   - timeout (optional, float64, default 10) — timeout in seconds
 //
 // Never returns an error — all failures are returned as StatusDown with the error in Message.
-func (GRPCChecker) Check(ctx context.Context, config map[string]any) (ports.CheckResult, error) {
+func (checker GRPCChecker) Check(ctx context.Context, config map[string]any) (ports.CheckResult, error) {
 	// Extract url.
 	url, _ := config["url"].(string)
 	if url == "" {
@@ -50,7 +58,7 @@ func (GRPCChecker) Check(ctx context.Context, config map[string]any) (ports.Chec
 	serviceName, _ := config["service_name"].(string)
 
 	// TLS: optional, defaults to false.
-	tls, _ := config["tls"].(bool)
+	useTLS, _ := config["tls"].(bool)
 
 	// Timeout: default 10 seconds, minimum 1 second.
 	timeoutSec := 10.0
@@ -71,8 +79,13 @@ func (GRPCChecker) Check(ctx context.Context, config map[string]any) (ports.Chec
 	// which is bounded by the checkCtx deadline.
 	dialOpts := []grpc.DialOption{}
 
-	if tls {
-		dialOpts = append(dialOpts, grpc.WithTransportCredentials(nil))
+	if useTLS {
+		// Real TLS transport credentials: the server certificate is verified
+		// against tlsRootCAs (system roots when nil) and the target host name.
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
+			MinVersion: tls.VersionTLS12,
+			RootCAs:    checker.tlsRootCAs,
+		})))
 	} else {
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}

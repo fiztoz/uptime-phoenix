@@ -164,7 +164,7 @@ func (s *HeartbeatService) Record(ctx context.Context, monitor *domain.Monitor, 
 			inMaintenance = active
 		}
 	}
-	hb, oldStatus, err := s.persistCheck(ctx, monitor, hb, result.Status, inMaintenance)
+	hb, oldStatus, err := s.persistCheck(ctx, monitor, hb, result.Status, inMaintenance, result.LeaseFence)
 	if err != nil {
 		return err
 	}
@@ -390,7 +390,10 @@ func (s *HeartbeatService) localRegionalState(ctx context.Context, monitorID int
 
 // persistCheck retries only when a concurrent check changed retry state. The
 // observed result/time and assignment generation stay fixed across retries.
-func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Monitor, input *domain.Heartbeat, raw domain.Status, maintenance bool) (*domain.Heartbeat, *domain.Status, error) {
+// A lease fence is likewise fixed: it was captured when the check was queued,
+// and ErrStaleLease never retries — re-evaluation cannot restore expired or
+// replaced worker authority.
+func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Monitor, input *domain.Heartbeat, raw domain.Status, maintenance bool, fence *domain.LeaseFence) (*domain.Heartbeat, *domain.Status, error) {
 	targetGeneration := int64(-1)
 	if s.regional != nil && input.AssignmentGeneration > 0 {
 		targetGeneration = input.AssignmentGeneration
@@ -438,6 +441,12 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 		evaluation := EvaluateObservation(previous, raw, maintenance, monitor.MaxRetries)
 		hb.Status, hb.DownCount, hb.Important = evaluation.State.Status, evaluation.State.DownCount, evaluation.Important
 		if generation == 0 {
+			if fence != nil {
+				// A fenced result must commit where its authority is verified
+				// atomically. The legacy save would silently drop the fence and
+				// accept work from an expired or replaced lease, so fail closed.
+				return nil, nil, fmt.Errorf("heartbeat service: fenced result requires the atomic local commit: %w", ports.ErrStaleLease)
+			}
 			if err := s.heartbeats.Save(ctx, &hb); err != nil {
 				return nil, nil, fmt.Errorf("heartbeat service: save: %w", err)
 			}
@@ -448,7 +457,7 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 			configRevision = 1
 		}
 		hb.AssignmentGeneration, hb.StreamID, hb.ConfigRevision = generation, domain.LocalStreamID, configRevision
-		commit := domain.LocalHeartbeatCommit{Heartbeat: hb, RawStatus: raw, ExpectedStateSeq: expectedSeq, LegacyConfig: expectedRevision <= 0}
+		commit := domain.LocalHeartbeatCommit{Heartbeat: hb, RawStatus: raw, ExpectedStateSeq: expectedSeq, LegacyConfig: expectedRevision <= 0, LeaseFence: fence}
 		if s.monitorNotifs != nil && (hb.Important || hb.Status == domain.StatusDown && monitor.ResendInterval > 0) {
 			prev := domain.StatusUp
 			if oldStatus != nil {

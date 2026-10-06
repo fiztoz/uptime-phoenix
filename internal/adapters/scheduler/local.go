@@ -98,6 +98,10 @@ type scheduledCheck struct {
 	Generation     int64
 	ConfigRevision int64
 	CheckConfig    map[string]any
+	// LeaseFence pins the check to the worker lease instance that authorized
+	// it (sharded scheduling only). Nil for ordinary local scheduling, which
+	// runs without worker authority.
+	LeaseFence *domain.LeaseFence
 }
 
 // tick is called every second and runs checks for monitors that are due.

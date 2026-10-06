@@ -8,7 +8,11 @@
 	import { LayerCake, Svg, Html } from 'layercake';
 	import { scaleTime, scaleLinear } from 'd3-scale';
 	import { timeFormat } from 'd3-time-format';
-	import { chartTimeDomain, type DowntimeInterval } from '$lib/utils/chart.js';
+	import {
+		advanceChartWindowEnd,
+		chartTimeDomain,
+		type DowntimeInterval,
+	} from '$lib/utils/chart.js';
 	import Line from './charts/Line.svelte';
 	import Area from './charts/Area.svelte';
 	import RangeBars from './charts/RangeBars.svelte';
@@ -107,10 +111,28 @@
 		}));
 	});
 
+	/**
+	 * Rolling window end. `chartTimeDomain`'s `now` default is not reactive
+	 * state, so the axis end is tracked explicitly and advances alongside
+	 * accepted chart responses — a frozen end pushed new buckets and DOWN/
+	 * UNKNOWN intervals outside the domain on long-open pages (GitHub #62).
+	 */
+	let windowEndMs = $state<number | null>(null);
+	// Plain mirror of the state above: the effect must not read the $state it
+	// writes, or every advance would reschedule itself.
+	let lastWindowEndMs: number | null = null;
+	$effect(() => {
+		const payload = chart;
+		if (!payload) return;
+		const next = advanceChartWindowEnd(lastWindowEndMs, Date.now(), payload);
+		lastWindowEndMs = next;
+		if (next !== windowEndMs) windowEndMs = next;
+	});
+
 	// The range control is a promise: "24h" always means a 24-hour axis. A young
 	// monitor therefore occupies only the recent part of the plot instead of
 	// making a few minutes look like a full day.
-	const xDomain = $derived(chartTimeDomain(selectedHours));
+	const xDomain = $derived(chartTimeDomain(selectedHours, new Date(windowEndMs ?? Date.now())));
 
 	/** Y domain from max ping (not just avg) so min/max whiskers stay in-bounds. */
 	const yDomain = $derived.by((): [number, number] => {

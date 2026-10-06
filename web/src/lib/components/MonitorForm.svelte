@@ -1,7 +1,9 @@
 <script lang="ts">
   import {
     monitorsApi,
-    type CreateMonitorInput,
+    buildMonitorCreateBody,
+    buildMonitorUpdateBody,
+    type MonitorDraftValues,
     type MonitorWithGroup,
   } from "$lib/api/monitors";
   import {
@@ -13,6 +15,7 @@
   import { escalationApi, type EscalationPolicy } from "$lib/api/escalation";
   import {
     buildMonitorTypeSelectGroups,
+    migrateLegacyGrpcConfig,
     monitorTypeConfig,
     normalizeHttpUrl,
     parseHeadersInput,
@@ -59,7 +62,14 @@
   // shared WS Monitor type yet (see MonitorWithGroup in $lib/api/monitors).
   const editingMonitor = initialMonitor as MonitorWithGroup | undefined;
 
-  let assignmentEditor: ProbeAssignments | undefined = $state();
+  /**
+   * The assignment editor instance (bind:this) — the real ProbeAssignments
+   * component export surface, not an invented optional one: `initialAssignments()`
+   * is the typed create draft (issue #60) and `save()` serves later edits.
+   * Undefined only when no editor is rendered (non-admin).
+   */
+  let assignmentEditor: ReturnType<typeof ProbeAssignments> | undefined =
+    $state();
   let persistedMonitorId = $state(initialMonitor?.id);
   let open = $state(true);
   let loading = $state(false);
@@ -246,6 +256,11 @@
       cfg.dsn
     ) {
       cfg.connection_string = cfg.dsn;
+    }
+    // Older gRPC forms stored the target as `hostname` and the service as
+    // `service`; the checker keys are `url` and `service_name`.
+    if (initialMonitor?.type === "grpc" || !initialMonitor) {
+      migrateLegacyGrpcConfig(cfg);
     }
     return cfg;
   }
@@ -499,43 +514,35 @@
           delete config.headers;
         }
       }
-      const acceptedStatusCodes = formData.acceptedStatusCodes
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      const input: CreateMonitorInput = {
+      const values: MonitorDraftValues = {
         name: formData.name.trim(),
         description: formData.description.trim(),
         owner: formData.owner.trim(),
-        inherit_group_owner:
-          formData.inheritGroupOwner && selectedGroupId !== "",
+        inheritGroupOwner: formData.inheritGroupOwner,
         type: selectedType,
         interval: Number(formData.interval),
         timeout: Number(formData.timeout),
-        retry_interval: Number(formData.retryInterval),
-        max_retries: Number(formData.maxRetries),
-        resend_interval: Number(formData.resendInterval),
-        // Send the intended weight so a reorder persists (0 is a real value).
+        retryInterval: Number(formData.retryInterval),
+        maxRetries: Number(formData.maxRetries),
+        resendInterval: Number(formData.resendInterval),
         weight: Number(formData.weight),
-        upside_down: formData.upsideDown,
-        // TLS skip is meaningful for HTTP and S3; never carry a stale
-        // toggle onto another type when the user switches type before saving.
-        tls_ignore:
-          selectedType === "http" || selectedType === "s3"
-            ? formData.tlsIgnore
-            : false,
-        cert_expiry_notify:
-          selectedType === "http" ? formData.certExpiryNotify : false,
+        upsideDown: formData.upsideDown,
+        tlsIgnore: formData.tlsIgnore,
+        certExpiryNotify: formData.certExpiryNotify,
+        acceptedStatusCodes: formData.acceptedStatusCodes,
         config,
-        accepted_statuscodes: acceptedStatusCodes,
-        active: true,
-        group_id: selectedGroupId === "" ? null : Number(selectedGroupId),
-        proxy_id: selectedProxyId === "" ? null : Number(selectedProxyId),
+        groupId: selectedGroupId === "" ? null : Number(selectedGroupId),
+        proxyId: selectedProxyId === "" ? null : Number(selectedProxyId),
       };
 
       if (persistedMonitorId) {
-        const updated = await monitorsApi.update(persistedMonitorId, input);
+        // Ordinary edits never carry `active` (buildMonitorUpdateBody): saving
+        // name/description/interval changes preserves the pause state, and a
+        // concurrent pause/resume is never overwritten (issue #58).
+        const updated = await monitorsApi.update(
+          persistedMonitorId,
+          buildMonitorUpdateBody(values),
+        );
         // Optimistically patch WS store so interval/timeout show immediately.
         // Clear `target` (a WS-only computed field) so the detail page's
         // targetUrl derived falls through to config.url, which reflects the
@@ -544,8 +551,8 @@
         const { target: _stale, ...patch } = {
           ...monitor,
           ...updated,
-          interval: updated.interval ?? input.interval,
-          timeout: updated.timeout ?? input.timeout,
+          interval: updated.interval ?? values.interval,
+          timeout: updated.timeout ?? values.timeout,
           status: monitor?.status ?? "pending",
         };
         realtime.patchMonitor(patch);
@@ -559,13 +566,7 @@
         }
         toast.success(m.monitor_form_updated_toast());
       } else {
-        const created = await monitorsApi.create(input);
-        persistedMonitorId = created.id;
-        await syncEscalationAssignment(created.id);
-        if (assignmentEditor && !(await assignmentEditor.save(created.id))) {
-          toast.error(m.probes_assignment_failed());
-          return;
-        }
+        await createMonitor(values);
         toast.success(m.monitor_form_created_toast());
       }
       onSaved?.();
@@ -594,6 +595,25 @@
       // The monitor itself saved. Say exactly what did not.
       toast.error(err?.message || m.escalation_assign_failed());
     }
+  }
+
+  /**
+   * Create the monitor and its initial check regions in exactly ONE request
+   * (issue #60). The editor's draft rides the create POST as `probe_ids` /
+   * `health_policy` / `probe_bindings`, and the backend commits monitor +
+   * desired set atomically — a rejected set fails the create outright and
+   * leaves no monitor behind, so a retry cannot duplicate. Without an editor
+   * (non-admin) the draft is the backend local default and the fields are
+   * omitted. No post-create PUT, resume or delete compensation exists; a
+   * validation failure throws before any request is sent.
+   */
+  async function createMonitor(values: MonitorDraftValues) {
+    const initial = assignmentEditor?.initialAssignments() ?? null;
+    const created = await monitorsApi.create(
+      buildMonitorCreateBody(values, initial),
+    );
+    persistedMonitorId = created.id;
+    await syncEscalationAssignment(created.id);
   }
 
   function close() {

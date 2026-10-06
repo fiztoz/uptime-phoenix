@@ -141,14 +141,10 @@ func (checker DNSChecker) Check(ctx context.Context, c map[string]any) (ports.Ch
 		}, nil
 	}
 
-	// --- Parse answers ---
-	// Combine Answer, Ns, and Extra sections for record types that use them (e.g., SOA, NS).
-	answers := resp.Answer
-	if len(answers) == 0 {
-		answers = resp.Ns
-	}
+	// --- Determine evidence for the requested record type (issue #53) ---
+	evidence, scanned := dnsEvidence(resp, dnsType, dns.Fqdn(hostname))
 
-	if len(answers) == 0 {
+	if len(evidence) == 0 {
 		return ports.CheckResult{
 			Status:    domain.StatusDown,
 			LatencyMs: latency,
@@ -156,13 +152,14 @@ func (checker DNSChecker) Check(ctx context.Context, c map[string]any) (ports.Ch
 		}, nil
 	}
 
-	// --- Extract the first answer value as a string ---
-	answerValue := extractAnswerValue(answers[0])
+	// --- Extract the first evidence value as a string ---
+	answerValue := extractAnswerValue(evidence[0])
 
-	// --- Expected value assertion ---
+	// --- Expected value assertion (scans every considered record, so CNAME
+	// targets inside a chain answer keep matching) ---
 	if expectedValue != "" {
 		found := false
-		for _, a := range answers {
+		for _, a := range scanned {
 			val := extractAnswerValue(a)
 			if strings.Contains(val, expectedValue) {
 				found = true
@@ -173,25 +170,25 @@ func (checker DNSChecker) Check(ctx context.Context, c map[string]any) (ports.Ch
 			return ports.CheckResult{
 				Status:    domain.StatusDown,
 				LatencyMs: latency,
-				Message:   fmt.Sprintf("expected value %q not found in %d %s record(s) for %s", expectedValue, len(answers), resolveType, hostname),
+				Message:   fmt.Sprintf("expected value %q not found in %d %s record(s) for %s", expectedValue, len(scanned), resolveType, hostname),
 			}, nil
 		}
 	}
 
 	// --- Build metadata ---
 	metadata := map[string]string{
-		"answer_count": fmt.Sprintf("%d", len(answers)),
+		"answer_count": fmt.Sprintf("%d", len(evidence)),
 		"rtt_ms":       fmt.Sprintf("%d", rtt.Milliseconds()),
 	}
-	if len(answers) > 1 {
-		metadata["all_answers"] = answerSummary(answers)
+	if len(evidence) > 1 {
+		metadata["all_answers"] = answerSummary(evidence)
 	}
 
 	// --- Build message ---
 	var msgParts []string
 	msgParts = append(msgParts, fmt.Sprintf("%s %s → %s", resolveType, hostname, answerValue))
-	if len(answers) > 1 {
-		msgParts = append(msgParts, fmt.Sprintf("(%d records)", len(answers)))
+	if len(evidence) > 1 {
+		msgParts = append(msgParts, fmt.Sprintf("(%d records)", len(evidence)))
 	}
 
 	return ports.CheckResult{
@@ -200,6 +197,51 @@ func (checker DNSChecker) Check(ctx context.Context, c map[string]any) (ports.Ch
 		Message:   strings.Join(msgParts, " "),
 		Metadata:  metadata,
 	}, nil
+}
+
+// dnsEvidence returns the records that prove the requested record type exists,
+// plus every record scanned while looking for them (used for expected-value
+// matching).
+//
+// Evidence rules (issue #53): a NOERROR response with an empty Answer section is
+// a NODATA answer — its authority SOA describes negative caching and is never
+// evidence that the requested record exists.
+//   - records of the requested type in the Answer section are evidence;
+//   - a bare CNAME in the Answer section is evidence for any other requested
+//     type (the name resolves through an alias);
+//   - for SOA and NS checks only, records of the requested type in the
+//     authority section owned by the queried name are evidence (zone-apex
+//     records and delegations are delivered there).
+func dnsEvidence(resp *dns.Msg, dnsType uint16, questionName string) (evidence, scanned []dns.RR) {
+	scanned = append([]dns.RR{}, resp.Answer...)
+	evidence = filterRR(resp.Answer, dnsType, "")
+	if len(evidence) == 0 && dnsType != dns.TypeCNAME {
+		evidence = filterRR(resp.Answer, dns.TypeCNAME, "")
+	}
+	if dnsType == dns.TypeSOA || dnsType == dns.TypeNS {
+		authority := filterRR(resp.Ns, dnsType, questionName)
+		scanned = append(scanned, authority...)
+		if len(evidence) == 0 {
+			evidence = authority
+		}
+	}
+	return evidence, scanned
+}
+
+// filterRR returns records of the given type, optionally restricted to records
+// owned by owner (case-insensitive canonical name match).
+func filterRR(records []dns.RR, rrtype uint16, owner string) []dns.RR {
+	out := make([]dns.RR, 0, len(records))
+	for _, rr := range records {
+		if rr.Header().Rrtype != rrtype {
+			continue
+		}
+		if owner != "" && !strings.EqualFold(dns.Fqdn(rr.Header().Name), dns.Fqdn(owner)) {
+			continue
+		}
+		out = append(out, rr)
+	}
+	return out
 }
 
 // dnsTypeFromString maps a string record type to its dns.Type constant.

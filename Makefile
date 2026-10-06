@@ -269,6 +269,7 @@ release-image-gate: ## Verify required image/chart operations fail closed (mocke
 	bash scripts/release/test-image-failures.sh
 	python3 scripts/release/test-chart-publish.py
 	python3 scripts/release/test-binary-sboms.py
+	python3 scripts/release/test-ci-gate.py
 
 .PHONY: build-docker
 build-docker: ## Build Docker image
@@ -301,6 +302,7 @@ helm-validate: ## Assert the MariaDB topology renders its workload and the guard
 	helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true --set mode=worker > /dev/null
 	@echo "==> extension-only image changes must not roll Phoenix or MariaDB"
 	@./scripts/helm-checksum-scope.sh
+	@bash scripts/issue67-ext-token-checksum.sh
 	@echo "==> remote-probe flag renders only with an explicit secret reference"
 	@./scripts/helm-probes-check.sh
 	@echo "==> in-release MariaDB must render StatefulSet + PVC + NetworkPolicy"

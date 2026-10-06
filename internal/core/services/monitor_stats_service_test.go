@@ -40,7 +40,7 @@ func (r *statsFakeMonitorRepo) Delete(_ context.Context, _ int64) error         
 func (r *statsFakeMonitorRepo) ClaimBatch(_ context.Context, _ string, _ int, _ time.Duration) ([]*domain.Monitor, error) {
 	return nil, nil
 }
-func (r *statsFakeMonitorRepo) RefreshLease(_ context.Context, _ string) (int64, error) {
+func (r *statsFakeMonitorRepo) RefreshLease(_ context.Context, _ string, _ time.Duration) (int64, error) {
 	return 0, nil
 }
 func (r *statsFakeMonitorRepo) ReleaseLeases(_ context.Context, _ string) (int64, error) {

@@ -28,13 +28,29 @@ present at the repo root.
    `refs/tags/v<version>` and asserts `HEAD == tag^{commit}` (via the
    `./.github/actions/bind-release-ref` composite) before any build or push.
    Branch code cannot be published under a different tag, and a dispatch-publish
-   can never publish an arbitrary branch head.
-4. **This workflow never creates git tags.** The owner creates and pushes tags by
+   can never publish an arbitrary branch head. The release commit is resolved
+   **once** in `prepare` (the `source_sha` pin, issue #56 hardening); every
+   binding job and the CI gate re-resolve the mutable tag and **fail closed**
+   (before any checkout) if it no longer points at that pinned SHA — moving the
+   tag while the workflow runs can never build or publish a different commit
+   than the one CI verified.
+4. **Publish requires green CI for the exact release commit (issue #56).** The
+   `ci_gate` job resolves `refs/tags/v<version>` to its immutable SHA and
+   verifies the CI workflow completed **every** required job (`backend`,
+   `frontend`, `e2e`, `mariadb-contract`, `helm`, `docker`, `actionlint`)
+   successfully for that exact SHA. A pending, missing, skipped, cancelled, or
+   failed required check fails CLOSED and skips every publish job and
+   `create_release`; green checks on an ancestor or another PR commit never
+   satisfy the gate. Applies to tag-push and dispatch-publish (and to re-runs
+   of either). If the gate blocks, run the CI workflow for that exact commit
+   (push it to main, or `workflow_dispatch` CI from the tag ref) and re-run the
+   release. Regression-tested by `scripts/release/test-ci-gate.py`.
+5. **This workflow never creates git tags.** The owner creates and pushes tags by
    hand (`git tag` + `git push origin v…`).
-5. **Version strings are validated.** SemVer-compatible `X.Y.Z` or
+6. **Version strings are validated.** SemVer-compatible `X.Y.Z` or
    `X.Y.Z-prerelease` only; inputs reach shell via `env:`, never raw expression
    interpolation into `run:` scripts.
-6. **LICENSE is resolved.** MIT at the repo root; remaining blockers are human
+7. **LICENSE is resolved.** MIT at the repo root; remaining blockers are human
    approvals (signing policy, package naming, etc.).
 
 ## Snapshot version flow
@@ -94,6 +110,7 @@ Workflow file: [`.github/workflows/release.yml`](../.github/workflows/release.ym
 
 ```
 prepare
+  ├── ci-gate             (publish only: green CI at the exact tag commit)
   ├── dry-run / binaries   (cross-compile + checksums + SBOM)   ┐
   ├── dry-run / chart      (helm lint / package / template)     ├─ parallel
   └── dry-run / images     (multi-arch buildx, no push)         ┘
@@ -108,7 +125,8 @@ dry-run                    (aggregate INVENTORY, upload combined artifact)
 create-release             (attach binaries/chart/INVENTORY to the tag)
 ```
 
-`prepare` resolves the version + artifact-selection flags once; every downstream
+`prepare` resolves the version, artifact-selection flags, and the immutable
+release SHA (`source_sha`, pinned once — see hard rule 3) once; every downstream
 job reads its outputs. The dry-run legs slice `scripts/release/dry-run.sh` via the
 `STAGES` env (`binaries,checksums,sbom` / `chart` / `images` / `inventory`) — a
 bare local `./scripts/release/dry-run.sh` (no `STAGES`) still runs every stage in

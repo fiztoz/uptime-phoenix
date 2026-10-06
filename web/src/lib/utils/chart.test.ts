@@ -1,6 +1,14 @@
 /// <reference types="bun-types" />
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { bucketHeartbeats, chartTimeDomain, sparklinePoints } from "./chart";
+import {
+  advanceChartWindowEnd,
+  bucketHeartbeats,
+  chartTimeDomain,
+  latestChartTime,
+  sparklinePoints,
+} from "./chart";
 import type { Heartbeat } from "$lib/api/heartbeats.js";
 
 function heartbeat(
@@ -127,5 +135,124 @@ describe("chartTimeDomain", () => {
 
     expect(start.toISOString()).toBe("2026-07-25T00:20:00.000Z");
     expect(end.toISOString()).toBe("2026-07-26T00:20:00.000Z");
+  });
+});
+
+describe("latestChartTime", () => {
+  test("reads the newest bucket and interval boundary", () => {
+    const latest = latestChartTime({
+      buckets: [
+        { time: "2026-07-26T10:00:00Z" },
+        { time: "2026-07-26T11:00:00Z" },
+      ],
+      downtime_intervals: [
+        { start: "2026-07-26T09:00:00Z", end: "2026-07-26T12:30:00Z" },
+      ],
+      unknown_intervals: [
+        { start: "2026-07-26T12:00:00Z", end: "2026-07-26T12:45:00Z" },
+      ],
+    });
+
+    expect(latest).toBe(Date.parse("2026-07-26T12:45:00Z"));
+  });
+
+  test("returns null for empty or unparseable payloads", () => {
+    expect(latestChartTime(null)).toBeNull();
+    expect(latestChartTime({})).toBeNull();
+    expect(latestChartTime({ buckets: [{ time: "not-a-date" }] })).toBeNull();
+  });
+});
+
+describe("advanceChartWindowEnd", () => {
+  // GitHub #62: the rolling window must advance with accepted chart responses
+  // while the selected range stays unchanged.
+  const t12 = Date.parse("2026-07-26T12:00:00Z");
+  const t13 = Date.parse("2026-07-26T13:00:00Z");
+
+  test("later chart data advances the domain end and preserves its duration", () => {
+    const first = advanceChartWindowEnd(null, t12, {
+      buckets: [{ time: "2026-07-26T11:55:00Z" }],
+    });
+    const [firstStart, firstEnd] = chartTimeDomain(24, new Date(first));
+
+    // Same selected range, one hour later, with a bucket past the old end.
+    const second = advanceChartWindowEnd(first, t13, {
+      buckets: [{ time: "2026-07-26T12:30:00Z" }],
+    });
+    const [secondStart, secondEnd] = chartTimeDomain(24, new Date(second));
+
+    expect(secondEnd.getTime()).toBeGreaterThan(firstEnd.getTime());
+    expect(secondEnd.getTime() - secondStart.getTime()).toBe(
+      24 * 60 * 60 * 1000,
+    );
+    // The freshly arrived bucket is inside the advanced domain.
+    expect(Date.parse("2026-07-26T12:30:00Z")).toBeGreaterThanOrEqual(
+      secondStart.getTime(),
+    );
+    expect(Date.parse("2026-07-26T12:30:00Z")).toBeLessThanOrEqual(
+      secondEnd.getTime(),
+    );
+  });
+
+  test("new DOWN and UNKNOWN intervals stay inside the advanced domain", () => {
+    const first = advanceChartWindowEnd(null, t12, {
+      buckets: [],
+      downtime_intervals: [],
+    });
+    const second = advanceChartWindowEnd(first, t13, {
+      buckets: [],
+      downtime_intervals: [
+        { start: "2026-07-26T12:10:00Z", end: "2026-07-26T12:40:00Z" },
+      ],
+      unknown_intervals: [
+        { start: "2026-07-26T12:45:00Z", end: "2026-07-26T12:55:00Z" },
+      ],
+    });
+    const [start, end] = chartTimeDomain(24, new Date(second));
+
+    for (const iso of ["2026-07-26T12:10:00Z", "2026-07-26T12:55:00Z"]) {
+      expect(Date.parse(iso)).toBeGreaterThanOrEqual(start.getTime());
+      expect(Date.parse(iso)).toBeLessThanOrEqual(end.getTime());
+    }
+  });
+
+  test("stale responses never move the window end backward", () => {
+    const first = advanceChartWindowEnd(null, t13, {
+      buckets: [{ time: "2026-07-26T12:55:00Z" }],
+    });
+    // An older response lands afterwards: earlier clock AND earlier data.
+    const second = advanceChartWindowEnd(first, t12, {
+      buckets: [{ time: "2026-07-26T11:00:00Z" }],
+    });
+
+    expect(second).toBe(first);
+  });
+
+  test("a server timestamp past a slow client clock is never clipped", () => {
+    const end = advanceChartWindowEnd(null, t12, {
+      buckets: [{ time: "2026-07-26T12:30:00Z" }],
+    });
+
+    expect(end).toBe(Date.parse("2026-07-26T12:30:00Z"));
+    const [start, domainEnd] = chartTimeDomain(24, new Date(end));
+    expect(Date.parse("2026-07-26T12:30:00Z")).toBeLessThanOrEqual(
+      domainEnd.getTime(),
+    );
+    expect(Date.parse("2026-07-26T12:30:00Z")).toBeGreaterThan(start.getTime());
+  });
+});
+
+describe("ResponseTimeChart wiring", () => {
+  const source = readFileSync(
+    join(import.meta.dir, "..", "components", "ResponseTimeChart.svelte"),
+    "utf8",
+  );
+
+  test("xDomain derives from the tracked window end, not an untracked clock", () => {
+    // Regression for GitHub #62: `chartTimeDomain(selectedHours)` froze the
+    // axis end at mount because `new Date()` inside is not reactive state.
+    expect(source).toContain("advanceChartWindowEnd(");
+    expect(source).toMatch(/chartTimeDomain\(selectedHours, new Date\(/);
+    expect(source).not.toMatch(/chartTimeDomain\(selectedHours\)/);
   });
 });

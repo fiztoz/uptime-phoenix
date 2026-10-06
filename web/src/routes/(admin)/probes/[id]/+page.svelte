@@ -14,6 +14,7 @@
     type ProbeOperationView,
   } from "$lib/api/probes";
   import { probeWriteErrorMessage } from "$lib/probe-errors";
+  import { probeEventMatches } from "$lib/probe-detail-events";
   import ProbeStatus from "$lib/components/ProbeStatus.svelte";
   import ProbeOperation from "$lib/components/ProbeOperation.svelte";
   import * as m from "$lib/paraglide/messages.js";
@@ -179,17 +180,19 @@
   }
   onMount(() => {
     void load();
-    const changed = (payload: unknown) => {
+    // Each event type identifies the probe with its own payload key: probe.status
+    // sends `id`, probe.config.status sends `probe_id`. A shared probe_id-only
+    // check ignored every status event (GitHub #61).
+    const offStatus = realtime.on("probe.status", (payload) => {
+      if (probeEventMatches("probe.status", payload, $page.params.id ?? ""))
+        schedule();
+    });
+    const offConfig = realtime.on("probe.config.status", (payload) => {
       if (
-        typeof payload === "object" &&
-        payload !== null &&
-        "probe_id" in payload &&
-        payload.probe_id === $page.params.id
+        probeEventMatches("probe.config.status", payload, $page.params.id ?? "")
       )
         schedule();
-    };
-    const offStatus = realtime.on("probe.status", changed);
-    const offConfig = realtime.on("probe.config.status", changed);
+    });
     return () => {
       clearTimeout(eventTimer);
       offStatus();

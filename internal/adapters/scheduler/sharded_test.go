@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,15 +15,48 @@ import (
 
 type leasedMonitorRepo struct {
 	*mockMonitorRepo
-	owned  []*domain.Monitor
+	owned  []*domain.LeasedMonitor
 	err    error
 	worker string
 	cutoff time.Time
 }
 
-func (r *leasedMonitorRepo) ListByWorker(_ context.Context, worker string, cutoff time.Time) ([]*domain.Monitor, error) {
+func (r *leasedMonitorRepo) ListByWorker(_ context.Context, worker string, cutoff time.Time) ([]*domain.LeasedMonitor, error) {
 	r.worker, r.cutoff = worker, cutoff
 	return r.owned, r.err
+}
+
+// leased wraps a monitor in the lease instance that currently owns it.
+func leased(m *domain.Monitor, worker string, epoch int64) *domain.LeasedMonitor {
+	return &domain.LeasedMonitor{Monitor: m, WorkerID: worker, LeaseEpoch: epoch, LeasedAt: time.Now().UTC()}
+}
+
+// fakeLocalRecorder captures atomic local commits so scheduler tests can
+// assert what recording received, including the captured lease fence. Fenced
+// results must commit through this port — the service fails closed on the
+// legacy save path.
+type fakeLocalRecorder struct {
+	mu      sync.Mutex
+	commits []domain.LocalHeartbeatCommit
+}
+
+func (r *fakeLocalRecorder) GetState(context.Context, int64, string) (*domain.RegionalState, error) {
+	return nil, ports.ErrNotFound
+}
+
+func (r *fakeLocalRecorder) CommitLocalHeartbeat(_ context.Context, commit domain.LocalHeartbeatCommit) (*domain.Heartbeat, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.commits = append(r.commits, commit)
+	hb := commit.Heartbeat
+	hb.ID, hb.SourceSeq = int64(len(r.commits)), int64(len(r.commits))
+	return &hb, nil
+}
+
+func (r *fakeLocalRecorder) recorded() []domain.LocalHeartbeatCommit {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]domain.LocalHeartbeatCommit(nil), r.commits...)
 }
 
 func TestShardedScheduler_TickUsesCurrentWorkerLeases(t *testing.T) {
@@ -31,11 +65,11 @@ func TestShardedScheduler_TickUsesCurrentWorkerLeases(t *testing.T) {
 	remote := &domain.Monitor{ID: 3, Type: "http", Active: true, Interval: 60}
 	for _, tc := range []struct {
 		name  string
-		owned []*domain.Monitor
+		owned []*domain.LeasedMonitor
 		err   error
 	}{
-		{"owned", []*domain.Monitor{owned}, nil},
-		{"remote assignment despite lease", []*domain.Monitor{owned, remote}, nil},
+		{"owned", []*domain.LeasedMonitor{leased(owned, "worker-a", 1)}, nil},
+		{"remote assignment despite lease", []*domain.LeasedMonitor{leased(owned, "worker-a", 1), leased(remote, "worker-a", 1)}, nil},
 		{"no leases", nil, nil},
 		{"database unavailable", nil, errors.New("read leases failed")},
 	} {
@@ -95,6 +129,8 @@ func TestShardedScheduler_Run_RecordsAfterCheckContextDeadline(t *testing.T) {
 	heartbeatRepo := newMockHeartbeatRepo()
 	bus := newMockBus()
 	heartbeatSvc := services.NewHeartbeatService(heartbeatRepo, bus)
+	recorder := &fakeLocalRecorder{}
+	heartbeatSvc.SetRegionalRecorder(nil, recorder)
 
 	slowChecker := &slowDeadlineChecker{}
 
@@ -106,7 +142,7 @@ func TestShardedScheduler_Run_RecordsAfterCheckContextDeadline(t *testing.T) {
 	}
 
 	sched := NewShardedScheduler(
-		&leasedMonitorRepo{mockMonitorRepo: monitorRepo, owned: monitorRepo.monitors},
+		&leasedMonitorRepo{mockMonitorRepo: monitorRepo, owned: []*domain.LeasedMonitor{leased(monitorRepo.monitors[0], "test-worker", 1)}},
 		checkerFn,
 		heartbeatSvc,
 		nil,
@@ -119,7 +155,7 @@ func TestShardedScheduler_Run_RecordsAfterCheckContextDeadline(t *testing.T) {
 
 	_ = sched.Run(ctx)
 
-	if heartbeatRepo.count() == 0 {
+	if len(recorder.recorded()) == 0 {
 		t.Fatal("expected heartbeat recorded even when check context deadline exceeded")
 	}
 }
@@ -137,9 +173,11 @@ func TestShardedScheduler_CapturesAppliedRevisionAndGeneration(t *testing.T) {
 	monitorRepo := newMockMonitorRepo(monitor)
 	heartbeatRepo := newMockHeartbeatRepo()
 	heartbeatSvc := services.NewHeartbeatService(heartbeatRepo, newMockBus())
+	recorder := &fakeLocalRecorder{}
+	heartbeatSvc.SetRegionalRecorder(nil, recorder)
 	checker := &recordingChecker{}
 	sched := NewShardedScheduler(
-		&leasedMonitorRepo{mockMonitorRepo: monitorRepo, owned: []*domain.Monitor{monitor}},
+		&leasedMonitorRepo{mockMonitorRepo: monitorRepo, owned: []*domain.LeasedMonitor{leased(monitor, "worker-1", 7)}},
 		func(string) (ports.Checker, bool) { return checker, true },
 		heartbeatSvc,
 		nil,
@@ -159,22 +197,23 @@ func TestShardedScheduler_CapturesAppliedRevisionAndGeneration(t *testing.T) {
 	defer cancel()
 	_ = sched.Run(ctx)
 
-	if heartbeatRepo.count() == 0 {
+	commits := recorder.recorded()
+	if len(commits) == 0 {
 		t.Fatal("expected at least 1 heartbeat")
 	}
-	latest, err := heartbeatRepo.GetLatest(context.Background(), 1)
-	if err != nil || latest == nil {
-		t.Fatalf("missing heartbeat for monitor 1: %v", err)
-	}
+	latest := commits[len(commits)-1]
 	checker.mu.Lock()
 	defer checker.mu.Unlock()
 	if len(checker.configsCalled) == 0 || checker.configsCalled[0]["url"] != "https://applied.example.com" {
 		t.Fatalf("checker used mutable settings: %#v", checker.configsCalled)
 	}
-	if latest.ConfigRevision != 9 {
-		t.Fatalf("expected ConfigRevision 9, got %d", latest.ConfigRevision)
+	if latest.Heartbeat.ConfigRevision != 9 {
+		t.Fatalf("expected ConfigRevision 9, got %d", latest.Heartbeat.ConfigRevision)
 	}
-	if latest.AssignmentGeneration != 1 {
-		t.Fatalf("expected AssignmentGeneration 1, got %d", latest.AssignmentGeneration)
+	if latest.Heartbeat.AssignmentGeneration != 1 {
+		t.Fatalf("expected AssignmentGeneration 1, got %d", latest.Heartbeat.AssignmentGeneration)
+	}
+	if latest.LeaseFence == nil || latest.LeaseFence.WorkerID != "worker-1" || latest.LeaseFence.LeaseEpoch != 7 || latest.LeaseFence.LeaseTTL != 5*time.Minute {
+		t.Fatalf("queued check lost its lease fence: %+v", latest.LeaseFence)
 	}
 }
