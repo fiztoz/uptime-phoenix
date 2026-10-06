@@ -95,7 +95,7 @@ func (r *UserRepo) Delete(ctx context.Context, id int64) error {
 
 func (r *UserRepo) Count(ctx context.Context) (int64, error) {
 	count, err := r.db.NewSelect().Model((*repository.UserModel)(nil)).Count(ctx)
-	return int64(count), err
+	return count, err
 }
 
 // List returns every user ordered by id ascending.

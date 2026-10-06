@@ -70,7 +70,7 @@ func TestMonitorMutationsWaitBeforeAppliedSourceGraph(t *testing.T) {
 			var once, releaseOnce sync.Once
 			unblock := func() { releaseOnce.Do(func() { close(release) }) }
 			defer unblock()
-			f.db.AddQueryHook(monitorMutationQueryHook{before: func(ctx context.Context, query string) {
+			attachInPlaceQueryHook(f.db, monitorMutationQueryHook{before: func(ctx context.Context, query string) {
 				if strings.Contains(query, "NOT EXISTS (SELECT 1 FROM monitor_probe_assignment_sets") {
 					once.Do(func() {
 						close(graph)
@@ -91,7 +91,7 @@ func TestMonitorMutationsWaitBeforeAppliedSourceGraph(t *testing.T) {
 			first := make(chan string, 1)
 			monitorAttempted := make(chan struct{}, 1)
 			var firstOnce sync.Once
-			peer.AddQueryHook(monitorMutationQueryHook{before: func(_ context.Context, query string) {
+			attachInPlaceQueryHook(peer, monitorMutationQueryHook{before: func(_ context.Context, query string) {
 				if strings.HasPrefix(query, "UPDATE `monitors`") || strings.HasPrefix(query, "DELETE FROM `monitors`") {
 					select {
 					case monitorAttempted <- struct{}{}:
