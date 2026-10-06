@@ -150,7 +150,7 @@ func readProbeConfigSource(ctx context.Context, tx bun.Tx, probeID string) (*dom
 
 func configSourceRows[T any](ctx context.Context, query *bun.SelectQuery, limit int) ([]T, error) {
 	var rows []T
-	if err := query.Model(&rows).Limit(limit + 1).Scan(ctx); err != nil {
+	if err := query.Model(&rows).Limit(int64(limit + 1)).Scan(ctx); err != nil {
 		return nil, err
 	}
 	if len(rows) > limit {

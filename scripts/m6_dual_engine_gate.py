@@ -22,9 +22,13 @@ SKIPS_ALLOWED = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",  # optional external target
     "TestTelegramSender_Send_DownSeverity",          # optional provider
     "TestEdgeCheckCrashChild",                        # killed only by its parent test
+    "TestConfigGroupCycleHelperProcess",               # invoked by required parent cases below
     "TestEdgeDiskFullCriticalCommit",                 # dedicated Linux tmpfs gate
 }
 REQUIRED = {
+    "TestConfigGroupCycle_DoesNotKillProcess/self",
+    "TestConfigGroupCycle_DoesNotKillProcess/two",
+    "TestConfigGroupCycle_DoesNotKillProcess/three",
     "TestEdgeCheckCrashAroundCommit/inside-transaction",
     "TestEdgeCheckCrashAroundCommit/after-commit",
     "TestHubWorkerReadinessAttestationIsUtcBound/mariadb",

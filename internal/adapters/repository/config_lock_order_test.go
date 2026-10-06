@@ -44,7 +44,7 @@ func TestMonitorCreateUsesConfigurationLockOrder(t *testing.T) {
 	}
 	peer := reopenConfigDB(t, f)
 	hook := &probeLockAttemptHook{attempted: make(chan struct{})}
-	peer.AddQueryHook(hook)
+	attachInPlaceQueryHook(peer, hook)
 	result := make(chan error, 1)
 	monitor := &domain.Monitor{UserID: userID, Name: "create while source is read", Type: "http", Active: true, Interval: 60, Timeout: 10, Config: map[string]any{"url": "https://example.test"}}
 	go func() { result <- mariadb.NewMonitorRepo(peer).Create(ctx, monitor) }()
@@ -91,7 +91,7 @@ func TestProbeAssignmentReplacementUsesConfigurationLockOrder(t *testing.T) {
 	}
 	peer := reopenConfigDB(t, f)
 	hook := &probeLockAttemptHook{attempted: make(chan struct{})}
-	peer.AddQueryHook(hook)
+	attachInPlaceQueryHook(peer, hook)
 	result := make(chan error, 1)
 	go func() {
 		_, err := mariadb.NewProbeAssignmentRepo(peer).Replace(ctx, monitorID, 1, []string{remote.ID}, domain.HealthPolicyAnyDown)

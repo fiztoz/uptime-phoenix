@@ -227,7 +227,7 @@ func testLocalConfigSourceConsistency(t *testing.T, f probeRegistryFixture) {
 	}
 	peer := reopenConfigDB(t, f)
 	barrier := &configReadBarrier{reached: make(chan struct{}), done: make(chan struct{})}
-	f.db.AddQueryHook(barrier)
+	attachInPlaceQueryHook(f.db, barrier)
 	writer := make(chan error, 1)
 	go func() {
 		defer close(barrier.done)

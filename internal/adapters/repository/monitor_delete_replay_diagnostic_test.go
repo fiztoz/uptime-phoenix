@@ -526,7 +526,7 @@ func diagnosticCount(t *testing.T, ctx context.Context, db *bun.DB, table, where
 	if err != nil {
 		t.Fatalf("read diagnostic table %s failed (%s)", table, safeDiagnosticErrorType(err))
 	}
-	return count
+	return int(count)
 }
 
 // Successful DELETE must remove every seeded monitor-owned cascade row.
@@ -628,13 +628,13 @@ func TestMonitorDeleteReplayDiagnostic(t *testing.T) {
 		barrier := newReplayDeleteBarrier(replayCursorBarrier)
 		hook := newReplayDeleteDiagnosticHook(barrier)
 		defer hook.report(t, "replay-commit-versus-delete", version)
-		r.f.db.AddQueryHook(hook)
+		attachInPlaceQueryHook(r.f.db, hook)
 		peer := reopenConfigDB(t, r.f)
 		peer.SetMaxOpenConns(1)
 		deleteHook := newDeleteDiagnosticHook()
 		defer deleteHook.report(t, "replay-commit-versus-delete-parent", version)
 		defer barrier.releaseNow()
-		peer.AddQueryHook(deleteHook)
+		attachInPlaceQueryHook(peer, deleteHook)
 		var deleteConnectionID int64
 		if err := peer.NewRaw("SELECT CONNECTION_ID()").Scan(ctx, &deleteConnectionID); err != nil {
 			t.Fatalf("read delete connection id failed (%s)", safeDiagnosticErrorType(err))
@@ -644,7 +644,7 @@ func TestMonitorDeleteReplayDiagnostic(t *testing.T) {
 		}
 		observer := reopenConfigDB(t, r.f)
 		mutationStarted := make(chan struct{}, 1)
-		peer.AddQueryHook(monitorMutationQueryHook{before: func(_ context.Context, query string) {
+		attachInPlaceQueryHook(peer, monitorMutationQueryHook{before: func(_ context.Context, query string) {
 			if isMonitorDeleteStartQuery(query) {
 				select {
 				case mutationStarted <- struct{}{}:
@@ -785,13 +785,13 @@ func TestMonitorDeleteReplayDiagnostic(t *testing.T) {
 		barrier := newReplayDeleteBarrier(currentReceiptBarrier)
 		hook := newReplayDeleteDiagnosticHook(barrier)
 		defer hook.report(t, "current-snapshot-commit-versus-delete", version)
-		r.f.db.AddQueryHook(hook)
+		attachInPlaceQueryHook(r.f.db, hook)
 		peer := reopenConfigDB(t, r.f)
 		peer.SetMaxOpenConns(1)
 		deleteHook := newDeleteDiagnosticHook()
 		defer deleteHook.report(t, "current-snapshot-commit-versus-delete-parent", version)
 		defer barrier.releaseNow()
-		peer.AddQueryHook(deleteHook)
+		attachInPlaceQueryHook(peer, deleteHook)
 		var deleteConnectionID int64
 		if err := peer.NewRaw("SELECT CONNECTION_ID()").Scan(ctx, &deleteConnectionID); err != nil {
 			t.Fatalf("read delete connection id failed (%s)", safeDiagnosticErrorType(err))
@@ -801,7 +801,7 @@ func TestMonitorDeleteReplayDiagnostic(t *testing.T) {
 		}
 		observer := reopenConfigDB(t, r.f)
 		mutationStarted := make(chan struct{}, 1)
-		peer.AddQueryHook(monitorMutationQueryHook{before: func(_ context.Context, query string) {
+		attachInPlaceQueryHook(peer, monitorMutationQueryHook{before: func(_ context.Context, query string) {
 			if isMonitorDeleteStartQuery(query) {
 				select {
 				case mutationStarted <- struct{}{}:

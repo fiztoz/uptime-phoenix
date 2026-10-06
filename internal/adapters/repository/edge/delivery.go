@@ -146,7 +146,7 @@ func (s *Store) ClaimDeliveries(ctx context.Context, probeID string, at time.Tim
 				domain.DeliveryStatusLeased, atMicro).
 			Where("attempt < ?", int64(math.MaxInt64)).
 			OrderExpr("available_at ASC, created_at ASC, delivery_id ASC").
-			Limit(limit).
+			Limit(int64(limit)).
 			Scan(ctx)
 		if err != nil {
 			return err

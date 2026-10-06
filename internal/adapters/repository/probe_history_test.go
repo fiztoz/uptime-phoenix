@@ -406,7 +406,7 @@ func TestProbeHistoryParentRechecksChildrenAfterQueueSelection(t *testing.T) {
 				t.Fatal(err)
 			}
 			barrier := &historySelectionBarrier{entered: make(chan struct{}), release: make(chan struct{}), resolution: resolution}
-			r.f.db.AddQueryHook(barrier)
+			attachInPlaceQueryHook(r.f.db, barrier)
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			done := make(chan error, 1)

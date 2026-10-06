@@ -23,7 +23,7 @@ func (s *Store) ListDueEscalations(ctx context.Context, now time.Time, limit int
 			Where("escalation_status = ?", domain.EscalationStatePending).
 			Where("escalation_next_run_at <= ?", now.UTC().UnixMicro()).
 			OrderExpr("escalation_next_run_at ASC, source_alert_id ASC").
-			Limit(limit).
+			Limit(int64(limit)).
 			Scan(ctx)
 	})
 	if err != nil {

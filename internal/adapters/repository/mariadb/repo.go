@@ -95,7 +95,7 @@ func (r *UserRepo) Delete(ctx context.Context, id int64) error {
 
 func (r *UserRepo) Count(ctx context.Context) (int64, error) {
 	count, err := r.db.NewSelect().Model((*repository.UserModel)(nil)).Count(ctx)
-	return int64(count), err
+	return count, err
 }
 
 // List returns every user ordered by id ascending.
@@ -198,10 +198,10 @@ func (r *MonitorRepo) List(ctx context.Context, filter ports.MonitorFilter) ([]*
 		}
 	}
 	if filter.Limit > 0 {
-		q = q.Limit(filter.Limit)
+		q = q.Limit(int64(filter.Limit))
 	}
 	if filter.Offset > 0 {
-		q = q.Offset(filter.Offset)
+		q = q.Offset(int64(filter.Offset))
 	}
 	// Display order: weight (manual sort), then name, then id as a stable tie-break.
 	q = q.Order("weight ASC", "name ASC", "id ASC")
@@ -709,7 +709,7 @@ func (r *HeartbeatRepo) ListRecentByMonitor(ctx context.Context, monitorID int64
 		Where("time >= ?", from.UTC()).
 		Where("time <= ?", to.UTC()).
 		OrderExpr("time DESC, id DESC").
-		Limit(limit).
+		Limit(int64(limit)).
 		Scan(ctx)
 	if err != nil {
 		return nil, translateError(err)

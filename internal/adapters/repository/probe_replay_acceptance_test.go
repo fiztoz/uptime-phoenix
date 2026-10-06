@@ -99,7 +99,7 @@ func replayCount(t *testing.T, f probeRegistryFixture, table string) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return n
+	return int(n)
 }
 func TestProbeReplayAcceptance(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mariadb"} {

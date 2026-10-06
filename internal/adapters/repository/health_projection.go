@@ -300,7 +300,7 @@ func (r *RegionalCommitStore) ListDirty(ctx context.Context, resolution string, 
 		Where("resolution = ?", resolution).
 		Order("bucket ASC", "monitor_id ASC", "probe_id ASC")
 	if limit > 0 {
-		q = q.Limit(limit)
+		q = q.Limit(int64(limit))
 	}
 	if err := q.Scan(ctx); err != nil {
 		return nil, fmt.Errorf("list dirty buckets: %w", err)

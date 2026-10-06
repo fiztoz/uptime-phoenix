@@ -259,8 +259,8 @@ func reserveCommandCapacity(ctx context.Context, tx bun.Tx, probeID string, now 
 	if err != nil {
 		return err
 	}
-	size += int64(reserved) * (domain.MaxProbeCommandBytes + domain.ProbeConfigProtectionOverhead)
-	if count > maxProbeCommands-additionalCount || pending > maxPendingProbeCommands-additionalCount || size > maxProbeCommandStorageBytes-int64(additionalBytes) {
+	size += reserved * (domain.MaxProbeCommandBytes + domain.ProbeConfigProtectionOverhead)
+	if count > int64(maxProbeCommands-additionalCount) || pending > int64(maxPendingProbeCommands-additionalCount) || size > maxProbeCommandStorageBytes-int64(additionalBytes) {
 		return ports.ErrConflict
 	}
 	return nil

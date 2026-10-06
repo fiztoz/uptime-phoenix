@@ -91,7 +91,7 @@ func TestProbeHistoryQueueSelectionBoundedMariaDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	hook := new(historySelectionHook)
-	r.f.db.AddQueryHook(hook)
+	attachInPlaceQueryHook(r.f.db, hook)
 	service := services.NewProbeHistoryService(repository.NewRegionalCommitStore(r.f.db))
 	if n, err := service.ProcessBatch(t.Context(), time.Now().UTC(), 1); err != nil || n != 1 {
 		t.Fatal("production history selection", n, err)

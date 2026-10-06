@@ -238,7 +238,7 @@ func TestMonitorDeleteConcurrencyDiagnostic(t *testing.T) {
 		f := newProbeRegistryFixture(t, "mariadb")
 		f.db.SetMaxOpenConns(8)
 		hook := newDeleteDiagnosticHook()
-		f.db.AddQueryHook(hook)
+		attachInPlaceQueryHook(f.db, hook)
 		var version string
 		defer func() { hook.report(t, "applied-source-reader-versus-delete", version) }()
 		if err := f.db.NewRaw("SELECT VERSION()").Scan(ctx, &version); err != nil {
@@ -269,7 +269,7 @@ func TestMonitorDeleteConcurrencyDiagnostic(t *testing.T) {
 		peer.SetMaxOpenConns(1)
 		observer := reopenConfigDB(t, f)
 		peerHook := newDeleteDiagnosticHook()
-		peer.AddQueryHook(peerHook)
+		attachInPlaceQueryHook(peer, peerHook)
 		defer func() { peerHook.report(t, "applied-source-reader-versus-delete-writer", version) }()
 		var writerConnection int64
 		if err := peer.NewRaw("SELECT CONNECTION_ID()").Scan(ctx, &writerConnection); err != nil {
@@ -280,7 +280,7 @@ func TestMonitorDeleteConcurrencyDiagnostic(t *testing.T) {
 		var graphOnce, releaseOnce sync.Once
 		unblock := func() { releaseOnce.Do(func() { close(release) }) }
 		defer unblock()
-		f.db.AddQueryHook(monitorMutationQueryHook{before: func(ctx context.Context, query string) {
+		attachInPlaceQueryHook(f.db, monitorMutationQueryHook{before: func(ctx context.Context, query string) {
 			if strings.Contains(query, "NOT EXISTS (SELECT 1 FROM monitor_probe_assignment_sets") {
 				graphOnce.Do(func() {
 					close(graph)
@@ -300,7 +300,7 @@ func TestMonitorDeleteConcurrencyDiagnostic(t *testing.T) {
 		}
 		registrationAttempted := make(chan struct{}, 1)
 		monitorAttempted := make(chan struct{}, 1)
-		peer.AddQueryHook(monitorMutationQueryHook{before: func(_ context.Context, query string) {
+		attachInPlaceQueryHook(peer, monitorMutationQueryHook{before: func(_ context.Context, query string) {
 			switch {
 			case strings.HasPrefix(query, "UPDATE `probes`"):
 				select {
@@ -383,7 +383,7 @@ func TestMonitorDeleteConcurrencyDiagnostic(t *testing.T) {
 		f := newProbeRegistryFixture(t, "mariadb")
 		f.db.SetMaxOpenConns(8)
 		hook := newDeleteDiagnosticHook()
-		f.db.AddQueryHook(hook)
+		attachInPlaceQueryHook(f.db, hook)
 		var version string
 		defer func() { hook.report(t, "delete-versus-worker-lease-lifecycle", version) }()
 		if err := f.db.NewRaw("SELECT VERSION()").Scan(ctx, &version); err != nil {
@@ -406,7 +406,7 @@ func TestMonitorDeleteConcurrencyDiagnostic(t *testing.T) {
 		}
 		peer := reopenConfigDB(t, f)
 		peerHook := newDeleteDiagnosticHook()
-		peer.AddQueryHook(peerHook)
+		attachInPlaceQueryHook(peer, peerHook)
 		defer func() { peerHook.report(t, "delete-versus-worker-lease-lifecycle-peer", version) }()
 		deleteRepo := mariadb.NewMonitorRepo(peer)
 		start := make(chan struct{})

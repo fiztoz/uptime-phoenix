@@ -29,6 +29,7 @@ OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",
     "TestTelegramSender_Send_DownSeverity",
     "TestEdgeCheckCrashChild",
+    "TestConfigGroupCycleHelperProcess",
     "TestEdgeDiskFullCriticalCommit",
 }
 
@@ -180,7 +181,21 @@ class StrictBackendGateTest(unittest.TestCase):
         self.assertEqual(summary["missing_required"], [])
         self.assertEqual(summary["unrecognized_skips"], [])
         self.assertEqual(summary["mariadb_named_skips"], 0)
-        self.assertEqual(summary["named_skips"], 4)
+        self.assertEqual(summary["named_skips"], 5)
+
+    def test_cycle_helper_skip_requires_every_actual_subprocess_case(self):
+        cases = {f"TestConfigGroupCycle_DoesNotKillProcess/{variant}"
+                 for variant in ("self", "two", "three")}
+        self.assertTrue(cases <= gate.REQUIRED)
+        for case in sorted(cases):
+            for action in (None, "skip", "fail"):
+                with self.subTest(case=case, action=action):
+                    lines = passing_events(omit={case})
+                    lines.append(event("TestConfigGroupCycleHelperProcess", "skip"))
+                    if action is not None:
+                        lines.append(event(case, action))
+                    summary = self.assert_failed(lines)
+                    self.assertEqual(summary["missing_required"], [case])
 
     def test_unsuffixed_mariadb_only_leaves_do_not_inflate_engine_count(self):
         status, summary = self.run_gate(passing_events())

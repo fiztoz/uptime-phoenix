@@ -93,7 +93,7 @@ func (r *ProbeWatchdogSettingsStore) Replace(ctx context.Context, probeID string
 		if err != nil {
 			return err
 		}
-		if count != len(desired.NotificationIDs) {
+		if count != int64(len(desired.NotificationIDs)) {
 			return domain.ErrValidation
 		}
 		m := &probeWatchdogSettingsModel{ProbeID: probeID, Revision: current.Revision + 1, Enabled: desired.Enabled,
