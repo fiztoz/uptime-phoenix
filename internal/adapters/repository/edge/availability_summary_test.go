@@ -112,7 +112,7 @@ func TestEdgeRecoverySummaryDelivery(t *testing.T) {
 			// Make failed and previously claimed work due without waiting on wall time.
 			drain := func() {
 				t.Helper()
-				if _, err := s.db.ExecContext(ctx, "UPDATE edge_delivery_outbox SET available_at = ?, lease_until = CASE WHEN status='leased' THEN ? ELSE lease_until END WHERE status IN ('pending','retrying','leased')", time.Now().Add(-time.Hour).UnixMicro(), time.Now().Add(-time.Second).UnixMicro()); err != nil {
+				if _, err := s.db.ExecContext(ctx, "UPDATE edge_delivery_outbox SET available_at = ?, leased_at = CASE WHEN status='leased' THEN ? ELSE leased_at END, lease_until = CASE WHEN status='leased' THEN ? ELSE lease_until END WHERE status IN ('pending','retrying','leased')", time.Now().Add(-time.Hour).UnixMicro(), time.Now().Add(-time.Minute).UnixMicro(), time.Now().Add(-time.Second).UnixMicro()); err != nil {
 					t.Fatal(err)
 				}
 				for range 8 {
