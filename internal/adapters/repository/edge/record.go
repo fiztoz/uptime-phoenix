@@ -386,6 +386,19 @@ func insertEdgeIntent(ctx context.Context, tx bun.Tx, o domain.RegionalObservati
 	if o.Status == domain.StatusDown && inc.Status != domain.AlertStatusFiring || o.Status == domain.StatusUp && inc.Status != domain.AlertStatusResolved {
 		return domain.ErrValidation
 	}
+	if inc.Status == domain.AlertStatusResolved {
+		// Decide per channel inside the recovery transaction, against durable
+		// outcomes rather than an earlier service snapshot. Unsent outages need
+		// one summary, not an ordinary recovery for a DOWN nobody received.
+		sent, err := tx.NewSelect().Model((*edgeDeliveryRow)(nil)).
+			Where("source_alert_id = ? AND notification_id = ? AND check_status = ? AND status = ?", inc.SourceAlertID, intent.NotificationID, domain.StatusDown, domain.DeliveryStatusSent).Exists(ctx)
+		if err != nil {
+			return err
+		}
+		if !sent {
+			intent.EventKind = domain.DeliveryEventIncidentSummary
+		}
+	}
 	return insertEdgeQueuedDelivery(ctx, tx, domain.QueuedDelivery{DeliveryIntent: intent, MonitorID: o.MonitorID, AssignmentGeneration: o.AssignmentGeneration, StreamID: o.StreamID, SourceSeq: o.Seq, ConfigRevision: o.ConfigRevision, CheckStatus: o.Status, CheckOutput: o.Message, ObservedAt: o.ObservedAt, IncidentStatus: inc.Status, StartedAt: inc.StartedAt, ResolvedAt: inc.ResolvedAt, CreatedAt: o.ReceivedAt})
 }
 

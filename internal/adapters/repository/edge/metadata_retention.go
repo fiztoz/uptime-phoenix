@@ -18,6 +18,8 @@ func (s *Store) retainMetadata(ctx context.Context, tx bun.Tx, i domain.EdgeIden
 	queries := []string{
 		`DELETE FROM edge_delivery_outbox WHERE delivery_id IN (
  SELECT delivery_id FROM edge_delivery_outbox WHERE status IN ('sent','failed','superseded') AND outcome_at < ?
+ AND NOT (status='sent' AND check_status=0 AND EXISTS (
+ SELECT 1 FROM edge_alerts a WHERE a.source_alert_id=edge_delivery_outbox.source_alert_id AND a.status IN ('firing','acked')))
  ORDER BY outcome_at, delivery_id LIMIT 512)`,
 		`DELETE FROM edge_regional_state WHERE (monitor_id,generation) IN (
  SELECT s.monitor_id,s.generation FROM edge_regional_state s WHERE s.observed_at < ?
