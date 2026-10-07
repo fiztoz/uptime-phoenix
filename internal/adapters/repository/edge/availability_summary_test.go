@@ -14,6 +14,9 @@ func TestEdgeRecoverySummaryDelivery(t *testing.T) {
 	for _, scenario := range []string{"pending", "retrying", "claimed", "one channel delivered"} {
 		t.Run(scenario, func(t *testing.T) {
 			s, dir := setupEdgeDeliveryStore(t)
+			if err := WithRetentionPolicy(RetentionPolicy{MaxBytes: 1 << 20, MaxAge: time.Hour})(s); err != nil {
+				t.Fatal(err)
+			}
 			ctx := t.Context()
 			config, a := certAssignment()
 			a.Monitor.CertExpiryNotify = false
