@@ -185,6 +185,20 @@ func TestEdgeRecoverySummaryDelivery(t *testing.T) {
 			if len(sender.alerts) != 2 {
 				t.Fatal("restart duplicated delivered summaries")
 			}
+			// Recovery releases the open-incident receipt exception. Old successful
+			// DOWN and UP receipts can now expire without altering replay evidence.
+			if err := WithRetentionPolicy(RetentionPolicy{MaxBytes: 1 << 20, MaxAge: time.Hour})(s); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.db.ExecContext(ctx, "UPDATE edge_delivery_outbox SET outcome_at = ? WHERE status = 'sent'", started.Add(-8*24*time.Hour).UnixMicro()); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SweepRetention(ctx, time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
+			if n := certCount(t, s, "SELECT COUNT(*) FROM edge_delivery_outbox WHERE status='sent'"); n != 0 {
+				t.Fatalf("resolved incident retained %d aged delivery receipts", n)
+			}
 		})
 	}
 }
