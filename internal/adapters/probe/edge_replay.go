@@ -30,12 +30,13 @@ const (
 )
 
 type inflightBatch struct {
-	streamID  string
-	firstSeq  int64
-	lastSeq   int64
-	itemCount int
-	frame     []byte
-	sent      bool
+	streamID       string
+	firstSeq       int64
+	lastSeq        int64
+	itemCount      int
+	frame          []byte
+	sent           bool
+	retryRequested bool
 }
 
 type completedBatchInfo struct {
@@ -314,7 +315,13 @@ func (p *edgeReplayPump) sendAndAwaitACK(ctx context.Context, inflight *inflight
 			return ctx.Err()
 		}
 		var wake <-chan time.Time
-		if p.isHubReady() {
+		p.mu.Lock()
+		// A valid telemetry.retry invites only this already-sent batch back after
+		// bounded backoff, even while the hub honestly reports degraded ingestion.
+		// New batches and current-snapshot priority still use the normal gate.
+		canSend := !p.statePending && (p.hubReady || inflight.retryRequested)
+		p.mu.Unlock()
+		if canSend {
 			if !time.Now().Before(nextSend) {
 				// Only the loop owns this flag. Reader callbacks enqueue ACKs;
 				// no callback can commit until SendReplay has returned.
@@ -374,6 +381,7 @@ func (p *edgeReplayPump) processEvent(ctx context.Context, inflight *inflightBat
 		if backoff != nil {
 			*backoff = time.Duration(retryMS) * time.Millisecond
 		}
+		inflight.retryRequested = true
 		return nil
 
 	case "telemetry.ack":

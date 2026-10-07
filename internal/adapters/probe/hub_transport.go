@@ -175,6 +175,8 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	defer stop()
 	var senders sync.WaitGroup
 	var ready atomic.Bool
+	var readinessMu sync.Mutex
+	var ingestFailed bool
 	var cursor atomic.Int64
 	var appliedRevision atomic.Int64
 	healthChanged := make(chan struct{}, 1)
@@ -286,15 +288,18 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 			result, err := ingest(commitCtx, batch)
 			cancelCommit()
 			if err != nil {
+				readinessMu.Lock()
+				ingestFailed = true
 				ready.Store(false)
+				readinessMu.Unlock()
 				wakeHealth()
 				if errors.Is(err, domain.ErrReplayRetry) && result != nil && result.StreamID == batch.StreamID && result.CommittedSeq >= batch.FirstSeq-1 && result.CommittedSeq <= batch.LastSeq {
 					response, encodeErr := encodeFrame("telemetry.retry", Decimal(input.Generation), TelemetryRetry{StreamID: batch.StreamID, CommittedSeq: Decimal(result.CommittedSeq), RetryAfterMS: 1000})
 					if encodeErr != nil {
 						return encodeErr
 					}
-					// Probe health refreshes writability; the retry frame itself is
-					// only a backoff request and can never acknowledge evidence.
+					// Explicitly invite a bounded retry while ingest health remains
+					// degraded. Peer health cannot prove these writes recovered.
 					return session.SendControl(frameCtx, response)
 				}
 				return errors.New("telemetry commit unavailable")
@@ -311,6 +316,11 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 				return errors.New("invalid telemetry receipt")
 			}
 			cursor.Store(max(cursor.Load(), result.CommittedSeq))
+			readinessMu.Lock()
+			ingestFailed = false
+			ready.Store(true)
+			readinessMu.Unlock()
+			wakeHealth()
 			return session.SendControl(frameCtx, response)
 		}
 		if envelope.Type == "config.applied" {
@@ -336,9 +346,15 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 		if err := established(frameCtx); err != nil {
 			return errors.New("connector authority unavailable")
 		}
-		if ready.Swap(ingest != nil) != (ingest != nil) {
+		// Lease renewal proves connector authority, not durable replay ingestion.
+		// Serialize with commit outcomes so a concurrent healthy peer frame cannot
+		// overwrite a known local write failure.
+		readinessMu.Lock()
+		available := ingest != nil && !ingestFailed
+		if ready.Swap(available) != available {
 			wakeHealth()
 		}
+		readinessMu.Unlock()
 		return nil
 	}, admission)
 	stop()
