@@ -148,7 +148,7 @@ func (s *Store) ReadEdgeEvidence(ctx context.Context, monitorID, generation int6
 // Provider I/O is impossible here; only the injected pure encoder is invoked.
 func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckRecord) (domain.RegionalObservation, error) {
 	o := record.Observation
-	if s.telemetry == nil || !domain.ValidTLSObservation(o.TLS) || record.ExpectedStateSeq < 0 || record.ExpectedIncidentVersion < 0 || record.ExpectedCertificateVersion < 0 || o.MonitorID <= 0 || o.AssignmentGeneration <= 0 || o.ConfigRevision <= 0 || o.Seq != 0 || o.ObservedAt.IsZero() || o.ReceivedAt.IsZero() || o.Status < domain.StatusDown || o.Status > domain.StatusMaintenance || o.RawStatus != domain.StatusUp && o.RawStatus != domain.StatusDown || len(record.DeliveryIntents) > 1000 || len(record.Conditions) > 2 {
+	if s.telemetry == nil || !domain.ValidTLSObservation(o.TLS) || record.ExpectedStateSeq < 0 || record.ExpectedIncidentVersion < 0 || record.ExpectedCertificateVersion < 0 || o.MonitorID <= 0 || o.AssignmentGeneration <= 0 || o.ConfigRevision <= 0 || o.Seq != 0 || o.ObservedAt.IsZero() || o.ReceivedAt.IsZero() || o.Status < domain.StatusDown || o.Status > domain.StatusMaintenance || o.RawStatus != domain.StatusUp && o.RawStatus != domain.StatusDown && o.RawStatus != domain.StatusMaintenance || len(record.DeliveryIntents) > 1000 || len(record.Conditions) > 2 {
 		return domain.RegionalObservation{}, domain.ErrValidation
 	}
 	for _, work := range record.Conditions {
@@ -385,6 +385,19 @@ func insertEdgeIntent(ctx context.Context, tx bun.Tx, o domain.RegionalObservati
 	}
 	if o.Status == domain.StatusDown && inc.Status != domain.AlertStatusFiring || o.Status == domain.StatusUp && inc.Status != domain.AlertStatusResolved {
 		return domain.ErrValidation
+	}
+	if inc.Status == domain.AlertStatusResolved {
+		// Decide per channel inside the recovery transaction, against durable
+		// outcomes rather than an earlier service snapshot. Unsent outages need
+		// one summary, not an ordinary recovery for a DOWN nobody received.
+		sent, err := tx.NewSelect().Model((*edgeDeliveryRow)(nil)).
+			Where("source_alert_id = ? AND notification_id = ? AND check_status = ? AND status = ?", inc.SourceAlertID, intent.NotificationID, domain.StatusDown, domain.DeliveryStatusSent).Exists(ctx)
+		if err != nil {
+			return err
+		}
+		if !sent {
+			intent.EventKind = domain.DeliveryEventIncidentSummary
+		}
 	}
 	return insertEdgeQueuedDelivery(ctx, tx, domain.QueuedDelivery{DeliveryIntent: intent, MonitorID: o.MonitorID, AssignmentGeneration: o.AssignmentGeneration, StreamID: o.StreamID, SourceSeq: o.Seq, ConfigRevision: o.ConfigRevision, CheckStatus: o.Status, CheckOutput: o.Message, ObservedAt: o.ObservedAt, IncidentStatus: inc.Status, StartedAt: inc.StartedAt, ResolvedAt: inc.ResolvedAt, CreatedAt: o.ReceivedAt})
 }

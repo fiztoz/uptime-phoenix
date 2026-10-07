@@ -232,6 +232,10 @@ func edgeAlertContext(item domain.QueuedDelivery, a domain.EdgeResolvedAssignmen
 	if item.CheckStatus == domain.StatusUp {
 		alert.PreviousStatus = domain.StatusDown
 	}
+	if item.EventKind == domain.DeliveryEventIncidentSummary && item.ResolvedAt != nil {
+		alert.Message = fmt.Sprintf("%s was DOWN from %s to %s (recovered)", m.Name,
+			item.StartedAt.UTC().Format(time.RFC3339Nano), item.ResolvedAt.UTC().Format(time.RFC3339Nano))
+	}
 	for _, tag := range a.Tags {
 		alert.Tags[tag.Name] = tag.Value
 	}

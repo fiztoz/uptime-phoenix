@@ -156,6 +156,9 @@ func (s *EdgeRecordingService) Record(ctx context.Context, config *domain.EdgeRe
 			}
 		}
 		if maintenance {
+			// No checker result is evidence during maintenance. The wire contract
+			// requires both statuses to identify the suppressed observation.
+			o.RawStatus = domain.StatusMaintenance
 			o.Message = "Maintenance window active"
 		}
 		record := domain.EdgeCheckRecord{ExpectedStateSeq: expectedSeq, Observation: o, Conditions: conditionWorks}
