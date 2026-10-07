@@ -26,13 +26,14 @@ func TestMonitorDeleteRemovesHistoricalHeartbeats(t *testing.T) {
 			}{
 				{r.monitor, "local", 1, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)},
 				{r.monitor, r.session.ProbeID, 7, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)},
+				{r.monitor, r.session.ProbeID, 8, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)},
 				{other, "local", 1, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)},
 			} {
 				if _, err := r.f.db.ExecContext(ctx, "INSERT INTO heartbeats (monitor_id, probe_id, assignment_generation, status, time) VALUES (?, ?, ?, 1, ?)", row.id, row.probe, row.generation, row.at); err != nil {
 					t.Fatal(err)
 				}
 			}
-			count := func(id int64) int {
+			count := func(id int64) int64 {
 				t.Helper()
 				n, err := r.f.db.NewSelect().Table("heartbeats").Where("monitor_id = ?", id).Count(ctx)
 				if err != nil {
@@ -73,6 +74,9 @@ func TestMonitorDeleteRemovesHistoricalHeartbeats(t *testing.T) {
 			}
 			if _, err := repo.GetByID(ctx, r.monitor); !errors.Is(err, ports.ErrNotFound) {
 				t.Fatalf("deleted monitor lookup: %v", err)
+			}
+			if replayCount(t, r.f, "probe_observations") != 0 {
+				t.Fatal("regional history was not cascaded")
 			}
 			if count(r.monitor) != 0 || count(other) != 1 {
 				t.Fatal("history was retained or another monitor was affected")
