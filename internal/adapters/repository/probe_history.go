@@ -165,6 +165,19 @@ func (r *RegionalCommitStore) recomputeHistoryWindow(ctx context.Context, candid
 		if err != nil {
 			return err
 		}
+		if tx.Dialect().Name() == dialect.MySQL {
+			// Replay owns the registration before marking dirty buckets. Match that
+			// order before the commit guard: carry-forward inserts otherwise request
+			// an FK shared lock after owning the dirty row, creating a lock cycle.
+			// Keep the coherent read optimistic; the current revision check below
+			// still rejects any source commit that happened during projection.
+			var probeID string
+			if err := tx.NewRaw("SELECT id FROM probes WHERE id = ? LOCK IN SHARE MODE", row.ProbeID).Scan(ctx, &probeID); errors.Is(err, sql.ErrNoRows) {
+				return errHistoryChanged
+			} else if err != nil {
+				return err
+			}
+		}
 		var current probeDirtyBucketModel
 		q := dirtyIdentity(tx.NewSelect().Model(&current), row)
 		if tx.Dialect().Name() == dialect.MySQL {
