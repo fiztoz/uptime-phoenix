@@ -33,10 +33,17 @@ func TestEdgeRecoverySummaryDelivery(t *testing.T) {
 			if err := record(domain.StatusDown, started); err != nil {
 				t.Fatal(err)
 			}
+			wantClaims := 2
+			if scenario == "one channel delivered" {
+				if err := record(domain.StatusDown, started.Add(time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				wantClaims = 4
+			}
 			var claims []domain.QueuedDelivery
 			if scenario != "pending" {
 				claims, err = s.ClaimDeliveries(ctx, testIdentity().ProbeID, time.Now().UTC(), time.Minute, 10)
-				if err != nil || len(claims) != 2 {
+				if err != nil || len(claims) != wantClaims {
 					t.Fatalf("claim: %+v %v", claims, err)
 				}
 				for _, item := range claims {
@@ -59,7 +66,8 @@ func TestEdgeRecoverySummaryDelivery(t *testing.T) {
 			}
 			if scenario == "one channel delivered" {
 				// Exercise actual metadata cleanup with an aged sent receipt while the
-				// incident remains open; the per-channel outcome must survive.
+				// incident remains open; exactly one per-channel receipt must survive,
+				// while redundant resend receipts remain eligible for cleanup.
 				if _, err := s.db.ExecContext(ctx, "UPDATE edge_delivery_outbox SET outcome_at = ? WHERE status = 'sent'", started.Add(-8*24*time.Hour).UnixMicro()); err != nil {
 					t.Fatal(err)
 				}
@@ -67,7 +75,7 @@ func TestEdgeRecoverySummaryDelivery(t *testing.T) {
 					t.Fatal(err)
 				}
 				if n := certCount(t, s, "SELECT COUNT(*) FROM edge_delivery_outbox WHERE status='sent'"); n != 1 {
-					t.Fatal("retention erased open-incident delivery")
+					t.Fatalf("retention must keep one open-incident delivery receipt, got %d", n)
 				}
 			}
 			// Recovery and its two channel intents must roll back together.
