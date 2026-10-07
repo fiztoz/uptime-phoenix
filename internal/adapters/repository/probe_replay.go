@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -83,6 +84,10 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 				return err
 			}
 		}
+		monitors, err := lockObservationBatchAssignments(ctx, tx, batch.Events, stream.CommittedSeq)
+		if err != nil {
+			return err
+		}
 		// Decode each retained revision at most once in this bounded transaction.
 		configs := make(map[int64]*domain.EdgeResolvedConfig)
 		for _, event := range batch.Events {
@@ -133,7 +138,7 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 				}
 				event.Incident = &incident
 			}
-			facts, err := s.replayFacts(ctx, tx, session, event, configs)
+			facts, err := s.replayFacts(ctx, tx, session, event, configs, monitors)
 			if err != nil {
 				return err
 			}
@@ -236,6 +241,53 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 	return result, nil
 }
 
+// Observation-only batches have no parent dependencies. Acquire their monitor
+// authority in ID order before processing events in source sequence order. This
+// avoids a cycle with the local source reader's assignment scan when source
+// sequences revisit an earlier monitor. Mixed batches retain per-event fencing:
+// delivery authority can depend on a transition accepted earlier in the batch.
+func lockObservationBatchAssignments(ctx context.Context, tx bun.Tx, events []domain.ProbeReplayEvent, committed int64) (map[int64]bool, error) {
+	monitors := make(map[int64]bool)
+	for _, event := range events {
+		if event.Seq <= committed {
+			continue
+		}
+		if event.Kind != domain.ReplayKindObservation || event.Observation == nil || event.Incident != nil || event.Condition != nil || event.Delivery != nil {
+			return nil, nil
+		}
+		if o := event.Observation; o.MonitorID > 0 && o.ConfigRevision > 0 {
+			monitors[o.MonitorID] = false
+		}
+	}
+	ids := make([]int64, 0, len(monitors))
+	for id := range monitors {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		exists, err := lockReplayAssignment(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		monitors[id] = exists
+	}
+	return monitors, nil
+}
+
+func lockReplayAssignment(ctx context.Context, tx bun.Tx, monitorID int64) (bool, error) {
+	exists, err := tx.NewSelect().Table("monitors").Where("id = ?", monitorID).Exists(ctx)
+	if err != nil {
+		return false, err
+	}
+	// Retain the same authority lock and SERIALIZABLE absent/deletion predicates.
+	if exists {
+		if _, err := tx.ExecContext(ctx, "UPDATE monitor_probe_assignment_sets SET revision = revision WHERE monitor_id = ?", monitorID); err != nil {
+			return false, err
+		}
+	}
+	return exists, nil
+}
+
 func replayDatabaseTime(ctx context.Context, tx bun.Tx) (time.Time, error) {
 	query := "SELECT strftime('%Y-%m-%d %H:%M:%f', 'now')"
 	if tx.Dialect().Name() == dialect.MySQL {
@@ -248,7 +300,7 @@ func replayDatabaseTime(ctx context.Context, tx bun.Tx) (time.Time, error) {
 	return time.ParseInLocation("2006-01-02 15:04:05.999999", value, time.UTC)
 }
 
-func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session domain.ProbeReplaySession, event domain.ProbeReplayEvent, configs map[int64]*domain.EdgeResolvedConfig) (domain.ProbeReplayAuthorityFacts, error) {
+func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session domain.ProbeReplaySession, event domain.ProbeReplayEvent, configs map[int64]*domain.EdgeResolvedConfig, monitors map[int64]bool) (domain.ProbeReplayAuthorityFacts, error) {
 	f := domain.ProbeReplayAuthorityFacts{ProbeID: session.ProbeID, StreamID: session.StreamID, Channels: map[int64]int64{}}
 	switch {
 	case event.Observation != nil:
@@ -367,14 +419,11 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 	}
 	if f.MonitorID > 0 {
 		var err error
-		f.MonitorExists, err = tx.NewSelect().Table("monitors").Where("id = ?", f.MonitorID).Exists(ctx)
-		if err != nil {
-			return f, err
-		}
-		// Lock assignment authority before committing evidence. SERIALIZABLE also
-		// protects absent membership and monitor-deletion predicates.
-		if f.MonitorExists {
-			if _, err := tx.ExecContext(ctx, "UPDATE monitor_probe_assignment_sets SET revision = revision WHERE monitor_id = ?", f.MonitorID); err != nil {
+		if monitors != nil {
+			f.MonitorExists = monitors[f.MonitorID]
+		} else {
+			f.MonitorExists, err = lockReplayAssignment(ctx, tx, f.MonitorID)
+			if err != nil {
 				return f, err
 			}
 		}
