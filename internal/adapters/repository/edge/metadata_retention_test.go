@@ -175,7 +175,9 @@ func TestEdgeMetadataCleanupPreservesPendingWorkAndRollsBackLateFailure(t *testi
 		t.Fatal(err)
 	}
 	claim := claims[0]
-	if err := s.FinishDelivery(t.Context(), domain.DeliveryClaim{DeliveryID: claim.DeliveryID, ProbeID: claim.ProbeID, Attempt: claim.Attempt, LeaseToken: claim.LeaseToken}, domain.DeliveryResult{Status: domain.DeliveryStatusSent, At: now.Add(time.Second)}); err != nil {
+	// Failed terminal work can expire while the incident is open. A successful
+	// DOWN receipt must survive for recovery classification (covered separately).
+	if err := s.FinishDelivery(t.Context(), domain.DeliveryClaim{DeliveryID: claim.DeliveryID, ProbeID: claim.ProbeID, Attempt: claim.Attempt, LeaseToken: claim.LeaseToken}, domain.DeliveryResult{Status: domain.DeliveryStatusFailed, At: now.Add(time.Second), ErrorCode: domain.ErrCodeUnknownSenderType}); err != nil {
 		t.Fatal(err)
 	}
 	// An unrelated unreferenced config makes deletion the last operation in the
