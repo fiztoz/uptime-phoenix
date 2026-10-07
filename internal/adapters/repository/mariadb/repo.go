@@ -269,7 +269,11 @@ func (r *MonitorRepo) Delete(ctx context.Context, id int64) error {
 		if n == 0 {
 			return ports.ErrNotFound
 		}
-		return nil
+		// Partitioned heartbeats cannot have an ON DELETE CASCADE foreign key.
+		// Delete all generations/regions explicitly while the parent deletion
+		// still fences regional writers, and roll back both effects on failure.
+		_, err = tx.NewDelete().Model((*repository.HeartbeatModel)(nil)).Where("monitor_id = ?", id).Exec(ctx)
+		return err
 	})
 	return translateError(err)
 }
