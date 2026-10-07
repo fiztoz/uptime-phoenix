@@ -1,6 +1,7 @@
 package repository_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -59,7 +60,11 @@ func TestMonitorDeleteRemovesHistoricalHeartbeats(t *testing.T) {
 			if _, err := r.f.db.ExecContext(ctx, trigger); err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { _, _ = r.f.db.ExecContext(ctx, "DROP TRIGGER IF EXISTS fail_history_delete") })
+			t.Cleanup(func() {
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_, _ = r.f.db.ExecContext(cleanupCtx, "DROP TRIGGER IF EXISTS fail_history_delete")
+			})
 			if err := repo.Delete(ctx, r.monitor); err == nil {
 				t.Fatal("history cleanup failure reported success")
 			}
