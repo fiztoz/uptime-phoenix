@@ -243,11 +243,14 @@ func TestRegionalRecoveryBatchPreservesReplayCommitAndFanout(t *testing.T) {
 	for i := int64(1); i <= 2; i++ {
 		batch.Events = append(batch.Events, domain.ProbeReplayEvent{Seq: i, Kind: domain.ReplayKindObservation, Digest: strings.Repeat("a", 64), ObservedAt: time.Now().UTC(), Observation: &domain.RegionalObservation{MonitorID: i}})
 	}
-	for _, mode := range []string{"success", "rollback", "ambiguous commit"} {
+	for _, mode := range []string{"success", "eligible success", "rollback", "ambiguous commit"} {
 		t.Run(mode, func(t *testing.T) {
-			resolver, _, _, _, pages, overall := recoveryBatchFixture()
+			resolver, sp, incidents, links, pages, overall := recoveryBatchFixture()
+			if mode == "eligible success" {
+				recoveryBatchPage(t, sp, incidents, links, true, true, 2)
+			}
 			repo := &recoveryBatchReplayRepo{}
-			if mode != "success" {
+			if mode != "success" && mode != "eligible success" {
 				repo.writeErr = domain.ErrInternal
 				if mode == "ambiguous commit" {
 					repo.cursor = 2
@@ -267,19 +270,22 @@ func TestRegionalRecoveryBatchPreservesReplayCommitAndFanout(t *testing.T) {
 				}
 			}
 			result, err := svc.ProcessBatch(t.Context(), session, batch)
-			wantCalls := int64(1)
+			wantCalls, wantHealth := int64(1), int64(0)
+			if mode == "eligible success" {
+				wantCalls, wantHealth = 2, 2
+			}
 			wantIDs := []int64{1, 2}
 			if mode == "rollback" {
 				wantCalls = 0
 				wantIDs = nil
 			}
-			if mode == "success" && (err != nil || result.CommittedSeq != 2) {
+			if (mode == "success" || mode == "eligible success") && (err != nil || result.CommittedSeq != 2) {
 				t.Fatalf("success result=%+v err=%v", result, err)
 			}
 			if mode == "ambiguous commit" && (!errors.Is(err, domain.ErrReplayRetry) || result.CommittedSeq != 2) {
 				t.Fatalf("ambiguous commit became false ACK: %+v %v", result, err)
 			}
-			if pages.calls.Load() != wantCalls || overall.calls.Load() != 0 {
+			if pages.calls.Load() != wantCalls || overall.calls.Load() != wantHealth {
 				t.Fatalf("candidate calls=%d health=%d", pages.calls.Load(), overall.calls.Load())
 			}
 			if !reflect.DeepEqual(browser.ids, wantIDs) || !reflect.DeepEqual(groups.ids, wantIDs) {
@@ -353,7 +359,8 @@ func TestRegionalRecoveryBatchPreservesSnapshotReceiptAndFanout(t *testing.T) {
 	session := domain.ProbeReplaySession{HubID: "11111111-1111-4111-8111-111111111111", ProbeID: "22222222-2222-4222-8222-222222222222", StreamID: "33333333-3333-4333-8333-333333333333", OwnerID: "44444444-4444-4444-8444-444444444444", ConnectionGeneration: 1}
 	now := time.Now().UTC()
 	snapshot := domain.ProbeCurrentSnapshot{ProbeID: session.ProbeID, StreamID: session.StreamID, SnapshotID: "55555555-5555-4555-8555-555555555555", SHA256: strings.Repeat("ab", 32), ConfigRevision: 1, CreatedAt: now, LastCreatedSeq: 4, States: []domain.ProbeCurrentState{{MonitorID: 7, AssignmentGeneration: 1, Seq: 4, ObservedAt: now, Status: domain.StatusUp}}}
-	resolver, _, _, _, pages, overall := recoveryBatchFixture()
+	resolver, sp, incidents, links, pages, overall := recoveryBatchFixture()
+	recoveryBatchPage(t, sp, incidents, links, true, true, 7)
 	repo := &recoveryBatchStateRepo{receipt: &domain.ProbeStateReceipt{SnapshotID: snapshot.SnapshotID, MonitorIDs: []int64{9, 7}}}
 	svc, err := NewProbeStateService(repo, &AccessService{})
 	if err != nil {
@@ -369,18 +376,18 @@ func TestRegionalRecoveryBatchPreservesSnapshotReceiptAndFanout(t *testing.T) {
 		}
 	}
 	receipt, err := svc.ApplySnapshot(t.Context(), session, snapshot)
-	if err != nil || receipt != repo.receipt || pages.calls.Load() != 1 || overall.calls.Load() != 0 {
+	if err != nil || receipt != repo.receipt || pages.calls.Load() != 2 || overall.calls.Load() != 2 {
 		t.Fatalf("receipt=%+v err=%v pages=%d health=%d", receipt, err, pages.calls.Load(), overall.calls.Load())
 	}
 	if !reflect.DeepEqual(browser.ids, []int64{9, 7}) || !reflect.DeepEqual(groups.ids, []int64{9, 7}) {
 		t.Fatal("candidate filter changed reconciled-assignment fanout")
 	}
 	repo.receipt = &domain.ProbeStateReceipt{SnapshotID: snapshot.SnapshotID}
-	if _, err := svc.ApplySnapshot(t.Context(), session, snapshot); err != nil || pages.calls.Load() != 1 || len(browser.ids) != 2 || len(groups.ids) != 2 {
+	if _, err := svc.ApplySnapshot(t.Context(), session, snapshot); err != nil || pages.calls.Load() != 2 || len(browser.ids) != 2 || len(groups.ids) != 2 {
 		t.Fatal("identical snapshot repeated recovery or fanout", err)
 	}
 	repo.err = ports.ErrConflict
-	if _, err := svc.ApplySnapshot(t.Context(), session, snapshot); !errors.Is(err, ports.ErrConflict) || pages.calls.Load() != 1 {
+	if _, err := svc.ApplySnapshot(t.Context(), session, snapshot); !errors.Is(err, ports.ErrConflict) || pages.calls.Load() != 2 {
 		t.Fatal("failed snapshot reached recovery", err)
 	}
 }
