@@ -15,9 +15,26 @@ type regionalRecovery struct {
 	resolver incidentAutoResolver
 }
 
+// regionalRecoveryCandidateReader narrows a batch before expensive health
+// reads. It is only a work filter: resolution must still recheck current policy.
+type regionalRecoveryCandidateReader interface {
+	RegionalRecoveryCandidates(context.Context, []int64) ([]int64, error)
+}
+
 func (r regionalRecovery) resolve(ctx context.Context, ids []int64) {
 	if r.overall == nil || r.resolver == nil || len(ids) == 0 {
 		return
+	}
+	if candidates, ok := r.resolver.(regionalRecoveryCandidateReader); ok {
+		var err error
+		ids, err = candidates.RegionalRecoveryCandidates(ctx, ids)
+		if err != nil {
+			slog.ErrorContext(ctx, "regional recovery: candidate read failed", "error", err)
+			return
+		}
+		if len(ids) == 0 {
+			return
+		}
 	}
 	statuses, err := r.overall.StatusForMonitors(ctx, ids, time.Now().UTC())
 	if err != nil {
