@@ -9,6 +9,8 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/google/uuid"
+
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/auth"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/notifier"
@@ -17,7 +19,6 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
-	"github.com/google/uuid"
 )
 
 func TestEdgeMaintenanceRecordingAfterColdConfigLoad(t *testing.T) {
