@@ -9,6 +9,29 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
+// BroadcastRegional queues recipient frames synchronously. Drain that completed
+// work without a timer: an expired quiet timer can win a select against an
+// already-buffered frame under scheduler contention and leak it to the next case.
+func drainRegionalFrames(t *testing.T, c *Client) []map[string]any {
+	t.Helper()
+	var frames []map[string]any
+	for {
+		select {
+		case data, ok := <-c.Outbound():
+			if !ok {
+				t.Fatal("client closed before regional broadcast assertion")
+			}
+			var frame map[string]any
+			if err := json.Unmarshal(data, &frame); err != nil {
+				t.Fatal(err)
+			}
+			frames = append(frames, frame)
+		default:
+			return frames
+		}
+	}
+}
+
 func TestRegionalEventsRecheckAudienceAndStripPrivateFields(t *testing.T) {
 	h := newHubRBACHarness(t)
 	admin, member, stranger := h.addClient(h.adminID), h.addClient(h.memberID), h.addClient(h.strangerID)
@@ -16,8 +39,8 @@ func TestRegionalEventsRecheckAudienceAndStripPrivateFields(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			fields := map[string]any{"id": "probe", "monitor_id": h.monitorGranted, "requester_id": h.memberID, "status": "up", "projection_version": "9223372036854775807", "revision": "9223372036854775807", "assignment_generation": "9223372036854775807", "observed_at": nil, "received_at": nil, "fresh_until": nil, "protected_payload": "private-secret", "note": "private-secret", "probe_counts": map[string]any{"assigned": 1, "secret": "private-secret"}, "regions": []any{map[string]any{"probe_id": "probe", "observed_at": nil, "endpoint": "private-secret"}}}
 			h.hub.BroadcastRegional(ports.Event{Type: kind, Payload: fields})
-			adminFrames := awaitFrames(admin, 5*time.Millisecond)
-			memberFrames := awaitFrames(member, 5*time.Millisecond)
+			adminFrames := drainRegionalFrames(t, admin)
+			memberFrames := drainRegionalFrames(t, member)
 			if len(adminFrames) != 1 {
 				t.Fatalf("admin missing event: %+v", adminFrames)
 			}
@@ -25,7 +48,7 @@ func TestRegionalEventsRecheckAudienceAndStripPrivateFields(t *testing.T) {
 			if kind == EventProbeStatus || kind == EventProbeConfigStatus {
 				wantMember = 0
 			}
-			if len(memberFrames) != wantMember || len(awaitFrames(stranger, 5*time.Millisecond)) != 0 {
+			if len(memberFrames) != wantMember || len(drainRegionalFrames(t, stranger)) != 0 {
 				t.Fatalf("wrong audience: %+v", memberFrames)
 			}
 			raw, _ := json.Marshal(adminFrames[0])
@@ -49,7 +72,7 @@ func TestRegionalEventsRecheckAudienceAndStripPrivateFields(t *testing.T) {
 	for _, kind := range []string{EventMonitorProbeHeartbeat, EventMonitorProbeStatus, EventProbeCommandStatus} {
 		h.hub.BroadcastRegional(ports.Event{Type: kind, Payload: map[string]any{"monitor_id": h.monitorGranted, "requester_id": h.memberID}})
 	}
-	if frames := awaitFrames(member, 10*time.Millisecond); len(frames) != 0 {
+	if frames := drainRegionalFrames(t, member); len(frames) != 0 {
 		t.Fatalf("revoked grant retained subscription: %+v", frames)
 	}
 }
@@ -58,7 +81,7 @@ func TestRegionalCommandEventRequesterScope(t *testing.T) {
 	h := newHubRBACHarness(t)
 	member := h.addClient(h.memberID)
 	h.hub.BroadcastRegional(ports.Event{Type: EventProbeCommandStatus, Payload: map[string]any{"monitor_id": h.monitorGranted, "requester_id": h.strangerID, "command_id": "command", "status": "pending", "remote_confirmed": false}})
-	if frames := awaitFrames(member, 10*time.Millisecond); len(frames) != 0 {
+	if frames := drainRegionalFrames(t, member); len(frames) != 0 {
 		t.Fatal("monitor visibility exposed another requester's receipt")
 	}
 }
