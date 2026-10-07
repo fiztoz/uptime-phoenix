@@ -13,11 +13,18 @@ const maxMetadataBytes = 64 << 20
 
 // Retire only old terminal metadata. Serialized telemetry and command receipts
 // own independent retention rules and are never rewritten or ACKed here.
+// Keep one successful DOWN receipt per channel of an open availability incident
+// for recovery classification; redundant old resend receipts may still expire.
 func (s *Store) retainMetadata(ctx context.Context, tx bun.Tx, i domain.EdgeIdentity, now time.Time) error {
 	cutoff := now.UTC().Add(-max(s.retention.MaxAge, 7*24*time.Hour)).UnixMicro()
 	queries := []string{
 		`DELETE FROM edge_delivery_outbox WHERE delivery_id IN (
  SELECT delivery_id FROM edge_delivery_outbox WHERE status IN ('sent','failed','superseded') AND outcome_at < ?
+ AND NOT (status='sent' AND check_status=0 AND EXISTS (
+ SELECT 1 FROM edge_alerts a WHERE a.source_alert_id=edge_delivery_outbox.source_alert_id AND a.subject_kind='availability' AND a.status IN ('firing','acked'))
+ AND NOT EXISTS (SELECT 1 FROM edge_delivery_outbox d WHERE d.source_alert_id=edge_delivery_outbox.source_alert_id
+ AND d.notification_id=edge_delivery_outbox.notification_id AND d.status='sent' AND d.check_status=0
+ AND d.delivery_id > edge_delivery_outbox.delivery_id))
  ORDER BY outcome_at, delivery_id LIMIT 512)`,
 		`DELETE FROM edge_regional_state WHERE (monitor_id,generation) IN (
  SELECT s.monitor_id,s.generation FROM edge_regional_state s WHERE s.observed_at < ?
