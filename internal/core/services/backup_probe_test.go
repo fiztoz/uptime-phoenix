@@ -158,14 +158,14 @@ func (r *backupFakeAssignmentRepo) GetByMonitorID(_ context.Context, monitorID i
 }
 
 func (r *backupFakeAssignmentRepo) Replace(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy) (*domain.MonitorProbeAssignments, error) {
-	return r.commit(ctx, monitorID, expectedRevision, probeIDs, policy, nil, true)
+	return r.commit(ctx, monitorID, expectedRevision, probeIDs, policy, "", nil, true)
 }
 
-func (r *backupFakeAssignmentRepo) Restore(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
-	return r.commit(ctx, monitorID, expectedRevision, probeIDs, policy, bindings, false)
+func (r *backupFakeAssignmentRepo) Restore(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+	return r.commit(ctx, monitorID, expectedRevision, probeIDs, policy, delivery, bindings, false)
 }
 
-func (r *backupFakeAssignmentRepo) commit(_ context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding, requireEnabled bool) (*domain.MonitorProbeAssignments, error) {
+func (r *backupFakeAssignmentRepo) commit(_ context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding, requireEnabled bool) (*domain.MonitorProbeAssignments, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.restores++
@@ -231,7 +231,15 @@ func (r *backupFakeAssignmentRepo) commit(_ context.Context, monitorID, expected
 		}
 		members = append(members, a)
 	}
-	set := &domain.MonitorProbeAssignments{MonitorID: monitorID, Revision: expectedRevision + 1, HealthPolicy: policy, Assignments: members}
+	mode := delivery
+	if mode == "" {
+		mode = current.AlertDelivery
+	}
+	canonical, ok := domain.CanonicalAlertDelivery(mode)
+	if !ok {
+		return nil, domain.ErrValidation
+	}
+	set := &domain.MonitorProbeAssignments{MonitorID: monitorID, Revision: expectedRevision + 1, HealthPolicy: policy, AlertDelivery: canonical, Assignments: members}
 	r.sets[monitorID] = set
 	cp := *set
 	return &cp, nil
@@ -676,5 +684,29 @@ func TestBackupRestoreFleetGate(t *testing.T) {
 				t.Fatal("disabled restore consulted readiness")
 			}
 		})
+	}
+}
+
+func TestResolveAssignmentSetCarriesDesiredDelivery(t *testing.T) {
+	keys := map[string]string{domain.LocalProbeID: domain.LocalProbeID}
+	_, _, _, delivery, err := resolveAssignmentSet(BackupMonitorAssignmentSet{
+		HealthPolicy: domain.HealthPolicyAnyDown,
+		Members:      []BackupMonitorAssignmentMember{{ProbeKey: domain.LocalProbeID}},
+	}, keys)
+	if err != nil || delivery != domain.AlertDeliveryRegional {
+		t.Fatalf("absent legacy mode: %s %v", delivery, err)
+	}
+	_, _, _, delivery, err = resolveAssignmentSet(BackupMonitorAssignmentSet{
+		HealthPolicy: domain.HealthPolicyAnyDown, AlertDelivery: domain.AlertDeliveryBoth,
+		Members: []BackupMonitorAssignmentMember{{ProbeKey: domain.LocalProbeID}},
+	}, keys)
+	if err != nil || delivery != domain.AlertDeliveryBoth {
+		t.Fatalf("explicit mode: %s %v", delivery, err)
+	}
+	if _, _, _, _, err = resolveAssignmentSet(BackupMonitorAssignmentSet{
+		HealthPolicy: domain.HealthPolicyAnyDown, AlertDelivery: "hub",
+		Members: []BackupMonitorAssignmentMember{{ProbeKey: domain.LocalProbeID}},
+	}, keys); err == nil {
+		t.Fatal("invalid delivery restored")
 	}
 }

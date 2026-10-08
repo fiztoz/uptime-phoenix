@@ -47,7 +47,7 @@ func TestProbeAssignmentRestore_AcceptsDisabledRegistration(t *testing.T) {
 
 			// The declarative path accepts it and keeps `local` (this set has
 			// both members).
-			set, err := f.assignments.Restore(ctx, m.ID, 1, []string{domain.LocalProbeID, restoreProbeID}, domain.HealthPolicyAllDown, nil)
+			set, err := f.assignments.Restore(ctx, m.ID, 1, []string{domain.LocalProbeID, restoreProbeID}, domain.HealthPolicyAllDown, "", nil)
 			if err != nil {
 				t.Fatalf("Restore: %v", err)
 			}
@@ -59,7 +59,7 @@ func TestProbeAssignmentRestore_AcceptsDisabledRegistration(t *testing.T) {
 			}
 
 			// A remote-only set removes the hub from execution entirely.
-			set, err = f.assignments.Restore(ctx, m.ID, 2, []string{restoreProbeID}, domain.HealthPolicyAllDown, nil)
+			set, err = f.assignments.Restore(ctx, m.ID, 2, []string{restoreProbeID}, domain.HealthPolicyAllDown, "", nil)
 			if err != nil {
 				t.Fatalf("Restore remote-only: %v", err)
 			}
@@ -75,14 +75,14 @@ func TestProbeAssignmentRestore_AcceptsDisabledRegistration(t *testing.T) {
 			}
 
 			// Committing the identical set again is a documented no-op.
-			again, err := f.assignments.Restore(ctx, m.ID, 3, []string{restoreProbeID}, domain.HealthPolicyAllDown, nil)
+			again, err := f.assignments.Restore(ctx, m.ID, 3, []string{restoreProbeID}, domain.HealthPolicyAllDown, "", nil)
 			if err != nil || again.Revision != 3 {
 				t.Fatalf("idempotent restore: %+v %v", again, err)
 			}
 
 			// Re-adding the removed member retains generations: `local` was
 			// tombstoned at generation one and must come back as two.
-			set, err = f.assignments.Restore(ctx, m.ID, 3, []string{domain.LocalProbeID, restoreProbeID}, domain.HealthPolicyAllDown, nil)
+			set, err = f.assignments.Restore(ctx, m.ID, 3, []string{domain.LocalProbeID, restoreProbeID}, domain.HealthPolicyAllDown, "", nil)
 			if err != nil {
 				t.Fatalf("re-add: %v", err)
 			}
@@ -97,7 +97,7 @@ func TestProbeAssignmentRestore_AcceptsDisabledRegistration(t *testing.T) {
 			// An unknown member is refused exactly like Replace: a declarative
 			// commit never invents an identity. A missing registration is a
 			// missing row, so it surfaces as ErrNotFound.
-			if _, err := f.assignments.Restore(ctx, m.ID, set.Revision, []string{"55555555-5555-4555-8555-555555555555"}, domain.HealthPolicyAnyDown, nil); !errors.Is(err, ports.ErrNotFound) {
+			if _, err := f.assignments.Restore(ctx, m.ID, set.Revision, []string{"55555555-5555-4555-8555-555555555555"}, domain.HealthPolicyAnyDown, "", nil); !errors.Is(err, ports.ErrNotFound) {
 				t.Fatalf("Restore accepted an unregistered member: %v", err)
 			}
 		})
@@ -124,14 +124,14 @@ func TestProbeAssignmentRestore_KeepsDockerBindingContract(t *testing.T) {
 				t.Fatalf("create monitor: %v", err)
 			}
 
-			if _, err := f.assignments.Restore(ctx, m.ID, 1, []string{domain.LocalProbeID, restoreProbeID}, domain.HealthPolicyAnyDown, nil); !errors.Is(err, domain.ErrValidation) {
+			if _, err := f.assignments.Restore(ctx, m.ID, 1, []string{domain.LocalProbeID, restoreProbeID}, domain.HealthPolicyAnyDown, "", nil); !errors.Is(err, domain.ErrValidation) {
 				t.Fatalf("Restore dropped the docker binding requirement: %v", err)
 			}
 			binding := domain.ProbeAssignmentBinding{
 				ProbeID:              restoreProbeID,
 				ProbeResourceBinding: domain.ProbeResourceBinding{BindingKey: "docker-main", Kind: "docker_socket"},
 			}
-			set, err := f.assignments.Restore(ctx, m.ID, 1, []string{domain.LocalProbeID, restoreProbeID}, domain.HealthPolicyAnyDown, []domain.ProbeAssignmentBinding{binding})
+			set, err := f.assignments.Restore(ctx, m.ID, 1, []string{domain.LocalProbeID, restoreProbeID}, domain.HealthPolicyAnyDown, "", []domain.ProbeAssignmentBinding{binding})
 			if err != nil {
 				t.Fatalf("Restore with binding: %v", err)
 			}
@@ -149,7 +149,7 @@ func TestProbeAssignmentRestore_KeepsDockerBindingContract(t *testing.T) {
 				ProbeID:              domain.LocalProbeID,
 				ProbeResourceBinding: domain.ProbeResourceBinding{BindingKey: "docker-main", Kind: "docker_socket"},
 			}
-			if _, err := f.assignments.Restore(ctx, m.ID, set.Revision, []string{domain.LocalProbeID, restoreProbeID}, domain.HealthPolicyAnyDown, []domain.ProbeAssignmentBinding{localBinding}); !errors.Is(err, domain.ErrValidation) {
+			if _, err := f.assignments.Restore(ctx, m.ID, set.Revision, []string{domain.LocalProbeID, restoreProbeID}, domain.HealthPolicyAnyDown, "", []domain.ProbeAssignmentBinding{localBinding}); !errors.Is(err, domain.ErrValidation) {
 				t.Fatalf("Restore accepted a binding on the local member: %v", err)
 			}
 		})

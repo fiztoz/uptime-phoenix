@@ -282,7 +282,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		if refusal := probeAdminAssignGate(ctx, repos.hubWorkerReadiness, cfg, desiredMembers); refusal != "" {
 			return fail(refusal)
 		}
-		set, err := repository.NewProbeAssignmentStore(db).ReplaceWithBindings(ctx, monitorID, revision, desiredMembers, current.HealthPolicy, bindings)
+		set, err := repository.NewProbeAssignmentStore(db).ReplaceWithBindings(ctx, monitorID, revision, desiredMembers, current.HealthPolicy, current.AlertDelivery, bindings)
 		if err != nil {
 			return fail("Assignment replacement failed; check the current revision and enabled registrations")
 		}

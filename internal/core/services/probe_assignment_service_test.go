@@ -22,24 +22,25 @@ type fakeAssignmentWriter struct {
 	ids       []string
 	bindings  []domain.ProbeAssignmentBinding
 	policy    domain.HealthPolicy
+	delivery  domain.AlertDelivery
 	result    *domain.MonitorProbeAssignments
 	err       error
 	createErr error
 }
 
-func (f *fakeAssignmentWriter) ReplaceWithBindings(_ context.Context, _ int64, _ int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+func (f *fakeAssignmentWriter) ReplaceWithBindings(_ context.Context, _ int64, _ int64, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	f.replaced, f.ids, f.policy, f.bindings = true, probeIDs, policy, bindings
+	f.replaced, f.ids, f.policy, f.delivery, f.bindings = true, probeIDs, policy, delivery, bindings
 	return f.result, nil
 }
 
-func (f *fakeAssignmentWriter) CreateMonitorWithAssignments(_ context.Context, m *domain.Monitor, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+func (f *fakeAssignmentWriter) CreateMonitorWithAssignments(_ context.Context, m *domain.Monitor, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
-	f.created, f.ids, f.policy, f.bindings = true, probeIDs, policy, bindings
+	f.created, f.ids, f.policy, f.delivery, f.bindings = true, probeIDs, policy, delivery, bindings
 	m.ID = 42
 	return f.result, nil
 }
@@ -146,7 +147,9 @@ func TestValidateDesiredAssignments(t *testing.T) {
 		{"duplicate members", httpMonitor, []string{domain.LocalProbeID, domain.LocalProbeID}, domain.HealthPolicyAnyDown, nil, "", ErrInvalidProbeIDs},
 		{"malformed member", httpMonitor, []string{"not-a-probe"}, domain.HealthPolicyAnyDown, nil, "", ErrInvalidProbeIDs},
 		{"bad policy", httpMonitor, []string{domain.LocalProbeID}, "quorum", nil, "", ErrInvalidPolicy},
-		{"bad delivery", httpMonitor, []string{domain.LocalProbeID}, domain.HealthPolicyAnyDown, nil, "aggregate", ErrInvalidDelivery},
+		{"bad delivery", httpMonitor, []string{domain.LocalProbeID}, domain.HealthPolicyAnyDown, nil, "hub", ErrInvalidDelivery},
+		{"aggregate desired", httpMonitor, []string{domain.LocalProbeID}, domain.HealthPolicyAnyDown, nil, "aggregate", nil},
+		{"both desired", httpMonitor, []string{domain.LocalProbeID}, domain.HealthPolicyAnyDown, nil, "both", nil},
 		{"unknown probe", httpMonitor, []string{"99999999-9999-4999-8999-999999999999"}, domain.HealthPolicyAnyDown, nil, "", ErrUnknownProbe},
 		{"disabled probe", httpMonitor, []string{assignmentDisabledProbe}, domain.HealthPolicyAnyDown, nil, "", ErrProbeUnavailable},
 		{"push remote", pushMonitor, []string{assignmentTestProbe}, domain.HealthPolicyAnyDown, nil, "", ErrUnsupportedAssignment},
@@ -281,12 +284,56 @@ func TestProbeAssignmentServiceReplace(t *testing.T) {
 		if err != nil || len(result.PendingProbes) != 0 {
 			t.Fatalf("no-op write: %v %v", result, err)
 		}
+		if writer.delivery != domain.AlertDeliveryRegional {
+			t.Fatalf("omitted delivery was not stored as regional: %s", writer.delivery)
+		}
+	})
+
+	t.Run("OmittedDeliveryPreservesAggregate", func(t *testing.T) {
+		stored := *previous
+		stored.AlertDelivery = domain.AlertDeliveryAggregate
+		writer := &fakeAssignmentWriter{result: &stored}
+		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{set: &stored}, assignmentTestProbes(), fakeMonitorLookup{monitor: monitor}, assignmentTestCaps(), awareFleetGate())
+		result, err := svc.Replace(t.Context(), 7, ProbeAssignmentRequest{ExpectedRevision: 4, ProbeIDs: []string{domain.LocalProbeID}, HealthPolicy: domain.HealthPolicyAnyDown})
+		if err != nil || writer.delivery != domain.AlertDeliveryAggregate || len(result.PendingProbes) != 0 {
+			t.Fatalf("omission changed desired mode: delivery=%s pending=%v err=%v", writer.delivery, result.PendingProbes, err)
+		}
+	})
+
+	t.Run("ModeChangeMarksEveryMemberPending", func(t *testing.T) {
+		next := *previous
+		next.Revision = 5
+		next.AlertDelivery = domain.AlertDeliveryBoth
+		writer := &fakeAssignmentWriter{result: &next}
+		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{set: previous}, assignmentTestProbes(), fakeMonitorLookup{monitor: monitor}, assignmentTestCaps(), awareFleetGate())
+		result, err := svc.Replace(t.Context(), 7, ProbeAssignmentRequest{ExpectedRevision: 4, ProbeIDs: []string{domain.LocalProbeID}, HealthPolicy: domain.HealthPolicyAnyDown, AlertDelivery: "both"})
+		if err != nil || writer.delivery != domain.AlertDeliveryBoth || len(result.PendingProbes) != 1 || !result.PendingProbes[domain.LocalProbeID] {
+			t.Fatalf("mode change pending: delivery=%s pending=%v err=%v", writer.delivery, result.PendingProbes, err)
+		}
 	})
 }
 
 // TestMonitorServiceCloneAuthority proves a remote clone is rejected for a
 // non-admin instead of silently rerouted, and that an admin clone reproduces
 // the source's complete desired set atomically.
+func TestProbeAssignmentSetEqualIncludesDelivery(t *testing.T) {
+	current := &domain.MonitorProbeAssignments{
+		HealthPolicy: domain.HealthPolicyAnyDown, AlertDelivery: domain.AlertDeliveryAggregate,
+		Assignments: []domain.ProbeAssignment{{ProbeID: domain.LocalProbeID}},
+	}
+	if probeAssignmentSetEqual(current, []string{domain.LocalProbeID}, domain.HealthPolicyAnyDown, domain.AlertDeliveryRegional, nil) {
+		t.Fatal("regional delivery matched a stored aggregate set")
+	}
+	if !probeAssignmentSetEqual(current, []string{domain.LocalProbeID}, domain.HealthPolicyAnyDown, domain.AlertDeliveryAggregate, nil) {
+		t.Fatal("aggregate delivery did not match")
+	}
+	empty := *current
+	empty.AlertDelivery = ""
+	if !probeAssignmentSetEqual(&empty, []string{domain.LocalProbeID}, domain.HealthPolicyAnyDown, domain.AlertDeliveryRegional, nil) {
+		t.Fatal("absent stored delivery was not treated as regional")
+	}
+}
+
 func TestMonitorServiceCloneAuthority(t *testing.T) {
 	repo := newCloneFakeMonitorRepo()
 	bus := newFakeBus()
@@ -296,7 +343,7 @@ func TestMonitorServiceCloneAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	binding := domain.ProbeResourceBinding{Kind: "docker_socket", BindingKey: "docker-main"}
-	set := &domain.MonitorProbeAssignments{MonitorID: src.ID, Revision: 2, HealthPolicy: domain.HealthPolicyAllDown,
+	set := &domain.MonitorProbeAssignments{MonitorID: src.ID, Revision: 2, HealthPolicy: domain.HealthPolicyAllDown, AlertDelivery: domain.AlertDeliveryAggregate,
 		Assignments: []domain.ProbeAssignment{
 			{MonitorID: src.ID, ProbeID: domain.LocalProbeID, Generation: 1},
 			{MonitorID: src.ID, ProbeID: assignmentTestProbe, Generation: 1, ResourceBinding: &binding},
@@ -312,8 +359,8 @@ func TestMonitorServiceCloneAuthority(t *testing.T) {
 	if err != nil || !writer.created {
 		t.Fatalf("admin remote clone: %v", err)
 	}
-	if cloned.ID == src.ID || strings.Join(writer.ids, ",") != domain.LocalProbeID+","+assignmentTestProbe || writer.policy != domain.HealthPolicyAllDown || len(writer.bindings) != 1 || writer.bindings[0].BindingKey != "docker-main" {
-		t.Fatalf("clone must reproduce the source set: id=%d ids=%v policy=%s bindings=%v", cloned.ID, writer.ids, writer.policy, writer.bindings)
+	if cloned.ID == src.ID || strings.Join(writer.ids, ",") != domain.LocalProbeID+","+assignmentTestProbe || writer.policy != domain.HealthPolicyAllDown || writer.delivery != domain.AlertDeliveryAggregate || len(writer.bindings) != 1 || writer.bindings[0].BindingKey != "docker-main" {
+		t.Fatalf("clone must reproduce the source set: id=%d ids=%v policy=%s delivery=%s bindings=%v", cloned.ID, writer.ids, writer.policy, writer.delivery, writer.bindings)
 	}
 
 	// A local-only clone still reproduces the source set through the

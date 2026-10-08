@@ -65,12 +65,14 @@ type ProbeAssignment struct {
 
 // MonitorProbeAssignments is one atomically replaceable desired assignment set.
 // Assignments contains active members only, ordered by ProbeID. Revision starts
-// at one and changes when the member set, bindings or HealthPolicy changes.
+// at one and changes when the member set, bindings, HealthPolicy, or
+// AlertDelivery changes. An empty AlertDelivery is the legacy regional mode.
 type MonitorProbeAssignments struct {
-	MonitorID    int64
-	Revision     int64
-	HealthPolicy HealthPolicy
-	Assignments  []ProbeAssignment
+	MonitorID     int64
+	Revision      int64
+	HealthPolicy  HealthPolicy
+	AlertDelivery AlertDelivery
+	Assignments   []ProbeAssignment
 }
 
 // LocalWorkerMayRun reports whether the hub scheduler may execute this set.

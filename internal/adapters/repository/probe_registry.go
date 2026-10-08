@@ -183,11 +183,12 @@ func validRemoteProbeID(id string) bool {
 
 type probeAssignmentSetModel struct {
 	bun.BaseModel `bun:"table:monitor_probe_assignment_sets"`
-	MonitorID     int64               `bun:"monitor_id,pk"`
-	Revision      int64               `bun:"revision"`
-	HealthPolicy  domain.HealthPolicy `bun:"health_policy"`
-	CreatedAt     time.Time           `bun:"created_at"`
-	UpdatedAt     time.Time           `bun:"updated_at"`
+	MonitorID     int64                `bun:"monitor_id,pk"`
+	Revision      int64                `bun:"revision"`
+	HealthPolicy  domain.HealthPolicy  `bun:"health_policy"`
+	AlertDelivery domain.AlertDelivery `bun:"alert_delivery"`
+	CreatedAt     time.Time            `bun:"created_at"`
+	UpdatedAt     time.Time            `bun:"updated_at"`
 }
 
 type probeAssignmentModel struct {
@@ -259,7 +260,7 @@ func InitializeLocalAssignment(ctx context.Context, tx bun.Tx, monitorID int64) 
 	}
 	now := assignmentChangeTime(time.Time{})
 	set = &probeAssignmentSetModel{MonitorID: monitorID, Revision: 1,
-		HealthPolicy: domain.HealthPolicyAnyDown, CreatedAt: now, UpdatedAt: now}
+		HealthPolicy: domain.HealthPolicyAnyDown, AlertDelivery: domain.AlertDeliveryRegional, CreatedAt: now, UpdatedAt: now}
 	if _, err := tx.NewInsert().Model(set).Exec(ctx); err != nil {
 		return err
 	}
@@ -268,7 +269,7 @@ func InitializeLocalAssignment(ctx context.Context, tx bun.Tx, monitorID int64) 
 	if _, err := tx.NewInsert().Model(assignment).Exec(ctx); err != nil {
 		return err
 	}
-	return writeAssignmentHistory(ctx, tx, monitorID, 1, set.HealthPolicy, now)
+	return writeAssignmentHistory(ctx, tx, monitorID, 1, set.HealthPolicy, set.AlertDelivery, now)
 }
 
 // CreateMonitorWithLocalAssignment inserts a monitor and its local assignment
@@ -298,11 +299,15 @@ func CreateMonitorWithLocalAssignment(ctx context.Context, db *bun.DB, model *Mo
 // never Restore), and resource bindings follow the same rules as replacement:
 // a new or recreated Docker assignment requires an explicit binding and an
 // omitted binding list supplies none.
-func (r *ProbeAssignmentStore) CreateMonitorWithAssignments(ctx context.Context, m *domain.Monitor, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+func (r *ProbeAssignmentStore) CreateMonitorWithAssignments(ctx context.Context, m *domain.Monitor, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
 	if r == nil || r.db == nil || m == nil {
 		return nil, domain.ErrInternal
 	}
 	ids, err := validateProbeMemberSet(probeIDs, policy)
+	if err != nil {
+		return nil, err
+	}
+	delivery, err = resolveWrittenDelivery(delivery, "")
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +346,7 @@ func (r *ProbeAssignmentStore) CreateMonitorWithAssignments(ctx context.Context,
 		}
 		changeAt := assignmentChangeTime(time.Time{})
 		set := &probeAssignmentSetModel{MonitorID: model.ID, Revision: 1,
-			HealthPolicy: policy, CreatedAt: changeAt, UpdatedAt: changeAt}
+			HealthPolicy: policy, AlertDelivery: delivery, CreatedAt: changeAt, UpdatedAt: changeAt}
 		if _, err := tx.NewInsert().Model(set).Exec(ctx); err != nil {
 			return err
 		}
@@ -353,7 +358,7 @@ func (r *ProbeAssignmentStore) CreateMonitorWithAssignments(ctx context.Context,
 				return err
 			}
 		}
-		if err := writeAssignmentHistory(ctx, tx, model.ID, 1, policy, changeAt); err != nil {
+		if err := writeAssignmentHistory(ctx, tx, model.ID, 1, policy, delivery, changeAt); err != nil {
 			return err
 		}
 		out, err = readProbeAssignments(ctx, tx, model.ID)
@@ -428,16 +433,18 @@ func (r *ProbeAssignmentStore) GetByMonitorID(ctx context.Context, monitorID int
 // Replace validates and commits a full desired set with optimistic revision
 // control. Removed rows are tombstoned; their generations cannot be reused.
 func (r *ProbeAssignmentStore) Replace(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy) (*domain.MonitorProbeAssignments, error) {
-	return r.ReplaceWithBindings(ctx, monitorID, expectedRevision, probeIDs, policy, nil)
+	return r.ReplaceWithBindings(ctx, monitorID, expectedRevision, probeIDs, policy, "", nil)
 }
 
 // ReplaceWithBindings atomically replaces membership and resource references.
 // Nil preserves bindings on retained members; an explicit list replaces all
-// bindings. New/recreated Docker assignments always require an explicit binding.
-// Live inventory is checked by the authenticated transport before activation.
-// Every member must be a currently enabled registration.
-func (r *ProbeAssignmentStore) ReplaceWithBindings(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
-	return r.replaceWithBindings(ctx, monitorID, expectedRevision, probeIDs, policy, bindings, true)
+// bindings. An empty delivery preserves the stored mode, or regional when the
+// set is first created. New/recreated Docker assignments always require an
+// explicit binding. Live inventory is checked by the authenticated transport
+// before activation. Every member must be a currently enabled registration.
+// Persisting aggregate or both does not activate hub paging.
+func (r *ProbeAssignmentStore) ReplaceWithBindings(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+	return r.replaceWithBindings(ctx, monitorID, expectedRevision, probeIDs, policy, delivery, bindings, true)
 }
 
 // Restore commits a complete desired set that arrived from a declarative
@@ -447,11 +454,11 @@ func (r *ProbeAssignmentStore) ReplaceWithBindings(ctx context.Context, monitorI
 // on a disabled registration. Everything else is identical to
 // ReplaceWithBindings: one complete set, optimistic revision, tombstoned
 // removals, retained generations, explicit resource bindings and history.
-func (r *ProbeAssignmentStore) Restore(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
-	return r.replaceWithBindings(ctx, monitorID, expectedRevision, probeIDs, policy, bindings, false)
+func (r *ProbeAssignmentStore) Restore(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+	return r.replaceWithBindings(ctx, monitorID, expectedRevision, probeIDs, policy, delivery, bindings, false)
 }
 
-func (r *ProbeAssignmentStore) replaceWithBindings(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding, requireEnabled bool) (*domain.MonitorProbeAssignments, error) {
+func (r *ProbeAssignmentStore) replaceWithBindings(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding, requireEnabled bool) (*domain.MonitorProbeAssignments, error) {
 	ids, err := validateProbeReplacement(monitorID, expectedRevision, probeIDs, policy)
 	if err != nil {
 		return nil, err
@@ -525,7 +532,15 @@ func (r *ProbeAssignmentStore) replaceWithBindings(ctx context.Context, monitorI
 		if err != nil {
 			return err
 		}
-		if sameProbeAssignmentSet(previous, ids) && set.HealthPolicy == policy && !changed {
+		delivery, err = resolveWrittenDelivery(delivery, set.AlertDelivery)
+		if err != nil {
+			return err
+		}
+		stored, ok := domain.CanonicalAlertDelivery(set.AlertDelivery)
+		if !ok {
+			return fmt.Errorf("stored alert delivery %q: %w", set.AlertDelivery, domain.ErrValidation)
+		}
+		if sameProbeAssignmentSet(previous, ids) && set.HealthPolicy == policy && stored == delivery && !changed {
 			out, err = readProbeAssignments(ctx, tx, monitorID)
 			return err
 		}
@@ -545,10 +560,10 @@ func (r *ProbeAssignmentStore) replaceWithBindings(ctx context.Context, monitorI
 			}
 		}
 		if _, err := tx.NewUpdate().Model(set).Set("revision = revision + 1").Set("health_policy = ?", policy).
-			Set("updated_at = ?", now).WherePK().Exec(ctx); err != nil {
+			Set("alert_delivery = ?", delivery).Set("updated_at = ?", now).WherePK().Exec(ctx); err != nil {
 			return err
 		}
-		if err := writeAssignmentHistory(ctx, tx, monitorID, expectedRevision+1, policy, now); err != nil {
+		if err := writeAssignmentHistory(ctx, tx, monitorID, expectedRevision+1, policy, delivery, now); err != nil {
 			return err
 		}
 		out, err = readProbeAssignments(ctx, tx, monitorID)
@@ -654,6 +669,7 @@ type probeAssignmentReadModel struct {
 	MonitorID           int64
 	Revision            int64
 	HealthPolicy        domain.HealthPolicy
+	AlertDelivery       domain.AlertDelivery
 	ProbeID             string
 	Generation          int64
 	CreatedAt           time.Time
@@ -662,10 +678,26 @@ type probeAssignmentReadModel struct {
 	ResourceBindingKind string
 }
 
+// resolveWrittenDelivery preserves an empty request as the stored mode. A new
+// set has no stored mode and becomes regional. Unsupported values fail closed.
+func resolveWrittenDelivery(requested, stored domain.AlertDelivery) (domain.AlertDelivery, error) {
+	if requested == "" {
+		mode, ok := domain.CanonicalAlertDelivery(stored)
+		if !ok {
+			return "", fmt.Errorf("stored alert delivery %q: %w", stored, domain.ErrValidation)
+		}
+		return mode, nil
+	}
+	if !domain.ValidAlertDelivery(requested) {
+		return "", fmt.Errorf("invalid alert delivery %q: %w", requested, domain.ErrValidation)
+	}
+	return requested, nil
+}
+
 func readProbeAssignments(ctx context.Context, db bun.IDB, monitorID int64) (*domain.MonitorProbeAssignments, error) {
 	var rows []probeAssignmentReadModel
 	err := db.NewSelect().TableExpr("monitor_probe_assignment_sets AS s").
-		ColumnExpr("s.monitor_id, s.revision, s.health_policy, a.probe_id, a.generation, a.created_at, a.updated_at, a.resource_binding_key, a.resource_binding_kind").
+		ColumnExpr("s.monitor_id, s.revision, s.health_policy, s.alert_delivery, a.probe_id, a.generation, a.created_at, a.updated_at, a.resource_binding_key, a.resource_binding_kind").
 		Join("JOIN monitor_probe_assignments AS a ON a.monitor_id = s.monitor_id AND a.active = ?", true).
 		Where("s.monitor_id = ?", monitorID).OrderExpr("a.probe_id ASC").Scan(ctx, &rows)
 	if err != nil {
@@ -674,8 +706,12 @@ func readProbeAssignments(ctx context.Context, db bun.IDB, monitorID int64) (*do
 	if len(rows) == 0 {
 		return nil, ports.ErrNotFound
 	}
+	mode, ok := domain.CanonicalAlertDelivery(rows[0].AlertDelivery)
+	if !ok {
+		return nil, fmt.Errorf("stored alert delivery %q: %w", rows[0].AlertDelivery, domain.ErrValidation)
+	}
 	out := &domain.MonitorProbeAssignments{MonitorID: monitorID, Revision: rows[0].Revision,
-		HealthPolicy: rows[0].HealthPolicy, Assignments: make([]domain.ProbeAssignment, len(rows))}
+		HealthPolicy: rows[0].HealthPolicy, AlertDelivery: mode, Assignments: make([]domain.ProbeAssignment, len(rows))}
 	for i, row := range rows {
 		out.Assignments[i] = domain.ProbeAssignment{MonitorID: monitorID, ProbeID: row.ProbeID,
 			Generation: row.Generation, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()}

@@ -13,15 +13,17 @@ import (
 //
 // ReplaceWithBindings replaces one complete set. Nil bindings preserve bindings
 // on retained members and supply none for new ones; an explicit list (possibly
-// empty) replaces all bindings. ErrConflict reports a stale expected revision.
+// empty) replaces all bindings. An empty delivery preserves the stored mode.
+// ErrConflict reports a stale expected revision. Persisting a non-regional mode
+// does not authorize aggregate paging or suppress regional delivery.
 //
 // CreateMonitorWithAssignments inserts a monitor together with its complete
 // initial desired set in one transaction, so creation can never leave a
 // different set behind. It allocates the monitor ID and returns the created
-// set at revision one.
+// set at revision one. An empty delivery is regional.
 type ProbeAssignmentWriter interface {
-	ReplaceWithBindings(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error)
-	CreateMonitorWithAssignments(ctx context.Context, m *domain.Monitor, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error)
+	ReplaceWithBindings(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error)
+	CreateMonitorWithAssignments(ctx context.Context, m *domain.Monitor, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error)
 }
 
 // ProbeAssignmentCapabilities reports the compiled checker inventory so a

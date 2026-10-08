@@ -1,0 +1,2 @@
+ALTER TABLE monitor_probe_assignment_history DROP COLUMN alert_delivery;
+ALTER TABLE monitor_probe_assignment_sets DROP COLUMN alert_delivery;

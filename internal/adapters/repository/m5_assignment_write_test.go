@@ -200,7 +200,7 @@ func TestM5AssignmentWrites(t *testing.T) {
 				{"duplicate members", `{"expected_revision":"3","probe_ids":["local","local"],"health_policy":"any_down"}`, "invalid_probe_ids", 400},
 				{"empty members", `{"expected_revision":"3","probe_ids":[],"health_policy":"any_down"}`, "invalid_probe_ids", 400},
 				{"bad policy", `{"expected_revision":"3","probe_ids":["local"],"health_policy":"quorum"}`, "invalid_health_policy", 400},
-				{"bad delivery", `{"expected_revision":"3","probe_ids":["local"],"health_policy":"any_down","alert_delivery":"both"}`, "invalid_alert_delivery", 400},
+				{"bad delivery", `{"expected_revision":"3","probe_ids":["local"],"health_policy":"any_down","alert_delivery":"hub"}`, "invalid_alert_delivery", 400},
 				{"bad binding", `{"expected_revision":"3","probe_ids":["local"],"health_policy":"any_down","bindings":[{"probe_id":"local","kind":"docker_socket","binding_key":"docker-main"}]}`, "invalid_bindings", 400},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
@@ -225,6 +225,21 @@ func TestM5AssignmentWrites(t *testing.T) {
 						t.Fatalf("%s: %d %s", tc.name, rec.Code, rec.Body.String())
 					}
 				})
+			}
+
+			// Desired aggregate is stored and reported pending. It does not become
+			// the runtime paging mode. Omitting the field must not downgrade it or
+			// spend a revision.
+			rec = put(`{"expected_revision":"3","probe_ids":["local"],"health_policy":"any_down","alert_delivery":"aggregate"}`, adminToken)
+			view = setView(rec)
+			if rec.Code != 200 || view.Revision != 4 || view.AlertDelivery != "aggregate" || !view.AlertDeliveryPending ||
+				view.Assignments[0].SyncStatus == nil || *view.Assignments[0].SyncStatus != "pending" {
+				t.Fatalf("aggregate desired mode: %d %s", rec.Code, rec.Body.String())
+			}
+			rec = put(`{"expected_revision":"4","probe_ids":["local"],"health_policy":"any_down"}`, adminToken)
+			view = setView(rec)
+			if rec.Code != 200 || view.Revision != 4 || view.AlertDelivery != "aggregate" || !view.AlertDeliveryPending {
+				t.Fatalf("omitted delivery downgraded or revised the set: %d %s", rec.Code, rec.Body.String())
 			}
 
 			// Resource bindings on a docker monitor: explicit replaces, omitted

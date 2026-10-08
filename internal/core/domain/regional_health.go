@@ -83,14 +83,17 @@ type MonitorHealthState struct {
 
 // AssignmentInterval is one probe's membership during overall reconstruction.
 // To is exclusive; the zero value means the assignment remains open.
+// AlertDelivery is the desired mode effective on this interval. Health
+// reconstruction does not page from it; an empty value is legacy regional.
 type AssignmentInterval struct {
-	ProbeID    string
-	Generation int64
-	Policy     HealthPolicy
-	Revision   int64
-	From       time.Time
-	To         time.Time
-	Paused     bool
+	ProbeID       string
+	Generation    int64
+	Policy        HealthPolicy
+	AlertDelivery AlertDelivery
+	Revision      int64
+	From          time.Time
+	To            time.Time
+	Paused        bool
 }
 
 // MonitorHealthInterval is one overall availability interval on [From, To).

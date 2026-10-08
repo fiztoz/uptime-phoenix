@@ -58,8 +58,9 @@ policy: `ResolvePolicy` intentionally hides enabled policies with no steps.
 ## Remaining acceptance work
 
 The pure evaluator tests establish decision semantics only. They do not establish
-durable incidents, provider delivery, source suppression, API selection, or UI
-behavior. M7's implementation-plan checkboxes remain open.
+durable incidents, provider delivery, source suppression, or activated paging.
+[Desired delivery persistence](M7_DESIRED_DELIVERY.md) stores the mode and reports
+it pending. M7's implementation-plan checkboxes remain open.
 
 Before activation, execute both-engine atomic transition, stale-owner, concurrent
 reconciliation, restart throttle, mode-change, rollback, and populated migration

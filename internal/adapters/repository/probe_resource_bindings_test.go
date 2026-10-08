@@ -27,7 +27,7 @@ func TestProbeResourceBindingContract(t *testing.T) {
 			ids := []string{probeRegistryID1}
 			policy := domain.HealthPolicyAnyDown
 			binding := domain.ProbeAssignmentBinding{ProbeID: probeRegistryID1, ProbeResourceBinding: domain.ProbeResourceBinding{BindingKey: "docker", Kind: "docker_socket"}}
-			if _, err := assignments.ReplaceWithBindings(ctx, monitor, 2, ids, policy, []domain.ProbeAssignmentBinding{binding}); !errors.Is(err, domain.ErrValidation) {
+			if _, err := assignments.ReplaceWithBindings(ctx, monitor, 2, ids, policy, "", []domain.ProbeAssignmentBinding{binding}); !errors.Is(err, domain.ErrValidation) {
 				t.Fatal("non-Docker binding accepted", err)
 			}
 			if _, err := f.db.ExecContext(ctx, "UPDATE monitors SET type = 'docker', config = ? WHERE id = ?", `{"container":"phoenix","docker_daemon":"unix:///private/hub.sock"}`, monitor); err != nil {
@@ -36,18 +36,18 @@ func TestProbeResourceBindingContract(t *testing.T) {
 			if _, err := assignments.Replace(ctx, monitor, 2, ids, policy); !errors.Is(err, domain.ErrValidation) {
 				t.Fatal("missing Docker binding accepted", err)
 			}
-			bound, err := assignments.ReplaceWithBindings(ctx, monitor, 2, ids, policy, []domain.ProbeAssignmentBinding{binding})
+			bound, err := assignments.ReplaceWithBindings(ctx, monitor, 2, ids, policy, "", []domain.ProbeAssignmentBinding{binding})
 			if err != nil || bound.Revision != 3 || *bound.Assignments[0].ResourceBinding != binding.ProbeResourceBinding {
 				t.Fatalf("binding not saved: %+v %v", bound, err)
 			}
-			if _, err := assignments.ReplaceWithBindings(ctx, monitor, 3, ids, policy, []domain.ProbeAssignmentBinding{}); !errors.Is(err, domain.ErrValidation) {
+			if _, err := assignments.ReplaceWithBindings(ctx, monitor, 3, ids, policy, "", []domain.ProbeAssignmentBinding{}); !errors.Is(err, domain.ErrValidation) {
 				t.Fatal("required binding cleared", err)
 			}
 			again, err := assignments.Replace(ctx, monitor, 3, ids, policy)
 			if err != nil || !reflect.DeepEqual(bound, again) {
 				t.Fatal("omitted bindings did not preserve/no-op", err)
 			}
-			if _, err := assignments.ReplaceWithBindings(ctx, monitor, 2, ids, policy, []domain.ProbeAssignmentBinding{binding}); !errors.Is(err, ports.ErrConflict) {
+			if _, err := assignments.ReplaceWithBindings(ctx, monitor, 2, ids, policy, "", []domain.ProbeAssignmentBinding{binding}); !errors.Is(err, ports.ErrConflict) {
 				t.Fatal("stale revision changed binding", err)
 			}
 			meta, err := store.RefreshRemote(ctx, syncTarget(), time.Now().UTC())
@@ -79,7 +79,7 @@ func TestProbeResourceBindingContract(t *testing.T) {
 			}()
 			go func() {
 				defer wg.Done()
-				_, err := assignments.ReplaceWithBindings(ctx, monitor, 3, ids, policy, []domain.ProbeAssignmentBinding{binding})
+				_, err := assignments.ReplaceWithBindings(ctx, monitor, 3, ids, policy, "", []domain.ProbeAssignmentBinding{binding})
 				errs <- err
 			}()
 			wg.Wait()
@@ -103,7 +103,7 @@ func TestProbeResourceBindingContract(t *testing.T) {
 			if _, err := assignments.Replace(ctx, monitor, 5, ids, policy); !errors.Is(err, domain.ErrValidation) {
 				t.Fatal("tombstoned binding resurrected", err)
 			}
-			if set, err := assignments.ReplaceWithBindings(ctx, monitor, 5, ids, policy, []domain.ProbeAssignmentBinding{binding}); err != nil || set.Assignments[0].Generation != 2 {
+			if set, err := assignments.ReplaceWithBindings(ctx, monitor, 5, ids, policy, "", []domain.ProbeAssignmentBinding{binding}); err != nil || set.Assignments[0].Generation != 2 {
 				t.Fatal("reassignment lost generation", err)
 			}
 			// The populated additive migration preserves identity on down/up and

@@ -2,7 +2,9 @@ package domain
 
 import "time"
 
-// AlertDelivery is how regional incidents page. Aggregate paging is optional.
+// AlertDelivery is the desired availability paging mode. Regional is the only
+// runtime mode. Aggregate and both may be stored as desired configuration;
+// they do not authorize hub paging or suppress regional delivery.
 type AlertDelivery string
 
 const (
@@ -10,6 +12,25 @@ const (
 	AlertDeliveryAggregate AlertDelivery = "aggregate"
 	AlertDeliveryBoth      AlertDelivery = "both"
 )
+
+// ValidAlertDelivery reports whether mode is an explicit supported value.
+func ValidAlertDelivery(mode AlertDelivery) bool {
+	switch mode {
+	case AlertDeliveryRegional, AlertDeliveryAggregate, AlertDeliveryBoth:
+		return true
+	default:
+		return false
+	}
+}
+
+// CanonicalAlertDelivery maps an absent legacy mode to regional. Any other
+// unsupported value is rejected so a corrupt row cannot be treated as regional.
+func CanonicalAlertDelivery(mode AlertDelivery) (AlertDelivery, bool) {
+	if mode == "" {
+		return AlertDeliveryRegional, true
+	}
+	return mode, ValidAlertDelivery(mode)
+}
 
 // IncidentScope distinguishes regional, hub-owned aggregate, and watchdog incidents.
 type IncidentScope string

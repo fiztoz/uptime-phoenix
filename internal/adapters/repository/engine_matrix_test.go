@@ -86,6 +86,7 @@ var mariadbTailHeals = []struct{ migration, table, column string }{
 	// A rehearsal can cycle 075's down/up and briefly remove the lease epoch
 	// from the shared monitors table while a sibling fixture starts.
 	{"075_monitor_lease_epoch", "monitors", "lease_epoch"},
+	{"076_assignment_alert_delivery", "monitor_probe_assignment_sets", "alert_delivery"},
 }
 
 // healMariaDBTail re-applies idempotent tail migrations after RunMigrations.

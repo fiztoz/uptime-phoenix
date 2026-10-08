@@ -38,11 +38,41 @@ type ProbeAssignmentRequest struct {
 
 // InitialAssignments is the optional complete desired set of a monitor create.
 // The same membership, policy and binding rules apply; creation plus this set
-// commits in one transaction.
+// commits in one transaction. An empty AlertDelivery is regional.
 type InitialAssignments struct {
-	ProbeIDs     []string
-	HealthPolicy domain.HealthPolicy
-	Bindings     *[]domain.ProbeAssignmentBinding
+	ProbeIDs      []string
+	HealthPolicy  domain.HealthPolicy
+	AlertDelivery string
+	Bindings      *[]domain.ProbeAssignmentBinding
+}
+
+// DesiredAlertDelivery resolves an operator or document request. An empty
+// request preserves the stored mode, or regional when no set exists. Aggregate
+// and both are desired configuration only: this function does not authorize a
+// provider send, suppress regional paging, or claim a source applied the mode.
+func DesiredAlertDelivery(requested string, previous *domain.MonitorProbeAssignments) (domain.AlertDelivery, error) {
+	if requested == "" {
+		stored := domain.AlertDelivery("")
+		if previous != nil {
+			stored = previous.AlertDelivery
+		}
+		mode, ok := domain.CanonicalAlertDelivery(stored)
+		if !ok {
+			return "", fmt.Errorf("stored alert delivery %q: %w", stored, ErrInvalidDelivery)
+		}
+		return mode, nil
+	}
+	mode := domain.AlertDelivery(requested)
+	if !domain.ValidAlertDelivery(mode) {
+		return "", fmt.Errorf("unsupported alert delivery %q: %w", requested, ErrInvalidDelivery)
+	}
+	return mode, nil
+}
+
+func alertDeliveryChanged(previous, next domain.AlertDelivery) bool {
+	left, leftOK := domain.CanonicalAlertDelivery(previous)
+	right, rightOK := domain.CanonicalAlertDelivery(next)
+	return !leftOK || !rightOK || left != right
 }
 
 // ProbeAssignmentWriteResult reports the committed desired set and which
@@ -111,7 +141,11 @@ func (s *ProbeAssignmentService) Replace(ctx context.Context, monitorID int64, r
 	if previous == nil && req.ExpectedRevision != 1 {
 		return nil, ErrStaleRevision
 	}
-	if err := ValidateDesiredAssignments(ctx, monitor, previous, req.ProbeIDs, req.HealthPolicy, req.Bindings, req.AlertDelivery, s.registry, s.capabilities); err != nil {
+	delivery, err := DesiredAlertDelivery(req.AlertDelivery, previous)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateDesiredAssignments(ctx, monitor, previous, req.ProbeIDs, req.HealthPolicy, req.Bindings, string(delivery), s.registry, s.capabilities); err != nil {
 		return nil, err
 	}
 	// T34: a set with a remote member makes this monitor remote-executed, so the
@@ -124,7 +158,7 @@ func (s *ProbeAssignmentService) Replace(ctx context.Context, monitorID int64, r
 	if req.Bindings != nil {
 		bindings = *req.Bindings
 	}
-	result, err := s.writer.ReplaceWithBindings(ctx, monitorID, req.ExpectedRevision, req.ProbeIDs, req.HealthPolicy, bindings)
+	result, err := s.writer.ReplaceWithBindings(ctx, monitorID, req.ExpectedRevision, req.ProbeIDs, req.HealthPolicy, delivery, bindings)
 	if err != nil {
 		if errors.Is(err, ports.ErrConflict) {
 			return nil, fmt.Errorf("replace assignments: %w", ErrStaleRevision)
@@ -162,8 +196,8 @@ func ValidateDesiredAssignments(
 	if policy != domain.HealthPolicyAnyDown && policy != domain.HealthPolicyAllDown {
 		return fmt.Errorf("unsupported policy %q: %w", policy, ErrInvalidPolicy)
 	}
-	if alertDelivery != "" && alertDelivery != string(domain.AlertDeliveryRegional) {
-		return fmt.Errorf("unsupported alert delivery %q: %w", alertDelivery, ErrInvalidDelivery)
+	if _, err := DesiredAlertDelivery(alertDelivery, previous); err != nil {
+		return err
 	}
 	seen := make(map[string]bool, len(probeIDs))
 	for _, id := range probeIDs {
@@ -241,7 +275,7 @@ func pendingAfterWrite(previous *domain.MonitorProbeAssignments, result domain.M
 		}
 		return pending
 	}
-	if previous.HealthPolicy != result.HealthPolicy {
+	if previous.HealthPolicy != result.HealthPolicy || alertDeliveryChanged(previous.AlertDelivery, result.AlertDelivery) {
 		for _, member := range result.Assignments {
 			pending[member.ProbeID] = true
 		}
@@ -275,7 +309,11 @@ func (s *MonitorService) CreateWithAssignments(ctx context.Context, m *domain.Mo
 	if s == nil || s.assignWriter == nil || s.probeRegistry == nil || s.probeCapabilities == nil {
 		return domain.ErrInternal
 	}
-	if err := ValidateDesiredAssignments(ctx, m, nil, initial.ProbeIDs, initial.HealthPolicy, initial.Bindings, "", s.probeRegistry, s.probeCapabilities); err != nil {
+	delivery, err := DesiredAlertDelivery(initial.AlertDelivery, nil)
+	if err != nil {
+		return err
+	}
+	if err := ValidateDesiredAssignments(ctx, m, nil, initial.ProbeIDs, initial.HealthPolicy, initial.Bindings, string(delivery), s.probeRegistry, s.probeCapabilities); err != nil {
 		return err
 	}
 	// T34, same rule as Replace: creating a monitor that is remote-executed from
@@ -305,7 +343,7 @@ func (s *MonitorService) CreateWithAssignments(ctx context.Context, m *domain.Mo
 	if initial.Bindings != nil {
 		bindings = *initial.Bindings
 	}
-	if _, err := s.assignWriter.CreateMonitorWithAssignments(ctx, m, initial.ProbeIDs, initial.HealthPolicy, bindings); err != nil {
+	if _, err := s.assignWriter.CreateMonitorWithAssignments(ctx, m, initial.ProbeIDs, initial.HealthPolicy, delivery, bindings); err != nil {
 		return fmt.Errorf("monitor service: create: %w", err)
 	}
 	if err := s.attachDefaultNotifications(ctx, m); err != nil {
@@ -397,7 +435,7 @@ func (s *MonitorService) Clone(ctx context.Context, id, userID int64, isAdmin bo
 				bindings = append(bindings, domain.ProbeAssignmentBinding{ProbeID: member.ProbeID, ProbeResourceBinding: *member.ResourceBinding})
 			}
 		}
-		if err := s.CreateWithAssignments(ctx, &clone, InitialAssignments{ProbeIDs: members, HealthPolicy: source.HealthPolicy, Bindings: &bindings}); err != nil {
+		if err := s.CreateWithAssignments(ctx, &clone, InitialAssignments{ProbeIDs: members, HealthPolicy: source.HealthPolicy, AlertDelivery: string(source.AlertDelivery), Bindings: &bindings}); err != nil {
 			return nil, fmt.Errorf("monitor service: clone: %w", err)
 		}
 		return &clone, nil

@@ -171,7 +171,7 @@
         expected_revision: current.revision,
         probe_ids: selected,
         health_policy: policy,
-        alert_delivery: "regional",
+        alert_delivery: current.alert_delivery || "regional",
         ...(bindingsEdited
           ? {
               bindings: selected
@@ -260,6 +260,11 @@
       <p class="text-xs text-muted-foreground">
         {m.probes_regional_delivery()}
       </p>
+      {#if baseline?.alert_delivery_pending}
+        <p class="text-xs text-muted-foreground" role="status">
+          {m.probes_aggregate_pending()}
+        </p>
+      {/if}
       {#if monitorType === "docker" || Object.keys(bindings).length}
         <details>
           <summary class="cursor-pointer text-sm">{m.probes_bindings()}</summary
