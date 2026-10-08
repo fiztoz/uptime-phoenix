@@ -4,6 +4,7 @@ This is a bounded implementation slice of [M7](IMPLEMENTATION_PLAN.md#10-follow-
 `fa6a76781936ddef392d41bc4e3e7dd22a3e56ea`. It does **not** complete M7 or enable
 aggregate paging. Regional delivery remains the only accepted runtime mode.
 The separate M6 conditional lab acceptance and operational gates are unchanged.
+Wire compatibility for carrying the desired mode on config snapshots is documented in [M7_PROTOCOL_DELIVERY.md](M7_PROTOCOL_DELIVERY.md).
 
 ## Implemented decision contract
 

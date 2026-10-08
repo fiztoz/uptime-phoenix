@@ -70,6 +70,9 @@ type ConfigAssignment struct {
 	ResourceBindings     []ResourceBinding        `json:"resource_bindings"`
 	EscalationPolicyID   *int64                   `json:"escalation_policy_id"`
 	RequiredCapabilities []string                 `json:"required_capabilities"`
+	// AlertDelivery is the desired paging mode. It is omitted for the legacy
+	// regional mode so existing regional documents stay byte-identical.
+	AlertDelivery domain.AlertDelivery `json:"alert_delivery,omitempty"`
 }
 
 // ConfigMonitor whitelists existing execution/template fields and their wire names.
@@ -267,6 +270,17 @@ func decodeConfigAssignmentForTarget(data []byte, local bool) (ConfigAssignment,
 	fields, err := decodeConfigFields(data, &assignment, "monitor_id generation active monitor notification_ids notification_links maintenance_ids resource_bindings required_capabilities", "proxy_binding_key escalation_policy_id")
 	if err != nil {
 		return assignment, err
+	}
+	// Absence is valid and means the legacy regional mode, so alert_delivery
+	// cannot join the required field lists. A struct tag is not enough either:
+	// null must reject instead of decoding to an empty string.
+	assignment.AlertDelivery = domain.AlertDeliveryRegional
+	if raw, exists := fields["alert_delivery"]; exists {
+		var value string
+		if trimmed := bytes.TrimSpace(raw); len(trimmed) == 0 || trimmed[0] != '"' || json.Unmarshal(trimmed, &value) != nil || !domain.ValidAlertDelivery(domain.AlertDelivery(value)) {
+			return assignment, errors.New("invalid assignment alert delivery")
+		}
+		assignment.AlertDelivery = domain.AlertDelivery(value)
 	}
 	if assignment.MonitorID <= 0 || assignment.Generation <= 0 || !validConfigIDs(assignment.NotificationIDs, MaxConfigDependencies) || !validConfigIDs(assignment.MaintenanceIDs, MaxConfigDependencies) {
 		return assignment, errors.New("invalid assignment identity or reference IDs")

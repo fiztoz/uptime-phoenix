@@ -13,6 +13,10 @@ type ProbeConfigAssignment struct {
 	NotificationLinks  []MonitorNotification
 	MaintenanceIDs     []int64
 	EscalationPolicyID *int64
+	// AlertDelivery is the desired availability paging mode. Empty is the
+	// legacy regional mode; source reads resolve it through
+	// CanonicalAlertDelivery instead of leaving ambiguity to consumers.
+	AlertDelivery AlertDelivery
 }
 
 // ProbeConfigTag is resolved template metadata.

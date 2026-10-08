@@ -133,6 +133,9 @@ func readProbeConfigSource(ctx context.Context, tx bun.Tx, probeID string) (*dom
 	for i := range monitors {
 		out.Assignments = append(out.Assignments, domain.ProbeConfigAssignment{Monitor: monitors[i].ToDomain(), Generation: generation[monitors[i].ID], ResourceBinding: bindings[monitors[i].ID]})
 	}
+	if err := readConfigDeliveries(ctx, tx, ids, out); err != nil {
+		return nil, err
+	}
 	if err := readConfigGroups(ctx, tx, out); err != nil {
 		return nil, err
 	}
@@ -308,6 +311,43 @@ type configTagRow struct {
 	MonitorID int64
 	Name      string
 	Value     string
+}
+
+type configDeliveryRow struct {
+	MonitorID     int64                `bun:"monitor_id"`
+	AlertDelivery domain.AlertDelivery `bun:"alert_delivery"`
+}
+
+// readConfigDeliveries resolves each assignment's desired paging mode from its
+// saved set row. An absent legacy value is regional; any other stored value
+// fails the read instead of being coerced to a mode the operator never chose.
+func readConfigDeliveries(ctx context.Context, tx bun.Tx, monitorIDs []int64, out *domain.LocalProbeConfigSource) error {
+	if len(monitorIDs) == 0 {
+		return nil
+	}
+	var rows []configDeliveryRow
+	// A direct Scan keeps the explicit table: bun.Model would derive a table
+	// name from the row struct and override TableExpr.
+	if err := tx.NewSelect().TableExpr("monitor_probe_assignment_sets").
+		ColumnExpr("monitor_id, alert_delivery").Where("monitor_id IN (?)", bun.List(monitorIDs)).
+		Order("monitor_id ASC").Limit(configSourceAssignments+1).Scan(ctx, &rows); err != nil {
+		return err
+	}
+	if len(rows) != len(monitorIDs) {
+		return domain.ErrValidation
+	}
+	deliveries := make(map[int64]domain.AlertDelivery, len(rows))
+	for _, row := range rows {
+		mode, ok := domain.CanonicalAlertDelivery(row.AlertDelivery)
+		if !ok {
+			return domain.ErrValidation
+		}
+		deliveries[row.MonitorID] = mode
+	}
+	for i := range out.Assignments {
+		out.Assignments[i].AlertDelivery = deliveries[out.Assignments[i].Monitor.ID]
+	}
+	return nil
 }
 
 func readConfigTags(ctx context.Context, tx bun.Tx, monitorIDs []int64, out *domain.LocalProbeConfigSource) error {
