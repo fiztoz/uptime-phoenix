@@ -1008,6 +1008,7 @@
   "probes_all_down": "Down only if all regions are down",
   "probes_health_policy": "Overall health policy",
   "probes_regional_delivery": "Alerts are delivered per region.",
+  "probes_aggregate_pending": "Aggregate paging is saved as desired and is not active. Regional alerts continue.",
   "probes_assignment_saved": "Desired regions saved. Waiting for configuration application.",
   "probes_assignment_failed": "The monitor was saved, but its regions were not. Retry the region assignment below.",
   "probes_select_one": "Select at least one probe.",

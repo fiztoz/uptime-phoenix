@@ -206,6 +206,15 @@ func encodeLocalAssignment(a domain.ProbeConfigAssignment) (ConfigAssignment, er
 		key := localProxyKey(*m.ProxyID)
 		out.ProxyBindingKey = &key
 	}
+	// Only aggregate and both travel. Regional (and its empty legacy spelling)
+	// stays omitted so existing regional documents do not change.
+	switch a.AlertDelivery {
+	case "", domain.AlertDeliveryRegional:
+	case domain.AlertDeliveryAggregate, domain.AlertDeliveryBoth:
+		out.AlertDelivery = a.AlertDelivery
+	default:
+		return out, domain.ErrValidation
+	}
 	return out, nil
 }
 

@@ -82,9 +82,10 @@ type BackupProbe struct {
 // set. It exists only in version 2 documents; a document without it leaves
 // every monitor on the legacy local assignment.
 type BackupMonitorAssignmentSet struct {
-	MonitorID    int64                           `json:"monitor_id"`
-	HealthPolicy domain.HealthPolicy             `json:"health_policy"`
-	Members      []BackupMonitorAssignmentMember `json:"members"`
+	MonitorID     int64                           `json:"monitor_id"`
+	HealthPolicy  domain.HealthPolicy             `json:"health_policy"`
+	AlertDelivery domain.AlertDelivery            `json:"alert_delivery,omitempty"`
+	Members       []BackupMonitorAssignmentMember `json:"members"`
 }
 
 // BackupMonitorAssignmentMember references a probe by stable key and carries
@@ -802,10 +803,15 @@ func (s *BackupService) Export(ctx context.Context, userID int64) (*BackupDocume
 				}
 				return nil, fmt.Errorf("backup export: probe assignments for monitor %d: %w", m.ID, err)
 			}
+			mode, ok := domain.CanonicalAlertDelivery(set.AlertDelivery)
+			if !ok {
+				return nil, fmt.Errorf("backup export: monitor %d alert delivery %q: %w", m.ID, set.AlertDelivery, domain.ErrValidation)
+			}
 			entry := BackupMonitorAssignmentSet{
-				MonitorID:    m.ID,
-				HealthPolicy: set.HealthPolicy,
-				Members:      []BackupMonitorAssignmentMember{},
+				MonitorID:     m.ID,
+				HealthPolicy:  set.HealthPolicy,
+				AlertDelivery: mode,
+				Members:       []BackupMonitorAssignmentMember{},
 			}
 			for _, member := range set.Assignments {
 				key := domain.LocalProbeID
@@ -1102,6 +1108,7 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 		var setIDs []string
 		var setBindings []domain.ProbeAssignmentBinding
 		var setPolicy domain.HealthPolicy
+		var setDelivery domain.AlertDelivery
 		if hasSet {
 			if !probesAvailable {
 				summary.Skipped = append(summary.Skipped, ImportSkipped{
@@ -1110,7 +1117,7 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 				})
 				continue
 			}
-			ids, bindings, policy, err := resolveAssignmentSet(set, probeByKey)
+			ids, bindings, policy, delivery, err := resolveAssignmentSet(set, probeByKey)
 			if err != nil {
 				summary.Skipped = append(summary.Skipped, ImportSkipped{
 					Kind: "monitor", ID: bm.ID, Name: bm.Name,
@@ -1118,7 +1125,7 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 				})
 				continue
 			}
-			setIDs, setBindings, setPolicy = ids, bindings, policy
+			setIDs, setBindings, setPolicy, setDelivery = ids, bindings, policy, delivery
 		}
 
 		m := &domain.Monitor{
@@ -1180,7 +1187,7 @@ func (s *BackupService) Import(ctx context.Context, userID int64, doc *BackupDoc
 		monitorMap[bm.ID] = m.ID
 		summary.MonitorsCreated++
 		if hasSet {
-			if err := s.restoreAssignmentSet(ctx, m.ID, setIDs, setPolicy, setBindings); err != nil {
+			if err := s.restoreAssignmentSet(ctx, m.ID, setIDs, setPolicy, setDelivery, setBindings); err != nil {
 				// The monitor must not survive with the placeholder local
 				// assignment. Remove the row created moments ago and report the
 				// monitor as not imported.
@@ -1615,7 +1622,7 @@ func (s *BackupService) restoreProbeIdentity(ctx context.Context, bp BackupProbe
 // restoreAssignmentSet commits the desired set for a freshly imported monitor.
 // The monitor was created with the placeholder local assignment, so the live
 // revision is read back instead of assumed.
-func (s *BackupService) restoreAssignmentSet(ctx context.Context, monitorID int64, ids []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) error {
+func (s *BackupService) restoreAssignmentSet(ctx context.Context, monitorID int64, ids []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding) error {
 	// New restored identities are disabled, but matching identities can already
 	// be enabled and enrolled. Only the inert case is exempt from fleet admission.
 	for _, id := range ids {
@@ -1639,7 +1646,7 @@ func (s *BackupService) restoreAssignmentSet(ctx context.Context, monitorID int6
 	} else if !errors.Is(err, ports.ErrNotFound) {
 		return err
 	}
-	_, err := s.probeAssignments.Restore(ctx, monitorID, revision, ids, policy, bindings)
+	_, err := s.probeAssignments.Restore(ctx, monitorID, revision, ids, policy, delivery, bindings)
 	return err
 }
 
@@ -1648,16 +1655,20 @@ func (s *BackupService) restoreAssignmentSet(ctx context.Context, monitorID int6
 // key, a duplicate member, an unsupported policy or an invalid resource binding
 // is an error: Import must never quietly turn a regional assignment into local
 // execution.
-func resolveAssignmentSet(set BackupMonitorAssignmentSet, probeByKey map[string]string) ([]string, []domain.ProbeAssignmentBinding, domain.HealthPolicy, error) {
+func resolveAssignmentSet(set BackupMonitorAssignmentSet, probeByKey map[string]string) ([]string, []domain.ProbeAssignmentBinding, domain.HealthPolicy, domain.AlertDelivery, error) {
 	policy := set.HealthPolicy
 	if policy == "" {
 		policy = domain.HealthPolicyAnyDown
 	}
 	if policy != domain.HealthPolicyAnyDown && policy != domain.HealthPolicyAllDown {
-		return nil, nil, "", fmt.Errorf("unsupported health policy %q", set.HealthPolicy)
+		return nil, nil, "", "", fmt.Errorf("unsupported health policy %q", set.HealthPolicy)
+	}
+	delivery, ok := domain.CanonicalAlertDelivery(set.AlertDelivery)
+	if !ok {
+		return nil, nil, "", "", fmt.Errorf("unsupported alert delivery %q", set.AlertDelivery)
 	}
 	if len(set.Members) == 0 {
-		return nil, nil, "", fmt.Errorf("assignment set has no members")
+		return nil, nil, "", "", fmt.Errorf("assignment set has no members")
 	}
 	ids := make([]string, 0, len(set.Members))
 	bindings := []domain.ProbeAssignmentBinding{}
@@ -1665,10 +1676,10 @@ func resolveAssignmentSet(set BackupMonitorAssignmentSet, probeByKey map[string]
 	for _, member := range set.Members {
 		id, ok := probeByKey[member.ProbeKey]
 		if !ok {
-			return nil, nil, "", fmt.Errorf("probe key %q is not restorable on this install", member.ProbeKey)
+			return nil, nil, "", "", fmt.Errorf("probe key %q is not restorable on this install", member.ProbeKey)
 		}
 		if _, dup := seen[id]; dup {
-			return nil, nil, "", fmt.Errorf("duplicate probe key %q", member.ProbeKey)
+			return nil, nil, "", "", fmt.Errorf("duplicate probe key %q", member.ProbeKey)
 		}
 		seen[id] = struct{}{}
 		ids = append(ids, id)
@@ -1678,10 +1689,10 @@ func resolveAssignmentSet(set BackupMonitorAssignmentSet, probeByKey map[string]
 				ProbeResourceBinding: domain.ProbeResourceBinding{BindingKey: member.BindingKey, Kind: member.BindingKind},
 			}
 			if id == domain.LocalProbeID || !domain.ValidProbeResourceBinding(binding.ProbeResourceBinding) {
-				return nil, nil, "", fmt.Errorf("invalid resource binding for probe %q", member.ProbeKey)
+				return nil, nil, "", "", fmt.Errorf("invalid resource binding for probe %q", member.ProbeKey)
 			}
 			bindings = append(bindings, binding)
 		}
 	}
-	return ids, bindings, policy, nil
+	return ids, bindings, policy, delivery, nil
 }

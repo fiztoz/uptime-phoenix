@@ -133,6 +133,10 @@ type ConfigMonitor struct {
 	// HealthPolicy is any_down (default) or all_down and applies together with
 	// ProbeAssignments.
 	HealthPolicy string `json:"health_policy,omitempty" yaml:"health_policy,omitempty"`
+	// AlertDelivery is regional (default), aggregate, or both. Omission preserves
+	// the live mode on update and means regional on create. It is desired
+	// configuration only and does not activate aggregate paging.
+	AlertDelivery string `json:"alert_delivery,omitempty" yaml:"alert_delivery,omitempty"`
 }
 
 // ConfigMonitorProbeAssignment references one probe of a monitor's desired

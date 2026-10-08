@@ -288,3 +288,24 @@ func testLocalConfigSourceFailure(t *testing.T, f probeRegistryFixture) {
 		t.Fatal("ignored cancellation")
 	}
 }
+
+func TestConfigSourceCarriesAggregateDelivery(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mariadb"} {
+		t.Run(engine, func(t *testing.T) {
+			f := newProbeRegistryFixture(t, engine)
+			ctx := context.Background()
+			id := f.monitor(t)
+			store := repository.NewProbeAssignmentStore(f.db)
+			if _, err := store.InitializeLocal(ctx, id); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.ReplaceWithBindings(ctx, id, 1, []string{domain.LocalProbeID}, domain.HealthPolicyAnyDown, domain.AlertDeliveryAggregate, nil); err != nil {
+				t.Fatal(err)
+			}
+			source, err := repository.NewLocalProbeConfigSourceStore(f.db).ReadLocal(ctx)
+			if err != nil || len(source.Assignments) != 1 || source.Assignments[0].Monitor.ID != id || source.Assignments[0].AlertDelivery != domain.AlertDeliveryAggregate {
+				t.Fatalf("source did not carry aggregate delivery: %+v %v", source, err)
+			}
+		})
+	}
+}

@@ -21,6 +21,13 @@ const CredentialRotationCapability = "command.credential_rotation.v1"
 // CertificateRotationCapability advertises durable local TLS certificate switching.
 const CertificateRotationCapability = "command.certificate_rotation.v1"
 
+// AggregatePagingCapability advertises that this probe understands the optional
+// alert_delivery field on config snapshot assignments. Advertisement is
+// informational until a later activation barrier: it does not enable aggregate
+// paging, suppress regional notification delivery, or make a config receipt an
+// applied-mode receipt.
+const AggregatePagingCapability = "paging.aggregate.v1"
+
 func (t *HubTransport) sendCommands(ctx context.Context, session *Session, authority domain.ProbeReplaySession, ready *atomic.Bool, capabilities domain.ProbeCommandCapabilities) {
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()

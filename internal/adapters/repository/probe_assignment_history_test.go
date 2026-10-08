@@ -4,13 +4,32 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
+
+// reapplyAssignmentDelivery restores the delivery column after a test rebuilds
+// assignment history from migration 040, which predates that column.
+func reapplyAssignmentDelivery(t *testing.T, f probeRegistryFixture) {
+	t.Helper()
+	for _, table := range []string{"monitor_probe_assignment_sets", "monitor_probe_assignment_history"} {
+		var stmt string
+		if f.engine == "sqlite" {
+			stmt = "ALTER TABLE " + table + " ADD COLUMN alert_delivery TEXT NOT NULL DEFAULT 'regional' CHECK (alert_delivery IN ('regional', 'aggregate', 'both'))"
+		} else {
+			stmt = "ALTER TABLE " + table + " ADD COLUMN IF NOT EXISTS alert_delivery VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'regional' CHECK (alert_delivery IN ('regional', 'aggregate', 'both'))"
+		}
+		if _, err := f.db.ExecContext(context.Background(), stmt); err != nil && !strings.Contains(err.Error(), "duplicate column name") && !strings.Contains(err.Error(), "Duplicate column name") {
+			t.Fatal(err)
+		}
+	}
+}
 
 func assignmentHistory(t *testing.T, f probeRegistryFixture, monitorID int64) []domain.AssignmentInterval {
 	t.Helper()
@@ -221,6 +240,7 @@ func TestAssignmentHistoryLocalDowngradeAndConstraints(t *testing.T) {
 			if err := runNamedMigration(t, f, "040_probe_assignment_history", "up"); err != nil {
 				t.Fatal(err)
 			}
+			reapplyAssignmentDelivery(t, f)
 			if got := assignmentHistory(t, f, monitorID); !reflect.DeepEqual(before, got) {
 				t.Fatalf("safe cycle changed local membership: %+v", got)
 			}
@@ -257,14 +277,53 @@ func TestAssignmentHistoryMigrationBackfillsOnlyKnownRevision(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			reapplyAssignmentDelivery(t, f)
 			rows := assignmentHistory(t, f, monitorID)
-			if len(rows) != 1 || rows[0].Revision != 3 || rows[0].Policy != domain.HealthPolicyAllDown || !rows[0].From.Equal(at) {
+			if len(rows) != 1 || rows[0].Revision != 3 || rows[0].Policy != domain.HealthPolicyAllDown || rows[0].AlertDelivery != domain.AlertDeliveryRegional || !rows[0].From.Equal(at) {
 				t.Fatalf("backfill invented old revisions: %+v", rows)
 			}
 			svc := services.NewMonitorHealthService(newEngineMonitorRepo(f), f.assignments, f.commits, allowAllMonitors{})
 			history, err := svc.History(ctx, 1, monitorID, at.Add(-time.Minute), at)
 			if err != nil || history.Durations.Unknown != time.Minute || len(history.Intervals) != 1 || history.Intervals[0].Reason != "missing_assignment_history" {
 				t.Fatalf("unknown pre-migration membership: %+v %v", history, err)
+			}
+		})
+	}
+}
+
+func TestAssignmentDeliveryModeParticipatesInRevision(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mariadb"} {
+		t.Run(engine, func(t *testing.T) {
+			f := newProbeRegistryFixture(t, engine)
+			ctx := context.Background()
+			monitorID := f.monitor(t)
+			store := repository.NewProbeAssignmentStore(f.db)
+			initial, err := store.InitializeLocal(ctx, monitorID)
+			if err != nil || initial.AlertDelivery != domain.AlertDeliveryRegional || initial.Revision != 1 {
+				t.Fatalf("legacy mode: %+v %v", initial, err)
+			}
+			same, err := store.ReplaceWithBindings(ctx, monitorID, 1, []string{domain.LocalProbeID}, domain.HealthPolicyAnyDown, domain.AlertDeliveryRegional, nil)
+			if err != nil || same.Revision != 1 || same.AlertDelivery != domain.AlertDeliveryRegional {
+				t.Fatalf("explicit regional no-op: %+v %v", same, err)
+			}
+			changed, err := store.ReplaceWithBindings(ctx, monitorID, 1, []string{domain.LocalProbeID}, domain.HealthPolicyAnyDown, domain.AlertDeliveryAggregate, nil)
+			if err != nil || changed.Revision != 2 || changed.AlertDelivery != domain.AlertDeliveryAggregate {
+				t.Fatalf("mode change: %+v %v", changed, err)
+			}
+			history := assignmentHistory(t, f, monitorID)
+			if len(history) != 2 || history[0].AlertDelivery != domain.AlertDeliveryRegional || history[1].AlertDelivery != domain.AlertDeliveryAggregate || !history[0].To.Equal(history[1].From) {
+				t.Fatalf("mode history: %+v", history)
+			}
+			preserved, err := store.Replace(ctx, monitorID, 2, []string{domain.LocalProbeID}, domain.HealthPolicyAnyDown)
+			if err != nil || preserved.Revision != 2 || preserved.AlertDelivery != domain.AlertDeliveryAggregate {
+				t.Fatalf("empty delivery did not preserve aggregate: %+v %v", preserved, err)
+			}
+			if _, err := store.ReplaceWithBindings(ctx, monitorID, 2, []string{domain.LocalProbeID}, domain.HealthPolicyAnyDown, "hub", nil); !errors.Is(err, domain.ErrValidation) {
+				t.Fatalf("invalid delivery accepted: %v", err)
+			}
+			after, err := store.GetByMonitorID(ctx, monitorID)
+			if err != nil || after.Revision != 2 || after.AlertDelivery != domain.AlertDeliveryAggregate {
+				t.Fatalf("invalid delivery mutated the set: %+v %v", after, err)
 			}
 		})
 	}

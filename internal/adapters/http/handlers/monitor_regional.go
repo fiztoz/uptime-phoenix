@@ -54,10 +54,11 @@ func (h *MonitorRegionalHandlers) SetAssignments(writer assignmentWriter) {
 // MonitorProbeAssignmentsView is desired state only. Null synchronization fields
 // mean unreported, never applied. Bindings contain keys, never local endpoints.
 type MonitorProbeAssignmentsView struct {
-	Revision      int64                        `json:"revision,string"`
-	HealthPolicy  string                       `json:"health_policy"`
-	AlertDelivery string                       `json:"alert_delivery"`
-	Assignments   []MonitorProbeAssignmentView `json:"assignments"`
+	Revision             int64                        `json:"revision,string"`
+	HealthPolicy         string                       `json:"health_policy"`
+	AlertDelivery        string                       `json:"alert_delivery"`
+	AlertDeliveryPending bool                         `json:"alert_delivery_pending"`
+	Assignments          []MonitorProbeAssignmentView `json:"assignments"`
 }
 
 // MonitorProbeAssignmentView contains safe metadata for one assigned region.
@@ -221,7 +222,15 @@ func (h *MonitorRegionalHandlers) Replace(c echo.Context) error {
 // carry this write's unproven desired state and must read pending, never an
 // earlier proven application.
 func toAssignmentsView(result *services.MonitorRegionalAssignments, pending map[string]bool) MonitorProbeAssignmentsView {
-	out := MonitorProbeAssignmentsView{Revision: result.Set.Revision, HealthPolicy: string(result.Set.HealthPolicy), AlertDelivery: string(domain.AlertDeliveryRegional), Assignments: make([]MonitorProbeAssignmentView, 0, len(result.Set.Assignments))}
+	mode, ok := domain.CanonicalAlertDelivery(result.Set.AlertDelivery)
+	if !ok {
+		mode = result.Set.AlertDelivery
+	}
+	out := MonitorProbeAssignmentsView{
+		Revision: result.Set.Revision, HealthPolicy: string(result.Set.HealthPolicy),
+		AlertDelivery: string(mode), AlertDeliveryPending: !ok || mode != domain.AlertDeliveryRegional,
+		Assignments: make([]MonitorProbeAssignmentView, 0, len(result.Set.Assignments)),
+	}
 	for _, a := range result.Set.Assignments {
 		p := result.Probes[a.ProbeID]
 		diag := result.Diag[a.ProbeID]
@@ -253,7 +262,7 @@ func regionalWriteError(c echo.Context, err error) error {
 	case errors.Is(err, services.ErrInvalidPolicy):
 		return regionalError(c, http.StatusBadRequest, "invalid_health_policy", "health_policy must be any_down or all_down")
 	case errors.Is(err, services.ErrInvalidDelivery):
-		return regionalError(c, http.StatusBadRequest, "invalid_alert_delivery", "alert_delivery must be regional")
+		return regionalError(c, http.StatusBadRequest, "invalid_alert_delivery", "alert_delivery must be regional, aggregate, or both")
 	case errors.Is(err, services.ErrInvalidBindings):
 		return regionalError(c, http.StatusBadRequest, "invalid_bindings", "bindings must reference member probes with a supported resource")
 	case errors.Is(err, services.ErrFleetNotAssignmentAware):

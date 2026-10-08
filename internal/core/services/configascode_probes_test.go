@@ -145,14 +145,14 @@ func (r *cfgAssignmentRepo) GetByMonitorID(_ context.Context, monitorID int64) (
 }
 
 func (r *cfgAssignmentRepo) Replace(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy) (*domain.MonitorProbeAssignments, error) {
-	return r.commit(ctx, monitorID, expectedRevision, probeIDs, policy, nil, true)
+	return r.commit(ctx, monitorID, expectedRevision, probeIDs, policy, "", nil, true)
 }
 
-func (r *cfgAssignmentRepo) Restore(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
-	return r.commit(ctx, monitorID, expectedRevision, probeIDs, policy, bindings, false)
+func (r *cfgAssignmentRepo) Restore(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+	return r.commit(ctx, monitorID, expectedRevision, probeIDs, policy, delivery, bindings, false)
 }
 
-func (r *cfgAssignmentRepo) commit(_ context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding, requireEnabled bool) (*domain.MonitorProbeAssignments, error) {
+func (r *cfgAssignmentRepo) commit(_ context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding, requireEnabled bool) (*domain.MonitorProbeAssignments, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.commitFail != nil {
@@ -196,7 +196,15 @@ func (r *cfgAssignmentRepo) commit(_ context.Context, monitorID, expectedRevisio
 		}
 		members = append(members, a)
 	}
-	set := &domain.MonitorProbeAssignments{MonitorID: monitorID, Revision: expectedRevision + 1, HealthPolicy: policy, Assignments: members}
+	mode := delivery
+	if mode == "" {
+		mode = current.AlertDelivery
+	}
+	canonical, ok := domain.CanonicalAlertDelivery(mode)
+	if !ok {
+		return nil, domain.ErrValidation
+	}
+	set := &domain.MonitorProbeAssignments{MonitorID: monitorID, Revision: expectedRevision + 1, HealthPolicy: policy, AlertDelivery: canonical, Assignments: members}
 	r.sets[monitorID] = set
 	cp := *set
 	return &cp, nil

@@ -213,14 +213,14 @@ func TestMonitorService_PushCreateGeneratesTokenWhenOmitted(t *testing.T) {
 // create-with-assignments write and reports the fresh assignment set.
 type pushTokAssignWriter struct{ repo *pushTokMonitorRepo }
 
-func (w pushTokAssignWriter) CreateMonitorWithAssignments(ctx context.Context, m *domain.Monitor, _ []string, _ domain.HealthPolicy, _ []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+func (w pushTokAssignWriter) CreateMonitorWithAssignments(ctx context.Context, m *domain.Monitor, _ []string, _ domain.HealthPolicy, _ domain.AlertDelivery, _ []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
 	if err := w.repo.Create(ctx, m); err != nil {
 		return nil, err
 	}
 	return &domain.MonitorProbeAssignments{MonitorID: m.ID}, nil
 }
 
-func (pushTokAssignWriter) ReplaceWithBindings(context.Context, int64, int64, []string, domain.HealthPolicy, []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+func (pushTokAssignWriter) ReplaceWithBindings(context.Context, int64, int64, []string, domain.HealthPolicy, domain.AlertDelivery, []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
 	return nil, ports.ErrNotFound
 }
 

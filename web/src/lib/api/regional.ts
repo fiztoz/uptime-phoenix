@@ -39,6 +39,7 @@ export interface MonitorProbeAssignmentsView {
   revision: string;
   health_policy: string;
   alert_delivery: string;
+  alert_delivery_pending: boolean;
   assignments: MonitorProbeAssignmentView[];
 }
 
@@ -108,7 +109,7 @@ export interface AssignmentInput {
   expected_revision: string;
   probe_ids: string[];
   health_policy: string;
-  alert_delivery: "regional";
+  alert_delivery: string;
   bindings?: Array<{ probe_id: string; kind: string; binding_key: string }>;
 }
 

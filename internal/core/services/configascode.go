@@ -341,6 +341,11 @@ func (s *ConfigService) Export(ctx context.Context, userID int64) (*ConfigDocume
 						policy = domain.HealthPolicyAnyDown
 					}
 					cm.HealthPolicy = string(policy)
+					mode, ok := domain.CanonicalAlertDelivery(set.AlertDelivery)
+					if !ok {
+						return nil, fmt.Errorf("config export: monitor %d alert delivery %q: %w", m.ID, set.AlertDelivery, domain.ErrValidation)
+					}
+					cm.AlertDelivery = string(mode)
 				}
 			}
 		}
@@ -594,6 +599,9 @@ func validateConfigDocument(doc *ConfigDocument) []string {
 		}
 		if m.HealthPolicy != "" && m.HealthPolicy != string(domain.HealthPolicyAnyDown) && m.HealthPolicy != string(domain.HealthPolicyAllDown) {
 			errs = append(errs, "monitor "+m.Key+": unsupported health_policy "+m.HealthPolicy)
+		}
+		if m.AlertDelivery != "" && !domain.ValidAlertDelivery(domain.AlertDelivery(m.AlertDelivery)) {
+			errs = append(errs, "monitor "+m.Key+": unsupported alert_delivery "+m.AlertDelivery)
 		}
 		if len(m.ProbeAssignments) == 0 {
 			continue
@@ -937,11 +945,15 @@ func (s *ConfigService) buildPlan(ctx context.Context, userID int64, doc *Config
 		if err != nil {
 			return err
 		}
-		ids, bindings, policy, err := s.resolveDocumentSet(ctx, m)
+		ids, bindings, policy, requested, err := s.resolveDocumentSet(ctx, m)
 		if err != nil {
 			return err
 		}
-		if probeAssignmentSetEqual(current, ids, policy, bindings) {
+		delivery, err := DesiredAlertDelivery(string(requested), current)
+		if err != nil {
+			return err
+		}
+		if probeAssignmentSetEqual(current, ids, policy, delivery, bindings) {
 			add("probe_assignment", m.Key, ConfigActionUnchanged)
 		} else {
 			add("probe_assignment", m.Key, ConfigActionUpdate)
@@ -1797,7 +1809,7 @@ func (s *ConfigService) applyProbe(ctx context.Context, p ConfigProbe, action Co
 
 // resolveDocumentSet maps one declared assignment set onto live probe IDs,
 // bindings and policy. Members are already validated against the document.
-func (s *ConfigService) resolveDocumentSet(ctx context.Context, m ConfigMonitor) ([]string, []domain.ProbeAssignmentBinding, domain.HealthPolicy, error) {
+func (s *ConfigService) resolveDocumentSet(ctx context.Context, m ConfigMonitor) ([]string, []domain.ProbeAssignmentBinding, domain.HealthPolicy, domain.AlertDelivery, error) {
 	policy := domain.HealthPolicyAnyDown
 	if m.HealthPolicy != "" {
 		policy = domain.HealthPolicy(m.HealthPolicy)
@@ -1809,7 +1821,7 @@ func (s *ConfigService) resolveDocumentSet(ctx context.Context, m ConfigMonitor)
 		if a.Probe != domain.LocalProbeID {
 			p, err := s.lookupProbe(ctx, a.Probe)
 			if err != nil {
-				return nil, nil, "", fmt.Errorf("monitor %s probe %s: %w", m.Key, a.Probe, err)
+				return nil, nil, "", "", fmt.Errorf("monitor %s probe %s: %w", m.Key, a.Probe, err)
 			}
 			id = p.ID
 		}
@@ -1821,7 +1833,10 @@ func (s *ConfigService) resolveDocumentSet(ctx context.Context, m ConfigMonitor)
 			})
 		}
 	}
-	return ids, bindings, policy, nil
+	if m.AlertDelivery != "" && !domain.ValidAlertDelivery(domain.AlertDelivery(m.AlertDelivery)) {
+		return nil, nil, "", "", fmt.Errorf("monitor %s: unsupported alert_delivery %s: %w", m.Key, m.AlertDelivery, domain.ErrValidation)
+	}
+	return ids, bindings, policy, domain.AlertDelivery(m.AlertDelivery), nil
 }
 
 // syncProbeAssignments commits every declared monitor set as one complete
@@ -1847,7 +1862,7 @@ func (s *ConfigService) syncProbeAssignments(ctx context.Context, doc *ConfigDoc
 		if err != nil {
 			return fmt.Errorf("monitor %s: %w", m.Key, err)
 		}
-		ids, bindings, policy, err := s.resolveDocumentSet(ctx, m)
+		ids, bindings, policy, requested, err := s.resolveDocumentSet(ctx, m)
 		if err != nil {
 			return err
 		}
@@ -1867,18 +1882,25 @@ func (s *ConfigService) syncProbeAssignments(ctx context.Context, doc *ConfigDoc
 			}
 		}
 		revision := int64(1)
-		if current, err := s.probeAssignments.GetByMonitorID(ctx, ck.ResourceID); err == nil {
+		var current *domain.MonitorProbeAssignments
+		if current, err = s.probeAssignments.GetByMonitorID(ctx, ck.ResourceID); err == nil {
 			revision = current.Revision
-			if probeAssignmentSetEqual(current, ids, policy, bindings) {
-				continue
-			}
 		} else if !isNotFound(err) {
 			return err
+		} else {
+			current = nil
+		}
+		delivery, err := DesiredAlertDelivery(string(requested), current)
+		if err != nil {
+			return err
+		}
+		if current != nil && probeAssignmentSetEqual(current, ids, policy, delivery, bindings) {
+			continue
 		}
 		if err := s.fleetGate.EnsureRemoteActivationAllowed(ctx, ids); err != nil {
 			return err
 		}
-		if _, err := s.probeAssignments.Restore(ctx, ck.ResourceID, revision, ids, policy, bindings); err != nil {
+		if _, err := s.probeAssignments.Restore(ctx, ck.ResourceID, revision, ids, policy, delivery, bindings); err != nil {
 			return fmt.Errorf("monitor %s probe assignments: %w", m.Key, err)
 		}
 	}
@@ -1887,8 +1909,12 @@ func (s *ConfigService) syncProbeAssignments(ctx context.Context, doc *ConfigDoc
 
 // probeAssignmentSetEqual compares a live set against one declared set,
 // ignoring order and generation (generations are runtime state).
-func probeAssignmentSetEqual(current *domain.MonitorProbeAssignments, ids []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) bool {
+func probeAssignmentSetEqual(current *domain.MonitorProbeAssignments, ids []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding) bool {
 	if current == nil || current.HealthPolicy != policy || len(current.Assignments) != len(ids) {
+		return false
+	}
+	currentMode, ok := domain.CanonicalAlertDelivery(current.AlertDelivery)
+	if !ok || currentMode != delivery {
 		return false
 	}
 	want := map[string]domain.ProbeResourceBinding{}

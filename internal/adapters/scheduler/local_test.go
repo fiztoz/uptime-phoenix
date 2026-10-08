@@ -127,7 +127,7 @@ func (m *mockAssignments) GetByMonitorID(context.Context, int64) (*domain.Monito
 func (m *mockAssignments) Replace(context.Context, int64, int64, []string, domain.HealthPolicy) (*domain.MonitorProbeAssignments, error) {
 	return nil, nil
 }
-func (m *mockAssignments) Restore(context.Context, int64, int64, []string, domain.HealthPolicy, []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+func (m *mockAssignments) Restore(context.Context, int64, int64, []string, domain.HealthPolicy, domain.AlertDelivery, []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
 	return nil, nil
 }
 func (m *mockAssignments) ListHistory(context.Context, int64, time.Time, time.Time) ([]domain.AssignmentInterval, error) {

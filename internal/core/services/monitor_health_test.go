@@ -69,7 +69,7 @@ func (r healthAssignmentRepo) GetByMonitorID(_ context.Context, monitorID int64)
 func (r healthAssignmentRepo) Replace(context.Context, int64, int64, []string, domain.HealthPolicy) (*domain.MonitorProbeAssignments, error) {
 	return nil, nil
 }
-func (r healthAssignmentRepo) Restore(context.Context, int64, int64, []string, domain.HealthPolicy, []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
+func (r healthAssignmentRepo) Restore(context.Context, int64, int64, []string, domain.HealthPolicy, domain.AlertDelivery, []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error) {
 	return nil, nil
 }
 func (r healthAssignmentRepo) ExecutableByLocal(context.Context, []int64) (map[int64]int64, error) {

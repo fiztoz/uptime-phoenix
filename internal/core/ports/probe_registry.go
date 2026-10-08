@@ -51,12 +51,13 @@ type ProbeRegistryRepository interface {
 // registers and enrolls it. Callers that accept live operator input must keep
 // using Replace so a disabled registration cannot be handed new work. Restore
 // never invents membership: every member must exist, and a set without `local`
-// leaves the monitor remote-only exactly like Replace.
+// leaves the monitor remote-only exactly like Replace. An empty delivery
+// preserves the stored mode; it does not activate aggregate paging.
 type MonitorProbeAssignmentRepository interface {
 	InitializeLocal(ctx context.Context, monitorID int64) (*domain.MonitorProbeAssignments, error)
 	GetByMonitorID(ctx context.Context, monitorID int64) (*domain.MonitorProbeAssignments, error)
 	Replace(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy) (*domain.MonitorProbeAssignments, error)
-	Restore(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error)
+	Restore(ctx context.Context, monitorID, expectedRevision int64, probeIDs []string, policy domain.HealthPolicy, delivery domain.AlertDelivery, bindings []domain.ProbeAssignmentBinding) (*domain.MonitorProbeAssignments, error)
 	ExecutableByLocal(ctx context.Context, monitorIDs []int64) (map[int64]int64, error)
 	ListHistory(ctx context.Context, monitorID int64, from, to time.Time) ([]domain.AssignmentInterval, error)
 }

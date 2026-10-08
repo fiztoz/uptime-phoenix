@@ -12,14 +12,15 @@ import (
 
 type probeAssignmentHistoryModel struct {
 	bun.BaseModel `bun:"table:monitor_probe_assignment_history,alias:ah"`
-	ID            int64               `bun:"id,pk,autoincrement"`
-	MonitorID     int64               `bun:"monitor_id"`
-	ProbeID       string              `bun:"probe_id"`
-	Generation    int64               `bun:"generation"`
-	Revision      int64               `bun:"revision"`
-	HealthPolicy  domain.HealthPolicy `bun:"health_policy"`
-	StartedAt     time.Time           `bun:"started_at"`
-	EndedAt       *time.Time          `bun:"ended_at"`
+	ID            int64                `bun:"id,pk,autoincrement"`
+	MonitorID     int64                `bun:"monitor_id"`
+	ProbeID       string               `bun:"probe_id"`
+	Generation    int64                `bun:"generation"`
+	Revision      int64                `bun:"revision"`
+	HealthPolicy  domain.HealthPolicy  `bun:"health_policy"`
+	AlertDelivery domain.AlertDelivery `bun:"alert_delivery"`
+	StartedAt     time.Time            `bun:"started_at"`
+	EndedAt       *time.Time           `bun:"ended_at"`
 }
 
 // ListHistory returns the actual assignment/policy timeline overlapping [from,to).
@@ -38,9 +39,13 @@ func (r *ProbeAssignmentStore) ListHistory(ctx context.Context, monitorID int64,
 	}
 	out := make([]domain.AssignmentInterval, 0, len(rows))
 	for _, row := range rows {
+		mode, ok := domain.CanonicalAlertDelivery(row.AlertDelivery)
+		if !ok {
+			return nil, fmt.Errorf("assignment history delivery %q: %w", row.AlertDelivery, domain.ErrValidation)
+		}
 		interval := domain.AssignmentInterval{
 			ProbeID: row.ProbeID, Generation: row.Generation, Revision: row.Revision,
-			Policy: row.HealthPolicy, From: row.StartedAt.UTC(),
+			Policy: row.HealthPolicy, AlertDelivery: mode, From: row.StartedAt.UTC(),
 		}
 		if row.EndedAt != nil {
 			interval.To = row.EndedAt.UTC()
@@ -52,7 +57,11 @@ func (r *ProbeAssignmentStore) ListHistory(ctx context.Context, monitorID int64,
 
 // Assignment writes hold the set lock. Every revision closes the previous whole
 // snapshot and opens another at one common boundary, including policy-only edits.
-func writeAssignmentHistory(ctx context.Context, tx bun.Tx, monitorID, revision int64, policy domain.HealthPolicy, at time.Time) error {
+func writeAssignmentHistory(ctx context.Context, tx bun.Tx, monitorID, revision int64, policy domain.HealthPolicy, delivery domain.AlertDelivery, at time.Time) error {
+	delivery, err := resolveWrittenDelivery(delivery, "")
+	if err != nil {
+		return err
+	}
 	var previous []probeAssignmentHistoryModel
 	if err := tx.NewSelect().Model(&previous).Where("monitor_id = ? AND ended_at IS NULL", monitorID).Order("probe_id ASC").Scan(ctx); err != nil {
 		return err
@@ -70,7 +79,7 @@ func writeAssignmentHistory(ctx context.Context, tx bun.Tx, monitorID, revision 
 	for _, assignment := range assignments {
 		rows = append(rows, probeAssignmentHistoryModel{
 			MonitorID: monitorID, ProbeID: assignment.ProbeID, Generation: assignment.Generation,
-			Revision: revision, HealthPolicy: policy, StartedAt: at,
+			Revision: revision, HealthPolicy: policy, AlertDelivery: delivery, StartedAt: at,
 		})
 	}
 	if len(rows) == 0 {
