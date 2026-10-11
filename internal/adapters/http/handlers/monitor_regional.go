@@ -67,14 +67,15 @@ type MonitorProbeAssignmentsView struct {
 // revisions, and sync_status is applied only when the application receipt
 // matches the published document revision AND digest. Null stays unreported.
 type MonitorProbeAssignmentView struct {
-	ProbeID               string                    `json:"probe_id"`
-	Name                  string                    `json:"name"`
-	Location              string                    `json:"location"`
-	Generation            int64                     `json:"generation,string"`
-	DesiredConfigRevision *string                   `json:"desired_config_revision"`
-	AppliedConfigRevision *string                   `json:"applied_config_revision"`
-	SyncStatus            *string                   `json:"sync_status"`
-	Bindings              []MonitorProbeBindingView `json:"bindings"`
+	ProbeID                string                      `json:"probe_id"`
+	Name                   string                      `json:"name"`
+	Location               string                      `json:"location"`
+	Generation             int64                       `json:"generation,string"`
+	DesiredConfigRevision  *string                     `json:"desired_config_revision"`
+	AppliedConfigRevision  *string                     `json:"applied_config_revision"`
+	SyncStatus             *string                     `json:"sync_status"`
+	Bindings               []MonitorProbeBindingView   `json:"bindings"`
+	DeliveryConfigEvidence *DeliveryConfigEvidenceView `json:"delivery_config_evidence,omitempty"`
 }
 
 // MonitorProbeBindingView discloses only the logical resource reference.
@@ -136,14 +137,38 @@ func (h *MonitorRegionalHandlers) Assignments(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-	result, err := h.svc.Assignments(c.Request().Context(), userID, id, h.now().UTC())
+	includeDelivery, err := deliveryConfigQuery(c.Request().URL.RawQuery)
+	if err != nil {
+		return regionalError(c, http.StatusBadRequest, "invalid_delivery_config_query", "include_delivery_config must be one true or false value")
+	}
+	now := h.now().UTC()
+	result, err := h.svc.Assignments(c.Request().Context(), userID, id, now)
 	if err != nil {
 		return regionalReadError(c, err)
+	}
+	view := toAssignmentsView(result, nil)
+	if includeDelivery {
+		reader, ok := h.svc.(monitorDeliveryConfigReader)
+		if !ok {
+			return regionalError(c, http.StatusServiceUnavailable, "regional_unavailable", "delivery configuration evidence unavailable")
+		}
+		evidence, err := reader.AcknowledgedDeliveryConfigs(c.Request().Context(), userID, id, result.Set.Revision, now)
+		if err != nil {
+			return regionalReadError(c, err)
+		}
+		for index := range view.Assignments {
+			row := &view.Assignments[index]
+			entry, found := evidence[row.ProbeID]
+			if !found {
+				return regionalError(c, http.StatusServiceUnavailable, "regional_unavailable", "delivery configuration evidence unavailable")
+			}
+			row.DeliveryConfigEvidence = toDeliveryConfigEvidenceView(entry)
+		}
 	}
 	if h.browser != nil {
 		h.browser.ObserveMonitor(c.Request().Context(), id)
 	}
-	return c.JSON(http.StatusOK, toAssignmentsView(result, nil))
+	return c.JSON(http.StatusOK, view)
 }
 
 // ReplaceMonitorAssignmentsRequest is the PUT body: one complete desired set.
@@ -386,6 +411,8 @@ func regionalHTTPStatus(status domain.Status) string {
 
 func regionalReadError(c echo.Context, err error) error {
 	switch {
+	case errors.Is(err, services.ErrAssignmentReadChanged):
+		return regionalError(c, http.StatusConflict, "assignment_changed", "assignments changed during read; retry")
 	case errors.Is(err, ports.ErrNotFound), errors.Is(err, domain.ErrNotFound):
 		return regionalError(c, http.StatusNotFound, "monitor_not_found", "monitor not found")
 	case errors.Is(err, domain.ErrValidation):

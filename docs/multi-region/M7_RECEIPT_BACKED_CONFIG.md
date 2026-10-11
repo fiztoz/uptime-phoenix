@@ -4,6 +4,8 @@ This bounded follow-on to [protocol delivery compatibility](M7_PROTOCOL_DELIVERY
 retains the desired availability delivery mode through runtime decoding and cold
 loads, and adds an internal read of the exact acknowledged remote configuration.
 Base: `b6b4027` (the merged decision, desired-persistence and wire slices).
+Committed as `db89b6c`. The subsequent [opt-in configuration diagnostic](M7_DELIVERY_CONFIG_EVIDENCE.md)
+projects nonsecret document facts; it does not strengthen this slice's runtime authority.
 
 **This is not an applied-delivery-mode receipt or an activation barrier.**
 Regional availability delivery remains active for every desired mode. No aggregate

@@ -63,6 +63,7 @@ REQUIRED = {
     "TestRemoteAppliedConfigContract/mariadb/ActiveCount",
     "TestRemoteAppliedConfigContract/mariadb/ForeignActiveTarget",
     "TestRemoteAppliedConfigContract/mariadb/AuthenticationAndValidation",
+    "TestDeliveryConfigEvidenceAPI/mariadb",
 }
 
 

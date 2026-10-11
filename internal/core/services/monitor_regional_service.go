@@ -19,6 +19,8 @@ type MonitorRegionalService struct {
 	health      *MonitorHealthService
 	registry    ports.ProbeRegistryRepository
 	diagnostics ports.ProbeDiagnosticsRepository
+	delivery    ports.RemoteProbeDeliveryConfigReader
+	deliveryHub string
 	obs         ports.RegionalObservationReader
 	assignHist  ports.AssignmentHistoryReader
 }

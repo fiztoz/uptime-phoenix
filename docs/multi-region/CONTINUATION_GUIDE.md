@@ -7,11 +7,13 @@ acceptance remains incomplete. UAT/load campaign details stay local.
 
 For authorized M7 continuation, the [decision foundation](M7_PAGING_FOUNDATION.md),
 [desired delivery persistence](M7_DESIRED_DELIVERY.md), and
-[wire compatibility](M7_PROTOCOL_DELIVERY.md) are merged. The next
-[receipt-backed configuration read slice](M7_RECEIPT_BACKED_CONFIG.md) preserves
-desired mode through cold loads and reads exact acknowledged documents; check its
-verification limits before proceeding. No aggregate runtime is active, and a
-document receipt is not an applied-mode receipt.
+[wire compatibility](M7_PROTOCOL_DELIVERY.md) are merged. The
+[receipt-backed configuration read slice](M7_RECEIPT_BACKED_CONFIG.md), committed
+as `db89b6c`, preserves desired mode through cold loads and reads exact acknowledged
+documents. The follow-on [delivery configuration diagnostic](M7_DELIVERY_CONFIG_EVIDENCE.md)
+adds an opt-in, scoped, nonsecret view of those documents for current remote
+assignment generations. Check both verification records before proceeding.
+No aggregate runtime is active, and a document receipt is not an applied-mode receipt.
 
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then
 choose authorized M6 validation/activation work.**

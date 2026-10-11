@@ -255,6 +255,12 @@ func Run(cfg Config) error {
 	regionalSvc := services.NewMonitorRegionalService(healthSvc, repos.probeRegistry)
 	regionalSvc.SetDiagnostics(repos.probeDiagnostics)
 	regionalSvc.SetHistory(repo.NewRegionalCommitStore(db), repos.probeAssignments)
+	if cfg.ProbesEnabled {
+		deliveryConfigs := repo.NewRemoteProbeConfigSyncStore(db, nil, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
+		if err := regionalSvc.SetDeliveryConfigReader(installationHubID, deliveryConfigs); err != nil {
+			return err
+		}
+	}
 	fleetSvc := services.NewProbeFleetService(repos.probeDiagnostics)
 	hub := ws.NewHub(bus, repos.monitor, repos.heartbeat, accessSvc, tagSvc, slog.Default())
 	browserPublisher := handlers.NewRegionalBrowserPublisher(regionalSvc, fleetSvc, repo.NewRegionalCommitStore(db), bus, hub.BroadcastRegional, hub.ActiveConnections)

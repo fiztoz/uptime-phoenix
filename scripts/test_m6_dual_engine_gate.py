@@ -32,7 +32,7 @@ M7_LEAVES = {
         "ReceiptHash", "ReceiptHub", "ReceiptCount", "ReceiptTime", "SnapshotHash",
         "SnapshotHub", "ActiveCount", "ForeignActiveTarget", "AuthenticationAndValidation",
     )
-}
+} | {"TestDeliveryConfigEvidenceAPI/mariadb"}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",
     "TestTelegramSender_Send_DownSeverity",
@@ -122,8 +122,8 @@ class StrictBackendGateTest(unittest.TestCase):
                 with self.subTest(leaf=leaf, action=action):
                     lines = passing_events(omit={leaf})
                     # Parent and SQLite completion cannot replace this leaf.
-                    lines.append(event("TestRemoteAppliedConfigContract/mariadb"))
-                    lines.append(event(leaf.replace("/mariadb/", "/sqlite/")))
+                    lines.append(event(leaf.rsplit("/", 1)[0]))
+                    lines.append(event(leaf.replace("/mariadb", "/sqlite")))
                     if action is not None:
                         lines.append(event(leaf, action))
                     summary = self.assert_failed(lines)
