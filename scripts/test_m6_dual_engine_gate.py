@@ -25,6 +25,14 @@ MUTATION_LEAVES = {
     "TestMonitorDeleteConcurrencyDiagnostic/AppliedSourceReaderVersusDelete",
     "TestMonitorDeleteConcurrencyDiagnostic/DeleteVersusWorkerLeaseLifecycle",
 }
+M7_LEAVES = {
+    f"TestRemoteAppliedConfigContract/mariadb/{case}"
+    for case in (
+        "ImmutableReceiptSelection", "ConcurrentReceiptRead", "MissingReceipt",
+        "ReceiptHash", "ReceiptHub", "ReceiptCount", "ReceiptTime", "SnapshotHash",
+        "SnapshotHub", "ActiveCount", "ForeignActiveTarget", "AuthenticationAndValidation",
+    )
+}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",
     "TestTelegramSender_Send_DownSeverity",
@@ -106,6 +114,20 @@ class StrictBackendGateTest(unittest.TestCase):
     def test_both_exact_delete_leaves_and_prior_mutations_are_required(self):
         self.assertTrue(DELETE_LEAVES | MUTATION_LEAVES <= gate.REQUIRED)
         self.assertEqual(gate.SKIPS_ALLOWED, OPTIONAL_SKIPS)
+
+    def test_each_m7_receipt_leaf_needs_an_exact_real_engine_pass(self):
+        self.assertTrue(M7_LEAVES <= gate.REQUIRED)
+        for leaf in sorted(M7_LEAVES):
+            for action in (None, "skip", "fail"):
+                with self.subTest(leaf=leaf, action=action):
+                    lines = passing_events(omit={leaf})
+                    # Parent and SQLite completion cannot replace this leaf.
+                    lines.append(event("TestRemoteAppliedConfigContract/mariadb"))
+                    lines.append(event(leaf.replace("/mariadb/", "/sqlite/")))
+                    if action is not None:
+                        lines.append(event(leaf, action))
+                    summary = self.assert_failed(lines)
+                    self.assertEqual(summary["missing_required"], [leaf])
 
     def test_process_observer_grant_uses_only_created_disposable_server(self):
         status, _summary = self.run_gate(passing_events())
@@ -200,11 +222,11 @@ class StrictBackendGateTest(unittest.TestCase):
     def test_unsuffixed_mariadb_only_leaves_do_not_inflate_engine_count(self):
         status, summary = self.run_gate(passing_events())
         self.assertEqual(status, 0)
-        # Exactly three existing required leaves carry /mariadb, including the
-        # explicit update lease case. MariaDB-only diagnostic names remain exact
-        # requirements without pretending to be engine-suffixed count evidence.
-        self.assertEqual(summary["mariadb_named_passes"], 303)
-        self.assert_failed(passing_events(mariadb_count=296))
+        # Only genuinely engine-suffixed required leaves inflate this count;
+        # MariaDB-only diagnostic names remain exact, unsuffixed requirements.
+        engine_leaves = sum("/mariadb" in name for name in gate.REQUIRED)
+        self.assertEqual(summary["mariadb_named_passes"], 300 + engine_leaves)
+        self.assert_failed(passing_events(mariadb_count=299 - engine_leaves))
 
     def test_mariadb_skip_is_rejected(self):
         summary = self.assert_failed(passing_events() + [event("TestExistingStorage/mariadb/skipped", "skip")])

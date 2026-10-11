@@ -5,6 +5,9 @@ This is a bounded implementation slice of [M7](IMPLEMENTATION_PLAN.md#10-follow-
 aggregate paging. Regional delivery remains the only accepted runtime mode.
 The separate M6 conditional lab acceptance and operational gates are unchanged.
 Wire compatibility for carrying the desired mode on config snapshots is documented in [M7_PROTOCOL_DELIVERY.md](M7_PROTOCOL_DELIVERY.md).
+[Receipt-backed configuration reads](M7_RECEIPT_BACKED_CONFIG.md) retain the desired
+mode through cold loads and select exact acknowledged documents; they are not
+applied-mode evidence and their MariaDB acceptance remains pending.
 
 ## Implemented decision contract
 

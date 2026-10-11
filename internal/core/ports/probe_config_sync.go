@@ -19,4 +19,10 @@ type RemoteProbeConfigEncoder interface {
 type RemoteProbeConfigSyncRepository interface {
 	RefreshRemote(ctx context.Context, target domain.ProbeConfigTarget, at time.Time) (domain.ProbeConfigMetadata, error)
 	RecordRemoteApplied(ctx context.Context, lease domain.ProbeConnectorLease, receipt domain.ProbeActiveConfig) error
+
+	// ReadAppliedRemote authenticates and decodes the exact retained document
+	// selected by a matching active pointer and durable configuration receipt.
+	// DesiredAlertDelivery remains desired, not an applied-mode receipt. The
+	// read grants neither lease authority nor permission to send or suppress.
+	ReadAppliedRemote(ctx context.Context, target domain.ProbeConfigTarget) (*domain.EdgeResolvedConfig, error)
 }

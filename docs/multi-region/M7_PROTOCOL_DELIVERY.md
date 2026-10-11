@@ -39,6 +39,11 @@ The capability is intentionally **not** part of the enrollment frame
 `Capabilities`, which stays `snapshot.v1` only, and it is never required before a
 snapshot is accepted.
 
+The [receipt-backed configuration read follow-up](M7_RECEIPT_BACKED_CONFIG.md)
+retains this desired mode in decoded runtime input and selects an exact
+acknowledged document. It does not change the meaning of `config.applied` or
+activate delivery-mode application.
+
 ## Explicitly out of scope
 
 - No call to `EvaluateAggregatePaging`; the decision foundation stays unwired.

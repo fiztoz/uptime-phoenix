@@ -78,14 +78,17 @@ type EdgeActiveConfig struct {
 // EdgeResolvedAssignment is a complete confidential execution input. Proxy is
 // resolved directly; edge execution never consults mutable hub rows.
 type EdgeResolvedAssignment struct {
-	Monitor            *Monitor
-	Generation         int64
-	EffectiveOwner     string
-	Tags               []ProbeConfigTag
-	NotificationLinks  []MonitorNotification
-	MaintenanceIDs     []int64
-	EscalationPolicyID *int64
-	Proxy              *Proxy
+	Monitor    *Monitor
+	Generation int64
+	// DesiredAlertDelivery is the mode carried by this exact config document,
+	// not evidence that the source applied it or stopped regional paging.
+	DesiredAlertDelivery AlertDelivery
+	EffectiveOwner       string
+	Tags                 []ProbeConfigTag
+	NotificationLinks    []MonitorNotification
+	MaintenanceIDs       []int64
+	EscalationPolicyID   *int64
+	Proxy                *Proxy
 }
 
 // EdgeResolvedChannel binds provider settings to their accepted version.

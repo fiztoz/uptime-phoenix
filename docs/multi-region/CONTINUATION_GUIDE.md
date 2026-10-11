@@ -5,6 +5,14 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
+For authorized M7 continuation, the [decision foundation](M7_PAGING_FOUNDATION.md),
+[desired delivery persistence](M7_DESIRED_DELIVERY.md), and
+[wire compatibility](M7_PROTOCOL_DELIVERY.md) are merged. The next
+[receipt-backed configuration read slice](M7_RECEIPT_BACKED_CONFIG.md) preserves
+desired mode through cold loads and reads exact acknowledged documents; check its
+verification limits before proceeding. No aggregate runtime is active, and a
+document receipt is not an applied-mode receipt.
+
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then
 choose authorized M6 validation/activation work.**
 The first M6 slice is the [fleet assignment-ownership gate](M6_FLEET_ACTIVATION_GATE.md):

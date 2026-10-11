@@ -50,6 +50,19 @@ REQUIRED = {
     "TestMonitorDeleteConcurrencyDiagnostic/DeleteVersusWorkerLeaseLifecycle",
     "TestMonitorDeleteReplayDiagnostic/ReplayCommitVersusDelete",
     "TestMonitorDeleteReplayDiagnostic/CurrentSnapshotCommitVersusDelete",
+    # M7 receipt-backed reads must execute on InnoDB, not only SQLite.
+    "TestRemoteAppliedConfigContract/mariadb/ImmutableReceiptSelection",
+    "TestRemoteAppliedConfigContract/mariadb/ConcurrentReceiptRead",
+    "TestRemoteAppliedConfigContract/mariadb/MissingReceipt",
+    "TestRemoteAppliedConfigContract/mariadb/ReceiptHash",
+    "TestRemoteAppliedConfigContract/mariadb/ReceiptHub",
+    "TestRemoteAppliedConfigContract/mariadb/ReceiptCount",
+    "TestRemoteAppliedConfigContract/mariadb/ReceiptTime",
+    "TestRemoteAppliedConfigContract/mariadb/SnapshotHash",
+    "TestRemoteAppliedConfigContract/mariadb/SnapshotHub",
+    "TestRemoteAppliedConfigContract/mariadb/ActiveCount",
+    "TestRemoteAppliedConfigContract/mariadb/ForeignActiveTarget",
+    "TestRemoteAppliedConfigContract/mariadb/AuthenticationAndValidation",
 }
 
 
