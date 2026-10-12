@@ -12,7 +12,10 @@ type AcknowledgedProbeDeliveryConfig struct {
 // AcknowledgedAssignmentDelivery retains only assignment identity and the desired
 // availability delivery mode in the exact acknowledged configuration document.
 type AcknowledgedAssignmentDelivery struct {
-	MonitorID     int64
-	Generation    int64
-	AlertDelivery AlertDelivery
+	MonitorID  int64
+	Generation int64
+	// AssignmentRevision is the exact document's build-time set binding.
+	// Zero means a legacy unbound document, not the current desired revision.
+	AssignmentRevision int64
+	AlertDelivery      AlertDelivery
 }

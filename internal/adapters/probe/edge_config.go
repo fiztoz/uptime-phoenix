@@ -92,7 +92,7 @@ func (d *EdgeConfigDecoder) DecodeEdge(ctx context.Context, document []byte, tar
 			config["docker_daemon"] = endpoint
 		}
 		m := a.Monitor
-		resolved := domain.EdgeResolvedAssignment{Monitor: &domain.Monitor{ID: a.MonitorID, Name: m.Name, Description: m.Description, Owner: m.Owner, Type: m.Type, Active: a.Active, Interval: int(m.Interval), RetryInterval: int(m.RetryInterval), MaxRetries: int(m.MaxRetries), Timeout: m.Timeout, Config: config, AcceptedStatusCodes: slices.Clone(m.AcceptedStatusCodes), UpsideDown: m.UpsideDown, ResendInterval: int(m.ResendInterval), TLSIgnore: m.TLSIgnore, CertExpiryNotify: m.CertExpiryNotify}, Generation: int64(a.Generation), DesiredAlertDelivery: a.AlertDelivery, EffectiveOwner: m.EffectiveOwner, MaintenanceIDs: slices.Clone(a.MaintenanceIDs), EscalationPolicyID: a.EscalationPolicyID}
+		resolved := domain.EdgeResolvedAssignment{Monitor: &domain.Monitor{ID: a.MonitorID, Name: m.Name, Description: m.Description, Owner: m.Owner, Type: m.Type, Active: a.Active, Interval: int(m.Interval), RetryInterval: int(m.RetryInterval), MaxRetries: int(m.MaxRetries), Timeout: m.Timeout, Config: config, AcceptedStatusCodes: slices.Clone(m.AcceptedStatusCodes), UpsideDown: m.UpsideDown, ResendInterval: int(m.ResendInterval), TLSIgnore: m.TLSIgnore, CertExpiryNotify: m.CertExpiryNotify}, Generation: int64(a.Generation), AssignmentRevision: int64(a.AssignmentRevision), DesiredAlertDelivery: a.AlertDelivery, EffectiveOwner: m.EffectiveOwner, MaintenanceIDs: slices.Clone(a.MaintenanceIDs), EscalationPolicyID: a.EscalationPolicyID}
 		for _, tag := range m.Tags {
 			resolved.Tags = append(resolved.Tags, domain.ProbeConfigTag{Name: tag.Name, Value: tag.Value})
 		}

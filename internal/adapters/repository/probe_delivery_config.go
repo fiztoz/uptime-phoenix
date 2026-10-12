@@ -21,11 +21,11 @@ func (s *RemoteProbeConfigSyncStore) ReadAcknowledgedRemoteDelivery(ctx context.
 	seen := make(map[int64]bool, len(config.Assignments))
 	for _, a := range config.Assignments {
 		mode, valid := domain.CanonicalAlertDelivery(a.DesiredAlertDelivery)
-		if a.Monitor == nil || a.Monitor.ID <= 0 || a.Generation <= 0 || !valid || seen[a.Monitor.ID] {
+		if a.Monitor == nil || a.Monitor.ID <= 0 || a.Generation <= 0 || a.AssignmentRevision < 0 || !valid || seen[a.Monitor.ID] {
 			return nil, ports.ErrConflict
 		}
 		seen[a.Monitor.ID] = true
-		result.Assignments = append(result.Assignments, domain.AcknowledgedAssignmentDelivery{MonitorID: a.Monitor.ID, Generation: a.Generation, AlertDelivery: mode})
+		result.Assignments = append(result.Assignments, domain.AcknowledgedAssignmentDelivery{MonitorID: a.Monitor.ID, Generation: a.Generation, AssignmentRevision: a.AssignmentRevision, AlertDelivery: mode})
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

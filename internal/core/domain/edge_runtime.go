@@ -80,6 +80,9 @@ type EdgeActiveConfig struct {
 type EdgeResolvedAssignment struct {
 	Monitor    *Monitor
 	Generation int64
+	// AssignmentRevision retains the exact build-time set binding; zero is
+	// legacy/unbound and grants no mode-application or cutover authority.
+	AssignmentRevision int64
 	// DesiredAlertDelivery is the mode carried by this exact config document,
 	// not evidence that the source applied it or stopped regional paging.
 	DesiredAlertDelivery AlertDelivery

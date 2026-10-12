@@ -34,13 +34,22 @@ type DeliveryConfigEvidence struct {
 }
 
 // SetDeliveryConfigReader binds the trusted hub identity and nonsecret reader
-// before serving requests. Local configuration evidence is deliberately not
-// supplied by this remote-only reader.
+// before serving requests. Local evidence has a separate optional reader.
 func (s *MonitorRegionalService) SetDeliveryConfigReader(hubID string, reader ports.RemoteProbeDeliveryConfigReader) error {
 	if s == nil || reader == nil || !domain.ValidHubID(hubID) {
 		return domain.ErrValidation
 	}
 	s.deliveryHub, s.delivery = hubID, reader
+	return nil
+}
+
+// SetLocalDeliveryConfigReader adds local document evidence before serving.
+// Missing local wiring retains the explicit local_unavailable diagnostic state.
+func (s *MonitorRegionalService) SetLocalDeliveryConfigReader(reader ports.LocalProbeDeliveryConfigReader) error {
+	if s == nil || reader == nil {
+		return domain.ErrValidation
+	}
+	s.localDelivery = reader
 	return nil
 }
 
@@ -66,7 +75,7 @@ func (s *MonitorRegionalService) AcknowledgedDeliveryConfigs(ctx context.Context
 	}
 	result := make(map[string]DeliveryConfigEvidence, len(current.Set.Assignments))
 	for _, member := range current.Set.Assignments {
-		if member.ProbeID == domain.LocalProbeID {
+		if member.ProbeID == domain.LocalProbeID && s.localDelivery == nil {
 			result[member.ProbeID] = DeliveryConfigEvidence{State: DeliveryConfigLocalUnavailable}
 			continue
 		}
@@ -74,7 +83,13 @@ func (s *MonitorRegionalService) AcknowledgedDeliveryConfigs(ctx context.Context
 		if !domain.ValidProbeConfigTarget(target) {
 			return nil, domain.ErrInternal
 		}
-		document, readErr := s.delivery.ReadAcknowledgedRemoteDelivery(ctx, target)
+		var document *domain.AcknowledgedProbeDeliveryConfig
+		var readErr error
+		if member.ProbeID == domain.LocalProbeID {
+			document, readErr = s.localDelivery.ReadAcknowledgedLocalDelivery(ctx, target)
+		} else {
+			document, readErr = s.delivery.ReadAcknowledgedRemoteDelivery(ctx, target)
+		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}

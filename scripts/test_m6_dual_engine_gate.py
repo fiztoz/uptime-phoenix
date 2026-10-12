@@ -32,7 +32,20 @@ M7_LEAVES = {
         "ReceiptHash", "ReceiptHub", "ReceiptCount", "ReceiptTime", "SnapshotHash",
         "SnapshotHub", "ActiveCount", "ForeignActiveTarget", "AuthenticationAndValidation",
     )
-} | {"TestDeliveryConfigEvidenceAPI/mariadb"}
+} | {
+    f"TestLocalDeliveryConfigContract/mariadb/{case}"
+    for case in (
+        "ImmutableReceiptSelection", "ConcurrentReceiptRead", "MissingReceipt",
+        "ReceiptHash", "ReceiptCount", "ReceiptTime", "SnapshotHash",
+        "ForeignActiveTarget", "AuthenticationAndValidation",
+    )
+} | {
+    f"TestAssignmentRevisionBindingContract/mariadb/{case}"
+    for case in (
+        "LocalBoundABA", "StalePreparedNoLegacyFallback", "LegacyLocalExecutionAndRefresh",
+        "RemoteReceiptBinding", "InvalidSourceRevision",
+    )
+} | {"TestDeliveryConfigEvidenceAPI/mariadb", "TestLocalDeliveryConfigEvidenceAPI/mariadb"}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",
     "TestTelegramSender_Send_DownSeverity",
@@ -150,7 +163,8 @@ class StrictBackendGateTest(unittest.TestCase):
         # The one Go launch happens after fixture provisioning; cleanup follows.
         self.assertEqual(self.command_order.count("go"), 1)
         self.assertEqual(self.command_order[-2:], ["go", "docker"])
-        self.assertEqual(self.docker_calls[-1][0], ("rm", "-f", name))
+        self.assertEqual(self.docker_calls[-1][0], ("rm", "-f", "-v", name))
+        self.assertEqual(self.go_launches[0][1]["env"]["GOENV"], "off")
 
     def test_refused_process_grant_prevents_go_and_cleans_created_container(self):
         with self.assertRaisesRegex(PermissionError, "offline PROCESS grant refused"):
@@ -159,7 +173,7 @@ class StrictBackendGateTest(unittest.TestCase):
         name = created[0][created[0].index("--name") + 1]
         self.assertEqual(self.go_launches, [])
         self.assertNotIn("go", self.command_order)
-        self.assertEqual(self.docker_calls[-1][0], ("rm", "-f", name))
+        self.assertEqual(self.docker_calls[-1][0], ("rm", "-f", "-v", name))
 
     def test_old_300_mariadb_passes_cannot_hide_missing_delete_leaf(self):
         for leaf in sorted(DELETE_LEAVES):

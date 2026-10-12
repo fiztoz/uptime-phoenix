@@ -206,6 +206,13 @@ func encodeLocalAssignment(a domain.ProbeConfigAssignment) (ConfigAssignment, er
 		key := localProxyKey(*m.ProxyID)
 		out.ProxyBindingKey = &key
 	}
+	// A positive assignment revision always travels for every desired mode.
+	// Zero omits it so legacy definitions keep their exact bytes; a negative
+	// value cannot name a stored set revision and rejects before serialization.
+	if a.AssignmentRevision < 0 {
+		return out, domain.ErrValidation
+	}
+	out.AssignmentRevision = Decimal(a.AssignmentRevision)
 	// Only aggregate and both travel. Regional (and its empty legacy spelling)
 	// stays omitted so existing regional documents do not change.
 	switch a.AlertDelivery {

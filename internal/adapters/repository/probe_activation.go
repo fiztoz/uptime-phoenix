@@ -344,6 +344,23 @@ func readAppliedLocalTx(ctx context.Context, tx bun.Tx, encoder ports.LocalProbe
 	if err != nil {
 		return nil, err
 	}
+	matched := fmt.Sprintf("%x", sha256.Sum256(document)) == active.SHA256
+	clear(document)
+	if matched {
+		return &resolved, nil
+	}
+	// Pre-binding snapshots must remain executable without fabricating a
+	// current set revision. Verify the SAME full source graph in its legacy
+	// wire shape; an exact original hash is the only permitted compatibility
+	// match. A bound stale snapshot cannot match this unbound encoding.
+	for i := range resolved.Assignments {
+		resolved.Assignments[i].AssignmentRevision = 0
+	}
+	document, err = encoder.EncodeLocal(resolved)
+	if err != nil {
+		return nil, err
+	}
+	defer clear(document)
 	if fmt.Sprintf("%x", sha256.Sum256(document)) != active.SHA256 {
 		return nil, ports.ErrConflict
 	}

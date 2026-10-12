@@ -260,6 +260,10 @@ func Run(cfg Config) error {
 		if err := regionalSvc.SetDeliveryConfigReader(installationHubID, deliveryConfigs); err != nil {
 			return err
 		}
+		localDeliveryConfigs := repo.NewLocalProbeDeliveryConfigStore(db, probe.NewLocalDeliveryConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
+		if err := regionalSvc.SetLocalDeliveryConfigReader(localDeliveryConfigs); err != nil {
+			return err
+		}
 	}
 	fleetSvc := services.NewProbeFleetService(repos.probeDiagnostics)
 	hub := ws.NewHub(bus, repos.monitor, repos.heartbeat, accessSvc, tagSvc, slog.Default())

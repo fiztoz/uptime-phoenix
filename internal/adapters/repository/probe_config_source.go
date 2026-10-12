@@ -314,13 +314,15 @@ type configTagRow struct {
 }
 
 type configDeliveryRow struct {
-	MonitorID     int64                `bun:"monitor_id"`
-	AlertDelivery domain.AlertDelivery `bun:"alert_delivery"`
+	MonitorID          int64                `bun:"monitor_id"`
+	AssignmentRevision int64                `bun:"revision"`
+	AlertDelivery      domain.AlertDelivery `bun:"alert_delivery"`
 }
 
 // readConfigDeliveries resolves each assignment's desired paging mode from its
-// saved set row. An absent legacy value is regional; any other stored value
-// fails the read instead of being coerced to a mode the operator never chose.
+// saved set row, together with its immutable build-time revision binding. An
+// absent legacy mode is regional; invalid modes or nonpositive revisions fail.
+// A later receipt must never attach a newer set revision to these document facts.
 func readConfigDeliveries(ctx context.Context, tx bun.Tx, monitorIDs []int64, out *domain.LocalProbeConfigSource) error {
 	if len(monitorIDs) == 0 {
 		return nil
@@ -329,23 +331,29 @@ func readConfigDeliveries(ctx context.Context, tx bun.Tx, monitorIDs []int64, ou
 	// A direct Scan keeps the explicit table: bun.Model would derive a table
 	// name from the row struct and override TableExpr.
 	if err := tx.NewSelect().TableExpr("monitor_probe_assignment_sets").
-		ColumnExpr("monitor_id, alert_delivery").Where("monitor_id IN (?)", bun.List(monitorIDs)).
+		ColumnExpr("monitor_id, revision, alert_delivery").Where("monitor_id IN (?)", bun.List(monitorIDs)).
 		Order("monitor_id ASC").Limit(configSourceAssignments+1).Scan(ctx, &rows); err != nil {
 		return err
 	}
 	if len(rows) != len(monitorIDs) {
 		return domain.ErrValidation
 	}
-	deliveries := make(map[int64]domain.AlertDelivery, len(rows))
+	deliveries := make(map[int64]configDeliveryRow, len(rows))
 	for _, row := range rows {
 		mode, ok := domain.CanonicalAlertDelivery(row.AlertDelivery)
-		if !ok {
+		if !ok || row.AssignmentRevision <= 0 {
 			return domain.ErrValidation
 		}
-		deliveries[row.MonitorID] = mode
+		row.AlertDelivery = mode
+		deliveries[row.MonitorID] = row
 	}
 	for i := range out.Assignments {
-		out.Assignments[i].AlertDelivery = deliveries[out.Assignments[i].Monitor.ID]
+		row, found := deliveries[out.Assignments[i].Monitor.ID]
+		if !found {
+			return domain.ErrValidation
+		}
+		out.Assignments[i].AlertDelivery = row.AlertDelivery
+		out.Assignments[i].AssignmentRevision = row.AssignmentRevision
 	}
 	return nil
 }

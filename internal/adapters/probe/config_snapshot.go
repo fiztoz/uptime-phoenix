@@ -73,6 +73,10 @@ type ConfigAssignment struct {
 	// AlertDelivery is the desired paging mode. It is omitted for the legacy
 	// regional mode so existing regional documents stay byte-identical.
 	AlertDelivery domain.AlertDelivery `json:"alert_delivery,omitempty"`
+	// AssignmentRevision is the immutable build-time assignment-set binding.
+	// Zero is a legacy unbound document, never a current or one revision. It is
+	// omitted when zero so legacy definition bytes do not change.
+	AssignmentRevision Decimal `json:"assignment_revision,omitempty"`
 }
 
 // ConfigMonitor whitelists existing execution/template fields and their wire names.
@@ -281,6 +285,17 @@ func decodeConfigAssignmentForTarget(data []byte, local bool) (ConfigAssignment,
 			return assignment, errors.New("invalid assignment alert delivery")
 		}
 		assignment.AlertDelivery = domain.AlertDelivery(value)
+	}
+	// Absence is valid and means a legacy unbound document, so this optional
+	// field cannot join the required lists either. A present value must be a
+	// canonical positive decimal string: Decimal already rejects JSON numbers,
+	// signs, leading zeros and overflow, and zero stays unbound-only.
+	if raw, exists := fields["assignment_revision"]; exists {
+		var revision Decimal
+		if trimmed := bytes.TrimSpace(raw); len(trimmed) == 0 || trimmed[0] != '"' || json.Unmarshal(trimmed, &revision) != nil || revision <= 0 {
+			return assignment, errors.New("invalid assignment revision binding")
+		}
+		assignment.AssignmentRevision = revision
 	}
 	if assignment.MonitorID <= 0 || assignment.Generation <= 0 || !validConfigIDs(assignment.NotificationIDs, MaxConfigDependencies) || !validConfigIDs(assignment.MaintenanceIDs, MaxConfigDependencies) {
 		return assignment, errors.New("invalid assignment identity or reference IDs")

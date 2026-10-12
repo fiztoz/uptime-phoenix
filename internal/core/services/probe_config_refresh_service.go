@@ -81,7 +81,7 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 			expectedActiveRevision = active.Revision
 			if reader, ok := s.activationRepo.(ports.LocalAppliedConfigReader); ok {
 				applied, readErr := reader.ReadAppliedLocal(ctx)
-				if readErr == nil && applied != nil && applied.Revision == active.Revision {
+				if readErr == nil && applied != nil && applied.Revision == active.Revision && localConfigHasAssignmentBindings(applied) {
 					return active, nil
 				}
 			}
@@ -128,12 +128,23 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 	if err == nil && active != nil {
 		if reader, ok := s.activationRepo.(ports.LocalAppliedConfigReader); ok {
 			applied, readErr := reader.ReadAppliedLocal(ctx)
-			if readErr == nil && applied != nil && applied.Revision == active.Revision {
+			if readErr == nil && applied != nil && applied.Revision == active.Revision && localConfigHasAssignmentBindings(applied) {
 				return active, nil
 			}
 		}
 	}
 	return nil, ports.ErrConflict
+}
+
+// localConfigHasAssignmentBindings keeps legacy snapshots executable while
+// allowing the existing refresher to publish a new bound revision on upgrade.
+func localConfigHasAssignmentBindings(definition *domain.LocalProbeConfigDefinition) bool {
+	for _, assignment := range definition.Assignments {
+		if assignment.AssignmentRevision <= 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // StartEventSubscription coalesces configuration events into one refresh worker.

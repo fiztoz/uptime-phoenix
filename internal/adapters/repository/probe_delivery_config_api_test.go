@@ -71,6 +71,9 @@ func TestDeliveryConfigEvidenceAPI(t *testing.T) {
 			if err := reader.SetDeliveryConfigReader(syncTarget().HubID, documents); err != nil {
 				t.Fatal(err)
 			}
+			if err := reader.SetLocalDeliveryConfigReader(repository.NewLocalProbeDeliveryConfigStore(f.db, probe.NewLocalDeliveryConfigDecoder(checker.Get, notifier.Get), protector)); err != nil {
+				t.Fatal(err)
+			}
 			jwt := auth.NewJWTAuthenticator(strings.Repeat("delivery-evidence-test-", 4), 1, repos.users)
 			authSvc := services.NewAuthService(repos.users, nil, jwt, nil)
 			token, err := jwt.IssueSession(ctx, viewer)
@@ -172,6 +175,15 @@ func TestDeliveryConfigEvidenceAPI(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			builder, _ := sourceConfigBuilder(t, f, f.db)
+			at := time.Now().UTC().Truncate(time.Microsecond)
+			localMetadata, err := builder.Prepare(ctx, syncTarget().HubID, 0, at, at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := activationRepo(f, f.db).ActivateLocal(ctx, ports.LocalActivationParams{Target: localMetadata.ProbeConfigTarget, Revision: localMetadata.Revision, SHA256: localMetadata.SHA256, ExpectedActiveRevision: 0, AppliedAt: at, AssignmentCount: -1}); err != nil {
+				t.Fatal(err)
+			}
 			mixed := request(optIn, token)
 			var mixedView handlers.MonitorProbeAssignmentsView
 			if mixed.Code != 200 || json.Unmarshal(mixed.Body.Bytes(), &mixedView) != nil || len(mixedView.Assignments) != 2 {
@@ -183,8 +195,8 @@ func TestDeliveryConfigEvidenceAPI(t *testing.T) {
 					t.Fatal("mixed-set evidence missing")
 				}
 				if row.ProbeID == domain.LocalProbeID {
-					if evidence.State != services.DeliveryConfigLocalUnavailable || evidence.ConfigRevision != nil || evidence.Generation != nil || evidence.AlertDelivery != nil {
-						t.Fatal("mixed-set local configuration evidence invented")
+					if evidence.State != services.DeliveryConfigAcknowledged || evidence.ConfigRevision == nil || *evidence.ConfigRevision != strconv.FormatInt(localMetadata.Revision, 10) || evidence.Generation == nil || *evidence.Generation != strconv.FormatInt(row.Generation, 10) || evidence.AlertDelivery == nil || *evidence.AlertDelivery != "both" {
+						t.Fatal("mixed-set exact local document evidence lost")
 					}
 				} else if evidence.State != services.DeliveryConfigAcknowledged || evidence.AlertDelivery == nil || *evidence.AlertDelivery != "both" {
 					t.Fatal("mixed-set remote configuration evidence lost")

@@ -64,6 +64,21 @@ REQUIRED = {
     "TestRemoteAppliedConfigContract/mariadb/ForeignActiveTarget",
     "TestRemoteAppliedConfigContract/mariadb/AuthenticationAndValidation",
     "TestDeliveryConfigEvidenceAPI/mariadb",
+    "TestLocalDeliveryConfigContract/mariadb/ImmutableReceiptSelection",
+    "TestLocalDeliveryConfigContract/mariadb/ConcurrentReceiptRead",
+    "TestLocalDeliveryConfigContract/mariadb/MissingReceipt",
+    "TestLocalDeliveryConfigContract/mariadb/ReceiptHash",
+    "TestLocalDeliveryConfigContract/mariadb/ReceiptCount",
+    "TestLocalDeliveryConfigContract/mariadb/ReceiptTime",
+    "TestLocalDeliveryConfigContract/mariadb/SnapshotHash",
+    "TestLocalDeliveryConfigContract/mariadb/ForeignActiveTarget",
+    "TestLocalDeliveryConfigContract/mariadb/AuthenticationAndValidation",
+    "TestLocalDeliveryConfigEvidenceAPI/mariadb",
+    "TestAssignmentRevisionBindingContract/mariadb/LocalBoundABA",
+    "TestAssignmentRevisionBindingContract/mariadb/StalePreparedNoLegacyFallback",
+    "TestAssignmentRevisionBindingContract/mariadb/LegacyLocalExecutionAndRefresh",
+    "TestAssignmentRevisionBindingContract/mariadb/RemoteReceiptBinding",
+    "TestAssignmentRevisionBindingContract/mariadb/InvalidSourceRevision",
 }
 
 
@@ -142,7 +157,7 @@ def main():
         if len(toolchains) != 1:
             raise RuntimeError("cached Go 1.26.6 toolchain required; refusing download")
         env.pop("GOROOT", None)
-        env.update(GOTOOLCHAIN="local", GOPROXY="off", GOSUMDB="off",
+        env.update(GOENV="off", GOTOOLCHAIN="local", GOPROXY="off", GOSUMDB="off",
                    TEST_MARIADB_DSN=f"phoenix:phoenix@tcp(127.0.0.1:{port})/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true")
         started = time.monotonic()
         cmd = [str(toolchains[0]), "test", "-race", "-count=1", "-json", "-timeout", "2400s",
@@ -203,7 +218,7 @@ def main():
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 check=False)
         if exists.returncode == 0:
-            docker("rm", "-f", name)
+            docker("rm", "-f", "-v", name)
     if summary is not None:
         print(json.dumps(summary, indent=2))
         if summary["result"] != "passed":

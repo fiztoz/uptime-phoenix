@@ -1,6 +1,14 @@
 # M7 acknowledged delivery-configuration evidence
 
+**Follow-on acceptance (2026-10-12):** [Colima real-engine evidence](M7_COLIMA_ACCEPTANCE.md)
+executed all required SQLite/MariaDB markers with no MariaDB skips. It supersedes
+the earlier unexecuted-engine qualification below; earlier command results remain
+historical. Mode application and release/rollout acceptance are still separate.
+
 Follow-on to [receipt-backed reads](M7_RECEIPT_BACKED_CONFIG.md), base `db89b6c`.
+Committed as `284bc35`. The subsequent [local document evidence](M7_LOCAL_DELIVERY_CONFIG_EVIDENCE.md)
+reuses this View/state contract for wired local readers; this record retains its
+historical remote-only scope and verification limits.
 This is an opt-in, scoped configuration diagnostic. It does not apply a delivery
 mode, advertise new capabilities, suppress regional alerts, create aggregate
 incidents/intents, or enable a selector.

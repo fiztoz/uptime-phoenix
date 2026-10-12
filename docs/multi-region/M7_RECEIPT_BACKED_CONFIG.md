@@ -1,5 +1,10 @@
 # M7 receipt-backed configuration reads
 
+**Follow-on acceptance (2026-10-12):** [Colima real-engine evidence](M7_COLIMA_ACCEPTANCE.md)
+executed all required SQLite/MariaDB markers with no MariaDB skips. It supersedes
+the earlier unexecuted-engine qualification below; earlier command results remain
+historical. Mode application and release/rollout acceptance are still separate.
+
 This bounded follow-on to [protocol delivery compatibility](M7_PROTOCOL_DELIVERY.md)
 retains the desired availability delivery mode through runtime decoding and cold
 loads, and adds an internal read of the exact acknowledged remote configuration.

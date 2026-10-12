@@ -7,7 +7,11 @@ The separate M6 conditional lab acceptance and operational gates are unchanged.
 Wire compatibility for carrying the desired mode on config snapshots is documented in [M7_PROTOCOL_DELIVERY.md](M7_PROTOCOL_DELIVERY.md).
 [Receipt-backed configuration reads](M7_RECEIPT_BACKED_CONFIG.md) retain the desired
 mode through cold loads and select exact acknowledged documents; they are not
-applied-mode evidence and their MariaDB acceptance remains pending.
+applied-mode evidence. Their named MariaDB reader/diagnostic/binding cases now
+pass the [Colima real-engine gate](M7_COLIMA_ACCEPTANCE.md); broader runtime
+application and release acceptance remain open. The
+[pure cutover-evidence contract](M7_CUTOVER_EVIDENCE.md) specifies separate
+mode-application evidence without adding a runtime caller or activation barrier.
 
 ## Implemented decision contract
 
@@ -43,7 +47,7 @@ parallel adapter/service work.
 | Boundary | Required behavior |
 |---|---|
 | Desired configuration | Persist delivery mode on `MonitorProbeAssignments`; absent legacy mode is regional. Mode changes participate in existing assignment CAS revision and effective-time history. Policy/membership/mode no-ops do not increment revision. |
-| Applied configuration | A source's applied mode and revision come only from its exact durable configuration receipt, including retained snapshot hash. Desired mode is never evidence that an offline or old probe stopped paging. Expose pending application explicitly. |
+| Applied configuration | A config receipt and exact retained snapshot prove acknowledged desired document content only. Runtime mode application requires separate authenticated durable evidence bound to the current assignment-set revision, generation, exact document revision/hash and accepted source stream. The pure cutover contract specifies these bindings but supplies no producer. Desired mode never proves an offline or old probe stopped paging. Expose pending application explicitly. |
 | Protocol compatibility | Extend the explicit `decodeConfigFields` allowlist with bounded optional decoding and absent-field regional defaults. A JSON struct tag alone is insufficient. Pending receipts continue to refer to their original immutable snapshot. |
 | Source compatibility | Reject activation on an incapable source or leave it visibly pending; never silently claim aggregate-only behavior while it still pages regionally. The supported capability negotiation and activation barrier must be implemented and tested before controls are enabled. |
 | Durable reconciliation | Atomically validate current assignment revision, accepted stream/generation evidence, and stored lease owner/epoch/expiry while changing the aggregate incident and inserting provider intents. Enforce one open availability incident per monitor and immutable source identity plus transition version. |

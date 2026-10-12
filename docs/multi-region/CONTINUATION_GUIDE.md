@@ -10,9 +10,17 @@ For authorized M7 continuation, the [decision foundation](M7_PAGING_FOUNDATION.m
 [wire compatibility](M7_PROTOCOL_DELIVERY.md) are merged. The
 [receipt-backed configuration read slice](M7_RECEIPT_BACKED_CONFIG.md), committed
 as `db89b6c`, preserves desired mode through cold loads and reads exact acknowledged
-documents. The follow-on [delivery configuration diagnostic](M7_DELIVERY_CONFIG_EVIDENCE.md)
-adds an opt-in, scoped, nonsecret view of those documents for current remote
-assignment generations. Check both verification records before proceeding.
+documents. The [delivery configuration diagnostic](M7_DELIVERY_CONFIG_EVIDENCE.md),
+committed as `284bc35`, adds an opt-in, scoped, nonsecret view for current remote
+assignment generations. The follow-on [local document evidence](M7_LOCAL_DELIVERY_CONFIG_EVIDENCE.md)
+uses the same stored receipt protocol for local assignments without rebuilding
+mutable execution sources. The [pure cutover-evidence contract](M7_CUTOVER_EVIDENCE.md)
+requires separate assignment/document/stream-bound mode-application evidence; it
+has no producer or production caller. The [immutable assignment revision binding](M7_ASSIGNMENT_REVISION_BINDING.md)
+captures set identity in newly built documents and preserves unbound legacy reads;
+it still grants no runtime-mode authority. The [Colima real-engine acceptance](M7_COLIMA_ACCEPTANCE.md)
+now verifies all required retained-read/API/binding MariaDB markers without skips.
+Check the remaining release and runtime-lifecycle limits before proceeding.
 No aggregate runtime is active, and a document receipt is not an applied-mode receipt.
 
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then
