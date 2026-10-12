@@ -138,7 +138,7 @@ func testLegacyAssignmentBinding(t *testing.T, f probeRegistryFixture) {
 	activation := activationRepo(f, f.db)
 	reader := activation.(ports.LocalAppliedConfigReader)
 	legacy, err := reader.ReadAppliedLocal(t.Context())
-	if err != nil || legacy == nil || legacy.Assignments[0].AssignmentRevision != 0 {
+	if err != nil || legacy == nil || legacy.Assignments[0].AssignmentRevision != 0 || len(legacy.RegionalDeliveryApplications) != 0 {
 		t.Fatal("legacy hash compatibility invented a current binding or stopped execution", err)
 	}
 	// Legacy compatibility must still match the entire graph, not just mode or

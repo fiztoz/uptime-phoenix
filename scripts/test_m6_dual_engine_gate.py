@@ -48,6 +48,14 @@ M7_LEAVES = {
 } | {
     f"TestAssignmentRevisionSessionContract/mariadb/{mode}"
     for mode in ("regional", "aggregate", "both")
+} | {
+    f"TestLocalRegionalApplicationContract/mariadb/{case}"
+    for case in (
+        "regional", "aggregate", "both", "ActivationRollback", "RetryAndUpgrade",
+        "PartialUpgrade", "RecordingFence", "Migration", "OutboxBeforeSend", "EscalationEnqueue",
+        "PresentMismatch/assignment_revision", "PresentMismatch/generation", "PresentMismatch/hub_id",
+        "PresentMismatch/sha256", "PresentMismatch/monitor_id", "PresentMismatch/stream_id", "PresentMismatch/alert_delivery",
+    )
 } | {"TestDeliveryConfigEvidenceAPI/mariadb", "TestLocalDeliveryConfigEvidenceAPI/mariadb"}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",

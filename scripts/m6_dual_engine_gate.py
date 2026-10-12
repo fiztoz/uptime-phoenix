@@ -82,6 +82,24 @@ REQUIRED = {
     "TestAssignmentRevisionSessionContract/mariadb/regional",
     "TestAssignmentRevisionSessionContract/mariadb/aggregate",
     "TestAssignmentRevisionSessionContract/mariadb/both",
+    # Local regional application facts must exercise real hub transactions.
+    "TestLocalRegionalApplicationContract/mariadb/regional",
+    "TestLocalRegionalApplicationContract/mariadb/aggregate",
+    "TestLocalRegionalApplicationContract/mariadb/both",
+    "TestLocalRegionalApplicationContract/mariadb/ActivationRollback",
+    "TestLocalRegionalApplicationContract/mariadb/RetryAndUpgrade",
+    "TestLocalRegionalApplicationContract/mariadb/PartialUpgrade",
+    "TestLocalRegionalApplicationContract/mariadb/RecordingFence",
+    "TestLocalRegionalApplicationContract/mariadb/Migration",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/assignment_revision",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/generation",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/hub_id",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/sha256",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/monitor_id",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/stream_id",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/alert_delivery",
+    "TestLocalRegionalApplicationContract/mariadb/OutboxBeforeSend",
+    "TestLocalRegionalApplicationContract/mariadb/EscalationEnqueue",
 }
 
 

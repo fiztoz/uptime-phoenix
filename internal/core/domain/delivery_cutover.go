@@ -31,8 +31,9 @@ const (
 )
 
 // ProbeDeliveryModeApplication is separate from a config.applied receipt. The
-// edge stores source-local effective REGIONAL facts for exact bound documents;
-// those facts are not authenticated hub-observed reports or cutover authority.
+// edge and protected hub-local runtime store source-local effective REGIONAL
+// facts for exact bound documents; these are not authenticated cross-source
+// reports or cutover authority.
 // No reporting protocol, aggregate application producer or stronger application
 // negotiation exists yet. A future authenticated lifecycle must supply trusted
 // evidence for the selected mode, exact set/document binding and accepted stream.

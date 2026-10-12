@@ -67,4 +67,8 @@ type LocalProbeConfigDefinition struct {
 	Templates     []*NotificationTemplate
 	Proxies       []*Proxy
 	Maintenance   []ProbeConfigMaintenance
+	// RegionalDeliveryApplications are verified source-local effective regional
+	// facts attached by the execution reader, never desired snapshot fields or
+	// cross-source cutover/send authority. Legacy absence stays unreported.
+	RegionalDeliveryApplications []ProbeDeliveryModeApplication
 }

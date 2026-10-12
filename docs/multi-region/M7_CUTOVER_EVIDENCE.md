@@ -40,8 +40,9 @@ For each member, a complete proposal requires:
    hub/probe identity, the current assignment-set revision, exact generation,
    exact acknowledged config revision/hash, explicit selected mode, and accepted
    current source stream. A configuration receipt cannot be used as this object.
-   The [edge regional application seam](M7_EDGE_REGIONAL_APPLICATION.md) now stores
-   source-local effective regional facts, not authenticated hub-observed reports.
+   The [edge regional application seam](M7_EDGE_REGIONAL_APPLICATION.md) and
+   [protected local-hub seam](M7_LOCAL_REGIONAL_APPLICATION.md) now store
+   source-local effective regional facts, not authenticated cross-source reports.
    No reporting protocol, stronger application negotiation or aggregate-mode
    producer exists; these local facts never populate `ModeApplicationSupported`.
 

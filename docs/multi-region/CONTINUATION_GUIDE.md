@@ -15,8 +15,8 @@ committed as `284bc35`, adds an opt-in, scoped, nonsecret view for current remot
 assignment generations. The follow-on [local document evidence](M7_LOCAL_DELIVERY_CONFIG_EVIDENCE.md)
 uses the same stored receipt protocol for local assignments without rebuilding
 mutable execution sources. The [pure cutover-evidence contract](M7_CUTOVER_EVIDENCE.md)
-requires separate assignment/document/stream-bound mode-application evidence; it
-has no producer or production caller. The [immutable assignment revision binding](M7_ASSIGNMENT_REVISION_BINDING.md)
+requires separate assignment/document/stream-bound mode-application evidence;
+it has no authenticated reporting producer or production caller. The [immutable assignment revision binding](M7_ASSIGNMENT_REVISION_BINDING.md)
 captures set identity in newly built documents and preserves unbound legacy reads;
 it still grants no runtime-mode authority. The [Colima real-engine acceptance](M7_COLIMA_ACCEPTANCE.md)
 now verifies all required retained-read/API/binding MariaDB markers without skips.
@@ -28,7 +28,12 @@ runtime-lifecycle limits before proceeding.
 The [edge regional application seam](M7_EDGE_REGIONAL_APPLICATION.md) now persists
 honest source-local effective regional facts and validates present facts during
 recording, escalation enqueue and final authorization. It adds no reporting
-protocol/capability, local hub producer, aggregate application or suppression.
+protocol/capability, aggregate application or suppression. The corresponding
+[protected local-hub seam](M7_LOCAL_REGIONAL_APPLICATION.md) adds atomic effective
+regional state on fresh activation, present-state execution/recording checks and
+normal new-revision upgrade for missing facts. Local receipt retries do not
+backfill; ordinary legacy dispatch remains unchanged/unreported. Local pre-send
+reads are observational, not a new final transactional lease/send fence.
 No aggregate runtime is active, and a document receipt is not an applied-mode receipt.
 
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then

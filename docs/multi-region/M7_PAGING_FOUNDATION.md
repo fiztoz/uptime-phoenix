@@ -14,7 +14,10 @@ application and release acceptance remain open. The
 mode-application evidence without adding a runtime caller or activation barrier.
 The [edge regional application seam](M7_EDGE_REGIONAL_APPLICATION.md) supplies
 source-local effective regional state behind real activation/recording/final
-checks, not authenticated hub reporting or aggregate application support.
+checks. Its [protected local-hub counterpart](M7_LOCAL_REGIONAL_APPLICATION.md)
+uses fresh activation and existing execution/recording/pre-send reads, with
+ordinary legacy dispatch unchanged and no new final transactional send fence.
+Neither is authenticated cross-source reporting or aggregate application support.
 
 ## Implemented decision contract
 
