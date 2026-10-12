@@ -79,6 +79,9 @@ REQUIRED = {
     "TestAssignmentRevisionBindingContract/mariadb/LegacyLocalExecutionAndRefresh",
     "TestAssignmentRevisionBindingContract/mariadb/RemoteReceiptBinding",
     "TestAssignmentRevisionBindingContract/mariadb/InvalidSourceRevision",
+    "TestAssignmentRevisionSessionContract/mariadb/regional",
+    "TestAssignmentRevisionSessionContract/mariadb/aggregate",
+    "TestAssignmentRevisionSessionContract/mariadb/both",
 }
 
 

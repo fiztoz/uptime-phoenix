@@ -3,7 +3,11 @@
 **Follow-on acceptance (2026-10-12):** [Colima real-engine evidence](M7_COLIMA_ACCEPTANCE.md)
 executed all required SQLite/MariaDB markers with no MariaDB skips. It supersedes
 the earlier unexecuted-engine qualification below; earlier command results remain
-historical. Mode application and release/rollout acceptance are still separate.
+historical. The foundation was committed as `d86e6f8`. Subsequent
+[live session verification](M7_CONFIG_SESSION_BINDING.md) exercises immutable
+bindings through real TLS/WebSocket transfer, durable ACK refusal, cold reopen,
+ABA/reconnect and duplicate ACKs on both engines. Mode application and
+release/rollout acceptance are still separate.
 
 Follow-on to the [cutover evidence contract](M7_CUTOVER_EVIDENCE.md). This slice
 captures the missing assignment-set revision in the exact protected configuration

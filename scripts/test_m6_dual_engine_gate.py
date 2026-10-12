@@ -45,6 +45,9 @@ M7_LEAVES = {
         "LocalBoundABA", "StalePreparedNoLegacyFallback", "LegacyLocalExecutionAndRefresh",
         "RemoteReceiptBinding", "InvalidSourceRevision",
     )
+} | {
+    f"TestAssignmentRevisionSessionContract/mariadb/{mode}"
+    for mode in ("regional", "aggregate", "both")
 } | {"TestDeliveryConfigEvidenceAPI/mariadb", "TestLocalDeliveryConfigEvidenceAPI/mariadb"}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",

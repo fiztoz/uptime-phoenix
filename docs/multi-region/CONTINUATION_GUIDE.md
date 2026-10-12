@@ -20,7 +20,11 @@ has no producer or production caller. The [immutable assignment revision binding
 captures set identity in newly built documents and preserves unbound legacy reads;
 it still grants no runtime-mode authority. The [Colima real-engine acceptance](M7_COLIMA_ACCEPTANCE.md)
 now verifies all required retained-read/API/binding MariaDB markers without skips.
-Check the remaining release and runtime-lifecycle limits before proceeding.
+The local/cutover/binding foundation was committed as `d86e6f8`. The subsequent
+[live configuration-session verification](M7_CONFIG_SESSION_BINDING.md) passes
+all three desired-mode session leaves on real MariaDB, including refused receipt,
+cold reopen, ABA, reconnect and repeated ACKs. Check the remaining release and
+runtime-lifecycle limits before proceeding.
 No aggregate runtime is active, and a document receipt is not an applied-mode receipt.
 
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then
