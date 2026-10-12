@@ -60,6 +60,13 @@ func (s *Store) CommitEscalationAdvance(ctx context.Context, expectedVersion int
 		if prior.Status != domain.AlertStatusFiring || prior.TransitionVersion != expectedVersion || prior.EscalationStatus != domain.EscalationStatePending || prior.EscalationPolicyID != incident.EscalationPolicyID || prior.MonitorID != incident.MonitorID || prior.AssignmentGeneration != incident.AssignmentGeneration || prior.ProbeID != incident.ProbeID || identity.ProbeID != incident.ProbeID {
 			return ports.ErrStaleLocalState
 		}
+		if len(intents) > 0 {
+			// Keep the plan's document revision: an intervening activation must
+			// refuse old planned work, not relabel it as current application.
+			if err := requireRegionalApplication(ctx, tx, identity, incident.MonitorID, incident.AssignmentGeneration, incident.ConfigRevision); err != nil {
+				return err
+			}
+		}
 		if identity.LastCreatedSeq == math.MaxInt64 {
 			return ports.ErrConflict
 		}

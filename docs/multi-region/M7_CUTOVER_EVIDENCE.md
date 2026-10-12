@@ -40,7 +40,10 @@ For each member, a complete proposal requires:
    hub/probe identity, the current assignment-set revision, exact generation,
    exact acknowledged config revision/hash, explicit selected mode, and accepted
    current source stream. A configuration receipt cannot be used as this object.
-   No producer, wire frame, storage record or port for this attestation exists yet.
+   The [edge regional application seam](M7_EDGE_REGIONAL_APPLICATION.md) now stores
+   source-local effective regional facts, not authenticated hub-observed reports.
+   No reporting protocol, stronger application negotiation or aggregate-mode
+   producer exists; these local facts never populate `ModeApplicationSupported`.
 
 An assignment revision is **not** a probe-document revision. They are compared
 only within their own identity spaces. Matching mode and a timestamp after the

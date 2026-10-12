@@ -73,7 +73,9 @@ func (s *Store) ActivateConfig(ctx context.Context, config domain.EdgeActiveConf
 				if !domain.SameProbeConfigMetadata(p.ProbeConfigMetadata, current.Snapshot.ProbeConfigMetadata) || !reflect.DeepEqual(assignments, current.Assignments) {
 					return ports.ErrConflict
 				}
-				return nil
+				// A retry can establish missing regional facts from the same
+				// authenticated bytes after upgrade, never rewrite old facts.
+				return writeRegionalApplications(ctx, tx, i, config)
 			}
 		}
 		row := configRow{Revision: p.Revision, HubID: p.HubID, ProbeID: p.ProbeID, SchemaVersion: p.SchemaVersion, SHA256: p.SHA256, CreatedAt: p.CreatedAt.UTC().UnixMicro(), EffectiveAt: p.EffectiveAt.UTC().UnixMicro(), AppliedAt: config.AppliedAt.UTC().UnixMicro(), KeyConfirmation: p.KeyConfirmation, ProtectedPayload: p.ProtectedPayload}
@@ -96,6 +98,9 @@ func (s *Store) ActivateConfig(ctx context.Context, config domain.EdgeActiveConf
 			 ON CONFLICT (monitor_id) DO UPDATE SET generation = excluded.generation, active = excluded.active, revision = excluded.revision`, a.MonitorID, a.Generation, a.Active, p.Revision); err != nil {
 				return err
 			}
+		}
+		if err := writeRegionalApplications(ctx, tx, i, config); err != nil {
+			return err
 		}
 		_, err := tx.ExecContext(ctx, "UPDATE edge_identity SET config_revision = ? WHERE id = 1", p.Revision)
 		return err
@@ -125,5 +130,15 @@ func readActiveConfig(ctx context.Context, db bun.IDB) (domain.EdgeActiveConfig,
 	if err := db.NewRaw("SELECT monitor_id, generation, active FROM edge_assignments WHERE revision = ? ORDER BY monitor_id", row.Revision).Scan(ctx, &assignments); err != nil {
 		return domain.EdgeActiveConfig{}, storageError(ctx, err)
 	}
-	return row.active(assignments), nil
+	var streamID string
+	if err := db.NewRaw("SELECT stream_id FROM edge_identity WHERE id = 1").Scan(ctx, &streamID); err != nil {
+		return domain.EdgeActiveConfig{}, storageError(ctx, err)
+	}
+	active := row.active(assignments)
+	facts, err := readRegionalApplications(ctx, db, active.Snapshot.ProbeConfigMetadata, streamID)
+	if err != nil {
+		return domain.EdgeActiveConfig{}, storageError(ctx, err)
+	}
+	active.RegionalDeliveryApplications = facts
+	return active, nil
 }

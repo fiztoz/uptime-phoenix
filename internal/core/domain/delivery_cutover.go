@@ -30,10 +30,12 @@ const (
 	DeliveryCutoverApplicationMismatch        DeliveryCutoverReason = "mode_application_mismatch"
 )
 
-// ProbeDeliveryModeApplication is a separate, hypothetical mode-application
-// attestation, not a config.applied receipt. No producer, protocol or storage
-// implementation exists yet. A future authenticated lifecycle must durably bind
-// the exact set revision, document and accepted stream before supplying it.
+// ProbeDeliveryModeApplication is separate from a config.applied receipt. The
+// edge stores source-local effective REGIONAL facts for exact bound documents;
+// those facts are not authenticated hub-observed reports or cutover authority.
+// No reporting protocol, aggregate application producer or stronger application
+// negotiation exists yet. A future authenticated lifecycle must supply trusted
+// evidence for the selected mode, exact set/document binding and accepted stream.
 // AssignmentRevision and ConfigRevision belong to different identity spaces.
 // Hashes are internal identity only and never returned by the decision or HTTP.
 type ProbeDeliveryModeApplication struct {
@@ -62,7 +64,8 @@ func ValidProbeDeliveryModeApplication(a ProbeDeliveryModeApplication) bool {
 // Assignment is this monitor's facts from that same document. StreamID is the
 // caller's accepted current stream, not a stream selected by the attestation.
 // ModeApplicationSupported is stronger than understanding optional desired mode:
-// today's paging.aggregate.v1 must never populate it. It has no producer yet.
+// today's paging.aggregate.v1 and source-local regional facts must never populate
+// it. Stronger application negotiation has no producer yet.
 // These inputs cannot establish current database authority on their own.
 type DeliveryCutoverSource struct {
 	ProbeID                  string

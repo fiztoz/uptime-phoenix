@@ -100,6 +100,9 @@ func (s *Store) AuthorizeEdgeDelivery(ctx context.Context, claim domain.Delivery
 		if inc.SubjectKind != domain.IncidentSubjectAvailability || item.Certificate != nil || item.Condition != nil {
 			return nil
 		}
+		if err := requireRegionalApplication(ctx, tx, identity, item.MonitorID, item.AssignmentGeneration, config.Revision); err != nil {
+			return err
+		}
 		switch item.CheckStatus {
 		case domain.StatusDown:
 			if inc.Status != domain.AlertStatusFiring || inc.AckedAt != nil {

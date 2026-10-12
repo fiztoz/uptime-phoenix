@@ -242,6 +242,13 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 		if err != nil || !domain.SameProbeConfigMetadata(loaded.Metadata, metadata) || len(loaded.Assignments) != 1 || loaded.Assignments[0].AssignmentRevision != binding || loaded.Assignments[0].DesiredAlertDelivery != mode {
 			t.Fatal("wire/cold load changed document binding or desired mode", err)
 		}
+		active, err := currentEdge.store.ReadActiveConfig(ctx)
+		want := domain.ProbeDeliveryModeApplication{ProbeConfigTarget: target, MonitorID: monitor, AssignmentRevision: binding,
+			Generation: loaded.Assignments[0].Generation, ConfigRevision: metadata.Revision, SHA256: metadata.SHA256,
+			StreamID: identity.StreamID, AlertDelivery: domain.AlertDeliveryRegional}
+		if err != nil || len(active.RegionalDeliveryApplications) != 1 || active.RegionalDeliveryApplications[0] != want {
+			t.Fatal("real transfer/cold load did not retain honest effective regional state", err)
+		}
 	}
 	assertHub := func(metadata domain.ProbeConfigMetadata, binding int64) {
 		t.Helper()

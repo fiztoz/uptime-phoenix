@@ -12,6 +12,9 @@ pass the [Colima real-engine gate](M7_COLIMA_ACCEPTANCE.md); broader runtime
 application and release acceptance remain open. The
 [pure cutover-evidence contract](M7_CUTOVER_EVIDENCE.md) specifies separate
 mode-application evidence without adding a runtime caller or activation barrier.
+The [edge regional application seam](M7_EDGE_REGIONAL_APPLICATION.md) supplies
+source-local effective regional state behind real activation/recording/final
+checks, not authenticated hub reporting or aggregate application support.
 
 ## Implemented decision contract
 

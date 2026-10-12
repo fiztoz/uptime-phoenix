@@ -48,7 +48,11 @@ func (s *EdgeConfigService) Apply(ctx context.Context, document []byte, generati
 	for _, a := range resolved.Assignments {
 		indices = append(indices, domain.EdgeAssignmentIdentity{MonitorID: a.Monitor.ID, Generation: a.Generation, Active: a.Monitor.Active})
 	}
-	command := domain.EdgeActiveConfig{Snapshot: domain.ProtectedProbeConfig{ProbeConfigMetadata: resolved.Metadata, KeyConfirmation: s.protector.KeyHash(i.HubID), ProtectedPayload: protected}, Assignments: indices, AppliedAt: at.UTC(), ConnectionGeneration: generation}
+	applications, err := edgeRegionalApplications(resolved, i.StreamID)
+	if err != nil {
+		return nil, err
+	}
+	command := domain.EdgeActiveConfig{Snapshot: domain.ProtectedProbeConfig{ProbeConfigMetadata: resolved.Metadata, KeyConfirmation: s.protector.KeyHash(i.HubID), ProtectedPayload: protected}, Assignments: indices, AppliedAt: at.UTC(), ConnectionGeneration: generation, RegionalDeliveryApplications: applications}
 	if err := s.store.ActivateConfig(ctx, command); err != nil {
 		return nil, err
 	}
@@ -77,6 +81,9 @@ func (s *EdgeConfigService) Load(ctx context.Context) (*domain.EdgeResolvedConfi
 	}
 	if !domain.SameProbeConfigMetadata(resolved.Metadata, p.ProbeConfigMetadata) {
 		return nil, domain.ErrValidation
+	}
+	if err := validateEdgeRegionalApplications(resolved, active.RegionalDeliveryApplications); err != nil {
+		return nil, err
 	}
 	return resolved, nil
 }

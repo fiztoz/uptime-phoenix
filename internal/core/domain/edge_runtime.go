@@ -70,6 +70,10 @@ type EdgeActiveConfig struct {
 	Snapshot    ProtectedProbeConfig
 	Assignments []EdgeAssignmentIdentity
 	AppliedAt   time.Time
+	// RegionalDeliveryApplications are source-local effective regional facts
+	// bound to the exact authenticated document and stream. Legacy absence is
+	// unreported; these facts are not hub-observed cutover or send authority.
+	RegionalDeliveryApplications []ProbeDeliveryModeApplication
 	// ConnectionGeneration is an input fence checked during activation. Stored
 	// active content remains valid when a later authenticated session takes over.
 	ConnectionGeneration int64

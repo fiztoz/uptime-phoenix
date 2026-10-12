@@ -25,6 +25,10 @@ The local/cutover/binding foundation was committed as `d86e6f8`. The subsequent
 all three desired-mode session leaves on real MariaDB, including refused receipt,
 cold reopen, ABA, reconnect and repeated ACKs. Check the remaining release and
 runtime-lifecycle limits before proceeding.
+The [edge regional application seam](M7_EDGE_REGIONAL_APPLICATION.md) now persists
+honest source-local effective regional facts and validates present facts during
+recording, escalation enqueue and final authorization. It adds no reporting
+protocol/capability, local hub producer, aggregate application or suppression.
 No aggregate runtime is active, and a document receipt is not an applied-mode receipt.
 
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then

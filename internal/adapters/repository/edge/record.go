@@ -169,6 +169,9 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 		if !assignment.Active || assignment.Generation != o.AssignmentGeneration {
 			return ports.ErrConflict
 		}
+		if err := requireRegionalApplication(ctx, tx, i, o.MonitorID, o.AssignmentGeneration, o.ConfigRevision); err != nil {
+			return err
+		}
 		before, err := readEdgeEvidence(ctx, tx, i, o.MonitorID, o.AssignmentGeneration)
 		if err != nil {
 			return err
