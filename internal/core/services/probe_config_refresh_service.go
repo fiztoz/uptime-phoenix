@@ -21,6 +21,7 @@ type LocalProbeConfigRefreshService struct {
 	activationRepo    ports.ProbeConfigActivationRepository
 	installationRepo  ports.ProbeInstallationRepository
 	localPreparations ports.LocalDeliveryPreparationReader
+	preparationRounds ports.LocalDeliveryPreparationRoundReconciler
 	mu                sync.Mutex
 	now               func() time.Time
 	reconcileInterval time.Duration
@@ -53,6 +54,21 @@ func NewLocalProbeConfigRefreshService(
 // Configure before starting the worker.
 func (s *LocalProbeConfigRefreshService) SetDeliveryPreparations(reader ports.LocalDeliveryPreparationReader) {
 	s.localPreparations = reader
+}
+
+// SetPreparationRounds enables independent request-round reconciliation before
+// starting the worker. It never adds an execution or provider-send requirement.
+func (s *LocalProbeConfigRefreshService) SetPreparationRounds(reconciler ports.LocalDeliveryPreparationRoundReconciler) {
+	s.preparationRounds = reconciler
+}
+
+func (s *LocalProbeConfigRefreshService) reconcilePreparationRounds(ctx context.Context, active *domain.ProbeActiveConfig) (*domain.ProbeActiveConfig, error) {
+	if s.preparationRounds != nil {
+		if err := s.preparationRounds.ReconcileLocalDeliveryPreparationRounds(ctx, *active); err != nil {
+			return nil, err
+		}
+	}
+	return active, nil
 }
 
 // SetReconcileInterval configures the periodic reconciliation check interval.
@@ -95,7 +111,7 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 						return nil, prepErr
 					}
 					if complete {
-						return active, nil
+						return s.reconcilePreparationRounds(ctx, active)
 					}
 				}
 			}
@@ -111,7 +127,7 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 			if latestMeta.Revision > expectedActiveRevision {
 				applied, actErr := s.activationSvc.Activate(ctx, target, latestMeta.Revision, latestMeta.SHA256, expectedActiveRevision)
 				if actErr == nil {
-					return applied, nil
+					return s.reconcilePreparationRounds(ctx, applied)
 				}
 			}
 		} else if !errors.Is(latestErr, ports.ErrNotFound) {
@@ -130,7 +146,7 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 
 		applied, err := s.activationSvc.Activate(ctx, meta.ProbeConfigTarget, meta.Revision, meta.SHA256, expectedActiveRevision)
 		if err == nil {
-			return applied, nil
+			return s.reconcilePreparationRounds(ctx, applied)
 		}
 		if !errors.Is(err, ports.ErrConflict) {
 			return nil, err
@@ -148,7 +164,7 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 					return nil, prepErr
 				}
 				if complete {
-					return active, nil
+					return s.reconcilePreparationRounds(ctx, active)
 				}
 			}
 		}

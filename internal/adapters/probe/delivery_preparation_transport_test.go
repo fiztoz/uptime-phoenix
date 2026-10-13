@@ -56,6 +56,7 @@ func TestDeliveryPreparationTransportGates(t *testing.T) {
 			h := newRegionalTransportHarness(t, domain.AlertDeliveryAggregate, caps, report)
 			issuer := &preparationIssuerSpy{called: make(chan struct{}, 1)}
 			h.transport.SetDeliveryPreparations(issuer)
+			h.transport.preparationReconcileInterval = 20 * time.Millisecond
 			if tc.commands {
 				h.transport.SetCommands(&preparationDispatchSpy{})
 			}
@@ -90,6 +91,13 @@ func TestDeliveryPreparationTransportGates(t *testing.T) {
 				case <-issuer.called:
 				case <-ctx.Done():
 					t.Fatal("negotiated issuer not reached")
+				}
+				deadline := time.Now().Add(time.Second)
+				for issuer.calls.Load() < 2 {
+					if time.Now().After(deadline) {
+						t.Fatal("live report selector never reconciled")
+					}
+					time.Sleep(10 * time.Millisecond)
 				}
 			} else {
 				time.Sleep(100 * time.Millisecond)

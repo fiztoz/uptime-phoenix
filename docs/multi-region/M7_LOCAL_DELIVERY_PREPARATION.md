@@ -153,8 +153,10 @@ read preparation rows. Legacy dispatch, default/opt-in HTTP DTOs and wire schema
 are unchanged. This is manual inspection, not a separate independent review or
 engine execution claim.
 
-The local request tuple has no expiry/round. Remote terminal failures likewise
-still need explicit rearm. Before any activation, define a joint request-round,
+This foundational local request tuple has no expiry/round. The separate
+[shared round follow-on](M7_PREPARATION_ROUNDS.md) adds current-graph-authenticated
+local requests alongside remote command-ID rearm, leaving these original rows and
+execution behavior unchanged. Before any activation, define a joint request-round,
 expiry/rearm, preparation/barrier/application lifecycle; all assigned local/remote
 members remain required, including paused/offline members. Configuration activation
 is NOT delivery-mode activation. Neither pending request nor regional fact supplies

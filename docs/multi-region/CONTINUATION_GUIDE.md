@@ -45,7 +45,9 @@ commands for exact remote request preparation. It leaves effective regional mode
 unchanged and supplies no application support, suppression or cutover authority;
 the [protected local preparation continuation](M7_LOCAL_DELIVERY_PREPARATION.md)
 adds fresh-activation request persistence and cold refresh upgrades without adding
-an execution gate. Explicit joint request-round/rearm/barrier lifecycles remain open.
+an execution gate. The [shared request-round continuation](M7_PREPARATION_ROUNDS.md)
+adds all-member, DB-clock-expiring request identity and terminal rearm without changing
+mode execution. Committed barrier/application/provider-I/O lifecycles remain open.
 No aggregate runtime is active, and a document receipt is not an applied-mode receipt.
 
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then

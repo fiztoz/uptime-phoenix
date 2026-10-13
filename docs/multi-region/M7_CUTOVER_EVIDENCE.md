@@ -52,6 +52,9 @@ For each member, a complete proposal requires:
    receipt can populate application support or this attestation. Its
    [protected local request counterpart](M7_LOCAL_DELIVERY_PREPARATION.md) similarly
    persists only a pending request, never aggregate application or source quiescence.
+   The [shared request-round follow-on](M7_PREPARATION_ROUNDS.md) adds nonce/member
+   identity and expiry/rearm; current preparation still does not supply application
+   support, quiescence, a committed barrier or provider authority.
 
 An assignment revision is **not** a probe-document revision. They are compared
 only within their own identity spaces. Matching mode and a timestamp after the

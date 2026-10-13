@@ -91,6 +91,16 @@ M7_LEAVES = {
         "PresentMismatch/stream_id", "PresentMismatch/alert_delivery",
     )
 }
+M7_LEAVES |= {
+    f"TestDeliveryPreparationRoundContract/mariadb/{case}"
+    for case in (
+        "RemoteReuseCold", "TerminalCooldownRearm", "ExpiryRearm", "MixedAllSources",
+        "HistoricalFailure", "ABA", "AtomicRollback", "CorruptMembership",
+        "ConcurrentCreators", "CanceledStaleAuthority", "Migration",
+    )
+} | {f"TestLocalDeliveryPreparationRoundRefresh/mariadb/{mode}" for mode in ("aggregate", "both")} | {
+    f"TestDeliveryPreparationRoundSessionContract/mariadb/{mode}" for mode in ("aggregate", "both")
+}
 M7_LEAVES |= {"TestDeliveryConfigEvidenceAPI/mariadb", "TestLocalDeliveryConfigEvidenceAPI/mariadb"}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",

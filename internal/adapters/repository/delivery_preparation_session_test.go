@@ -29,6 +29,20 @@ func (r *preparationReceiptRefuser) RecordCommandResult(ctx context.Context, s d
 
 // TestDeliveryPreparationSessionContract verifies real config/report/preparation
 // and refused-result recovery over pinned TLS/WebSocket on both hub engines.
+// TestDeliveryPreparationRoundSessionContract exercises periodic DB-backed round
+// rearm through real TLS/WebSocket, encrypted source state and immutable receipts.
+func TestDeliveryPreparationRoundSessionContract(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mariadb"} {
+		t.Run(engine, func(t *testing.T) {
+			for _, mode := range []domain.AlertDelivery{domain.AlertDeliveryAggregate, domain.AlertDeliveryBoth} {
+				t.Run(string(mode), func(t *testing.T) {
+					testAssignmentRevisionSession(t, newProbeRegistryFixture(t, engine), mode, true, true)
+				})
+			}
+		})
+	}
+}
+
 func TestDeliveryPreparationSessionContract(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {

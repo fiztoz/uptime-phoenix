@@ -34,7 +34,8 @@ type HubTransport struct {
 	regionalApplications ports.RemoteRegionalApplicationRepository
 	// deliveryPreparations opts this connector into bounded automatic delivery
 	// preparation issuance after committed regional reports. Nil never issues.
-	deliveryPreparations ports.RemoteDeliveryPreparationIssuer
+	deliveryPreparations         ports.RemoteDeliveryPreparationIssuer
+	preparationReconcileInterval time.Duration
 }
 
 var _ ports.ProbeConnectionTransport = (*HubTransport)(nil)
@@ -263,6 +264,15 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	}
 	receiver := hubStateReceiver{ingest: t.stateIngest, session: domain.ProbeReplaySession{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: input.Generation, OwnerID: input.OwnerID}}
 	defer receiver.discard()
+	selection := &preparationSelection{}
+	preparationEnabled := regionalEnabled && t.deliveryPreparations != nil && t.commands != nil && containsCapability(handshake.Hello.Capabilities, DeliveryPreparationCapability)
+	if preparationEnabled {
+		senders.Add(1)
+		go func() {
+			defer senders.Done()
+			t.reconcileDeliveryPreparations(runCtx, receiver.session, selection, func() { _ = session.Close() })
+		}()
+	}
 	commandCapabilities := domain.ProbeCommandCapabilities{AlertAcknowledgement: slices.Contains(handshake.Hello.Capabilities, AcknowledgementCapability), CredentialRotation: slices.Contains(handshake.Hello.Capabilities, CredentialRotationCapability), CertificateRotation: slices.Contains(handshake.Hello.Capabilities, CertificateRotationCapability), DeliveryPreparation: containsCapability(handshake.Hello.Capabilities, DeliveryPreparationCapability)}
 	if t.commands != nil && (commandCapabilities.AlertAcknowledgement || commandCapabilities.CredentialRotation || commandCapabilities.CertificateRotation || commandCapabilities.DeliveryPreparation) {
 		senders.Add(1)
@@ -384,13 +394,14 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 			// negotiated. It records bounded requests from these committed facts
 			// and current database session authority; it claims no mode
 			// application and no send, suppression or cutover authority.
-			if regionalEnabled && t.deliveryPreparations != nil && t.commands != nil && containsCapability(handshake.Hello.Capabilities, DeliveryPreparationCapability) {
+			if preparationEnabled {
 				issueCtx, cancelIssue := context.WithTimeout(frameCtx, 10*time.Second)
 				err = t.deliveryPreparations.IssueRemoteDeliveryPreparations(issueCtx, receiver.session, applications)
 				cancelIssue()
 				if err != nil {
 					return errors.New("delivery preparation issuance unavailable")
 				}
+				selection.retain(applications)
 			}
 			return nil
 		}

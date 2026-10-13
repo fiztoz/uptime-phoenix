@@ -41,7 +41,8 @@ var _ ports.RemoteDeliveryPreparationIssuer = (*RemoteProbeConfigSyncStore)(nil)
 // retained document, all under live session/lease/installation authority.
 // A stale historical report or a member changed by an assignment ABA is still a
 // legitimate report: it issues nothing and never fails the report session.
-// Duplicates converge on the deterministic command ID and keep the original
+// Duplicates in one immutable shared round converge on the tuple/nonce-bound
+// command ID. Expired/current-failed rounds rearm with new IDs, preserving old
 // protected bytes, creation time and expiry.
 func (s *RemoteProbeConfigSyncStore) IssueRemoteDeliveryPreparations(ctx context.Context, session domain.ProbeReplaySession, facts []domain.ProbeDeliveryModeApplication) error {
 	if s == nil || s.db == nil || s.decoder == nil || s.protector == nil || s.preparationCodec == nil || s.commandProtector == nil ||
@@ -49,7 +50,7 @@ func (s *RemoteProbeConfigSyncStore) IssueRemoteDeliveryPreparations(ctx context
 		return domain.ErrValidation
 	}
 	err := runConfigAuthorityTx(ctx, s.db, func(ctx context.Context, tx bun.Tx) error {
-		authority, err := lockProbeSession(ctx, tx, session, s.commandProtector.KeyHash(session.HubID))
+		_, err := lockProbeSession(ctx, tx, session, s.commandProtector.KeyHash(session.HubID))
 		if err != nil {
 			return err
 		}
@@ -66,6 +67,7 @@ func (s *RemoteProbeConfigSyncStore) IssueRemoteDeliveryPreparations(ctx context
 			return nil // A newer document is active: historical reports issue nothing.
 		}
 		seen := make(map[int64]bool, len(facts))
+		var roundDeadlines []time.Time
 		for _, fact := range facts {
 			if seen[fact.MonitorID] || !domain.ValidProbeDeliveryModeApplication(fact) || fact.AlertDelivery != domain.AlertDeliveryRegional || fact.ProbeConfigTarget != target ||
 				fact.StreamID != session.StreamID || fact.ConfigRevision != document.ConfigRevision || fact.SHA256 != document.SHA256 {
@@ -102,9 +104,18 @@ func (s *RemoteProbeConfigSyncStore) IssueRemoteDeliveryPreparations(ctx context
 			if !currentSetMatches(set, fact, member) {
 				continue // Stale after an ABA: issues nothing and keeps the session.
 			}
-			if err := s.issuePreparation(ctx, tx, authority.now, session, fact, mode); err != nil {
+			now, err := replayDatabaseTime(ctx, tx)
+			if err != nil {
 				return err
 			}
+			round, err := selectPreparationRoundTx(ctx, tx, session.HubID, fact.MonitorID, fact.AssignmentRevision, mode, now)
+			if err != nil {
+				return err
+			}
+			if err := s.issuePreparation(ctx, tx, now, session, fact, mode, round); err != nil {
+				return err
+			}
+			roundDeadlines = append(roundDeadlines, round.ExpiresAt.UTC())
 		}
 		current, err := readProbeSession(ctx, tx, session.ProbeID)
 		if err != nil {
@@ -116,6 +127,11 @@ func (s *RemoteProbeConfigSyncStore) IssueRemoteDeliveryPreparations(ctx context
 		}
 		if current.OwnerID != session.OwnerID || current.Generation != session.ConnectionGeneration || current.LeaseUntil <= finalNow.Unix() {
 			return ports.ErrConflict
+		}
+		for _, deadline := range roundDeadlines {
+			if !finalNow.Before(deadline) {
+				return ports.ErrConflict
+			}
 		}
 		return nil
 	})
@@ -192,11 +208,11 @@ func currentSetMatches(set *domain.MonitorProbeAssignments, fact domain.ProbeDel
 	return false
 }
 
-// issuePreparation records one immutable request. The deterministic command ID
-// binds the exact semantic tuple, so a reconnect or duplicate authenticates and
+// issuePreparation records one immutable round-bound request. The command ID
+// binds the exact semantic tuple and retained round nonce, so a reconnect authenticates and
 // keeps the original protected bytes, creation time and expiry instead of
 // rewriting them. Nothing here enriches the request from mutable current rows.
-func (s *RemoteProbeConfigSyncStore) issuePreparation(ctx context.Context, tx bun.Tx, now time.Time, session domain.ProbeReplaySession, fact domain.ProbeDeliveryModeApplication, mode domain.AlertDelivery) error {
+func (s *RemoteProbeConfigSyncStore) issuePreparation(ctx context.Context, tx bun.Tx, now time.Time, session domain.ProbeReplaySession, fact domain.ProbeDeliveryModeApplication, mode domain.AlertDelivery, round preparationRoundModel) error {
 	created := now.UTC().Truncate(time.Microsecond)
 	bound := domain.ProbeDeliveryModeApplication{
 		ProbeConfigTarget:  domain.ProbeConfigTarget{HubID: session.HubID, ProbeID: session.ProbeID},
@@ -210,9 +226,9 @@ func (s *RemoteProbeConfigSyncStore) issuePreparation(ctx context.Context, tx bu
 	}
 	request := domain.ProbeDeliveryPreparation{
 		ProbeDeliveryModeApplication: bound,
-		CommandID:                    deliveryPreparationCommandID(bound),
+		CommandID:                    preparationRoundRequestID(bound, round),
 		CreatedAt:                    created,
-		ExpiresAt:                    created.Add(deliveryPrepareLifetime),
+		ExpiresAt:                    round.ExpiresAt.UTC(),
 	}
 	payload, err := s.preparationCodec.EncodeDeliveryPreparation(ctx, request)
 	if err != nil {
@@ -248,7 +264,10 @@ func (s *RemoteProbeConfigSyncStore) issuePreparation(ctx context.Context, tx bu
 	var existing probeCommandRow
 	err = tx.NewSelect().Model(&existing).Where("command_id = ?", request.CommandID).Scan(ctx)
 	if err == nil {
-		return s.authenticateExistingPreparation(ctx, existing, request)
+		if err := s.authenticateExistingPreparation(ctx, existing, request); err != nil {
+			return err
+		}
+		return writePreparationRoundRequestTx(ctx, tx, round, bound, request.CommandID, now, true, false)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
@@ -257,8 +276,10 @@ func (s *RemoteProbeConfigSyncStore) issuePreparation(ctx context.Context, tx bu
 		return err
 	}
 	row := newPendingCommandRow(domain.ProtectedProbeCommand{ProbeCommandMetadata: meta, ProtectedPayload: protected, RequestedBy: 0}, now)
-	_, err = tx.NewInsert().Model(&row).Exec(ctx)
-	return err
+	if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
+		return err
+	}
+	return writePreparationRoundRequestTx(ctx, tx, round, bound, request.CommandID, now, true, true)
 }
 
 // authenticateExistingPreparation re-authenticates a stored request instead of
@@ -299,7 +320,8 @@ func sameDeliveryPreparationRequest(a, b domain.ProbeDeliveryPreparation) bool {
 	return sameDeliveryPreparationTuple(a, b) && a.CreatedAt.Equal(b.CreatedAt) && a.ExpiresAt.Equal(b.ExpiresAt)
 }
 
-// deliveryPreparationCommandID derives the stable request identity from the
+// deliveryPreparationCommandID derives the legacy tuple identity, also used as
+// the semantic component of a new nonce-bound round request ID. It binds the
 // exact tuple (hub, probe, monitor, assignment-set revision, generation,
 // document revision, document hash, stream, mode). Reconnects and duplicates
 // converge on one immutable row without any fabricated operator input.

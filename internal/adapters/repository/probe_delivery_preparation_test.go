@@ -374,6 +374,11 @@ func testDeliveryPreparationDuplicates(t *testing.T, f preparationFixture) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Test-only collision replacement must remove its exact request reference
+	// first; production retention deliberately refuses deleting a bound command.
+	if _, err := f.f.db.ExecContext(ctx, "DELETE FROM probe_delivery_preparation_requests"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.f.db.ExecContext(ctx, "DELETE FROM probe_commands"); err != nil {
 		t.Fatal(err)
 	}

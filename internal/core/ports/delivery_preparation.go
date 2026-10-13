@@ -32,6 +32,12 @@ type LocalDeliveryPreparationReader interface {
 	ReadLocalDeliveryPreparations(context.Context, domain.ProbeActiveConfig) ([]domain.LocalDeliveryPreparation, error)
 }
 
+// LocalDeliveryPreparationRoundReconciler independently commits request rounds
+// for a selected protected configuration. It never changes effective mode.
+type LocalDeliveryPreparationRoundReconciler interface {
+	ReconcileLocalDeliveryPreparationRounds(context.Context, domain.ProbeActiveConfig) error
+}
+
 // EdgeDeliveryPreparationExecutor authenticates one captured source tuple before
 // committing preparation. Success does not assert a runtime mode change.
 type EdgeDeliveryPreparationExecutor interface {

@@ -96,7 +96,10 @@ rows without rebinding them to the new stream. Deterministic request identity ke
 terminal expired/rejected receipts immutable: this foundation does not automatically
 rearm the same tuple after a terminal failure. A fresh document produces a new
 identity; an explicit request-round/rearm lifecycle must be designed before
-activation, together with local preparation and barrier/application ordering.
+activation, together with local preparation and barrier/application ordering. The
+[shared request-round follow-on](M7_PREPARATION_ROUNDS.md) now reuses these source
+command IDs/receipts for nonce-bound rearm without rewriting history or claiming
+application. Initial tuple-only commands remain historical, never relabeled.
 Pending rows are outside the existing bounded edge metadata accounting subset.
 
 ## Executed evidence so far

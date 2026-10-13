@@ -392,6 +392,11 @@ func Run(cfg Config) error {
 			return fmt.Errorf("probe activation repo does not implement local preparation reader")
 		}
 		refreshSvc.SetDeliveryPreparations(preparationReader)
+		roundReconciler, ok := repos.probeActivation.(ports.LocalDeliveryPreparationRoundReconciler)
+		if !ok {
+			return fmt.Errorf("probe activation repo does not implement local preparation rounds")
+		}
+		refreshSvc.SetPreparationRounds(roundReconciler)
 		refreshSvc.StartEventSubscription(ctx, bus)
 		activeCfg, err := refreshSvc.Refresh(ctx)
 		if err != nil {

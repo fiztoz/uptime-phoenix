@@ -128,6 +128,14 @@ REQUIRED = {
     },
     *{f"TestDeliveryPreparationSessionContract/mariadb/{mode}"
       for mode in ("regional", "aggregate", "both")},
+    *{f"TestDeliveryPreparationRoundContract/mariadb/{case}"
+      for case in (
+          "RemoteReuseCold", "TerminalCooldownRearm", "ExpiryRearm", "MixedAllSources",
+          "HistoricalFailure", "ABA", "AtomicRollback", "CorruptMembership",
+          "ConcurrentCreators", "CanceledStaleAuthority", "Migration",
+      )},
+    *{f"TestLocalDeliveryPreparationRoundRefresh/mariadb/{mode}" for mode in ("aggregate", "both")},
+    *{f"TestDeliveryPreparationRoundSessionContract/mariadb/{mode}" for mode in ("aggregate", "both")},
     *{f"TestLocalDeliveryPreparationContract/mariadb/{case}"
       for case in (
           "regional", "aggregate", "both", "AtomicRollback", "RetryAndColdUpgrade",

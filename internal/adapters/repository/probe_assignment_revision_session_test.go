@@ -57,6 +57,8 @@ func assertRemoteRegional(t *testing.T, f probeRegistryFixture, target domain.Pr
 
 func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode domain.AlertDelivery, preparations ...bool) {
 	prepareEnabled := len(preparations) > 0 && preparations[0]
+	roundLifecycle := len(preparations) > 1 && preparations[1]
+	rearmInSession := false
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 	dir := t.TempDir()
@@ -314,6 +316,48 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 					if !completed {
 						t.Fatal("preparation result did not commit at hub")
 					}
+					if rearmInSession {
+						var old preparationCommandRow
+						if err := f.db.NewSelect().Table("probe_commands").Column("command_id", "kind", "requested_by", "source_alert_id", "assignment_generation", "hub_id", "probe_id", "stream_id", "payload_sha256", "protected_payload", "status", "remote_confirmed", "attempts", "created_at", "expires_at").Where("kind = ?", "delivery.prepare").Scan(ctx, &old); err != nil {
+							t.Fatal(err)
+						}
+						expireRound(t, f.db, monitor)
+						deadline := time.Now().Add(8 * time.Second)
+						for {
+							var count int
+							if err := f.db.NewSelect().Table("probe_commands").ColumnExpr("COUNT(*)").Where("remote_confirmed = ?", true).Scan(ctx, &count); err == nil && count == 2 {
+								break
+							}
+							if time.Now().After(deadline) {
+								t.Fatal("live session did not rearm expired round")
+							}
+							time.Sleep(25 * time.Millisecond)
+						}
+						if latestRound(t, f.db, monitor).RequestRound != 2 || len(roundRequests(t, f.db, monitor, 2)) != 1 {
+							t.Fatal("live preparation did not bind new round")
+						}
+						var retained preparationCommandRow
+						if err := f.db.NewSelect().Table("probe_commands").Column("command_id", "kind", "requested_by", "source_alert_id", "assignment_generation", "hub_id", "probe_id", "stream_id", "payload_sha256", "protected_payload", "status", "remote_confirmed", "attempts", "created_at", "expires_at").Where("command_id = ?", old.CommandID).Scan(ctx, &retained); err != nil {
+							t.Fatal(err)
+						}
+						if !bytes.Equal(old.ProtectedPayload, retained.ProtectedPayload) || !old.CreatedAt.Equal(retained.CreatedAt) || !old.ExpiresAt.Equal(retained.ExpiresAt) || old.Status != retained.Status || !retained.RemoteConfirmed {
+							t.Fatal("rearm rewrote old request/result")
+						}
+						meta := domain.ProbeCommandMetadata{CommandID: old.CommandID, HubID: old.HubID, ProbeID: old.ProbeID, StreamID: old.StreamID, Kind: old.Kind, AssignmentGeneration: old.AssignmentGeneration, CreatedAt: old.CreatedAt.UTC(), ExpiresAt: old.ExpiresAt.UTC(), PayloadSHA256: old.PayloadSHA256}
+						plain, err := protector.OpenCommand(ctx, meta, old.ProtectedPayload)
+						if err != nil {
+							t.Fatal(err)
+						}
+						request, err := (probe.DeliveryPreparationCodec{}).DecodeDeliveryPreparation(ctx, plain)
+						clear(plain)
+						if err != nil {
+							t.Fatal(err)
+						}
+						out, err := currentEdge.configs.PrepareDelivery(ctx, domain.EdgeCommandAuthority{HubID: target.HubID, ProbeID: target.ProbeID, StreamID: identity.StreamID, ConnectionGeneration: lease.Generation}, request)
+						if err != nil || out.CommandID != old.CommandID || out.Status != "applied" || out.Code != "delivery_prepared" {
+							t.Fatal("old source receipt recovery changed round authority", err)
+						}
+					}
 				}
 			}
 		}
@@ -422,6 +466,7 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 	if err != nil {
 		t.Fatal(err)
 	}
+	rearmInSession = roundLifecycle
 	runSession(secondDocument, false)
 	after, err := currentEdge.store.ReadActiveConfig(ctx)
 	if err != nil || !bytes.Equal(active.Snapshot.ProtectedPayload, after.Snapshot.ProtectedPayload) || !active.AppliedAt.Equal(after.AppliedAt) {
