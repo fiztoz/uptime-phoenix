@@ -77,7 +77,7 @@ func refreshService(t *testing.T, f probeRegistryFixture, db *bun.DB) *services.
 	actSvc := services.NewLocalProbeConfigActivationService(valSvc, actRepo)
 	instRepo := installationRepo(f, db)
 	sourceStore := repository.NewLocalProbeConfigSourceStore(db)
-	return services.NewLocalProbeConfigRefreshService(
+	refresh := services.NewLocalProbeConfigRefreshService(
 		sourceStore,
 		probe.LocalConfigEncoder{},
 		prepared,
@@ -85,6 +85,8 @@ func refreshService(t *testing.T, f probeRegistryFixture, db *bun.DB) *services.
 		actRepo,
 		instRepo,
 	)
+	refresh.SetDeliveryPreparations(actRepo.(ports.LocalDeliveryPreparationReader))
+	return refresh
 }
 
 func newReviewPipeline(t *testing.T, engine string, activate bool) reviewPipeline {

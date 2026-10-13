@@ -269,6 +269,9 @@ func (r *ProbeActivationStore) ActivateLocal(ctx context.Context, params ports.L
 		if err := writeLocalRegionalApplicationsTx(ctx, tx, definition, params.SHA256); err != nil {
 			return err
 		}
+		if err := writeLocalDeliveryPreparationsTx(ctx, tx, definition, params.SHA256); err != nil {
+			return err
+		}
 
 		applied = &domain.ProbeActiveConfig{
 			ProbeConfigTarget: params.Target,

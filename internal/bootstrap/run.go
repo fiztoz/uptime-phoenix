@@ -387,6 +387,11 @@ func Run(cfg Config) error {
 			repos.probeActivation,
 			repos.probeInstallation,
 		)
+		preparationReader, ok := repos.probeActivation.(ports.LocalDeliveryPreparationReader)
+		if !ok {
+			return fmt.Errorf("probe activation repo does not implement local preparation reader")
+		}
+		refreshSvc.SetDeliveryPreparations(preparationReader)
 		refreshSvc.StartEventSubscription(ctx, bus)
 		activeCfg, err := refreshSvc.Refresh(ctx)
 		if err != nil {

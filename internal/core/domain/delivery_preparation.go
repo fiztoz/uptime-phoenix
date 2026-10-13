@@ -11,6 +11,23 @@ type ProbeDeliveryPreparation struct {
 	PayloadHash [32]byte
 }
 
+// LocalDeliveryPreparation records a protected local pending request, not an
+// effective application, lease, suppression decision or provider-I/O permit.
+// It has no remote command/session identity or expiry authority.
+type LocalDeliveryPreparation struct {
+	ProbeDeliveryModeApplication
+	PreparedAt time.Time
+}
+
+// ValidLocalDeliveryPreparation validates shape only, never current eligibility.
+func ValidLocalDeliveryPreparation(p LocalDeliveryPreparation) bool {
+	return ValidProbeDeliveryModeApplication(p.ProbeDeliveryModeApplication) &&
+		p.ProbeID == LocalProbeID && p.StreamID == LocalStreamID &&
+		(p.AlertDelivery == AlertDeliveryAggregate || p.AlertDelivery == AlertDeliveryBoth) &&
+		!p.PreparedAt.IsZero() && p.PreparedAt.Location() == time.UTC &&
+		p.PreparedAt.Nanosecond()%1000 == 0
+}
+
 // ValidProbeDeliveryPreparation validates a remote, exactly bound request shape.
 func ValidProbeDeliveryPreparation(c ProbeDeliveryPreparation) bool {
 	return ValidProbeDeliveryModeApplication(c.ProbeDeliveryModeApplication) &&

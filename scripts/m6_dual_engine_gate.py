@@ -128,6 +128,15 @@ REQUIRED = {
     },
     *{f"TestDeliveryPreparationSessionContract/mariadb/{mode}"
       for mode in ("regional", "aggregate", "both")},
+    *{f"TestLocalDeliveryPreparationContract/mariadb/{case}"
+      for case in (
+          "regional", "aggregate", "both", "AtomicRollback", "RetryAndColdUpgrade",
+          "PartialUpgrade", "ModeAndPolicyABA", "PrerequisitesAndCancellation",
+          "ConcurrentSelection", "Migration", "WorkerBeforeAssignment",
+          "PresentMismatch/assignment_revision", "PresentMismatch/generation",
+          "PresentMismatch/hub_id", "PresentMismatch/sha256", "PresentMismatch/monitor_id",
+          "PresentMismatch/stream_id", "PresentMismatch/alert_delivery",
+      )},
 }
 
 

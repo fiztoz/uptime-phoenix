@@ -58,6 +58,11 @@ and never populate stronger application support in the pure cutover evaluator.
   They remain observational checks, not a newly claimed final transactional
   provider-I/O/lease barrier. A stale planned document is never relabeled current.
 
+The subsequent [protected local preparation seam](M7_LOCAL_DELIVERY_PREPARATION.md)
+uses these truthful regional facts as a request prerequisite on fresh activation.
+Pending requests remain separate from effective state and execution authorization;
+missing requests upgrade via new publication, never local receipt retry backfill.
+
 ## Executed verification
 
 Used cached Go 1.26.6 with a sanitized environment, `GOENV=off`,

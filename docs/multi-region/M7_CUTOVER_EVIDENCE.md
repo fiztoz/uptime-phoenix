@@ -49,7 +49,9 @@ For each member, a complete proposal requires:
    populates `ModeApplicationSupported`; no aggregate-mode producer exists.
    The subsequent [delivery preparation command](M7_DELIVERY_PREPARATION.md)
    records a pending request only; neither its capability nor successful command
-   receipt can populate application support or this attestation.
+   receipt can populate application support or this attestation. Its
+   [protected local request counterpart](M7_LOCAL_DELIVERY_PREPARATION.md) similarly
+   persists only a pending request, never aggregate application or source quiescence.
 
 An assignment revision is **not** a probe-document revision. They are compared
 only within their own identity spaces. Matching mode and a timestamp after the

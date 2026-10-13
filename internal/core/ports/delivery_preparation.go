@@ -25,6 +25,13 @@ type EdgeDeliveryPreparationRepository interface {
 	PrepareDelivery(context.Context, domain.EdgeCommandAuthority, domain.ProbeDeliveryPreparation, *domain.EdgeActiveConfig) (domain.ProbeCommandOutcome, error)
 }
 
+// LocalDeliveryPreparationReader reads bounded request records for an exact
+// selected protected local configuration. Absence is unreported, never application.
+// Implementations independently validate committed source/document prerequisites.
+type LocalDeliveryPreparationReader interface {
+	ReadLocalDeliveryPreparations(context.Context, domain.ProbeActiveConfig) ([]domain.LocalDeliveryPreparation, error)
+}
+
 // EdgeDeliveryPreparationExecutor authenticates one captured source tuple before
 // committing preparation. Success does not assert a runtime mode change.
 type EdgeDeliveryPreparationExecutor interface {

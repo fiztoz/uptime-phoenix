@@ -88,7 +88,10 @@ is not implemented here. Queued/in-flight provider work, crash ambiguity, final
 DB/provider-I/O fencing and durable aggregate incidents/intents remain separate.
 
 This slice prepares remote edges only; the local member is not silently excluded
-from a future all-source barrier. Existing source reset archives/retains old pending
+from a future all-source barrier. The subsequent
+[protected local request seam](M7_LOCAL_DELIVERY_PREPARATION.md) records local pending
+requests on fresh activation and upgrades missing records through new publication;
+it adds no application support, execution gate or shared barrier. Existing source reset archives/retains old pending
 rows without rebinding them to the new stream. Deterministic request identity keeps
 terminal expired/rejected receipts immutable: this foundation does not automatically
 rearm the same tuple after a terminal failure. A fresh document produces a new

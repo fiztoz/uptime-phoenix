@@ -20,6 +20,7 @@ type LocalProbeConfigRefreshService struct {
 	activationSvc     *LocalProbeConfigActivationService
 	activationRepo    ports.ProbeConfigActivationRepository
 	installationRepo  ports.ProbeInstallationRepository
+	localPreparations ports.LocalDeliveryPreparationReader
 	mu                sync.Mutex
 	now               func() time.Time
 	reconcileInterval time.Duration
@@ -45,6 +46,13 @@ func NewLocalProbeConfigRefreshService(
 		now:               time.Now,
 		reconcileInterval: 5 * time.Second,
 	}
+}
+
+// SetDeliveryPreparations enables pending-request completeness for protected
+// local refreshes. It never enables application or changes execution behavior.
+// Configure before starting the worker.
+func (s *LocalProbeConfigRefreshService) SetDeliveryPreparations(reader ports.LocalDeliveryPreparationReader) {
+	s.localPreparations = reader
 }
 
 // SetReconcileInterval configures the periodic reconciliation check interval.
@@ -82,7 +90,13 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 			if reader, ok := s.activationRepo.(ports.LocalAppliedConfigReader); ok {
 				applied, readErr := reader.ReadAppliedLocal(ctx)
 				if readErr == nil && applied != nil && applied.Revision == active.Revision && localConfigHasAssignmentBindings(applied) && localConfigHasRegionalApplications(applied) {
-					return active, nil
+					complete, prepErr := s.localPreparationsComplete(ctx, *active, applied)
+					if prepErr != nil {
+						return nil, prepErr
+					}
+					if complete {
+						return active, nil
+					}
 				}
 			}
 		} else if !errors.Is(err, ports.ErrNotFound) {
@@ -129,7 +143,13 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 		if reader, ok := s.activationRepo.(ports.LocalAppliedConfigReader); ok {
 			applied, readErr := reader.ReadAppliedLocal(ctx)
 			if readErr == nil && applied != nil && applied.Revision == active.Revision && localConfigHasAssignmentBindings(applied) && localConfigHasRegionalApplications(applied) {
-				return active, nil
+				complete, prepErr := s.localPreparationsComplete(ctx, *active, applied)
+				if prepErr != nil {
+					return nil, prepErr
+				}
+				if complete {
+					return active, nil
+				}
 			}
 		}
 	}

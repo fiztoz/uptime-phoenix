@@ -43,7 +43,9 @@ real-engine evidence and remaining acceptance limits before proceeding.
 The [delivery preparation continuation](M7_DELIVERY_PREPARATION.md) reuses durable
 commands for exact remote request preparation. It leaves effective regional mode
 unchanged and supplies no application support, suppression or cutover authority;
-local preparation and explicit request-round/rearm/barrier lifecycles remain open.
+the [protected local preparation continuation](M7_LOCAL_DELIVERY_PREPARATION.md)
+adds fresh-activation request persistence and cold refresh upgrades without adding
+an execution gate. Explicit joint request-round/rearm/barrier lifecycles remain open.
 No aggregate runtime is active, and a document receipt is not an applied-mode receipt.
 
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then
