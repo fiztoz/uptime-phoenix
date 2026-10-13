@@ -3,7 +3,8 @@
 This slice stores the operator's desired availability paging mode. It does **not**
 complete M7, send aggregate pages, or suppress regional delivery. Regional paging
 remains the only runtime mode. The [decision foundation](M7_PAGING_FOUNDATION.md)
-is still unwired.
+was left unwired by this slice. The later [standby planner](M7_AGGREGATE_STANDBY.md)
+uses it for held-only planning, never aggregate sends or regional suppression.
 
 ## Stored contract
 

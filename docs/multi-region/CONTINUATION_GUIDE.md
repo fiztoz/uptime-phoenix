@@ -47,7 +47,10 @@ the [protected local preparation continuation](M7_LOCAL_DELIVERY_PREPARATION.md)
 adds fresh-activation request persistence and cold refresh upgrades without adding
 an execution gate. The [shared request-round continuation](M7_PREPARATION_ROUNDS.md)
 adds all-member, DB-clock-expiring request identity and terminal rearm without changing
-mode execution. Committed barrier/application/provider-I/O lifecycles remain open.
+mode execution. The [durable standby planner](M7_AGGREGATE_STANDBY.md) now reuses
+the pure paging evaluator for DB-fenced incident identities and held channel plans
+only. Held plans are separate from delivery claims and cannot be promoted into sends.
+Committed barrier/application/provider-I/O lifecycles remain open.
 No aggregate runtime is active, and a document receipt is not an applied-mode receipt.
 
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then

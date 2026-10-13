@@ -467,8 +467,15 @@ func testDeliveryPreparationStarvation(t *testing.T, f preparationFixture) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prepareDue.After(issued.CreatedAt) {
-		t.Fatal("preparation is not the earlier due request", prepareDue, issued.CreatedAt)
+	// Creation clocks may differ between this process and MariaDB. Construct
+	// the dispatch-order condition directly, using the durable preparation's
+	// DB timestamp, rather than assuming this process ran on the DB clock.
+	laterDue := prepareDue.Add(-time.Second)
+	if _, err := f.f.db.ExecContext(ctx, "UPDATE probe_commands SET next_attempt_at = ? WHERE command_id = ?", laterDue.Add(-time.Second), rows[0].CommandID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.f.db.ExecContext(ctx, "UPDATE probe_commands SET next_attempt_at = ? WHERE command_id = ?", laterDue, issued.CommandID); err != nil {
+		t.Fatal(err)
 	}
 	claimed, err := f.commands(t).ClaimCommand(ctx, f.session, time.Second, domain.ProbeCommandCapabilities{AlertAcknowledgement: true})
 	if err != nil || claimed == nil || claimed.Kind != "alert.ack" {

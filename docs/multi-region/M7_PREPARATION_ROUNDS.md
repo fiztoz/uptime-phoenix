@@ -2,6 +2,8 @@
 
 Continuation after `7db24db`; **implemented and verified** for pending request rounds
 only. This is not mode activation or release/operational acceptance.
+The later [standby planner](M7_AGGREGATE_STANDBY.md) consumes current regional health,
+not these requests as authority, and creates no deliverable work.
 
 ## Contract
 

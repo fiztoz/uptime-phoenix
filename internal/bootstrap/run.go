@@ -481,6 +481,15 @@ func Run(cfg Config) error {
 		if err != nil {
 			return fmt.Errorf("probe connector owner unavailable")
 		}
+		// Standby planning cannot be claimed by any delivery consumer and does not
+		// attest mode application. Its separate stored lease fences every write.
+		standby := services.NewAggregateStandbyService(repo.NewAggregateStandbyStore(db), owner.String())
+		standbyDone := make(chan struct{})
+		go func() {
+			defer close(standbyDone)
+			standby.Run(ctx, 5*time.Second, func(err error) { log.Warn("aggregate standby", "error", err) })
+		}()
+		defer func() { cancelRuntime(); <-standbyDone }()
 		replayStore := repo.NewProbeReplayStore(db, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
 		replayStore.SetCommands(commandProtector, probe.AcknowledgementCodec{})
 		stateIngest, err := services.NewProbeStateService(replayStore, accessSvc)

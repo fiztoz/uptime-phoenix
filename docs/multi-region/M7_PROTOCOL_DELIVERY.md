@@ -46,7 +46,8 @@ activate delivery-mode application.
 
 ## Explicitly out of scope
 
-- No call to `EvaluateAggregatePaging`; the decision foundation stays unwired.
+- This wire slice makes no call to `EvaluateAggregatePaging`. Its later
+  [standby consumer](M7_AGGREGATE_STANDBY.md) adds held-only planning, no sends.
 - No regional notification suppression of any kind.
 - No UI selector and no HTTP assignment API change.
 - No migration.

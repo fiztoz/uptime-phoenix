@@ -14,8 +14,9 @@ an applied-mode claim to today's wire protocol would assert behavior the runtime
 does not implement; accepting an unused claim would not advance the barrier.
 
 The pure `EvaluateDeliveryCutover` function instead specifies the evidence a
-future barrier must assemble, following the unwired `EvaluateAggregatePaging`
-precedent. No port is added without a storage/runtime consumer.
+future barrier must assemble, following the pure `EvaluateAggregatePaging`
+precedent. Its later [standby consumer](M7_AGGREGATE_STANDBY.md) persists held-only
+plans, not applied-mode evidence, a cutover barrier or provider authority. No port is added without a storage/runtime consumer.
 
 ## Input and decision contract
 

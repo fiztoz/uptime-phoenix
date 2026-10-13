@@ -27,7 +27,9 @@ application capability, cutover authority or a production decision caller.
 `EvaluateAggregatePaging` is a pure availability incident decision function. It
 reuses `EvaluateMonitorHealth` rather than creating a second ANY/ALL truth table.
 It proposes hold, open, recover, or administrative closure; it does no I/O and
-does not authorize a provider send. No production caller is wired in this slice.
+does not authorize a provider send. No production caller was wired in this slice.
+The later [standby reconciliation](M7_AGGREGATE_STANDBY.md) reuses it for held-only
+planning; it still authorizes no send, cutover or regional suppression.
 
 The caller supplies a complete assignment snapshot already selected by accepted
 assignment generation and stream. Missing/stale/future/recovering evidence stays

@@ -101,6 +101,17 @@ M7_LEAVES |= {
 } | {f"TestLocalDeliveryPreparationRoundRefresh/mariadb/{mode}" for mode in ("aggregate", "both")} | {
     f"TestDeliveryPreparationRoundSessionContract/mariadb/{mode}" for mode in ("aggregate", "both")
 }
+M7_LEAVES |= {
+    f"TestAggregateStandbyContract/mariadb/{case}"
+    for case in (
+        "regional", "aggregate", "both", "ColdPlanningDeadline", "EvidenceFilters",
+        "AdministrativeABA", "ChannelIdentity", "AtomicRollback", "LeaseFences",
+        "ExpiryDuringEvaluation", "LockWaitExpiry", "ConcurrentWorkers", "Migration",
+        "WorkerBeforeAssignment", "CurrentAfterReplay", "UnknownHolds",
+        "CorruptStandbyRegional", "ConcurrentStateWriter", "ClockDomains",
+          "RepeatSettings", "IndependentBatch",
+    )
+}
 M7_LEAVES |= {"TestDeliveryConfigEvidenceAPI/mariadb", "TestLocalDeliveryConfigEvidenceAPI/mariadb"}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",
