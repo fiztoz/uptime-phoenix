@@ -230,6 +230,11 @@ func (s *ProbeCommandStore) ClaimCommand(ctx context.Context, session domain.Pro
 	if capabilities.CertificateRotation {
 		kinds = append(kinds, "certificate.prepare", "certificate.activate")
 	}
+	if capabilities.DeliveryPreparation {
+		// An unsupported pending preparation must never starve supported kinds:
+		// the kind filter below keeps it out of this claim entirely.
+		kinds = append(kinds, deliveryPrepareKind)
+	}
 	if len(kinds) == 0 {
 		return nil, nil
 	}
@@ -271,7 +276,7 @@ func (s *ProbeCommandStore) ClaimCommand(ctx context.Context, session domain.Pro
 // CompleteCommand records only a durable source result received on current
 // session authority. Contradictory duplicate results never overwrite history.
 func (s *ProbeCommandStore) CompleteCommand(ctx context.Context, session domain.ProbeReplaySession, result domain.ProbeCommandOutcome) error {
-	if !validCommandSession(session) || !validCommandOutcome(result) {
+	if !validCommandSession(session) || (!validCommandOutcome(result) && !validDeliveryPreparationOutcome(result)) {
 		return domain.ErrValidation
 	}
 	if result.AppliedAt != nil {
@@ -291,7 +296,7 @@ func (s *ProbeCommandStore) CompleteCommand(ctx context.Context, session domain.
 		if err := tx.NewSelect().Model(&row).Where("command_id = ? AND hub_id = ? AND probe_id = ? AND stream_id = ?", result.CommandID, session.HubID, session.ProbeID, session.StreamID).Scan(ctx); err != nil {
 			return err
 		}
-		if row.Attempts < 1 || (row.Kind != "alert.ack" && row.Kind != "credential.prepare" && row.Kind != "credential.activate" && row.Kind != "certificate.prepare" && row.Kind != "certificate.activate") {
+		if row.Attempts < 1 || (row.Kind != "alert.ack" && row.Kind != deliveryPrepareKind && row.Kind != "credential.prepare" && row.Kind != "credential.activate" && row.Kind != "certificate.prepare" && row.Kind != "certificate.activate") {
 			return ports.ErrConflict
 		}
 		if row.RemoteConfirmed {
@@ -302,7 +307,16 @@ func (s *ProbeCommandStore) CompleteCommand(ctx context.Context, session domain.
 			if row.Status != "pending" {
 				return ports.ErrConflict
 			}
-			if row.Kind == "alert.ack" {
+			if row.Kind == deliveryPrepareKind {
+				// Generic nonrotation receipt: success carries only the
+				// delivery_prepared code and never credential/certificate details.
+				if !validDeliveryPreparationOutcome(result) {
+					return domain.ErrValidation
+				}
+			} else if !validCommandOutcome(result) {
+				// Every legacy kind keeps its exact historical result shape.
+				return domain.ErrValidation
+			} else if row.Kind == "alert.ack" {
 				if result.CredentialVersion != 0 || result.CertificateVersion != 0 || result.CertificateFingerprint != "" || result.CertificateNotAfter != nil {
 					return domain.ErrValidation
 				}

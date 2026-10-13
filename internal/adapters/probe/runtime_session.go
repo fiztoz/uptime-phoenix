@@ -309,7 +309,14 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 		}
 		switch envelope.Type {
 		case "command.request":
-			response, reconnect, err := applyEdgeCommand(frameCtx, commands, credentials, certificates, domain.EdgeCommandAuthority{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID, ConnectionGeneration: int64(welcome.ConnectionGeneration)}, envelope)
+			// The exact compiled hello inventory is the only command gate: a build
+			// that did not advertise command.delivery_prepare.v1 never executes an
+			// unsolicited delivery.prepare. Commands stay unnegotiated by welcome.
+			var preparation ports.EdgeDeliveryPreparationExecutor
+			if slices.Contains(r.cfg.Capabilities, DeliveryPreparationCapability) {
+				preparation = r.configs
+			}
+			response, reconnect, err := applyEdgeCommand(frameCtx, commands, credentials, certificates, domain.EdgeCommandAuthority{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID, ConnectionGeneration: int64(welcome.ConnectionGeneration)}, envelope, preparation)
 			if err != nil {
 				return err
 			}

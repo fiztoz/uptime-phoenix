@@ -21,6 +21,7 @@ type ProbeCommandService struct {
 	codec            ports.ProbeAcknowledgementCodec
 	credentialCodec  ports.ProbeCredentialCommandCodec
 	certificateCodec ports.ProbeCertificateCommandCodec
+	deliveryCodec    ports.ProbeDeliveryPreparationCodec
 	now              func() time.Time
 }
 
@@ -37,6 +38,13 @@ func NewProbeCommandService(repo ports.ProbeCommandRepository, connections ports
 // SetBrowserEvents publishes redacted receipts after their durable commit.
 func (s *ProbeCommandService) SetBrowserEvents(bus ports.EventBus, incidents ports.ProbeIncidentRepository) {
 	s.bus, s.incidents = bus, incidents
+}
+
+// SetDeliveryPreparationsCodec wires the closed delivery.prepare payload codec.
+// Requests of that kind stay undecodable, and therefore undispatchable, until
+// it is configured.
+func (s *ProbeCommandService) SetDeliveryPreparationsCodec(codec ports.ProbeDeliveryPreparationCodec) {
+	s.deliveryCodec = codec
 }
 
 func (s *ProbeCommandService) publishReceipt(ctx context.Context, command *domain.ProbeCommand) {
@@ -152,6 +160,12 @@ func (s *ProbeCommandService) NextCommand(ctx context.Context, session domain.Pr
 		_, err = s.credentialCodec.DecodeCredentialCommand(ctx, plain)
 	case "certificate.prepare", "certificate.activate":
 		_, err = s.certificateCodec.DecodeCertificateCommand(ctx, plain)
+	case "delivery.prepare":
+		if s.deliveryCodec == nil {
+			err = domain.ErrValidation
+			break
+		}
+		_, err = s.deliveryCodec.DecodeDeliveryPreparation(ctx, plain)
 	default:
 		err = domain.ErrValidation
 	}
@@ -174,5 +188,7 @@ func (s *ProbeCommandService) RecordCommandResult(ctx context.Context, session d
 	if confirmed, readErr := s.repo.GetCommand(ctx, session.HubID, session.ProbeID, result.CommandID); readErr == nil {
 		s.publishReceipt(ctx, confirmed)
 	}
+	// Rotation receipts force a reconnect so the source reauthenticates with the
+	// new credential; a delivery.prepare result never does.
 	return command.Kind == "credential.prepare" || command.Kind == "credential.activate" || command.Kind == "certificate.prepare" || command.Kind == "certificate.activate", nil
 }

@@ -12,10 +12,11 @@ import (
 // EdgeConfigService authenticates protected configuration on every cold load and
 // activates only complete, validated documents under the current session fence.
 type EdgeConfigService struct {
-	identity  ports.EdgeIdentityRepository
-	store     ports.EdgeConfigRepository
-	decoder   ports.EdgeConfigDecoder
-	protector ports.ProbeConfigProtector
+	identity     ports.EdgeIdentityRepository
+	store        ports.EdgeConfigRepository
+	decoder      ports.EdgeConfigDecoder
+	protector    ports.ProbeConfigProtector
+	preparations ports.EdgeDeliveryPreparationRepository
 }
 
 // NewEdgeConfigService wires storage, bounded decoding and an explicitly loaded key.

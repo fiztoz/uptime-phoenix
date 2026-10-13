@@ -327,17 +327,17 @@ Assembly and typed decoding establish only structural validity. They neither app
 
 ### 6.1 Command contract
 
-`command.request.payload` has `command_id`, `kind`, `created_at`, `expires_at`, `target`, and `data`. Allowed V1 kinds are `alert.ack`, `probe.stop`, `history.clear`, `credential.prepare`, `credential.activate`, `certificate.prepare`, and `certificate.activate`. Configuration changes use snapshots, not an unbounded generic command API. Command `data` is a closed object: only the members listed for that kind are accepted.
+`command.request.payload` has `command_id`, `kind`, `created_at`, `expires_at`, `target`, and `data`. Allowed V1 kinds are `alert.ack`, `probe.stop`, `history.clear`, `credential.prepare`, `credential.activate`, `certificate.prepare`, `certificate.activate`, and optional `delivery.prepare`. Configuration changes use snapshots, not an unbounded generic command API. Command `data` is a closed object: only the members listed for that kind are accepted.
 
 `command_id` is a canonical non-nil lowercase UUID. `created_at` and `expires_at` are UTC timestamps. `target` is required and has exactly these members:
 
 | Target field | Rule |
 |---|---|
 | `probe_id` | Canonical non-nil lowercase UUID. `local` is invalid on the probe protocol. |
-| `assignment_generation` | Positive decimal string for `alert.ack` and `history.clear`; must equal `data.assignment_generation` for `history.clear`. Null for `probe.stop` and credential/certificate commands. |
+| `assignment_generation` | Positive decimal string for `alert.ack`, `history.clear` and `delivery.prepare`; must equal `data.assignment_generation` for `history.clear`. Null for `probe.stop` and credential/certificate commands. |
 | `source_alert_id` | Canonical non-nil lowercase UUID for `alert.ack`; must equal `data.source_alert_id`. Null for every other kind. |
 
-`command.result.payload` has `command_id`, `status` (`applied`, `already_applied`, `already_resolved`, `rejected`, `expired`), `applied_at` (nullable), `code` (nullable), redacted `message`, and `details` (nullable object). `applied` / `already_applied` / `already_resolved` require `applied_at` and null `code`. `rejected` requires a machine `code` and null `applied_at`. `expired` has null `applied_at` and a nullable `code`. `details` is non-null only for `applied` / `already_applied` credential or certificate preparation: credential preparation contains only `credential_version`; certificate preparation contains exactly `certificate_version`, `tls_fingerprint`, and `not_after`. The probe persists result identity before acknowledging. Retain command IDs through at least the command expiry plus the maximum supported reconnect/retention window. A repeated command returns its recorded result. The edge ACK storage implementation bounds a request lifetime to seven days and retains results through expiry plus 365 days, independently of a shorter configured telemetry horizon. It checks the current authenticated session generation even for duplicates, while excluding that transient generation from immutable command identity. The regional `alert.ack` operator/transport/replay path is enabled for peers advertising `command.alert_ack.v1`; credential preparation/activation and protected hub issuance/recovery are implemented for `command.credential_rotation.v1`. The source now executes certificate preparation/activation and live TLS selection for `command.certificate_rotation.v1`, with fixed-overlap admission and original receipt recovery after restart. Hub certificate issuance, candidate pin recovery and receipt-driven promotion are also implemented through the operator CLI. Other decoded kinds remain unimplemented.
+`command.result.payload` has `command_id`, `status` (`applied`, `already_applied`, `already_resolved`, `rejected`, `expired`), `applied_at` (nullable), `code` (nullable), redacted `message`, and `details` (nullable object). `applied` / `already_applied` / `already_resolved` require `applied_at` and null `code`, except a `delivery.prepare` success (`applied` / `already_applied`) has exact code `delivery_prepared` and null details; it records preparation only. `rejected` requires a machine `code` and null `applied_at`. `expired` has null `applied_at` and a nullable `code`. `details` is non-null only for `applied` / `already_applied` credential or certificate preparation: credential preparation contains only `credential_version`; certificate preparation contains exactly `certificate_version`, `tls_fingerprint`, and `not_after`. The probe persists result identity before acknowledging. Retain command IDs through at least the command expiry plus the maximum supported reconnect/retention window. A repeated command returns its recorded result. The edge ACK storage implementation bounds a request lifetime to seven days and retains results through expiry plus 365 days, independently of a shorter configured telemetry horizon. It checks the current authenticated session generation even for duplicates, while excluding that transient generation from immutable command identity. The regional `alert.ack` operator/transport/replay path is enabled for peers advertising `command.alert_ack.v1`; credential preparation/activation and protected hub issuance/recovery are implemented for `command.credential_rotation.v1`. The source now executes certificate preparation/activation and live TLS selection for `command.certificate_rotation.v1`, with fixed-overlap admission and original receipt recovery after restart. Hub certificate issuance, candidate pin recovery and receipt-driven promotion are also implemented through the operator CLI. Other decoded kinds remain unimplemented.
 
 `alert.ack.data` is `source_alert_id`, `actor_display_name`, and `note` (`note` is required; use null when unused). It affects only that incident. `probe.stop` durably disables scheduling after accepted shutdown instructions. `history.clear` contains an explicit observation-time/sequence watermark and scope. Only defined fields are accepted; there is no shell execution command.
 
@@ -350,8 +350,24 @@ Assembly and typed decoding establish only structural validity. They neither app
 | `credential.activate` | `rotation_id`, `credential_version` |
 | `certificate.prepare` | `rotation_id`, `certificate_version`, `valid_for_days` (positive JSON integer 1–3650); probe generates/persists the pending key/certificate locally |
 | `certificate.activate` | `rotation_id`, `certificate_version`, `expected_fingerprint` (64 lowercase hex SHA-256) |
+| `delivery.prepare` | `hub_id`, `stream_id`, `monitor_id` (positive integer), `assignment_revision`, `config_revision` (positive decimal strings), `sha256` (exact document hash), `alert_delivery` (`aggregate` / `both` only); generation is target.assignment_generation |
 
 `rotation_id` and `clear_id` are canonical non-nil lowercase UUIDs. `credential_version` / `certificate_version` / `through_seq` / `assignment_generation` are positive decimal strings. No `command.result` or other read body includes `token`, `enrollment_token`, or a private key. A config snapshot with active assignments is the explicit way to resume scheduling after an administrative stop; a lost connection cannot undo a persisted pause.
+
+Optional `delivery.prepare` requires the exact compiled hello capability
+`command.delivery_prepare.v1`; it never advertises runtime mode application.
+Automatic issuance additionally needs negotiated regional reporting and a configured
+command dispatcher/issuer. The database independently validates a committed exact
+regional report/document receipt and CURRENT assignment set/generation/mode under
+stored session and DB-clock authority. Historical reports do not issue current
+preparation. Source persistence authenticates one captured config/fact tuple,
+rechecks it with stored identity in the transaction, and records the pending tuple
+and immutable receipt atomically. Existing exact receipts recover after expiry or
+configuration changes under current accepted authority, without claiming current
+eligibility. Effective mode remains regional; no delivery.activate kind, application
+support, cutover barrier, suppression or send authority is supplied. Terminal
+failures are immutable; fresh document identity or a future explicit rearm/round
+lifecycle is required before activation. See [implementation/verification](M7_DELIVERY_PREPARATION.md).
 
 ### 6.2 Manual enrollment
 

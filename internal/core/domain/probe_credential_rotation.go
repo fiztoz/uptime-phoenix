@@ -63,6 +63,7 @@ type ProbeCommandCapabilities struct {
 	AlertAcknowledgement bool
 	CredentialRotation   bool
 	CertificateRotation  bool
+	DeliveryPreparation  bool
 }
 
 // ValidProbeCredentialCommand validates the closed source effect and its fixed

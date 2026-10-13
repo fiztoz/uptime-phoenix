@@ -71,7 +71,17 @@ M7_LEAVES = {
         "TupleAndBatchRollback/target", "TupleAndBatchRollback/aggregate",
         "TupleAndBatchRollback/both", "TupleAndBatchRollback/unbound",
     )
-} | {"TestDeliveryConfigEvidenceAPI/mariadb", "TestLocalDeliveryConfigEvidenceAPI/mariadb"}
+} | {
+    f"TestDeliveryPreparationContract/mariadb/{case}"
+    for case in (
+        "Positive", "Prerequisites", "CurrentABA", "ImmutableDuplicates",
+        "CapabilityStarvation", "StaleSessionExpiryRollback", "ServiceDispatch",
+        "StaleSessionExpiryRollback/owner", "StaleSessionExpiryRollback/generation",
+        "StaleSessionExpiryRollback/hub",
+    )
+} | {f"TestDeliveryPreparationSessionContract/mariadb/{mode}"
+     for mode in ("regional", "aggregate", "both")}
+M7_LEAVES |= {"TestDeliveryConfigEvidenceAPI/mariadb", "TestLocalDeliveryConfigEvidenceAPI/mariadb"}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",
     "TestTelegramSender_Send_DownSeverity",

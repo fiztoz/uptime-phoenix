@@ -32,6 +32,9 @@ type HubTransport struct {
 	// application reporting. Nil keeps the welcome unnegotiated and refuses
 	// every delivery.regional_applied frame.
 	regionalApplications ports.RemoteRegionalApplicationRepository
+	// deliveryPreparations opts this connector into bounded automatic delivery
+	// preparation issuance after committed regional reports. Nil never issues.
+	deliveryPreparations ports.RemoteDeliveryPreparationIssuer
 }
 
 var _ ports.ProbeConnectionTransport = (*HubTransport)(nil)
@@ -54,6 +57,14 @@ func (t *HubTransport) SetCommands(commands ports.ProbeCommandDispatcher) { t.co
 // regional application frames, so admin-only connectors stay unnegotiated.
 func (t *HubTransport) SetRegionalApplications(repo ports.RemoteRegionalApplicationRepository) {
 	t.regionalApplications = repo
+}
+
+// SetDeliveryPreparations enables bounded automatic preparation issuance after
+// committed regional reports. Configure it before Run. Nil never issues, and
+// issuance additionally requires configured command dispatch, the peer's exact
+// compiled prepare capability and negotiated regional reporting.
+func (t *HubTransport) SetDeliveryPreparations(issuer ports.RemoteDeliveryPreparationIssuer) {
+	t.deliveryPreparations = issuer
 }
 
 func (t *HubTransport) dial(ctx context.Context, endpoint, pin, token string) (*websocket.Conn, error) {
@@ -122,7 +133,7 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 // DB-bound callbacks. Nil admission preserves health/config/replay-only operation.
 func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSessionInput, admission ports.ProbeHealthAdmission, established func(context.Context) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
 	m := input.Connection
-	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil || (t.stateIngest != nil || t.commands != nil || t.regionalApplications != nil) && !domain.ValidHubID(input.OwnerID) {
+	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil || (t.stateIngest != nil || t.commands != nil || t.regionalApplications != nil || t.deliveryPreparations != nil) && !domain.ValidHubID(input.OwnerID) {
 		return domain.ErrValidation
 	}
 	var snapshot ConfigSnapshot
@@ -252,8 +263,8 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	}
 	receiver := hubStateReceiver{ingest: t.stateIngest, session: domain.ProbeReplaySession{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: input.Generation, OwnerID: input.OwnerID}}
 	defer receiver.discard()
-	commandCapabilities := domain.ProbeCommandCapabilities{AlertAcknowledgement: slices.Contains(handshake.Hello.Capabilities, AcknowledgementCapability), CredentialRotation: slices.Contains(handshake.Hello.Capabilities, CredentialRotationCapability), CertificateRotation: slices.Contains(handshake.Hello.Capabilities, CertificateRotationCapability)}
-	if t.commands != nil && (commandCapabilities.AlertAcknowledgement || commandCapabilities.CredentialRotation || commandCapabilities.CertificateRotation) {
+	commandCapabilities := domain.ProbeCommandCapabilities{AlertAcknowledgement: slices.Contains(handshake.Hello.Capabilities, AcknowledgementCapability), CredentialRotation: slices.Contains(handshake.Hello.Capabilities, CredentialRotationCapability), CertificateRotation: slices.Contains(handshake.Hello.Capabilities, CertificateRotationCapability), DeliveryPreparation: containsCapability(handshake.Hello.Capabilities, DeliveryPreparationCapability)}
+	if t.commands != nil && (commandCapabilities.AlertAcknowledgement || commandCapabilities.CredentialRotation || commandCapabilities.CertificateRotation || commandCapabilities.DeliveryPreparation) {
 		senders.Add(1)
 		go func() {
 			defer senders.Done()
@@ -366,6 +377,20 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 			cancelCommit()
 			if err != nil {
 				return errors.New("regional application report storage unavailable")
+			}
+			// Automatic preparation issuance follows only that committed report,
+			// and only when command dispatch is configured, the peer advertised
+			// the exact compiled prepare capability and regional reporting is
+			// negotiated. It records bounded requests from these committed facts
+			// and current database session authority; it claims no mode
+			// application and no send, suppression or cutover authority.
+			if regionalEnabled && t.deliveryPreparations != nil && t.commands != nil && containsCapability(handshake.Hello.Capabilities, DeliveryPreparationCapability) {
+				issueCtx, cancelIssue := context.WithTimeout(frameCtx, 10*time.Second)
+				err = t.deliveryPreparations.IssueRemoteDeliveryPreparations(issueCtx, receiver.session, applications)
+				cancelIssue()
+				if err != nil {
+					return errors.New("delivery preparation issuance unavailable")
+				}
 			}
 			return nil
 		}

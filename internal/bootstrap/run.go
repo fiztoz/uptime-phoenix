@@ -482,13 +482,17 @@ func Run(cfg Config) error {
 		stateIngest.SetStatusPageRecovery(healthSvc, statusPageSvc)
 		transport := probe.NewHubTransport(policy)
 		transport.SetStateIngest(stateIngest)
-		transport.SetRegionalApplications(repo.NewRemoteProbeConfigSyncStore(db, probe.RemoteConfigEncoder{}, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector))
+		deliveryConfig := repo.NewRemoteProbeConfigSyncStore(db, probe.RemoteConfigEncoder{}, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
+		deliveryConfig.SetDeliveryPreparations(probe.DeliveryPreparationCodec{}, commandProtector)
+		transport.SetRegionalApplications(deliveryConfig)
+		transport.SetDeliveryPreparations(deliveryConfig)
 		connections := repo.NewProbeConnectorStore(db)
 		commandStore := repo.NewProbeCommandStore(db, commandProtector, probe.AcknowledgementCodec{}, credentialProtector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
 		commands, err := services.NewProbeCommandService(commandStore, connections, commandProtector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
 		if err != nil {
 			return err
 		}
+		commands.SetDeliveryPreparationsCodec(probe.DeliveryPreparationCodec{})
 		commands.SetBrowserEvents(bus, repos.probeIncident)
 		transport.SetCommands(commands)
 		connector, err := services.NewProbeConnectorService(connections, connections, connections, credentialProtector,

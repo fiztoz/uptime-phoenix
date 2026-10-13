@@ -117,6 +117,17 @@ REQUIRED = {
             "TupleAndBatchRollback/both", "TupleAndBatchRollback/unbound",
         )
     },
+    *{
+        f"TestDeliveryPreparationContract/mariadb/{case}"
+        for case in (
+            "Positive", "Prerequisites", "CurrentABA", "ImmutableDuplicates",
+            "CapabilityStarvation", "StaleSessionExpiryRollback", "ServiceDispatch",
+            "StaleSessionExpiryRollback/owner", "StaleSessionExpiryRollback/generation",
+            "StaleSessionExpiryRollback/hub",
+        )
+    },
+    *{f"TestDeliveryPreparationSessionContract/mariadb/{mode}"
+      for mode in ("regional", "aggregate", "both")},
 }
 
 

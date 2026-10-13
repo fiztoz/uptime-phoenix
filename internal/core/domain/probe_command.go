@@ -37,7 +37,7 @@ func ValidProbeCommandMetadata(m ProbeCommandMetadata) bool {
 	switch m.Kind {
 	case "alert.ack":
 		return m.SourceAlertID != nil && configUUID(*m.SourceAlertID) && m.AssignmentGeneration != nil && *m.AssignmentGeneration > 0
-	case "history.clear":
+	case "history.clear", "delivery.prepare":
 		return m.SourceAlertID == nil && m.AssignmentGeneration != nil && *m.AssignmentGeneration > 0
 	case "probe.stop", "credential.prepare", "credential.activate", "certificate.prepare", "certificate.activate":
 		return m.SourceAlertID == nil && m.AssignmentGeneration == nil

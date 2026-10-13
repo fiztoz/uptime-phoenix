@@ -178,6 +178,10 @@ send remains unchanged/unreported, and pre-send reads remain observational. No
 report ACK/cursor means lost reports are retried through normal config reconnect;
 there is no separate guaranteed-delivery queue in this slice.
 
+The follow-on [delivery preparation slice](M7_DELIVERY_PREPARATION.md) builds exact
+remote requests on these committed facts, without converting the facts or request
+receipts into effective aggregate application or cutover authority.
+
 Aggregate application, committed barriers, durable aggregate incidents/intents,
 queued/in-flight suppression and final DB/provider-I/O fencing remain future work.
 Edge metadata accounting remains its existing bounded subset. `make gate-full`

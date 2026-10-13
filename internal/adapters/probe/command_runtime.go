@@ -94,7 +94,11 @@ func (r edgeCommandReconnect) delay(binding domain.EdgeEnrollment) time.Duration
 	return min(grace, time.Until(r.deadline))
 }
 
-func applyEdgeCommand(ctx context.Context, repo ports.EdgeCommandRepository, credentials ports.EdgeCredentialRepository, certificates ports.EdgeCertificateRepository, authority domain.EdgeCommandAuthority, envelope Envelope) ([]byte, edgeCommandReconnect, error) {
+// applyEdgeCommand executes one decoded source command and frames its durable
+// result. The optional preparation executor is present only when this build
+// compiled and advertised the exact delivery preparation capability; an
+// unsolicited delivery.prepare without it is refused, never faked.
+func applyEdgeCommand(ctx context.Context, repo ports.EdgeCommandRepository, credentials ports.EdgeCredentialRepository, certificates ports.EdgeCertificateRepository, authority domain.EdgeCommandAuthority, envelope Envelope, preparations ...ports.EdgeDeliveryPreparationExecutor) ([]byte, edgeCommandReconnect, error) {
 	if len(envelope.Payload) == 0 || len(envelope.Payload) > domain.MaxProbeCommandBytes || !bytes.Equal(envelope.Payload, bytes.TrimSpace(envelope.Payload)) {
 		return nil, edgeCommandReconnect{}, errors.New("invalid command request")
 	}
@@ -149,6 +153,17 @@ func applyEdgeCommand(ctx context.Context, repo ports.EdgeCommandRepository, cre
 			reconnect.preparedFingerprint = result.CertificateFingerprint
 		}
 		reconnect.required = result.Status == "applied" || result.Status == "already_applied"
+	case CommandDeliveryPrepare:
+		if len(preparations) == 0 || preparations[0] == nil {
+			return nil, edgeCommandReconnect{}, errors.New("delivery preparation unavailable")
+		}
+		c, decodeErr := (DeliveryPreparationCodec{}).DecodeDeliveryPreparation(ctx, envelope.Payload)
+		if decodeErr != nil {
+			return nil, edgeCommandReconnect{}, errors.New("invalid command request")
+		}
+		// Preparation records a pending request plus its immutable receipt. It
+		// never claims mode application and never forces reauthentication.
+		result, err = preparations[0].PrepareDelivery(opCtx, authority, c)
 	default:
 		return nil, edgeCommandReconnect{}, errors.New("unsupported command request")
 	}

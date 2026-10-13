@@ -55,7 +55,8 @@ func assertRemoteRegional(t *testing.T, f probeRegistryFixture, target domain.Pr
 	}
 }
 
-func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode domain.AlertDelivery) {
+func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode domain.AlertDelivery, preparations ...bool) {
+	prepareEnabled := len(preparations) > 0 && preparations[0]
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 	dir := t.TempDir()
@@ -152,11 +153,16 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 			}
 		}
 		configs := services.NewEdgeConfigService(store, store, probe.NewEdgeConfigDecoder(checker.Get, notifier.Get), protector)
+		caps := []string{"snapshot.v1", "checker.http.v1", "paging.aggregate.v1", probe.RegionalApplicationCapability}
+		if prepareEnabled {
+			configs.SetDeliveryPreparations(store)
+			caps = append(caps, probe.DeliveryPreparationCapability)
+		}
 		runtime, err := probe.NewEdgeRuntime(func(ctx context.Context) (domain.EdgeIdentity, int64, error) {
 			d, err := store.ReadDiagnostics(ctx)
 			return d.Identity, d.FirstRetainedSeq, err
 		}, store, configs, probe.EdgeRuntimeConfig{
-			AgentVersion: "binding-session", Capabilities: []string{"snapshot.v1", "checker.http.v1", "paging.aggregate.v1", probe.RegionalApplicationCapability},
+			AgentVersion: "binding-session", Capabilities: caps,
 		}, func(ctx context.Context) (probe.Health, error) {
 			i, err := store.ReadIdentity(ctx)
 			healthy, queue := true, int64(0)
@@ -187,9 +193,23 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 	}
 	transport := probe.NewHubTransport(probe.EndpointPolicy{AllowedCIDRs: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})
 	transport.SetRegionalApplications(syncStore)
+	var preparationResults *preparationReceiptRefuser
+	if prepareEnabled {
+		syncStore.SetDeliveryPreparations(probe.DeliveryPreparationCodec{}, protector)
+		transport.SetDeliveryPreparations(syncStore)
+		commandStore := repository.NewProbeCommandStore(f.db, protector, probe.AcknowledgementCodec{}, protector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
+		commands, err := services.NewProbeCommandService(commandStore, connector, protector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		commands.SetDeliveryPreparationsCodec(probe.DeliveryPreparationCodec{})
+		preparationResults = &preparationReceiptRefuser{dispatcher: commands, refused: make(chan domain.ProbeCommandOutcome, 1)}
+		transport.SetCommands(preparationResults)
+	}
 	var lastReceipt domain.ProbeActiveConfig
 	runSession := func(document []byte, refuse bool) {
 		t.Helper()
+		expectPreparationRefusal := preparationResults != nil && preparationResults.refuse.Load()
 		lease, err := connector.AcquireConnector(ctx, target.ProbeID, probeRegistryID3)
 		if err != nil {
 			t.Fatal(err)
@@ -205,6 +225,13 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 		}
 		received := make(chan result, 1)
 		done := make(chan error, 1)
+		var ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)
+		if prepareEnabled {
+			replay := repository.NewProbeReplayStore(f.db, probe.NewEdgeConfigDecoder(checker.Get, notifier.Get), protector)
+			ingest = func(callbackCtx context.Context, batch domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error) {
+				return replay.IngestReplayBatch(callbackCtx, domain.ProbeReplaySession{HubID: target.HubID, ProbeID: target.ProbeID, StreamID: identity.StreamID, OwnerID: lease.OwnerID, ConnectionGeneration: lease.Generation}, batch, &services.AccessService{})
+			}
+		}
 		go func() {
 			done <- transport.Run(sctx, input, func(context.Context) error { return nil }, func(ctx context.Context, receipt domain.ProbeActiveConfig) error {
 				if refuse {
@@ -214,7 +241,7 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 				err := syncStore.RecordRemoteApplied(ctx, lease, receipt)
 				received <- result{receipt: receipt, err: err}
 				return err
-			}, nil)
+			}, ingest)
 		}()
 		joined := false
 		defer func() {
@@ -259,6 +286,35 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 			}
 			if !reported {
 				t.Fatal("configuration session did not commit regional application report")
+			}
+			if prepareEnabled && mode != domain.AlertDeliveryRegional && outcome.receipt.Revision == 2 {
+				if expectPreparationRefusal {
+					select {
+					case rejected := <-preparationResults.refused:
+						if rejected.Status != "applied" || rejected.Code != "delivery_prepared" {
+							t.Fatalf("source did not persist preparation before refusal: %+v", rejected)
+						}
+					case err := <-done:
+						joined = true
+						t.Fatal("transport ended before preparation refusal", err)
+					case <-ctx.Done():
+						t.Fatal("preparation refusal did not arrive")
+					}
+				} else {
+					completed := false
+					deadline := time.Now().Add(4 * time.Second)
+					for time.Now().Before(deadline) {
+						var n int
+						if err := f.db.NewSelect().Table("probe_commands").ColumnExpr("COUNT(*)").Where("kind = ? AND remote_confirmed = ?", "delivery.prepare", true).Scan(ctx, &n); err == nil && n == 1 {
+							completed = true
+							break
+						}
+						time.Sleep(25 * time.Millisecond)
+					}
+					if !completed {
+						t.Fatal("preparation result did not commit at hub")
+					}
+				}
 			}
 		}
 		stop()
@@ -346,6 +402,17 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 	runSession(firstDocument, false) // Reconnect repeats exact facts without rewriting provenance.
 	assertRemoteRegional(t, f, target, identity.StreamID, monitor, first, originalBinding)
 	assertCold(first, originalBinding)
+	if prepareEnabled && mode != domain.AlertDeliveryRegional {
+		preparationResults.refuse.Store(true)
+		runSession(secondDocument, false) // source preparation commits, hub result deliberately refuses
+		assertTableCount(t, f, "probe_commands", 1)
+		var confirmed int
+		if err := f.db.NewSelect().Table("probe_commands").ColumnExpr("COUNT(*)").Where("remote_confirmed = ?", true).Scan(ctx, &confirmed); err != nil || confirmed != 0 {
+			t.Fatal("refused preparation result became a hub receipt", err)
+		}
+		closeEdge(currentEdge)
+		currentEdge = openEdge(false) // cold source recovers its exact preparation receipt
+	}
 	runSession(secondDocument, false)
 	assertHub(second, originalBinding+2)
 	assertRemoteRegional(t, f, target, identity.StreamID, monitor, second, originalBinding+2)

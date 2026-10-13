@@ -40,6 +40,10 @@ explicit two-sided regional-only capability negotiation and database session/
 receipt fencing. It adds no aggregate application support, cutover caller, report
 ACK/cursor, API/UI fields or send/suppression authority. Check its latest named
 real-engine evidence and remaining acceptance limits before proceeding.
+The [delivery preparation continuation](M7_DELIVERY_PREPARATION.md) reuses durable
+commands for exact remote request preparation. It leaves effective regional mode
+unchanged and supplies no application support, suppression or cutover authority;
+local preparation and explicit request-round/rearm/barrier lifecycles remain open.
 No aggregate runtime is active, and a document receipt is not an applied-mode receipt.
 
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then

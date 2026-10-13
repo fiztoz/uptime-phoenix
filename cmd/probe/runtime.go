@@ -68,7 +68,7 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 		d, err := store.ReadDiagnostics(ctx)
 		return d.Identity, d.FirstRetainedSeq, err
 	}
-	capabilities := []string{"snapshot.v1", "watchdog.v1", probe.AcknowledgementCapability, probe.CredentialRotationCapability, probe.CertificateRotationCapability, probe.AggregatePagingCapability, probe.RegionalApplicationCapability}
+	capabilities := []string{"snapshot.v1", "watchdog.v1", probe.AcknowledgementCapability, probe.CredentialRotationCapability, probe.CertificateRotationCapability, probe.AggregatePagingCapability, probe.RegionalApplicationCapability, probe.DeliveryPreparationCapability}
 	// Advertise only checkers this build actually runs. Ping additionally
 	// requires the unprivileged ICMP socket; Docker requires local bindings.
 	capabilities = append(capabilities, probe.PullCheckerCapabilities(checker.RegisteredPullTypes(), checker.Get, checker.ICMPAvailable(), resources)...)

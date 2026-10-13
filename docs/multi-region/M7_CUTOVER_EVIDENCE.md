@@ -47,6 +47,9 @@ For each member, a complete proposal requires:
    preserves those exact facts at the hub under session/receipt authority. Its
    regional-only capability does not promise aggregate/both application and never
    populates `ModeApplicationSupported`; no aggregate-mode producer exists.
+   The subsequent [delivery preparation command](M7_DELIVERY_PREPARATION.md)
+   records a pending request only; neither its capability nor successful command
+   receipt can populate application support or this attestation.
 
 An assignment revision is **not** a probe-document revision. They are compared
 only within their own identity spaces. Matching mode and a timestamp after the

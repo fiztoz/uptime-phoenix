@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
 const (
@@ -22,7 +24,13 @@ const (
 	CommandCredentialActivate  = "credential.activate"
 	CommandCertificatePrepare  = "certificate.prepare"
 	CommandCertificateActivate = "certificate.activate"
+	CommandDeliveryPrepare     = "delivery.prepare"
 )
+
+// deliveryPreparedCode is the sole success code of a delivery.prepare receipt:
+// the PREPARATION command was recorded. It is never evidence of mode
+// application, and no other success status carries a code.
+const deliveryPreparedCode = "delivery_prepared"
 
 // CommandRequest is a hub-issued instruction. Decoding does not execute it.
 type CommandRequest struct {
@@ -96,6 +104,22 @@ type CertificateActivateData struct {
 	ExpectedFingerprint string  `json:"expected_fingerprint"`
 }
 
+// DeliveryPreparationData binds one delivery-mode preparation request to the
+// exact retained document, its assignment facts and the accepted stream. It is
+// a request only and never carries mode application evidence, a
+// ModeApplicationSupported claim, credentials, endpoints, settings or an
+// activation token. Recognized fields are strict; unknown optional fields stay
+// compatible with later revisions.
+type DeliveryPreparationData struct {
+	HubID              string               `json:"hub_id"`
+	StreamID           string               `json:"stream_id"`
+	MonitorID          int64                `json:"monitor_id"`
+	AssignmentRevision Decimal              `json:"assignment_revision"`
+	ConfigRevision     Decimal              `json:"config_revision"`
+	SHA256             string               `json:"sha256"`
+	AlertDelivery      domain.AlertDelivery `json:"alert_delivery"`
+}
+
 func (AlertAckData) isCommandData()            {}
 func (ProbeStopData) isCommandData()           {}
 func (HistoryClearData) isCommandData()        {}
@@ -103,6 +127,7 @@ func (CredentialPrepareData) isCommandData()   {}
 func (CredentialActivateData) isCommandData()  {}
 func (CertificatePrepareData) isCommandData()  {}
 func (CertificateActivateData) isCommandData() {}
+func (DeliveryPreparationData) isCommandData() {}
 
 // CommandResult is a persisted outcome shape, not proof that a command ran.
 type CommandResult struct {
@@ -211,8 +236,11 @@ func DecodeCommandResult(data []byte) (Envelope, CommandResult, error) {
 	}
 	switch result.Status {
 	case "applied", "already_applied", "already_resolved":
-		if result.AppliedAt == nil || result.Code != nil {
-			return envelope, CommandResult{}, errors.New("successful command result requires applied_at and null code")
+		// Success carries a null code, except the preparation receipt's exact
+		// delivery_prepared code: that records the PREPARATION command only and
+		// is never evidence of mode application.
+		if result.AppliedAt == nil || result.Code != nil && *result.Code != deliveryPreparedCode {
+			return envelope, CommandResult{}, errors.New("successful command result requires applied_at and a null or delivery_prepared code")
 		}
 	case "rejected":
 		if result.AppliedAt != nil || result.Code == nil {
@@ -228,6 +256,9 @@ func DecodeCommandResult(data []byte) (Envelope, CommandResult, error) {
 	if detailsRaw != nil {
 		if result.Status != "applied" && result.Status != "already_applied" {
 			return envelope, CommandResult{}, errors.New("command result details are limited to applied preparation")
+		}
+		if result.Code != nil {
+			return envelope, CommandResult{}, errors.New("delivery_prepared result cannot include details")
 		}
 		details, err := decodeCommandResultDetails(*detailsRaw)
 		if err != nil {
@@ -426,6 +457,30 @@ func decodeCommandData(kind string, data []byte, target CommandTarget) (CommandD
 			return nil, errors.New("certificate.activate requires a positive version and TLS fingerprint")
 		}
 		return activate, nil
+	case CommandDeliveryPrepare:
+		if target.AssignmentGeneration == nil || target.SourceAlertID != nil {
+			return nil, errors.New("delivery.prepare requires an assignment generation without an incident")
+		}
+		var prepare DeliveryPreparationData
+		if err := decodeRequiredFields(fields,
+			field{"hub_id", &prepare.HubID}, field{"stream_id", &prepare.StreamID}, field{"monitor_id", &prepare.MonitorID},
+			field{"assignment_revision", &prepare.AssignmentRevision}, field{"config_revision", &prepare.ConfigRevision},
+			field{"sha256", &prepare.SHA256}, field{"alert_delivery", &prepare.AlertDelivery},
+		); err != nil {
+			return nil, err
+		}
+		if err := canonicalUUID("hub_id", prepare.HubID); err != nil {
+			return nil, err
+		}
+		if err := canonicalUUID("stream_id", prepare.StreamID); err != nil {
+			return nil, err
+		}
+		if prepare.MonitorID <= 0 || prepare.AssignmentRevision <= 0 || prepare.ConfigRevision <= 0 ||
+			!validSHA256(prepare.SHA256) ||
+			(prepare.AlertDelivery != domain.AlertDeliveryAggregate && prepare.AlertDelivery != domain.AlertDeliveryBoth) {
+			return nil, errors.New("invalid delivery preparation binding")
+		}
+		return prepare, nil
 	default:
 		return nil, fmt.Errorf("unsupported command kind: %w", ErrUnsupportedPayload)
 	}
