@@ -26,3 +26,10 @@ type RemoteProbeConfigSyncRepository interface {
 	// read grants neither lease authority nor permission to send or suppress.
 	ReadAppliedRemote(ctx context.Context, target domain.ProbeConfigTarget) (*domain.EdgeResolvedConfig, error)
 }
+
+// RemoteRegionalApplicationRepository records authenticated effective regional
+// facts after independently verifying the committed configuration receipt and
+// retained document. It grants no cutover, send or suppression authority.
+type RemoteRegionalApplicationRepository interface {
+	RecordRemoteRegionalApplications(ctx context.Context, session domain.ProbeReplaySession, applications []domain.ProbeDeliveryModeApplication) error
+}

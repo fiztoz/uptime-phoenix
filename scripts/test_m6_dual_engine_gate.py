@@ -56,6 +56,21 @@ M7_LEAVES = {
         "PresentMismatch/assignment_revision", "PresentMismatch/generation", "PresentMismatch/hub_id",
         "PresentMismatch/sha256", "PresentMismatch/monitor_id", "PresentMismatch/stream_id", "PresentMismatch/alert_delivery",
     )
+} | {
+    f"TestRemoteRegionalApplicationContract/mariadb/{case}"
+    for case in (
+        "ReceiptPrerequisite", "ImmutableReconnectAndABA", "TupleAndBatchRollback",
+        "CorruptRetainedAndDuplicate", "ConcurrentDuplicate", "LeaseExpiresDuringDecode",
+        "CancellationAndRedaction", "Migration", "ResetPending",
+        "SessionFence/owner", "SessionFence/generation", "SessionFence/expiry",
+        "SessionFence/disabled", "SessionFence/revoked", "SessionFence/stream",
+        "SessionFence/retired", "SessionFence/key", "SessionFence/hub",
+        "TupleAndBatchRollback/monitor", "TupleAndBatchRollback/binding",
+        "TupleAndBatchRollback/generation", "TupleAndBatchRollback/revision",
+        "TupleAndBatchRollback/hash", "TupleAndBatchRollback/stream",
+        "TupleAndBatchRollback/target", "TupleAndBatchRollback/aggregate",
+        "TupleAndBatchRollback/both", "TupleAndBatchRollback/unbound",
+    )
 } | {"TestDeliveryConfigEvidenceAPI/mariadb", "TestLocalDeliveryConfigEvidenceAPI/mariadb"}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",

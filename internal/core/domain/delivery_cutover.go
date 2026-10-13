@@ -34,9 +34,9 @@ const (
 // edge and protected hub-local runtime store source-local effective REGIONAL
 // facts for exact bound documents; these are not authenticated cross-source
 // reports or cutover authority.
-// No reporting protocol, aggregate application producer or stronger application
-// negotiation exists yet. A future authenticated lifecycle must supply trusted
-// evidence for the selected mode, exact set/document binding and accepted stream.
+// Optional authenticated regional-only reporting preserves these bindings, but
+// supplies no aggregate application or cutover support. A future lifecycle must
+// supply trusted evidence for the selected mode and accepted current stream.
 // AssignmentRevision and ConfigRevision belong to different identity spaces.
 // Hashes are internal identity only and never returned by the decision or HTTP.
 type ProbeDeliveryModeApplication struct {
@@ -65,8 +65,9 @@ func ValidProbeDeliveryModeApplication(a ProbeDeliveryModeApplication) bool {
 // Assignment is this monitor's facts from that same document. StreamID is the
 // caller's accepted current stream, not a stream selected by the attestation.
 // ModeApplicationSupported is stronger than understanding optional desired mode:
-// today's paging.aggregate.v1 and source-local regional facts must never populate
-// it. Stronger application negotiation has no producer yet.
+// today's paging.aggregate.v1, source-local regional facts and the regional-only
+// reporting capability must never populate it. Aggregate application negotiation
+// has no producer yet.
 // These inputs cannot establish current database authority on their own.
 type DeliveryCutoverSource struct {
 	ProbeID                  string

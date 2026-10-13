@@ -259,6 +259,9 @@ func testPreparedConfigRollback(t *testing.T, f probeRegistryFixture) {
 	t.Helper()
 	// Active pointers, application facts and watchdog checkpoints reference
 	// prepared snapshots. Remove dependents before testing 047's own boundary.
+	if err := runEngineMigration(t, f.db, f.engine, "078_remote_regional_application", "down"); err != nil {
+		t.Fatal(err)
+	}
 	if err := runEngineMigration(t, f.db, f.engine, "077_local_regional_application", "down"); err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +272,7 @@ func testPreparedConfigRollback(t *testing.T, f probeRegistryFixture) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		for _, name := range []string{"049_probe_activation", "059_probe_watchdog_source", "077_local_regional_application"} {
+		for _, name := range []string{"049_probe_activation", "059_probe_watchdog_source", "077_local_regional_application", "078_remote_regional_application"} {
 			if err := runEngineMigration(t, f.db, f.engine, name, "up"); err != nil {
 				t.Error(err)
 			}

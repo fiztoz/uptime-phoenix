@@ -59,6 +59,45 @@ func (s *EdgeConfigService) Apply(ctx context.Context, document []byte, generati
 	return resolved, nil
 }
 
+// ReadRegionalApplications returns durable selected-stream regional facts for
+// the exact retained document. It authenticates the captured document and facts
+// never synthesizes evidence from desired assignments or mutable source rows.
+func (s *EdgeConfigService) ReadRegionalApplications(ctx context.Context, metadata domain.ProbeConfigMetadata, generation int64, streamID string) ([]domain.ProbeDeliveryModeApplication, error) {
+	if generation <= 0 || !domain.ValidProbeConfigMetadata(metadata) || !domain.ValidHubID(streamID) || streamID == domain.LocalStreamID {
+		return nil, domain.ErrValidation
+	}
+	identity, err := s.identity.ReadIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if metadata.ProbeConfigTarget != (domain.ProbeConfigTarget{HubID: identity.HubID, ProbeID: identity.ProbeID}) || identity.ConfigRevision != metadata.Revision || identity.ConnectionGeneration != generation || identity.StreamID != streamID {
+		return nil, ports.ErrConflict
+	}
+	active, err := s.store.ReadActiveConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !domain.SameProbeConfigMetadata(active.Snapshot.ProbeConfigMetadata, metadata) {
+		return nil, ports.ErrConflict
+	}
+	if _, err := s.decodeActive(ctx, active); err != nil {
+		return nil, err
+	}
+	for _, fact := range active.RegionalDeliveryApplications {
+		if fact.StreamID != streamID {
+			return nil, ports.ErrConflict
+		}
+	}
+	current, err := s.identity.ReadIdentity(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if current.HubID != identity.HubID || current.ProbeID != identity.ProbeID || current.ConfigRevision != metadata.Revision || current.ConnectionGeneration != generation || current.StreamID != streamID {
+		return nil, ports.ErrConflict
+	}
+	return append([]domain.ProbeDeliveryModeApplication(nil), active.RegionalDeliveryApplications...), nil
+}
+
 // Load authenticates exact active bytes and reruns the current build's validators.
 // Wrong keys, unsupported settings and corrupt bytes never fall back to old config.
 func (s *EdgeConfigService) Load(ctx context.Context) (*domain.EdgeResolvedConfig, error) {
@@ -66,6 +105,12 @@ func (s *EdgeConfigService) Load(ctx context.Context) (*domain.EdgeResolvedConfi
 	if err != nil {
 		return nil, err
 	}
+	return s.decodeActive(ctx, active)
+}
+
+// decodeActive validates one captured snapshot/fact tuple. A second storage read
+// would authenticate different facts during concurrent activation or repair.
+func (s *EdgeConfigService) decodeActive(ctx context.Context, active domain.EdgeActiveConfig) (*domain.EdgeResolvedConfig, error) {
 	p := active.Snapshot
 	if subtle.ConstantTimeCompare([]byte(p.KeyConfirmation), []byte(s.protector.KeyHash(p.HubID))) != 1 {
 		return nil, domain.ErrValidation
@@ -79,7 +124,7 @@ func (s *EdgeConfigService) Load(ctx context.Context) (*domain.EdgeResolvedConfi
 	if err != nil {
 		return nil, err
 	}
-	if !domain.SameProbeConfigMetadata(resolved.Metadata, p.ProbeConfigMetadata) {
+	if resolved == nil || !domain.SameProbeConfigMetadata(resolved.Metadata, p.ProbeConfigMetadata) {
 		return nil, domain.ErrValidation
 	}
 	if err := validateEdgeRegionalApplications(resolved, active.RegionalDeliveryApplications); err != nil {

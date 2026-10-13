@@ -65,7 +65,13 @@ The binding list is required, may be empty, and contains at most 128 entries wit
 
 `welcome.payload` has: `hub_id`, `probe_id`, `stream_id`, `selected_protocol` (integer), `connection_generation`, `committed_seq`, `desired_config_revision`, `heartbeat_seconds` (15), `max_frame_bytes` (1048576), `max_batch_events` (256), `max_batch_bytes` (524288), and `hub_time`. A stream unknown to the hub is rejected with `stream_reset_required`; a reset is an authenticated administrative action, not a client request to discard history.
 
-Every welcome field is required. V1 selects protocol 1 and the exact limits above; its positive generation equals the envelope generation. `committed_seq` and `desired_config_revision` may be zero. Before accepting the pair, compare both frames with the authenticated installation/probe, durably registered stream, and the current DB lease generation. A copied/mismatched identity, unknown stream, or mismatched generation fails closed. The cursor cannot exceed the hello high-water mark, and the hub's desired config revision cannot be below the probe's active revision. A cursor below retained history is allowed so declared-gap reconciliation can proceed. Do not infer reset, rollback, config activation, queue deletion, or fresh monitor evidence from a successful pair validation. TLS/credential checks, lease acquisition/fencing, handshake deadlines, and durable reconciliation remain session/service responsibilities.
+Every baseline welcome field listed above is required. V1 selects protocol 1 and the exact limits above; its positive generation equals the envelope generation. `committed_seq` and `desired_config_revision` may be zero. Before accepting the pair, compare both frames with the authenticated installation/probe, durably registered stream, and the current DB lease generation. A copied/mismatched identity, unknown stream, or mismatched generation fails closed. The cursor cannot exceed the hello high-water mark, and the hub's desired config revision cannot be below the probe's active revision. A cursor below retained history is allowed so declared-gap reconciliation can proceed. Do not infer reset, rollback, config activation, queue deletion, or fresh monitor evidence from a successful pair validation. TLS/credential checks, lease acquisition/fencing, handshake deadlines, and durable reconciliation remain session/service responsibilities.
+
+The optional `regional_application_reporting` boolean is omitted when false;
+absence means false, and present values must be non-null JSON booleans. True
+requires the hello's exact `availability.regional_application.v1` capability and
+a configured hub report repository. It is not a required snapshot capability;
+`paging.aggregate.v1` never substitutes for it. Older peers stay unnegotiated.
 
 ### 2.2 Application health
 
@@ -153,6 +159,31 @@ Escalation steps are a dense ordered 1..N list of at most 20 entries, each with 
 `config.begin.required_capabilities` is the exact unique union of `snapshot.v1`, every assignment's requirements, and `notifier.<type>.v1` for every included channel. The receiver compares these with its trusted runtime inventory; unavailable names fail closed. The reconstructed body must yield the same set, and its revision and effective time must equal the begin metadata. Its hub/probe IDs and envelope generation must match trusted target/session expectations. All five transfer frames require their listed fields. Chunks use the state-transfer canonical base64 and 1–1024/nonempty count bounds. Rejections contain 1–64 objects with a nonempty JSON-pointer-style path (at most 256 ASCII bytes), a machine code (128 bytes), and a redacted message (4096 UTF-8 bytes); never forward raw secret-bearing validator errors.
 
 Pure revision comparison distinguishes a new higher revision from a same-revision/same-hash retry and rejects older revisions or same-revision/different-hash conflicts. It is not an activation receipt. Transfer assembly checks exact original bytes, bounds, capabilities, references, target, and metadata, then discards staging on success or any error. Fixed 60-second deadlines are not extended by duplicate chunks. The owner discards staging on cancellation/idle expiry. Persistence must recheck revision/generation under its activation transaction before it can send `config.applied` or skip an already durably applied snapshot.
+
+### 3.1 Optional effective regional application reports
+
+The probe-to-hub `delivery.regional_applied` frame is separate from `config.applied`.
+It requires the two-sided welcome opt-in above. Its payload contains canonical
+`hub_id`, `probe_id`, `stream_id`, positive decimal-string `revision`, exact
+lowercase 64-hex `sha256`, and 1–256 unique `applications`. Each entry has a
+positive integer `monitor_id`, positive decimal-string `assignment_revision`
+and `generation`, and explicit `alert_delivery: "regional"`. Unknown optional
+fields retain V1 compatibility; malformed/null/noncanonical recognized fields,
+duplicate monitors and nonregional modes are refused. There is no source clock,
+report ACK or report cursor.
+
+The sender reads already-persisted selected-stream facts and authenticates the
+same captured retained document; missing legacy facts produce no frame. Bounded
+batches follow the written config ACK, on fresh activation and exact retry.
+Reconnect can repeat them. The hub independently requires the exact committed
+receipt/active pointer/snapshot, authenticated document membership/binding and
+stored session owner/generation/stream/DB-clock expiry. Queue priority, a config
+ACK callback or current desired rows never replace those transaction checks.
+Retries preserve first hub-recorded time and connection provenance. Historical
+bindings remain historical after policy ABA. This capability/report describes
+regional execution only: it does not assert aggregate/both application, populate
+cutover `ModeApplicationSupported`, authorize sends or suppress regional delivery.
+See [the implementation and verification record](M7_REGIONAL_APPLICATION_REPORTING.md).
 
 ## 4. Telemetry and idempotent ingest
 

@@ -5,7 +5,10 @@ Implemented and verified on `feat/m7-receipt-backed-config` (2026-10-12).
 This records a bounded source-local production seam, not M7 activation.
 The subsequent [protected local-hub counterpart](M7_LOCAL_REGIONAL_APPLICATION.md)
 has separate activation/retry/verification semantics; the evidence below remains
-specific to this edge slice.
+specific to this edge slice. The subsequent
+[authenticated regional reporting slice](M7_REGIONAL_APPLICATION_REPORTING.md)
+adds remote hub reporting with a regional-only capability; it does not turn these
+facts into aggregate application support or cutover authority.
 
 ## Scope and authority
 

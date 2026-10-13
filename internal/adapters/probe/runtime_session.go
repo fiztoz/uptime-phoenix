@@ -402,7 +402,17 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 			if err != nil {
 				return err
 			}
-			return session.SendControl(frameCtx, response)
+			if err := session.SendControl(frameCtx, response); err != nil {
+				return err
+			}
+			if !welcome.RegionalApplicationReporting {
+				return nil
+			}
+			// Bounded truthful regional reports follow the written configuration
+			// receipt on fresh activation and same-document retry alike. Facts come
+			// only from the core read of the retained document, never synthesized
+			// from desired assignments.
+			return r.sendRegionalApplications(frameCtx, session, welcome.ConnectionGeneration, SessionIdentity{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID}, applied.Metadata)
 		default:
 			return errors.New("unsupported edge runtime operation")
 		}
@@ -430,6 +440,34 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 	}
 	if err != nil {
 		return errors.New("edge runtime session ended")
+	}
+	return nil
+}
+
+// sendRegionalApplications reports durable effective regional facts in bounded
+// batches once the configuration receipt is on the wire. The facts come only
+// from the core read of the exact retained document and accepted stream; an
+// empty read sends nothing and never synthesizes a report.
+func (r *EdgeRuntime) sendRegionalApplications(ctx context.Context, session *Session, generation Decimal, identity SessionIdentity, metadata domain.ProbeConfigMetadata) error {
+	facts, err := r.configs.ReadRegionalApplications(ctx, metadata, int64(generation), identity.StreamID)
+	if err != nil {
+		return err
+	}
+	reports, err := regionalApplicationReports(identity, facts)
+	if err != nil {
+		return err
+	}
+	for _, report := range reports {
+		frame, err := encodeFrame("delivery.regional_applied", generation, report)
+		if err != nil {
+			return err
+		}
+		if _, _, err := DecodeRegionalApplicationReport(frame); err != nil {
+			return errors.New("invalid regional application report")
+		}
+		if err := session.SendControl(ctx, frame); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -28,6 +28,10 @@ type HubTransport struct {
 	receiptTimeout time.Duration
 	stateIngest    ports.ProbeStateService
 	commands       ports.ProbeCommandDispatcher
+	// regionalApplications opts this connector into authenticated regional
+	// application reporting. Nil keeps the welcome unnegotiated and refuses
+	// every delivery.regional_applied frame.
+	regionalApplications ports.RemoteRegionalApplicationRepository
 }
 
 var _ ports.ProbeConnectionTransport = (*HubTransport)(nil)
@@ -44,6 +48,13 @@ func (t *HubTransport) SetStateIngest(ingest ports.ProbeStateService) { t.stateI
 // SetCommands enables durable command dispatch before Run. Older peers without
 // the execution capability retain health/config/replay without command sends.
 func (t *HubTransport) SetCommands(commands ports.ProbeCommandDispatcher) { t.commands = commands }
+
+// SetRegionalApplications enables authenticated regional application reporting
+// before Run. Without it the hub never enables the welcome opt-in and accepts no
+// regional application frames, so admin-only connectors stay unnegotiated.
+func (t *HubTransport) SetRegionalApplications(repo ports.RemoteRegionalApplicationRepository) {
+	t.regionalApplications = repo
+}
 
 func (t *HubTransport) dial(ctx context.Context, endpoint, pin, token string) (*websocket.Conn, error) {
 	client, err := NewPinnedHTTPClient(endpoint, pin, t.policy)
@@ -111,7 +122,7 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 // DB-bound callbacks. Nil admission preserves health/config/replay-only operation.
 func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSessionInput, admission ports.ProbeHealthAdmission, established func(context.Context) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
 	m := input.Connection
-	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil || (t.stateIngest != nil || t.commands != nil) && !domain.ValidHubID(input.OwnerID) {
+	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil || (t.stateIngest != nil || t.commands != nil || t.regionalApplications != nil) && !domain.ValidHubID(input.OwnerID) {
 		return domain.ErrValidation
 	}
 	var snapshot ConfigSnapshot
@@ -153,7 +164,15 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	if err != nil || kind != websocket.MessageText {
 		return errors.New("probe hello unavailable")
 	}
-	welcome := Welcome{SessionIdentity: SessionIdentity{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID}, SelectedProtocol: 1, ConnectionGeneration: Decimal(input.Generation), CommittedSeq: Decimal(input.CommittedSeq), DesiredConfigRevision: snapshot.Revision, HeartbeatSeconds: HeartbeatSeconds, MaxFrameBytes: MaxFrameBytes, MaxBatchEvents: MaxBatchEvents, MaxBatchBytes: MaxBatchBytes, HubTime: Timestamp(time.Now().UTC())}
+	_, advertised, err := DecodeHello(hello)
+	if err != nil {
+		return errors.New("probe handshake rejected")
+	}
+	// Reporting is two-sided: the hub enables the welcome opt-in only with a
+	// configured report repository and the peer's exact compiled reporting
+	// capability. Aggregate paging never substitutes, older peers stay silent.
+	regionalReporting := t.regionalApplications != nil && containsCapability(advertised.Capabilities, RegionalApplicationCapability)
+	welcome := Welcome{SessionIdentity: SessionIdentity{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID}, SelectedProtocol: 1, ConnectionGeneration: Decimal(input.Generation), CommittedSeq: Decimal(input.CommittedSeq), DesiredConfigRevision: snapshot.Revision, HeartbeatSeconds: HeartbeatSeconds, MaxFrameBytes: MaxFrameBytes, MaxBatchEvents: MaxBatchEvents, MaxBatchBytes: MaxBatchBytes, HubTime: Timestamp(time.Now().UTC()), RegionalApplicationReporting: regionalReporting}
 	frame, err := encodeFrame("welcome", Decimal(input.Generation), welcome)
 	if err != nil {
 		return err
@@ -162,6 +181,7 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	if err != nil {
 		return errors.New("probe handshake rejected")
 	}
+	regionalEnabled := t.regionalApplications != nil && containsCapability(handshake.Hello.Capabilities, RegionalApplicationCapability) && handshake.Welcome.RegionalApplicationReporting
 	if err := conn.Write(handshakeCtx, websocket.MessageText, frame); err != nil {
 		return errors.New("hub welcome write failed")
 	}
@@ -322,6 +342,32 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 			readinessMu.Unlock()
 			wakeHealth()
 			return session.SendControl(frameCtx, response)
+		}
+		if envelope.Type == "delivery.regional_applied" {
+			if !regionalEnabled {
+				return errors.New("regional application report unavailable")
+			}
+			_, report, err := DecodeRegionalApplicationReport(data)
+			if err != nil {
+				return err
+			}
+			if report.HubID != m.HubID || report.ProbeID != m.ProbeID || report.StreamID != m.StreamID {
+				return errors.New("regional application report identity mismatch")
+			}
+			applications, err := regionalApplicationFacts(report)
+			if err != nil {
+				return err
+			}
+			// The repository independently verifies the committed receipt and the
+			// exact retained document under the session's owner/generation lease;
+			// queue ordering proves neither. There is no report ACK or cursor.
+			commitCtx, cancelCommit := context.WithTimeout(frameCtx, 10*time.Second)
+			err = t.regionalApplications.RecordRemoteRegionalApplications(commitCtx, receiver.session, applications)
+			cancelCommit()
+			if err != nil {
+				return errors.New("regional application report storage unavailable")
+			}
+			return nil
 		}
 		if envelope.Type == "config.applied" {
 			_, applied, err := DecodeConfigApplied(data)

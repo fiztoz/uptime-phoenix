@@ -41,6 +41,20 @@ func TestAssignmentRevisionSessionContract(t *testing.T) {
 	}
 }
 
+func assertRemoteRegional(t *testing.T, f probeRegistryFixture, target domain.ProbeConfigTarget, stream string, monitor int64, metadata domain.ProbeConfigMetadata, binding int64) {
+	t.Helper()
+	var row struct {
+		AssignmentRevision int64
+		Generation         int64
+		SHA256             string
+		AlertDelivery      string
+	}
+	err := f.db.NewSelect().Table("probe_remote_regional_applications").Column("assignment_revision", "generation", "sha256", "alert_delivery").Where("probe_id = ? AND config_revision = ? AND monitor_id = ? AND stream_id = ? AND hub_id = ?", target.ProbeID, metadata.Revision, monitor, stream, target.HubID).Scan(t.Context(), &row)
+	if err != nil || row.AssignmentRevision != binding || row.Generation != 1 || row.SHA256 != metadata.SHA256 || row.AlertDelivery != string(domain.AlertDeliveryRegional) {
+		t.Fatal("authenticated regional report did not retain exact source-local facts", err)
+	}
+}
+
 func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode domain.AlertDelivery) {
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
@@ -142,7 +156,7 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 			d, err := store.ReadDiagnostics(ctx)
 			return d.Identity, d.FirstRetainedSeq, err
 		}, store, configs, probe.EdgeRuntimeConfig{
-			AgentVersion: "binding-session", Capabilities: []string{"snapshot.v1", "checker.http.v1", "paging.aggregate.v1"},
+			AgentVersion: "binding-session", Capabilities: []string{"snapshot.v1", "checker.http.v1", "paging.aggregate.v1", probe.RegionalApplicationCapability},
 		}, func(ctx context.Context) (probe.Health, error) {
 			i, err := store.ReadIdentity(ctx)
 			healthy, queue := true, int64(0)
@@ -163,7 +177,16 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 	currentEdge := openEdge(true)
 	defer func() { closeEdge(currentEdge) }()
 	connector := repository.NewProbeConnectorStore(f.db)
+	connection := domain.ProbeCredentialMetadata{HubID: target.HubID, ProbeID: target.ProbeID, StreamID: identity.StreamID, EnrollmentID: eid, CredentialVersion: 1, Endpoint: "wss" + strings.TrimPrefix(currentEdge.server.URL, "https") + "/ws/probe/v1", Fingerprint: identity.Fingerprint}
+	protectedCredential, err := protector.SealCredential(ctx, connection, tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connector.PrepareConnection(ctx, domain.ProbeConnection{ProbeCredentialMetadata: connection, ProtectedCredential: protectedCredential, State: "prepared", PreparedAt: at}); err != nil {
+		t.Fatal(err)
+	}
 	transport := probe.NewHubTransport(probe.EndpointPolicy{AllowedCIDRs: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})
+	transport.SetRegionalApplications(syncStore)
 	var lastReceipt domain.ProbeActiveConfig
 	runSession := func(document []byte, refuse bool) {
 		t.Helper()
@@ -223,6 +246,21 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 			t.Fatal("real fenced hub receipt failed", outcome.err)
 		}
 		lastReceipt = outcome.receipt
+		if !refuse {
+			reported := false
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) {
+				var n int
+				if err := f.db.NewSelect().Table("probe_remote_regional_applications").ColumnExpr("COUNT(*)").Where("probe_id = ? AND config_revision = ? AND sha256 = ?", target.ProbeID, outcome.receipt.Revision, outcome.receipt.SHA256).Scan(ctx, &n); err == nil && n > 0 {
+					reported = true
+					break
+				}
+				time.Sleep(25 * time.Millisecond)
+			}
+			if !reported {
+				t.Fatal("configuration session did not commit regional application report")
+			}
+		}
 		stop()
 		if !joined {
 			select {
@@ -284,6 +322,7 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 	if _, err := syncStore.ReadAppliedRemote(ctx, target); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatal("refused receipt became durable hub acknowledgement", err)
 	}
+	assertTableCount(t, f, "probe_remote_regional_applications", 0) // Report cannot precede a committed receipt.
 	closeEdge(currentEdge)
 	currentEdge = openEdge(false)
 	assertCold(first, originalBinding)
@@ -303,9 +342,14 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 	// Retry the original exact document after desired state and preparation moved.
 	runSession(firstDocument, false)
 	assertHub(first, originalBinding)
+	assertRemoteRegional(t, f, target, identity.StreamID, monitor, first, originalBinding)
+	runSession(firstDocument, false) // Reconnect repeats exact facts without rewriting provenance.
+	assertRemoteRegional(t, f, target, identity.StreamID, monitor, first, originalBinding)
 	assertCold(first, originalBinding)
 	runSession(secondDocument, false)
 	assertHub(second, originalBinding+2)
+	assertRemoteRegional(t, f, target, identity.StreamID, monitor, second, originalBinding+2)
+	assertTableCount(t, f, "probe_remote_regional_applications", 2) // Original document facts remain unchanged.
 	assertCold(second, originalBinding+2)
 	active, err := currentEdge.store.ReadActiveConfig(ctx)
 	if err != nil {

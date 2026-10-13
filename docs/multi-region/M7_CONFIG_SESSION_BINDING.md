@@ -5,7 +5,12 @@ Executed 2026-10-12 on `feat/m7-receipt-backed-config`, following foundation com
 This is a production-lifecycle verification slice, not a new delivery capability
 or runtime activation. See [binding contract](M7_ASSIGNMENT_REVISION_BINDING.md),
 [first Colima acceptance](M7_COLIMA_ACCEPTANCE.md), and
-[cutover authority limits](M7_CUTOVER_EVIDENCE.md).
+[cutover authority limits](M7_CUTOVER_EVIDENCE.md). The subsequent
+[authenticated regional reporting slice](M7_REGIONAL_APPLICATION_REPORTING.md)
+extends the same real-session leaves with prepared hub connection/stream authority,
+separate persisted regional reports, refusal-before-receipt, cold/reconnect/ABA
+and exact duplicate checks. Its later evidence does not replace the historical
+scope/counts recorded below; regional-only reports supply no aggregate support.
 
 ## What is exercised
 

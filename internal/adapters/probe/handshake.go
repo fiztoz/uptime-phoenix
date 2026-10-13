@@ -3,6 +3,7 @@ package probe
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -78,6 +79,10 @@ type Welcome struct {
 	MaxBatchEvents        int       `json:"max_batch_events"`
 	MaxBatchBytes         int       `json:"max_batch_bytes"`
 	HubTime               Timestamp `json:"hub_time"`
+	// RegionalApplicationReporting is the hub's optional negotiated opt-in for
+	// authenticated regional application reports. Absence means false; a present
+	// value must be an explicit JSON boolean, never null or another JSON type.
+	RegionalApplicationReporting bool `json:"regional_application_reporting,omitempty"`
 }
 
 // DecodeHello validates bounded inventory, not authentication or compatibility
@@ -146,6 +151,9 @@ func DecodeWelcome(data []byte) (Envelope, Welcome, error) {
 		field{"max_batch_events", &welcome.MaxBatchEvents}, field{"max_batch_bytes", &welcome.MaxBatchBytes},
 		field{"hub_time", &welcome.HubTime},
 	); err != nil {
+		return envelope, welcome, err
+	}
+	if err := decodeOptionalStrictBool(fields, "regional_application_reporting", &welcome.RegionalApplicationReporting); err != nil {
 		return envelope, welcome, err
 	}
 	if welcome.SelectedProtocol != 1 {
@@ -217,6 +225,11 @@ func ValidateHandshake(helloFrame, welcomeFrame []byte, expected HandshakeExpect
 			return Handshake{}, ErrUnsupportedCapability
 		}
 	}
+	// Reporting is two-sided: a truthful welcome opt-in requires the peer's exact
+	// compiled reporting capability. Aggregate paging never substitutes for it.
+	if _, exists := available[RegionalApplicationCapability]; welcome.RegionalApplicationReporting && !exists {
+		return Handshake{}, ErrUnsupportedCapability
+	}
 	for _, required := range expected.RequiredResourceBindings {
 		if !domain.ValidProbeResourceBinding(domain.ProbeResourceBinding(required)) {
 			return Handshake{}, ErrUnsupportedCapability
@@ -246,6 +259,23 @@ func decodeSessionIdentity(fields map[string]json.RawMessage, identity *SessionI
 		return err
 	}
 	return requiredUUID(fields, "stream_id", &identity.StreamID)
+}
+
+// decodeOptionalStrictBool decodes a compatible optional JSON boolean. Absence
+// is false; a present value must be exactly true or false, never null or any
+// other JSON type.
+func decodeOptionalStrictBool(fields map[string]json.RawMessage, name string, target *bool) error {
+	value, ok := fields[name]
+	if !ok {
+		return nil
+	}
+	if strings.TrimSpace(string(value)) == "null" {
+		return fmt.Errorf("%s cannot be null", name)
+	}
+	if err := json.Unmarshal(value, target); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	return nil
 }
 
 func validAgentVersion(value string) bool {

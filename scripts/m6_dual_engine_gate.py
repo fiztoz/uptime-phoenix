@@ -100,6 +100,23 @@ REQUIRED = {
     "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/alert_delivery",
     "TestLocalRegionalApplicationContract/mariadb/OutboxBeforeSend",
     "TestLocalRegionalApplicationContract/mariadb/EscalationEnqueue",
+    # Authenticated reports need real receipt/session/expiry/atomicity coverage.
+    *{
+        f"TestRemoteRegionalApplicationContract/mariadb/{case}"
+        for case in (
+            "ReceiptPrerequisite", "ImmutableReconnectAndABA", "TupleAndBatchRollback",
+            "CorruptRetainedAndDuplicate", "ConcurrentDuplicate", "LeaseExpiresDuringDecode",
+            "CancellationAndRedaction", "Migration", "ResetPending",
+            "SessionFence/owner", "SessionFence/generation", "SessionFence/expiry",
+            "SessionFence/disabled", "SessionFence/revoked", "SessionFence/stream",
+            "SessionFence/retired", "SessionFence/key", "SessionFence/hub",
+            "TupleAndBatchRollback/monitor", "TupleAndBatchRollback/binding",
+            "TupleAndBatchRollback/generation", "TupleAndBatchRollback/revision",
+            "TupleAndBatchRollback/hash", "TupleAndBatchRollback/stream",
+            "TupleAndBatchRollback/target", "TupleAndBatchRollback/aggregate",
+            "TupleAndBatchRollback/both", "TupleAndBatchRollback/unbound",
+        )
+    },
 }
 
 

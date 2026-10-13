@@ -131,11 +131,11 @@ strict JSON/summary, checks, mutation results and cleanup record.
 
 ## Remaining acceptance and next seam
 
-No authenticated application reporting or stronger capability negotiation,
-aggregate runtime, committed cutover barrier, queued/in-flight suppression,
-durable aggregate incident/intents, or UI controls are implemented. The next
-bounded production step is truthful regional application reporting together with
-its stronger capability contract, not aggregate activation. Ordinary legacy
+This local slice adds no authenticated reporting. The follow-on
+[regional reporting slice](M7_REGIONAL_APPLICATION_REPORTING.md) implements
+truthful remote regional facts with a regional-only capability, not aggregate
+application support. Aggregate runtime, committed cutover barriers, queued/in-flight
+suppression, durable aggregate incident/intents and UI controls remain unimplemented. Ordinary legacy
 runtime remains unreported, and protected local pre-send reads still do not prove
 final transactional send authority. Edge metadata accounting remains separate.
 

@@ -42,9 +42,11 @@ For each member, a complete proposal requires:
    current source stream. A configuration receipt cannot be used as this object.
    The [edge regional application seam](M7_EDGE_REGIONAL_APPLICATION.md) and
    [protected local-hub seam](M7_LOCAL_REGIONAL_APPLICATION.md) now store
-   source-local effective regional facts, not authenticated cross-source reports.
-   No reporting protocol, stronger application negotiation or aggregate-mode
-   producer exists; these local facts never populate `ModeApplicationSupported`.
+   source-local effective regional facts. The follow-on
+   [authenticated regional reporting](M7_REGIONAL_APPLICATION_REPORTING.md)
+   preserves those exact facts at the hub under session/receipt authority. Its
+   regional-only capability does not promise aggregate/both application and never
+   populates `ModeApplicationSupported`; no aggregate-mode producer exists.
 
 An assignment revision is **not** a probe-document revision. They are compared
 only within their own identity spaces. Matching mode and a timestamp after the

@@ -16,7 +16,7 @@ assignment generations. The follow-on [local document evidence](M7_LOCAL_DELIVER
 uses the same stored receipt protocol for local assignments without rebuilding
 mutable execution sources. The [pure cutover-evidence contract](M7_CUTOVER_EVIDENCE.md)
 requires separate assignment/document/stream-bound mode-application evidence;
-it has no authenticated reporting producer or production caller. The [immutable assignment revision binding](M7_ASSIGNMENT_REVISION_BINDING.md)
+it has no aggregate application producer or production caller. The [immutable assignment revision binding](M7_ASSIGNMENT_REVISION_BINDING.md)
 captures set identity in newly built documents and preserves unbound legacy reads;
 it still grants no runtime-mode authority. The [Colima real-engine acceptance](M7_COLIMA_ACCEPTANCE.md)
 now verifies all required retained-read/API/binding MariaDB markers without skips.
@@ -34,6 +34,12 @@ regional state on fresh activation, present-state execution/recording checks and
 normal new-revision upgrade for missing facts. Local receipt retries do not
 backfill; ordinary legacy dispatch remains unchanged/unreported. Local pre-send
 reads are observational, not a new final transactional lease/send fence.
+The [authenticated regional reporting slice](M7_REGIONAL_APPLICATION_REPORTING.md)
+adds a separate optional report of exact persisted remote regional facts, with
+explicit two-sided regional-only capability negotiation and database session/
+receipt fencing. It adds no aggregate application support, cutover caller, report
+ACK/cursor, API/UI fields or send/suppression authority. Check its latest named
+real-engine evidence and remaining acceptance limits before proceeding.
 No aggregate runtime is active, and a document receipt is not an applied-mode receipt.
 
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then

@@ -17,7 +17,10 @@ source-local effective regional state behind real activation/recording/final
 checks. Its [protected local-hub counterpart](M7_LOCAL_REGIONAL_APPLICATION.md)
 uses fresh activation and existing execution/recording/pre-send reads, with
 ordinary legacy dispatch unchanged and no new final transactional send fence.
-Neither is authenticated cross-source reporting or aggregate application support.
+Neither seam alone is authenticated cross-source reporting or aggregate application
+support. The subsequent [regional reporting slice](M7_REGIONAL_APPLICATION_REPORTING.md)
+adds a separate authenticated regional-only report, without supplying aggregate
+application capability, cutover authority or a production decision caller.
 
 ## Implemented decision contract
 
