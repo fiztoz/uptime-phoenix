@@ -11,6 +11,13 @@ at the bottom.
 
 ## [Unreleased]
 
+### Security
+
+- Update Go modules, including `golang.org/x/net` v0.60.0, and align active build,
+  CI, release, Docker, E2E and offline verification pins to Go 1.26.9. This fixes
+  the reachable standard-library vulnerabilities that blocked dependency PRs;
+  vulnerability scanning remains mandatory and unsuppressed.
+
 ## [0.5.0] — 2026-10-04
 
 ### Added
