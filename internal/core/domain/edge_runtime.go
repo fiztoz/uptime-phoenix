@@ -70,6 +70,10 @@ type EdgeActiveConfig struct {
 	Snapshot    ProtectedProbeConfig
 	Assignments []EdgeAssignmentIdentity
 	AppliedAt   time.Time
+	// RegionalDeliveryApplications are source-local effective regional facts
+	// bound to the exact authenticated document and stream. Legacy absence is
+	// unreported; these facts are not hub-observed cutover or send authority.
+	RegionalDeliveryApplications []ProbeDeliveryModeApplication
 	// ConnectionGeneration is an input fence checked during activation. Stored
 	// active content remains valid when a later authenticated session takes over.
 	ConnectionGeneration int64
@@ -78,14 +82,20 @@ type EdgeActiveConfig struct {
 // EdgeResolvedAssignment is a complete confidential execution input. Proxy is
 // resolved directly; edge execution never consults mutable hub rows.
 type EdgeResolvedAssignment struct {
-	Monitor            *Monitor
-	Generation         int64
-	EffectiveOwner     string
-	Tags               []ProbeConfigTag
-	NotificationLinks  []MonitorNotification
-	MaintenanceIDs     []int64
-	EscalationPolicyID *int64
-	Proxy              *Proxy
+	Monitor    *Monitor
+	Generation int64
+	// AssignmentRevision retains the exact build-time set binding; zero is
+	// legacy/unbound and grants no mode-application or cutover authority.
+	AssignmentRevision int64
+	// DesiredAlertDelivery is the mode carried by this exact config document,
+	// not evidence that the source applied it or stopped regional paging.
+	DesiredAlertDelivery AlertDelivery
+	EffectiveOwner       string
+	Tags                 []ProbeConfigTag
+	NotificationLinks    []MonitorNotification
+	MaintenanceIDs       []int64
+	EscalationPolicyID   *int64
+	Proxy                *Proxy
 }
 
 // EdgeResolvedChannel binds provider settings to their accepted version.

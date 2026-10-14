@@ -102,6 +102,9 @@ func Run(cfg Config) error {
 		installationHubID = inst.HubID
 	}
 
+	if err := repo.RequireSafeOperativeStartup(ctx, db, protector != nil, cfg.ProbesEnabled); err != nil {
+		return fmt.Errorf("operative authority requires protected probe runtime: %w", err)
+	}
 	jwtAuth := auth.NewJWTAuthenticator(cfg.JWTSecret, cfg.JWTExpireH, repos.user)
 	totpProvider := auth.NewTOTPProvider(cfg.TOTPIssuer)
 
@@ -255,6 +258,16 @@ func Run(cfg Config) error {
 	regionalSvc := services.NewMonitorRegionalService(healthSvc, repos.probeRegistry)
 	regionalSvc.SetDiagnostics(repos.probeDiagnostics)
 	regionalSvc.SetHistory(repo.NewRegionalCommitStore(db), repos.probeAssignments)
+	if cfg.ProbesEnabled {
+		deliveryConfigs := repo.NewRemoteProbeConfigSyncStore(db, nil, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
+		if err := regionalSvc.SetDeliveryConfigReader(installationHubID, deliveryConfigs); err != nil {
+			return err
+		}
+		localDeliveryConfigs := repo.NewLocalProbeDeliveryConfigStore(db, probe.NewLocalDeliveryConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
+		if err := regionalSvc.SetLocalDeliveryConfigReader(localDeliveryConfigs); err != nil {
+			return err
+		}
+	}
 	fleetSvc := services.NewProbeFleetService(repos.probeDiagnostics)
 	hub := ws.NewHub(bus, repos.monitor, repos.heartbeat, accessSvc, tagSvc, slog.Default())
 	browserPublisher := handlers.NewRegionalBrowserPublisher(regionalSvc, fleetSvc, repo.NewRegionalCommitStore(db), bus, hub.BroadcastRegional, hub.ActiveConnections)
@@ -377,6 +390,16 @@ func Run(cfg Config) error {
 			repos.probeActivation,
 			repos.probeInstallation,
 		)
+		preparationReader, ok := repos.probeActivation.(ports.LocalDeliveryPreparationReader)
+		if !ok {
+			return fmt.Errorf("probe activation repo does not implement local preparation reader")
+		}
+		refreshSvc.SetDeliveryPreparations(preparationReader)
+		roundReconciler, ok := repos.probeActivation.(ports.LocalDeliveryPreparationRoundReconciler)
+		if !ok {
+			return fmt.Errorf("probe activation repo does not implement local preparation rounds")
+		}
+		refreshSvc.SetPreparationRounds(roundReconciler)
 		refreshSvc.StartEventSubscription(ctx, bus)
 		activeCfg, err := refreshSvc.Refresh(ctx)
 		if err != nil {
@@ -414,6 +437,8 @@ func Run(cfg Config) error {
 		deliveryConsumer.SetMaintenanceChecker(maintenanceSvc)
 		deliveryConsumer.SetCronEvaluator(cronEval)
 		deliveryConsumer.SetTagReader(tagSvc)
+		localAuthority := repo.NewOperativeDeliveryStore(db, probe.DeliveryCutoverCodec{}, commandProtector, nil, encoder)
+		deliveryConsumer.SetProviderAuthority(localAuthority, localAuthority)
 		for _, t := range []string{
 			"telegram", "discord", "slack", "smtp", "webhook",
 			"teams", "mattermost", "gotify",
@@ -461,6 +486,15 @@ func Run(cfg Config) error {
 		if err != nil {
 			return fmt.Errorf("probe connector owner unavailable")
 		}
+		// Standby planning cannot be claimed by any delivery consumer and does not
+		// attest mode application. Its separate stored lease fences every write.
+		standby := services.NewAggregateStandbyService(repo.NewAggregateStandbyStore(db), owner.String())
+		standbyDone := make(chan struct{})
+		go func() {
+			defer close(standbyDone)
+			standby.Run(ctx, 5*time.Second, func(err error) { log.Warn("aggregate standby", "error", err) })
+		}()
+		defer func() { cancelRuntime(); <-standbyDone }()
 		replayStore := repo.NewProbeReplayStore(db, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
 		replayStore.SetCommands(commandProtector, probe.AcknowledgementCodec{})
 		stateIngest, err := services.NewProbeStateService(replayStore, accessSvc)
@@ -472,12 +506,31 @@ func Run(cfg Config) error {
 		stateIngest.SetStatusPageRecovery(healthSvc, statusPageSvc)
 		transport := probe.NewHubTransport(policy)
 		transport.SetStateIngest(stateIngest)
+		deliveryConfig := repo.NewRemoteProbeConfigSyncStore(db, probe.RemoteConfigEncoder{}, probe.NewHubConfigDecoder(checkeradapter.Get, notifieradapter.Get), protector)
+		deliveryConfig.SetDeliveryPreparations(probe.DeliveryPreparationCodec{}, commandProtector)
+		transport.SetRegionalApplications(deliveryConfig)
+		transport.SetDeliveryPreparations(deliveryConfig)
+		operativeStore := repo.NewOperativeDeliveryStore(db, probe.DeliveryCutoverCodec{}, commandProtector, deliveryConfig, probe.LocalConfigEncoder{})
+		transport.SetDeliveryCutover(cfg.ProbesAggregatePagingEnabled)
+		transport.SetCutoverCapabilities(operativeStore)
+		operative, err := services.NewOperativeDeliveryService(operativeStore, operativeStore, operativeStore, owner.String(), cfg.ProbesAggregatePagingEnabled, notifieradapter.Get)
+		if err != nil {
+			return err
+		}
+		operativeDone := make(chan struct{})
+		go func() {
+			defer close(operativeDone)
+			operative.Run(ctx, func(error) { log.Warn("operative cutover work unavailable") })
+		}()
+		defer func() { cancelRuntime(); <-operativeDone }()
 		connections := repo.NewProbeConnectorStore(db)
 		commandStore := repo.NewProbeCommandStore(db, commandProtector, probe.AcknowledgementCodec{}, credentialProtector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
 		commands, err := services.NewProbeCommandService(commandStore, connections, commandProtector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
 		if err != nil {
 			return err
 		}
+		commands.SetDeliveryPreparationsCodec(probe.DeliveryPreparationCodec{})
+		commands.SetDeliveryCutoverCodec(probe.DeliveryCutoverCodec{})
 		commands.SetBrowserEvents(bus, repos.probeIncident)
 		transport.SetCommands(commands)
 		connector, err := services.NewProbeConnectorService(connections, connections, connections, credentialProtector,

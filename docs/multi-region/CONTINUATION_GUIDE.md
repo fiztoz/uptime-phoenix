@@ -5,6 +5,59 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
+For authorized M7 continuation, the [decision foundation](M7_PAGING_FOUNDATION.md),
+[desired delivery persistence](M7_DESIRED_DELIVERY.md), and
+[wire compatibility](M7_PROTOCOL_DELIVERY.md) are merged. The
+[receipt-backed configuration read slice](M7_RECEIPT_BACKED_CONFIG.md), committed
+as `db89b6c`, preserves desired mode through cold loads and reads exact acknowledged
+documents. The [delivery configuration diagnostic](M7_DELIVERY_CONFIG_EVIDENCE.md),
+committed as `284bc35`, adds an opt-in, scoped, nonsecret view for current remote
+assignment generations. The follow-on [local document evidence](M7_LOCAL_DELIVERY_CONFIG_EVIDENCE.md)
+uses the same stored receipt protocol for local assignments without rebuilding
+mutable execution sources. The [pure cutover-evidence contract](M7_CUTOVER_EVIDENCE.md)
+requires separate assignment/document/stream-bound mode-application evidence;
+it has no aggregate application producer or production caller. The [immutable assignment revision binding](M7_ASSIGNMENT_REVISION_BINDING.md)
+captures set identity in newly built documents and preserves unbound legacy reads;
+it still grants no runtime-mode authority. The [Colima real-engine acceptance](M7_COLIMA_ACCEPTANCE.md)
+now verifies all required retained-read/API/binding MariaDB markers without skips.
+The local/cutover/binding foundation was committed as `d86e6f8`. The subsequent
+[live configuration-session verification](M7_CONFIG_SESSION_BINDING.md) passes
+all three desired-mode session leaves on real MariaDB, including refused receipt,
+cold reopen, ABA, reconnect and repeated ACKs. Check the remaining release and
+runtime-lifecycle limits before proceeding.
+The [edge regional application seam](M7_EDGE_REGIONAL_APPLICATION.md) now persists
+honest source-local effective regional facts and validates present facts during
+recording, escalation enqueue and final authorization. It adds no reporting
+protocol/capability, aggregate application or suppression. The corresponding
+[protected local-hub seam](M7_LOCAL_REGIONAL_APPLICATION.md) adds atomic effective
+regional state on fresh activation, present-state execution/recording checks and
+normal new-revision upgrade for missing facts. Local receipt retries do not
+backfill; ordinary legacy dispatch remains unchanged/unreported. Local pre-send
+reads are observational, not a new final transactional lease/send fence.
+The [authenticated regional reporting slice](M7_REGIONAL_APPLICATION_REPORTING.md)
+adds a separate optional report of exact persisted remote regional facts, with
+explicit two-sided regional-only capability negotiation and database session/
+receipt fencing. It adds no aggregate application support, cutover caller, report
+ACK/cursor, API/UI fields or send/suppression authority. Check its latest named
+real-engine evidence and remaining acceptance limits before proceeding.
+The [delivery preparation continuation](M7_DELIVERY_PREPARATION.md) reuses durable
+commands for exact remote request preparation. It leaves effective regional mode
+unchanged and supplies no application support, suppression or cutover authority;
+the [protected local preparation continuation](M7_LOCAL_DELIVERY_PREPARATION.md)
+adds fresh-activation request persistence and cold refresh upgrades without adding
+an execution gate. The [shared request-round continuation](M7_PREPARATION_ROUNDS.md)
+adds all-member, DB-clock-expiring request identity and terminal rearm without changing
+mode execution. The [durable standby planner](M7_AGGREGATE_STANDBY.md) now reuses
+the pure paging evaluator for DB-fenced incident identities and held channel plans
+only. Held plans are separate from delivery claims and cannot be promoted into sends.
+The new [operative cutover implementation](M7_OPERATIVE_CUTOVER.md) now implements
+the committed all-source barrier/application/provider-I/O lifecycle behind the
+explicit default-false opt-in. Its strict full race gate passed 5,976 named tests
+(570 MariaDB passes; all 181 M7 leaves; zero engine skips). The earlier descriptions
+above retain their historical slice scope. No live
+aggregate runtime has been activated. A document receipt is still not an
+applied-mode receipt, and standby work cannot be promoted into operative sends.
+
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then
 choose authorized M6 validation/activation work.**
 The first M6 slice is the [fleet assignment-ownership gate](M6_FLEET_ACTIVATION_GATE.md):

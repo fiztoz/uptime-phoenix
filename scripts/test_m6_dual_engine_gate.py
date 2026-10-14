@@ -26,6 +26,101 @@ MUTATION_LEAVES = {
     "TestMonitorDeleteConcurrencyDiagnostic/AppliedSourceReaderVersusDelete",
     "TestMonitorDeleteConcurrencyDiagnostic/DeleteVersusWorkerLeaseLifecycle",
 }
+M7_LEAVES = {
+    f"TestRemoteAppliedConfigContract/mariadb/{case}"
+    for case in (
+        "ImmutableReceiptSelection", "ConcurrentReceiptRead", "MissingReceipt",
+        "ReceiptHash", "ReceiptHub", "ReceiptCount", "ReceiptTime", "SnapshotHash",
+        "SnapshotHub", "ActiveCount", "ForeignActiveTarget", "AuthenticationAndValidation",
+    )
+} | {
+    f"TestLocalDeliveryConfigContract/mariadb/{case}"
+    for case in (
+        "ImmutableReceiptSelection", "ConcurrentReceiptRead", "MissingReceipt",
+        "ReceiptHash", "ReceiptCount", "ReceiptTime", "SnapshotHash",
+        "ForeignActiveTarget", "AuthenticationAndValidation",
+    )
+} | {
+    f"TestAssignmentRevisionBindingContract/mariadb/{case}"
+    for case in (
+        "LocalBoundABA", "StalePreparedNoLegacyFallback", "LegacyLocalExecutionAndRefresh",
+        "RemoteReceiptBinding", "InvalidSourceRevision",
+    )
+} | {
+    f"TestAssignmentRevisionSessionContract/mariadb/{mode}"
+    for mode in ("regional", "aggregate", "both")
+} | {
+    f"TestLocalRegionalApplicationContract/mariadb/{case}"
+    for case in (
+        "regional", "aggregate", "both", "ActivationRollback", "RetryAndUpgrade",
+        "PartialUpgrade", "RecordingFence", "Migration", "OutboxBeforeSend", "EscalationEnqueue",
+        "PresentMismatch/assignment_revision", "PresentMismatch/generation", "PresentMismatch/hub_id",
+        "PresentMismatch/sha256", "PresentMismatch/monitor_id", "PresentMismatch/stream_id", "PresentMismatch/alert_delivery",
+    )
+} | {
+    f"TestRemoteRegionalApplicationContract/mariadb/{case}"
+    for case in (
+        "ReceiptPrerequisite", "ImmutableReconnectAndABA", "TupleAndBatchRollback",
+        "CorruptRetainedAndDuplicate", "ConcurrentDuplicate", "LeaseExpiresDuringDecode",
+        "CancellationAndRedaction", "Migration", "ResetPending",
+        "SessionFence/owner", "SessionFence/generation", "SessionFence/expiry",
+        "SessionFence/disabled", "SessionFence/revoked", "SessionFence/stream",
+        "SessionFence/retired", "SessionFence/key", "SessionFence/hub",
+        "TupleAndBatchRollback/monitor", "TupleAndBatchRollback/binding",
+        "TupleAndBatchRollback/generation", "TupleAndBatchRollback/revision",
+        "TupleAndBatchRollback/hash", "TupleAndBatchRollback/stream",
+        "TupleAndBatchRollback/target", "TupleAndBatchRollback/aggregate",
+        "TupleAndBatchRollback/both", "TupleAndBatchRollback/unbound",
+    )
+} | {
+    f"TestDeliveryPreparationContract/mariadb/{case}"
+    for case in (
+        "Positive", "Prerequisites", "CurrentABA", "ImmutableDuplicates",
+        "CapabilityStarvation", "StaleSessionExpiryRollback", "ServiceDispatch",
+        "StaleSessionExpiryRollback/owner", "StaleSessionExpiryRollback/generation",
+        "StaleSessionExpiryRollback/hub",
+    )
+} | {f"TestDeliveryPreparationSessionContract/mariadb/{mode}"
+     for mode in ("regional", "aggregate", "both")} | {
+    f"TestLocalDeliveryPreparationContract/mariadb/{case}"
+    for case in (
+        "regional", "aggregate", "both", "AtomicRollback", "RetryAndColdUpgrade",
+        "PartialUpgrade", "ModeAndPolicyABA", "PrerequisitesAndCancellation",
+        "ConcurrentSelection", "Migration", "WorkerBeforeAssignment",
+        "PresentMismatch/assignment_revision", "PresentMismatch/generation",
+        "PresentMismatch/hub_id", "PresentMismatch/sha256", "PresentMismatch/monitor_id",
+        "PresentMismatch/stream_id", "PresentMismatch/alert_delivery",
+    )
+}
+M7_LEAVES |= {
+    f"TestDeliveryPreparationRoundContract/mariadb/{case}"
+    for case in (
+        "RemoteReuseCold", "TerminalCooldownRearm", "ExpiryRearm", "MixedAllSources",
+        "HistoricalFailure", "ABA", "AtomicRollback", "CorruptMembership",
+        "ConcurrentCreators", "CanceledStaleAuthority", "Migration",
+    )
+} | {f"TestLocalDeliveryPreparationRoundRefresh/mariadb/{mode}" for mode in ("aggregate", "both")} | {
+    f"TestDeliveryPreparationRoundSessionContract/mariadb/{mode}" for mode in ("aggregate", "both")
+}
+M7_LEAVES |= {
+    f"TestAggregateStandbyContract/mariadb/{case}"
+    for case in (
+        "regional", "aggregate", "both", "ColdPlanningDeadline", "EvidenceFilters",
+        "AdministrativeABA", "ChannelIdentity", "AtomicRollback", "LeaseFences",
+        "ExpiryDuringEvaluation", "LockWaitExpiry", "ConcurrentWorkers", "Migration",
+        "WorkerBeforeAssignment", "CurrentAfterReplay", "UnknownHolds",
+        "CorruptStandbyRegional", "ConcurrentStateWriter", "ClockDomains",
+          "RepeatSettings", "IndependentBatch",
+    )
+}
+M7_LEAVES |= {f"TestOperativeCutoverContract/mariadb/{case}" for case in ("ColdMembership", "DrainAmbiguousBlocks", "DrainPendingAndStarted", "FencesAndStageOrder", "GateSuppression", "LocalProviderJournal", "MigrationConstraints", "MissingPreparation", "RemoteMembership", "aggregate", "both",)}
+M7_LEAVES |= {f"TestOperativeRefinementContract/mariadb/{case}" for case in ("AdoptionFutureReceipt", "AdoptionObservationBoundary", "AdoptionReceiptBoundary", "BusyCodeAlignsAndRearms", "CorruptionBlocks", "DigestMismatchRefused", "DigestOnlyPlans", "DisableDrainsApplying", "DisableDrainsQuiesced", "DisableDrainsQuiescing", "RemoteBusyRearmsFromReceipt", "RepeatThrottle", "ResumeWithdrawsQueuedPhase", "StandbyNeverPreventsOperativeOpen",)}
+M7_LEAVES |= {f"TestOperativeProviderLifecycle/mariadb/{case}" for case in ("ProviderErrorBlocksDrain", "aggregate", "both",)}
+M7_LEAVES |= {f"TestOperativeCutoverSessionContract/mariadb/{case}" for case in ("aggregate", "both",)}
+M7_LEAVES |= {f"TestOperativeUpgradeContract/mariadb/{case}" for case in ("LegacyAmbiguity", "HeldRuntime",)}
+M7_LEAVES |= {f"TestOperativeProviderFences/mariadb/{case}" for case in ("MissingRegionalFact", "MissingPreparation", "AvailableAt", "FinishClockRollback")}
+M7_LEAVES |= {f"TestOperativeActivationCycle/mariadb/{case}" for case in ("aggregate", "both",)}
+M7_LEAVES |= {"TestDeliveryConfigEvidenceAPI/mariadb", "TestLocalDeliveryConfigEvidenceAPI/mariadb"}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",
     "TestTelegramSender_Send_DownSeverity",
@@ -108,6 +203,20 @@ class StrictBackendGateTest(unittest.TestCase):
         self.assertTrue(DELETE_LEAVES | MUTATION_LEAVES <= gate.REQUIRED)
         self.assertEqual(gate.SKIPS_ALLOWED, OPTIONAL_SKIPS)
 
+    def test_each_m7_receipt_leaf_needs_an_exact_real_engine_pass(self):
+        self.assertTrue(M7_LEAVES <= gate.REQUIRED)
+        for leaf in sorted(M7_LEAVES):
+            for action in (None, "skip", "fail"):
+                with self.subTest(leaf=leaf, action=action):
+                    lines = passing_events(omit={leaf})
+                    # Parent and SQLite completion cannot replace this leaf.
+                    lines.append(event(leaf.rsplit("/", 1)[0]))
+                    lines.append(event(leaf.replace("/mariadb", "/sqlite")))
+                    if action is not None:
+                        lines.append(event(leaf, action))
+                    summary = self.assert_failed(lines)
+                    self.assertEqual(summary["missing_required"], [leaf])
+
     def test_process_observer_grant_uses_only_created_disposable_server(self):
         status, _summary = self.run_gate(passing_events())
         self.assertEqual(status, 0)
@@ -129,7 +238,8 @@ class StrictBackendGateTest(unittest.TestCase):
         # The one Go launch happens after fixture provisioning; cleanup follows.
         self.assertEqual(self.command_order.count("go"), 1)
         self.assertEqual(self.command_order[-2:], ["go", "docker"])
-        self.assertEqual(self.docker_calls[-1][0], ("rm", "-f", name))
+        self.assertEqual(self.docker_calls[-1][0], ("rm", "-f", "-v", name))
+        self.assertEqual(self.go_launches[0][1]["env"]["GOENV"], "off")
 
     def test_refused_process_grant_prevents_go_and_cleans_created_container(self):
         with self.assertRaisesRegex(PermissionError, "offline PROCESS grant refused"):
@@ -138,7 +248,7 @@ class StrictBackendGateTest(unittest.TestCase):
         name = created[0][created[0].index("--name") + 1]
         self.assertEqual(self.go_launches, [])
         self.assertNotIn("go", self.command_order)
-        self.assertEqual(self.docker_calls[-1][0], ("rm", "-f", name))
+        self.assertEqual(self.docker_calls[-1][0], ("rm", "-f", "-v", name))
 
     def test_old_300_mariadb_passes_cannot_hide_missing_delete_leaf(self):
         for leaf in sorted(DELETE_LEAVES):
@@ -201,11 +311,11 @@ class StrictBackendGateTest(unittest.TestCase):
     def test_unsuffixed_mariadb_only_leaves_do_not_inflate_engine_count(self):
         status, summary = self.run_gate(passing_events())
         self.assertEqual(status, 0)
-        # Exactly three existing required leaves carry /mariadb, including the
-        # explicit update lease case. MariaDB-only diagnostic names remain exact
-        # requirements without pretending to be engine-suffixed count evidence.
-        self.assertEqual(summary["mariadb_named_passes"], 303)
-        self.assert_failed(passing_events(mariadb_count=296))
+        # Only genuinely engine-suffixed required leaves inflate this count;
+        # MariaDB-only diagnostic names remain exact, unsuffixed requirements.
+        engine_leaves = sum("/mariadb" in name for name in gate.REQUIRED)
+        self.assertEqual(summary["mariadb_named_passes"], 300 + engine_leaves)
+        self.assert_failed(passing_events(mariadb_count=299 - engine_leaves))
 
     def test_mariadb_skip_is_rejected(self):
         summary = self.assert_failed(passing_events() + [event("TestExistingStorage/mariadb/skipped", "skip")])

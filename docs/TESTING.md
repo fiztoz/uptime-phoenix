@@ -104,11 +104,57 @@ for the latest executed results and outstanding acceptance checks.
 
 `make gate-full` does **not** include the MariaDB repository contract (needs
 `TEST_MARIADB_DSN` against a real database) or external UAT/load campaigns.
-CI runs the MariaDB contract in the `mariadb-contract` job (`phoenix_ci` throwaway
-DB). Use §1.1 for external campaigns and §2.6 for disposable database setup.
+CI runs the parent repository contract through four isolated `repository-race-N`
+jobs (each owns a `phoenix_ci` throwaway DB). The required `mariadb-contract`
+check verifies their complete coverage. Use §1.1 for external campaigns and §2.6
+for disposable database setup.
 
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
+
+### Repository CI shards and future test growth
+
+The expensive `internal/adapters/repository` package exceeded the former single
+40-minute CI test-binary budget. CI now discovers its **compiled** top-level test,
+example and fuzz-seed names, sorts them, and distributes whole parents round-robin
+across four runners. Every selected parent runs **all** its subtests with `-race`,
+`-count=1` and the unchanged `-timeout 40m`. Do not split assertions or skip slow
+cases to meet the budget. The `backend` check still builds, vets, lints, scans
+vulnerabilities and runs every other Go package, including repository subpackages.
+Shard 0 also runs all current/future repository subpackages with the disposable
+MariaDB configuration, preserving the original actual-engine contract surface.
+
+New parents are automatically included; no name-prefix allowlist needs maintenance.
+`mariadb-contract` runs even after matrix failure/cancellation and refuses missing,
+extra, duplicate or wrong-commit reports, incomplete parent execution, malformed
+Go events, unrecognized skips, any MariaDB skip and missing exact real-engine
+leaves from the strict gate. It compares reports to a freshly compiled inventory.
+Coverage artifacts contain only names, timings and commit provenance—not test
+output, settings or DSNs. Release gating requires all four expanded matrix check
+names **as well as** the stable aggregate and other required checks.
+
+```bash
+# Inspect the exhaustive plan without connecting to a database:
+python3 -B scripts/repository_test_shards.py plan --count 4
+# Offline parser, shard coverage and release-gate regressions:
+make m6-backend-harness-gate release-image-gate
+# Execute one shard ONLY against a disposable DB (never print its DSN):
+: "${TEST_MARIADB_DSN:?Set a dedicated disposable MariaDB test database}"
+python3 -B scripts/repository_test_shards.py run --index 0 --count 4 \
+  --source-sha "$(git rev-parse HEAD)" --report tmp/repository-shard-0.json
+# After all four reports from this exact commit:
+python3 -B scripts/repository_test_shards.py verify --count 4 \
+  --source-sha "$(git rev-parse HEAD)" --reports tmp/repository-coverage
+```
+
+**Never run concurrent shards against one DSN.** Fixtures reset/migrate the DB;
+GitHub gives every shard its own service instance. For local runs, execute serially
+or give each shard a separate disposable instance. Monitor the per-parent timings
+in the artifacts. If workload grows further, increase the literal matrix and both
+`--count` values together, update release required check names and regressions,
+and prove complete coverage again. Splitting an individual parent is needed only
+if that parent itself approaches the timeout. The local unsharded `gate-full` and
+strict disposable dual-engine gate remain available and unchanged.
 
 ### 1.1 Reproduce validation and create external UAT/load tests
 
@@ -126,7 +172,10 @@ with explicit parameters before running it against current code.
 The retained Python scripts have specific repository responsibilities:
 `helm-db-secret-check.py` validates rendered chart secrets; `m6_dual_engine_gate.py`
 runs the committed backend tests and rejects missing real-engine coverage; its
-`test_m6_dual_engine_gate.py` parser tests run in CI. The Python tests under
+`test_m6_dual_engine_gate.py` parser tests run in CI. `repository_test_shards.py`
+partitions complete repository parents and verifies real-engine matrix coverage;
+`test_repository_test_shards.py` checks exhaustive selection and fail-closed fan-in.
+The Python tests under
 `scripts/release/` validate release tooling. Colima is not required by these checks.
 
 **Prepare.** Use the Go version in `go.mod`, Bun 1.3.14 (matching CI), Python 3,

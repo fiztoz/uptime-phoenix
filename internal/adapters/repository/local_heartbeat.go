@@ -104,14 +104,19 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		if activeGeneration != hb.AssignmentGeneration {
 			return ports.ErrConflict
 		}
-		var activeRevision int64
-		activeConfigQuery := tx.NewSelect().TableExpr("probe_active_configs").Column("revision").Where("probe_id = ?", hb.ProbeID)
+		var activeConfig probeActiveConfigModel
+		activeConfigQuery := tx.NewSelect().Model(&activeConfig).Column("revision", "hub_id", "sha256").Where("probe_id = ?", hb.ProbeID)
 		if tx.Dialect().Name() == dialect.MySQL {
 			activeConfigQuery = activeConfigQuery.For("UPDATE")
 		}
-		if err := activeConfigQuery.Scan(ctx, &activeRevision); err == nil {
-			if !commit.LegacyConfig && activeRevision > 0 && hb.ConfigRevision != activeRevision {
-				return ports.ErrConflict
+		if err := activeConfigQuery.Scan(ctx); err == nil {
+			if !commit.LegacyConfig && activeConfig.Revision > 0 {
+				if hb.ConfigRevision != activeConfig.Revision {
+					return ports.ErrConflict
+				}
+				if err := requireLocalRegionalApplicationTx(ctx, tx, activeConfig, hb.MonitorID, hb.AssignmentGeneration, revision, hb.StreamID); err != nil {
+					return err
+				}
 			}
 		} else if !errors.Is(err, sql.ErrNoRows) {
 			return err
@@ -165,6 +170,14 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		}
 		if err := markObservationHistoryTx(ctx, tx, observation); err != nil {
 			return err
+		}
+		suppressed, err := localAvailabilitySuppressedTx(ctx, tx, hb.MonitorID)
+		if err != nil {
+			return err
+		}
+		if suppressed {
+			commit.DeliveryIntents = nil
+			commit.ThrottleUpdate = false
 		}
 		return commitLifecycleAndDeliveriesTx(ctx, tx, observation, &commit)
 	})

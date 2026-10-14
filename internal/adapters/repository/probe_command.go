@@ -230,8 +230,10 @@ func (s *ProbeCommandStore) ClaimCommand(ctx context.Context, session domain.Pro
 	if capabilities.CertificateRotation {
 		kinds = append(kinds, "certificate.prepare", "certificate.activate")
 	}
-	if len(kinds) == 0 {
-		return nil, nil
+	if capabilities.DeliveryPreparation {
+		// An unsupported pending preparation must never starve supported kinds:
+		// the kind filter below keeps it out of this claim entirely.
+		kinds = append(kinds, deliveryPrepareKind)
 	}
 	var out *domain.ProtectedProbeCommand
 	err := runConfigAuthorityTx(ctx, s.db, func(ctx context.Context, tx bun.Tx) error {
@@ -240,8 +242,19 @@ func (s *ProbeCommandStore) ClaimCommand(ctx context.Context, session domain.Pro
 		if err != nil {
 			return err
 		}
+		// Operative cutover kinds are capability-filtered new kinds: they are
+		// claimable only when the peer holds the compiled DeliveryCutover command
+		// capability. delivery.prepare support never substitutes for it, and an
+		// unsupported pending command must never starve supported kinds.
+		claimKinds := append([]string(nil), kinds...)
+		if capabilities.DeliveryCutover {
+			claimKinds = append(claimKinds, domain.DeliveryQuiesceKind, domain.DeliveryApplyKind, domain.DeliveryResumeKind)
+		}
+		if len(claimKinds) == 0 {
+			return nil
+		}
 		var row probeCommandRow
-		err = tx.NewSelect().Model(&row).Where("hub_id = ? AND probe_id = ? AND stream_id = ? AND kind IN (?) AND remote_confirmed = ? AND status = ? AND next_attempt_at <= ? AND protected_payload IS NOT NULL", session.HubID, session.ProbeID, session.StreamID, bun.List(kinds), false, "pending", authority.now).OrderExpr("next_attempt_at ASC, created_at ASC, command_id ASC").Limit(1).Scan(ctx)
+		err = tx.NewSelect().Model(&row).Where("hub_id = ? AND probe_id = ? AND stream_id = ? AND kind IN (?) AND remote_confirmed = ? AND status = ? AND next_attempt_at <= ? AND protected_payload IS NOT NULL", session.HubID, session.ProbeID, session.StreamID, bun.List(claimKinds), false, "pending", authority.now).OrderExpr("next_attempt_at ASC, created_at ASC, command_id ASC").Limit(1).Scan(ctx)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
@@ -271,7 +284,7 @@ func (s *ProbeCommandStore) ClaimCommand(ctx context.Context, session domain.Pro
 // CompleteCommand records only a durable source result received on current
 // session authority. Contradictory duplicate results never overwrite history.
 func (s *ProbeCommandStore) CompleteCommand(ctx context.Context, session domain.ProbeReplaySession, result domain.ProbeCommandOutcome) error {
-	if !validCommandSession(session) || !validCommandOutcome(result) {
+	if !validCommandSession(session) || (!validCommandOutcome(result) && !validDeliveryPreparationOutcome(result) && !validDeliveryCutoverResultShape(result)) {
 		return domain.ErrValidation
 	}
 	if result.AppliedAt != nil {
@@ -291,7 +304,7 @@ func (s *ProbeCommandStore) CompleteCommand(ctx context.Context, session domain.
 		if err := tx.NewSelect().Model(&row).Where("command_id = ? AND hub_id = ? AND probe_id = ? AND stream_id = ?", result.CommandID, session.HubID, session.ProbeID, session.StreamID).Scan(ctx); err != nil {
 			return err
 		}
-		if row.Attempts < 1 || (row.Kind != "alert.ack" && row.Kind != "credential.prepare" && row.Kind != "credential.activate" && row.Kind != "certificate.prepare" && row.Kind != "certificate.activate") {
+		if row.Attempts < 1 || (row.Kind != "alert.ack" && row.Kind != deliveryPrepareKind && row.Kind != "credential.prepare" && row.Kind != "credential.activate" && row.Kind != "certificate.prepare" && row.Kind != "certificate.activate" && row.Kind != domain.DeliveryQuiesceKind && row.Kind != domain.DeliveryApplyKind && row.Kind != domain.DeliveryResumeKind) {
 			return ports.ErrConflict
 		}
 		if row.RemoteConfirmed {
@@ -302,7 +315,23 @@ func (s *ProbeCommandStore) CompleteCommand(ctx context.Context, session domain.
 			if row.Status != "pending" {
 				return ports.ErrConflict
 			}
-			if row.Kind == "alert.ack" {
+			if row.Kind == domain.DeliveryQuiesceKind || row.Kind == domain.DeliveryApplyKind || row.Kind == domain.DeliveryResumeKind {
+				// Kind-specific receipt: success carries the exact
+				// delivery_quiesced/delivery_applied/delivery_resumed code and never
+				// credential/certificate details. Code-empty success is invalid.
+				if !validDeliveryCutoverResult(row.Kind, result) {
+					return domain.ErrValidation
+				}
+			} else if row.Kind == deliveryPrepareKind {
+				// Generic nonrotation receipt: success carries only the
+				// delivery_prepared code and never credential/certificate details.
+				if !validDeliveryPreparationOutcome(result) {
+					return domain.ErrValidation
+				}
+			} else if !validCommandOutcome(result) {
+				// Every legacy kind keeps its exact historical result shape.
+				return domain.ErrValidation
+			} else if row.Kind == "alert.ack" {
 				if result.CredentialVersion != 0 || result.CertificateVersion != 0 || result.CertificateFingerprint != "" || result.CertificateNotAfter != nil {
 					return domain.ErrValidation
 				}

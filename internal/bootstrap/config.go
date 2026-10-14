@@ -140,6 +140,9 @@ type Config struct {
 
 	// ProbesEnabled opts compatible hub workers into remote connector ownership.
 	ProbesEnabled bool `env:"PROBES_ENABLED" envDefault:"false"`
+	// ProbesAggregatePagingEnabled opts into operative cutover, never standby.
+	// Disabled workers drain previously persisted barriers before source resume.
+	ProbesAggregatePagingEnabled bool `env:"PROBES_AGGREGATE_PAGING_ENABLED" envDefault:"false"`
 	// ProbeEndpointPolicyFile explicitly permits private management destinations.
 	ProbeEndpointPolicyFile string `env:"PROBE_ENDPOINT_POLICY_FILE" envDefault:""`
 }
@@ -158,6 +161,9 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.ProbesEnabled && cfg.ProbeSecretKeyFile == "" {
 		return Config{}, fmt.Errorf("PROBES_ENABLED requires PROBE_SECRET_KEY_FILE")
+	}
+	if cfg.ProbesAggregatePagingEnabled && !cfg.ProbesEnabled {
+		return Config{}, fmt.Errorf("PROBES_AGGREGATE_PAGING_ENABLED requires PROBES_ENABLED")
 	}
 	return cfg, nil
 }

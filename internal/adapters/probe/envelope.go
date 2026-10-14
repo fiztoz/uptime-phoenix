@@ -179,6 +179,7 @@ func knownMessageType(kind string) bool {
 		"config.begin", "config.chunk", "config.commit", "config.applied", "config.rejected",
 		"state.begin", "state.chunk", "state.commit", "state.applied",
 		"telemetry.batch", "telemetry.ack", "telemetry.retry", "telemetry.gap",
+		"delivery.regional_applied",
 		"command.request", "command.result", "enroll.request", "enroll.result":
 		return true
 	default:

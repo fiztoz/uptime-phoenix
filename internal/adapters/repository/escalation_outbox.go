@@ -126,6 +126,13 @@ func (r *EscalationOutboxStore) CommitEscalationStep(ctx context.Context, plan d
 			return nil
 		}
 
+		suppressed, err := localAvailabilitySuppressedTx(ctx, tx, state.MonitorID)
+		if err != nil {
+			return err
+		}
+		if suppressed {
+			return finishEscalationTx(ctx, tx, &state, domain.EscalationStateCanceled, plan.At)
+		}
 		for _, id := range plan.NotificationIDs {
 			enabled := false
 			for _, n := range applied.Notifications {

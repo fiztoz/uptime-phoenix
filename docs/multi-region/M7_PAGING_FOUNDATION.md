@@ -5,13 +5,31 @@ This is a bounded implementation slice of [M7](IMPLEMENTATION_PLAN.md#10-follow-
 aggregate paging. Regional delivery remains the only accepted runtime mode.
 The separate M6 conditional lab acceptance and operational gates are unchanged.
 Wire compatibility for carrying the desired mode on config snapshots is documented in [M7_PROTOCOL_DELIVERY.md](M7_PROTOCOL_DELIVERY.md).
+[Receipt-backed configuration reads](M7_RECEIPT_BACKED_CONFIG.md) retain the desired
+mode through cold loads and select exact acknowledged documents; they are not
+applied-mode evidence. Their named MariaDB reader/diagnostic/binding cases now
+pass the [Colima real-engine gate](M7_COLIMA_ACCEPTANCE.md); broader runtime
+application and release acceptance remain open. The
+[pure cutover-evidence contract](M7_CUTOVER_EVIDENCE.md) specifies separate
+mode-application evidence without adding a runtime caller or activation barrier.
+The [edge regional application seam](M7_EDGE_REGIONAL_APPLICATION.md) supplies
+source-local effective regional state behind real activation/recording/final
+checks. Its [protected local-hub counterpart](M7_LOCAL_REGIONAL_APPLICATION.md)
+uses fresh activation and existing execution/recording/pre-send reads, with
+ordinary legacy dispatch unchanged and no new final transactional send fence.
+Neither seam alone is authenticated cross-source reporting or aggregate application
+support. The subsequent [regional reporting slice](M7_REGIONAL_APPLICATION_REPORTING.md)
+adds a separate authenticated regional-only report, without supplying aggregate
+application capability, cutover authority or a production decision caller.
 
 ## Implemented decision contract
 
 `EvaluateAggregatePaging` is a pure availability incident decision function. It
 reuses `EvaluateMonitorHealth` rather than creating a second ANY/ALL truth table.
 It proposes hold, open, recover, or administrative closure; it does no I/O and
-does not authorize a provider send. No production caller is wired in this slice.
+does not authorize a provider send. No production caller was wired in this slice.
+The later [standby reconciliation](M7_AGGREGATE_STANDBY.md) reuses it for held-only
+planning; it still authorizes no send, cutover or regional suppression.
 
 The caller supplies a complete assignment snapshot already selected by accepted
 assignment generation and stream. Missing/stale/future/recovering evidence stays
@@ -40,7 +58,7 @@ parallel adapter/service work.
 | Boundary | Required behavior |
 |---|---|
 | Desired configuration | Persist delivery mode on `MonitorProbeAssignments`; absent legacy mode is regional. Mode changes participate in existing assignment CAS revision and effective-time history. Policy/membership/mode no-ops do not increment revision. |
-| Applied configuration | A source's applied mode and revision come only from its exact durable configuration receipt, including retained snapshot hash. Desired mode is never evidence that an offline or old probe stopped paging. Expose pending application explicitly. |
+| Applied configuration | A config receipt and exact retained snapshot prove acknowledged desired document content only. Runtime mode application requires separate authenticated durable evidence bound to the current assignment-set revision, generation, exact document revision/hash and accepted source stream. The pure cutover contract specifies these bindings but supplies no producer. Desired mode never proves an offline or old probe stopped paging. Expose pending application explicitly. |
 | Protocol compatibility | Extend the explicit `decodeConfigFields` allowlist with bounded optional decoding and absent-field regional defaults. A JSON struct tag alone is insufficient. Pending receipts continue to refer to their original immutable snapshot. |
 | Source compatibility | Reject activation on an incapable source or leave it visibly pending; never silently claim aggregate-only behavior while it still pages regionally. The supported capability negotiation and activation barrier must be implemented and tested before controls are enabled. |
 | Durable reconciliation | Atomically validate current assignment revision, accepted stream/generation evidence, and stored lease owner/epoch/expiry while changing the aggregate incident and inserting provider intents. Enforce one open availability incident per monitor and immutable source identity plus transition version. |

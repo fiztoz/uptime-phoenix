@@ -62,6 +62,8 @@ type DeliveryOutboxConsumer struct {
 	cronEval      ports.CronEvaluator
 	senders       map[string]ports.NotificationSender
 	tagReader     NotificationTagReader
+	authorizer    ports.LocalDeliveryAuthorizer
+	journal       ports.SourceProviderAttemptJournal
 	cfg           DeliveryConsumerConfig
 	now           func() time.Time
 }
@@ -93,6 +95,12 @@ func NewDeliveryOutboxConsumer(
 // SetAssignmentRepository attaches assignment tracking for generation fences.
 func (c *DeliveryOutboxConsumer) SetAssignmentRepository(repo ports.MonitorProbeAssignmentRepository) {
 	c.assignments = repo
+}
+
+// SetProviderAuthority attaches final stored-work authorization and completion.
+// Configure both before starting the protected local consumer.
+func (c *DeliveryOutboxConsumer) SetProviderAuthority(authorizer ports.LocalDeliveryAuthorizer, journal ports.SourceProviderAttemptJournal) {
+	c.authorizer, c.journal = authorizer, journal
 }
 
 // SetActivationRepository attaches active configuration revision tracking.
@@ -512,7 +520,71 @@ func (c *DeliveryOutboxConsumer) executeSendAndFinish(
 	// lease_until expires. Upon expiry, a subsequent claim may retry the send,
 	// leading to an external duplicate. This window is unavoidable in distributed
 	// systems without provider-side idempotency keys.
-	sendErr := sender.Send(ctx, notif.Config, alertContext)
+	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var providerAttemptID string
+	if c.authorizer != nil {
+		if c.activations == nil || c.journal == nil {
+			return domain.ErrInternal
+		}
+		active, err := c.activations.GetActive(sendCtx, domain.LocalProbeID)
+		if err != nil {
+			return err
+		}
+		if active == nil || applied == nil || active.Revision != applied.Revision {
+			return ports.ErrConflict
+		}
+		grant, err := c.authorizer.AuthorizeLocalDelivery(sendCtx, claim, *active, 10*time.Second)
+		if err != nil {
+			return err
+		}
+		if grant == nil || grant.Config == nil || grant.AttemptID == "" {
+			return domain.ErrInternal
+		}
+		providerAttemptID = grant.AttemptID
+		// Provider work and rendering use only the exact authenticated grant,
+		// not an earlier observational read or caller-supplied queue fields.
+		delivery, applied = grant.Delivery, grant.Config
+		notif, monitor = nil, nil
+		for _, channel := range applied.Notifications {
+			if channel != nil && channel.ID == delivery.NotificationID {
+				notif = channel
+				break
+			}
+		}
+		for _, assignment := range applied.Assignments {
+			if assignment.Monitor != nil && assignment.Monitor.ID == delivery.MonitorID {
+				monitor = assignment.Monitor
+				break
+			}
+		}
+		if notif == nil || monitor == nil || !notif.Active {
+			if err := finishProviderAttemptState(ctx, c.journal, providerAttemptID, domain.ProviderAttemptNotStarted); err != nil {
+				return err
+			}
+			return domain.ErrInternal
+		}
+		sender, ok = c.senders[notif.Type]
+		if !ok {
+			if err := finishProviderAttemptState(ctx, c.journal, providerAttemptID, domain.ProviderAttemptNotStarted); err != nil {
+				return err
+			}
+			return c.outbox.FinishDelivery(ctx, claim, domain.DeliveryResult{Status: domain.DeliveryStatusFailed, At: c.now().UTC(), ErrorCode: domain.ErrCodeUnknownSenderType})
+		}
+		ackURL = c.resolveAckURL(sendCtx, delivery)
+		alertContext = c.buildAlertContext(sendCtx, delivery, notif, monitor, ackURL, delivery.EventKind, applied)
+		if err := sendCtx.Err(); err != nil {
+			if finishErr := finishProviderAttemptState(ctx, c.journal, providerAttemptID, domain.ProviderAttemptNotStarted); finishErr != nil {
+				return finishErr
+			}
+			return err
+		}
+	}
+	sendErr := sender.Send(sendCtx, notif.Config, alertContext)
+	cancel()
+	if err := finishProviderAttempt(ctx, c.journal, providerAttemptID, sendErr); err != nil {
+		return err
+	}
 	now = c.now().UTC()
 
 	var result domain.DeliveryResult

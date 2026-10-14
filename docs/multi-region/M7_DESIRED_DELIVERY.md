@@ -3,7 +3,8 @@
 This slice stores the operator's desired availability paging mode. It does **not**
 complete M7, send aggregate pages, or suppress regional delivery. Regional paging
 remains the only runtime mode. The [decision foundation](M7_PAGING_FOUNDATION.md)
-is still unwired.
+was left unwired by this slice. The later [standby planner](M7_AGGREGATE_STANDBY.md)
+uses it for held-only planning, never aggregate sends or regional suppression.
 
 ## Stored contract
 
@@ -35,10 +36,16 @@ is not active. It does not offer a selector. Selecting the mode in the UI
 remains blocked until capability negotiation, applied receipts, and
 persist/reload/error/conflict coverage exist.
 
-## Explicitly not done
+## Checkpoint limitations
 
-- No probe config snapshot includes `alert_delivery`. Old decoders are unchanged.
-- No source capability is required or advertised for this field.
+The first two limitations below describe this persistence slice only. The later
+[protocol slice](M7_PROTOCOL_DELIVERY.md) carries the field and advertises
+informational support; [receipt-backed reads](M7_RECEIPT_BACKED_CONFIG.md) preserve
+it through decoding and cold loads. Neither follow-up activates paging or turns a
+document receipt into applied-mode evidence.
+
+- This persistence slice did not include `alert_delivery` in config snapshots.
+- This persistence slice did not require or advertise a source capability.
 - No aggregate incident, provider intent, deduplication, or ownership fence is written.
 - No regional availability send is suppressed because the desired mode changed.
 - Certificate, capacity, and escalation behavior are unchanged.

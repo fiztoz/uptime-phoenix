@@ -188,6 +188,10 @@ func (s *EdgeDeliveryService) process(ctx context.Context, item domain.QueuedDel
 	alert := edgeAlertContext(*stored, *assignment, config, channel.Notification, includeTarget, s.now().UTC())
 	err = provider.Send(sendCtx, channel.Notification.Config, alert)
 	cancel()
+	journal, _ := s.outbox.(ports.SourceProviderAttemptJournal)
+	if releaseErr := finishProviderAttempt(ctx, journal, stored.ProviderAttemptID, err); releaseErr != nil {
+		return releaseErr
+	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}

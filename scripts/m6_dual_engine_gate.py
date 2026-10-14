@@ -50,6 +50,117 @@ REQUIRED = {
     "TestMonitorDeleteConcurrencyDiagnostic/DeleteVersusWorkerLeaseLifecycle",
     "TestMonitorDeleteReplayDiagnostic/ReplayCommitVersusDelete",
     "TestMonitorDeleteReplayDiagnostic/CurrentSnapshotCommitVersusDelete",
+    # M7 receipt-backed reads must execute on InnoDB, not only SQLite.
+    "TestRemoteAppliedConfigContract/mariadb/ImmutableReceiptSelection",
+    "TestRemoteAppliedConfigContract/mariadb/ConcurrentReceiptRead",
+    "TestRemoteAppliedConfigContract/mariadb/MissingReceipt",
+    "TestRemoteAppliedConfigContract/mariadb/ReceiptHash",
+    "TestRemoteAppliedConfigContract/mariadb/ReceiptHub",
+    "TestRemoteAppliedConfigContract/mariadb/ReceiptCount",
+    "TestRemoteAppliedConfigContract/mariadb/ReceiptTime",
+    "TestRemoteAppliedConfigContract/mariadb/SnapshotHash",
+    "TestRemoteAppliedConfigContract/mariadb/SnapshotHub",
+    "TestRemoteAppliedConfigContract/mariadb/ActiveCount",
+    "TestRemoteAppliedConfigContract/mariadb/ForeignActiveTarget",
+    "TestRemoteAppliedConfigContract/mariadb/AuthenticationAndValidation",
+    "TestDeliveryConfigEvidenceAPI/mariadb",
+    "TestLocalDeliveryConfigContract/mariadb/ImmutableReceiptSelection",
+    "TestLocalDeliveryConfigContract/mariadb/ConcurrentReceiptRead",
+    "TestLocalDeliveryConfigContract/mariadb/MissingReceipt",
+    "TestLocalDeliveryConfigContract/mariadb/ReceiptHash",
+    "TestLocalDeliveryConfigContract/mariadb/ReceiptCount",
+    "TestLocalDeliveryConfigContract/mariadb/ReceiptTime",
+    "TestLocalDeliveryConfigContract/mariadb/SnapshotHash",
+    "TestLocalDeliveryConfigContract/mariadb/ForeignActiveTarget",
+    "TestLocalDeliveryConfigContract/mariadb/AuthenticationAndValidation",
+    "TestLocalDeliveryConfigEvidenceAPI/mariadb",
+    "TestAssignmentRevisionBindingContract/mariadb/LocalBoundABA",
+    "TestAssignmentRevisionBindingContract/mariadb/StalePreparedNoLegacyFallback",
+    "TestAssignmentRevisionBindingContract/mariadb/LegacyLocalExecutionAndRefresh",
+    "TestAssignmentRevisionBindingContract/mariadb/RemoteReceiptBinding",
+    "TestAssignmentRevisionBindingContract/mariadb/InvalidSourceRevision",
+    "TestAssignmentRevisionSessionContract/mariadb/regional",
+    "TestAssignmentRevisionSessionContract/mariadb/aggregate",
+    "TestAssignmentRevisionSessionContract/mariadb/both",
+    # Local regional application facts must exercise real hub transactions.
+    "TestLocalRegionalApplicationContract/mariadb/regional",
+    "TestLocalRegionalApplicationContract/mariadb/aggregate",
+    "TestLocalRegionalApplicationContract/mariadb/both",
+    "TestLocalRegionalApplicationContract/mariadb/ActivationRollback",
+    "TestLocalRegionalApplicationContract/mariadb/RetryAndUpgrade",
+    "TestLocalRegionalApplicationContract/mariadb/PartialUpgrade",
+    "TestLocalRegionalApplicationContract/mariadb/RecordingFence",
+    "TestLocalRegionalApplicationContract/mariadb/Migration",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/assignment_revision",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/generation",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/hub_id",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/sha256",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/monitor_id",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/stream_id",
+    "TestLocalRegionalApplicationContract/mariadb/PresentMismatch/alert_delivery",
+    "TestLocalRegionalApplicationContract/mariadb/OutboxBeforeSend",
+    "TestLocalRegionalApplicationContract/mariadb/EscalationEnqueue",
+    # Authenticated reports need real receipt/session/expiry/atomicity coverage.
+    *{
+        f"TestRemoteRegionalApplicationContract/mariadb/{case}"
+        for case in (
+            "ReceiptPrerequisite", "ImmutableReconnectAndABA", "TupleAndBatchRollback",
+            "CorruptRetainedAndDuplicate", "ConcurrentDuplicate", "LeaseExpiresDuringDecode",
+            "CancellationAndRedaction", "Migration", "ResetPending",
+            "SessionFence/owner", "SessionFence/generation", "SessionFence/expiry",
+            "SessionFence/disabled", "SessionFence/revoked", "SessionFence/stream",
+            "SessionFence/retired", "SessionFence/key", "SessionFence/hub",
+            "TupleAndBatchRollback/monitor", "TupleAndBatchRollback/binding",
+            "TupleAndBatchRollback/generation", "TupleAndBatchRollback/revision",
+            "TupleAndBatchRollback/hash", "TupleAndBatchRollback/stream",
+            "TupleAndBatchRollback/target", "TupleAndBatchRollback/aggregate",
+            "TupleAndBatchRollback/both", "TupleAndBatchRollback/unbound",
+        )
+    },
+    *{
+        f"TestDeliveryPreparationContract/mariadb/{case}"
+        for case in (
+            "Positive", "Prerequisites", "CurrentABA", "ImmutableDuplicates",
+            "CapabilityStarvation", "StaleSessionExpiryRollback", "ServiceDispatch",
+            "StaleSessionExpiryRollback/owner", "StaleSessionExpiryRollback/generation",
+            "StaleSessionExpiryRollback/hub",
+        )
+    },
+    *{f"TestDeliveryPreparationSessionContract/mariadb/{mode}"
+      for mode in ("regional", "aggregate", "both")},
+    *{f"TestOperativeCutoverContract/mariadb/{case}" for case in ("ColdMembership", "DrainAmbiguousBlocks", "DrainPendingAndStarted", "FencesAndStageOrder", "GateSuppression", "LocalProviderJournal", "MigrationConstraints", "MissingPreparation", "RemoteMembership", "aggregate", "both",)},
+    *{f"TestOperativeRefinementContract/mariadb/{case}" for case in ("AdoptionFutureReceipt", "AdoptionObservationBoundary", "AdoptionReceiptBoundary", "BusyCodeAlignsAndRearms", "CorruptionBlocks", "DigestMismatchRefused", "DigestOnlyPlans", "DisableDrainsApplying", "DisableDrainsQuiesced", "DisableDrainsQuiescing", "RemoteBusyRearmsFromReceipt", "RepeatThrottle", "ResumeWithdrawsQueuedPhase", "StandbyNeverPreventsOperativeOpen",)},
+    *{f"TestOperativeProviderLifecycle/mariadb/{case}" for case in ("ProviderErrorBlocksDrain", "aggregate", "both",)},
+    *{f"TestOperativeCutoverSessionContract/mariadb/{case}" for case in ("aggregate", "both",)},
+    *{f"TestOperativeUpgradeContract/mariadb/{case}" for case in ("LegacyAmbiguity", "HeldRuntime",)},
+    *{f"TestOperativeProviderFences/mariadb/{case}" for case in ("MissingRegionalFact", "MissingPreparation", "AvailableAt", "FinishClockRollback")},
+    *{f"TestOperativeActivationCycle/mariadb/{case}" for case in ("aggregate", "both",)},
+    *{f"TestAggregateStandbyContract/mariadb/{case}"
+      for case in (
+          "regional", "aggregate", "both", "ColdPlanningDeadline", "EvidenceFilters",
+          "AdministrativeABA", "ChannelIdentity", "AtomicRollback", "LeaseFences",
+          "ExpiryDuringEvaluation", "LockWaitExpiry", "ConcurrentWorkers", "Migration",
+          "WorkerBeforeAssignment", "CurrentAfterReplay", "UnknownHolds",
+          "CorruptStandbyRegional", "ConcurrentStateWriter", "ClockDomains",
+          "RepeatSettings", "IndependentBatch",
+      )},
+    *{f"TestDeliveryPreparationRoundContract/mariadb/{case}"
+      for case in (
+          "RemoteReuseCold", "TerminalCooldownRearm", "ExpiryRearm", "MixedAllSources",
+          "HistoricalFailure", "ABA", "AtomicRollback", "CorruptMembership",
+          "ConcurrentCreators", "CanceledStaleAuthority", "Migration",
+      )},
+    *{f"TestLocalDeliveryPreparationRoundRefresh/mariadb/{mode}" for mode in ("aggregate", "both")},
+    *{f"TestDeliveryPreparationRoundSessionContract/mariadb/{mode}" for mode in ("aggregate", "both")},
+    *{f"TestLocalDeliveryPreparationContract/mariadb/{case}"
+      for case in (
+          "regional", "aggregate", "both", "AtomicRollback", "RetryAndColdUpgrade",
+          "PartialUpgrade", "ModeAndPolicyABA", "PrerequisitesAndCancellation",
+          "ConcurrentSelection", "Migration", "WorkerBeforeAssignment",
+          "PresentMismatch/assignment_revision", "PresentMismatch/generation",
+          "PresentMismatch/hub_id", "PresentMismatch/sha256", "PresentMismatch/monitor_id",
+          "PresentMismatch/stream_id", "PresentMismatch/alert_delivery",
+      )},
 }
 
 
@@ -62,7 +173,7 @@ def docker(*args, env=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mariadb-image", choices=(DEFAULT_IMAGE, "mariadb:12.3"),
+    parser.add_argument("--mariadb-image", choices=(DEFAULT_IMAGE, "mariadb:12.3", "mariadb@sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15"),
                         default=DEFAULT_IMAGE, help="cached disposable DB image, never a live instance")
     parser.add_argument("--go-json", type=Path,
                         help="save complete Go JSON events to a NEW private file for scenario evaluation")
@@ -128,7 +239,7 @@ def main():
         if len(toolchains) != 1:
             raise RuntimeError("cached Go 1.26.9 toolchain required; refusing download")
         env.pop("GOROOT", None)
-        env.update(GOTOOLCHAIN="local", GOPROXY="off", GOSUMDB="off",
+        env.update(GOENV="off", GOTOOLCHAIN="local", GOPROXY="off", GOSUMDB="off",
                    TEST_MARIADB_DSN=f"phoenix:phoenix@tcp(127.0.0.1:{port})/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true")
         started = time.monotonic()
         cmd = [str(toolchains[0]), "test", "-race", "-count=1", "-json", "-timeout", "2400s",
@@ -189,7 +300,7 @@ def main():
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 check=False)
         if exists.returncode == 0:
-            docker("rm", "-f", name)
+            docker("rm", "-f", "-v", name)
     if summary is not None:
         print(json.dumps(summary, indent=2))
         if summary["result"] != "passed":

@@ -16,11 +16,14 @@ import (
 // The optional diagnostics port is the only source allowed to populate the
 // staged connection/config diagnostic fields; without it they stay unreported.
 type MonitorRegionalService struct {
-	health      *MonitorHealthService
-	registry    ports.ProbeRegistryRepository
-	diagnostics ports.ProbeDiagnosticsRepository
-	obs         ports.RegionalObservationReader
-	assignHist  ports.AssignmentHistoryReader
+	health        *MonitorHealthService
+	registry      ports.ProbeRegistryRepository
+	diagnostics   ports.ProbeDiagnosticsRepository
+	delivery      ports.RemoteProbeDeliveryConfigReader
+	localDelivery ports.LocalProbeDeliveryConfigReader
+	deliveryHub   string
+	obs           ports.RegionalObservationReader
+	assignHist    ports.AssignmentHistoryReader
 }
 
 // MonitorRegionalAssignments contains desired membership, not proof of execution.

@@ -128,6 +128,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	configs := services.NewEdgeConfigService(store, store, probe.NewEdgeConfigDecoder(checker.Get, notifier.Get, resources), protector)
+	configs.SetDeliveryPreparations(store)
 	progress, err := store.ReadIdentity(ctx)
 	if err != nil {
 		_, _ = io.WriteString(stderr, "Probe identity storage is invalid\n")

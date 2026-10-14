@@ -223,6 +223,7 @@ func (r *ProbeActivationStore) ActivateLocal(ctx context.Context, params ports.L
 			return err
 		}
 		currentSHA256 := fmt.Sprintf("%x", sha256.Sum256(doc))
+		clear(doc)
 		if currentSHA256 != params.SHA256 {
 			return ports.ErrConflict
 		}
@@ -263,6 +264,12 @@ func (r *ProbeActivationStore) ActivateLocal(ctx context.Context, params ports.L
 		}
 
 		if _, err := tx.NewInsert().Model(&receiptModel).Exec(ctx); err != nil {
+			return err
+		}
+		if err := writeLocalRegionalApplicationsTx(ctx, tx, definition, params.SHA256); err != nil {
+			return err
+		}
+		if err := writeLocalDeliveryPreparationsTx(ctx, tx, definition, params.SHA256); err != nil {
 			return err
 		}
 
@@ -344,8 +351,31 @@ func readAppliedLocalTx(ctx context.Context, tx bun.Tx, encoder ports.LocalProbe
 	if err != nil {
 		return nil, err
 	}
+	matched := fmt.Sprintf("%x", sha256.Sum256(document)) == active.SHA256
+	clear(document)
+	if matched {
+		if err := readLocalRegionalApplicationsTx(ctx, tx, &resolved, active.SHA256); err != nil {
+			return nil, err
+		}
+		return &resolved, nil
+	}
+	// Pre-binding snapshots must remain executable without fabricating a
+	// current set revision. Verify the SAME full source graph in its legacy
+	// wire shape; an exact original hash is the only permitted compatibility
+	// match. A bound stale snapshot cannot match this unbound encoding.
+	for i := range resolved.Assignments {
+		resolved.Assignments[i].AssignmentRevision = 0
+	}
+	document, err = encoder.EncodeLocal(resolved)
+	if err != nil {
+		return nil, err
+	}
+	defer clear(document)
 	if fmt.Sprintf("%x", sha256.Sum256(document)) != active.SHA256 {
 		return nil, ports.ErrConflict
+	}
+	if err := readLocalRegionalApplicationsTx(ctx, tx, &resolved, active.SHA256); err != nil {
+		return nil, err
 	}
 	return &resolved, nil
 }

@@ -20,6 +20,8 @@ type LocalProbeConfigRefreshService struct {
 	activationSvc     *LocalProbeConfigActivationService
 	activationRepo    ports.ProbeConfigActivationRepository
 	installationRepo  ports.ProbeInstallationRepository
+	localPreparations ports.LocalDeliveryPreparationReader
+	preparationRounds ports.LocalDeliveryPreparationRoundReconciler
 	mu                sync.Mutex
 	now               func() time.Time
 	reconcileInterval time.Duration
@@ -45,6 +47,28 @@ func NewLocalProbeConfigRefreshService(
 		now:               time.Now,
 		reconcileInterval: 5 * time.Second,
 	}
+}
+
+// SetDeliveryPreparations enables pending-request completeness for protected
+// local refreshes. It never enables application or changes execution behavior.
+// Configure before starting the worker.
+func (s *LocalProbeConfigRefreshService) SetDeliveryPreparations(reader ports.LocalDeliveryPreparationReader) {
+	s.localPreparations = reader
+}
+
+// SetPreparationRounds enables independent request-round reconciliation before
+// starting the worker. It never adds an execution or provider-send requirement.
+func (s *LocalProbeConfigRefreshService) SetPreparationRounds(reconciler ports.LocalDeliveryPreparationRoundReconciler) {
+	s.preparationRounds = reconciler
+}
+
+func (s *LocalProbeConfigRefreshService) reconcilePreparationRounds(ctx context.Context, active *domain.ProbeActiveConfig) (*domain.ProbeActiveConfig, error) {
+	if s.preparationRounds != nil {
+		if err := s.preparationRounds.ReconcileLocalDeliveryPreparationRounds(ctx, *active); err != nil {
+			return nil, err
+		}
+	}
+	return active, nil
 }
 
 // SetReconcileInterval configures the periodic reconciliation check interval.
@@ -81,8 +105,14 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 			expectedActiveRevision = active.Revision
 			if reader, ok := s.activationRepo.(ports.LocalAppliedConfigReader); ok {
 				applied, readErr := reader.ReadAppliedLocal(ctx)
-				if readErr == nil && applied != nil && applied.Revision == active.Revision {
-					return active, nil
+				if readErr == nil && applied != nil && applied.Revision == active.Revision && localConfigHasAssignmentBindings(applied) && localConfigHasRegionalApplications(applied) {
+					complete, prepErr := s.localPreparationsComplete(ctx, *active, applied)
+					if prepErr != nil {
+						return nil, prepErr
+					}
+					if complete {
+						return s.reconcilePreparationRounds(ctx, active)
+					}
 				}
 			}
 		} else if !errors.Is(err, ports.ErrNotFound) {
@@ -97,7 +127,7 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 			if latestMeta.Revision > expectedActiveRevision {
 				applied, actErr := s.activationSvc.Activate(ctx, target, latestMeta.Revision, latestMeta.SHA256, expectedActiveRevision)
 				if actErr == nil {
-					return applied, nil
+					return s.reconcilePreparationRounds(ctx, applied)
 				}
 			}
 		} else if !errors.Is(latestErr, ports.ErrNotFound) {
@@ -116,7 +146,7 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 
 		applied, err := s.activationSvc.Activate(ctx, meta.ProbeConfigTarget, meta.Revision, meta.SHA256, expectedActiveRevision)
 		if err == nil {
-			return applied, nil
+			return s.reconcilePreparationRounds(ctx, applied)
 		}
 		if !errors.Is(err, ports.ErrConflict) {
 			return nil, err
@@ -128,12 +158,60 @@ func (s *LocalProbeConfigRefreshService) Refresh(ctx context.Context) (*domain.P
 	if err == nil && active != nil {
 		if reader, ok := s.activationRepo.(ports.LocalAppliedConfigReader); ok {
 			applied, readErr := reader.ReadAppliedLocal(ctx)
-			if readErr == nil && applied != nil && applied.Revision == active.Revision {
-				return active, nil
+			if readErr == nil && applied != nil && applied.Revision == active.Revision && localConfigHasAssignmentBindings(applied) && localConfigHasRegionalApplications(applied) {
+				complete, prepErr := s.localPreparationsComplete(ctx, *active, applied)
+				if prepErr != nil {
+					return nil, prepErr
+				}
+				if complete {
+					return s.reconcilePreparationRounds(ctx, active)
+				}
 			}
 		}
 	}
 	return nil, ports.ErrConflict
+}
+
+// localConfigHasAssignmentBindings keeps legacy snapshots executable while
+// allowing the existing refresher to publish a new bound revision on upgrade.
+func localConfigHasAssignmentBindings(definition *domain.LocalProbeConfigDefinition) bool {
+	for _, assignment := range definition.Assignments {
+		if assignment.AssignmentRevision <= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// localConfigHasRegionalApplications lets pre-upgrade documents execute while
+// directing the refresher to activate a new revision with complete honest facts.
+// This is refresh completeness only, not cutover or send authority.
+func localConfigHasRegionalApplications(definition *domain.LocalProbeConfigDefinition) bool {
+	if len(definition.RegionalDeliveryApplications) != len(definition.Assignments) {
+		return false
+	}
+	byMonitor := make(map[int64]domain.ProbeDeliveryModeApplication, len(definition.RegionalDeliveryApplications))
+	for _, fact := range definition.RegionalDeliveryApplications {
+		if !domain.ValidProbeDeliveryModeApplication(fact) || fact.ProbeConfigTarget != definition.Target ||
+			fact.ProbeID != domain.LocalProbeID || fact.StreamID != domain.LocalStreamID ||
+			fact.ConfigRevision != definition.Revision || fact.AlertDelivery != domain.AlertDeliveryRegional {
+			return false
+		}
+		if _, duplicate := byMonitor[fact.MonitorID]; duplicate {
+			return false
+		}
+		byMonitor[fact.MonitorID] = fact
+	}
+	for _, assignment := range definition.Assignments {
+		if assignment.Monitor == nil {
+			return false
+		}
+		fact, exists := byMonitor[assignment.Monitor.ID]
+		if !exists || fact.Generation != assignment.Generation || fact.AssignmentRevision != assignment.AssignmentRevision {
+			return false
+		}
+	}
+	return true
 }
 
 // StartEventSubscription coalesces configuration events into one refresh worker.

@@ -17,10 +17,12 @@ import (
 // RemoteProbeConfigSyncStore reuses protected snapshots and application receipts
 // as durable sync work. Publication and source capture share one transaction.
 type RemoteProbeConfigSyncStore struct {
-	db        *bun.DB
-	encoder   ports.RemoteProbeConfigEncoder
-	decoder   ports.EdgeConfigDecoder
-	protector ports.ProbeConfigProtector
+	db               *bun.DB
+	encoder          ports.RemoteProbeConfigEncoder
+	decoder          ports.EdgeConfigDecoder
+	protector        ports.ProbeConfigProtector
+	preparationCodec ports.ProbeDeliveryPreparationCodec
+	commandProtector ports.ProbeCommandProtector
 }
 
 var _ ports.RemoteProbeConfigSyncRepository = (*RemoteProbeConfigSyncStore)(nil)
@@ -29,6 +31,16 @@ var _ ports.RemoteProbeConfigSyncRepository = (*RemoteProbeConfigSyncStore)(nil)
 // and the installation's verified protector. No network I/O occurs in this store.
 func NewRemoteProbeConfigSyncStore(db *bun.DB, encoder ports.RemoteProbeConfigEncoder, decoder ports.EdgeConfigDecoder, protector ports.ProbeConfigProtector) *RemoteProbeConfigSyncStore {
 	return &RemoteProbeConfigSyncStore{db: db, encoder: encoder, decoder: decoder, protector: protector}
+}
+
+// SetDeliveryPreparations wires the closed preparation request codec and the
+// command protector bound to the verified installation key. Delivery
+// preparation issuance stays disabled until both are configured.
+func (s *RemoteProbeConfigSyncStore) SetDeliveryPreparations(codec ports.ProbeDeliveryPreparationCodec, protector ports.ProbeCommandProtector) {
+	if s == nil {
+		return
+	}
+	s.preparationCodec, s.commandProtector = codec, protector
 }
 
 // RefreshRemote publishes a revision only when the saved complete graph changes.

@@ -28,6 +28,20 @@ type HubTransport struct {
 	receiptTimeout time.Duration
 	stateIngest    ports.ProbeStateService
 	commands       ports.ProbeCommandDispatcher
+	// regionalApplications opts this connector into authenticated regional
+	// application reporting. Nil keeps the welcome unnegotiated and refuses
+	// every delivery.regional_applied frame.
+	regionalApplications ports.RemoteRegionalApplicationRepository
+	// deliveryPreparations opts this connector into bounded automatic delivery
+	// preparation issuance after committed regional reports. Nil never issues.
+	deliveryPreparations         ports.RemoteDeliveryPreparationIssuer
+	preparationReconcileInterval time.Duration
+	// deliveryCutover is the hub's configured/draining feature negotiation for
+	// protected source-gate cutover commands. False (the default) drains: the
+	// welcome never opts in while delivery.resume stays dispatchable to peers
+	// whose executor is configured.
+	deliveryCutover     bool
+	cutoverCapabilities ports.OperativeSourceCapabilityRecorder
 }
 
 var _ ports.ProbeConnectionTransport = (*HubTransport)(nil)
@@ -44,6 +58,33 @@ func (t *HubTransport) SetStateIngest(ingest ports.ProbeStateService) { t.stateI
 // SetCommands enables durable command dispatch before Run. Older peers without
 // the execution capability retain health/config/replay without command sends.
 func (t *HubTransport) SetCommands(commands ports.ProbeCommandDispatcher) { t.commands = commands }
+
+// SetRegionalApplications enables authenticated regional application reporting
+// before Run. Without it the hub never enables the welcome opt-in and accepts no
+// regional application frames, so admin-only connectors stay unnegotiated.
+func (t *HubTransport) SetRegionalApplications(repo ports.RemoteRegionalApplicationRepository) {
+	t.regionalApplications = repo
+}
+
+// SetDeliveryPreparations enables bounded automatic preparation issuance after
+// committed regional reports. Configure it before Run. Nil never issues, and
+// issuance additionally requires configured command dispatch, the peer's exact
+// compiled prepare capability and negotiated regional reporting.
+func (t *HubTransport) SetDeliveryPreparations(issuer ports.RemoteDeliveryPreparationIssuer) {
+	t.deliveryPreparations = issuer
+}
+
+// SetDeliveryCutover negotiates protected source-gate cutover commands before
+// Run. Enabled plus the peer's exact compiled strong capability opts the
+// welcome in; disabled stops new quiesce/apply negotiation and drains existing
+// barriers without ever blocking delivery.resume.
+func (t *HubTransport) SetDeliveryCutover(enabled bool) { t.deliveryCutover = enabled }
+
+// SetCutoverCapabilities records exact accepted-session capability support.
+// Configure before Run; absence never attests support.
+func (t *HubTransport) SetCutoverCapabilities(repo ports.OperativeSourceCapabilityRecorder) {
+	t.cutoverCapabilities = repo
+}
 
 func (t *HubTransport) dial(ctx context.Context, endpoint, pin, token string) (*websocket.Conn, error) {
 	client, err := NewPinnedHTTPClient(endpoint, pin, t.policy)
@@ -111,7 +152,7 @@ func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, 
 // DB-bound callbacks. Nil admission preserves health/config/replay-only operation.
 func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSessionInput, admission ports.ProbeHealthAdmission, established func(context.Context) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
 	m := input.Connection
-	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil || (t.stateIngest != nil || t.commands != nil) && !domain.ValidHubID(input.OwnerID) {
+	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil || (t.stateIngest != nil || t.commands != nil || t.regionalApplications != nil || t.deliveryPreparations != nil) && !domain.ValidHubID(input.OwnerID) {
 		return domain.ErrValidation
 	}
 	var snapshot ConfigSnapshot
@@ -153,7 +194,19 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	if err != nil || kind != websocket.MessageText {
 		return errors.New("probe hello unavailable")
 	}
-	welcome := Welcome{SessionIdentity: SessionIdentity{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID}, SelectedProtocol: 1, ConnectionGeneration: Decimal(input.Generation), CommittedSeq: Decimal(input.CommittedSeq), DesiredConfigRevision: snapshot.Revision, HeartbeatSeconds: HeartbeatSeconds, MaxFrameBytes: MaxFrameBytes, MaxBatchEvents: MaxBatchEvents, MaxBatchBytes: MaxBatchBytes, HubTime: Timestamp(time.Now().UTC())}
+	_, advertised, err := DecodeHello(hello)
+	if err != nil {
+		return errors.New("probe handshake rejected")
+	}
+	// Reporting is two-sided: the hub enables the welcome opt-in only with a
+	// configured report repository and the peer's exact compiled reporting
+	// capability. Aggregate paging never substitutes, older peers stay silent.
+	regionalReporting := t.regionalApplications != nil && containsCapability(advertised.Capabilities, RegionalApplicationCapability)
+	// Cutover is two-sided like reporting: the hub opts the welcome in only when
+	// the feature is configured and the peer advertised the exact strong
+	// capability, which a build emits only with a real cutover executor.
+	deliveryCutover := t.deliveryCutover && containsCapability(advertised.Capabilities, DeliveryCutoverCapability)
+	welcome := Welcome{SessionIdentity: SessionIdentity{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID}, SelectedProtocol: 1, ConnectionGeneration: Decimal(input.Generation), CommittedSeq: Decimal(input.CommittedSeq), DesiredConfigRevision: snapshot.Revision, HeartbeatSeconds: HeartbeatSeconds, MaxFrameBytes: MaxFrameBytes, MaxBatchEvents: MaxBatchEvents, MaxBatchBytes: MaxBatchBytes, HubTime: Timestamp(time.Now().UTC()), RegionalApplicationReporting: regionalReporting, DeliveryCutover: deliveryCutover}
 	frame, err := encodeFrame("welcome", Decimal(input.Generation), welcome)
 	if err != nil {
 		return err
@@ -162,6 +215,7 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	if err != nil {
 		return errors.New("probe handshake rejected")
 	}
+	regionalEnabled := t.regionalApplications != nil && containsCapability(handshake.Hello.Capabilities, RegionalApplicationCapability) && handshake.Welcome.RegionalApplicationReporting
 	if err := conn.Write(handshakeCtx, websocket.MessageText, frame); err != nil {
 		return errors.New("hub welcome write failed")
 	}
@@ -232,8 +286,38 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	}
 	receiver := hubStateReceiver{ingest: t.stateIngest, session: domain.ProbeReplaySession{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: input.Generation, OwnerID: input.OwnerID}}
 	defer receiver.discard()
-	commandCapabilities := domain.ProbeCommandCapabilities{AlertAcknowledgement: slices.Contains(handshake.Hello.Capabilities, AcknowledgementCapability), CredentialRotation: slices.Contains(handshake.Hello.Capabilities, CredentialRotationCapability), CertificateRotation: slices.Contains(handshake.Hello.Capabilities, CertificateRotationCapability)}
-	if t.commands != nil && (commandCapabilities.AlertAcknowledgement || commandCapabilities.CredentialRotation || commandCapabilities.CertificateRotation) {
+	selection := &preparationSelection{}
+	capabilityRecorded := false
+	recordCapability := func(ctx context.Context) error {
+		if t.cutoverCapabilities == nil || capabilityRecorded {
+			return nil
+		}
+		if err := t.cutoverCapabilities.SetOperativeSourceCapability(ctx, receiver.session, containsCapability(handshake.Hello.Capabilities, DeliveryCutoverCapability)); err != nil {
+			return errors.New("cutover capability storage unavailable")
+		}
+		capabilityRecorded = true
+		return nil
+	}
+	preparationEnabled := regionalEnabled && t.deliveryPreparations != nil && t.commands != nil && containsCapability(handshake.Hello.Capabilities, DeliveryPreparationCapability)
+	if preparationEnabled {
+		senders.Add(1)
+		go func() {
+			defer senders.Done()
+			t.reconcileDeliveryPreparations(runCtx, receiver.session, selection, func() { _ = session.Close() })
+		}()
+	}
+	commandCapabilities := domain.ProbeCommandCapabilities{
+		AlertAcknowledgement: slices.Contains(handshake.Hello.Capabilities, AcknowledgementCapability),
+		CredentialRotation:   slices.Contains(handshake.Hello.Capabilities, CredentialRotationCapability),
+		CertificateRotation:  slices.Contains(handshake.Hello.Capabilities, CertificateRotationCapability),
+		DeliveryPreparation:  containsCapability(handshake.Hello.Capabilities, DeliveryPreparationCapability),
+		// Peer execution support, not current negotiation: the source requires the
+		// negotiated welcome opt-in for new quiesce/apply effects, while
+		// delivery.resume must remain deliverable through a feature-disable drain
+		// whenever the peer's executor is configured.
+		DeliveryCutover: containsCapability(handshake.Hello.Capabilities, DeliveryCutoverCapability),
+	}
+	if t.commands != nil && (commandCapabilities.AlertAcknowledgement || commandCapabilities.CredentialRotation || commandCapabilities.CertificateRotation || commandCapabilities.DeliveryPreparation || commandCapabilities.DeliveryCutover) {
 		senders.Add(1)
 		go func() {
 			defer senders.Done()
@@ -315,6 +399,9 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 			if _, _, err := DecodeTelemetryACK(response); err != nil {
 				return errors.New("invalid telemetry receipt")
 			}
+			if err := recordCapability(frameCtx); err != nil {
+				return err
+			}
 			cursor.Store(max(cursor.Load(), result.CommittedSeq))
 			readinessMu.Lock()
 			ingestFailed = false
@@ -322,6 +409,50 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 			readinessMu.Unlock()
 			wakeHealth()
 			return session.SendControl(frameCtx, response)
+		}
+		if envelope.Type == "delivery.regional_applied" {
+			if !regionalEnabled {
+				return errors.New("regional application report unavailable")
+			}
+			_, report, err := DecodeRegionalApplicationReport(data)
+			if err != nil {
+				return err
+			}
+			if report.HubID != m.HubID || report.ProbeID != m.ProbeID || report.StreamID != m.StreamID {
+				return errors.New("regional application report identity mismatch")
+			}
+			applications, err := regionalApplicationFacts(report)
+			if err != nil {
+				return err
+			}
+			// The repository independently verifies the committed receipt and the
+			// exact retained document under the session's owner/generation lease;
+			// queue ordering proves neither. There is no report ACK or cursor.
+			commitCtx, cancelCommit := context.WithTimeout(frameCtx, 10*time.Second)
+			err = t.regionalApplications.RecordRemoteRegionalApplications(commitCtx, receiver.session, applications)
+			cancelCommit()
+			if err != nil {
+				return errors.New("regional application report storage unavailable")
+			}
+			if err := recordCapability(frameCtx); err != nil {
+				return err
+			}
+			// Automatic preparation issuance follows only that committed report,
+			// and only when command dispatch is configured, the peer advertised
+			// the exact compiled prepare capability and regional reporting is
+			// negotiated. It records bounded requests from these committed facts
+			// and current database session authority; it claims no mode
+			// application and no send, suppression or cutover authority.
+			if preparationEnabled {
+				issueCtx, cancelIssue := context.WithTimeout(frameCtx, 10*time.Second)
+				err = t.deliveryPreparations.IssueRemoteDeliveryPreparations(issueCtx, receiver.session, applications)
+				cancelIssue()
+				if err != nil {
+					return errors.New("delivery preparation issuance unavailable")
+				}
+				selection.retain(applications)
+			}
+			return nil
 		}
 		if envelope.Type == "config.applied" {
 			_, applied, err := DecodeConfigApplied(data)

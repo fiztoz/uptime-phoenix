@@ -60,6 +60,19 @@ func (s *Store) CommitEscalationAdvance(ctx context.Context, expectedVersion int
 		if prior.Status != domain.AlertStatusFiring || prior.TransitionVersion != expectedVersion || prior.EscalationStatus != domain.EscalationStatePending || prior.EscalationPolicyID != incident.EscalationPolicyID || prior.MonitorID != incident.MonitorID || prior.AssignmentGeneration != incident.AssignmentGeneration || prior.ProbeID != incident.ProbeID || identity.ProbeID != incident.ProbeID {
 			return ports.ErrStaleLocalState
 		}
+		// A live aggregate source hold filters new escalation intents while the
+		// ladder transition itself remains incident truth and still commits.
+		held, err := aggregateSourceHoldActive(ctx, tx, incident.MonitorID)
+		if err != nil {
+			return err
+		}
+		if len(intents) > 0 && !held {
+			// Keep the plan's document revision: an intervening activation must
+			// refuse old planned work, not relabel it as current application.
+			if err := requireRegionalApplication(ctx, tx, identity, incident.MonitorID, incident.AssignmentGeneration, incident.ConfigRevision); err != nil {
+				return err
+			}
+		}
 		if identity.LastCreatedSeq == math.MaxInt64 {
 			return ports.ErrConflict
 		}
@@ -82,6 +95,9 @@ func (s *Store) CommitEscalationAdvance(ctx context.Context, expectedVersion int
 		for _, intent := range intents {
 			if intent.EscalationPolicyID != incident.EscalationPolicyID || intent.EscalationStep <= 0 || intent.SourceTransitionVersion != incident.TransitionVersion || intent.EventKind != domain.DeliveryEventStatusChange || intent.ProbeID != identity.ProbeID || intent.SourceAlertID != incident.SourceAlertID || intent.NotificationVersion != incident.ConfigRevision {
 				return domain.ErrValidation
+			}
+			if held {
+				continue
 			}
 			queued := domain.QueuedDelivery{DeliveryIntent: intent, MonitorID: incident.MonitorID, AssignmentGeneration: incident.AssignmentGeneration, StreamID: identity.StreamID, SourceSeq: seq, ConfigRevision: incident.ConfigRevision, CheckStatus: domain.StatusDown, CheckOutput: message, ObservedAt: at, IncidentStatus: incident.Status, StartedAt: incident.StartedAt, CreatedAt: at}
 			if err := insertEdgeQueuedDelivery(ctx, tx, queued); err != nil {

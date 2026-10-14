@@ -64,7 +64,10 @@ type QueuedDelivery struct {
 	LeaseUntil *time.Time
 	ErrorCode  string
 	OutcomeAt  *time.Time
-	CreatedAt  time.Time
+	// ProviderAttemptID is an internal final-authorization journal grant.
+	// It is not serialized into existing probe frames or HTTP responses.
+	ProviderAttemptID string
+	CreatedAt         time.Time
 }
 
 // DeliveryClaim is the persisted attempt fence. Copy these fields from a claim;

@@ -257,8 +257,20 @@ func testPreparedConfigConcurrency(t *testing.T, f probeRegistryFixture) {
 
 func testPreparedConfigRollback(t *testing.T, f probeRegistryFixture) {
 	t.Helper()
-	// Active pointers and watchdog checkpoints reference prepared snapshots.
-	// Remove dependents before testing 047 at its own schema boundary.
+	// Active pointers, application facts and watchdog checkpoints reference
+	// prepared snapshots. Remove dependents before testing 047's own boundary.
+	if err := runEngineMigration(t, f.db, f.engine, "080_delivery_preparation_rounds", "down"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runEngineMigration(t, f.db, f.engine, "079_local_delivery_preparation", "down"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runEngineMigration(t, f.db, f.engine, "078_remote_regional_application", "down"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runEngineMigration(t, f.db, f.engine, "077_local_regional_application", "down"); err != nil {
+		t.Fatal(err)
+	}
 	if err := runEngineMigration(t, f.db, f.engine, "059_probe_watchdog_source", "down"); err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +278,7 @@ func testPreparedConfigRollback(t *testing.T, f probeRegistryFixture) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		for _, name := range []string{"049_probe_activation", "059_probe_watchdog_source"} {
+		for _, name := range []string{"049_probe_activation", "059_probe_watchdog_source", "077_local_regional_application", "078_remote_regional_application", "079_local_delivery_preparation", "080_delivery_preparation_rounds"} {
 			if err := runEngineMigration(t, f.db, f.engine, name, "up"); err != nil {
 				t.Error(err)
 			}

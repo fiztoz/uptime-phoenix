@@ -139,12 +139,45 @@ func TestEdgeConfigDecoderAcceptsEveryPullCheckerType(t *testing.T) {
 
 func TestEdgeConfigActivationRetainsExactBytesAndColdValidation(t *testing.T) {
 	for _, kind := range []string{"http", "docker"} {
-		t.Run(kind, func(t *testing.T) { testEdgeConfigColdValidation(t, kind) })
+		t.Run(kind, func(t *testing.T) {
+			for _, mode := range []domain.AlertDelivery{"", domain.AlertDeliveryRegional, domain.AlertDeliveryAggregate, domain.AlertDeliveryBoth} {
+				name := string(mode)
+				if name == "" {
+					name = "legacy"
+				}
+				t.Run(name, func(t *testing.T) { testEdgeConfigColdValidation(t, kind, mode, 0) })
+			}
+		})
 	}
 }
 
-func testEdgeConfigColdValidation(t *testing.T, kind string) {
+func TestEdgeConfigAssignmentRevisionColdLifecycle(t *testing.T) {
+	for _, kind := range []string{"http", "docker"} {
+		t.Run(kind, func(t *testing.T) {
+			for _, mode := range []domain.AlertDelivery{"", domain.AlertDeliveryRegional, domain.AlertDeliveryAggregate, domain.AlertDeliveryBoth} {
+				name := string(mode)
+				if name == "" {
+					name = "legacy"
+				}
+				t.Run(name, func(t *testing.T) {
+					testEdgeConfigColdValidation(t, kind, mode, 9007199254740993)
+				})
+			}
+		})
+	}
+}
+
+func testEdgeConfigColdValidation(t *testing.T, kind string, mode domain.AlertDelivery, assignmentRevision int64) {
 	snapshot := m2Config(t)
+	snapshot.Assignments[0].AlertDelivery = mode
+	snapshot.Assignments[0].AssignmentRevision = Decimal(assignmentRevision)
+	// Keep the complete dependency graph, but disable scheduled suppression so
+	// this lifecycle also proves the desired mode does not suppress real sends.
+	snapshot.MaintenanceWindows[0].Active = false
+	wantMode, valid := domain.CanonicalAlertDelivery(mode)
+	if !valid {
+		t.Fatal("invalid desired-mode fixture")
+	}
 	var resources *LocalResourceBindings
 	if kind == "docker" {
 		var err error
@@ -163,7 +196,7 @@ func testEdgeConfigColdValidation(t *testing.T, kind string) {
 		t.Fatal(err)
 	}
 	identity := domain.EdgeIdentity{ProbeID: snapshot.ProbeID, StreamID: uuid.NewString(), Fingerprint: strings.Repeat("a", 64)}
-	store, err := edge.Open(t.Context(), dir, identity)
+	store, err := edge.Open(t.Context(), dir, identity, edge.WithTelemetryEncoder(EdgeTelemetryEncoder{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,20 +224,26 @@ func testEdgeConfigColdValidation(t *testing.T, kind string) {
 	}
 	applied, err := svc.Apply(t.Context(), document, 7, at)
 	if err != nil || applied.Metadata.SHA256 != hex.EncodeToString(wantHash[:]) {
-		t.Fatalf("exact document not applied: %+v %v", applied, err)
+		t.Fatalf("exact document not applied: %v", err)
+	}
+	if applied.Assignments[0].DesiredAlertDelivery != wantMode || applied.Assignments[0].AssignmentRevision != assignmentRevision {
+		t.Fatal("configuration load lost desired mode or exact assignment binding")
 	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := edge.Open(t.Context(), dir, identity)
+	reopened, err := edge.Open(t.Context(), dir, identity, edge.WithTelemetryEncoder(EdgeTelemetryEncoder{}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = reopened.Close() }()
 	cold := services.NewEdgeConfigService(reopened, reopened, NewEdgeConfigDecoder(checker.Get, notifier.Get, resources), protector)
 	loaded, err := cold.Load(t.Context())
-	if err != nil || !domain.SameProbeConfigMetadata(loaded.Metadata, applied.Metadata) || loaded.Assignments[0].Monitor.ID != 42 {
-		t.Fatalf("cold read changed config: %+v %v", loaded, err)
+	if err != nil || !domain.SameProbeConfigMetadata(loaded.Metadata, applied.Metadata) || loaded.Assignments[0].Monitor.ID != 42 || loaded.Assignments[0].DesiredAlertDelivery != wantMode || loaded.Assignments[0].AssignmentRevision != assignmentRevision {
+		t.Fatalf("cold read changed config or desired mode: %v", err)
+	}
+	if kind == "http" {
+		assertDesiredModeKeepsRegionalPaging(t, reopened, cold, loaded)
 	}
 	if kind == "docker" {
 		missing := services.NewEdgeConfigService(reopened, reopened, NewEdgeConfigDecoder(checker.Get, notifier.Get), protector)

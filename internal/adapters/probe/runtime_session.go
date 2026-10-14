@@ -16,11 +16,18 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-// EdgeRuntimeConfig advertises only execution capabilities implemented by this build.
+// EdgeRuntimeConfig advertises only execution capabilities implemented by this
+// build. DeliveryCutoverExecutor is the optional source-runtime hook for the
+// protected cutover kinds; the strong capability may be advertised only with a
+// real executor and vice versa.
 type EdgeRuntimeConfig struct {
 	AgentVersion     string
 	Capabilities     []string
 	ResourceBindings []ResourceBinding
+	// DeliveryCutoverExecutor executes the protected source-gate cutover kinds
+	// through the durable source gate and provider-attempt journal. Configure it
+	// exactly when Capabilities contains DeliveryCutoverCapability.
+	DeliveryCutoverExecutor ports.EdgeDeliveryCutoverExecutor
 }
 
 // EdgeRuntimeState reads one coherent durable identity/retained-sequence snapshot.
@@ -99,6 +106,12 @@ func (r *EdgeRuntime) SetCertificateCommands(repo ports.EdgeCertificateRepositor
 // NewEdgeRuntime validates and copies the local capability inventory.
 func NewEdgeRuntime(state EdgeRuntimeState, identity ports.EdgeIdentityRepository, configs *services.EdgeConfigService, cfg EdgeRuntimeConfig, health func(context.Context) (Health, error)) (*EdgeRuntime, error) {
 	if state == nil || identity == nil || configs == nil || health == nil || !validAgentVersion(cfg.AgentVersion) || validateCapabilities(cfg.Capabilities) != nil || !slices.Contains(cfg.Capabilities, "snapshot.v1") {
+		return nil, domain.ErrValidation
+	}
+	// The strong capability may be advertised only with a real cutover executor,
+	// and a configured executor is always advertised: a build must never claim an
+	// unbacked effect or silently drop a compiled one.
+	if slices.Contains(cfg.Capabilities, DeliveryCutoverCapability) != (cfg.DeliveryCutoverExecutor != nil) {
 		return nil, domain.ErrValidation
 	}
 	cfg.Capabilities = slices.Clone(cfg.Capabilities)
@@ -309,7 +322,23 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 		}
 		switch envelope.Type {
 		case "command.request":
-			response, reconnect, err := applyEdgeCommand(frameCtx, commands, credentials, certificates, domain.EdgeCommandAuthority{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID, ConnectionGeneration: int64(welcome.ConnectionGeneration)}, envelope)
+			// The exact compiled hello inventory is the command gate for the
+			// existing kinds: a build that did not advertise
+			// command.delivery_prepare.v1 never executes an unsolicited
+			// delivery.prepare, and those kinds stay unnegotiated by welcome. The
+			// cutover kinds additionally require the welcome's strict
+			// delivery_cutover opt-in for new quiesce/apply effects.
+			var preparation ports.EdgeDeliveryPreparationExecutor
+			if slices.Contains(r.cfg.Capabilities, DeliveryPreparationCapability) {
+				preparation = r.configs
+			}
+			response, reconnect, err := applyEdgeCommand(frameCtx, commands, credentials, certificates, domain.EdgeCommandAuthority{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID, ConnectionGeneration: int64(welcome.ConnectionGeneration)}, envelope, deliveryCutoverGate{executor: r.cfg.DeliveryCutoverExecutor, negotiated: welcome.DeliveryCutover}, preparation)
+			if errors.Is(err, errDeliveryCutoverUnnegotiated) {
+				// No success receipt: the hub retains durable work for a negotiated
+				// reconnect. Keep state/replay receipts and health alive so a
+				// feature-disable drain can still deliver delivery.resume.
+				return nil
+			}
 			if err != nil {
 				return err
 			}
@@ -402,7 +431,17 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 			if err != nil {
 				return err
 			}
-			return session.SendControl(frameCtx, response)
+			if err := session.SendControl(frameCtx, response); err != nil {
+				return err
+			}
+			if !welcome.RegionalApplicationReporting {
+				return nil
+			}
+			// Bounded truthful regional reports follow the written configuration
+			// receipt on fresh activation and same-document retry alike. Facts come
+			// only from the core read of the retained document, never synthesized
+			// from desired assignments.
+			return r.sendRegionalApplications(frameCtx, session, welcome.ConnectionGeneration, SessionIdentity{HubID: i.HubID, ProbeID: i.ProbeID, StreamID: i.StreamID}, applied.Metadata)
 		default:
 			return errors.New("unsupported edge runtime operation")
 		}
@@ -430,6 +469,34 @@ func (r *EdgeRuntime) Handle(ctx context.Context, conn *websocket.Conn, binding 
 	}
 	if err != nil {
 		return errors.New("edge runtime session ended")
+	}
+	return nil
+}
+
+// sendRegionalApplications reports durable effective regional facts in bounded
+// batches once the configuration receipt is on the wire. The facts come only
+// from the core read of the exact retained document and accepted stream; an
+// empty read sends nothing and never synthesizes a report.
+func (r *EdgeRuntime) sendRegionalApplications(ctx context.Context, session *Session, generation Decimal, identity SessionIdentity, metadata domain.ProbeConfigMetadata) error {
+	facts, err := r.configs.ReadRegionalApplications(ctx, metadata, int64(generation), identity.StreamID)
+	if err != nil {
+		return err
+	}
+	reports, err := regionalApplicationReports(identity, facts)
+	if err != nil {
+		return err
+	}
+	for _, report := range reports {
+		frame, err := encodeFrame("delivery.regional_applied", generation, report)
+		if err != nil {
+			return err
+		}
+		if _, _, err := DecodeRegionalApplicationReport(frame); err != nil {
+			return errors.New("invalid regional application report")
+		}
+		if err := session.SendControl(ctx, frame); err != nil {
+			return err
+		}
 	}
 	return nil
 }

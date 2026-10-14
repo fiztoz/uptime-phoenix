@@ -5,9 +5,12 @@ import "time"
 // ProbeConfigAssignment is confidential resolved input to the snapshot encoder.
 // Monitor carries execution settings; only the encoder's whitelist may leave it.
 type ProbeConfigAssignment struct {
-	ResourceBinding    *ProbeResourceBinding
-	Monitor            *Monitor
-	Generation         int64
+	ResourceBinding *ProbeResourceBinding
+	Monitor         *Monitor
+	Generation      int64
+	// AssignmentRevision is captured with this graph at build time. Zero is
+	// legacy/unbound and can never be replaced with a revision read at ACK time.
+	AssignmentRevision int64
 	EffectiveOwner     string
 	Tags               []ProbeConfigTag
 	NotificationLinks  []MonitorNotification
@@ -64,4 +67,8 @@ type LocalProbeConfigDefinition struct {
 	Templates     []*NotificationTemplate
 	Proxies       []*Proxy
 	Maintenance   []ProbeConfigMaintenance
+	// RegionalDeliveryApplications are verified source-local effective regional
+	// facts attached by the execution reader, never desired snapshot fields or
+	// cross-source cutover/send authority. Legacy absence stays unreported.
+	RegionalDeliveryApplications []ProbeDeliveryModeApplication
 }
