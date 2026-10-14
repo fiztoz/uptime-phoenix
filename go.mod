@@ -1,6 +1,6 @@
 module github.com/fiztoz/uptime-phoenix
 
-go 1.26.6
+go 1.26.9
 
 require (
 	github.com/caarlos0/env/v11 v11.4.1

@@ -1,7 +1,7 @@
 # Build the independently deployable remote probe image.
 # Download modules and compile on the native builder to avoid emulated Go
 # runtime failures; the resulting probe remains cross-compiled for the target.
-FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.9-alpine AS go-builder
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG VERSION=dev
