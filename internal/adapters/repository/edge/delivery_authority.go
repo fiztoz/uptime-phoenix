@@ -115,6 +115,24 @@ func (s *Store) AuthorizeEdgeDelivery(ctx context.Context, claim domain.Delivery
 		default:
 			return nil
 		}
+		// A live aggregate source hold blocks new regional availability provider
+		// starts; the ordinary worker records the superseded outcome. A both-mode
+		// hold retains regional work. The certificate/capacity branches above keep
+		// independent scopes: they never consult the gate or journal a grant.
+		held, err := aggregateSourceHoldActive(ctx, tx, item.MonitorID)
+		if err != nil {
+			return err
+		}
+		if held {
+			return nil
+		}
+		// One opaque grant covers authorization plus provider I/O for this claim.
+		// Its exact release is journaled only after the provider call returns.
+		grant, err := insertProviderAttempt(ctx, tx, item.DeliveryID, item.Attempt, item.MonitorID, now)
+		if err != nil {
+			return err
+		}
+		item.ProviderAttemptID = grant
 		out = &item
 		return nil
 	})

@@ -58,8 +58,14 @@ func assertRemoteRegional(t *testing.T, f probeRegistryFixture, target domain.Pr
 func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode domain.AlertDelivery, preparations ...bool) {
 	prepareEnabled := len(preparations) > 0 && preparations[0]
 	roundLifecycle := len(preparations) > 1 && preparations[1]
+	operativeLifecycle := len(preparations) > 2 && preparations[2]
+	operativeCompleted := false
 	rearmInSession := false
-	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
+	sessionBudget := 45 * time.Second
+	if operativeLifecycle {
+		sessionBudget = 110 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), sessionBudget)
 	defer cancel()
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
@@ -160,11 +166,19 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 			configs.SetDeliveryPreparations(store)
 			caps = append(caps, probe.DeliveryPreparationCapability)
 		}
+		var cutoverExecutor ports.EdgeDeliveryCutoverExecutor
+		if operativeLifecycle {
+			cutoverExecutor, err = services.NewEdgeDeliveryCutoverExecutor(configs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			caps = append(caps, probe.DeliveryCutoverCapability)
+		}
 		runtime, err := probe.NewEdgeRuntime(func(ctx context.Context) (domain.EdgeIdentity, int64, error) {
 			d, err := store.ReadDiagnostics(ctx)
 			return d.Identity, d.FirstRetainedSeq, err
 		}, store, configs, probe.EdgeRuntimeConfig{
-			AgentVersion: "binding-session", Capabilities: caps,
+			AgentVersion: "binding-session", Capabilities: caps, DeliveryCutoverExecutor: cutoverExecutor,
 		}, func(ctx context.Context) (probe.Health, error) {
 			i, err := store.ReadIdentity(ctx)
 			healthy, queue := true, int64(0)
@@ -195,6 +209,11 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 	}
 	transport := probe.NewHubTransport(probe.EndpointPolicy{AllowedCIDRs: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})
 	transport.SetRegionalApplications(syncStore)
+	operativeStore := repository.NewOperativeDeliveryStore(f.db, probe.DeliveryCutoverCodec{}, protector, syncStore, probe.LocalConfigEncoder{})
+	if operativeLifecycle {
+		transport.SetDeliveryCutover(true)
+		transport.SetCutoverCapabilities(operativeStore)
+	}
 	var preparationResults *preparationReceiptRefuser
 	if prepareEnabled {
 		syncStore.SetDeliveryPreparations(probe.DeliveryPreparationCodec{}, protector)
@@ -205,6 +224,9 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 			t.Fatal(err)
 		}
 		commands.SetDeliveryPreparationsCodec(probe.DeliveryPreparationCodec{})
+		if operativeLifecycle {
+			commands.SetDeliveryCutoverCodec(probe.DeliveryCutoverCodec{})
+		}
 		preparationResults = &preparationReceiptRefuser{dispatcher: commands, refused: make(chan domain.ProbeCommandOutcome, 1)}
 		transport.SetCommands(preparationResults)
 	}
@@ -235,7 +257,13 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 			}
 		}
 		go func() {
-			done <- transport.Run(sctx, input, func(context.Context) error { return nil }, func(ctx context.Context, receipt domain.ProbeActiveConfig) error {
+			done <- transport.Run(sctx, input, func(callbackCtx context.Context) error {
+				if operativeLifecycle {
+					_, err := connector.RenewConnector(callbackCtx, lease)
+					return err
+				}
+				return nil
+			}, func(ctx context.Context, receipt domain.ProbeActiveConfig) error {
 				if refuse {
 					received <- result{receipt: receipt, err: domain.ErrInternal}
 					return domain.ErrInternal
@@ -315,6 +343,78 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 					}
 					if !completed {
 						t.Fatal("preparation result did not commit at hub")
+					}
+					if operativeLifecycle && !operativeCompleted {
+						service, err := services.NewOperativeDeliveryService(operativeStore, operativeStore, operativeStore, operativeOwner, true, func(string) (ports.NotificationSender, bool) { return &reviewSender{}, true })
+						if err != nil {
+							t.Fatal(err)
+						}
+						deadline := time.Now().Add(22 * time.Second)
+						for {
+							if _, err := service.ReconcileBatch(ctx); err != nil {
+								t.Fatal("live cutover reconcile", err)
+							}
+							var phase string
+							err := f.db.NewSelect().Table("operative_cutover_state").Column("phase").Where("monitor_id = ?", monitor).Scan(ctx, &phase)
+							if err == nil && phase == "active" {
+								break
+							}
+							if time.Now().After(deadline) {
+								var diagnostic []struct {
+									Kind       string
+									Status     string
+									ResultCode string
+									Attempts   int64
+								}
+								_ = f.db.NewSelect().Table("probe_commands").Column("kind", "status", "result_code", "attempts").Scan(ctx, &diagnostic)
+								t.Fatal("real source cutover did not activate", phase, err, diagnostic)
+							}
+							time.Sleep(50 * time.Millisecond)
+						}
+						var applied preparationCommandRow
+						if err := f.db.NewSelect().Table("probe_commands").Column("command_id", "kind", "assignment_generation", "hub_id", "probe_id", "stream_id", "payload_sha256", "protected_payload", "created_at", "expires_at").Where("kind = ?", domain.DeliveryApplyKind).Scan(ctx, &applied); err != nil {
+							t.Fatal(err)
+						}
+						metadata := domain.ProbeCommandMetadata{CommandID: applied.CommandID, HubID: applied.HubID, ProbeID: applied.ProbeID, StreamID: applied.StreamID, Kind: applied.Kind, AssignmentGeneration: applied.AssignmentGeneration, CreatedAt: applied.CreatedAt.UTC(), ExpiresAt: applied.ExpiresAt.UTC(), PayloadSHA256: applied.PayloadSHA256}
+						plain, err := protector.OpenCommand(ctx, metadata, applied.ProtectedPayload)
+						if err != nil {
+							t.Fatal(err)
+						}
+						request, err := (probe.DeliveryCutoverCodec{}).DecodeDeliveryCutover(ctx, plain)
+						clear(plain)
+						if err != nil {
+							t.Fatal(err)
+						}
+						out, err := currentEdge.configs.ExecuteDeliveryCutover(ctx, domain.EdgeCommandAuthority{HubID: target.HubID, ProbeID: target.ProbeID, StreamID: identity.StreamID, ConnectionGeneration: lease.Generation}, request)
+						if err != nil || out.Status != "applied" || out.Code != domain.DeliveryAppliedCode {
+							t.Fatal("real source did not retain exact effective application receipt", err)
+						}
+						draining, err := services.NewOperativeDeliveryService(operativeStore, operativeStore, operativeStore, operativeOwner, false, func(string) (ports.NotificationSender, bool) { return &reviewSender{}, true })
+						if err != nil {
+							t.Fatal(err)
+						}
+						deadline = time.Now().Add(22 * time.Second)
+						for {
+							if _, err := draining.ReconcileBatch(ctx); err != nil {
+								t.Fatal("live disable drain", err)
+							}
+							var phase string
+							if err := f.db.NewSelect().Table("operative_cutover_state").Column("phase").Where("monitor_id = ?", monitor).Scan(ctx, &phase); err != nil {
+								t.Fatal(err)
+							}
+							if phase == "released" {
+								break
+							}
+							if time.Now().After(deadline) {
+								t.Fatal("real source did not resume after disable", phase)
+							}
+							time.Sleep(50 * time.Millisecond)
+						}
+						var resumed int
+						if err := f.db.NewSelect().Table("probe_commands").ColumnExpr("COUNT(*)").Where("kind = ? AND remote_confirmed = ? AND result_code = ?", domain.DeliveryResumeKind, true, domain.DeliveryResumedCode).Scan(ctx, &resumed); err != nil || resumed != 1 {
+							t.Fatal("disable release lacks real exact source receipt", err, resumed)
+						}
+						operativeCompleted = true
 					}
 					if rearmInSession {
 						var old preparationCommandRow

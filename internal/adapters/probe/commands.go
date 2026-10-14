@@ -27,6 +27,14 @@ const (
 	CommandDeliveryPrepare     = "delivery.prepare"
 )
 
+// Cutover kind strings are fixed by the shared operative contract and never
+// vary by build: they name the protected source-gate effect exactly.
+const (
+	CommandDeliveryQuiesce = domain.DeliveryQuiesceKind
+	CommandDeliveryApply   = domain.DeliveryApplyKind
+	CommandDeliveryResume  = domain.DeliveryResumeKind
+)
+
 // deliveryPreparedCode is the sole success code of a delivery.prepare receipt:
 // the PREPARATION command was recorded. It is never evidence of mode
 // application, and no other success status carries a code.
@@ -120,6 +128,24 @@ type DeliveryPreparationData struct {
 	AlertDelivery      domain.AlertDelivery `json:"alert_delivery"`
 }
 
+// DeliveryCutoverData binds one protected source-gate effect to the preparation
+// tuple plus its immutable barrier and preparation command identity. It is a
+// closed request: it never carries credentials, endpoints, settings, an
+// activation token, a ModeApplicationSupported claim or application evidence.
+// Counters stay canonical positive signed-int64 decimal strings and monitor_id a
+// positive JSON integer so exact revision precision survives the wire.
+type DeliveryCutoverData struct {
+	HubID                string               `json:"hub_id"`
+	StreamID             string               `json:"stream_id"`
+	MonitorID            int64                `json:"monitor_id"`
+	AssignmentRevision   Decimal              `json:"assignment_revision"`
+	ConfigRevision       Decimal              `json:"config_revision"`
+	SHA256               string               `json:"sha256"`
+	AlertDelivery        domain.AlertDelivery `json:"alert_delivery"`
+	BarrierID            string               `json:"barrier_id"`
+	PreparationCommandID string               `json:"preparation_command_id"`
+}
+
 func (AlertAckData) isCommandData()            {}
 func (ProbeStopData) isCommandData()           {}
 func (HistoryClearData) isCommandData()        {}
@@ -128,6 +154,7 @@ func (CredentialActivateData) isCommandData()  {}
 func (CertificatePrepareData) isCommandData()  {}
 func (CertificateActivateData) isCommandData() {}
 func (DeliveryPreparationData) isCommandData() {}
+func (DeliveryCutoverData) isCommandData()     {}
 
 // CommandResult is a persisted outcome shape, not proof that a command ran.
 type CommandResult struct {
@@ -236,11 +263,13 @@ func DecodeCommandResult(data []byte) (Envelope, CommandResult, error) {
 	}
 	switch result.Status {
 	case "applied", "already_applied", "already_resolved":
-		// Success carries a null code, except the preparation receipt's exact
-		// delivery_prepared code: that records the PREPARATION command only and
-		// is never evidence of mode application.
-		if result.AppliedAt == nil || result.Code != nil && *result.Code != deliveryPreparedCode {
-			return envelope, CommandResult{}, errors.New("successful command result requires applied_at and a null or delivery_prepared code")
+		// Success carries a null code or one kind-specific success code: the
+		// preparation receipt's exact delivery_prepared code records the
+		// PREPARATION command only, and the cutover codes record their own kind's
+		// source-gate effect. Kind/code pairing is enforced where the receipt's
+		// kind is known; nothing here grants mode application.
+		if result.AppliedAt == nil || result.Code != nil && !knownSuccessCode(*result.Code) {
+			return envelope, CommandResult{}, errors.New("successful command result requires applied_at and a null or kind-specific success code")
 		}
 	case "rejected":
 		if result.AppliedAt != nil || result.Code == nil {
@@ -258,7 +287,7 @@ func DecodeCommandResult(data []byte) (Envelope, CommandResult, error) {
 			return envelope, CommandResult{}, errors.New("command result details are limited to applied preparation")
 		}
 		if result.Code != nil {
-			return envelope, CommandResult{}, errors.New("delivery_prepared result cannot include details")
+			return envelope, CommandResult{}, errors.New("coded command result cannot include details")
 		}
 		details, err := decodeCommandResultDetails(*detailsRaw)
 		if err != nil {
@@ -481,6 +510,42 @@ func decodeCommandData(kind string, data []byte, target CommandTarget) (CommandD
 			return nil, errors.New("invalid delivery preparation binding")
 		}
 		return prepare, nil
+	case CommandDeliveryQuiesce, CommandDeliveryApply, CommandDeliveryResume:
+		if target.AssignmentGeneration == nil || target.SourceAlertID != nil {
+			return nil, errors.New("delivery cutover requires an assignment generation without an incident")
+		}
+		// Closed data: the preparation tuple plus exactly the barrier and
+		// preparation command identity. Reserved fields, foreign claims and
+		// unknown keys never decode.
+		if err := rejectUnknownKeys(fields, "hub_id", "stream_id", "monitor_id", "assignment_revision", "config_revision", "sha256", "alert_delivery", "barrier_id", "preparation_command_id"); err != nil {
+			return nil, err
+		}
+		var cutover DeliveryCutoverData
+		if err := decodeRequiredFields(fields,
+			field{"hub_id", &cutover.HubID}, field{"stream_id", &cutover.StreamID}, field{"monitor_id", &cutover.MonitorID},
+			field{"assignment_revision", &cutover.AssignmentRevision}, field{"config_revision", &cutover.ConfigRevision},
+			field{"sha256", &cutover.SHA256}, field{"alert_delivery", &cutover.AlertDelivery},
+		); err != nil {
+			return nil, err
+		}
+		if err := requiredUUID(fields, "barrier_id", &cutover.BarrierID); err != nil {
+			return nil, err
+		}
+		if err := requiredUUID(fields, "preparation_command_id", &cutover.PreparationCommandID); err != nil {
+			return nil, err
+		}
+		if err := canonicalUUID("hub_id", cutover.HubID); err != nil {
+			return nil, err
+		}
+		if err := canonicalUUID("stream_id", cutover.StreamID); err != nil {
+			return nil, err
+		}
+		if cutover.MonitorID <= 0 || cutover.AssignmentRevision <= 0 || cutover.ConfigRevision <= 0 ||
+			!validSHA256(cutover.SHA256) ||
+			(cutover.AlertDelivery != domain.AlertDeliveryAggregate && cutover.AlertDelivery != domain.AlertDeliveryBoth) {
+			return nil, errors.New("invalid delivery cutover binding")
+		}
+		return cutover, nil
 	default:
 		return nil, fmt.Errorf("unsupported command kind: %w", ErrUnsupportedPayload)
 	}
@@ -489,6 +554,64 @@ func decodeCommandData(kind string, data []byte, target CommandTarget) (CommandD
 func requireProbeWideTarget(target CommandTarget) error {
 	if target.AssignmentGeneration != nil || target.SourceAlertID != nil {
 		return errors.New("credential and certificate commands cannot target an assignment or incident")
+	}
+	return nil
+}
+
+// knownSuccessCode reports whether a code may appear on a successful receipt.
+// Pairing with the receipt's own kind is enforced separately by
+// validCommandOutcomeForKind where the kind is known; no code grants mode
+// application, a send permit or another kind's effect.
+func knownSuccessCode(code string) bool {
+	switch code {
+	case deliveryPreparedCode, domain.DeliveryQuiescedCode, domain.DeliveryAppliedCode, domain.DeliveryResumedCode:
+		return true
+	}
+	return false
+}
+
+// validCommandOutcomeForKind enforces one command's exact result shape before
+// its receipt is framed. Existing kinds keep their historical shapes. The
+// cutover kinds require their own kind-specific success code with an applied
+// timestamp and no details, so one kind's receipt can never claim another
+// kind's effect and a code-empty success never leaves this process.
+func validCommandOutcomeForKind(kind, commandID string, outcome domain.ProbeCommandOutcome) error {
+	if outcome.CommandID != commandID {
+		return errors.New("command outcome identity mismatch")
+	}
+	cutover := kind == CommandDeliveryQuiesce || kind == CommandDeliveryApply || kind == CommandDeliveryResume
+	switch outcome.Status {
+	case "applied", "already_applied", "already_resolved":
+		if outcome.AppliedAt == nil {
+			return errors.New("successful command outcome requires applied_at")
+		}
+		if cutover {
+			if outcome.Status == "already_resolved" {
+				return errors.New("cutover command outcome cannot be already_resolved")
+			}
+			if outcome.Code != domain.DeliveryCutoverSuccessCode(kind) {
+				return errors.New("cutover command outcome requires its kind-specific success code")
+			}
+			if outcome.CredentialVersion != 0 || outcome.CertificateVersion != 0 || outcome.CertificateFingerprint != "" || outcome.CertificateNotAfter != nil {
+				return errors.New("cutover command outcome cannot carry details")
+			}
+			return nil
+		}
+		if outcome.Code != "" && outcome.Code != deliveryPreparedCode {
+			return errors.New("command outcome carries an unknown success code")
+		}
+	case "rejected", "expired":
+		if outcome.AppliedAt != nil {
+			return errors.New("non-success command outcome cannot include applied_at")
+		}
+		if outcome.Status == "rejected" && (outcome.Code == "" || !validErrorCode(outcome.Code)) {
+			return errors.New("rejected command outcome requires a code")
+		}
+		if cutover && knownSuccessCode(outcome.Code) {
+			return errors.New("non-success cutover outcome cannot carry a success code")
+		}
+	default:
+		return errors.New("invalid command outcome status")
 	}
 	return nil
 }

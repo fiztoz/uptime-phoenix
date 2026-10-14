@@ -102,6 +102,9 @@ func Run(cfg Config) error {
 		installationHubID = inst.HubID
 	}
 
+	if err := repo.RequireSafeOperativeStartup(ctx, db, protector != nil, cfg.ProbesEnabled); err != nil {
+		return fmt.Errorf("operative authority requires protected probe runtime: %w", err)
+	}
 	jwtAuth := auth.NewJWTAuthenticator(cfg.JWTSecret, cfg.JWTExpireH, repos.user)
 	totpProvider := auth.NewTOTPProvider(cfg.TOTPIssuer)
 
@@ -434,6 +437,8 @@ func Run(cfg Config) error {
 		deliveryConsumer.SetMaintenanceChecker(maintenanceSvc)
 		deliveryConsumer.SetCronEvaluator(cronEval)
 		deliveryConsumer.SetTagReader(tagSvc)
+		localAuthority := repo.NewOperativeDeliveryStore(db, probe.DeliveryCutoverCodec{}, commandProtector, nil, encoder)
+		deliveryConsumer.SetProviderAuthority(localAuthority, localAuthority)
 		for _, t := range []string{
 			"telegram", "discord", "slack", "smtp", "webhook",
 			"teams", "mattermost", "gotify",
@@ -505,6 +510,19 @@ func Run(cfg Config) error {
 		deliveryConfig.SetDeliveryPreparations(probe.DeliveryPreparationCodec{}, commandProtector)
 		transport.SetRegionalApplications(deliveryConfig)
 		transport.SetDeliveryPreparations(deliveryConfig)
+		operativeStore := repo.NewOperativeDeliveryStore(db, probe.DeliveryCutoverCodec{}, commandProtector, deliveryConfig, probe.LocalConfigEncoder{})
+		transport.SetDeliveryCutover(cfg.ProbesAggregatePagingEnabled)
+		transport.SetCutoverCapabilities(operativeStore)
+		operative, err := services.NewOperativeDeliveryService(operativeStore, operativeStore, operativeStore, owner.String(), cfg.ProbesAggregatePagingEnabled, notifieradapter.Get)
+		if err != nil {
+			return err
+		}
+		operativeDone := make(chan struct{})
+		go func() {
+			defer close(operativeDone)
+			operative.Run(ctx, func(error) { log.Warn("operative cutover work unavailable") })
+		}()
+		defer func() { cancelRuntime(); <-operativeDone }()
 		connections := repo.NewProbeConnectorStore(db)
 		commandStore := repo.NewProbeCommandStore(db, commandProtector, probe.AcknowledgementCodec{}, credentialProtector, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
 		commands, err := services.NewProbeCommandService(commandStore, connections, commandProtector, probe.AcknowledgementCodec{}, probe.CredentialCommandCodec{}, probe.CertificateCommandCodec{})
@@ -512,6 +530,7 @@ func Run(cfg Config) error {
 			return err
 		}
 		commands.SetDeliveryPreparationsCodec(probe.DeliveryPreparationCodec{})
+		commands.SetDeliveryCutoverCodec(probe.DeliveryCutoverCodec{})
 		commands.SetBrowserEvents(bus, repos.probeIncident)
 		transport.SetCommands(commands)
 		connector, err := services.NewProbeConnectorService(connections, connections, connections, credentialProtector,

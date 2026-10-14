@@ -68,7 +68,11 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 		d, err := store.ReadDiagnostics(ctx)
 		return d.Identity, d.FirstRetainedSeq, err
 	}
-	capabilities := []string{"snapshot.v1", "watchdog.v1", probe.AcknowledgementCapability, probe.CredentialRotationCapability, probe.CertificateRotationCapability, probe.AggregatePagingCapability, probe.RegionalApplicationCapability, probe.DeliveryPreparationCapability}
+	cutoverExecutor, err := services.NewEdgeDeliveryCutoverExecutor(configs)
+	if err != nil {
+		return err
+	}
+	capabilities := []string{"snapshot.v1", "watchdog.v1", probe.AcknowledgementCapability, probe.CredentialRotationCapability, probe.CertificateRotationCapability, probe.AggregatePagingCapability, probe.RegionalApplicationCapability, probe.DeliveryPreparationCapability, probe.DeliveryCutoverCapability}
 	// Advertise only checkers this build actually runs. Ping additionally
 	// requires the unprivileged ICMP socket; Docker requires local bindings.
 	capabilities = append(capabilities, probe.PullCheckerCapabilities(checker.RegisteredPullTypes(), checker.Get, checker.ICMPAvailable(), resources)...)
@@ -78,7 +82,7 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 			capabilities = append(capabilities, "notifier."+name+".v1")
 		}
 	}
-	runtime, err := probe.NewEdgeRuntime(state, store, configs, probe.EdgeRuntimeConfig{AgentVersion: version.Version, Capabilities: capabilities, ResourceBindings: resources.Inventory()}, diagnostic)
+	runtime, err := probe.NewEdgeRuntime(state, store, configs, probe.EdgeRuntimeConfig{AgentVersion: version.Version, Capabilities: capabilities, ResourceBindings: resources.Inventory(), DeliveryCutoverExecutor: cutoverExecutor}, diagnostic)
 	if err != nil {
 		return err
 	}

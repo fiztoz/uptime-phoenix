@@ -114,4 +114,5 @@ func (s standbyFixture) record(t *testing.T, status domain.Status) {
 		}
 	}
 	s.p.record(t, status)
+	awaitProbeClock(t, s.p)
 }

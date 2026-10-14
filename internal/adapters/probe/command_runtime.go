@@ -84,6 +84,22 @@ type edgeCommandReconnect struct {
 	preparedCredentialVersion int64
 }
 
+// deliveryCutoverGate is the negotiated source execution gate for the protected
+// cutover kinds. A nil executor means this build never advertised the strong
+// capability. negotiated is the hub welcome's strict optional delivery_cutover
+// opt-in: new quiesce/apply effects require it, while delivery.resume needs only
+// a configured executor so a feature-disable drain can never strand a source
+// hold.
+type deliveryCutoverGate struct {
+	executor   ports.EdgeDeliveryCutoverExecutor
+	negotiated bool
+}
+
+// errDeliveryCutoverUnnegotiated refuses a new quiesce/apply effect without a
+// receipt: the hub retains durable work for a negotiated reconnect while this
+// live session can still deliver drain-time delivery.resume.
+var errDeliveryCutoverUnnegotiated = errors.New("delivery cutover not negotiated")
+
 func (r edgeCommandReconnect) delay(binding domain.EdgeEnrollment) time.Duration {
 	grace := 12 * time.Second
 	// A historical prepare receipt does not retire the current new identity.
@@ -97,8 +113,10 @@ func (r edgeCommandReconnect) delay(binding domain.EdgeEnrollment) time.Duration
 // applyEdgeCommand executes one decoded source command and frames its durable
 // result. The optional preparation executor is present only when this build
 // compiled and advertised the exact delivery preparation capability; an
-// unsolicited delivery.prepare without it is refused, never faked.
-func applyEdgeCommand(ctx context.Context, repo ports.EdgeCommandRepository, credentials ports.EdgeCredentialRepository, certificates ports.EdgeCertificateRepository, authority domain.EdgeCommandAuthority, envelope Envelope, preparations ...ports.EdgeDeliveryPreparationExecutor) ([]byte, edgeCommandReconnect, error) {
+// unsolicited delivery.prepare without it is refused, never faked. The cutover
+// kinds need a configured cutover executor and, for new quiesce/apply effects,
+// the negotiated welcome opt-in; refusal is never a fabricated completion.
+func applyEdgeCommand(ctx context.Context, repo ports.EdgeCommandRepository, credentials ports.EdgeCredentialRepository, certificates ports.EdgeCertificateRepository, authority domain.EdgeCommandAuthority, envelope Envelope, cutover deliveryCutoverGate, preparations ...ports.EdgeDeliveryPreparationExecutor) ([]byte, edgeCommandReconnect, error) {
 	if len(envelope.Payload) == 0 || len(envelope.Payload) > domain.MaxProbeCommandBytes || !bytes.Equal(envelope.Payload, bytes.TrimSpace(envelope.Payload)) {
 		return nil, edgeCommandReconnect{}, errors.New("invalid command request")
 	}
@@ -164,11 +182,29 @@ func applyEdgeCommand(ctx context.Context, repo ports.EdgeCommandRepository, cre
 		// Preparation records a pending request plus its immutable receipt. It
 		// never claims mode application and never forces reauthentication.
 		result, err = preparations[0].PrepareDelivery(opCtx, authority, c)
+	case CommandDeliveryQuiesce, CommandDeliveryApply, CommandDeliveryResume:
+		if cutover.executor == nil {
+			return nil, edgeCommandReconnect{}, errors.New("delivery cutover unavailable")
+		}
+		c, decodeErr := (DeliveryCutoverCodec{}).DecodeDeliveryCutover(ctx, envelope.Payload)
+		if decodeErr != nil {
+			return nil, edgeCommandReconnect{}, errors.New("invalid command request")
+		}
+		if request.Kind != CommandDeliveryResume && !cutover.negotiated {
+			return nil, edgeCommandReconnect{}, errDeliveryCutoverUnnegotiated
+		}
+		// The executor authenticates the one captured tuple used by storage and
+		// owns exact historical receipt behavior; it is called exactly once with
+		// the decoded command and no retry delay is invented here.
+		result, err = cutover.executor.ExecuteDeliveryCutover(opCtx, authority, c)
 	default:
 		return nil, edgeCommandReconnect{}, errors.New("unsupported command request")
 	}
 	if err != nil {
 		return nil, edgeCommandReconnect{}, errors.New("command application unavailable")
+	}
+	if err := validCommandOutcomeForKind(request.Kind, request.CommandID, result); err != nil {
+		return nil, edgeCommandReconnect{}, err
 	}
 
 	var at *Timestamp

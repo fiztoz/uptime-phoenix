@@ -541,14 +541,26 @@ func testStandbyWorker(t *testing.T, s standbyFixture) {
 		t.Fatal(err)
 	}
 	replaceBindingMode(t, s.p.f, s.p.monitor.ID, set.Revision, domain.LocalProbeID, domain.AlertDeliveryBoth)
-	s.record(t, domain.StatusDown)
-	// A first legitimate UNKNOWN capture may precede recording and schedule
-	// the next production reconciliation five seconds later. Wait beyond that
-	// bounded due interval rather than racing its exact deadline.
+	// Wait for this worker to commit its new adoption boundary before one
+	// real post-adoption sample. Repeatedly overwriting it races a DB-clock
+	// reader against a distinct producer clock and can perpetually be future.
 	deadline := time.Now().Add(12 * time.Second)
+	for {
+		var adopted, current int64
+		if err := s.p.f.db.NewRaw("SELECT a.assignment_revision, m.revision FROM aggregate_standby_state a JOIN monitor_probe_assignment_sets m ON m.monitor_id=a.monitor_id WHERE a.monitor_id=?", s.p.monitor.ID).Scan(t.Context(), &adopted, &current); err != nil {
+			t.Fatal(err)
+		}
+		if adopted == current {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("running worker did not adopt desired assignment")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	s.record(t, domain.StatusDown)
 	for len(s.incidents(t)) == 0 && time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
-		s.record(t, domain.StatusDown) // Eventually post-adoption, still a real heartbeat.
 	}
 	cancel()
 	<-done
@@ -614,7 +626,10 @@ func testStandbyReplay(t *testing.T, engine string) {
 	for time.Now().UTC().Before(boundary.Add(time.Millisecond)) {
 		time.Sleep(time.Millisecond)
 	}
-	r.ingest(t, r.batch(obs(4, domain.StatusDown, time.Now().UTC())))
+	downAt := time.Now().UTC()
+	awaitSourceReceiptClock(t, r.f.db, downAt)
+	r.ingest(t, r.batch(obs(4, domain.StatusDown, downAt)))
+	awaitProbeClockFor(t, r.f.db, r.monitor)
 	if run().Action != domain.AggregatePagingOpen {
 		t.Fatal("fresh current snapshot after committed replay did not open standby")
 	}
@@ -622,7 +637,10 @@ func testStandbyReplay(t *testing.T, engine string) {
 	if run().Action != domain.AggregatePagingHold {
 		t.Fatal("future source time created recovery")
 	}
-	r.ingest(t, r.batch(obs(6, domain.StatusUp, time.Now().UTC())))
+	upAt := time.Now().UTC()
+	awaitSourceReceiptClock(t, r.f.db, upAt)
+	r.ingest(t, r.batch(obs(6, domain.StatusUp, upAt)))
+	awaitProbeClockFor(t, r.f.db, r.monitor)
 	if run().Action != domain.AggregatePagingRecover || replayCount(t, r.f, "probe_delivery_intents") != 0 {
 		t.Fatal("current recovery created source provider work")
 	}

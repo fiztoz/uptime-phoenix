@@ -302,7 +302,9 @@ func TestCommandResultDeliveryPreparedCodeClaimsOnlyPreparation(t *testing.T) {
 		t.Fatal("delivery_prepared receipt carried credential details")
 	}
 	result.Details = nil
-	other := "delivery_applied"
+	// A code outside the known success set never decodes; the kind-specific
+	// codes claim their own kind only (see delivery_cutover_runtime_test.go).
+	other := "delivery_patched"
 	result.Code = &other
 	if frame, err = encodeFrame("command.result", Decimal(1), result); err != nil {
 		t.Fatal(err)

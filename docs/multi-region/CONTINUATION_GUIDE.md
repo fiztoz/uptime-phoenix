@@ -50,8 +50,13 @@ adds all-member, DB-clock-expiring request identity and terminal rearm without c
 mode execution. The [durable standby planner](M7_AGGREGATE_STANDBY.md) now reuses
 the pure paging evaluator for DB-fenced incident identities and held channel plans
 only. Held plans are separate from delivery claims and cannot be promoted into sends.
-Committed barrier/application/provider-I/O lifecycles remain open.
-No aggregate runtime is active, and a document receipt is not an applied-mode receipt.
+The new [operative cutover implementation](M7_OPERATIVE_CUTOVER.md) now implements
+the committed all-source barrier/application/provider-I/O lifecycle behind the
+explicit default-false opt-in. Its strict full race gate passed 5,976 named tests
+(570 MariaDB passes; all 181 M7 leaves; zero engine skips). The earlier descriptions
+above retain their historical slice scope. No live
+aggregate runtime has been activated. A document receipt is still not an
+applied-mode receipt, and standby work cannot be promoted into operative sends.
 
 **M5 is complete. Start with [completion and acceptance](M5_COMPLETION.md), then
 choose authorized M6 validation/activation work.**

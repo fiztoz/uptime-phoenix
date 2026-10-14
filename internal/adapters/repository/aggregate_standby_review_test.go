@@ -111,6 +111,7 @@ func testStandbyIndependentBatch(t *testing.T, s standbyFixture) {
 	if err := s.p.heartbeats.Record(t.Context(), monitor, ports.CheckResult{Status: domain.StatusDown, AssignmentGeneration: 1, ConfigRevision: 1}); err != nil {
 		t.Fatal(err)
 	}
+	awaitProbeClockFor(t, s.p.f.db, id)
 	// First monitor has valid lease storage but an invalid reconciliation binding.
 	if _, err := s.p.f.db.ExecContext(t.Context(), "UPDATE aggregate_standby_state SET assignment_revision=? WHERE monitor_id=?", int64(999), s.p.monitor.ID); err != nil {
 		t.Fatal(err)

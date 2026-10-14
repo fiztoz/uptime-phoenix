@@ -128,6 +128,13 @@ REQUIRED = {
     },
     *{f"TestDeliveryPreparationSessionContract/mariadb/{mode}"
       for mode in ("regional", "aggregate", "both")},
+    *{f"TestOperativeCutoverContract/mariadb/{case}" for case in ("ColdMembership", "DrainAmbiguousBlocks", "DrainPendingAndStarted", "FencesAndStageOrder", "GateSuppression", "LocalProviderJournal", "MigrationConstraints", "MissingPreparation", "RemoteMembership", "aggregate", "both",)},
+    *{f"TestOperativeRefinementContract/mariadb/{case}" for case in ("AdoptionFutureReceipt", "AdoptionObservationBoundary", "AdoptionReceiptBoundary", "BusyCodeAlignsAndRearms", "CorruptionBlocks", "DigestMismatchRefused", "DigestOnlyPlans", "DisableDrainsApplying", "DisableDrainsQuiesced", "DisableDrainsQuiescing", "RemoteBusyRearmsFromReceipt", "RepeatThrottle", "ResumeWithdrawsQueuedPhase", "StandbyNeverPreventsOperativeOpen",)},
+    *{f"TestOperativeProviderLifecycle/mariadb/{case}" for case in ("ProviderErrorBlocksDrain", "aggregate", "both",)},
+    *{f"TestOperativeCutoverSessionContract/mariadb/{case}" for case in ("aggregate", "both",)},
+    *{f"TestOperativeUpgradeContract/mariadb/{case}" for case in ("LegacyAmbiguity", "HeldRuntime",)},
+    *{f"TestOperativeProviderFences/mariadb/{case}" for case in ("MissingRegionalFact", "MissingPreparation", "AvailableAt", "FinishClockRollback")},
+    *{f"TestOperativeActivationCycle/mariadb/{case}" for case in ("aggregate", "both",)},
     *{f"TestAggregateStandbyContract/mariadb/{case}"
       for case in (
           "regional", "aggregate", "both", "ColdPlanningDeadline", "EvidenceFilters",
@@ -166,7 +173,7 @@ def docker(*args, env=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mariadb-image", choices=(DEFAULT_IMAGE, "mariadb:12.3"),
+    parser.add_argument("--mariadb-image", choices=(DEFAULT_IMAGE, "mariadb:12.3", "mariadb@sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15"),
                         default=DEFAULT_IMAGE, help="cached disposable DB image, never a live instance")
     parser.add_argument("--go-json", type=Path,
                         help="save complete Go JSON events to a NEW private file for scenario evaluation")

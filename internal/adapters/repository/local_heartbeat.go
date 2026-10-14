@@ -171,6 +171,14 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		if err := markObservationHistoryTx(ctx, tx, observation); err != nil {
 			return err
 		}
+		suppressed, err := localAvailabilitySuppressedTx(ctx, tx, hb.MonitorID)
+		if err != nil {
+			return err
+		}
+		if suppressed {
+			commit.DeliveryIntents = nil
+			commit.ThrottleUpdate = false
+		}
 		return commitLifecycleAndDeliveriesTx(ctx, tx, observation, &commit)
 	})
 	if err != nil {

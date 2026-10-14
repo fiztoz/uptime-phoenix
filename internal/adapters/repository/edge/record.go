@@ -260,12 +260,23 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 		if incident != nil {
 			state.SourceAlertID = &incident.SourceAlertID
 		}
+		// A live aggregate source hold filters new regional availability intents;
+		// observation and incident truth above still commit unchanged.
+		held, err := aggregateSourceHoldActive(ctx, tx, o.MonitorID)
+		if err != nil {
+			return err
+		}
+		enqueued := 0
 		for _, intent := range record.DeliveryIntents {
+			if held {
+				continue
+			}
 			if err := insertEdgeIntent(ctx, tx, o, incident, intent); err != nil {
 				return err
 			}
+			enqueued++
 		}
-		if len(record.DeliveryIntents) > 0 {
+		if enqueued > 0 {
 			at := o.ObservedAt
 			if before.LastEnqueuedAt != nil && before.LastEnqueuedAt.After(at) {
 				at = *before.LastEnqueuedAt

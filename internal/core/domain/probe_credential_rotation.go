@@ -64,6 +64,12 @@ type ProbeCommandCapabilities struct {
 	CredentialRotation   bool
 	CertificateRotation  bool
 	DeliveryPreparation  bool
+	// DeliveryCutover claims that the peer executes the protected source-gate
+	// cutover kinds (DeliveryQuiesceKind, DeliveryApplyKind, DeliveryResumeKind).
+	// It is peer execution support only: new quiesce/apply effects additionally
+	// require negotiated welcome support, while drain-time delivery.resume stays
+	// deliverable whenever the peer's executor is configured.
+	DeliveryCutover bool
 }
 
 // ValidProbeCredentialCommand validates the closed source effect and its fixed

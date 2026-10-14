@@ -73,6 +73,14 @@ requires the hello's exact `availability.regional_application.v1` capability and
 a configured hub report repository. It is not a required snapshot capability;
 `paging.aggregate.v1` never substitutes for it. Older peers stay unnegotiated.
 
+The optional `delivery_cutover` boolean has the same strict non-null boolean /
+absent-false encoding. True requires the exact hello capability
+`availability.delivery_cutover.v1`, a configured durable executor/gate/provider
+journal, and the hub's explicit operative opt-in. Neither regional reporting nor
+preparation capability substitutes. Accepted-session capability storage follows
+committed traffic, not welcome writer completion. Protected resume remains
+supported during disable/drain even when this welcome opt-in is false.
+
 ### 2.2 Application health
 
 `health.payload` has `role` (`hub` or `probe`), `ready` (boolean), `db_writable` (boolean), `scheduler_healthy` (boolean or null for a hub API role), `config_revision`, `committed_seq`, `queue_bytes`, `oldest_queued_at` (timestamp or null), `clock_time`, and `errors` (bounded array of redacted error codes). Hub health describes ingest readiness; probe health describes local execution readiness. Values irrelevant to the sender are null, never fabricated zeros.
@@ -327,17 +335,17 @@ Assembly and typed decoding establish only structural validity. They neither app
 
 ### 6.1 Command contract
 
-`command.request.payload` has `command_id`, `kind`, `created_at`, `expires_at`, `target`, and `data`. Allowed V1 kinds are `alert.ack`, `probe.stop`, `history.clear`, `credential.prepare`, `credential.activate`, `certificate.prepare`, `certificate.activate`, and optional `delivery.prepare`. Configuration changes use snapshots, not an unbounded generic command API. Command `data` is a closed object: only the members listed for that kind are accepted.
+`command.request.payload` has `command_id`, `kind`, `created_at`, `expires_at`, `target`, and `data`. Allowed V1 kinds are `alert.ack`, `probe.stop`, `history.clear`, `credential.prepare`, `credential.activate`, `certificate.prepare`, `certificate.activate`, and optional `delivery.prepare`, `delivery.quiesce`, `delivery.apply`, `delivery.resume`. Configuration changes use snapshots, not an unbounded generic command API. Command `data` is a closed object: only the members listed for that kind are accepted.
 
 `command_id` is a canonical non-nil lowercase UUID. `created_at` and `expires_at` are UTC timestamps. `target` is required and has exactly these members:
 
 | Target field | Rule |
 |---|---|
 | `probe_id` | Canonical non-nil lowercase UUID. `local` is invalid on the probe protocol. |
-| `assignment_generation` | Positive decimal string for `alert.ack`, `history.clear` and `delivery.prepare`; must equal `data.assignment_generation` for `history.clear`. Null for `probe.stop` and credential/certificate commands. |
+| `assignment_generation` | Positive decimal string for `alert.ack`, `history.clear`, `delivery.prepare` and the three cutover kinds; must equal `data.assignment_generation` for `history.clear`. Null for `probe.stop` and credential/certificate commands. |
 | `source_alert_id` | Canonical non-nil lowercase UUID for `alert.ack`; must equal `data.source_alert_id`. Null for every other kind. |
 
-`command.result.payload` has `command_id`, `status` (`applied`, `already_applied`, `already_resolved`, `rejected`, `expired`), `applied_at` (nullable), `code` (nullable), redacted `message`, and `details` (nullable object). `applied` / `already_applied` / `already_resolved` require `applied_at` and null `code`, except a `delivery.prepare` success (`applied` / `already_applied`) has exact code `delivery_prepared` and null details; it records preparation only. `rejected` requires a machine `code` and null `applied_at`. `expired` has null `applied_at` and a nullable `code`. `details` is non-null only for `applied` / `already_applied` credential or certificate preparation: credential preparation contains only `credential_version`; certificate preparation contains exactly `certificate_version`, `tls_fingerprint`, and `not_after`. The probe persists result identity before acknowledging. Retain command IDs through at least the command expiry plus the maximum supported reconnect/retention window. A repeated command returns its recorded result. The edge ACK storage implementation bounds a request lifetime to seven days and retains results through expiry plus 365 days, independently of a shorter configured telemetry horizon. It checks the current authenticated session generation even for duplicates, while excluding that transient generation from immutable command identity. The regional `alert.ack` operator/transport/replay path is enabled for peers advertising `command.alert_ack.v1`; credential preparation/activation and protected hub issuance/recovery are implemented for `command.credential_rotation.v1`. The source now executes certificate preparation/activation and live TLS selection for `command.certificate_rotation.v1`, with fixed-overlap admission and original receipt recovery after restart. Hub certificate issuance, candidate pin recovery and receipt-driven promotion are also implemented through the operator CLI. Other decoded kinds remain unimplemented.
+`command.result.payload` has `command_id`, `status` (`applied`, `already_applied`, `already_resolved`, `rejected`, `expired`), `applied_at` (nullable), `code` (nullable), redacted `message`, and `details` (nullable object). `applied` / `already_applied` / `already_resolved` require `applied_at` and null `code`, except a `delivery.prepare` success (`applied` / `already_applied`) has exact code `delivery_prepared` and null details; it records preparation only. Cutover successes (`applied` / `already_applied`) require the kind-specific non-null code `delivery_quiesced`, `delivery_applied`, or `delivery_resumed` and null details; no code-empty success is accepted. `rejected` requires a machine `code` and null `applied_at`. `expired` has null `applied_at` and a nullable `code`. `details` is non-null only for `applied` / `already_applied` credential or certificate preparation: credential preparation contains only `credential_version`; certificate preparation contains exactly `certificate_version`, `tls_fingerprint`, and `not_after`. The probe persists result identity before acknowledging. Retain command IDs through at least the command expiry plus the maximum supported reconnect/retention window. A repeated command returns its recorded result. The edge ACK storage implementation bounds a request lifetime to seven days and retains results through expiry plus 365 days, independently of a shorter configured telemetry horizon. It checks the current authenticated session generation even for duplicates, while excluding that transient generation from immutable command identity. The regional `alert.ack` operator/transport/replay path is enabled for peers advertising `command.alert_ack.v1`; credential preparation/activation and protected hub issuance/recovery are implemented for `command.credential_rotation.v1`. The source now executes certificate preparation/activation and live TLS selection for `command.certificate_rotation.v1`, with fixed-overlap admission and original receipt recovery after restart. Hub certificate issuance, candidate pin recovery and receipt-driven promotion are also implemented through the operator CLI. Other decoded kinds remain unimplemented.
 
 `alert.ack.data` is `source_alert_id`, `actor_display_name`, and `note` (`note` is required; use null when unused). It affects only that incident. `probe.stop` durably disables scheduling after accepted shutdown instructions. `history.clear` contains an explicit observation-time/sequence watermark and scope. Only defined fields are accepted; there is no shell execution command.
 
@@ -351,6 +359,7 @@ Assembly and typed decoding establish only structural validity. They neither app
 | `certificate.prepare` | `rotation_id`, `certificate_version`, `valid_for_days` (positive JSON integer 1–3650); probe generates/persists the pending key/certificate locally |
 | `certificate.activate` | `rotation_id`, `certificate_version`, `expected_fingerprint` (64 lowercase hex SHA-256) |
 | `delivery.prepare` | `hub_id`, `stream_id`, `monitor_id` (positive integer), `assignment_revision`, `config_revision` (positive decimal strings), `sha256` (exact document hash), `alert_delivery` (`aggregate` / `both` only); generation is target.assignment_generation |
+| `delivery.quiesce`, `delivery.apply`, `delivery.resume` | All `delivery.prepare` data members plus `barrier_id` and `preparation_command_id` (canonical non-nil UUIDs); generation remains target.assignment_generation |
 
 `rotation_id` and `clear_id` are canonical non-nil lowercase UUIDs. `credential_version` / `certificate_version` / `through_seq` / `assignment_generation` are positive decimal strings. No `command.result` or other read body includes `token`, `enrollment_token`, or a private key. A config snapshot with active assignments is the explicit way to resume scheduling after an administrative stop; a lost connection cannot undo a persisted pause.
 
@@ -368,6 +377,19 @@ eligibility. Effective mode remains regional; no delivery.activate kind, applica
 support, cutover barrier, suppression or send authority is supplied. Terminal
 failures are immutable; fresh document identity or a future explicit rearm/round
 lifecycle is required before activation. See [implementation/verification](M7_DELIVERY_PREPARATION.md).
+
+The separate optional cutover kinds require `availability.delivery_cutover.v1`.
+Their exact protected tuples and immutable source receipts implement the
+[operative lifecycle](M7_OPERATIVE_CUTOVER.md), not a generic mode-setting API.
+Quiesce persists a monitor-wide gate before proving prior availability provider
+work complete. Apply requires the exact quiesced gate and authenticated captured
+document. Resume releases only the original barrier, including after document
+replacement; it cannot release a replacement barrier. Missing-gate resume leaves
+an exact released tombstone so a delayed old quiesce cannot reinstate a hold.
+Expiry/reconnect/reset never prove provider completion or resume a gate. ACK,
+regional reports, preparations and historical result recovery are not new send
+or application authority. Hub default opt-in is false; backend verification and
+release/live-activation acceptance remain distinct.
 
 ### 6.2 Manual enrollment
 

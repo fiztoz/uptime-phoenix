@@ -22,6 +22,7 @@ type ProbeCommandService struct {
 	credentialCodec  ports.ProbeCredentialCommandCodec
 	certificateCodec ports.ProbeCertificateCommandCodec
 	deliveryCodec    ports.ProbeDeliveryPreparationCodec
+	cutoverCodec     ports.DeliveryCutoverCodec
 	now              func() time.Time
 }
 
@@ -45,6 +46,11 @@ func (s *ProbeCommandService) SetBrowserEvents(bus ports.EventBus, incidents por
 // it is configured.
 func (s *ProbeCommandService) SetDeliveryPreparationsCodec(codec ports.ProbeDeliveryPreparationCodec) {
 	s.deliveryCodec = codec
+}
+
+// SetDeliveryCutoverCodec enables authenticated dispatch of operative commands.
+func (s *ProbeCommandService) SetDeliveryCutoverCodec(codec ports.DeliveryCutoverCodec) {
+	s.cutoverCodec = codec
 }
 
 func (s *ProbeCommandService) publishReceipt(ctx context.Context, command *domain.ProbeCommand) {
@@ -166,6 +172,16 @@ func (s *ProbeCommandService) NextCommand(ctx context.Context, session domain.Pr
 			break
 		}
 		_, err = s.deliveryCodec.DecodeDeliveryPreparation(ctx, plain)
+	case domain.DeliveryQuiesceKind, domain.DeliveryApplyKind, domain.DeliveryResumeKind:
+		if s.cutoverCodec == nil {
+			err = domain.ErrValidation
+			break
+		}
+		var decoded domain.DeliveryCutoverCommand
+		decoded, err = s.cutoverCodec.DecodeDeliveryCutover(ctx, plain)
+		if err == nil && (decoded.CommandID != stored.CommandID || decoded.Kind != stored.Kind || decoded.HubID != stored.HubID || decoded.ProbeID != stored.ProbeID || decoded.StreamID != stored.StreamID || stored.AssignmentGeneration == nil || decoded.Generation != *stored.AssignmentGeneration || !decoded.CreatedAt.Equal(stored.CreatedAt) || !decoded.ExpiresAt.Equal(stored.ExpiresAt)) {
+			err = domain.ErrValidation
+		}
 	default:
 		err = domain.ErrValidation
 	}
