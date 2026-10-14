@@ -64,8 +64,17 @@ jobs:
             exit 1
           fi
 
-      - name: Test (race)
-        run: go test -race -count=1 ./... -timeout 40m
+      # The expensive parent repository package runs exactly once across the
+      # isolated repository-race matrix (SQLite + MariaDB). All other packages,
+      # including repository subpackages and future packages, stay in this gate.
+      - name: Test other packages (race)
+        shell: bash
+        run: |
+          set -euo pipefail
+          go list ./... > "$RUNNER_TEMP/go-packages"
+          mapfile -t packages < <(grep -vx 'github.com/fiztoz/uptime-phoenix/internal/adapters/repository' "$RUNNER_TEMP/go-packages")
+          test "${#packages[@]}" -gt 0
+          go test -race -count=1 -timeout 40m "${packages[@]}"
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
@@ -145,10 +154,16 @@ jobs:
         # start-e2e-server.sh builds web + Go binary and serves on :3100
         run: bun run test:e2e
 
-  mariadb-contract:
-    name: mariadb-contract
+  repository-race:
+    name: repository-race-${{ matrix.shard }}
     runs-on: ubuntu-latest
     timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    # Each runner owns its database. Never parallelize destructive contracts
+    # inside one shared MariaDB instance.
     services:
       mariadb:
         image: mariadb:11
@@ -189,8 +204,69 @@ jobs:
           GRANT PROCESS ON *.* TO 'phoenix'@'%';
           SQL
 
-      - name: Repository contract tests
-        run: go test -race -count=1 ./internal/adapters/repository/... -timeout 40m
+      - name: Complete repository parents (race, both engines)
+        run: >-
+          python3 -B scripts/repository_test_shards.py run
+          --index ${{ matrix.shard }} --count 4 --source-sha "${{ github.sha }}"
+          --report "$RUNNER_TEMP/coverage/repository-shard-${{ matrix.shard }}.json"
+
+      # Preserve actual-engine coverage for current AND future subpackages.
+      # They also run without a DSN in backend, as before; run once here with it.
+      - name: Repository subpackages with real-engine configuration (race)
+        if: matrix.shard == 0
+        shell: bash
+        run: |
+          set -euo pipefail
+          go list ./internal/adapters/repository/... > "$RUNNER_TEMP/repository-packages"
+          mapfile -t packages < <(grep -vx 'github.com/fiztoz/uptime-phoenix/internal/adapters/repository' "$RUNNER_TEMP/repository-packages")
+          test "${#packages[@]}" -gt 0
+          go test -race -count=1 -timeout 40m "${packages[@]}"
+
+      # Names, timings and provenance only; no raw output, settings or DSNs.
+      - name: Upload shard coverage
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: repository-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/coverage/*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # Preserve the required check name. always() makes failed/cancelled/missing
+  # matrix work an explicit failure, never a skipped success-shaped aggregate.
+  mariadb-contract:
+    name: mariadb-contract
+    needs: repository-race
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require successful matrix
+        env:
+          MATRIX_RESULT: ${{ needs.repository-race.result }}
+        run: test "$MATRIX_RESULT" = success
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download coverage from every shard
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: repository-shard-*
+          path: ${{ runner.temp }}/repository-coverage
+          merge-multiple: true
+
+      - name: Verify complete inventory and actual MariaDB leaves
+        run: >-
+          python3 -B scripts/repository_test_shards.py verify
+          --count 4 --source-sha "${{ github.sha }}"
+          --reports "$RUNNER_TEMP/repository-coverage"
 
   helm:
     name: helm

@@ -27,7 +27,8 @@ import subprocess
 import tempfile
 import textwrap
 
-REQUIRED_JOBS = ["backend", "frontend", "e2e", "mariadb-contract", "helm", "docker", "actionlint"]
+REQUIRED_JOBS = ["backend", "frontend", "e2e", "mariadb-contract", "helm", "docker", "actionlint",
+                 "repository-race-0", "repository-race-1", "repository-race-2", "repository-race-3"]
 PUBLISH_JOBS = ["publish_aio", "publish_split", "publish_probe", "publish_chart", "create_release"]
 GATE_STEP = "      - name: Require successful CI for the exact release commit"
 BIND_ACTION = "uses: ./.github/actions/bind-release-ref"
@@ -66,6 +67,31 @@ def job_block(lines, job_id):
     while end < len(lines) and not re.match(r"^  [a-z0-9_-]+:\s*$", lines[end]):
         end += 1
     return lines[start:end]
+
+
+def ci_job_names(workflow: Path):
+    """Expand the literal shard matrix to GitHub's actual required job names."""
+    lines = workflow.read_text().splitlines()
+    names = []
+    for job in job_ids(workflow):
+        block = job_block(lines, job)
+        declarations = [line[10:] for line in block if line.startswith("    name: ")]
+        if len(declarations) != 1:
+            raise SystemExit(f"CI job {job} must declare one check name")
+        name = declarations[0]
+        if "${{" not in name:
+            names.append(name)
+            continue
+        if job != "repository-race" or name != "repository-race-${{ matrix.shard }}":
+            raise SystemExit(f"unknown CI matrix check name: {name}")
+        matrix = [line for line in block if line.strip().startswith("shard: [")]
+        if len(matrix) != 1:
+            raise SystemExit("repository-race must declare one literal shard matrix")
+        indices = [int(n.strip()) for n in matrix[0].split("[", 1)[1].split("]", 1)[0].split(",")]
+        if indices != list(range(len(indices))):
+            raise SystemExit("repository shard indices must be contiguous and unique")
+        names.extend(f"repository-race-{n}" for n in indices)
+    return names
 
 
 def bind_expected_sha(block):
@@ -115,9 +141,10 @@ def structural_checks(root: Path):
     if not match:
         raise SystemExit("release.yml gate is missing the required_jobs list")
     declared = sorted(match.group(1).split())
-    if declared != sorted(job_ids(ci)):
+    actual = sorted(ci_job_names(ci))
+    if declared != actual:
         raise SystemExit(
-            f"gate required_jobs {declared} does not match ci.yml jobs {sorted(job_ids(ci))}"
+            f"gate required_jobs {declared} does not match ci.yml check names {actual}"
         )
 
     gate_script = extract_gate_script(lines)
@@ -350,6 +377,18 @@ def main():
         run("missing-required-job-blocks",
             [{"id": 101, "head_sha": release_sha, "status": "completed", "conclusion": "success"}],
             {101: jobs_for({n: "success" for n in REQUIRED_JOBS if n != "actionlint"})},
+            expect_pass=False)
+
+        # A green aggregate or successful workflow envelope cannot hide an
+        # absent/failed/skipped/cancelled/pending repository matrix member.
+        for conclusion in ("failure", "cancelled", "skipped", None):
+            run(f"shard-{conclusion}-blocks-green-aggregate",
+                [{"id": 101, "head_sha": release_sha, "status": "completed", "conclusion": "success"}],
+                {101: jobs_for({n: conclusion if n == "repository-race-2" else "success"
+                               for n in REQUIRED_JOBS})}, expect_pass=False)
+        run("missing-shard-blocks-green-aggregate",
+            [{"id": 101, "head_sha": release_sha, "status": "completed", "conclusion": "success"}],
+            {101: jobs_for({n: "success" for n in REQUIRED_JOBS if n != "repository-race-1"})},
             expect_pass=False)
 
         run("api-failure-fails-closed",

@@ -260,8 +260,9 @@ fmt-frontend: ## Format frontend code
 # ── Docker ────────────────────────────────────────────────────────────────────
 
 .PHONY: m6-backend-harness-gate
-m6-backend-harness-gate: ## Verify actual-engine coverage parsing without Docker or database access
+m6-backend-harness-gate: ## Verify actual-engine coverage and exhaustive CI shards without database access
 	python3 -B -m unittest discover -s scripts -p test_m6_dual_engine_gate.py -v
+	python3 -B -m unittest discover -s scripts -p test_repository_test_shards.py -v
 
 .PHONY: release-image-gate
 release-image-gate: ## Verify required image/chart operations fail closed (mocked tools)

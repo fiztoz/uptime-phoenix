@@ -263,7 +263,7 @@ jobs:
 
           # Required jobs of the CI workflow (ci.yml). A required job that is
           # missing, pending, skipped, cancelled, or failed blocks publication.
-          required_jobs=(backend frontend e2e mariadb-contract helm docker actionlint)
+          required_jobs=(backend frontend e2e mariadb-contract helm docker actionlint repository-race-0 repository-race-1 repository-race-2 repository-race-3)
 
           api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/actions"
           runs_json="$(curl -fsS \
