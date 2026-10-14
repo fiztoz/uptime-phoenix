@@ -1,9 +1,10 @@
-"""Offline regressions for the strict backend gate's actual Go-event parser."""
+"""Offline regressions for strict backend evidence and active Go toolchain pins."""
 
 import contextlib
 import io
 import json
 from pathlib import Path
+import re
 import sys
 import unittest
 from unittest import mock
@@ -80,7 +81,7 @@ class StrictBackendGateTest(unittest.TestCase):
             }, clear=True),
             mock.patch.object(sys, "argv", ["m6_dual_engine_gate.py"]),
             mock.patch.object(gate, "docker", side_effect=docker_result) as docker,
-            mock.patch.object(gate.Path, "glob", return_value=[Path("/offline-gate-fixture/go1.26.6/bin/go")]),
+            mock.patch.object(gate.Path, "glob", return_value=[Path("/offline-gate-fixture/go1.26.9/bin/go")]),
             mock.patch.object(gate.subprocess, "run", return_value=mock.Mock(returncode=0)),
             mock.patch.object(gate.subprocess, "Popen", side_effect=launch_process) as launch,
             contextlib.redirect_stdout(output)):
@@ -216,6 +217,38 @@ class StrictBackendGateTest(unittest.TestCase):
         self.assertEqual(summary["malformed_json_lines"], 1)
         summary = self.assert_failed(passing_events(), exit_code=1)
         self.assertEqual(summary["go_exit"], 1)
+
+
+class GoToolchainPinTest(unittest.TestCase):
+    """Active build and verification pins must follow the module's patch version."""
+
+    def assert_pins(self, version, values):
+        self.assertTrue(values, "expected at least one active toolchain pin")
+        for value in values:
+            self.assertEqual(value, version, "toolchain pin drifted from go.mod")
+
+    def test_active_pins_match_go_mod(self):
+        root = Path(__file__).resolve().parent.parent
+        version = re.search(r"^go (\d+\.\d+\.\d+)$", (root / "go.mod").read_text(), re.M)
+        self.assertIsNotNone(version, "go.mod must pin an exact Go patch release")
+        version = version.group(1)
+        patterns = {
+            "Makefile": r"^export GOTOOLCHAIN := go(\d+\.\d+\.\d+)$",
+            "Dockerfile": r"golang:(\d+\.\d+\.\d+)-alpine",
+            "Dockerfile.probe": r"golang:(\d+\.\d+\.\d+)-alpine",
+            "Dockerfile.split": r"golang:(\d+\.\d+\.\d+)-alpine",
+            ".github/workflows/ci.yml": r"GOTOOLCHAIN: go(\d+\.\d+\.\d+)",
+            ".github/workflows/release.yml": r"GOTOOLCHAIN: go(\d+\.\d+\.\d+)",
+            "web/tests/start-e2e-server.sh": r"GOTOOLCHAIN:-go(\d+\.\d+\.\d+)",
+            "scripts/m6_dual_engine_gate.py": r"toolchain@v0\.0\.1-go(\d+\.\d+\.\d+)\.\*",
+        }
+        for path, pattern in patterns.items():
+            with self.subTest(path=path):
+                self.assert_pins(version, re.findall(pattern, (root / path).read_text(), re.M))
+
+    def test_same_minor_patch_drift_is_rejected(self):
+        with self.assertRaises(AssertionError):
+            self.assert_pins("1.26.9", ["1.26.8"])
 
 
 if __name__ == "__main__":
