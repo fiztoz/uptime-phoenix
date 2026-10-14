@@ -136,7 +136,7 @@ local Unix socket; Colima is optional. Select your disposable local Docker conte
 and inspect its endpoint before running a database or disk-full harness. Cache
 Go modules/toolchain and the required images first; the strict database harness
 refuses downloads during execution. The strict runner currently expects cached
-Go 1.26.6. The disk-full recipe in the final section uses the installed Go toolchain.
+Go 1.26.9. The disk-full recipe in the final section uses the installed Go toolchain.
 
 Run the following from the repository root in **Bash**. The output directory is
 outside the repository; keep this shell open for the subsequent commands.
@@ -441,7 +441,7 @@ GRANT ALL PRIVILEGES ON `phoenix_migration_%`.* TO 'phoenix'@'%';
 GRANT PROCESS ON *.* TO 'phoenix'@'%';
 SQL
 
-GOTOOLCHAIN=go1.26.6 TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43306)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
+GOTOOLCHAIN=go1.26.9 TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43306)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
   go test -race -count=1 -timeout 40m ./internal/adapters/repository/...
 
 # Remove only this disposable test container.
@@ -536,10 +536,10 @@ library (e.g. `could not import math/rand/v2 ... method must have no type
 parameters`) followed by a `go/types` stack dump and exit 2. That is a toolchain
 mismatch, not a code defect, and it is easy to misread as "the linter is broken
 here, use the `go vet` fallback". Align the toolchain with `go.mod` (currently
-`go 1.26.6`) instead:
+`go 1.26.9`) instead:
 
 ```bash
-GOTOOLCHAIN=go1.26.6 golangci-lint run
+GOTOOLCHAIN=go1.26.9 golangci-lint run
 ```
 
 The same pin the MariaDB contract suites in §2 use. `go vet` and `gofmt -l`
@@ -1621,23 +1621,23 @@ acceptance are in
 
 ```sh
 # Service gate, scheduler attestation ordering, and the store on SQLite.
-GOTOOLCHAIN=go1.26.6 go test -race -count=1 \
+GOTOOLCHAIN=go1.26.9 go test -race -count=1 \
   -run 'TestFleetActivationGate|TestProbeAssignmentServiceReplaceFleetGate|TestMonitorServiceCreateWithAssignmentsFleetGate' \
   ./internal/core/services/
-GOTOOLCHAIN=go1.26.6 go test -race -count=1 -run 'TestShardedScheduler' ./internal/adapters/scheduler/
-GOTOOLCHAIN=go1.26.6 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
+GOTOOLCHAIN=go1.26.9 go test -race -count=1 -run 'TestShardedScheduler' ./internal/adapters/scheduler/
+GOTOOLCHAIN=go1.26.9 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
 
 # The same store cases against real MariaDB. REQUIRED: without the DSN every
 # mariadb subtest silently SKIPS and the run still prints "ok".
 TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43316)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
-  GOTOOLCHAIN=go1.26.6 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
+  GOTOOLCHAIN=go1.26.9 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
 ```
 
 Confirm the MariaDB legs actually ran before trusting the result — count named
 passes with `go test -json` and require `skips=0`:
 
 ```sh
-TEST_MARIADB_DSN=... GOTOOLCHAIN=go1.26.6 go test -count=1 -json \
+TEST_MARIADB_DSN=... GOTOOLCHAIN=go1.26.9 go test -count=1 -json \
   -run 'TestHubWorkerReadiness' ./internal/adapters/repository/ \
   | python3 -c 'import sys,json;p=s=f=0
 for l in sys.stdin:
@@ -1671,7 +1671,7 @@ The admission numbers it cites are frozen by
 `TestOperatorStorageBudgetsMatchDocumentedContract`:
 
 ```sh
-GOTOOLCHAIN=go1.26.6 go test -count=1 -run 'TestOperatorStorageBudgetsMatchDocumentedContract' \
+GOTOOLCHAIN=go1.26.9 go test -count=1 -run 'TestOperatorStorageBudgetsMatchDocumentedContract' \
   ./internal/adapters/repository/edge/
 ```
 
@@ -1696,7 +1696,7 @@ retired scripts and their limitations; they are not current runnable commands.
 
 Run `python3 -B scripts/m6_dual_engine_gate.py` for MariaDB 11, or add
 `--mariadb-image mariadb:12.3` for the operator's engine. It requires a local
-Unix Docker socket, the selected cached image, Go 1.26.6 toolchain and modules. The gate
+Unix Docker socket, the selected cached image, Go 1.26.9 toolchain and modules. The gate
 creates and deletes **its own** localhost-bound MariaDB test container, runs
 `go test -race -count=1 -json -timeout 2400s -p 4 ./...`, and refuses missing
 MariaDB passes or unrecognized skips. It never uses the caller's DB DSN or
@@ -1749,10 +1749,10 @@ The disk-full test verifies the isolated mount before filling it, checks actual
 kernel ENOSPC, rollback and exact-once retry. The crash test checks all-or-nothing
 state on reopen. The image supplies Linux userspace only; no database server runs.
 
-Also run `GOTOOLCHAIN=go1.26.6 go test -count=1 -run '^TestEdgeHealthStorageUnavailable$' ./cmd/probe`
+Also run `GOTOOLCHAIN=go1.26.9 go test -count=1 -run '^TestEdgeHealthStorageUnavailable$' ./cmd/probe`
 for the production health mapping (`ready=false`, `db_writable=false`,
 `storage_unavailable`). See [the evidence and limits](multi-region/M6_VALIDATION_REPORT_2026-10-04.md).
-Also run `GOTOOLCHAIN=go1.26.6 go test -race -count=1 -run '^TestEdgeCheckCrashAroundCommit$' ./internal/adapters/repository/edge`
+Also run `GOTOOLCHAIN=go1.26.9 go test -race -count=1 -run '^TestEdgeCheckCrashAroundCommit$' ./internal/adapters/repository/edge`
 for a race-instrumented local-host T06 run. See the [crash evidence and limits](multi-region/M6_VALIDATION_REPORT_2026-10-04.md).
 A normal `go test ./...` SKIPS the disk-full test outside its guarded container;
 a package PASS therefore does not establish T20. Neither slice exercises the
