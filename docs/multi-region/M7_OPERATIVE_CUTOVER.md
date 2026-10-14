@@ -219,10 +219,20 @@ extra containers or task-owned volumes, zero users of the task-owned image and
 the image absent after removal (exit 0). The Docker daemon remains running.
 No deployment, AWS action or live opt-in was performed.
 
+## PR CI and dependency closeout
+
+The subsequent [CI sharding closeout](M7_CI_SHARDING.md) records the package-sized
+hosted-runner timeout, exhaustive real-engine partitioning and fresh green CI at
+`a5e1736`. M7 now incorporates the merged Go 1.26.9 dependency/security fixes;
+the local full gate passed with zero reachable or imported-package vulnerabilities
+(one unused-module advisory remains). This supplements, rather than rewrites,
+the earlier Go 1.26.6 runtime acceptance checkpoint and its recorded counts.
+It does not authorize deployment, opt-in activation or provider ambiguity clearance.
+
 ## Remaining boundaries
 
 Backend implementation/PR acceptance is not live activation or release acceptance.
-Baseline vulnerability remediation, the complete section-13 scenario matrix,
+Ongoing vulnerability monitoring, the complete section-13 scenario matrix,
 production-sized migration/lock/disk rehearsal, load/soak/canary/provider testing
 and controlled release gates remain separate. Restrictive history retention/GC
 and edge total-size accounting for facts/preparations remain follow-ons. No

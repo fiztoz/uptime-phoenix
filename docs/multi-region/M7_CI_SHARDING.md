@@ -50,10 +50,39 @@ is changed and no administrative bypass is introduced.
 
 ## Verification
 
-Implementation and verification are in progress. The compiled plan currently
-covers all 178 parents exactly once. Build, vet, golangci-lint (zero issues),
-actionlint and offline parser/shard/release regressions have passed locally.
-Fresh CI and the local full gate must complete before claiming PR resolution.
+**Validated at implementation commit `a5e1736`, 2026-10-14.** Fresh CI passed
+all required checks, including every matrix member and the aggregate verifier.
+The compiled plan executed all 178 parents exactly once: 1,376 repository named
+passes (parents and children), 569 named MariaDB passes, all 197 required leaves
+applicable to this package, zero missing leaves, zero failures/skips/malformed
+events. These package-scoped counts are not the historical full-suite counts.
+
+Observed hosted-runner times (not estimates):
+
+| Shard | Complete parent tests | Entire job, including setup/subpackages |
+|---|---:|---:|
+| 0 | 15.1 minutes | 23.4 minutes |
+| 1 | 10.8 minutes | 11.3 minutes |
+| 2 | 21.6 minutes | 22.3 minutes |
+| 3 | 27.9 minutes | 28.9 minutes |
+
+Every shard stayed below the unchanged 40-minute test timeout. Four shards are
+not unlimited capacity: use the observed parent timings to increase the matrix
+or rebalance work as the suite grows, before consuming this headroom.
+
+The local `make gate-full` also passed on unchanged code/tooling inputs using
+Go 1.26.9: 22 backend package rows, 324 frontend tests, 27 browser tests, build,
+vet, golangci-lint (zero issues), frontend checks/lint/build, Helm and tooling
+regressions. Vulnerability scanning reported zero reachable or imported-package
+vulnerabilities; one advisory remains only in an unused required module.
+Offline regressions passed: 16 strict-gate/pin tests, 17 shard tests and 48 release
+tooling PASS cases. Three assertion mutants (dropped parent, omitted required
+leaf, removed race detection) were caught with the unmodified control passing.
+
+Private evidence is retained under ignored `tmp/m7-ci-sharding-verification/`;
+no private logs, fixture credentials or environment-specific runners are published.
+The final documentation commit must independently obtain fresh green CI before
+merge; the implementation checkpoint is not permission to bypass that check.
 
 Commands and maintenance guidance are in [docs/TESTING.md](../TESTING.md#repository-ci-shards-and-future-test-growth).
 The unsharded local full/strict dual-engine gates remain available. Future growth
