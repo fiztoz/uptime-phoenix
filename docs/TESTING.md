@@ -112,6 +112,29 @@ for disposable database setup.
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
 
+### M8 SSH preflight (no external host or credentials)
+
+The first [M8 slice](multi-region/M8_SSH_PREFLIGHT.md) has no database changes.
+Its effect-based tests run a real loopback SSH protocol server with temporary
+keys, execute the fixed discovery script with controlled shell fixtures, and
+exercise the actual operator CLI before hub configuration loading:
+
+```bash
+GOTOOLCHAIN=go1.26.9 go test -race -count=1 \
+  ./cmd/phoenix-probe-admin ./internal/bootstrap \
+  ./internal/adapters/provisioning ./internal/core/domain ./internal/core/services \
+  -run 'Test(ProbeAdminSSHPreflight|ProbeSSHPreflight|SSHPreflight|ProbeHostPreflight|ProbeSSHHost)'
+```
+
+Assert wrong/unknown/revoked host keys cause **zero public-key authentication
+attempts**, numeric-IP dialing enforces the existing destination policy, and
+cancellation closes stalled handshake/channel/exec/execution transports. Check
+combined stdout/stderr overflow, nonzero remote exits, invalid discovery,
+unsupported platform, missing privilege, private input validation and nonsecret
+CLI output. `preflight_passed` is not proof of installation, Docker daemon
+health, runtime-port reachability, enrollment or config activation. A real-host
+installation matrix remains a future M8 gate, not coverage from these fixtures.
+
 ### Repository CI shards and future test growth
 
 The expensive `internal/adapters/repository` package exceeded the former single

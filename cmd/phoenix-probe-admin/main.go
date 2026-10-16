@@ -1,5 +1,6 @@
 // Command phoenix-probe-admin provides explicit local hub-operator registration,
-// enrollment, assignment and complete snapshot preparation for the M2 runtime.
+// enrollment, assignment and complete snapshot preparation for the M2 runtime,
+// plus an optional read-only SSH host preflight that needs no hub environment.
 package main
 
 import (
@@ -13,12 +14,15 @@ import (
 )
 
 func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	if len(os.Args) > 1 && os.Args[1] == "inspect-host" {
+		os.Exit(bootstrap.RunProbeSSHPreflight(ctx, os.Args[2:], os.Stdout, os.Stderr))
+	}
 	cfg, err := bootstrap.LoadConfig()
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "Invalid hub environment configuration")
 		os.Exit(2)
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
 	os.Exit(bootstrap.RunProbeAdmin(ctx, cfg, os.Args[1:], os.Stdout, os.Stderr))
 }

@@ -138,6 +138,17 @@ Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.
 
+## M8 continuation
+
+The first [verified SSH preflight slice](M8_SSH_PREFLIGHT.md) is implemented:
+`phoenix-probe-admin inspect-host` performs host-key-verified, policy-bound,
+bounded nonmutating discovery without loading hub configuration or touching the
+hub DB. This is compatibility evidence only, not an install/enrollment/config
+receipt. M8's durable asynchronous admin API, pinned artifacts, idempotent
+Docker/systemd installation, resource/progress journal and end-to-end runtime
+activation acceptance remain open. Follow that document's next bounded work;
+M6 operational/release and deployment approval gates remain unchanged.
+
 ## Start here
 
 1. Read [AGENTS.md](../../AGENTS.md), [testing](../TESTING.md), this status, and the

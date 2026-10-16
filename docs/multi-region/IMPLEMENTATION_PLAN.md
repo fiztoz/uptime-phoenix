@@ -215,6 +215,11 @@ at the [foundation](M5_FOUNDATION.md).
 
 ## 11. Follow-on M8 — optional SSH provisioning
 
+The first bounded [verified SSH preflight](M8_SSH_PREFLIGHT.md) adds a local
+operator command, discovery port and compatibility service with host trust,
+destination policy, bounded output and cancellation. It performs no install and
+does not satisfy the asynchronous API or full M8 acceptance below.
+
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.

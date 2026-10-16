@@ -2296,4 +2296,11 @@ require (
 
 All libraries are **CGO-free** (except MongoDB's optional CSE, which we don't use). The final binary is a single static executable that cross-compiles for `linux/amd64`, `linux/arm64`, and `linux/arm/v7`.
 
+The optional [M8 SSH preflight](multi-region/M8_SSH_PREFLIGHT.md) uses `ssh` and
+`ssh/knownhosts` from the already-pinned `golang.org/x/crypto` module (CGO-free;
+no new dependency). It implements the discovery-only `ProbeHostInspector` port
+and is composed only by the explicit operator CLI, never hub startup. Its
+initial-install compatibility check supports Linux amd64/arm64; this does not
+change other binaries' cross-compilation targets or implement SSH installation.
+
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

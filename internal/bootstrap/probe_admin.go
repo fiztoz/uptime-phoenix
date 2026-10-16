@@ -27,8 +27,9 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status|ack|command-status|rotate-credential|rotation-status|rotate-certificate|certificate-rotation-status|prepare-reset|activate-reset|reset-status> [options]
-Uses hub DB_ENGINE, DB_DSN, PROBE_SECRET_KEY_FILE and optional PROBE_ENDPOINT_POLICY_FILE.
+const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status|ack|command-status|rotate-credential|rotation-status|rotate-certificate|certificate-rotation-status|prepare-reset|activate-reset|reset-status|inspect-host> [options]
+inspect-host --help: optional read-only SSH preflight, dispatched before hub environment/database loading.
+Other commands use hub DB_ENGINE, DB_DSN, PROBE_SECRET_KEY_FILE and optional PROBE_ENDPOINT_POLICY_FILE.
 register --probe-id UUID --stream-id UUID --key SLUG --name NAME [--location LOCATION] --endpoint wss://HOST/ws/probe/v1 --fingerprint SHA256
 enroll --probe-id UUID --token-file PATH
 assign --monitor-id ID --expected-revision N --probes UUID[,local] [--bindings-file PATH]
