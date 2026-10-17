@@ -229,8 +229,10 @@ acceptance and the existing M6 operational/release gates remain open.
 
 ## Remaining M8 work
 
-Define and implement version/digest-pinned artifacts and integrity checks,
-complete idempotent Docker/systemd installation, protected persistent identity /
+The next [offline binary prerequisite](M8_PINNED_BINARY_ARTIFACTS.md) prepares
+explicitly pinned, privately copied probe binaries; it adds no installer API or
+remote authority. Docker artifact pinning, complete idempotent Docker/systemd
+installation, protected persistent identity /
 data / secrets, owned-resource and progress journals, and authenticated runtime
 enrollment **plus exact successful config activation** before reporting installed
 success. Discovery receipts do not authorize any of those steps.

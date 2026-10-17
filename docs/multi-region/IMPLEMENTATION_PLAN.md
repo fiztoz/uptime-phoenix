@@ -221,9 +221,14 @@ destination policy, bounded output and cancellation. The follow-on
 [asynchronous discovery API](M8_ASYNC_PREFLIGHT.md) now adds durable,
 secret-free receipts and API-local fenced execution/cancellation. Both are
 preflight only; neither satisfies the installer or full M8 acceptance below.
+The [pinned binary prerequisite](M8_PINNED_BINARY_ARTIFACTS.md) additionally
+provides offline explicit pin verification and private snapshots. It is not a
+Docker image verifier, remote installer or authenticated runtime-version proof.
 
 - [x] Add default-disabled admin-only asynchronous **preflight** routes, immutable
   operation identities, hard DB-clock deadlines and joined cancellation.
+- [x] Add offline raw probe-binary pin verification and private copied snapshots
+  without executing them; preserve explicit operator version provenance.
 
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.

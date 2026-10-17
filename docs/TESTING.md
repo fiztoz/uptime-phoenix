@@ -112,6 +112,27 @@ for disposable database setup.
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
 
+### M8 pinned binary preparation (offline; no execution)
+
+The [binary prerequisite](multi-region/M8_PINNED_BINARY_ARTIFACTS.md) adds no DB,
+HTTP surface or dependency. Run its real ELF/build-info, copy/cancellation and
+subprocess CLI tests with the pinned Go toolchain:
+
+```sh
+go test -race -count=1 ./internal/core/domain ./internal/core/services \
+  ./internal/adapters/provisioning ./internal/bootstrap ./cmd/phoenix-probe-admin \
+  -run 'TestProbe(Binary|AdminBinary)'
+```
+
+The tests build Linux amd64/arm64 release-shaped fixtures and an actual probe
+binary, but never execute those artifacts. Assert digest/size/component/platform
+refusal, source ownership and private-copy independence, source/metadata/read
+cancellation, read revocation and replacement-directory cleanup refusal. The
+subprocess CLI must run before invalid hub configuration and remove snapshots
+before success. A version label is explicitly `operator_pin`, not an inferred
+runtime version; `-trimpath` omits `-ldflags` from Go metadata. No VM, Docker
+install, publisher authenticity, enrollment or config activation is established.
+
 ### M8 SSH preflight (no external host or credentials)
 
 The first [M8 slice](multi-region/M8_SSH_PREFLIGHT.md) has no database changes.

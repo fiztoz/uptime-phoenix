@@ -2307,5 +2307,12 @@ receipts, never private keys. Database-clock owner/state/deadline fences and
 joined cancellation apply; no takeover or automatic credential replay exists.
 Compatibility supports Linux amd64/arm64; this does not change other binaries'
 cross-compilation targets or implement SSH installation.
+The [pinned binary preparation seam](multi-region/M8_PINNED_BINARY_ARTIFACTS.md)
+uses only Go stdlib (streaming SHA-256, private files, ELF/build-info readers).
+`ProbeBinaryPreparer` returns a private copied snapshot through a port; the
+DB-independent `verify-artifact` CLI disposes it before reporting verification.
+Version provenance is an explicit trusted operator pin, not inferred linker flags
+(which release `-trimpath` builds omit). No download, execution or installer is
+introduced; Docker digest preparation and remote activation remain follow-ons.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

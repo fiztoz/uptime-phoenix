@@ -152,8 +152,13 @@ The M8-specific real-engine control passed, but broad dual-engine acceptance is
 blocked by operative M7 failures; the first was also reproduced at the committed
 baseline. Do not infer a green whole-backend MariaDB gate or change those fences inside
 this M8 slice. See the failed-run/baseline evidence and limits in that record.
-Pinned artifacts, the idempotent Docker/systemd installer, resource/progress
-journal and authenticated enrollment plus exact config activation remain open.
+The [pinned binary seam](M8_PINNED_BINARY_ARTIFACTS.md) now prepares a private
+verified release-binary snapshot or verifies/disposes it with the offline
+`verify-artifact` CLI. It does not independently extract runtime version from
+trimmed Go metadata; version-to-digest trust is an explicit operator pin.
+Docker digest preparation, the idempotent Docker/systemd installer,
+resource/progress journal and authenticated enrollment plus exact config
+activation remain open.
 Do not reuse a preflight receipt as installation or cleanup authority. M6
 operational/release and deployment approval gates remain unchanged.
 

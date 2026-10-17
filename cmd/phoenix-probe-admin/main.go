@@ -1,6 +1,6 @@
 // Command phoenix-probe-admin provides explicit local hub-operator registration,
 // enrollment, assignment and complete snapshot preparation for the M2 runtime,
-// plus an optional read-only SSH host preflight that needs no hub environment.
+// plus optional SSH preflight and offline artifact verification without hub startup.
 package main
 
 import (
@@ -18,6 +18,9 @@ func main() {
 	defer cancel()
 	if len(os.Args) > 1 && os.Args[1] == "inspect-host" {
 		os.Exit(bootstrap.RunProbeSSHPreflight(ctx, os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "verify-artifact" {
+		os.Exit(bootstrap.RunProbeBinaryVerification(ctx, os.Args[2:], os.Stdout, os.Stderr))
 	}
 	cfg, err := bootstrap.LoadConfig()
 	if err != nil {
