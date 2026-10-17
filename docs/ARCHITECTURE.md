@@ -2318,7 +2318,15 @@ adds the stdlib-only `ProbeImagePreparer` port and DB-independent `verify-image`
 CLI: exact trusted index → unique Linux platform manifest → image config digest
 binding, with an immutable platform reference. It checks the Dockerfile startup
 contract and digest-bound version label, not layer bytes or runtime version.
-No registry, Docker daemon, pull or execution is introduced. Resource journaling,
+No registry, Docker daemon, pull or execution is introduced.
+The [internal install-intent/resource journal](multi-region/M8_INSTALL_JOURNAL.md)
+adds two small ports and a use-case facade over migration 084 on both engines.
+Immutable operation/owner/artifact intent and a canonical resource graph use a
+fixed 15-minute DB-clock lifetime; one committed attempt per resource requires
+committed predecessors. Unknown effects remain unknown; cancellation intent
+precedes joined cancellation, and guarded downgrade preserves held/owned work.
+`resources_ready` is nonterminal: no installed/success state, executor, endpoint,
+cleanup authority, new dependency or feature activation is introduced. Actual
 remote installation and authenticated enrollment/config activation remain open.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

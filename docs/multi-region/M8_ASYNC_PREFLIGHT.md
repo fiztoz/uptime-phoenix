@@ -232,10 +232,12 @@ acceptance and the existing M6 operational/release gates remain open.
 
 ## Remaining M8 work
 
-The next [offline binary prerequisite](M8_PINNED_BINARY_ARTIFACTS.md) prepares
-explicitly pinned, privately copied probe binaries; it adds no installer API or
-remote authority. Docker artifact pinning, complete idempotent Docker/systemd
-installation, protected persistent identity /
-data / secrets, owned-resource and progress journals, and authenticated runtime
-enrollment **plus exact successful config activation** before reporting installed
-success. Discovery receipts do not authorize any of those steps.
+Follow-on [binary preparation](M8_PINNED_BINARY_ARTIFACTS.md) and
+[Docker metadata selection](M8_DIGEST_PINNED_IMAGES.md) provide offline artifact
+prerequisites, not delivery. The [internal install-intent/resource journal](M8_INSTALL_JOURNAL.md)
+now records nonsecret requested intent and DB-fenced one-shot action reports;
+it has no executor/endpoint and no installed-success outcome. Actual host-side
+ownership/fencing, artifact delivery, idempotent Docker/systemd installation,
+protected persistent identity/data/secrets, bounded progress and authenticated
+runtime enrollment **plus exact successful config activation** remain open.
+Discovery receipts do not authorize those steps.

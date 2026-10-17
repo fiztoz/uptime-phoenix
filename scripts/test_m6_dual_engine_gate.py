@@ -132,6 +132,36 @@ M8_LEAVES = {
         "ClockRollbackNeverRewindsUpdatedAt", "DowngradeRefusesNonterminalKeepsTerminalHistory",
     )
 } | {"TestM8PreflightAPI/mariadb", "TestM8PreflightClockAfterAuthorityLock/mariadb"}
+INSTALL_JOURNAL_LEAVES = {
+    f"TestM8InstallJournalStore/mariadb/{case}"
+    for case in (
+        "AtomicCreateAndImmutableRetry", "OwnerStateExpiryFences",
+        "CommittedPrerequisiteAndOneAttempt", "ResourceOutcomeIdempotency",
+        "UnknownOutcomeStopsDependents", "CancellationIntentVersusJoinedFinish",
+        "ColdExpiryMakesInFlightUnknown", "CorruptGraphRefusalBeforeReconcile",
+        "ConflictRollsBack", "GlobalAttemptIdentity", "DowngradeGuard",
+        "UTCAndClockRollback", "SeparateConnectionConcurrentAdmission",
+    )
+} | {
+    f"TestM8InstallJournalSchema/mariadb/{case}"
+    for case in (
+        "OperationNullCode_failed", "OperationNullCode_canceled",
+        "OperationNullCode_interrupted", "ResourceNullCode_not_started",
+        "ResourceNullCode_unknown", "SubmicrosecondCorruptionRefused",
+        "SubmicrosecondResourceCorruptionRefused",
+    )
+} | {
+    f"TestM8InstallJournalLifecycle/mariadb/{case}"
+    for case in (
+        "ResourcesReadyIsNotInstallation/systemd", "ResourcesReadyIsNotInstallation/docker",
+        "CancellationRequiresIntent", "LostAcknowledgementNeverReplays",
+        "ColdReplicaAndLateReport", "LastResourceCancelRace",
+        "ConcurrentReadersAndReservations", "CorruptionBeforeExpiry",
+    )
+} | {
+    f"TestM8InstallJournalClockAfterAuthorityLock/mariadb/{case}"
+    for case in ("Begin", "Reserve", "Record", "Finish", "Observe", "Cancel")
+}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",
     "TestTelegramSender_Send_DownSeverity",
@@ -158,7 +188,7 @@ def passing_events(omit=(), mariadb_count=300):
 
 
 class StrictBackendGateTest(unittest.TestCase):
-    def run_gate(self, lines, exit_code=0, refuse_process_grant=False):
+    def run_gate(self, lines, exit_code=0, refuse_process_grant=False, scope="full"):
         """Exercise main with no real commands, Docker socket or database I/O."""
         process = mock.MagicMock()
         process.__enter__.return_value = process
@@ -185,7 +215,7 @@ class StrictBackendGateTest(unittest.TestCase):
                 "DOCKER_HOST": "unix:///offline-gate-fixture.sock",
                 "GOPATH": "/offline-gate-fixture/go",
             }, clear=True),
-            mock.patch.object(sys, "argv", ["m6_dual_engine_gate.py"]),
+            mock.patch.object(sys, "argv", ["m6_dual_engine_gate.py", "--scope", scope]),
             mock.patch.object(gate, "docker", side_effect=docker_result) as docker,
             mock.patch.object(gate.Path, "glob", return_value=[Path("/offline-gate-fixture/go1.26.9/bin/go")]),
             mock.patch.object(gate.subprocess, "run", return_value=mock.Mock(returncode=0)),
@@ -199,8 +229,12 @@ class StrictBackendGateTest(unittest.TestCase):
 
         # This is the production gate command, but Popen/run/docker above are
         # doubles: these tests create no containers and execute no Go tests.
-        self.assertEqual(launch.call_args.args[0][1:],
-                         ["test", "-race", "-count=1", "-json", "-timeout", "2400s", "-p", "4", "./..."])
+        expected = ["test", "-race", "-count=1", "-json", "-timeout", "2400s", "-p", "4", "./..."]
+        if scope == "m8-install-journal":
+            expected = ["test", "-race", "-count=1", "-json", "-timeout", "300s", "-p", "4",
+                        "./internal/core/domain", "./internal/core/services", "./internal/adapters/repository",
+                        "-run", "^TestProbeInstall(Journal|Identity|Graph|States)|^TestM8InstallJournal"]
+        self.assertEqual(launch.call_args.args[0][1:], expected)
         self.assertEqual(docker.call_args.args[:2], ("rm", "-f"))
         return status, json.loads(output.getvalue())
 
@@ -240,6 +274,57 @@ class StrictBackendGateTest(unittest.TestCase):
                         lines.append(event(leaf, action))
                     summary = self.assert_failed(lines)
                     self.assertEqual(summary["missing_required"], [leaf])
+
+    def test_each_install_journal_leaf_is_required_in_full_scope(self):
+        self.assertEqual(gate.INSTALL_JOURNAL_REQUIRED, INSTALL_JOURNAL_LEAVES)
+        self.assertEqual(len(INSTALL_JOURNAL_LEAVES), 34)
+        self.assertTrue(INSTALL_JOURNAL_LEAVES <= gate.REQUIRED)
+        for leaf in sorted(INSTALL_JOURNAL_LEAVES):
+            with self.subTest(leaf=leaf):
+                summary = self.assert_failed(passing_events(omit={leaf}))
+                self.assertEqual(summary["missing_required"], [leaf])
+
+    def test_scoped_journal_gate_does_not_require_unrelated_m7_or_privileges(self):
+        lines = [event(name) for name in sorted(INSTALL_JOURNAL_LEAVES)] + [event()]
+        status, summary = self.run_gate(lines, scope="m8-install-journal")
+        self.assertEqual(status, 0)
+        self.assertEqual(summary["scope"], "m8-install-journal")
+        self.assertEqual(summary["mariadb_named_passes"], 34)
+        self.assertEqual(summary["missing_required"], [])
+        self.assertEqual(summary["named_skips"], 0)
+        self.assertFalse(any("GRANT " in str(call[0]) for call in self.docker_calls))
+        self.assertNotIn("MYSQL_PWD", self.go_launches[0][1]["env"])
+        self.assertNotIn("MARIADB_ROOT_PASSWORD", self.go_launches[0][1]["env"])
+        self.assertFalse(summary["full_section_13_matrix"])
+
+    def test_scoped_journal_missing_failed_or_skipped_leaf_cannot_be_replaced(self):
+        for leaf in sorted(INSTALL_JOURNAL_LEAVES):
+            for action in (None, "skip", "fail"):
+                with self.subTest(leaf=leaf, action=action):
+                    lines = [event(name) for name in sorted(INSTALL_JOURNAL_LEAVES - {leaf})]
+                    lines += [event(leaf.rsplit("/", 1)[0]), event(leaf.replace("/mariadb", "/sqlite")), event()]
+                    if action is not None:
+                        lines.append(event(leaf, action))
+                    status, summary = self.run_gate(lines, scope="m8-install-journal")
+                    self.assertEqual(status, 1)
+                    self.assertEqual(summary["missing_required"], [leaf])
+
+    def test_scoped_journal_no_real_engine_execution_fails_closed(self):
+        lines = [event(name.replace("/mariadb", "/sqlite")) for name in sorted(INSTALL_JOURNAL_LEAVES)] + [event()]
+        status, summary = self.run_gate(lines, scope="m8-install-journal")
+        self.assertEqual(status, 1)
+        self.assertEqual(summary["missing_required"], sorted(INSTALL_JOURNAL_LEAVES))
+        self.assertEqual(summary["mariadb_named_passes"], 0)
+
+    def test_scoped_journal_rejects_every_skip_malformed_failure_and_nonzero_exit(self):
+        good = [event(name) for name in sorted(INSTALL_JOURNAL_LEAVES)] + [event()]
+        leaf = sorted(INSTALL_JOURNAL_LEAVES)[0]
+        for extra, code in ((["not-json\\n"], 0), ([event(leaf, "fail")], 0),
+                            ([event(sorted(OPTIONAL_SKIPS)[0], "skip")], 0), ([], 1)):
+            with self.subTest(extra=extra, code=code):
+                status, summary = self.run_gate(good + extra, exit_code=code, scope="m8-install-journal")
+                self.assertEqual(status, 1)
+                self.assertEqual(summary["result"], "failed")
 
     def test_process_observer_grant_uses_only_created_disposable_server(self):
         status, _summary = self.run_gate(passing_events())

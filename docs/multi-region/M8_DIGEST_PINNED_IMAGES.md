@@ -1,5 +1,8 @@
 # M8 — digest-bound Docker image metadata
 
+This checkpoint is committed locally as `54fdc44` on `feat/m8-ssh-preflight`;
+not pushed. Publication is not deployment approval.
+
 Continuation after `2155ef1`. This prerequisite resolves a trusted multi-platform
 release index to one immutable platform manifest. It is **metadata verification**,
 not image download, layer verification, publisher authentication or installation.
@@ -82,7 +85,9 @@ critical assertions with negative overlays and an unmodified repeated control.
 These tests use real digest-linked JSON fixture bytes, not a Docker pull or a
 publisher signature. No real-image installation or live registry claim is implied.
 Full applicable build/race/vet/format gates and explicit skip reporting remain
-required. The installer/resource journal and full M8/M6 release gates remain open.
+required. The subsequent [internal install journal](M8_INSTALL_JOURNAL.md) records
+requested artifact/resource intent only, with no installer or success endpoint.
+Actual remote ownership/delivery/execution and full M8/M6 release gates remain open.
 
 ## Executed evidence
 

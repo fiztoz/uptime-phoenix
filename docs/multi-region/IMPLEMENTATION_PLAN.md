@@ -227,6 +227,9 @@ Docker image verifier, remote installer or authenticated runtime-version proof.
 The [Docker metadata prerequisite](M8_DIGEST_PINNED_IMAGES.md) now verifies a
 trusted index/platform-manifest/config chain and Dockerfile startup contract;
 it does not download layers, authenticate a publisher or inspect a runtime.
+The [internal install journal](M8_INSTALL_JOURNAL.md) adds durable nonsecret intent
+and one-shot resource reports. It is not wired to an executor, installer route
+or startup path and has no installed/success completion outcome.
 
 - [x] Add default-disabled admin-only asynchronous **preflight** routes, immutable
   operation identities, hard DB-clock deadlines and joined cancellation.
@@ -236,6 +239,9 @@ it does not download layers, authenticate a publisher or inspect a runtime.
 - [x] Add offline Docker image metadata selection bound to an explicit trusted
   index and unique platform manifest/config, with honest layer/runtime non-claims.
 
+- [x] Add internal immutable install intent/resource storage, committed prerequisite
+  fencing, honest unknown/expiry history and guarded dual-engine downgrade.
+  This does not prove real resource creation/ownership or provide cleanup authority.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.

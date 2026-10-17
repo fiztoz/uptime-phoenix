@@ -162,9 +162,16 @@ platform reference from an explicit trusted index plus manifest/config bytes.
 runtime-version proof and layer bytes are not verified. Before an installer uses
 this seam, verify correspondence with a real built image (including inherited
 base config), then independently verify actual digest/platform pull results.
-Actual artifact delivery, the idempotent Docker/systemd installer,
-resource/progress journal and authenticated enrollment plus exact config
-activation remain open.
+The image metadata checkpoint is committed locally as `54fdc44` (not pushed).
+The next [internal install-intent/resource journal](M8_INSTALL_JOURNAL.md) now
+records immutable intent, one-shot committed action reports and conservative
+expiry/cancellation on both engines. It has no executor, startup or endpoint
+wiring; resources_ready is nonterminal, not installed success. Requested artifact
+pins and owned flags are not verification or cleanup authority. Use its dedicated
+34-leaf MariaDB gate and read its final evidence before continuing.
+Actual artifact delivery, host-side ownership/fencing, the idempotent
+Docker/systemd executor, bounded redacted progress, authenticated enrollment
+plus exact config activation remain open.
 Do not reuse a preflight receipt as installation or cleanup authority. M6
 operational/release and deployment approval gates remain unchanged.
 

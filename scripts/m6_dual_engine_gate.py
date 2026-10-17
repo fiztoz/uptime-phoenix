@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Full backend race gate on a newly created, disposable MariaDB test DB.
+"""Backend race gate on a newly created, disposable MariaDB test DB.
 
+Default scope is the full backend; --scope m8-install-journal selects only the
+journal's hermetic domain/use-case and exact SQLite/MariaDB acceptance leaves.
 The image and Go modules/toolchain must already be cached. This gate is a
 backend regression run, NOT proof that the full section-13 matrix or a canary
 was executed. Never accepts an externally supplied test DSN.
@@ -178,6 +180,39 @@ REQUIRED |= {
 } | {"TestM8PreflightAPI/mariadb", "TestM8PreflightClockAfterAuthorityLock/mariadb"}
 
 
+INSTALL_JOURNAL_REQUIRED = {
+    f"TestM8InstallJournalStore/mariadb/{case}"
+    for case in (
+        "AtomicCreateAndImmutableRetry", "OwnerStateExpiryFences",
+        "CommittedPrerequisiteAndOneAttempt", "ResourceOutcomeIdempotency",
+        "UnknownOutcomeStopsDependents", "CancellationIntentVersusJoinedFinish",
+        "ColdExpiryMakesInFlightUnknown", "CorruptGraphRefusalBeforeReconcile",
+        "ConflictRollsBack", "GlobalAttemptIdentity", "DowngradeGuard",
+        "UTCAndClockRollback", "SeparateConnectionConcurrentAdmission",
+    )
+} | {
+    f"TestM8InstallJournalSchema/mariadb/{case}"
+    for case in (
+        "OperationNullCode_failed", "OperationNullCode_canceled",
+        "OperationNullCode_interrupted", "ResourceNullCode_not_started",
+        "ResourceNullCode_unknown", "SubmicrosecondCorruptionRefused",
+        "SubmicrosecondResourceCorruptionRefused",
+    )
+} | {
+    f"TestM8InstallJournalLifecycle/mariadb/{case}"
+    for case in (
+        "ResourcesReadyIsNotInstallation/systemd", "ResourcesReadyIsNotInstallation/docker",
+        "CancellationRequiresIntent", "LostAcknowledgementNeverReplays",
+        "ColdReplicaAndLateReport", "LastResourceCancelRace",
+        "ConcurrentReadersAndReservations", "CorruptionBeforeExpiry",
+    )
+} | {
+    f"TestM8InstallJournalClockAfterAuthorityLock/mariadb/{action}"
+    for action in ("Begin", "Reserve", "Record", "Finish", "Observe", "Cancel")
+}
+REQUIRED |= INSTALL_JOURNAL_REQUIRED
+
+
 def docker(*args, env=None):
     result = subprocess.run(["docker", *args], env=env, text=True, capture_output=True, timeout=90, check=False)
     if result.returncode:
@@ -187,11 +222,16 @@ def docker(*args, env=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--scope", choices=("full", "m8-install-journal"), default="full",
+                        help="full backend or bounded install-journal acceptance (not installation)")
     parser.add_argument("--mariadb-image", choices=(DEFAULT_IMAGE, "mariadb:12.3", "mariadb@sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15"),
                         default=DEFAULT_IMAGE, help="cached disposable DB image, never a live instance")
     parser.add_argument("--go-json", type=Path,
                         help="save complete Go JSON events to a NEW private file for scenario evaluation")
     args = parser.parse_args()
+    required = REQUIRED if args.scope == "full" else INSTALL_JOURNAL_REQUIRED
+    minimum_engine_passes = 300 if args.scope == "full" else len(required)
+    allowed_skips = SKIPS_ALLOWED if args.scope == "full" else set()
     event_log = None
     if args.go_json:
         # Exclusive creation preserves earlier evidence; raw migration logs may
@@ -208,7 +248,7 @@ def main():
     summary = None
     root_password = secrets.token_urlsafe(32)
     try:
-        docker("run", "-d", "--name", name, "--memory", "1g", "--cpus", "2",
+        docker("run", "-d", "--pull=never", "--name", name, "--memory", "1g", "--cpus", "2",
                "-p", "127.0.0.1::3306", "-e", "MARIADB_ROOT_PASSWORD",
                "-e", "MARIADB_DATABASE=phoenix_ci", "-e", "MARIADB_USER=phoenix",
                "-e", "MARIADB_PASSWORD=phoenix", args.mariadb_image,
@@ -233,10 +273,12 @@ def main():
         # Exact Delete diagnostics observe the held InnoDB transaction/lock
         # dependency. PROCESS permits this metadata read only on the freshly
         # created disposable server; it is not an application deployment grant.
-        docker("exec", "-e", "MYSQL_PWD", name, "mariadb", "-uroot", "-e",
+        if args.scope == "full":
+            docker("exec", "-e", "MYSQL_PWD", name, "mariadb", "-uroot", "-e",
                "GRANT PROCESS ON *.* TO 'phoenix'@'%'",
                env={**os.environ, "MYSQL_PWD": root_password})
-        docker("exec", "-e", "MYSQL_PWD", name, "mariadb", "-uroot", "-e",
+        if args.scope == "full":
+            docker("exec", "-e", "MYSQL_PWD", name, "mariadb", "-uroot", "-e",
                "GRANT ALL PRIVILEGES ON `phoenix_migration_%`.* TO 'phoenix'@'%'",
                env={**os.environ, "MYSQL_PWD": root_password})
         # Do not pass caller DB/provider credentials or integration-test toggles
@@ -253,11 +295,16 @@ def main():
         if len(toolchains) != 1:
             raise RuntimeError("cached Go 1.26.9 toolchain required; refusing download")
         env.pop("GOROOT", None)
-        env.update(GOENV="off", GOTOOLCHAIN="local", GOPROXY="off", GOSUMDB="off",
+        env.update(GOENV="off", GOTOOLCHAIN="local", GOPROXY="off", GOSUMDB="off", GOWORK="off",
                    TEST_MARIADB_DSN=f"phoenix:phoenix@tcp(127.0.0.1:{port})/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true")
         started = time.monotonic()
         cmd = [str(toolchains[0]), "test", "-race", "-count=1", "-json", "-timeout", "2400s",
                "-p", "4", "./..."]
+        if args.scope == "m8-install-journal":
+            cmd = [str(toolchains[0]), "test", "-race", "-count=1", "-json", "-timeout", "300s",
+                   "-p", "4", "./internal/core/domain", "./internal/core/services",
+                   "./internal/adapters/repository", "-run",
+                   "^TestProbeInstall(Journal|Identity|Graph|States)|^TestM8InstallJournal"]
         results = collections.Counter()
         mariadb = collections.Counter()
         packages = set()
@@ -291,6 +338,7 @@ def main():
                     packages.add(event.get("Package", ""))
             code = proc.wait()
         summary = {
+            "scope": args.scope,
             "result": "passed" if code == 0 else "failed", "go_exit": code,
             "elapsed_seconds": round(time.monotonic() - started, 1),
             "passed_packages": len(packages), "named_passes": results["pass"],
@@ -298,14 +346,14 @@ def main():
             "mariadb_named_passes": mariadb["pass"],
             "mariadb_named_skips": mariadb["skip"],
             "skipped_tests": sorted(skipped), "failed_tests": sorted(failed)[:12],
-            "missing_required": sorted(REQUIRED - passed),
-            "unrecognized_skips": sorted(set(skipped) - SKIPS_ALLOWED),
+            "missing_required": sorted(required - passed),
+            "unrecognized_skips": sorted(set(skipped) - allowed_skips),
             "malformed_json_lines": malformed,
             "database": f"fresh disposable {args.mariadb_image} on random localhost port",
             "full_section_13_matrix": False,
         }
-        if (code or failed or malformed or mariadb["pass"] < 300 or mariadb["skip"]
-                or REQUIRED - passed or set(skipped) - SKIPS_ALLOWED):
+        if (code or failed or malformed or mariadb["pass"] < minimum_engine_passes or mariadb["skip"]
+                or required - passed or set(skipped) - allowed_skips):
             summary["result"] = "failed"
     finally:
         if event_log:

@@ -145,5 +145,8 @@ configuration activation, live opt-in, release or deployment is established.
 Docker digest preparation was still open at this binary checkpoint. The next
 [image metadata prerequisite](M8_DIGEST_PINNED_IMAGES.md) now verifies a trusted
 index/platform-manifest/config chain offline; it does not verify layers or pull
-an image. Actual artifact delivery, durable installer/resource journaling and
-full M8/M6 operational/release acceptance remain open.
+an image. The later [internal install journal](M8_INSTALL_JOURNAL.md) now persists
+requested pins and a fenced resource-intent graph, not remote byte/ownership
+proof or installation success. Actual artifact delivery/execution, protected
+runtime identity, enrollment/config activation and full M8/M6 operational/release
+acceptance remain open.

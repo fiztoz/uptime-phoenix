@@ -160,6 +160,44 @@ image. A real image-build correspondence check (including inherited base config)
 registry pull/daemon results, layers and runtime evidence remain unverified before
 installer use. Existing M7 broad MariaDB acceptance remains separately blocked.
 
+### M8 internal install journal (real DB, no remote installer)
+
+The [install-intent/resource journal](multi-region/M8_INSTALL_JOURNAL.md) has a
+service facade and migration 084 on both engines, but no executor/startup/HTTP
+wiring. Use the repository's fail-closed bounded gate; it creates a fresh disposable
+local MariaDB and never accepts an existing DSN, pulls an image or provisions a
+host. The Go toolchain/modules and MariaDB image must already be cached:
+
+```sh
+mkdir -p tmp/m8-journal-acceptance
+chmod 700 tmp/m8-journal-acceptance
+python3 -B scripts/m6_dual_engine_gate.py --scope m8-install-journal \
+  --go-json tmp/m8-journal-acceptance/NEW-events.jsonl
+python3 -B -m unittest discover -s scripts -p test_m6_dual_engine_gate.py
+```
+
+The log path must be new (exclusive private creation). All **34 exact MariaDB
+leaves** are mandatory: 13 store, seven schema/precision, eight lifecycle, six
+clock-after-lock cases. Missing configuration/execution, skipped/failed leaves,
+parent-only or SQLite substitutes fail. Scoped acceptance allows no named skips
+and requires no PROCESS/migration-schema grants. The default full-backend gate
+also requires these leaves and retains the separate existing M7 requirements.
+
+Test the actual facade→store path, independent connections, lost commit
+acknowledgements (never fresh re-execution), committed prerequisites, immutable
+outcomes, cancellation races, cold expiry, and corrupt-graph refusal. Hold
+unchanged authority until the **DB** clock passes its committed deadline; inspect
+raw persisted rows before an Observe call can reconcile again. Direct SQL must
+reject NULL terminal codes on both engines. SQLite precision corruption must
+really be persisted as nanosecond strings (Bun time.Time bindings truncate to
+microseconds); MariaDB DATETIME(6) precision is asserted from its actual schema.
+
+A three-repeat package race run needs a 900-second budget (300 per repetition);
+`go test -timeout` covers all repetitions together. Tests report resource intent
+only: no real host mutation/ownership, cleanup, image-build correspondence,
+enrollment or config activation is proved. Broad M7 MariaDB acceptance and full
+M8/M6 operational/release gates remain separate and open.
+
 ### M8 SSH preflight (no external host or credentials)
 
 The first [M8 slice](multi-region/M8_SSH_PREFLIGHT.md) has no database changes.
