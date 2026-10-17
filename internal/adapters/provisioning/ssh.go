@@ -1,5 +1,5 @@
 // Package provisioning implements optional operator-driven probe host discovery.
-// It is not enabled by hub startup and never installs or updates a remote host.
+// Hub use is explicitly opt-in; it never installs or updates a remote host.
 package provisioning
 
 import (
@@ -58,7 +58,7 @@ type SSHHostTrust struct {
 	KnownHostsFile string
 }
 
-// SSHHostInspector holds an ephemeral parsed key in memory for one CLI run.
+// SSHHostInspector holds an ephemeral parsed key for one CLI run or API job.
 // It never retains the input key bytes, reads an SSH agent/config, or stores
 // credentials in hub state. Destroy the inspector after completing preflight.
 type SSHHostInspector struct {

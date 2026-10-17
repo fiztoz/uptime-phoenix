@@ -1,6 +1,9 @@
 # M8 — verified SSH host preflight
 
 Status: **first bounded M8 slice implemented; SSH installation is not implemented**.
+Historical scope: the local CLI slice committed as `85405b7`; its executed
+results below are unchanged. The follow-on [asynchronous admin preflight](M8_ASYNC_PREFLIGHT.md)
+adds optional durable discovery without changing this CLI's DB-independent flow.
 Baseline: merged M7 at `8c95ae7`. This work does not close the outstanding M6
 operational/release gates, authorize deployment, or enable aggregate delivery.
 
@@ -192,10 +195,11 @@ production-engine coverage. No frontend or Helm files change.
 
 ## Next bounded M8 work
 
-1. Freeze the durable admin-only asynchronous operation API, idempotency and
-   worker/interruption/cancellation contract. Keep ephemeral SSH key material
-   outside the hub DB; define explicit resubmission after credential loss rather
-   than silently claiming resumability.
+1. The [durable asynchronous preflight contract](M8_ASYNC_PREFLIGHT.md) now
+   implements discovery-only admission, immutable retries, expiry/interruption
+   and joined cancellation. Keep its ephemeral-key/no-takeover contract intact.
+   Define a separate installer lifecycle before adding persistent host writes;
+   preflight status is not installation, enrollment or cleanup authority.
 2. Add a version/digest-pinned artifact contract and integrity verification, then
    a complete supported installer path (including non-Docker systemd), protected
    persistent identity/data/secret files and a per-operation resource journal.

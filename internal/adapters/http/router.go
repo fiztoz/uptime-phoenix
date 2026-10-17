@@ -29,9 +29,12 @@ type RouterOptions struct {
 	// (protocol section 7). A nil handler keeps the routes registered but
 	// unavailable; operation routes never fake a 202.
 	ProbeAdmin *handlers.ProbeAdminHandlers
-	Production bool
-	RateLimit  middleware.RateLimitConfig
-	CORS       middleware.CORSConfig
+	// ProbePreflights is optional asynchronous discovery, never installation.
+	// Nil keeps the authenticated routes registered with typed unavailability.
+	ProbePreflights *handlers.ProbePreflightHandlers
+	Production      bool
+	RateLimit       middleware.RateLimitConfig
+	CORS            middleware.CORSConfig
 }
 
 // NewRouter creates and configures the Echo router with all routes and
@@ -195,6 +198,16 @@ func NewRouter(
 		probeGroup.DELETE("/:probe_id", admin.Delete)
 		e.GET("/api/probe-operations/:operation_id", admin.Operation,
 			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"), requireAdmin)
+
+		preflights := opts.ProbePreflights
+		if preflights == nil {
+			preflights = handlers.NewProbePreflightHandlers(nil, false)
+		}
+		preflightGroup := e.Group("/api/probe-host-preflights",
+			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"), requireAdmin)
+		preflightGroup.POST("", preflights.Submit)
+		preflightGroup.GET("/:operation_id", preflights.Observe)
+		preflightGroup.POST("/:operation_id/cancel", preflights.Cancel)
 	}
 
 	// Reliability read model. The handler applies monitor visibility before it

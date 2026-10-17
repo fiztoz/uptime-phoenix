@@ -163,6 +163,20 @@ REQUIRED = {
       )},
 }
 
+# M8 discovery must exercise real database authority, not merely compile or
+# pass a SQLite-only/parent test. Keep each operation leaf mandatory.
+REQUIRED |= {
+    f"TestM8PreflightOperationContract/mariadb/{case}"
+    for case in (
+        "CreateCommitAndExactRetryIdentity", "BeginOwnerExpiryFences",
+        "FinishStateExpiryAndIdempotentRetry", "CancellationIntentVersusJoinedOutcome",
+        "ExpiredCancellationCannotFinishLate", "ObserveColdReadNeverCreates",
+        "SeparateConnectionConcurrentCreates", "CancelFinishRaceStaysConsistent",
+        "RawCorruptionAndSchemaRefusal", "ConflictPathsRollbackWithoutPartialWrite",
+        "ClockRollbackNeverRewindsUpdatedAt", "DowngradeRefusesNonterminalKeepsTerminalHistory",
+    )
+} | {"TestM8PreflightAPI/mariadb", "TestM8PreflightClockAfterAuthorityLock/mariadb"}
+
 
 def docker(*args, env=None):
     result = subprocess.run(["docker", *args], env=env, text=True, capture_output=True, timeout=90, check=False)

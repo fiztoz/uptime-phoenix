@@ -217,8 +217,13 @@ at the [foundation](M5_FOUNDATION.md).
 
 The first bounded [verified SSH preflight](M8_SSH_PREFLIGHT.md) adds a local
 operator command, discovery port and compatibility service with host trust,
-destination policy, bounded output and cancellation. It performs no install and
-does not satisfy the asynchronous API or full M8 acceptance below.
+destination policy, bounded output and cancellation. The follow-on
+[asynchronous discovery API](M8_ASYNC_PREFLIGHT.md) now adds durable,
+secret-free receipts and API-local fenced execution/cancellation. Both are
+preflight only; neither satisfies the installer or full M8 acceptance below.
+
+- [x] Add default-disabled admin-only asynchronous **preflight** routes, immutable
+  operation identities, hard DB-clock deadlines and joined cancellation.
 
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.

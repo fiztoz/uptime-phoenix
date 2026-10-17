@@ -43,6 +43,9 @@ import (
 
 // Run starts Phoenix with the given configuration and blocks until shutdown.
 func Run(cfg Config) error {
+	if err := validateProbePreflightConfig(cfg); err != nil {
+		return err
+	}
 	if cfg.ProbesEnabled && cfg.ProbeSecretKeyFile == "" {
 		return fmt.Errorf("PROBES_ENABLED requires PROBE_SECRET_KEY_FILE")
 	}
@@ -783,10 +786,20 @@ func Run(cfg Config) error {
 		ackCommands.SetBrowserEvents(bus, repos.probeIncident)
 		regionalHandlers.SetAlerts(services.NewProbeAlertService(accessSvc, repos.probeIncident, repos.probeRegistry, repos.probeInstallation, ackCommands, ackStore))
 	}
+	preflightOperations, err := newProbePreflightOperations(ctx, cfg, db)
+	if err != nil {
+		return err
+	}
+	if preflightOperations != nil {
+		// Registered after db.Close: LIFO shutdown joins all discovery work
+		// and its bounded final writes before the database is closed.
+		defer func() { _ = preflightOperations.Close(context.Background()) }()
+	}
 	httpOpts := httppkg.RouterOptions{
 		RegionalMonitors: regionalHandlers,
 		ProbeFleet:       handlers.NewProbeFleetHandlers(fleetSvc, cfg.ProbesEnabled),
 		ProbeAdmin:       handlers.NewProbeAdminHandlers(adminSvc, fleetSvc, cfg.ProbesEnabled),
+		ProbePreflights:  handlers.NewProbePreflightHandlers(preflightOperations, cfg.ProbeSSHPreflightEnabled && cfg.Mode != "worker"),
 		Production:       cfg.Production,
 		RateLimit: middleware.RateLimitConfig{
 			RequestsPerSecond: cfg.RateLimitRPS,

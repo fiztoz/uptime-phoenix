@@ -144,10 +144,18 @@ The first [verified SSH preflight slice](M8_SSH_PREFLIGHT.md) is implemented:
 `phoenix-probe-admin inspect-host` performs host-key-verified, policy-bound,
 bounded nonmutating discovery without loading hub configuration or touching the
 hub DB. This is compatibility evidence only, not an install/enrollment/config
-receipt. M8's durable asynchronous admin API, pinned artifacts, idempotent
-Docker/systemd installation, resource/progress journal and end-to-end runtime
-activation acceptance remain open. Follow that document's next bounded work;
-M6 operational/release and deployment approval gates remain unchanged.
+receipt. The follow-on [asynchronous preflight API](M8_ASYNC_PREFLIGHT.md) is
+implemented as default-disabled admin-only discovery with durable receipts,
+API-local bounded execution, immutable retries and joined cancellation. Read
+its verification record and credential-loss/expiry contracts before extending it.
+The M8-specific real-engine control passed, but broad dual-engine acceptance is
+blocked by operative M7 failures; the first was also reproduced at the committed
+baseline. Do not infer a green whole-backend MariaDB gate or change those fences inside
+this M8 slice. See the failed-run/baseline evidence and limits in that record.
+Pinned artifacts, the idempotent Docker/systemd installer, resource/progress
+journal and authenticated enrollment plus exact config activation remain open.
+Do not reuse a preflight receipt as installation or cleanup authority. M6
+operational/release and deployment approval gates remain unchanged.
 
 ## Start here
 

@@ -135,6 +135,33 @@ CLI output. `preflight_passed` is not proof of installation, Docker daemon
 health, runtime-port reachability, enrollment or config activation. A real-host
 installation matrix remains a future M8 gate, not coverage from these fixtures.
 
+### M8 asynchronous preflight (disposable DB required for acceptance)
+
+The [async preflight contract](multi-region/M8_ASYNC_PREFLIGHT.md) adds migration
+083 and admin-only operation routes, not installation. Run focused race coverage:
+
+```sh
+# Set TEST_MARIADB_DSN only to a newly created disposable test database;
+# repository fixtures modify/delete its data. Never print or reuse a live DSN.
+: "${TEST_MARIADB_DSN:?Set an owned disposable MariaDB test database}"
+GOTOOLCHAIN=go1.26.9 go test -race -count=1 -json \
+  ./internal/core/domain ./internal/core/services ./internal/bootstrap \
+  ./internal/adapters/provisioning ./internal/adapters/http/handlers \
+  ./internal/adapters/repository \
+  -run 'Test(ProbePreflight|M8Preflight|SSHPreflightFactory)'
+```
+
+Require every new `/mariadb` leaf to have a pass event with zero selected skips.
+The committed `scripts/m6_dual_engine_gate.py` creates its own database and now
+requires all 14 M8 real-engine leaves; its parser regressions refuse absent,
+skipped, failed, parent-only and SQLite-only substitutes. In addition to strict
+input/auth/secret-safe DTO checks, assert commit-before-dispatch, saturated exact
+retries, separate-connection races, expired/corrupt cancellation, hard-clock
+sampling after a held row lock, cold interruption and guarded downgrade. The
+actual router/service/store lifecycle uses a controlled discovery port; real
+loopback SSH factory tests separately verify borrowed-key lifetime and policy/
+trust refusal. No real-host installer, enrollment or config activation is proved.
+
 ### Repository CI shards and future test growth
 
 The expensive `internal/adapters/repository` package exceeded the former single

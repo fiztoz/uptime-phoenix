@@ -2299,8 +2299,13 @@ All libraries are **CGO-free** (except MongoDB's optional CSE, which we don't us
 The optional [M8 SSH preflight](multi-region/M8_SSH_PREFLIGHT.md) uses `ssh` and
 `ssh/knownhosts` from the already-pinned `golang.org/x/crypto` module (CGO-free;
 no new dependency). It implements the discovery-only `ProbeHostInspector` port
-and is composed only by the explicit operator CLI, never hub startup. Its
-initial-install compatibility check supports Linux amd64/arm64; this does not
-change other binaries' cross-compilation targets or implement SSH installation.
+and is available through the explicit operator CLI or the default-disabled
+[asynchronous admin preflight API](multi-region/M8_ASYNC_PREFLIGHT.md).
+`PROBE_SSH_PREFLIGHT_ENABLED` requires `PROBES_ENABLED`; only API/all processes
+execute locally admitted jobs. Migration 083 stores secret-free discovery
+receipts, never private keys. Database-clock owner/state/deadline fences and
+joined cancellation apply; no takeover or automatic credential replay exists.
+Compatibility supports Linux amd64/arm64; this does not change other binaries'
+cross-compilation targets or implement SSH installation.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

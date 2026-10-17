@@ -121,6 +121,17 @@ M7_LEAVES |= {f"TestOperativeUpgradeContract/mariadb/{case}" for case in ("Legac
 M7_LEAVES |= {f"TestOperativeProviderFences/mariadb/{case}" for case in ("MissingRegionalFact", "MissingPreparation", "AvailableAt", "FinishClockRollback")}
 M7_LEAVES |= {f"TestOperativeActivationCycle/mariadb/{case}" for case in ("aggregate", "both",)}
 M7_LEAVES |= {"TestDeliveryConfigEvidenceAPI/mariadb", "TestLocalDeliveryConfigEvidenceAPI/mariadb"}
+M8_LEAVES = {
+    f"TestM8PreflightOperationContract/mariadb/{case}"
+    for case in (
+        "CreateCommitAndExactRetryIdentity", "BeginOwnerExpiryFences",
+        "FinishStateExpiryAndIdempotentRetry", "CancellationIntentVersusJoinedOutcome",
+        "ExpiredCancellationCannotFinishLate", "ObserveColdReadNeverCreates",
+        "SeparateConnectionConcurrentCreates", "CancelFinishRaceStaysConsistent",
+        "RawCorruptionAndSchemaRefusal", "ConflictPathsRollbackWithoutPartialWrite",
+        "ClockRollbackNeverRewindsUpdatedAt", "DowngradeRefusesNonterminalKeepsTerminalHistory",
+    )
+} | {"TestM8PreflightAPI/mariadb", "TestM8PreflightClockAfterAuthorityLock/mariadb"}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",
     "TestTelegramSender_Send_DownSeverity",
@@ -210,6 +221,19 @@ class StrictBackendGateTest(unittest.TestCase):
                 with self.subTest(leaf=leaf, action=action):
                     lines = passing_events(omit={leaf})
                     # Parent and SQLite completion cannot replace this leaf.
+                    lines.append(event(leaf.rsplit("/", 1)[0]))
+                    lines.append(event(leaf.replace("/mariadb", "/sqlite")))
+                    if action is not None:
+                        lines.append(event(leaf, action))
+                    summary = self.assert_failed(lines)
+                    self.assertEqual(summary["missing_required"], [leaf])
+
+    def test_each_m8_discovery_leaf_needs_an_exact_real_engine_pass(self):
+        self.assertTrue(M8_LEAVES <= gate.REQUIRED)
+        for leaf in sorted(M8_LEAVES):
+            for action in (None, "skip", "fail"):
+                with self.subTest(leaf=leaf, action=action):
+                    lines = passing_events(omit={leaf})
                     lines.append(event(leaf.rsplit("/", 1)[0]))
                     lines.append(event(leaf.replace("/mariadb", "/sqlite")))
                     if action is not None:
