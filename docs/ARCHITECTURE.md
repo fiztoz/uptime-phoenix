@@ -2328,5 +2328,10 @@ precedes joined cancellation, and guarded downgrade preserves held/owned work.
 `resources_ready` is nonterminal: no installed/success state, executor, endpoint,
 cleanup authority, new dependency or feature activation is introduced. Actual
 remote installation and authenticated enrollment/config activation remain open.
+The [one-shot resource coordinator](multi-region/M8_INSTALL_RUNNER.md) now reuses
+this facade for acknowledged Begin/reserve→joined executor→record sequencing,
+with bounded durable-state observation and independent completion contexts.
+It adds one small executor port, no concrete remote adapter, dependency,
+startup/HTTP wiring or installed-success outcome.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

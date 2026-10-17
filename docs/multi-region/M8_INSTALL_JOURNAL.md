@@ -155,8 +155,11 @@ cannot close the known broad MariaDB blocker.
 
 ## Executed evidence
 
-The internal journal is implemented and verified locally, **uncommitted** after
-image checkpoint `54fdc44` (itself local-only). No push, deployment or live opt-in.
+The internal journal is committed locally as **`7b38761`** after image checkpoint
+`54fdc44`; neither has been pushed. No deployment or live opt-in. The follow-on
+[one-shot resource coordinator](M8_INSTALL_RUNNER.md) reuses this facade without
+changing the journal schema, fencing or outcome contract; it still has no concrete
+remote executor or installation-success endpoint.
 The final 2026-10-17 run used Go 1.26.9 offline, sanitized child environments and
 frozen source `dd297abdfd8d9e10ed7ce42e5e7516dfc046261100be205b0d159ad52441b072`
 (1,459 source files). Source contents and inventory remained unchanged throughout.

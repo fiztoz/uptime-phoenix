@@ -229,7 +229,10 @@ trusted index/platform-manifest/config chain and Dockerfile startup contract;
 it does not download layers, authenticate a publisher or inspect a runtime.
 The [internal install journal](M8_INSTALL_JOURNAL.md) adds durable nonsecret intent
 and one-shot resource reports. It is not wired to an executor, installer route
-or startup path and has no installed/success completion outcome.
+or startup path and has no installed/success completion outcome. The follow-on
+[resource coordinator](M8_INSTALL_RUNNER.md) drives one acknowledged Begin and
+fresh per-resource grants through synchronous joined executor reports; it still
+has no concrete remote adapter or installation-success path.
 
 - [x] Add default-disabled admin-only asynchronous **preflight** routes, immutable
   operation identities, hard DB-clock deadlines and joined cancellation.
@@ -242,6 +245,9 @@ or startup path and has no installed/success completion outcome.
 - [x] Add internal immutable install intent/resource storage, committed prerequisite
   fencing, honest unknown/expiry history and guarded dual-engine downgrade.
   This does not prove real resource creation/ownership or provide cleanup authority.
+- [x] Add an internal one-shot resource coordinator over the existing journal:
+  no historical replay, joined reports, bounded revocation/cancellation and
+  honest uncertainty. No remote executor, endpoint or startup wiring yet.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.

@@ -162,6 +162,15 @@ INSTALL_JOURNAL_LEAVES = {
     f"TestM8InstallJournalClockAfterAuthorityLock/mariadb/{case}"
     for case in ("Begin", "Reserve", "Record", "Finish", "Observe", "Cancel")
 }
+INSTALL_RUNNER_LEAVES = {
+    f"TestM8InstallRunner/mariadb/{case}"
+    for case in (
+        "ResourcesReady/systemd", "ResourcesReady/docker", "ConcurrentRunSingleBegin",
+        "LostReservationAckNoInvocation", "RemoteCancelJoinsBeforeTerminal",
+        "OwnerLossUnknownStopsDependents", "FinalAppliedOwnerLoss", "ColdExpiryRejectsLateApplied",
+        "MalformedOutcomeCannotAdvance", "IdentityOwnerNoDispatch", "ObservationLossStopsDispatch",
+    )
+}
 OPTIONAL_SKIPS = {
     "TestDatabaseChecker_Check_MongoDB_RealServer",
     "TestTelegramSender_Send_DownSeverity",
@@ -234,6 +243,10 @@ class StrictBackendGateTest(unittest.TestCase):
             expected = ["test", "-race", "-count=1", "-json", "-timeout", "300s", "-p", "4",
                         "./internal/core/domain", "./internal/core/services", "./internal/adapters/repository",
                         "-run", "^TestProbeInstall(Journal|Identity|Graph|States)|^TestM8InstallJournal"]
+        if scope == "m8-install-runner":
+            expected = ["test", "-race", "-count=1", "-json", "-timeout", "300s", "-p", "4",
+                        "./internal/core/domain", "./internal/core/services", "./internal/adapters/repository",
+                        "-run", "^TestProbeInstall(Journal|Identity|Graph|States)|^TestInstallRunner|^TestM8Install(Journal|Runner)"]
         self.assertEqual(launch.call_args.args[0][1:], expected)
         self.assertEqual(docker.call_args.args[:2], ("rm", "-f"))
         return status, json.loads(output.getvalue())
@@ -323,6 +336,56 @@ class StrictBackendGateTest(unittest.TestCase):
                             ([event(sorted(OPTIONAL_SKIPS)[0], "skip")], 0), ([], 1)):
             with self.subTest(extra=extra, code=code):
                 status, summary = self.run_gate(good + extra, exit_code=code, scope="m8-install-journal")
+                self.assertEqual(status, 1)
+                self.assertEqual(summary["result"], "failed")
+
+    def test_runner_exact_leaves_are_required_in_full_scope(self):
+        self.assertEqual(gate.INSTALL_RUNNER_REQUIRED, INSTALL_RUNNER_LEAVES)
+        self.assertEqual(len(INSTALL_RUNNER_LEAVES), 11)
+        self.assertTrue(INSTALL_RUNNER_LEAVES <= gate.REQUIRED)
+        for leaf in sorted(INSTALL_RUNNER_LEAVES):
+            with self.subTest(leaf=leaf):
+                summary = self.assert_failed(passing_events(omit={leaf}))
+                self.assertEqual(summary["missing_required"], [leaf])
+
+    def test_runner_scope_requires_original_journal_and_runner_without_extra_grants(self):
+        required = INSTALL_JOURNAL_LEAVES | INSTALL_RUNNER_LEAVES
+        status, summary = self.run_gate([event(n) for n in sorted(required)] + [event()], scope="m8-install-runner")
+        self.assertEqual(status, 0)
+        self.assertEqual(summary["scope"], "m8-install-runner")
+        self.assertEqual(summary["mariadb_named_passes"], 45)
+        self.assertEqual(summary["missing_required"], [])
+        self.assertFalse(any("GRANT " in str(call[0]) for call in self.docker_calls))
+        self.assertNotIn("MYSQL_PWD", self.go_launches[0][1]["env"])
+        self.assertFalse(summary["full_section_13_matrix"])
+
+    def test_runner_scope_missing_failed_skipped_parent_or_sqlite_substitutes_refuse(self):
+        required = INSTALL_JOURNAL_LEAVES | INSTALL_RUNNER_LEAVES
+        for leaf in sorted(required):
+            for action in (None, "fail", "skip"):
+                with self.subTest(leaf=leaf, action=action):
+                    lines = [event(n) for n in sorted(required - {leaf})]
+                    lines += [event(leaf.rsplit("/", 1)[0]), event(leaf.replace("/mariadb", "/sqlite")), event()]
+                    if action is not None:
+                        lines.append(event(leaf, action))
+                    status, summary = self.run_gate(lines, scope="m8-install-runner")
+                    self.assertEqual(status, 1)
+                    self.assertEqual(summary["missing_required"], [leaf])
+
+    def test_runner_scope_no_real_engine_execution_fails_closed(self):
+        required = INSTALL_JOURNAL_LEAVES | INSTALL_RUNNER_LEAVES
+        status, summary = self.run_gate([event(n.replace("/mariadb", "/sqlite")) for n in sorted(required)] + [event()], scope="m8-install-runner")
+        self.assertEqual(status, 1)
+        self.assertEqual(summary["missing_required"], sorted(required))
+        self.assertEqual(summary["mariadb_named_passes"], 0)
+
+    def test_runner_scope_refuses_malformed_failure_any_skip_or_nonzero_exit(self):
+        required = INSTALL_JOURNAL_LEAVES | INSTALL_RUNNER_LEAVES
+        good = [event(n) for n in sorted(required)] + [event()]
+        for extra, code in ((["not-json\\n"], 0), ([event(sorted(required)[0], "fail")], 0),
+                            ([event(sorted(OPTIONAL_SKIPS)[0], "skip")], 0), ([], 1)):
+            with self.subTest(extra=extra, code=code):
+                status, summary = self.run_gate(good + extra, exit_code=code, scope="m8-install-runner")
                 self.assertEqual(status, 1)
                 self.assertEqual(summary["result"], "failed")
 

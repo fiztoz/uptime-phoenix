@@ -160,6 +160,39 @@ image. A real image-build correspondence check (including inherited base config)
 registry pull/daemon results, layers and runtime evidence remain unverified before
 installer use. Existing M7 broad MariaDB acceptance remains separately blocked.
 
+### M8 one-shot resource coordinator (real DB; no remote executor)
+
+The [internal resource coordinator](multi-region/M8_INSTALL_RUNNER.md) calls an
+executor port only after acknowledged Begin and a new committed reservation,
+then joins the invocation before recording or completing. No SSH/Docker/systemd
+adapter, installer endpoint or startup worker is included. Use a cached toolchain,
+modules and MariaDB image; the gate creates and removes its own disposable DB:
+
+```sh
+mkdir -p tmp/m8-runner-acceptance
+chmod 700 tmp/m8-runner-acceptance
+python3 -B scripts/m6_dual_engine_gate.py --scope m8-install-runner \
+  --go-json tmp/m8-runner-acceptance/NEW-events.jsonl
+python3 -B -m unittest discover -s scripts -p test_m6_dual_engine_gate.py
+```
+
+A new private event path is required. All **45 exact MariaDB leaves** must run:
+34 original journal leaves plus 11 runner leaves. No skipped/failed/missing or
+parent-only/SQLite substitutes count; malformed JSON and nonzero Go exit fail.
+The default full gate retains M7 requirements and also requires all runner leaves.
+A scoped pass does not close the existing whole-backend MariaDB blocker.
+
+Callbacks must read actual committed intent/predecessors on another connection.
+Hold an invocation after cancellation to prove no terminal state or Run return
+precedes joining. Test lost Begin/reservation/report acknowledgements, cold
+retries, malformed/private executor errors, observer loss, DB expiry and late
+applied reports. Test owner loss at **both the first and last applied resource**:
+a final readiness fast path must not bypass cancellation just because there is
+no next loop iteration. Preserve definite applied history but interrupt the owner.
+Final acknowledgements must retain the entire expected immutable identity, not
+only matching operation ID/owner/outcome. Unit fakes are supplementary; real-store
+leaves exercise the actual facade→runner→store path on both engines.
+
 ### M8 internal install journal (real DB, no remote installer)
 
 The [install-intent/resource journal](multi-region/M8_INSTALL_JOURNAL.md) has a

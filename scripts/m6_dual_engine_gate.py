@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Backend race gate on a newly created, disposable MariaDB test DB.
 
-Default scope is the full backend; --scope m8-install-journal selects only the
+Default scope is the full backend; --scope m8-install-journal selects the
 journal's hermetic domain/use-case and exact SQLite/MariaDB acceptance leaves.
+--scope m8-install-runner also requires the one-shot coordinator's real-store leaves.
 The image and Go modules/toolchain must already be cached. This gate is a
 backend regression run, NOT proof that the full section-13 matrix or a canary
 was executed. Never accepts an externally supplied test DSN.
@@ -210,7 +211,17 @@ INSTALL_JOURNAL_REQUIRED = {
     f"TestM8InstallJournalClockAfterAuthorityLock/mariadb/{action}"
     for action in ("Begin", "Reserve", "Record", "Finish", "Observe", "Cancel")
 }
-REQUIRED |= INSTALL_JOURNAL_REQUIRED
+INSTALL_RUNNER_REQUIRED = {
+    f"TestM8InstallRunner/mariadb/{case}"
+    for case in (
+        "ResourcesReady/systemd", "ResourcesReady/docker", "ConcurrentRunSingleBegin",
+        "LostReservationAckNoInvocation", "RemoteCancelJoinsBeforeTerminal",
+        "OwnerLossUnknownStopsDependents", "FinalAppliedOwnerLoss", "ColdExpiryRejectsLateApplied",
+        "MalformedOutcomeCannotAdvance", "IdentityOwnerNoDispatch",
+        "ObservationLossStopsDispatch",
+    )
+}
+REQUIRED |= INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED
 
 
 def docker(*args, env=None):
@@ -222,14 +233,18 @@ def docker(*args, env=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scope", choices=("full", "m8-install-journal"), default="full",
-                        help="full backend or bounded install-journal acceptance (not installation)")
+    parser.add_argument("--scope", choices=("full", "m8-install-journal", "m8-install-runner"), default="full",
+                        help="full backend or bounded M8 journal/coordinator acceptance (not installation)")
     parser.add_argument("--mariadb-image", choices=(DEFAULT_IMAGE, "mariadb:12.3", "mariadb@sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15"),
                         default=DEFAULT_IMAGE, help="cached disposable DB image, never a live instance")
     parser.add_argument("--go-json", type=Path,
                         help="save complete Go JSON events to a NEW private file for scenario evaluation")
     args = parser.parse_args()
-    required = REQUIRED if args.scope == "full" else INSTALL_JOURNAL_REQUIRED
+    required = {
+        "full": REQUIRED,
+        "m8-install-journal": INSTALL_JOURNAL_REQUIRED,
+        "m8-install-runner": INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED,
+    }[args.scope]
     minimum_engine_passes = 300 if args.scope == "full" else len(required)
     allowed_skips = SKIPS_ALLOWED if args.scope == "full" else set()
     event_log = None
@@ -305,6 +320,11 @@ def main():
                    "-p", "4", "./internal/core/domain", "./internal/core/services",
                    "./internal/adapters/repository", "-run",
                    "^TestProbeInstall(Journal|Identity|Graph|States)|^TestM8InstallJournal"]
+        if args.scope == "m8-install-runner":
+            cmd = [str(toolchains[0]), "test", "-race", "-count=1", "-json", "-timeout", "300s",
+                   "-p", "4", "./internal/core/domain", "./internal/core/services",
+                   "./internal/adapters/repository", "-run",
+                   "^TestProbeInstall(Journal|Identity|Graph|States)|^TestInstallRunner|^TestM8Install(Journal|Runner)"]
         results = collections.Counter()
         mariadb = collections.Counter()
         packages = set()

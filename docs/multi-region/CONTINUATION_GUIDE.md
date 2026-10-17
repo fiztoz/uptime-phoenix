@@ -168,7 +168,13 @@ records immutable intent, one-shot committed action reports and conservative
 expiry/cancellation on both engines. It has no executor, startup or endpoint
 wiring; resources_ready is nonterminal, not installed success. Requested artifact
 pins and owned flags are not verification or cleanup authority. Use its dedicated
-34-leaf MariaDB gate and read its final evidence before continuing.
+34-leaf MariaDB gate and read its final evidence before continuing. This checkpoint
+is committed locally as `7b38761`, not pushed.
+The next [one-shot resource coordinator](M8_INSTALL_RUNNER.md) connects acknowledged
+Begin/reservation grants to joined executor reports, bounds cancellation and
+observes durable revocation. Its dedicated gate requires all 34 journal plus 11
+runner MariaDB leaves. It remains an internal use case with an executor port,
+not a concrete SSH/Docker/systemd adapter, startup worker or installer endpoint.
 Actual artifact delivery, host-side ownership/fencing, the idempotent
 Docker/systemd executor, bounded redacted progress, authenticated enrollment
 plus exact config activation remain open.
