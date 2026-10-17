@@ -156,7 +156,13 @@ The [pinned binary seam](M8_PINNED_BINARY_ARTIFACTS.md) now prepares a private
 verified release-binary snapshot or verifies/disposes it with the offline
 `verify-artifact` CLI. It does not independently extract runtime version from
 trimmed Go metadata; version-to-digest trust is an explicit operator pin.
-Docker digest preparation, the idempotent Docker/systemd installer,
+The [Docker metadata seam](M8_DIGEST_PINNED_IMAGES.md) now selects a digest-bound
+platform reference from an explicit trusted index plus manifest/config bytes.
+`verify-image` is offline and DB-independent; config-label provenance is not
+runtime-version proof and layer bytes are not verified. Before an installer uses
+this seam, verify correspondence with a real built image (including inherited
+base config), then independently verify actual digest/platform pull results.
+Actual artifact delivery, the idempotent Docker/systemd installer,
 resource/progress journal and authenticated enrollment plus exact config
 activation remain open.
 Do not reuse a preflight receipt as installation or cleanup authority. M6

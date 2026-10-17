@@ -27,9 +27,10 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status|ack|command-status|rotate-credential|rotation-status|rotate-certificate|certificate-rotation-status|prepare-reset|activate-reset|reset-status|inspect-host|verify-artifact> [options]
+const probeAdminUsage = `Usage: phoenix-probe-admin <register|enroll|assign|prepare|watchdog|status|ack|command-status|rotate-credential|rotation-status|rotate-certificate|certificate-rotation-status|prepare-reset|activate-reset|reset-status|inspect-host|verify-artifact|verify-image> [options]
 inspect-host --help: optional read-only SSH preflight, dispatched before hub environment/database loading.
 verify-artifact --help: offline pinned binary verification, also independent of hub environment/database.
+verify-image --help: offline digest-bound Docker image metadata, no registry/daemon or hub startup.
 Other commands use hub DB_ENGINE, DB_DSN, PROBE_SECRET_KEY_FILE and optional PROBE_ENDPOINT_POLICY_FILE.
 register --probe-id UUID --stream-id UUID --key SLUG --name NAME [--location LOCATION] --endpoint wss://HOST/ws/probe/v1 --fingerprint SHA256
 enroll --probe-id UUID --token-file PATH

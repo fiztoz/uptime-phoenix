@@ -133,6 +133,33 @@ before success. A version label is explicitly `operator_pin`, not an inferred
 runtime version; `-trimpath` omits `-ldflags` from Go metadata. No VM, Docker
 install, publisher authenticity, enrollment or config activation is established.
 
+### M8 digest-bound Docker metadata (offline; no daemon)
+
+The [image metadata prerequisite](multi-region/M8_DIGEST_PINNED_IMAGES.md) adds no
+DB, dependency, registry request or Docker execution. Run its actual CLI and
+bound JSON-chain tests, including the binary source-opener regression:
+
+```sh
+go test -race -count=1 ./internal/core/domain ./internal/core/services \
+  ./internal/adapters/provisioning ./internal/bootstrap ./cmd/phoenix-probe-admin \
+  -run 'TestProbe(Image|AdminImage|Binary|AdminBinary)'
+```
+
+Cover OCI and Docker schema-2 chains on both supported architectures, BuildKit
+attestation selection, exact byte/digest/size identity, duplicate target refusal,
+startup/version/rootfs constraints, bounded duplicate/case-alias/UTF-8/depth/token
+JSON guards, all-stream closure and joined cancellation at every input and during
+parsing. Subprocesses must succeed despite invalid hub settings, never execute a
+Docker canary, preserve input files and expose an explicit DTO with both
+`layers_verified` and `runtime_version_verified` false. Negative tests retain an
+otherwise valid chain so removing the tested guard produces a genuine acceptance
+or intended-effect failure, not a substitute rejection on missing metadata.
+
+Fixtures are digest-linked metadata, not a downloaded/publisher-authenticated
+image. A real image-build correspondence check (including inherited base config),
+registry pull/daemon results, layers and runtime evidence remain unverified before
+installer use. Existing M7 broad MariaDB acceptance remains separately blocked.
+
 ### M8 SSH preflight (no external host or credentials)
 
 The first [M8 slice](multi-region/M8_SSH_PREFLIGHT.md) has no database changes.

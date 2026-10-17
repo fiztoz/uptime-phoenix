@@ -13,3 +13,8 @@ import (
 func OpenProbeBinarySource(ctx context.Context, path string) (*os.File, error) {
 	return nil, domain.ErrProbeArtifactInput
 }
+
+// OpenProbeImageMetadataSource refuses unsupported local operator platforms.
+func OpenProbeImageMetadataSource(ctx context.Context, path string) (*os.File, error) {
+	return nil, domain.ErrProbeImageInput
+}

@@ -142,5 +142,8 @@ an invented embedded-version observation.
 are the fallback, not a full lint/vulnerability gate. Frontend/Helm were untouched.
 No VM, SSH mutation, download, Docker image validation, install, enrollment,
 configuration activation, live opt-in, release or deployment is established.
-Docker digest preparation, durable installer/resource journal and full M8/M6
-operational/release acceptance remain open.
+Docker digest preparation was still open at this binary checkpoint. The next
+[image metadata prerequisite](M8_DIGEST_PINNED_IMAGES.md) now verifies a trusted
+index/platform-manifest/config chain offline; it does not verify layers or pull
+an image. Actual artifact delivery, durable installer/resource journaling and
+full M8/M6 operational/release acceptance remain open.

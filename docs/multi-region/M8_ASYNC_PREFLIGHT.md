@@ -3,7 +3,10 @@
 Implementation contract for the continuation after `85405b7`. This slice adds
 admin-only asynchronous **discovery**, not installation. The earlier local CLI
 remains available and unchanged. Full M8 installation, artifact integrity,
-resource tracking, runtime enrollment and exact config activation remain open.
+resource tracking, runtime enrollment and exact config activation remain open
+at this discovery checkpoint. Follow-on [binary preparation](M8_PINNED_BINARY_ARTIFACTS.md)
+and [Docker metadata selection](M8_DIGEST_PINNED_IMAGES.md) provide bounded offline
+integrity prerequisites, not remote delivery or installation.
 **Candidate status: implemented locally; broad dual-engine acceptance is blocked.**
 Committing or publishing this candidate does not close that blocker or authorize
 feature activation or deployment.

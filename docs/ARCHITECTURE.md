@@ -2313,6 +2313,12 @@ uses only Go stdlib (streaming SHA-256, private files, ELF/build-info readers).
 DB-independent `verify-artifact` CLI disposes it before reporting verification.
 Version provenance is an explicit trusted operator pin, not inferred linker flags
 (which release `-trimpath` builds omit). No download, execution or installer is
-introduced; Docker digest preparation and remote activation remain follow-ons.
+introduced. The [Docker metadata prerequisite](multi-region/M8_DIGEST_PINNED_IMAGES.md)
+adds the stdlib-only `ProbeImagePreparer` port and DB-independent `verify-image`
+CLI: exact trusted index → unique Linux platform manifest → image config digest
+binding, with an immutable platform reference. It checks the Dockerfile startup
+contract and digest-bound version label, not layer bytes or runtime version.
+No registry, Docker daemon, pull or execution is introduced. Resource journaling,
+remote installation and authenticated enrollment/config activation remain open.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

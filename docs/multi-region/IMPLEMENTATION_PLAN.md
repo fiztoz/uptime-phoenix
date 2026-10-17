@@ -224,11 +224,17 @@ preflight only; neither satisfies the installer or full M8 acceptance below.
 The [pinned binary prerequisite](M8_PINNED_BINARY_ARTIFACTS.md) additionally
 provides offline explicit pin verification and private snapshots. It is not a
 Docker image verifier, remote installer or authenticated runtime-version proof.
+The [Docker metadata prerequisite](M8_DIGEST_PINNED_IMAGES.md) now verifies a
+trusted index/platform-manifest/config chain and Dockerfile startup contract;
+it does not download layers, authenticate a publisher or inspect a runtime.
 
 - [x] Add default-disabled admin-only asynchronous **preflight** routes, immutable
   operation identities, hard DB-clock deadlines and joined cancellation.
 - [x] Add offline raw probe-binary pin verification and private copied snapshots
   without executing them; preserve explicit operator version provenance.
+
+- [x] Add offline Docker image metadata selection bound to an explicit trusted
+  index and unique platform manifest/config, with honest layer/runtime non-claims.
 
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
