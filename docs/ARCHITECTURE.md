@@ -2333,5 +2333,13 @@ this facade for acknowledged Begin/reserve→joined executor→record sequencing
 with bounded durable-state observation and independent completion contexts.
 It adds one small executor port, no concrete remote adapter, dependency,
 startup/HTTP wiring or installed-success outcome.
+The [offline image content verifier](multi-region/M8_IMAGE_CONTENT.md) separately
+binds supplied raw/gzip layer bytes and bounded uncompressed diff IDs to the
+existing trusted metadata chain. It adds a small port and local
+`verify-image-content` command, reusing the metadata and source-opening policy.
+It retains/extracts/executes nothing; zstd content refuses without a new dependency.
+Digest binding is not rootfs safety, publisher/runtime proof or transferable
+verified-byte authority. Real built-image correspondence remains open because
+no relevant local build images are cached and no registry pull was performed.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

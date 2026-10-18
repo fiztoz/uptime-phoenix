@@ -175,6 +175,13 @@ Begin/reservation grants to joined executor reports, bounds cancellation and
 observes durable revocation. Its dedicated gate requires all 34 journal plus 11
 runner MariaDB leaves. It remains an internal use case with an executor port,
 not a concrete SSH/Docker/systemd adapter, startup worker or installer endpoint.
+That coordinator checkpoint is committed locally as `0870c3a`, not pushed.
+The [offline image content seam](M8_IMAGE_CONTENT.md) now verifies ordered supplied
+raw/gzip layer bytes and bounded diff IDs against the existing pinned chain.
+It retains/extracts/executes nothing; no mutable source path may be reused on the
+authority of its receipt. Actual built-image correspondence still has not run:
+no relevant images are cached and no registry pulls were performed. Do not confuse
+content hashes with rootfs safety, publisher/runtime proof or verified delivery.
 Actual artifact delivery, host-side ownership/fencing, the idempotent
 Docker/systemd executor, bounded redacted progress, authenticated enrollment
 plus exact config activation remain open.

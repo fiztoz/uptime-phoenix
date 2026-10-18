@@ -160,6 +160,40 @@ image. A real image-build correspondence check (including inherited base config)
 registry pull/daemon results, layers and runtime evidence remain unverified before
 installer use. Existing M7 broad MariaDB acceptance remains separately blocked.
 
+### M8 supplied image content (offline; no extraction or daemon)
+
+The [content verifier](multi-region/M8_IMAGE_CONTENT.md) reuses the metadata chain
+and source opener, then checks exact supplied raw/gzip layer hashes/sizes and
+bounded uncompressed diff IDs. No registry/daemon, artifact execution, extraction,
+retention, remote host or DB is used. Run its actual service/adapter/CLI paths:
+
+```sh
+go test -race -count=3 ./internal/core/domain ./internal/core/services \
+  ./internal/adapters/provisioning ./internal/bootstrap ./cmd/phoenix-probe-admin \
+  -run 'ProbeImageContent|ProbeAdminImageContent'
+```
+
+Use real small tar/gzip fixtures for both schemas/architectures, multiple ordered
+layers, rebound wrong diff IDs, valid compressed bytes with a wrong declared size,
+and a gzip-header-only change (same decoded bytes) to isolate compressed identity.
+Keep exact-size and digest-order assertions independent: layer compression sizes
+may differ even when the fixture strings/tar sizes match. Test exact/one-over
+per-layer and aggregate compressed/inflated bounds with smaller per-instance
+budgets; unsupported later zstd and over-limit declarations must refuse before
+any layer read. Include footer/truncation/trailing-invalid/multimember gzip,
+reader secrecy, all-stream ownership, cancel during read/inflate/Close, joined
+closure, and unchanged inputs. A digest-bound opaque non-tar fixture should still
+prove the deliberate non-claim of rootfs safety.
+
+The subprocess CLI must dispatch before invalid hub config, refuse FIFO/device
+inputs without blocking or leaking paths, and report `rootfs_verified=false`,
+`runtime_version_verified=false`, `content_retained=false`. FD growth assertions
+must execute on both supported hosts; macOS `/dev/fd` enumeration is not reliable.
+No cached Go/distroless/probe build images were available for the genuine image
+correspondence gate. Synthetic tar/gzip verification does not close that gate or
+authorize loading mutable source files into a daemon. Existing M7 MariaDB and
+M6/M8 operational/release/installation gates remain separate.
+
 ### M8 one-shot resource coordinator (real DB; no remote executor)
 
 The [internal resource coordinator](multi-region/M8_INSTALL_RUNNER.md) calls an

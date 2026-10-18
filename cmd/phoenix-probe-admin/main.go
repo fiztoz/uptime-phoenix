@@ -25,6 +25,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "verify-image" {
 		os.Exit(bootstrap.RunProbeImageVerification(ctx, os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "verify-image-content" {
+		os.Exit(bootstrap.RunProbeImageContentVerification(ctx, os.Args[2:], os.Stdout, os.Stderr))
+	}
 	cfg, err := bootstrap.LoadConfig()
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "Invalid hub environment configuration")

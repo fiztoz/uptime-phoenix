@@ -179,7 +179,9 @@ scope; read-only review/worker reports do not establish executed acceptance.
 
 ## Evidence and limits
 
-Implemented locally, **uncommitted** after journal checkpoint `7b38761`.
+Committed locally as **`0870c3a`** after journal checkpoint `7b38761`; not pushed.
+The source and documentation matched the evidence below before committing; no
+verification was rerun for that commit-only operation.
 Frozen source is
 `3a215986cf75757850b63bf168086998ac5e0b33ddba6088b4a15e47015bb659`
 (1,464 files). Private evidence lives under
@@ -227,7 +229,9 @@ unchanged source hash/inventory. `cleanup-result.json` records exact task labels
 joined users and preservation checks; no task DB, generated credential or scratch
 cleanup remains outstanding. Failed draft reproductions, commands, logs,
 manifests and mutation overlays remain private under the evidence directory.
-No new commit or push followed `7b38761`; this coordinator remains uncommitted.
+No push, deployment or installation followed `0870c3a`. The follow-on
+[image-content prerequisite](M8_IMAGE_CONTENT.md) is separate from this coordinator
+and adds no concrete remote executor or installed-success outcome.
 
 `golangci-lint` and `govulncheck` are unavailable; vet/format are fallback evidence,
 not a completed lint or vulnerability scan. No frontend or Helm source changed;

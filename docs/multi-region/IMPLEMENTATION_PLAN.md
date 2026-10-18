@@ -248,6 +248,9 @@ has no concrete remote adapter or installation-success path.
 - [x] Add an internal one-shot resource coordinator over the existing journal:
   no historical replay, joined reports, bounded revocation/cancellation and
   honest uncertainty. No remote executor, endpoint or startup wiring yet.
+- [x] Add bounded offline verification of supplied raw/gzip layer hashes and
+  uncompressed diff IDs ([content contract](M8_IMAGE_CONTENT.md)); no retained
+  snapshot, tar/rootfs validation, daemon/publisher/runtime or built-image proof.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.

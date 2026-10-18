@@ -144,7 +144,11 @@ or published image, including inherited base-image config. That real-image smoke
 check is required before installer use. No registry request, Docker daemon/pull,
 layer bytes, cosign/publisher proof, SSH mutation, VM, install, enrollment or config
 activation was exercised. The future installer must independently verify actual
-pull/platform/config results and authenticated runtime evidence.
+pull/platform/config results and authenticated runtime evidence. The separate
+[offline content seam](M8_IMAGE_CONTENT.md) now verifies supplied raw/gzip layer
+hashes and bounded diff IDs, but retains no bytes and does not validate tar/rootfs
+safety or close the actual built-image correspondence gate. The original
+`verify-image` command remains metadata-only with its original non-claims.
 
 `golangci-lint` and `govulncheck` are unavailable locally. Vet/formatting are the
 project fallback, not full lint/vulnerability acceptance. Frontend/Helm and
