@@ -148,7 +148,8 @@ code against the real adapter; worker simulated-adapter passes are not counted.
 
 ## Evidence and remaining limits
 
-Implemented locally, **uncommitted** after `0870c3a`. Frozen source:
+Committed and published as **`c983ec2`** after `0870c3a`; source and docs matched
+the evidence before publication, with no commit-only test rerun. Frozen source:
 `4c49204147c432e6aca285eab5789fb1a033a75260f9fda8150c3fe6f2f77727`
 (1,477 source files). Private ignored evidence is under
 `tmp/m8-image-content-verification/`; overlays are dot-prefixed and never alter
@@ -207,8 +208,13 @@ those gates were not run. A supporting worker reported an
 unidentified temporary code-backup directory outside the repository; its removal
 is not claimed. No private source input or credential was supplied to workers.
 
- The complete systemd/Docker executor,
+The subsequent [actual local image gate](M8_IMAGE_CORRESPONDENCE.md) records
+separate approved public pulls and source-pinned builds, and catches the
+Dockerfile target-argument bug by checking copied ELF bytes. This does not
+retroactively expand the historical offline-only evidence above.
+
+The complete systemd/Docker executor,
 immutable delivery, host ownership/fencing, joined remote termination/cleanup,
-actual built-image correspondence, publisher/runtime proof, async installer API,
+registry/published-artifact correspondence, publisher/runtime proof, async installer API,
 authenticated enrollment/exact config activation, broad M7 MariaDB acceptance,
 M6/M8 operational/release and deployment approval remain open.

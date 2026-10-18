@@ -179,7 +179,8 @@ scope; read-only review/worker reports do not establish executed acceptance.
 
 ## Evidence and limits
 
-Committed locally as **`0870c3a`** after journal checkpoint `7b38761`; not pushed.
+Committed as **`0870c3a`** after journal checkpoint `7b38761`, subsequently
+published on `feat/m8-ssh-preflight` as an ancestor of `c983ec2`.
 The source and documentation matched the evidence below before committing; no
 verification was rerun for that commit-only operation.
 Frozen source is
@@ -229,15 +230,18 @@ unchanged source hash/inventory. `cleanup-result.json` records exact task labels
 joined users and preservation checks; no task DB, generated credential or scratch
 cleanup remains outstanding. Failed draft reproductions, commands, logs,
 manifests and mutation overlays remain private under the evidence directory.
-No push, deployment or installation followed `0870c3a`. The follow-on
+The later authorized branch push published `0870c3a`; no deployment or installation
+followed. The follow-on
 [image-content prerequisite](M8_IMAGE_CONTENT.md) is separate from this coordinator
 and adds no concrete remote executor or installed-success outcome.
 
 `golangci-lint` and `govulncheck` are unavailable; vet/format are fallback evidence,
 not a completed lint or vulnerability scan. No frontend or Helm source changed;
 those gates were not run. Scoped real-engine passes do not establish broad M7
-MariaDB acceptance. Real image correspondence and layer/publisher
-verification, remote artifact delivery/host ownership/fencing, joined remote
+MariaDB acceptance. The later [offline content](M8_IMAGE_CONTENT.md) and
+[actual local build gate](M8_IMAGE_CORRESPONDENCE.md) independently verify supplied
+layers and actual per-platform exports, not coordinator authority. Registry,
+publisher/runtime proof, remote artifact delivery/host ownership/fencing, joined remote
 termination, cleanup, admin async installer API, redacted progress, authenticated
 runtime enrollment and exact config activation remain open. So do broad M7
 MariaDB acceptance and M6/M8 operational/release/deployment gates. No push or live

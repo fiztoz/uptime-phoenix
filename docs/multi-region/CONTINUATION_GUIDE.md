@@ -162,26 +162,30 @@ platform reference from an explicit trusted index plus manifest/config bytes.
 runtime-version proof and layer bytes are not verified. Before an installer uses
 this seam, verify correspondence with a real built image (including inherited
 base config), then independently verify actual digest/platform pull results.
-The image metadata checkpoint is committed locally as `54fdc44` (not pushed).
+The image metadata checkpoint `54fdc44` is published on `feat/m8-ssh-preflight`.
 The next [internal install-intent/resource journal](M8_INSTALL_JOURNAL.md) now
 records immutable intent, one-shot committed action reports and conservative
 expiry/cancellation on both engines. It has no executor, startup or endpoint
 wiring; resources_ready is nonterminal, not installed success. Requested artifact
 pins and owned flags are not verification or cleanup authority. Use its dedicated
 34-leaf MariaDB gate and read its final evidence before continuing. This checkpoint
-is committed locally as `7b38761`, not pushed.
+is published as `7b38761` on the same branch.
 The next [one-shot resource coordinator](M8_INSTALL_RUNNER.md) connects acknowledged
 Begin/reservation grants to joined executor reports, bounds cancellation and
 observes durable revocation. Its dedicated gate requires all 34 journal plus 11
 runner MariaDB leaves. It remains an internal use case with an executor port,
 not a concrete SSH/Docker/systemd adapter, startup worker or installer endpoint.
-That coordinator checkpoint is committed locally as `0870c3a`, not pushed.
+That coordinator checkpoint `0870c3a` is published on the same branch.
 The [offline image content seam](M8_IMAGE_CONTENT.md) now verifies ordered supplied
 raw/gzip layer bytes and bounded diff IDs against the existing pinned chain.
 It retains/extracts/executes nothing; no mutable source path may be reused on the
-authority of its receipt. Actual built-image correspondence still has not run:
-no relevant images are cached and no registry pulls were performed. Do not confuse
-content hashes with rootfs safety, publisher/runtime proof or verified delivery.
+authority of its receipt. Its `c983ec2` checkpoint is published. The follow-on
+[actual local image correspondence gate](M8_IMAGE_CORRESPONDENCE.md) uses explicitly
+approved public base pulls and local builds, and found an actual Dockerfile bug:
+arm64 labels contained an amd64 ELF because ARG defaults overrode BuildKit targets.
+Read its source pins, corrected target bindings, executable-platform controls and
+final verification evidence before installer use. Local export proof is not
+registry/publisher/runtime proof, rootfs safety or verified delivery.
 Actual artifact delivery, host-side ownership/fencing, the idempotent
 Docker/systemd executor, bounded redacted progress, authenticated enrollment
 plus exact config activation remain open.

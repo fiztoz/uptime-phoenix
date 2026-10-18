@@ -189,10 +189,36 @@ The subprocess CLI must dispatch before invalid hub config, refuse FIFO/device
 inputs without blocking or leaking paths, and report `rootfs_verified=false`,
 `runtime_version_verified=false`, `content_retained=false`. FD growth assertions
 must execute on both supported hosts; macOS `/dev/fd` enumeration is not reliable.
-No cached Go/distroless/probe build images were available for the genuine image
-correspondence gate. Synthetic tar/gzip verification does not close that gate or
-authorize loading mutable source files into a daemon. Existing M7 MariaDB and
-M6/M8 operational/release/installation gates remain separate.
+Synthetic tar/gzip verification does not close actual image correspondence or
+authorize loading mutable source files into a daemon. The separate gate below
+records genuine local builds under explicit public-pull approval. Existing M7
+MariaDB and M6/M8 operational/release/installation gates remain separate.
+
+### M8 actual local image correspondence (explicit network approval)
+
+Read [the contract and runbook](multi-region/M8_IMAGE_CORRESPONDENCE.md).
+`make release-image-gate` now includes its **24 offline unit controls**, also run
+by existing backend CI and local `gate-full`; they never contact Docker/network.
+Actual image acceptance separately requires an available local Unix Docker
+endpoint, matching installed Go compiler, explicit `--allow-public-pulls`, a new
+private work directory and the built-in builder. Follow the complete command in
+the runbook rather than inheriting Docker auth, application secrets or DSNs.
+
+The gate builds tracked source with only digest-pinned base references; an
+intentional uncommitted Dockerfile fix needs `--allow-working-dockerfile` and is
+recorded as an overlay, never attributed falsely to the Git commit. Build each
+platform sequentially on small Docker VMs; do not drop arm64 or silently prune
+shared caches to obtain green. Read bounded OCI archive blobs without rootfs
+extraction. For each architecture require original index/manifest/config/layers,
+all three real artifact CLIs, actual copied ELF machine and three intended
+negative refusals. Fake-CLI unit passes never substitute for these executions.
+
+The first actual run found that `ARG TARGETARCH=amd64` overrode BuildKit's target
+and placed the same amd64 ELF under the arm64 label. The fix uses unvalued
+TARGETOS/TARGETARCH declarations, and both fast regression and real copied-byte
+checks now cover it. Existing direct Go cross-builds or image labels alone
+cannot establish this. Local per-platform export proof is not combined registry
+index, publisher/runtime identity, rootfs safety, delivery or installation proof.
 
 ### M8 one-shot resource coordinator (real DB; no remote executor)
 

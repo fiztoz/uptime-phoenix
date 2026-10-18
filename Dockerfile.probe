@@ -2,8 +2,9 @@
 # Download modules and compile on the native builder to avoid emulated Go
 # runtime failures; the resulting probe remains cross-compiled for the target.
 FROM --platform=$BUILDPLATFORM golang:1.26.9-alpine AS go-builder
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+# Inherit BuildKit's automatic target values; defaults here override --platform.
+ARG TARGETOS
+ARG TARGETARCH
 ARG VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./

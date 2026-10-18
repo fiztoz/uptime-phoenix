@@ -1,7 +1,10 @@
 # M8 — digest-bound Docker image metadata
 
-This checkpoint is committed locally as `54fdc44` on `feat/m8-ssh-preflight`;
-not pushed. Publication is not deployment approval.
+This checkpoint `54fdc44` is published on `feat/m8-ssh-preflight` as an ancestor
+of `c983ec2`. Publication is not deployment approval. The subsequent
+[local built-image gate](M8_IMAGE_CORRESPONDENCE.md) records approved public pulls,
+actual export/config/layer/binary checks and the Dockerfile target-argument fix;
+the offline metadata service itself still performs no network/daemon I/O.
 
 Continuation after `2155ef1`. This prerequisite resolves a trusted multi-platform
 release index to one immutable platform manifest. It is **metadata verification**,
@@ -149,6 +152,14 @@ pull/platform/config results and authenticated runtime evidence. The separate
 hashes and bounded diff IDs, but retains no bytes and does not validate tar/rootfs
 safety or close the actual built-image correspondence gate. The original
 `verify-image` command remains metadata-only with its original non-claims.
+
+The subsequent [actual local build gate](M8_IMAGE_CORRESPONDENCE.md) separately
+performed approved public pulls and verified genuine per-platform exports,
+inherited config, supplied layer/diff-ID hashes and copied static ELF identity.
+It exposed and fixes incorrect automatic target ARG defaults. This closes the
+bounded local build prerequisite, not combined registry-index, publisher/runtime,
+rootfs or delivered-host verification, and does not expand the historical
+metadata-only evidence above.
 
 `golangci-lint` and `govulncheck` are unavailable locally. Vet/formatting are the
 project fallback, not full lint/vulnerability acceptance. Frontend/Helm and

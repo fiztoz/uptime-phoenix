@@ -2339,7 +2339,11 @@ existing trusted metadata chain. It adds a small port and local
 `verify-image-content` command, reusing the metadata and source-opening policy.
 It retains/extracts/executes nothing; zstd content refuses without a new dependency.
 Digest binding is not rootfs safety, publisher/runtime proof or transferable
-verified-byte authority. Real built-image correspondence remains open because
-no relevant local build images are cached and no registry pull was performed.
+verified-byte authority. The separate [local built-image gate](multi-region/M8_IMAGE_CORRESPONDENCE.md)
+uses approved public pulls, pinned base references and bounded local OCI exports;
+it reuses all three artifact CLIs and checks the actual copied ELF platform.
+Its real builds exposed and corrected TARGETARCH defaults overriding BuildKit.
+Local build/export evidence does not prove publisher/registry/runtime identity,
+merged rootfs safety, remote delivery, installation or activation.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

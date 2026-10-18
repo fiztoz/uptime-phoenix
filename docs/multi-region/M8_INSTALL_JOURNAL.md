@@ -155,8 +155,8 @@ cannot close the known broad MariaDB blocker.
 
 ## Executed evidence
 
-The internal journal is committed locally as **`7b38761`** after image checkpoint
-`54fdc44`; neither has been pushed. No deployment or live opt-in. The follow-on
+The internal journal **`7b38761`** follows image checkpoint `54fdc44`; both are
+published on `feat/m8-ssh-preflight` as ancestors of `c983ec2`. No deployment or live opt-in. The follow-on
 [one-shot resource coordinator](M8_INSTALL_RUNNER.md) reuses this facade without
 changing the journal schema, fencing or outcome contract; it still has no concrete
 remote executor or installation-success endpoint.

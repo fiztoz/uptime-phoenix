@@ -265,7 +265,8 @@ m6-backend-harness-gate: ## Verify actual-engine coverage and exhaustive CI shar
 	python3 -B -m unittest discover -s scripts -p test_repository_test_shards.py -v
 
 .PHONY: release-image-gate
-release-image-gate: ## Verify required image/chart operations fail closed (mocked tools)
+release-image-gate: ## Verify image/chart operations and local image correspondence controls offline
+	python3 -B -m unittest discover -s scripts -p test_m8_image_correspondence_gate.py -v
 	bash -n scripts/release/dry-run.sh scripts/release/test-image-failures.sh
 	bash scripts/release/test-image-failures.sh
 	python3 scripts/release/test-chart-publish.py
