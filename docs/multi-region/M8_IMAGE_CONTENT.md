@@ -212,6 +212,11 @@ The subsequent [actual local image gate](M8_IMAGE_CORRESPONDENCE.md) records
 separate approved public pulls and source-pinned builds, and catches the
 Dockerfile target-argument bug by checking copied ELF bytes. This does not
 retroactively expand the historical offline-only evidence above.
+The later [private snapshot prerequisite](M8_IMAGE_SNAPSHOT.md) copies and
+re-verifies supplied metadata/layers for a context-bound in-process handoff.
+It does not change this verifier or its CLI: `content_retained` remains false
+for the verification-only command. A retained snapshot is not a complete OCI
+layout or remote delivery/installation authority.
 
 The complete systemd/Docker executor,
 immutable delivery, host ownership/fencing, joined remote termination/cleanup,

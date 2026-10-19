@@ -2345,5 +2345,13 @@ it reuses all three artifact CLIs and checks the actual copied ELF platform.
 Its real builds exposed and corrected TARGETARCH defaults overriding BuildKit.
 Local build/export evidence does not prove publisher/registry/runtime identity,
 merged rootfs safety, remote delivery, installation or activation.
+The [private image snapshot seam](multi-region/M8_IMAGE_SNAPSHOT.md) now copies
+supplied metadata/ordered compressed layers into trusted local 0700/0400 storage,
+then re-runs the same verifier over the private copies. Descriptor-rooted,
+context-bound readers expose one bounded bundle; joined disposal refuses
+replacement/unknown contents and never recursively removes them. This uses
+stdlib `os.Root` with the locked Go toolchain, adds no dependency or network
+client, and is neither a complete multiarch OCI layout nor remote transfer or
+cleanup authority. Existing verification-only CLIs still retain no content.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

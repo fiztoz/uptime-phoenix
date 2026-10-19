@@ -184,8 +184,16 @@ authority of its receipt. Its `c983ec2` checkpoint is published. The follow-on
 approved public base pulls and local builds, and found an actual Dockerfile bug:
 arm64 labels contained an amd64 ELF because ARG defaults overrode BuildKit targets.
 Read its source pins, corrected target bindings, executable-platform controls and
-final verification evidence before installer use. Local export proof is not
+final verification evidence before installer use. That checkpoint is locally
+committed as `326ceda` (not pushed). Local export proof is not
 registry/publisher/runtime proof, rootfs safety or verified delivery.
+The [private image snapshot seam](M8_IMAGE_SNAPSHOT.md) now retains original
+pinned metadata and ordered layers, verifies the private copies, and exposes one
+context-bound reader bundle with joined owned cleanup. It adds no registry/daemon/
+SSH action or complete OCI layout; original verification-only commands still
+retain nothing. Read its trusted-staging threat model and cleanup-failure priority
+before using the handoff. This is an internal artifact prerequisite, not a
+concrete executor, endpoint, enrollment or activation path.
 Actual artifact delivery, host-side ownership/fencing, the idempotent
 Docker/systemd executor, bounded redacted progress, authenticated enrollment
 plus exact config activation remain open.

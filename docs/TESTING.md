@@ -220,6 +220,38 @@ checks now cover it. Existing direct Go cross-builds or image labels alone
 cannot establish this. Local per-platform export proof is not combined registry
 index, publisher/runtime identity, rootfs safety, delivery or installation proof.
 
+### M8 private image snapshots (local filesystem; no network/daemon)
+
+Read [the snapshot contract](multi-region/M8_IMAGE_SNAPSHOT.md). This separate
+internal API retains supplied metadata/layers and re-runs the existing verifier
+against sealed private copies. Verification-only CLIs and their
+`content_retained=false` response remain unchanged. Use the cached locked compiler
+with offline modules; no DB, registry, Docker or SSH endpoint is required:
+
+```sh
+go test -race -count=3 -timeout 300s \
+  ./internal/core/services ./internal/adapters/provisioning \
+  -run '^TestProbeImageSnapshot'
+```
+
+Exercise the real service→adapter→private-copy/readback→Open/Close path, not just
+mock results. Cover raw/gzip OCI and Docker schemas on both declared architectures,
+source independence, copied-byte corruption, exact/one-over limits, typed-nil and
+dynamically non-comparable handles, metadata refusal before layer reads, all
+closures/callback joins, one active bundle, the full 131-reader bound, partial
+opens, cancellation, concurrent disposal and ownership/unknown-file refusal with
+cleanup retry. No recursive deletion of unknown/replacement content is permitted.
+A confirmed disposal failure must remain fixed `ErrProbeImageSnapshotStorage`
+even if cancellation also occurred; never lose retained storage behind a generic
+canceled response. Compare assertions against intended mutants, then rerun
+untouched-source control.
+
+These Go tests are included in existing backend CI automatically. Report which
+filesystem OS actually executed them: native host success plus Linux cross-builds
+are not Linux filesystem-runtime acceptance. Snapshots neither export a complete
+OCI layout nor establish actual delivery, publisher/runtime identity, host fencing
+or installation. Broad M7 MariaDB and M6/M8 operational gates remain separate.
+
 ### M8 one-shot resource coordinator (real DB; no remote executor)
 
 The [internal resource coordinator](multi-region/M8_INSTALL_RUNNER.md) calls an

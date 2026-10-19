@@ -160,8 +160,12 @@ published tag or production host without inspecting that artifact.
 Private ignored evidence: `tmp/m8-built-image-verification/`. Final source hash,
 including Dockerfile and both Python files:
 `1cd1f836533118618f9006eec5554fe7cadccd65b75179f5f05da90eec32f429`
-(1,480 source files); Makefile/docs are audited separately. Work is uncommitted
-after published `c983ec2`; no new push, image publication, deployment or opt-in.
+(1,480 source files); Makefile/docs are audited separately. This verified tree
+was committed locally as `326ceda` after published `c983ec2`, with no commit-only
+test rerun and no new push, image publication, deployment or opt-in. The private
+`committed.json` binds that checkpoint to unchanged source/docs/config. Later
+[private snapshot work](M8_IMAGE_SNAPSHOT.md) is a separate prerequisite; it does
+not retroactively expand this built-image evidence.
 
 - `run-01`: genuine original combined export passed its narrower metadata/content
   checks and four corrupt-byte controls. That was **not** correct ARM executable

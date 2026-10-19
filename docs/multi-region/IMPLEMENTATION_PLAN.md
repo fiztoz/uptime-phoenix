@@ -256,6 +256,10 @@ has no concrete remote adapter or installation-success path.
   sequential real platform exports and all three existing artifact CLIs. Check
   copied ELF architecture, not image labels. Fix automatic target ARG defaults.
   No image load/run/push, combined registry-index or publisher/runtime proof.
+- [x] Add a [private verified image snapshot](M8_IMAGE_SNAPSHOT.md), reusing the
+  content verifier before and after copying. Bound the one-reader-bundle handoff,
+  join revocation and preserve/refuse unknown storage on cleanup. This is not a
+  complete OCI layout, actual remote delivery, journal or installation authority.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.
