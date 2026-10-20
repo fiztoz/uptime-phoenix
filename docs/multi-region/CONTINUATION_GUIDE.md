@@ -192,8 +192,14 @@ pinned metadata and ordered layers, verifies the private copies, and exposes one
 context-bound reader bundle with joined owned cleanup. It adds no registry/daemon/
 SSH action or complete OCI layout; original verification-only commands still
 retain nothing. Read its trusted-staging threat model and cleanup-failure priority
-before using the handoff. This is an internal artifact prerequisite, not a
-concrete executor, endpoint, enrollment or activation path.
+before using the handoff. It is now locally committed as `f1dd181` (not pushed),
+with unchanged verified inputs and no commit-only test rerun.
+The next [closed single-platform archive](M8_IMAGE_ARCHIVE.md) borrows that
+snapshot and streams unique unchanged blobs into deterministic bounded tar.
+Read its original-index versus generated-root provenance and borrowed-input
+lifecycle contracts before consuming it. No daemon importer or actual remote
+transport is supplied. These are internal artifact prerequisites, not a concrete
+executor, endpoint, enrollment or activation path.
 Actual artifact delivery, host-side ownership/fencing, the idempotent
 Docker/systemd executor, bounded redacted progress, authenticated enrollment
 plus exact config activation remain open.

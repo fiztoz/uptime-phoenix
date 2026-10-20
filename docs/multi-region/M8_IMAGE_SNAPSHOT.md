@@ -202,7 +202,12 @@ not completed lint/vulnerability scans. Frontend/Helm sources were unchanged and
 those gates were not run. Only task-owned private compiler/cache/mirror scratch
 is eligible for cleanup after joined users and identity checks; logs, mutations,
 reproductions and manifests are retained. No DB/Docker resource was created for
-this slice. This continuation remains uncommitted; no push/deployment/opt-in.
+this slice. This verified checkpoint was subsequently committed locally as
+`f1dd181` without changing its verified source/docs/config or rerunning tests merely
+for the commit. Private `committed.json` binds that checkpoint to this historical
+evidence. No push/deployment/opt-in. The later [closed single-platform archive](M8_IMAGE_ARCHIVE.md)
+borrows this seam; it does not change the snapshot implementation or retroactively
+expand snapshot evidence into importer, publisher/runtime or delivery proof.
 
 Registry/publisher/runtime proof, concrete verified delivery, host fencing/
 ownership and joined remote termination, installer API, authenticated enrollment

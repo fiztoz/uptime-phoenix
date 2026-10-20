@@ -260,6 +260,11 @@ has no concrete remote adapter or installation-success path.
   content verifier before and after copying. Bound the one-reader-bundle handoff,
   join revocation and preserve/refuse unknown storage on cleanup. This is not a
   complete OCI layout, actual remote delivery, journal or installation authority.
+- [x] Add a [closed single-platform archive](M8_IMAGE_ARCHIVE.md) from a borrowed
+  verified snapshot. Re-verify original pinned metadata/layers, emit deterministic
+  unique blobs, separately identify the generated root, and seal/read back bounded
+  private bytes with joined disposal. This is not daemon-import compatibility,
+  combined registry-index/publisher proof, remote delivery or installation.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.

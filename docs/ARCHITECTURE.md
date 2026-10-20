@@ -2353,5 +2353,11 @@ replacement/unknown contents and never recursively removes them. This uses
 stdlib `os.Root` with the locked Go toolchain, adds no dependency or network
 client, and is neither a complete multiarch OCI layout nor remote transfer or
 cleanup authority. Existing verification-only CLIs still retain no content.
+The subsequent [closed single-platform archive](multi-region/M8_IMAGE_ARCHIVE.md)
+borrows that snapshot, re-verifies its original pinned graph, and streams unique
+unchanged blobs into deterministic USTAR. Its generated one-target OCI root has
+separate hash/size fields from the original trusted index. Sealed private output
+is independently hashed before context-bound reading; this adds no daemon loader,
+registry client, remote transfer, publisher/runtime proof or installation wiring.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

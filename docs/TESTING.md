@@ -252,6 +252,33 @@ are not Linux filesystem-runtime acceptance. Snapshots neither export a complete
 OCI layout nor establish actual delivery, publisher/runtime identity, host fencing
 or installation. Broad M7 MariaDB and M6/M8 operational gates remain separate.
 
+### M8 closed single-platform archives (offline; no daemon importer)
+
+Read [the archive contract](multi-region/M8_IMAGE_ARCHIVE.md). The packer borrows
+rather than closes a verified snapshot, re-verifies its original pinned graph,
+and streams deterministic USTAR with a separately identified one-target root.
+Use the locked cached compiler and offline modules; no network/DB/SSH is needed:
+
+```sh
+go test -race -count=3 -timeout 300s \
+  ./internal/core/domain ./internal/core/services ./internal/adapters/provisioning \
+  -run '^TestProbeImageArchive'
+```
+
+Parse the real service→packer output independently. Assert unique closed blob
+graphs and unchanged bytes, repeated ordered-layer verification, original versus
+generated index identities, deterministic headers/terminators, both schemas,
+raw/gzip and both declared architectures. Exercise actual filesystem readers,
+not only byte mocks: EOF must remain EOF after source closure. Include exact and
+one-over archive budgets, private readback corruption, partial Open ownership,
+fixed errors, borrowed-source usability, joined cancellation, one active reader,
+automatic reader revocation, maximum 128-layer graphs, concurrent disposal and
+replacement/unknown-file refusal with cleanup retry. Mutants require the intended
+assertion failure and an untouched control; compiler errors/timeouts do not count.
+These tests join existing backend CI automatically. Native host filesystem tests
+and Linux cross-builds are not Linux runtime acceptance. No Docker-load support,
+registry/publisher/runtime identity, remote delivery or installation is asserted.
+
 ### M8 one-shot resource coordinator (real DB; no remote executor)
 
 The [internal resource coordinator](multi-region/M8_INSTALL_RUNNER.md) calls an
