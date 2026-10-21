@@ -277,6 +277,12 @@ has no concrete remote adapter or installation-success path.
   for typed-intent raw input, requiring real outer EOF and joined source closure
   before any stage. Dispose prepared snapshots; post-stage cleanup/cancellation
   revokes the seal as Unknown. No new codec, port, host helper or SSH transport.
+  This exact receive checkpoint is locally committed as `eb0dd00` (not pushed).
+- [x] Add a [one-shot inherited-fd local process helper](M8_BINARY_STAGE_HELPER.md)
+  with strict bounded stdin metadata, raw payload and real EOF, early config-free
+  stage-binary dispatch, owned closable pipe input and parent-close-before-receipt.
+  The relative local seal is not /opt/current-host authority, an applied journal
+  resource or installation. Trusted remote launch/delivery and fencing stay open.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.

@@ -233,8 +233,13 @@ Only native Darwin/arm64 I/O is newly executed. No Linux runtime, real OpenSSH,
 remote delivery, DB authority/fencing, host ownership, resource cleanup, installer,
 authenticated enrollment or exact activation acceptance. Previous writer Linux
 results do not prove this new composition. No new container/image/DB/remote host,
-dependency/schema/framework or endpoint/startup change. No new commit of this
-receive continuation, push or deployment. Broad M7/M6/release acceptance remains
-open. Logs/manifests/failed and interrupted attempts live under
+dependency/schema/framework or endpoint/startup change. At acceptance this
+receive continuation was uncommitted. The subsequent explicit commit request
+produced local `eb0dd00413697272e530b507576cc437669f8e69`
+(`feat(core): receive exact streams into fresh M8 binary stages`), exact15files
+and frozen bytes/source/docs/config; no commit-only test rerun or push. Its parent
+is `ce6e106`. The separate [inherited-fd process helper](M8_BINARY_STAGE_HELPER.md)
+now composes this unchanged Receive implementation; no historical runtime or
+authority evidence is expanded. Broad M7/M6/release acceptance remains open. Logs/manifests/failed and interrupted attempts live under
 `tmp/m8-binary-stage-receive-verification/`; final source copies are retained.
 

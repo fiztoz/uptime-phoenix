@@ -281,4 +281,8 @@ The next [exact-stream receive composition](M8_BINARY_STAGE_RECEIVE.md) is separ
 it prepares typed-intent raw input, independently confirms EOF and joins source
 close before invoking this unchanged writer. That new intake adds no remote
 helper, ownership/DB authority or SSH transport and does not retroactively extend
-the historical Linux/runtime evidence above.
+the historical Linux/runtime evidence above. The receive checkpoint is locally
+committed as `eb0dd00` (not pushed). A separate [one-shot local process helper](M8_BINARY_STAGE_HELPER.md)
+now composes that receive path with an inherited trusted directory fd and strict
+stdin frame. It does not resolve the identity's /opt target or prove current host/DB authority,
+or retroactively extend this writer's historical Linux runtime/cleanup evidence.

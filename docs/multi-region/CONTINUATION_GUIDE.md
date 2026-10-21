@@ -215,14 +215,24 @@ uncertainty. It never adopts, overwrites or cleans partial state. A local seal d
 not name actual /opt, prove host identity/current DB authority or fence a stale
 remote actor. The combined inspection/writer snapshot is locally committed as
 `ce6e106`, with exact verified source/docs/config and no commit-only test rerun;
-it was not pushed. Its scratch cleanup remains deferred while the shared VM holds
-Linux fixture handles—do not stop that shared VM to manufacture cleanup success.
+it was not pushed. Its scratch cleanup remains deferred by the prior shared-VM
+open-handle finding; this continuation does not recheck/remove it or stop that VM.
 The next [exact-stream receiver](M8_BINARY_STAGE_RECEIVE.md) composes the existing
 preparer and writer for typed-intent raw bytes. It independently confirms outer
 EOF and closes/joins input before Stage, disposes the private snapshot and retains
-post-stage uncertainty. Existing Go implementations remain byte-identical. This
-uncommitted receive continuation adds no wire format, process helper or remote
-transport; those and current host authority still need separate bounded work.
+post-stage uncertainty. That checkpoint kept the prior 1,512 source entries
+unchanged and is now locally committed as `eb0dd00` (exact15files, no commit-only
+test rerun, no push). It adds no wire format, process helper or remote transport.
+The separate [local process helper](M8_BINARY_STAGE_HELPER.md) now adds a strict
+bounded frame and early config-free stage-binary verb under inherited directory
+fd3. It reuses Receive/writer, joins owned pollable pipe input and restores flags,
+closes the parent duplicate before receipt, and preserves post-attempt Unknown.
+Only a relative local graph is acknowledged; no caller parent path, identity-derived
+/opt target open, DB transition, current host authority, cleanup or installed success.
+Preparation scratch uses the launcher's trusted OS temporary directory.
+Next define a trusted fixed remote launch/delivery and current-host-authority
+protocol. Ordinary SSH exec does not provide this inherited-fd contract; do not
+wire a seal to artifact_directory/applied or invent a fresh grant from labels.
 These are internal prerequisites, not a concrete executor, endpoint, enrollment
 or activation path.
 Actual artifact delivery, host-side ownership/fencing, the idempotent

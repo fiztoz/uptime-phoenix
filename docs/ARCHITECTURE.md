@@ -2379,5 +2379,16 @@ prepares raw input for a typed intent, requires unambiguous real outer EOF, clos
 and joins the input, then calls that writer once. It adds no framing/identity
 codec, new port, process helper or SSH transport. Prepared snapshots are disposed;
 post-stage cancellation/cleanup failure is Unknown, never a seal or installed success.
+That receive checkpoint is locally committed as `eb0dd00` (not pushed).
+The separate [one-shot local process helper](multi-region/M8_BINARY_STAGE_HELPER.md)
+adds the config-free `phoenix-probe-admin stage-binary` verb, a strict bounded
+14-field frame and inherited trusted directory fd 3. It reuses Receive unchanged,
+requires real stdin EOF and joined closure, then closes its parent duplicate before
+acknowledging a bounded relative receipt. Pipe input has an owned pollable duplicate
+and restored status flags; a two-minute context is not a hard kernel-stop bound.
+It accepts no parent pathname/command, never resolves the identity's `/opt` target
+or opens the DB, and grants no host/current-resource authority. Preparation uses
+the launcher's OS temporary directory, separate from the fd-relative stage. Remote deployment/launch, fencing and installation
+remain separate; ordinary SSH invocation does not supply this trusted fd contract.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

@@ -364,6 +364,43 @@ and preserves all staged effects. No SSH/DB/host authority or installation proof
 Run whole CI-source race and existing harness gates. No new Linux runtime claim
 from cross-builds or the preceding writer's narrower Linux effect evidence.
 
+### M8 inherited-fd one-shot local binary helper
+
+Read [the process contract](multi-region/M8_BINARY_STAGE_HELPER.md). Receive is
+locally committed as `eb0dd00`; this separate continuation adds only a concrete
+local process boundary, not SSH transport or an install executor.
+
+```sh
+go test -race -count=3 -timeout 300s \
+  ./internal/adapters/provisioning ./internal/bootstrap ./cmd/phoenix-probe-admin \
+  -run 'BinaryStageHeader|BinaryStageHelper|StageBinary'
+```
+
+The command fixture builds and runs the actual admin executable with invalid hub
+environment, disposable ExtraFiles fd3 and one stdin header+payload stream. Require
+normal exit0 plus the exact bounded9-field response and real graph/hash/marker/modes.
+Refusals require exact normal exit1 and their fixed sentinel (usage exit2); child
+signal/deadline kills are failures, not refusal. Corrupted existing markers must
+remain untouched on conflict. Do not use /opt, real hosts or shared directories.
+
+Withholding real pipe EOF must not stage; signal cancellation must join and exit1,
+not wait for a test kill. Generic io.Pipe is not proof that inherited os.Stdin is
+closable: test the blocking-to-pollable duplicate and restore flags on Close.
+Owned source Close is once; parent fd3 is borrowed. Test failed response-buffer
+discard, parent-close-before-output and partial/short/error output as Unknown,
+retaining actual effects. Isolate malformed header counts with nil source errors,
+and inject mixed EOF errors only in the selected header read so payload refusal
+cannot hide a missing guard. Hold actual read/callback lifetimes; the final callback
+tail also has an explicitly synthetic preemption test, not an OS scheduling claim.
+
+Linux ELF fixtures are read as data, not executed by tests. A missing fixture
+execution canary is runtime evidence only on matching Linux hosts, not Darwin.
+Native process verification does not establish new Linux runtime or OpenSSH
+acceptance; cross-builds and the prior writer's Linux cases do not extend this.
+Run the full frozen-source race, build/vet/format, existing Make harness and
+intended assertion mutants with untouched control. Default MariaDB skips leave
+broad M7/real-engine acceptance open. No new DB/container/VM action is required.
+
 ### M8 one-shot resource coordinator (real DB; no remote executor)
 
 The [internal resource coordinator](multi-region/M8_INSTALL_RUNNER.md) calls an
