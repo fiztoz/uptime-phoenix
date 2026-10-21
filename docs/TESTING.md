@@ -336,6 +336,34 @@ isolated scratch test image runs only static test code with network disabled,
 read-only fixture mounts and a non-root tmpfs. Do not execute the staged probe,
 pull/publish images or infer OpenSSH/host-fencing/installer acceptance from it.
 
+### M8 exact-stream receive to fresh local staging
+
+Read [the receive contract](multi-region/M8_BINARY_STAGE_RECEIVE.md). This composes
+the existing preparer and writer for a typed intent plus raw bytes, not another
+wire format or host-helper executable. The caller transfers input ownership;
+real outer EOF and joined input Close must precede the first writer call.
+
+```sh
+go test -race -count=3 -timeout 300s \
+  ./internal/core/services ./internal/adapters/provisioning \
+  -run BinaryStageReceive
+```
+
+The real preparer→receive→fd writer tests must inspect both ELF fixtures as data,
+exact staged graph/modes/marker, source closed before writer, empty private
+preparation scratch, borrowed parent survival and conflict on repeated receive.
+Short/extra/paused-extra/no-progress/error-bearing input and absent EOF with cancel
+must never stage. A joined EOF plus another cause is a failure, not completion;
+a single wrapped EOF remains supported. Source context errors and overlapping
+reads remain sticky even if a broken preparer ignores Read's error. Hold Close/
+Read blocked during a bounded no-return observation, then release and join them;
+a default-only select is not a sufficient blocked-lifetime assertion. Mutation
+controls include active-read join and actual snapshot disposal, not just mocks.
+After a Stage attempt, cleanup/cancel/malformed receipt means zero seal/Unknown
+and preserves all staged effects. No SSH/DB/host authority or installation proof.
+Run whole CI-source race and existing harness gates. No new Linux runtime claim
+from cross-builds or the preceding writer's narrower Linux effect evidence.
+
 ### M8 one-shot resource coordinator (real DB; no remote executor)
 
 The [internal resource coordinator](multi-region/M8_INSTALL_RUNNER.md) calls an

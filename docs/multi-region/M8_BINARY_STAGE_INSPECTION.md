@@ -261,8 +261,10 @@ acceptance. No host ownership/fencing, cleanup authority, actual staging/upload,
 executor, installation, runtime enrollment/config activation or new MariaDB proof.
 Only identified task-owned scratch is eligible for cleanup after joined users and
 identity checks; retained manifests/logs/frozen source are not disposable scratch.
-The new inspection slice remains uncommitted. Archive `b9cb6ed`, snapshot `f1dd181`
-and build fix `326ceda` are local only; no push, deployment, image action or external
+The inspection/writer snapshot is now locally committed as `ce6e106`; its exact
+verification evidence was reused without a commit-only rerun. Archive `b9cb6ed`,
+snapshot `f1dd181` and build fix `326ceda` are also local only. No push,
+deployment, image action or external
 remote-host action was performed by this inspection continuation.
 The subsequent [fresh-only local writer](M8_LOCAL_BINARY_STAGE.md) is a separate
 filesystem-effect slice; it leaves these inspection Go bytes and historical

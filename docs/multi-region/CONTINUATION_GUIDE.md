@@ -213,8 +213,16 @@ now produces actual local files under a borrowed trusted parent fd, with exclusi
 creation, independent readback, joined source closure and honest post-create
 uncertainty. It never adopts, overwrites or cleans partial state. A local seal does
 not name actual /opt, prove host identity/current DB authority or fence a stale
-remote actor. Prior inspection Go bytes remain unchanged. Both slices remain
-uncommitted; do not mistake their combined evidence for a new published checkpoint.
+remote actor. The combined inspection/writer snapshot is locally committed as
+`ce6e106`, with exact verified source/docs/config and no commit-only test rerun;
+it was not pushed. Its scratch cleanup remains deferred while the shared VM holds
+Linux fixture handles—do not stop that shared VM to manufacture cleanup success.
+The next [exact-stream receiver](M8_BINARY_STAGE_RECEIVE.md) composes the existing
+preparer and writer for typed-intent raw bytes. It independently confirms outer
+EOF and closes/joins input before Stage, disposes the private snapshot and retains
+post-stage uncertainty. Existing Go implementations remain byte-identical. This
+uncommitted receive continuation adds no wire format, process helper or remote
+transport; those and current host authority still need separate bounded work.
 These are internal prerequisites, not a concrete executor, endpoint, enrollment
 or activation path.
 Actual artifact delivery, host-side ownership/fencing, the idempotent

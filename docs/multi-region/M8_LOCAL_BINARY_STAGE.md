@@ -2,8 +2,9 @@
 
 ## Frozen scope
 
-Continue after the uncommitted read-only binary staging inspection, without
-changing any of its Go files. This slice has a real local filesystem effect:
+The original run continued after the uncommitted read-only staging inspection,
+without changing any of its Go files. The exact combined snapshot is now locally
+committed as `ce6e106` (not pushed); historical run notes below retain their scope. This slice has a real local filesystem effect:
 materialize a release-named verified binary plus canonical marker under a borrowed
 trusted directory descriptor. It is NOT an SSH uploader, DB-authorized executor,
 installer, host fencing protocol, cleanup mechanism or activation path. No runtime,
@@ -145,10 +146,11 @@ pulls, network disabled and task-owned resources only; no actual probe execution
 The executed check below used a task-owned empty scratch image because no images
 were cached on the selected local daemon.
 
-Implementation and frozen verification are complete at the bounded scope below. Preserve the prior 16 uncommitted files and
-historical evidence, including `tmp/m8-binary-stage-verification/CURRENT.json`.
-No Git commit/push, default opt-in, DB/schema/fence change or live host action is
-authorized by this continuation.
+Implementation and frozen verification are complete at the bounded scope below.
+The subsequent explicit commit authorization produced `ce6e106`, binding the
+original combined 27-file snapshot without test rerun or changing that evidence.
+Historical inspection evidence remains `tmp/m8-binary-stage-verification/CURRENT.json`.
+No push, default opt-in, DB/schema/fence change or live host action followed.
 
 ## Engineering corrections and reproduction ledger
 
@@ -195,8 +197,9 @@ passed **246** across three race repetitions with zero failures/skips. The extra
 marker-corruption case and the binary padding-byte corruption isolate readback:
 the latter restores mode 0555 and requires `validProbeBinary` to remain true, so
 mode/ELF rejection cannot mask a skipped hash. Actual Linux effect repeats also
-pass these cases. This branch remains uncommitted; no historical checkpoint was
-rewritten to pretend it covered the new writer.
+pass these cases. The verified writer/inspection snapshot was subsequently
+committed locally as `ce6e106`; no historical checkpoint was rewritten to pretend
+it covered the new writer.
 
 ## Frozen verification and limits
 
@@ -273,3 +276,9 @@ the exact task container and image were removed. The entire owned `.work` remain
 no shared VM was stopped or cache pruned. See `completion-audit.json` and
 `cleanup-deferred-open-handles.json`; this is a cleanup limit, not a failed test
 silently promoted to acceptance.
+
+The next [exact-stream receive composition](M8_BINARY_STAGE_RECEIVE.md) is separate:
+it prepares typed-intent raw input, independently confirms EOF and joins source
+close before invoking this unchanged writer. That new intake adds no remote
+helper, ownership/DB authority or SSH transport and does not retroactively extend
+the historical Linux/runtime evidence above.

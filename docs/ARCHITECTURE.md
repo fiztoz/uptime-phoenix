@@ -2373,5 +2373,11 @@ It re-verifies sealed local files and retains all partial effects on uncertainty
 no overwrite, adoption or cleanup. The seal does not assert that the parent is
 `/opt`, the identity host, current DB authority, or a host fence. This local effect
 is not SSH delivery and remains separate from the resource executor.
+Inspection and local writing are locally committed as `ce6e106` (not pushed).
+The next [exact-stream receive composition](multi-region/M8_BINARY_STAGE_RECEIVE.md)
+prepares raw input for a typed intent, requires unambiguous real outer EOF, closes
+and joins the input, then calls that writer once. It adds no framing/identity
+codec, new port, process helper or SSH transport. Prepared snapshots are disposed;
+post-stage cancellation/cleanup failure is Unknown, never a seal or installed success.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

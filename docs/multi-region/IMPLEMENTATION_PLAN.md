@@ -273,6 +273,10 @@ has no concrete remote adapter or installation-success path.
   under a borrowed trusted parent fd. Exclusive no-follow creation, binary/marker
   readback and retained post-create uncertainty are local effects, not SSH delivery,
   host fencing/ownership, cleanup, a DB-authorized resource or installation success.
+- [x] Compose [exact-stream preparation and fresh local staging](M8_BINARY_STAGE_RECEIVE.md)
+  for typed-intent raw input, requiring real outer EOF and joined source closure
+  before any stage. Dispose prepared snapshots; post-stage cleanup/cancellation
+  revokes the seal as Unknown. No new codec, port, host helper or SSH transport.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.
