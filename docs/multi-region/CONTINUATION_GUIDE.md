@@ -198,8 +198,25 @@ The next [closed single-platform archive](M8_IMAGE_ARCHIVE.md) borrows that
 snapshot and streams unique unchanged blobs into deterministic bounded tar.
 Read its original-index versus generated-root provenance and borrowed-input
 lifecycle contracts before consuming it. No daemon importer or actual remote
-transport is supplied. These are internal artifact prerequisites, not a concrete
-executor, endpoint, enrollment or activation path.
+transport is supplied. The archive checkpoint is now locally committed as
+`b9cb6ed` (not pushed), with verified source/docs/config unchanged and no
+commit-only test rerun.
+The next [read-only binary staging inspection](M8_BINARY_STAGE_INSPECTION.md)
+observes only a canonical systemd marker and requested binary size/hash through
+a bounded SSH/SFTP-v3 subset. It adds no upload, shell exec, remote deletion,
+resource transition or startup/HTTP wiring. A match is not an atomic snapshot,
+closed graph, current DB grant, host fence or cleanup authority. A future writer
+still needs exclusive creation, current authorization, truthful uncertainty and
+ownership/termination protocols; do not turn observation into mutation authority.
+The subsequent [fresh-only local binary staging writer](M8_LOCAL_BINARY_STAGE.md)
+now produces actual local files under a borrowed trusted parent fd, with exclusive
+creation, independent readback, joined source closure and honest post-create
+uncertainty. It never adopts, overwrites or cleans partial state. A local seal does
+not name actual /opt, prove host identity/current DB authority or fence a stale
+remote actor. Prior inspection Go bytes remain unchanged. Both slices remain
+uncommitted; do not mistake their combined evidence for a new published checkpoint.
+These are internal prerequisites, not a concrete executor, endpoint, enrollment
+or activation path.
 Actual artifact delivery, host-side ownership/fencing, the idempotent
 Docker/systemd executor, bounded redacted progress, authenticated enrollment
 plus exact config activation remain open.

@@ -279,6 +279,63 @@ These tests join existing backend CI automatically. Native host filesystem tests
 and Linux cross-builds are not Linux runtime acceptance. No Docker-load support,
 registry/publisher/runtime identity, remote delivery or installation is asserted.
 
+### M8 read-only binary staging inspection (loopback SSH/SFTP)
+
+Read [the staging inspection contract](multi-region/M8_BINARY_STAGE_INSPECTION.md).
+This separate read-only API uses generated test keys and an in-process loopback
+SSH/SFTP server; no installed SSH daemon, home credentials, external destination,
+DB, remote writes or privilege changes are required. Use offline locked Go:
+
+```sh
+go test -race -count=3 -timeout 300s \
+  ./internal/core/domain ./internal/core/services ./internal/adapters/provisioning \
+  -run 'BinaryStage'
+```
+
+Use that selector to include codec tests whose names lack the `Probe` prefix;
+the broader artifact selector is not a substitute for this complete focused gate.
+Test service→real SSH→SFTP framing, not only mocked observations or scripted byte
+buffers. Assert host trust before authentication, client/request pins before dial,
+one DNS resolution and numeric policy-bound dial, only the `sftp` subsystem,
+read-only OPEN and bounded LSTAT/FSTAT/READ/CLOSE with exact IDs. Cover absence vs
+permission errors, marker/attempt/binary mismatches, symlink/special refusal,
+size+1/EOF/progress/packet/handle/attrs/version limits, CLOSE acknowledgement,
+bounded stderr, fixed error secrecy, typed-nil contexts and short-write refusal.
+Cancel at handshake, channel, subsystem and read phases; hold the cancellation
+callback to prove inspection cannot return before it joins. Run intended mutants
+and then untouched control. Existing backend CI discovers these tests unchanged.
+Simulated-server success is not OpenSSH deployment compatibility or Linux runtime
+acceptance, host fencing, upload, cleanup authority or installation. No DB gate
+or broad MariaDB acceptance is closed by this slice.
+
+### M8 fresh-only local binary staging (disposable directory fd)
+
+Read [the local staging contract](multi-region/M8_LOCAL_BINARY_STAGE.md). This is
+an actual local filesystem write under an already-open disposable parent, not
+an SSH uploader, /opt writer, cleanup path or DB resource executor. The service
+borrows a prepared binary; only its opened stream and duplicated descriptors are
+owned. Never run these tests against an operator data directory.
+
+```sh
+go test -race -count=3 -timeout 300s \
+  ./internal/core/domain ./internal/core/services ./internal/adapters/provisioning \
+  -run 'LocalBinaryStage|BinaryStageWrite|BinaryStageSeal'
+```
+
+Assert real prepared input→fd-relative fresh graph→independent binary/marker
+readback, both ELF architectures without execution, exact modes/identity/hash,
+source/parent survival, EEXIST for prior dir/file/symlink and concurrent callers,
+parent-path rename safety and child-replacement refusal. Include confirmed EOF
+(not 0,nil), bounded no progress, before-marker cancel, source-close failure/join,
+unknown entry preservation and sync/close faults. After create, every uncertainty
+must retain partial files and return zero seal/Unknown—never not_started or replay.
+Existing preflight/inspection/journal/runner and their Go bytes remain unchanged.
+Use the whole CI-source race gate and `LocalBinaryStage` in broad artifact selection.
+Actual Linux filesystem acceptance is separate from a cross-build: the documented
+isolated scratch test image runs only static test code with network disabled,
+read-only fixture mounts and a non-root tmpfs. Do not execute the staged probe,
+pull/publish images or infer OpenSSH/host-fencing/installer acceptance from it.
+
 ### M8 one-shot resource coordinator (real DB; no remote executor)
 
 The [internal resource coordinator](multi-region/M8_INSTALL_RUNNER.md) calls an

@@ -265,6 +265,14 @@ has no concrete remote adapter or installation-success path.
   unique blobs, separately identify the generated root, and seal/read back bounded
   private bytes with joined disposal. This is not daemon-import compatibility,
   combined registry-index/publisher proof, remote delivery or installation.
+- [x] Add [operation-bound read-only binary staging inspection](M8_BINARY_STAGE_INSPECTION.md)
+  with canonical secret-free marker bytes, a no-shell read-only SSH/SFTP subset,
+  requested size/hash checks and joined local I/O. No upload, host ownership/fence,
+  cleanup, journal mutation or concrete executor is implied by matching content.
+- [x] Add a [fresh-only local binary staging writer](M8_LOCAL_BINARY_STAGE.md)
+  under a borrowed trusted parent fd. Exclusive no-follow creation, binary/marker
+  readback and retained post-create uncertainty are local effects, not SSH delivery,
+  host fencing/ownership, cleanup, a DB-authorized resource or installation success.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.

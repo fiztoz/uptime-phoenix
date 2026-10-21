@@ -230,5 +230,10 @@ M6/M8 operational/release gates, importer compatibility, actual verified deliver
 host authority/fencing/cleanup, joined remote termination, installer wiring,
 authenticated enrollment and exact config activation remain open.
 
-This archive continuation remains uncommitted. Snapshot commit `f1dd181` was local
-only; no push, image load/run/pull/publish, remote action, deployment or opt-in.
+This verified archive checkpoint was subsequently committed locally as `b9cb6ed`
+without changing its verified source/docs/config or rerunning tests merely for the
+commit. Private `committed.json` records that exact checkpoint. The subsequent
+[read-only binary staging inspection](M8_BINARY_STAGE_INSPECTION.md) is a separate
+observation protocol; it neither changes these verified archive bytes nor expands
+this evidence into host authority or delivery. No push, image load/run/pull/publish,
+remote action, deployment or opt-in.

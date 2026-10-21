@@ -2359,5 +2359,19 @@ unchanged blobs into deterministic USTAR. Its generated one-target OCI root has
 separate hash/size fields from the original trusted index. Sealed private output
 is independently hashed before context-bound reading; this adds no daemon loader,
 registry client, remote transfer, publisher/runtime proof or installation wiring.
+The [read-only binary staging inspection](multi-region/M8_BINARY_STAGE_INSPECTION.md)
+adds a separate systemd intent/marker observation port. Its SSH adapter uses only a
+fixed SFTP-v3 read-only subset, numeric destination policy, public-key pins,
+client-side bounded size/hash checks and joined local cancellation. It neither
+uploads nor executes/deletes files. A `content_matches` observation is not an
+atomic snapshot, closed directory graph, host fence, DB grant or cleanup token;
+there is no executor, endpoint or startup wiring.
+The subsequent [fresh-only local binary writer](multi-region/M8_LOCAL_BINARY_STAGE.md)
+materializes verified bytes and the canonical marker beneath a borrowed trusted
+parent descriptor, using exclusive creation and fd-relative no-follow operations.
+It re-verifies sealed local files and retains all partial effects on uncertainty;
+no overwrite, adoption or cleanup. The seal does not assert that the parent is
+`/opt`, the identity host, current DB authority, or a host fence. This local effect
+is not SSH delivery and remains separate from the resource executor.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.
