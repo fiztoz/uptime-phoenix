@@ -456,6 +456,128 @@ Linux CGO0 cross-builds and intended assertion mutants remain required. This
 scoped Linux evidence does not close OpenSSH/Linux-amd64 runtime or broad M7
 MariaDB acceptance, and it never turns local receipts into current authority.
 
+### M8 one-shot pinned SSH binary-stage delivery
+
+Read the [delivery contract](multi-region/M8_BINARY_STAGE_SSH_DELIVERY.md).
+`NewSSHBinaryStageSender` is an internal concrete adapter, not a runner, HTTP,
+startup or installer entry point. It calls only the trusted preinstalled
+`/usr/local/bin/phoenix-probe-admin stage-binary-host` as root. Host-key pinning
+is not helper/root-shell provenance or current database/reservation authority.
+No live host, real SSH credential or helper deployment is part of this gate.
+
+```sh
+go test -race -count=3 -json -timeout 180s \
+  ./internal/adapters/provisioning -run 'SSHBinaryStage|ParseSSHBinaryStageAck'
+python3 -B -m unittest discover -s scripts -p 'test_m8_binary_stage_ssh*.py'
+
+# Explicit approval and a cached digest-pinned public fixture image are required.
+# SOURCE_DIR is a disposable frozen copy with the normal frontend build or CI
+# embed placeholder; do not overwrite a real frontend build to run this gate.
+: "${GO_BIN:?set an installed compiler binary}"
+: "${GO_MODULE_CACHE:?set its populated offline module cache}"
+: "${DOCKER_ENDPOINT:?set the approved local unix Docker socket}"
+: "${FIXTURE_IMAGE:?set the cached approved Linux/OpenSSH image@sha256:digest}"
+: "${SOURCE_DIR:?set the disposable frozen source copy}"
+python3 -B scripts/m8_binary_stage_ssh_sandbox.py \
+  --allow-local-docker --docker-endpoint "$DOCKER_ENDPOINT" \
+  --fixture-image "$FIXTURE_IMAGE" --go "$GO_BIN" \
+  --module-cache "$GO_MODULE_CACHE" --source-dir "$SOURCE_DIR" \
+  --work-dir "tmp/m8-ssh-stage-$(date +%s)"
+```
+
+Public acquisition is separate from runtime: the runner never pulls, starts a VM,
+uses user Docker credentials, accepts a remote socket or falls back from a missing
+image. The recorded Linux/arm64 fixture is
+`docker.io/linuxserver/openssh-server@sha256:d9b26e329e4ca14a1dd57029c4b18bf31035ef2bd9a573abe7fc5781e71a9739`.
+It supplies `/usr/sbin/sshd.pam`; the generated sshd configuration explicitly
+sets `UsePAM no`, key-only authentication, protected generated key paths and
+invalid hub environment values. Do not substitute an unapproved image or imply
+Linux-amd64 runtime acceptance from cross-builds.
+
+Only task-labelled never-started carrier/derived images and isolated runtime
+containers are used. The runtime has PID1 test ownership, private network/PID
+namespaces, loopback-only SSH, read-only root, no binds/volumes/added host devices
+or privileged mode, bounded tmpfs/CPU/memory/PIDs, no-new-privileges and only SETUID, SETGID,
+SYS_CHROOT and KILL capabilities. Inspect daemon facts and actual kernel state,
+not just create arguments. Fixture teardown joins sshd and reaps only its private
+namespace children; it is not evidence the sender can reap a remote process.
+Both ELF architectures are data. Modes and noexec mounts prohibit staged-probe
+execution; an absent execution canary alone is not proof of no attempted exec.
+
+Require `result.json` passed=true, normal exit0, no cleanup errors and strict
+per-repetition completion: all eight exact required names run/pass three times
+(24 required completions, 27 total named passes including the extra parent), one
+normal package completion, no skips/failures/subset/parent-only/zero selection,
+malformed/truncated output, wrong package/case, panic/race or timeout. Container
+binaries are CGO0/non-race; native race evidence is separate.
+
+Actual helper cases verify persisted `/opt` binary/marker bytes, hash, size and
+modes, plus preservation of a foreign marker's bytes/inode/mtime on replay.
+Controlled ForceCommand faults first require the exact original command, run the
+unchanged helper, then change only exit status or receipt delivery: the graph
+must remain while Send returns zero ack/Unknown. Positive cases use ordinary exec,
+not ForceCommand. Last-byte disconnect must return Unknown; absent, partial or
+complete effects are all possible and are not converted to a no-effect claim.
+Native direct-stdin/source-close and callback-tail models supplement, not replace,
+these real effects. Keep source-count/hash/real-EOF, pre-exec close-error priority,
+short writes, output abort, Start uncertainty and post-join context checks.
+Run intended assertion mutants with untouched native/Python/OpenSSH controls.
+No acknowledgment grants artifact_directory/applied, ownership, cleanup authority
+or installation. Current-host fencing and concrete executor integration remain
+separate. Default MariaDB skips still leave broad M7 acceptance open.
+
+### M8 restricted staging-key authorization (actual OpenSSH; no policy installer)
+
+Read the [restricted-key contract](multi-region/M8_BINARY_STAGE_SSH_AUTHORIZATION.md).
+Reuse the preceding section's approved cached digest, installed compiler, populated
+module cache, disposable frozen source and local Unix Docker endpoint. This is a
+second **whole matrix**, not a subset of the default sender acceptance:
+
+```sh
+python3 -B -m unittest discover -s scripts -p 'test_m8_binary_stage_ssh*.py'
+python3 -B scripts/m8_binary_stage_ssh_sandbox.py --authorization \
+  --allow-local-docker --docker-endpoint "${DOCKER_ENDPOINT:?approved local Unix socket}" \
+  --fixture-image "${FIXTURE_IMAGE:?approved cached digest-pinned fixture}" \
+  --go "${GO_BIN:?installed compiler}" \
+  --module-cache "${GO_MODULE_CACHE:?populated offline module cache}" \
+  --source-dir "${SOURCE_DIR:?disposable frozen source}" \
+  --work-dir "tmp/m8-ssh-authorization-$(date +%s)"
+```
+
+The selector binds `TestSSHBinaryStageAuthorization`, its second explicit runtime
+opt-in, strict fixed parser and `actual-linux-openssh-restricted-key` scope together.
+Require all **12 exact required names three times: 36 required completions,
+39 named passes including Sender's parent, one normal package/process completion,
+zero skips/failures/cleanup errors**. All lifecycle/refusal rules of the default
+gate apply. Run the default 24-required/27-named sender matrix too; its API/default
+behavior must not be silently replaced by this selector.
+
+Generated restricted/control keys share a protected private authorized_keys file.
+The actual unchanged sender must stage both ELF architectures. Different exec and
+shell requests with valid frames are **replaced**, not rejected: require fixed
+helper receipts and exact persisted graphs, plus absence of the independently
+working control canary. SFTP controls perform only INIT/VERSION, no file operations;
+the restricted key must refuse that packet and stage a valid frame through a fresh
+subsystem request. OpenSSH intentionally discards subsystem stderr. Do not infer
+refusal identity from a missing diagnostic or a synthetic exit1.
+
+Enable TCP forwarding globally only in this disposable control profile; prove a
+real unrestricted loopback echo, then require restricted direct-tcpip
+`ssh.Prohibited`. Do not credit global PTY/agent/X11 denials to per-key `restrict`.
+For `PermitRootLogin forced-commands-only`, check effective sshd policy, successful
+restricted staging, no accepted unforced session and a **new privileged-monitor
+root refusal**. A client-visible handshake can precede monitor denial; generic
+EOF, failed setup or a stale/child log does not establish policy enforcement.
+Replay preserves foreign marker bytes/inode/mtime, without adoption/deletion rights.
+
+Keep positive default/authorization controls after intended policy/effect/schema
+mutants. Check the actual container/test process exit (`run-openssh`), separately
+from the JSON converter's exit; converter exit0 does not mean test success. Guard
+metadata-only checks must not mask actual-effect mutations. Probe ELFs remain data
+under the same noexec/mode restrictions and no extra capabilities/network/binds.
+No real key/account policy is installed. Key possession permits fixed staging, not
+current reservation authority, storage admission/quota, host fencing or installation.
+
 ### M8 one-shot resource coordinator (real DB; no remote executor)
 
 The [internal resource coordinator](multi-region/M8_INSTALL_RUNNER.md) calls an

@@ -2396,6 +2396,24 @@ adds `stage-binary-host`: effective uid0, retained `/` then literal no-follow `o
 live root-owned non-writable directory checks, and owned parent close before receipt.
 Its isolated Linux namespace evidence selects a local `/opt` graph, not physical/SSH
 host identity, current DB authority, ownership fencing or an applied/installed resource.
-Remote delivery and authorization of the launcher remain separate.
+That host-local checkpoint is locally committed as `ac9c126` (not pushed).
+The subsequent [one-shot pinned SSH sender](multi-region/M8_BINARY_STAGE_SSH_DELIVERY.md)
+now delivers the unchanged frame and exact prepared bytes to the trusted,
+preinstalled `/usr/local/bin/phoenix-probe-admin stage-binary-host` command.
+It borrows the snapshot, owns one reader, checks real EOF/hash/size and closes
+that reader before normal channel EOF. A strict intent-bound receipt plus normal
+exit0, joined local resources and live context is only an adapter acknowledgment.
+All failures from the exec-attempt boundary are Unknown; disconnect can itself
+complete remote stdin and cause staging. The sender does not retry, reap remotely,
+install the helper or wire into the runner/HTTP/startup. Actual isolated Linux/arm64
+OpenSSH effects are verified separately from native race tests. Trusted helper,
+root shell/account authorization and current-host fencing remain external or
+future requirements; host-key authentication does not establish them.
+A subsequent [restricted-key OpenSSH fixture](multi-region/M8_BINARY_STAGE_SSH_AUTHORIZATION.md)
+uses native `restrict,command=...` policy with generated controls, not a new wrapper
+or production policy installer. Real exec/shell/subsystem replacement, direct TCP
+forwarding refusal and privileged-monitor root denial are tested separately from
+current DB/host authority. Key possession permits the fixed fresh-staging action;
+it does not bind an intent to a live reservation or grant an applied resource.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

@@ -238,13 +238,40 @@ path argument. The parent closes before the unchanged helper receipt is emitted.
 Main-owned isolated Linux namespace tests exercise actual admin processes, kernel
 UID/mode/CLOEXEC and local graph effects; they are not physical/SSH host identity,
 current authority, a hostile-root/mount fence, or installed success.
-Next define trusted remote delivery/launcher authorization and current-host-authority.
-Ordinary SSH exec does not supply fd3; selecting local `/opt` also grants nothing
-from the DB. Do not wire a seal to artifact_directory/applied or invent a fresh
-grant from labels.
+This fixed host-local checkpoint is locally committed as `ac9c126` (not pushed).
+The subsequent [one-shot pinned SSH sender](M8_BINARY_STAGE_SSH_DELIVERY.md) is
+implemented locally, uncommitted and unwired. It calls only the trusted preinstalled
+absolute stage-binary-host command, borrows the prepared snapshot and closes its
+one owned exact/EOF-checked reader before normal channel EOF. A strict matching
+receipt plus normal exit0 and joined live local context is an acknowledgment,
+not an applied resource. All exec-attempt failures are Unknown; disconnect may
+itself finish remote stdin and stage bytes. No retry, remote termination or cleanup
+claim is made. The frozen source is `dcffab8b5266e3094a13e70c9f6c462e179dbd3865a923db249b01b74b623011`
+(1,544 inputs; all 1,535 prior inputs unchanged): full native race 6,758 passes / 547
+audited skips, focused 171, artifact 3,018, 23 intended mutants, Python 19 and actual
+isolated Linux/arm64 OpenSSH 27 named passes (24 required completions) across three
+repetitions. No new MariaDB or Linux-amd64 runtime acceptance is implied.
+The subsequent [restricted staging-key fixture](M8_BINARY_STAGE_SSH_AUTHORIZATION.md)
+adds native OpenSSH policy acceptance, not a new verb/wrapper or a real policy
+installer. Actual generated-key exec/shell/subsystem replacement, direct TCP
+forwarding refusal and privileged-monitor root denial are verified in the same
+isolated Linux/arm64 boundary. A client handshake is not a root-monitor grant;
+subsystem stderr is intentionally suppressed. Its frozen source is
+`064b566500016ce9e7f691217270ced6928b9901558776ed8370d6704036ca56`
+(1,547 inputs; all 1,535 committed inputs unchanged): full native race 6,758 passes /
+547 audited skips, Python 36, 11 intended mutants and actual authorization
+36 required / 39 named completions across three repetitions passed, with default
+and authorization post-mutation controls. No new MariaDB or Linux-amd64 runtime
+coverage is implied; final audit/cleanup are recorded separately.
+Next establish trusted production helper/key policy and current-host fencing
+before any concrete executor integration. The operator must protect the helper,
+ancestors and root shell; a pinned host key is not their provenance or DB authority.
+Do not wire an ack/seal to artifact_directory/applied or invent a fresh grant from
+labels. Ordinary SSH still does not supply fd3; the fixed launcher supplies its
+own parent. Broad M7, M6/release and older writer deferred cleanup stay open.
 These are internal prerequisites, not a concrete executor, endpoint, enrollment
 or activation path.
-Actual artifact delivery, host-side ownership/fencing, the idempotent
+Production delivery compatibility, host-side ownership/fencing, the concrete
 Docker/systemd executor, bounded redacted progress, authenticated enrollment
 plus exact config activation remain open.
 Do not reuse a preflight receipt as installation or cleanup authority. M6

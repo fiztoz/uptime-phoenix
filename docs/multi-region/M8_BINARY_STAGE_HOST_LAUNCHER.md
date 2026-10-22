@@ -292,4 +292,18 @@ not passing tests. Only exact identity-verified/no-open-user task scratch may be
 removed; logs, invalid/failed/interrupted evidence and frozen completion bytes
 remain. The earlier writer's deferred .work is excluded, with no handle recheck,
 VM stop or shared-cache/dependency prune. Remote delivery/launcher authorization,
-current-host fencing and authenticated enrollment plus exact activation stay open.
+current-host fencing and authenticated enrollment plus exact activation stay open
+at this historical checkpoint.
+
+## Subsequent bounded delivery slice
+
+This host-local launcher is locally committed as `ac9c126` (not pushed). The later
+[one-shot pinned SSH sender](M8_BINARY_STAGE_SSH_DELIVERY.md) calls the trusted,
+preinstalled absolute launcher and verifies its receipt plus normal exit0; actual
+isolated Linux/arm64 OpenSSH effects are separate later evidence, not an extension
+of the historical launcher campaign above. That adapter is uncommitted and unwired.
+It neither installs/authenticates the helper's file provenance nor establishes
+current-host fencing, remote reaping, applied resources, enrollment or activation.
+The later [restricted-key policy fixture](M8_BINARY_STAGE_SSH_AUTHORIZATION.md)
+checks native OpenSSH action restrictions with generated controls in isolation;
+it does not install real account policy or authenticate the production helper.

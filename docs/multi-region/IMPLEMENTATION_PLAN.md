@@ -288,7 +288,23 @@ has no concrete remote adapter or installation-success path.
   retained root -> opt descriptors, no inherited fd3/path parameter. Reuse unchanged
   framing/Receive/writer, close owned parent before receipt. Isolated Linux process
   tests do not establish physical/SSH host identity, DB authority or fencing.
-  Trusted remote delivery/launcher authorization and installation stay open.
+  This host-local checkpoint is locally committed as `ac9c126` (not pushed).
+- [x] Add a [one-shot pinned SSH binary-stage sender](M8_BINARY_STAGE_SSH_DELIVERY.md)
+  as a concrete adapter only: root/pin/intent validation, existing numeric-policy
+  SSH trust before auth, one fixed preinstalled helper exec, exact frame/payload/
+  real EOF and source-close-before-channel-EOF. Require bounded strict receipt,
+  normal exit0 and joined live local context. Exec-attempt ambiguity stays Unknown,
+  with no retry, remote reaping, adoption or deletion. Native races and actual
+  isolated Linux/arm64 OpenSSH effect checks passed; this slice is uncommitted and
+  has no runner/HTTP/startup caller. Trusted helper/root authorization, current-host
+  fencing, resource application and installation remain open.
+- [x] Add [restricted staging-key actual-effect acceptance](M8_BINARY_STAGE_SSH_AUTHORIZATION.md)
+  using native OpenSSH `restrict,command=...`, generated unrestricted controls,
+  real helper graphs for exec/shell/subsystem replacement, direct TCP forwarding
+  refusal and privileged-monitor root denial. No production policy installation,
+  wrapper, current reservation authorization or host fence. Full native race,
+  build/vet/cross-build, Python/mutation and old/new OpenSSH matrices passed;
+  final audit/cleanup remain separately recorded, not broad release acceptance.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.
