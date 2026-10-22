@@ -282,7 +282,13 @@ has no concrete remote adapter or installation-success path.
   with strict bounded stdin metadata, raw payload and real EOF, early config-free
   stage-binary dispatch, owned closable pipe input and parent-close-before-receipt.
   The relative local seal is not /opt/current-host authority, an applied journal
-  resource or installation. Trusted remote launch/delivery and fencing stay open.
+  resource or installation. This helper checkpoint is locally committed as `718e3b8`.
+- [x] Add a [fixed Linux host-local launcher](M8_BINARY_STAGE_HOST_LAUNCHER.md),
+  early zero-argument stage-binary-host, effective uid0 and protected literal
+  retained root -> opt descriptors, no inherited fd3/path parameter. Reuse unchanged
+  framing/Receive/writer, close owned parent before receipt. Isolated Linux process
+  tests do not establish physical/SSH host identity, DB authority or fencing.
+  Trusted remote delivery/launcher authorization and installation stay open.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.

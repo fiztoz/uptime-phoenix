@@ -306,3 +306,20 @@ index empty after local receive commit eb0dd00. No second commit, push, merge,
 deployment, Docker/image/DB resource or actual remote-host action. Next specify
 a trusted fixed launcher/current-host-authority boundary: ordinary SSH exec does
 not create the fd3 association or authorize artifact_directory/applied.
+
+## Subsequent local commit and fixed-parent continuation
+
+The above completion snapshot was subsequently locally committed as
+`718e3b826a4333a38a7de58d401816f969ae84a7`, parent `eb0dd00`, message
+`feat(core): add one-shot M8 binary staging helper`. All18committed files were
+byte-verified against run-03's accepted frozen snapshot; no commit-only test
+rerun, hook bypass, push or deployment. The historical completion/cleanup records
+above are not rewritten by that commit. Evidence:
+`tmp/m8-binary-stage-helper-verification/run-03/{precommit,committed}.json`.
+
+The separate [fixed Linux host-local launcher](M8_BINARY_STAGE_HOST_LAUNCHER.md)
+now selects a protected literal `/opt` parent for `stage-binary-host`, without fd3
+or a caller path, then reuses this unchanged helper. Its separately approved
+isolated Linux tests are not retroactive runtime acceptance for this historical
+Darwin campaign. Local root/namespace selection grants no current DB authority,
+physical/SSH host identity, fence, applied-resource or installed-success claim.

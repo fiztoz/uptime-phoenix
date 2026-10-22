@@ -229,10 +229,19 @@ fd3. It reuses Receive/writer, joins owned pollable pipe input and restores flag
 closes the parent duplicate before receipt, and preserves post-attempt Unknown.
 Only a relative local graph is acknowledged; no caller parent path, identity-derived
 /opt target open, DB transition, current host authority, cleanup or installed success.
-Preparation scratch uses the launcher's trusted OS temporary directory.
-Next define a trusted fixed remote launch/delivery and current-host-authority
-protocol. Ordinary SSH exec does not provide this inherited-fd contract; do not
-wire a seal to artifact_directory/applied or invent a fresh grant from labels.
+Preparation scratch uses the launcher's trusted OS temporary directory. This
+inherited-fd checkpoint is locally committed as `718e3b8` (exact18files, no
+commit-only rerun, no push). The separate [fixed Linux host-local launcher](M8_BINARY_STAGE_HOST_LAUNCHER.md)
+adds `stage-binary-host`, selecting retained root-owned/non-group-world-writable
+literal `/` -> `opt` descriptors as effective uid0, with no inherited fd3 or target
+path argument. The parent closes before the unchanged helper receipt is emitted.
+Main-owned isolated Linux namespace tests exercise actual admin processes, kernel
+UID/mode/CLOEXEC and local graph effects; they are not physical/SSH host identity,
+current authority, a hostile-root/mount fence, or installed success.
+Next define trusted remote delivery/launcher authorization and current-host-authority.
+Ordinary SSH exec does not supply fd3; selecting local `/opt` also grants nothing
+from the DB. Do not wire a seal to artifact_directory/applied or invent a fresh
+grant from labels.
 These are internal prerequisites, not a concrete executor, endpoint, enrollment
 or activation path.
 Actual artifact delivery, host-side ownership/fencing, the idempotent

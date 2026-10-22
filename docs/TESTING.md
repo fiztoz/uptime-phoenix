@@ -401,6 +401,61 @@ Run the full frozen-source race, build/vet/format, existing Make harness and
 intended assertion mutants with untouched control. Default MariaDB skips leave
 broad M7/real-engine acceptance open. No new DB/container/VM action is required.
 
+### M8 fixed Linux host-local binary launcher
+
+The inherited-fd helper is locally committed as `718e3b8`. The separate
+[fixed-parent contract](multi-region/M8_BINARY_STAGE_HOST_LAUNCHER.md) adds
+`phoenix-probe-admin stage-binary-host`, zero arguments, Linux effective uid0.
+It opens retained literal `/` then `opt`, requiring live root-owned directories
+without group/world write and with no-follow/directory/CLOEXEC. This is a local
+namespace selector, not SSH/current DB authority, a hostile-root/mount fence,
+artifact_directory/applied or installation. Native Darwin must refuse without
+opening host `/opt`; native wrapper tests alone are not Linux acceptance.
+
+Committed fresh-checkout commands (no local agent skill required):
+
+```sh
+python3 -B -m unittest discover -s scripts -p 'test_m8_binary_stage_host*.py'
+
+# Requires explicit permission for task-owned local Docker fixtures. Set GO_BIN
+# to an already installed compiler binary; the runner uses offline local mode.
+: "${GO_BIN:?set the installed Go compiler binary}"
+DOCKER_ENDPOINT="$(docker context inspect --format '{{.Endpoints.docker.Host}}')"
+python3 -B scripts/m8_binary_stage_host_sandbox.py \
+  --allow-local-docker --docker-endpoint "$DOCKER_ENDPOINT" --go "$GO_BIN" \
+  --work-dir "tmp/m8-host-stage-$(date +%s)"
+```
+
+The runner refuses remote endpoints, missing local sockets and an existing work
+folder; it does not start/reconfigure a VM or pull any image. It imports only
+private task-authored scratch images, runs no network, binds no host path/socket,
+executes the actual prebuilt admin (not either probe ELF), and verifies/cleans only
+nonce-labelled owned images/containers/fixture volume. Read-only rootfs and
+all-dropped capabilities are normal. Two explicitly approved root-inode fixture
+setups instead use writable **private** container layers and a read-only task
+volume; only the owner setup starts with CHOWN. PID1 validates nonce/isolation,
+changes that private inode, clears capabilities and reexecs the test; `/proc`
+checks zero effective/permitted/inheritable/ambient capabilities plus sticky
+no-new-privileges before invoking the helper. Never run setup on a host root.
+No shared-VM stop, host `/opt`, cache prune, deployment or probe execution.
+
+Whole-matrix acceptance requires `result.json` **passed=true, full_matrix=true**,
+all eight scenarios and no cleanup errors. Explicit `--scenario` diagnostics
+have full_matrix=false, diagnostic_passed=true only for a passing subset, and
+exit nonzero/passed=false: a diagnostic can never masquerade as acceptance.
+The strict parser requires normal process exit0, package completion, every
+mandatory leaf and top-level exactly3 passes with zero skips/failures; it rejects
+missing/zero/parent-only/malformed/wrong-package/timeout/race coverage. Require
+actual /opt dev+ino and kernel UID/mode/CLOEXEC, graph/hash/marker/modes/exact
+receipt, preserved foreign marker bytes/inode/mtime, source close before mutation,
+withheld real EOF plus joined normal signal refusal (not deadline kill), and
+post-effect output failure retaining the graph as Unknown. Refusals separately
+prove nonroot, unsafe parent owner, absent/symlink/regular parent and unsafe root
+owner/mode without masking fixtures. Fresh frozen-source build/vet/full-race,
+Linux CGO0 cross-builds and intended assertion mutants remain required. This
+scoped Linux evidence does not close OpenSSH/Linux-amd64 runtime or broad M7
+MariaDB acceptance, and it never turns local receipts into current authority.
+
 ### M8 one-shot resource coordinator (real DB; no remote executor)
 
 The [internal resource coordinator](multi-region/M8_INSTALL_RUNNER.md) calls an

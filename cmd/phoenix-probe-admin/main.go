@@ -23,6 +23,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "stage-binary" {
 		os.Exit(bootstrap.RunInheritedProbeBinaryStageHelper(ctx, os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "stage-binary-host" {
+		os.Exit(bootstrap.RunHostProbeBinaryStageHelper(ctx, os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "verify-artifact" {
 		os.Exit(bootstrap.RunProbeBinaryVerification(ctx, os.Args[2:], os.Stdout, os.Stderr))
 	}

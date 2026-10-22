@@ -2390,5 +2390,12 @@ It accepts no parent pathname/command, never resolves the identity's `/opt` targ
 or opens the DB, and grants no host/current-resource authority. Preparation uses
 the launcher's OS temporary directory, separate from the fd-relative stage. Remote deployment/launch, fencing and installation
 remain separate; ordinary SSH invocation does not supply this trusted fd contract.
+The inherited-fd helper is locally committed as `718e3b8` (not pushed).
+A separate [fixed Linux host-local launcher](multi-region/M8_BINARY_STAGE_HOST_LAUNCHER.md)
+adds `stage-binary-host`: effective uid0, retained `/` then literal no-follow `opt`,
+live root-owned non-writable directory checks, and owned parent close before receipt.
+Its isolated Linux namespace evidence selects a local `/opt` graph, not physical/SSH
+host identity, current DB authority, ownership fencing or an applied/installed resource.
+Remote delivery and authorization of the launcher remain separate.
 
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.
