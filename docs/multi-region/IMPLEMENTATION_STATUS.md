@@ -5,7 +5,18 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
-## M8 host-authorized systemd actions — working tree
+## M8 real-host acceptance on AWS (run `b6ffc9ac26ab`) — working tree
+
+On real Ubuntu 24.04 hosts (arm64 and amd64), the production install runner applied
+all four systemd resources through real sshd and the authorized helpers. It wrote
+exact files and modes, a unit that passes `systemd-analyze verify` (exposure 3.5)
+and an enabled, not started service. Replays and an untrusted grant were refused;
+the restricted key was refused for shells, other verbs and forwarding. Real MariaDB
+11.8.9 passed all 135 required `m8-stage-authorization` leaves (not race-enabled).
+Linux test binaries passed on both architectures. All resources were torn down and
+verified gone. See the [host-action record](M8_HOST_ACTIONS.md#real-host-acceptance-aws-run-b6ffc9ac26ab-2026-10-24).
+
+## M8 host-authorized systemd actions — `e6a3d0f`
 
 The [host-action record](M8_HOST_ACTIONS.md) extends one-shot admission and grants to
 `data_directory`, `unit_file` and `service`:

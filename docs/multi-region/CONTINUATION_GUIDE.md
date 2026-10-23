@@ -279,9 +279,11 @@ E adds `SSHArtifactDirectoryExecutor`, the first concrete install executor, prov
 SQLite through the production runner. The [host-action slice](M8_HOST_ACTIONS.md) then
 generalizes admission and grants to `data_directory`, `unit_file` and `service`
 (migration `086`, `stage-host-action-authorized`, the `authorized-dispatch` forced
-command) and adds `SSHProbeInstallExecutor` for the whole systemd layout. Next:
-run `scripts/m8_aws_acceptance.py` for real MariaDB/OpenSSH/systemd acceptance, and
-get owner review of the proposed unit; `service` is enabled, not started. Operators must still install the public trust file and the
+command) and adds `SSHProbeInstallExecutor` for the whole systemd layout. The owner approved the unit, and
+the AWS run `b6ffc9ac26ab` accepted the whole systemd path on real arm64/amd64 hosts
+plus real MariaDB (see that record). Next: admin routes/startup wiring for the
+installer, `probe init` + enrollment + config activation before starting the
+service, bounded progress, and the Docker executor. Operators must still install the public trust file and the
 `stage-binary-authorized` forced command themselves. The operator must protect the helper,
 ancestors and root shell; a pinned host key is not their provenance or DB authority.
 Do not wire an ack/seal to artifact_directory/applied or invent a fresh grant from

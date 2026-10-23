@@ -5,8 +5,9 @@ covers `artifact_directory`. This slice applies the other three systemd resource
 under the same one-shot DB admission → Ed25519 grant → host verification model.
 It is still not enrollment, `probe init`, starting the service, or installation success.
 
-> **Status: implemented locally; unit file and `service` semantics still await owner
-> review.** Native, SQLite and Go SSH evidence only. MariaDB, OpenSSH, real systemd
+> **Status: implemented and accepted on real Linux hosts (AWS run `b6ffc9ac26ab`,
+> 2026-10-24). The owner approved the unit (root with only `CAP_NET_RAW`);
+> `service` = enabled, not started.** Native, SQLite and Go SSH evidence only. MariaDB, OpenSSH, real systemd
 > and Linux runtime acceptance are planned on AWS (`scripts/m8_aws_acceptance.py`).
 
 ## Contract (frozen for implementers)
@@ -166,5 +167,58 @@ The probe runs as root to avoid adding a user-creation resource to the fixed lay
 | Build, vet, gofmt, Linux amd64/arm64 (CGO0) and Windows builds, core import check | Passed |
 | Full native race suite (Darwin/arm64, no DSN, `-timeout 3600s -p 4`) | 8,522 passes, zero failures, 637 skips = 560 prior + 72 new host-action MariaDB twins (repository) + 5 known optional |
 
-Not executed: real MariaDB/InnoDB, OpenSSH, systemd, root `/var/lib`/`/etc`, or any
-Linux runtime.
+## Real-host acceptance (AWS, run `b6ffc9ac26ab`, 2026-10-24)
+
+Run in account `573594947041`, ap-southeast-1, with `scripts/m8_aws_acceptance.py`:
+- two instances, Ubuntu 24.04.5 LTS (systemd 255, OpenSSH 9.6p1): `t4g.small`
+  arm64 and `t3.small` amd64;
+- IMDSv2, encrypted gp3, SSH only from the operator /32, a per-run key;
+- host keys pinned from the console, and a 3 h power-off timer.
+
+Hosts were provisioned as an operator would, over the `ubuntu` session with sudo:
+- the admin binary at `/usr/local/bin`;
+- the authority public file at `/etc/phoenix-probe/stage-authority.pub` (from
+  `stage-authority public-key`);
+- root's `authorized_keys` holding only the restricted staging key forced to
+  `authorized-dispatch`.
+
+| Check | arm64 | amd64 |
+|---|---|---|
+| Production runner → journal/admission stores (SQLite) → services/signer → `SSHProbeInstallExecutor` → real sshd → `authorized-dispatch` → helpers (`TestM8AWSInstallLifecycle`, `-tags m8aws`) | `resources_ready`, all 4 applied | same |
+| Host effects | data and artifact dirs root 0700, binary 0555 with the pinned SHA-256, marker 0444, unit 0644 byte-identical to `ProbeSystemdUnit`; `is-enabled`=enabled, `is-active`=inactive; `systemd-analyze verify` OK; `systemd-analyze security` exposure **3.5 OK**; exactly one probe entry per location | same |
+| Replays of all four consumed attempts | NotStaged (DB refused before stdin) | same |
+| Grant from an untrusted authority (real helper) | Unknown, and no directory created | same |
+| Restricted key via real OpenSSH: plain shell, `stage-binary-host`, appended args, `id; echo canary` | dispatcher usage, exit 2, canary never executed | same |
+| Same key, exact authorized command with stdin closed | one challenge line, then input refusal, no effect | same |
+| Same key, `-L` port forward | sshd: `administratively prohibited: open failed` | same |
+| Linux test binaries as unprivileged user (CGO0, no race) | domain 284, provisioning 1,455, bootstrap 730 passes; 3 opt-in fixture skips | same |
+
+**Real MariaDB gate** (arm64 host, `mariadb@sha256:6422478c…` = MariaDB 11.8.9, loopback
+only, generated credentials, owned container removed by ID and label): the four
+`m8-stage-authorization` test binaries ran with the gate's exact `-run`
+expression. `scripts/m8_remote_gate_evaluate.py` judged the result with the gate's
+strict lifecycle rules: **all 135 required leaves** (63 earlier + 72 host-action),
+148 MariaDB passes, 590 passes in total, zero failures/skips/lifecycle errors, 4
+packages. The cross-compiled binaries are **not race-enabled**.
+
+**Sandbox diagnostic (outside the product flow):** after a manual `probe init`, the
+approved unit started under the full sandbox, stayed `active` with 0 restarts and
+listened on 8443. It was then stopped. Enrollment was not attempted.
+
+**Findings from the run:**
+- Go's SSH client negotiates the **ECDSA** host key first. The operation's pinned
+  `host_key_fingerprint` must therefore be the ECDSA key's; an ED25519 pin fails
+  trust before exec, harmlessly. Pinning a specific key type is a follow-up.
+- The first remote gate attempt ran the test binaries outside their package
+  directories, so migration SQL files were not found; it is retained as a failed
+  setup run. Its script also aborted before removing its container, which was then
+  removed by ID and label. The harness's `ssh` subcommand does not forward stdin;
+  uploads used `scp` with the same pinned key and known_hosts.
+- One bootstrap test reads its own `.go` source and failed when only non-Go data was
+  shipped; it passed on both hosts once that file was present.
+
+Teardown terminated both instances and deleted the key pair and security group. An
+independent tag query found 0 security groups, key pairs, volumes and network
+interfaces. Private evidence stays under `tmp/m8-aws-run/` and
+`tmp/m8-aws-b6ffc9ac26ab/` (gitignored). Not covered: race-enabled MariaDB,
+enrollment/`probe init` as a product step, and helper/key-file provenance.

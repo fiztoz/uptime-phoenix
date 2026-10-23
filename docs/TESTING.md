@@ -127,6 +127,15 @@ python3 -B -m unittest scripts/test_m8_aws_acceptance.py
 
 The full repository package now needs `-timeout 2400s` (CI already uses it).
 
+**Real-host acceptance (AWS, operator-approved only).** `scripts/m8_aws_acceptance.py`
+runs `plan` (offline; prints a run id), then `up --approve-run-id <id> --expect-account
+<id> --operator-cidr <ip>/32 [--profile <p>]`, `ssh`, `down --run-id <id>` and `sweep`.
+The lifecycle driver is `go test -c -tags m8aws ./internal/bootstrap` with
+`M8AWS_*` inputs (pin the host's **ECDSA** key fingerprint). Remote MariaDB output
+converted with `go tool test2json` is judged by
+`python3 -B scripts/m8_remote_gate_evaluate.py <events>`. Every launch creates billable
+resources and needs fresh owner approval.
+
 ### M8 stage grant verification and authorized delivery (increments B/C)
 
 The [grant record](multi-region/M8_BINARY_STAGE_GRANT.md) adds the host verb
