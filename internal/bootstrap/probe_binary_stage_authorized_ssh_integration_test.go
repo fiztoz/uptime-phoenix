@@ -215,6 +215,26 @@ func (c *authzE2ECounter) Read(p []byte) (int, error) {
 
 func (c *authzE2ECounter) Close() error { return c.r.Close() }
 
+// awaitExits waits for n helper runs to finish. A sender refusal closes its
+// transport without waiting for the remote helper, so the fixture's record of
+// the helper exit can lag the sender's return.
+func (s *authzE2EServer) awaitExits(t *testing.T, n int) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		s.mu.Lock()
+		got := len(s.codes)
+		s.mu.Unlock()
+		if got >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("helper exits = %d, want %d", got, n)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func (s *authzE2EServer) snapshot() ([]string, []int, int, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -308,6 +328,7 @@ func TestAuthorizedProbeBinaryStageSSHEndToEnd(t *testing.T) {
 		t.Fatalf("replayed attempt ack=%v err=%v", ack, err)
 	}
 	helperEffectGraph(t, e.parent, e.intent, e.data)
+	e.server.awaitExits(t, 2)
 	_, codes, stdinLen, _ = e.server.snapshot()
 	if len(codes) != 2 || codes[1] == 0 || stdinLen != len(header)+provisioning.ProbeBinaryStageGrantFrameSize+len(e.data) {
 		t.Fatalf("replay reached helper input codes=%v stdin=%d", codes, stdinLen)
@@ -326,6 +347,7 @@ func TestAuthorizedProbeBinaryStageSSHRefusesTamperedGrant(t *testing.T) {
 		t.Fatalf("tampered grant ack=%v err=%v", ack, err)
 	}
 	helperEffectEmpty(t, e.parent, e.scratch)
+	e.server.awaitExits(t, 1)
 	_, codes, _, stderr := e.server.snapshot()
 	if len(codes) != 1 || codes[0] != 1 || stderr != domain.ErrProbeBinaryStageWriteUnauthorized.Error()+"\n" {
 		t.Fatalf("tampered grant codes=%v stderr=%q", codes, stderr)
@@ -347,6 +369,7 @@ func TestAuthorizedProbeBinaryStageSSHRefusesUntrustedAuthority(t *testing.T) {
 		t.Fatalf("untrusted authority ack=%v err=%v", ack, err)
 	}
 	helperEffectEmpty(t, e.parent, e.scratch)
+	e.server.awaitExits(t, 1)
 	_, codes, stdinLen, _ := e.server.snapshot()
 	if len(codes) != 1 || codes[0] == 0 || stdinLen != 0 {
 		t.Fatalf("untrusted authority codes=%v stdin=%d", codes, stdinLen)

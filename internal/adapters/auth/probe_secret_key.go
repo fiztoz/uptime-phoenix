@@ -17,42 +17,56 @@ import (
 // Relative symlinks within the parent directory support projected secret mounts.
 // The operator must keep the parent and its ancestors under trusted ownership.
 func NewProbeConfigProtectorFromFile(ctx context.Context, path string) (*ProbeConfigProtector, error) {
-	if err := ctx.Err(); err != nil {
+	key, err := ReadProbeSecretKeyFile(ctx, path)
+	defer clear(key[:])
+	if err != nil {
 		return nil, err
+	}
+	return NewProbeConfigProtector(key[:])
+}
+
+// ReadProbeSecretKeyFile returns exactly 32 raw bytes from a protected regular
+// file under the same rules as NewProbeConfigProtectorFromFile. It is shared by
+// every 32-byte installation secret; callers must clear the returned copy.
+func ReadProbeSecretKeyFile(ctx context.Context, path string) ([32]byte, error) {
+	var out [32]byte
+	if err := ctx.Err(); err != nil {
+		return out, err
 	}
 	root, name, err := openProbeKeyDirectory(ctx, path, false)
 	if err != nil {
-		return nil, err
+		return out, err
 	}
 	defer func() { _ = root.Close() }()
 	// Nonblocking open allows rejecting a FIFO without waiting for a writer.
 	file, err := root.OpenFile(name, os.O_RDONLY|probeKeyNonblock, 0)
 	if err != nil {
-		return nil, probeKeyIOError("open probe secret key", err)
+		return out, probeKeyIOError("open probe secret key", err)
 	}
 	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
-		return nil, probeKeyIOError("inspect probe secret key", err)
+		return out, probeKeyIOError("inspect probe secret key", err)
 	}
 	if !info.Mode().IsRegular() || !probeKeyTrustedOwner(info) ||
 		(info.Mode() != 0400 && info.Mode() != 0600) {
-		return nil, errors.New("probe secret key must be a regular file owned by the current user or root with mode 0400 or 0600")
+		return out, errors.New("probe secret key must be a regular file owned by the current user or root with mode 0400 or 0600")
 	}
 	if info.Size() != 32 {
-		return nil, errors.New("probe secret key must contain exactly 32 raw bytes")
+		return out, errors.New("probe secret key must contain exactly 32 raw bytes")
 	}
 	var key [33]byte
 	defer clear(key[:])
 	// Read one extra byte to reject growth since Stat, with a strict upper bound.
 	n, err := io.ReadFull(file, key[:])
 	if n != 32 || !errors.Is(err, io.ErrUnexpectedEOF) {
-		return nil, errors.New("probe secret key must contain exactly 32 readable raw bytes")
+		return out, errors.New("probe secret key must contain exactly 32 readable raw bytes")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return out, err
 	}
-	return NewProbeConfigProtector(key[:32])
+	copy(out[:], key[:32])
+	return out, nil
 }
 
 // CreateProbeSecretKeyFile explicitly provisions a fresh installation key.

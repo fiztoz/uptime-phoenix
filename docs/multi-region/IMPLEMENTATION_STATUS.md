@@ -5,7 +5,26 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
-## M8 host grant verification and authorized delivery (increments B/C) — working tree
+## M8 authority key custody and artifact executor (increments D/E) — working tree
+
+`phoenix-probe-admin stage-authority <init|check|public-key>` provisions a separate
+32-byte Ed25519 seed under the snapshot key's protections. It reports its key id and
+exports the canonical host trust file. `bootstrap.LoadProbeStageGrantSigner` loads it;
+no hub startup path does yet. `provisioning.SSHArtifactDirectoryExecutor` is the first
+concrete `ProbeInstallResourceExecutor`. It handles `artifact_directory` via
+`SendAuthorized` and maps the result to applied, not_started or unknown, never an
+error. See the [grant record](M8_BINARY_STAGE_GRANT.md#artifact-executor-increment-e)
+for why an acknowledgement may now be `applied`.
+
+A SQLite-only lifecycle test runs the production runner against a real journal and
+admission store, the real service/signer, sender and helper, and stages real files. A
+foreign host key consumes an admission and interrupts the operation (documented,
+deferred). `data_directory`, `unit_file` and `service` have no host-authorized
+executor; the admission schema admits only `artifact_directory`. Full native race suite (Darwin/arm64, no DSN): 7,333 passes, zero failures, 565 skips
+(560 missing-DSN repository, five known optional); build, vet, gofmt and Linux
+amd64/arm64 builds/vet passed. SQLite only. No MariaDB, OpenSSH or Linux runtime.
+
+## M8 host grant verification and authorized delivery (increments B/C) — `6221326`
 
 The [stage grant record](M8_BINARY_STAGE_GRANT.md) adds the host verb
 `phoenix-probe-admin stage-binary-authorized` and `SSHBinaryStageSender.SendAuthorized`
@@ -33,8 +52,8 @@ Verification on Darwin/arm64, Go 1.26.9, race detector, no DSN:
   were fixed.
 
 Not executed: actual OpenSSH/Linux acceptance of the new verb or its `/etc`
-loaders (cross-compiled and vetted only), and MariaDB (no repository change). Not
-committed, pushed or deployed. Key custody/export, policy installation and executor
+loaders (cross-compiled and vetted only), and MariaDB (no repository change).
+Committed as `6221326`; not pushed or deployed. Key custody/export, policy installation and executor
 integration remain open.
 
 ## M8 stage-admission increment — locally verified

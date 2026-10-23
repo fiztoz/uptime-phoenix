@@ -29,6 +29,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "stage-binary-authorized" {
 		os.Exit(bootstrap.RunAuthorizedProbeBinaryStageHelper(ctx, os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "stage-authority" {
+		os.Exit(bootstrap.RunProbeStageAuthorityKey(ctx, os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "verify-artifact" {
 		os.Exit(bootstrap.RunProbeBinaryVerification(ctx, os.Args[2:], os.Stdout, os.Stderr))
 	}

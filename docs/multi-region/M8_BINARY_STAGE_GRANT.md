@@ -10,8 +10,10 @@ or installation success.
 | Increment | Commit | What it adds |
 |---|---|---|
 | A — DB admission + signer | `19fb9cc` | Irreversible consumption of one exact `artifact_directory` attempt (migration `085`), then an injected Ed25519 signature over a domain-separated message |
-| B — host verification | working tree | `phoenix-probe-admin stage-binary-authorized`: trusted key, fresh nonce challenge, grant check before any payload byte or filesystem effect |
-| C — authorized delivery | working tree | `SSHBinaryStageSender.SendAuthorized`: challenge → one `Authorize` call → header + grant frame + payload |
+| B — host verification | `6221326` | `phoenix-probe-admin stage-binary-authorized`: trusted key, fresh nonce challenge, grant check before any payload byte or filesystem effect |
+| C — authorized delivery | `6221326` | `SSHBinaryStageSender.SendAuthorized`: challenge → one `Authorize` call → header + grant frame + payload |
+| D — authority key custody | working tree | `phoenix-probe-admin stage-authority <init\|check\|public-key>` and `bootstrap.LoadProbeStageGrantSigner` over the shared protected 32-byte key reader |
+| E — artifact executor | working tree | `provisioning.SSHArtifactDirectoryExecutor`: the install runner's `artifact_directory` resource via `SendAuthorized` |
 
 Increment A's verification is in [TESTING.md](../TESTING.md#m8-one-shot-stage-admission-increment-a-not-host-authorization)
 and the [status](IMPLEMENTATION_STATUS.md) record; it is summarized, not repeated, here.
@@ -152,10 +154,74 @@ linux/amd64 and arm64), MariaDB (no repository change in B/C), and golangci-lint
 (not installed). The Linux protection checks in `probe_binary_stage_authority_linux.go`
 are therefore inspected, not exercised.
 
+## Key custody (increment D)
+
+See [key provisioning](KEY_PROVISIONING.md#stage-authority-key-m8-binary-staging-grants).
+`auth.ReadProbeSecretKeyFile` is the snapshot key's protected reader, extracted
+unchanged so both 32-byte secrets share one implementation. `NewProbeConfigProtectorFromFile`
+now calls it. `LoadProbeStageGrantSigner` turns the seed into the existing Ed25519
+signer and clears its temporary buffers. No hub startup or config path loads the key
+yet; the future installer composition root will.
+
+## Artifact executor (increment E)
+
+`SSHArtifactDirectoryExecutor` implements `ports.ProbeInstallResourceExecutor` for
+`artifact_directory` only. It rebuilds the stage intent from the acknowledged
+reservation receipt: a running systemd operation, `data_directory` applied, and
+`artifact_directory` in flight with its attempt and the derived `/opt` reference. It
+borrows a sender, a prepared binary whose pin must equal the identity's, and the
+authorizer.
+
+| Send result | Reported outcome |
+|---|---|
+| Acknowledgement for exactly this intent | `applied` |
+| `ErrSSHBinaryStageUnknown` | `unknown` / `outcome_unknown` |
+| `ErrSSHBinaryStageNotStaged`, every pre-exec sentinel, other kinds, mismatched receipt or pin | `not_started` |
+
+It never returns an error. The runner records any executor error as unknown, which
+would misreport a resource provably never touched.
+
+**Why an acknowledgement may now be `applied`.** Earlier records said not to wire an
+ack to `artifact_directory`/`applied` while no current authority existed. That
+authority now exists. The DB consumed this exact reserved attempt under
+operation-first locking, its deadline and in-flight state. The authority key signed
+only after that commit. The helper verified the signature for its own nonce and
+refused intents pinned to another host's key. It then created the stage fresh-only
+and acknowledged it. `applied` still means "this attempt's directory was staged",
+not installed, enrolled or running. A refusal from the helper after the header
+(e.g. host binding) is reported unknown, because the sender cannot distinguish it
+from a post-stage failure.
+
+**Known cost of a host-binding mismatch.** The helper checks host binding after
+the hub has already admitted and signed. A mismatch therefore consumes the
+admission, records `artifact_directory` unknown and interrupts the operation. An
+honest sender reaches that state only through host misconfiguration, such as sshd
+serving keys outside `/etc/ssh/ssh_host_*_key.pub`. Moving the check ahead of
+admission would need the header before the challenge. That protocol reorder was
+deferred: either way the operation is terminal and needs a new one.
+
+The executor also requires the receipt's whole resource layout to equal the one
+derived from the identity, so a malformed receipt never reaches the network.
+
+**Lifecycle evidence (SQLite only).** The test composes the production runner, a
+real SQLite journal, the admission store, the authorization service and signer,
+the executor, the sender, a Go SSH server and the real helper. It records
+`data_directory` applied (explicit test double), `artifact_directory` applied with
+its reserved attempt, the staged files and exactly one admission, then
+`unit_file` not_started and the operation failed/not_started. A replay while the
+journal still shows the attempt in flight is refused by the consumed admission
+alone. An untrusted authority yields not_started with zero admissions. A foreign
+host key yields unknown/interrupted with one consumed admission and no files. No
+MariaDB/InnoDB, real sshd, `/opt`, uid 0 or systemd was exercised.
+
+After D/E, the full native race suite (Darwin/arm64, no DSN) passed: 7,333 passes,
+zero failures and the same 565 audited skips.
+
 ## Still open
 
-Persistent authority-key custody and a way to export the public key file; installing
-the key and forced-command policy; actual OpenSSH/Linux acceptance of
-`stage-binary-authorized`; wiring `SendAuthorized` into a concrete executor behind the
-install runner; the Docker/systemd executor; bounded redacted progress; enrollment and
+Installing the public key and forced-command policy on hosts; actual OpenSSH/Linux
+acceptance of `stage-binary-authorized`; host-authorized executors for
+`data_directory`, `unit_file` and `service` (the admission schema admits only
+`artifact_directory`); loading the authority key in a hub composition root; the
+Docker executor; admin routes; bounded redacted progress; enrollment and
 exact config activation.

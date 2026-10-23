@@ -315,6 +315,13 @@ has no concrete remote adapter or installation-success path.
   `Authorize` call and `ErrSSHBinaryStageNotStaged` before any stdin byte. Native and
   Go-SSH end-to-end tests only; actual OpenSSH/Linux acceptance, key custody/export
   and forced-command policy installation remain open.
+- [x] Add [stage authority key custody](KEY_PROVISIONING.md#stage-authority-key-m8-binary-staging-grants)
+  (`stage-authority init|check|public-key`) and the first concrete executor,
+  [`SSHArtifactDirectoryExecutor`](M8_BINARY_STAGE_GRANT.md#artifact-executor-increment-e),
+  with a SQLite production-runner lifecycle test. No startup/route wiring.
+- [ ] Generalize one-shot admission/grants beyond `artifact_directory` (migration +
+  real MariaDB gate) and add host-authorized `data_directory`, `unit_file` and
+  `service` actions.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.
