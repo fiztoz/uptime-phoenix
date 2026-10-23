@@ -140,7 +140,7 @@ func sendBoundaryCall(t *testing.T, ctx context.Context, f *sendTFixture, binary
 	}
 	tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	t.Cleanup(cancel)
-	call := &stageSendCall{ctx: ctx, tctx: tctx, intent: intent, pin: binary.Pin(), header: header, src: &stageSendSource{}, cancelJoined: make(chan struct{})}
+	call := &stageSendCall{ctx: ctx, tctx: tctx, intent: intent, pin: binary.Pin(), header: header, src: &stageSendSource{}, cancelJoined: make(chan struct{}), command: SSHProbeBinaryStageCommand}
 	if err := call.openSource(binary); err != nil {
 		call.join()
 		t.Fatal(err)

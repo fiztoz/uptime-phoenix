@@ -5,6 +5,38 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
+## M8 host grant verification and authorized delivery (increments B/C) — working tree
+
+The [stage grant record](M8_BINARY_STAGE_GRANT.md) adds the host verb
+`phoenix-probe-admin stage-binary-authorized` and `SSHBinaryStageSender.SendAuthorized`
+on top of increment A. Before the challenge, the helper loads a protected root-owned
+trusted key (`/etc/phoenix-probe/stage-authority.pub`) and its own sshd host-key
+fingerprints, then emits a fresh-nonce challenge. Before any payload byte or
+filesystem effect, it refuses an intent pinned to another host and a grant that does
+not verify for its nonce and the intent marker. The sender calls `Authorize` once,
+only with at least 30 s of budget left and a live helper. It reports the definite
+`ErrSSHBinaryStageNotStaged` for any failure before its first stdin byte. Legacy
+`stage-binary`, `stage-binary-host` and `Send` are unchanged in effect.
+
+Verification on Darwin/arm64, Go 1.26.9, race detector, no DSN:
+
+- **Full native race suite:** 7,226 named passes, zero failures, 565 named skips
+  (560 missing-DSN repository, five known optional). 23 passed packages and 14 no-test
+  packages. That is the prior 6,834 plus exactly the 392 new focused B/C tests.
+- **Focused:** provisioning 239 passes and bootstrap 153 passes, zero skips. Sender
+  selection repeated five times without flakes. Go SSH end-to-end composition covers
+  success, replay, tampered grant and untrusted authority.
+- **Overlay mutants** for signature verification and host binding are caught; see the
+  record for helper/sender mutant totals. Build, vet, gofmt and Linux amd64/arm64 CGO0
+  admin builds plus vet passed. golangci-lint is unavailable.
+- An independent read-only review found no high/medium issues. Its four low findings
+  were fixed.
+
+Not executed: actual OpenSSH/Linux acceptance of the new verb or its `/etc`
+loaders (cross-compiled and vetted only), and MariaDB (no repository change). Not
+committed, pushed or deployed. Key custody/export, policy installation and executor
+integration remain open.
+
 ## M8 stage-admission increment — locally verified
 
 Increment A's bounded local engineering verification is complete: one irreversible

@@ -163,6 +163,7 @@ func (s *SSHBinaryStageSender) Send(ctx context.Context, intent domain.ProbeBina
 		header:       header,
 		src:          &stageSendSource{},
 		cancelJoined: make(chan struct{}),
+		command:      SSHProbeBinaryStageCommand,
 	}
 	return call.run(s.insp, binary)
 }
@@ -185,6 +186,16 @@ type stageSendCall struct {
 	stop         func() bool
 	cancelJoined chan struct{}
 
+	// Authorized mode only: command is the fixed authorized helper, authorize
+	// obtains one grant for the helper's challenge, and nothing is staged
+	// until the first stdin byte is attempted.
+	command      string
+	authorizer   ProbeBinaryStageAuthorizer
+	challenge    []byte
+	grantFrame   []byte
+	stdinStarted bool
+	waited       chan struct{}
+
 	attempted bool
 	eofSent   bool
 	waitOnce  sync.Once
@@ -199,16 +210,23 @@ func (c *stageSendCall) run(insp *SSHBinaryStageInspector, binary ports.Prepared
 	defer func() {
 		if closeErr := c.join(); closeErr != nil {
 			ack = SSHBinaryStageAck{}
-			if c.attempted {
+			switch {
+			case c.notStaged():
+				err = ErrSSHBinaryStageNotStaged
+			case c.attempted:
 				err = ErrSSHBinaryStageUnknown
-			} else {
+			default:
 				err = domain.ErrProbeArtifactStorage
 			}
 			return
 		}
 		if err != nil {
 			ack = SSHBinaryStageAck{}
-			if c.attempted {
+			switch {
+			case c.notStaged():
+				// Authorized mode wrote no stdin byte: no stage input exists.
+				err = ErrSSHBinaryStageNotStaged
+			case c.attempted:
 				// Past the uncertainty boundary every failure is unknown.
 				err = ErrSSHBinaryStageUnknown
 			}
@@ -229,7 +247,15 @@ func (c *stageSendCall) run(insp *SSHBinaryStageInspector, binary ports.Prepared
 	if err = c.execute(); err != nil {
 		return SSHBinaryStageAck{}, err
 	}
-	parsed, perr := parseSSHBinaryStageAck(c.ctx, c.stdout.snapshot(), c.intent)
+	body := c.stdout.snapshot()
+	if c.authorizer != nil {
+		// The challenge line is the only output before the receipt.
+		if len(c.challenge) == 0 || !bytes.HasPrefix(body, c.challenge) {
+			return SSHBinaryStageAck{}, ErrSSHBinaryStageUnknown
+		}
+		body = body[len(c.challenge):]
+	}
+	parsed, perr := parseSSHBinaryStageAck(c.ctx, body, c.intent)
 	if perr != nil {
 		return SSHBinaryStageAck{}, perr
 	}
@@ -303,6 +329,10 @@ func (c *stageSendCall) connect(insp *SSHBinaryStageInspector) error {
 		return stageSendBareTransport(c.ctx, c.tctx, domain.ErrProbeSSHConnect)
 	}
 	c.stdout = &stageSendBounded{max: stageSendStdoutMax, abort: func() { _ = conn.Close() }}
+	if c.authorizer != nil {
+		c.stdout.max += ProbeBinaryStageChallengeLineSize
+		c.stdout.line = make(chan struct{})
+	}
 	c.stderr = &stageSendBounded{max: stageSendStderrMax, abort: func() { _ = conn.Close() }}
 	session.Stdout = c.stdout
 	session.Stderr = c.stderr
@@ -317,9 +347,17 @@ func (c *stageSendCall) execute() error {
 	if err := c.tctx.Err(); err != nil {
 		return stageSendBareContext(err)
 	}
+	if c.command != SSHProbeBinaryStageCommand && c.command != SSHProbeBinaryStageAuthorizedCommand {
+		return ErrSSHBinaryStageInput // fails closed before any exec attempt
+	}
 	c.attempted = true
-	if err := c.session.Start(SSHProbeBinaryStageCommand); err != nil {
+	if err := c.session.Start(c.command); err != nil {
 		return err
+	}
+	if c.authorizer != nil {
+		if err := c.authorize(); err != nil {
+			return err
+		}
 	}
 	if err := c.stream(); err != nil {
 		return err
@@ -350,8 +388,17 @@ func (c *stageSendCall) execute() error {
 // no second source open, body prefetch, compression, trailer,
 // LimitReader-generated EOF or generic io.Copy path.
 func (c *stageSendCall) stream() error {
+	if err := c.tctx.Err(); err != nil {
+		return err
+	}
+	c.stdinStarted = true
 	if err := stageSendWriteAll(c.stdin, c.header); err != nil {
 		return err
+	}
+	if c.grantFrame != nil {
+		if err := stageSendWriteAll(c.stdin, c.grantFrame); err != nil {
+			return err
+		}
 	}
 	hash := sha256.New()
 	buf := make([]byte, stageSendCopyBuf)
@@ -518,6 +565,15 @@ type stageSendBounded struct {
 	max   int
 	over  bool
 	abort func()
+	// line, when set, is closed once the first LF arrives or output overflows.
+	line     chan struct{}
+	lineOnce sync.Once
+}
+
+func (w *stageSendBounded) signalLine() {
+	if w.line != nil {
+		w.lineOnce.Do(func() { close(w.line) })
+	}
 }
 
 func (w *stageSendBounded) Write(p []byte) (int, error) {
@@ -530,9 +586,13 @@ func (w *stageSendBounded) Write(p []byte) (int, error) {
 				w.abort()
 			}
 		}
+		w.signalLine()
 		return 0, errStageSendOutput
 	}
 	_, _ = w.buf.Write(p)
+	if bytes.IndexByte(p, '\n') >= 0 {
+		w.signalLine()
+	}
 	return len(p), nil
 }
 

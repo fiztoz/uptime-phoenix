@@ -240,7 +240,7 @@ UID/mode/CLOEXEC and local graph effects; they are not physical/SSH host identit
 current authority, a hostile-root/mount fence, or installed success.
 This fixed host-local checkpoint is locally committed as `ac9c126` (not pushed).
 The subsequent [one-shot pinned SSH sender](M8_BINARY_STAGE_SSH_DELIVERY.md) is
-implemented locally, uncommitted and unwired. It calls only the trusted preinstalled
+committed at `d159fd4` and unwired. It calls only the trusted preinstalled
 absolute stage-binary-host command, borrows the prepared snapshot and closes its
 one owned exact/EOF-checked reader before normal channel EOF. A strict matching
 receipt plus normal exit0 and joined live local context is an acknowledgment,
@@ -263,8 +263,18 @@ subsystem stderr is intentionally suppressed. Its frozen source is
 36 required / 39 named completions across three repetitions passed, with default
 and authorization post-mutation controls. No new MariaDB or Linux-amd64 runtime
 coverage is implied; final audit/cleanup are recorded separately.
-Next establish trusted production helper/key policy and current-host fencing
-before any concrete executor integration. The operator must protect the helper,
+The [one-shot stage grant record](M8_BINARY_STAGE_GRANT.md) then adds the
+current-reservation authority this paragraph asked for. Increment A (`19fb9cc`)
+irreversibly admits one exact `artifact_directory` attempt in the DB before an
+injected Ed25519 signer issues a grant. Increment B adds `stage-binary-authorized`:
+a fresh helper nonce challenge, a protected root-owned trusted key at
+`/etc/phoenix-probe/stage-authority.pub`, a binding of the intent's pinned host key
+to the helper's own sshd host keys, and grant verification before any payload byte
+or filesystem effect. Increment C adds `SendAuthorized` and the honest
+`ErrSSHBinaryStageNotStaged` outcome for failures before the first stdin byte. B/C
+are native-tested and composed end to end over a Go SSH server; actual OpenSSH/Linux
+acceptance of the new verb, key custody/export and policy installation remain open.
+Before any concrete executor integration, still establish trusted production helper/key policy. The operator must protect the helper,
 ancestors and root shell; a pinned host key is not their provenance or DB authority.
 Do not wire an ack/seal to artifact_directory/applied or invent a fresh grant from
 labels. Ordinary SSH still does not supply fd3; the fixed launcher supplies its

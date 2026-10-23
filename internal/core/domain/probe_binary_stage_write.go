@@ -8,6 +8,9 @@ var (
 	ErrProbeBinaryStageWriteConflict    = errors.New("local probe binary staging directory already exists")
 	ErrProbeBinaryStageWriteUnavailable = errors.New("local probe binary staging unavailable before creation")
 	ErrProbeBinaryStageWriteUnknown     = errors.New("local probe binary staging outcome unknown")
+	// ErrProbeBinaryStageWriteUnauthorized is a definite pre-creation refusal:
+	// the stage grant did not verify under the host's trusted authority key.
+	ErrProbeBinaryStageWriteUnauthorized = errors.New("local probe binary staging grant refused before creation")
 )
 
 // ProbeBinaryStageSeal reports matching local bytes during one fresh staging call.

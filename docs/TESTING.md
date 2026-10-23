@@ -112,6 +112,25 @@ for disposable database setup.
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
 
+### M8 stage grant verification and authorized delivery (increments B/C)
+
+The [grant record](multi-region/M8_BINARY_STAGE_GRANT.md) adds the host verb
+`stage-binary-authorized` and `SSHBinaryStageSender.SendAuthorized`. No DB, schema
+or HTTP change. Run the codec, helper, sender and end-to-end composition tests:
+
+```sh
+go test -race -count=1 ./internal/adapters/provisioning \
+  -run 'ProbeBinaryStageGrantFrame|ProbeBinaryStageChallengeLine|ProbeBinaryStageAuthorityKey|SSHBinaryStageSenderAuthorized'
+go test -race -count=1 ./internal/bootstrap \
+  -run 'AuthorizedProbeBinaryStage|VerifyProbeBinaryStageGrant|ProbeBinaryStageAuthorityReadKey'
+```
+
+The end-to-end tests (`TestAuthorizedProbeBinaryStageSSH*`) run the real sender
+against a loopback Go SSH server that executes the real helper, the real
+authorization service and Ed25519 signer, and a real temporary parent. This is
+protocol and effect evidence, **not** OpenSSH or Linux `/etc`/`/opt` acceptance: the
+Linux key loader is only cross-compiled and vetted. Generated keys only.
+
 ### M8 one-shot stage admission (increment A; not host authorization)
 
 This increment consumes one exact reserved artifact attempt before an injected

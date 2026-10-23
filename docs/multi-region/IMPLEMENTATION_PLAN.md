@@ -295,8 +295,8 @@ has no concrete remote adapter or installation-success path.
   real EOF and source-close-before-channel-EOF. Require bounded strict receipt,
   normal exit0 and joined live local context. Exec-attempt ambiguity stays Unknown,
   with no retry, remote reaping, adoption or deletion. Native races and actual
-  isolated Linux/arm64 OpenSSH effect checks passed; this slice is uncommitted and
-  has no runner/HTTP/startup caller. Trusted helper/root authorization, current-host
+  isolated Linux/arm64 OpenSSH effect checks passed; this slice is committed at
+  `d159fd4` and has no runner/HTTP/startup caller. Trusted helper/root authorization, current-host
   fencing, resource application and installation remain open.
 - [x] Add [restricted staging-key actual-effect acceptance](M8_BINARY_STAGE_SSH_AUTHORIZATION.md)
   using native OpenSSH `restrict,command=...`, generated unrestricted controls,
@@ -305,6 +305,16 @@ has no concrete remote adapter or installation-success path.
   wrapper, current reservation authorization or host fence. Full native race,
   build/vet/cross-build, Python/mutation and old/new OpenSSH matrices passed;
   final audit/cleanup remain separately recorded, not broad release acceptance.
+- [x] Add [one-shot DB stage admission](M8_BINARY_STAGE_GRANT.md) (increment A,
+  `19fb9cc`): consume one exact root/systemd `artifact_directory` attempt under current
+  stored authority (migration `085`), then sign a domain-separated Ed25519 grant.
+  No replay, rearm or signature storage; authority at commit, not continuous.
+- [x] Add [host grant verification and authorized delivery](M8_BINARY_STAGE_GRANT.md)
+  (increments B/C): `stage-binary-authorized` with a protected trusted key, fresh
+  nonce challenge and pre-payload signature check; `SendAuthorized` with one
+  `Authorize` call and `ErrSSHBinaryStageNotStaged` before any stdin byte. Native and
+  Go-SSH end-to-end tests only; actual OpenSSH/Linux acceptance, key custody/export
+  and forced-command policy installation remain open.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.

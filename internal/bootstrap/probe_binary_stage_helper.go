@@ -34,6 +34,7 @@ var probeBinaryStageHelperAllowlist = []error{
 	domain.ErrProbeBinaryStageWriteInput,
 	domain.ErrProbeBinaryStageWriteConflict,
 	domain.ErrProbeBinaryStageWriteUnavailable,
+	domain.ErrProbeBinaryStageWriteUnauthorized,
 	domain.ErrProbeArtifactInput,
 	domain.ErrProbeArtifactSize,
 	domain.ErrProbeArtifactDigest,
@@ -49,6 +50,12 @@ var probeBinaryStageHelperAllowlist = []error{
 // Exit 0 is the only acknowledgement of the single JSON line. That line is a
 // fresh local stage receipt, not installation, enrollment, cleanup, or authority.
 func RunProbeBinaryStageHelper(ctx context.Context, args []string, parent *os.File, input io.ReadCloser, out, stderr io.Writer) int {
+	return runProbeBinaryStageHelperEntry(ctx, args, parent, input, out, stderr, nil)
+}
+
+// runProbeBinaryStageHelperEntry is RunProbeBinaryStageHelper with an optional
+// pre-payload authorization hook. Ownership and exit semantics are unchanged.
+func runProbeBinaryStageHelperEntry(ctx context.Context, args []string, parent *os.File, input io.ReadCloser, out, stderr io.Writer, authorize probeBinaryStageHelperAuthorize) int {
 	if len(args) != 0 {
 		return probeBinaryStageHelperUsage(input, stderr)
 	}
@@ -65,7 +72,7 @@ func RunProbeBinaryStageHelper(ctx context.Context, args []string, parent *os.Fi
 		return probeBinaryStageHelperRefuse(input, stderr, err)
 	}
 	defer func() { _ = guard.Close() }()
-	return runProbeBinaryStageHelper(ctx, opCtx, parent, guard, out, stderr)
+	return runProbeBinaryStageHelper(ctx, opCtx, parent, guard, out, stderr, authorize)
 }
 
 // RunInheritedProbeBinaryStageHelper duplicates inherited descriptor 3 through
@@ -140,7 +147,12 @@ func finishInheritedProbeBinaryStageHelper(ctx context.Context, code int, closeE
 	return 0
 }
 
-func runProbeBinaryStageHelper(caller, opCtx context.Context, parent *os.File, guard *probeBinaryStageHelperInput, out, stderr io.Writer) int {
+// probeBinaryStageHelperAuthorize runs after the header decodes and before any
+// payload byte is consumed or any stage is created. It may read only its own
+// fixed frame from the stream. A nil hook is the unchanged unauthorized helper.
+type probeBinaryStageHelperAuthorize func(ctx context.Context, intent domain.ProbeBinaryStageIntent, r io.Reader) error
+
+func runProbeBinaryStageHelper(caller, opCtx context.Context, parent *os.File, guard *probeBinaryStageHelperInput, out, stderr io.Writer, authorize probeBinaryStageHelperAuthorize) int {
 	writer, err := provisioning.NewLocalBinaryStageWriter(opCtx, parent)
 	if err != nil {
 		return probeBinaryStageHelperBeforeReceive(guard, stderr, err)
@@ -155,6 +167,11 @@ func runProbeBinaryStageHelper(caller, opCtx context.Context, parent *os.File, g
 	}
 	if !intent.Valid() {
 		return probeBinaryStageHelperBeforeReceive(guard, stderr, domain.ErrProbeBinaryStageWriteInput)
+	}
+	if authorize != nil {
+		if err := authorize(opCtx, intent, guard); err != nil {
+			return probeBinaryStageHelperBeforeReceive(guard, stderr, err)
+		}
 	}
 	service, err := services.NewProbeBinaryStageReceiveService(provisioning.NewProbeBinaryPreparer(""), writer)
 	if err != nil {
