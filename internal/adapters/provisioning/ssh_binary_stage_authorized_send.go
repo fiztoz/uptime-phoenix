@@ -81,7 +81,7 @@ func (s *SSHBinaryStageSender) SendAuthorized(ctx context.Context, intent domain
 		src:          &stageSendSource{},
 		cancelJoined: make(chan struct{}),
 		command:      SSHProbeBinaryStageAuthorizedCommand,
-		authorizer:   authorizer,
+		grantPlan:    binaryStageGrantPlan(intent, authorizer),
 		waited:       make(chan struct{}),
 	}
 	return call.run(s.insp, binary)
@@ -89,7 +89,30 @@ func (s *SSHBinaryStageSender) SendAuthorized(ctx context.Context, intent domain
 
 // notStaged reports whether an authorized call failed before any stdin byte.
 func (c *stageSendCall) notStaged() bool {
-	return c.authorizer != nil && c.attempted && !c.stdinStarted
+	return c.grantPlan != nil && c.attempted && !c.stdinStarted
+}
+
+// binaryStageGrantPlan validates the binary-stage request for a challenge and
+// returns the single deferred Authorize call that builds the grant frame.
+func binaryStageGrantPlan(intent domain.ProbeBinaryStageIntent, authorizer ProbeBinaryStageAuthorizer) func(string, [32]byte) (func(context.Context) ([]byte, error), error) {
+	return func(keyID string, nonce [32]byte) (func(context.Context) ([]byte, error), error) {
+		request := domain.ProbeBinaryStageAdmissionRequest{Intent: intent, Challenge: domain.ProbeBinaryStageChallenge{
+			AuthorityKeyID: keyID, Nonce: nonce, MarkerSHA256: intent.MarkerSHA256(),
+		}}
+		if !request.Valid() {
+			return nil, errStageSendInternal
+		}
+		return func(ctx context.Context) ([]byte, error) {
+			grant, err := authorizer.Authorize(ctx, request)
+			if err != nil {
+				return nil, err
+			}
+			if grant.Request != request {
+				return nil, errStageSendInternal
+			}
+			return EncodeProbeBinaryStageGrantFrame(grant)
+		}, nil
+	}
 }
 
 // authorize waits for the challenge line, then obtains and encodes one grant.
@@ -118,15 +141,8 @@ func (c *stageSendCall) authorize() error {
 	if err != nil {
 		return errStageSendInternal
 	}
-	request := domain.ProbeBinaryStageAdmissionRequest{
-		Intent: c.intent,
-		Challenge: domain.ProbeBinaryStageChallenge{
-			AuthorityKeyID: keyID,
-			Nonce:          nonce,
-			MarkerSHA256:   c.intent.MarkerSHA256(),
-		},
-	}
-	if !request.Valid() {
+	obtain, err := c.grantPlan(keyID, nonce)
+	if err != nil || obtain == nil {
 		return errStageSendInternal
 	}
 	if err := c.tctx.Err(); err != nil {
@@ -142,7 +158,7 @@ func (c *stageSendCall) authorize() error {
 		return errStageSendInternal
 	default:
 	}
-	grant, err := c.authorizer.Authorize(c.tctx, request)
+	frame, err := obtain(c.tctx)
 	if err != nil {
 		return err
 	}
@@ -156,11 +172,7 @@ func (c *stageSendCall) authorize() error {
 		return errStageSendInternal
 	default:
 	}
-	if grant.Request != request {
-		return errStageSendInternal
-	}
-	frame, err := EncodeProbeBinaryStageGrantFrame(grant)
-	if err != nil {
+	if len(frame) != ProbeBinaryStageGrantFrameSize {
 		return errStageSendInternal
 	}
 	c.challenge = line

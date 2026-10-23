@@ -276,10 +276,12 @@ are native-tested and composed end to end over a Go SSH server; actual OpenSSH/L
 acceptance of the new verb, key custody/export and policy installation remain open.
 Increment D adds `phoenix-probe-admin stage-authority` key custody/export. Increment
 E adds `SSHArtifactDirectoryExecutor`, the first concrete install executor, proven on
-SQLite through the production runner. The next step is generalizing admission and
-grants to `data_directory`, `unit_file` and `service` (new migration plus a real
-MariaDB gate, which needs fresh approval for a disposable database) with matching
-host verbs. Operators must still install the public trust file and the
+SQLite through the production runner. The [host-action slice](M8_HOST_ACTIONS.md) then
+generalizes admission and grants to `data_directory`, `unit_file` and `service`
+(migration `086`, `stage-host-action-authorized`, the `authorized-dispatch` forced
+command) and adds `SSHProbeInstallExecutor` for the whole systemd layout. Next:
+run `scripts/m8_aws_acceptance.py` for real MariaDB/OpenSSH/systemd acceptance, and
+get owner review of the proposed unit; `service` is enabled, not started. Operators must still install the public trust file and the
 `stage-binary-authorized` forced command themselves. The operator must protect the helper,
 ancestors and root shell; a pinned host key is not their provenance or DB authority.
 Do not wire an ack/seal to artifact_directory/applied or invent a fresh grant from

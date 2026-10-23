@@ -91,12 +91,16 @@ Wire formats (`internal/adapters/provisioning/binary_stage_grant_frame.go`):
 - After verification, the unchanged Receive/writer/receipt path runs. `stage-binary`
   and `stage-binary-host` are unchanged.
 
-**Operator policy:** force the staging key to the authorized verb, otherwise the
-legacy unauthorized verb remains reachable by any key holder:
+**Operator policy:** force the staging key to the authorized dispatcher, otherwise
+the legacy unauthorized verbs remain reachable by any key holder:
 
 ```text
-restrict,command="/usr/local/bin/phoenix-probe-admin stage-binary-authorized" ssh-ed25519 <operator-managed-public-key>
+restrict,command="/usr/local/bin/phoenix-probe-admin authorized-dispatch" ssh-ed25519 <operator-managed-public-key>
 ```
+
+`authorized-dispatch` runs only `stage-binary-authorized` or
+`stage-host-action-authorized`, by exact `SSH_ORIGINAL_COMMAND` match; see the
+[host-action record](M8_HOST_ACTIONS.md#one-forced-command-authorized-dispatch).
 
 ## Sender contract (increment C)
 

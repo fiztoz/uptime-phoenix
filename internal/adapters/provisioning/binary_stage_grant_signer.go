@@ -66,3 +66,29 @@ func (s *Ed25519ProbeStageGrantSigner) SignStageAdmission(ctx context.Context, a
 	}
 	return grant, nil
 }
+
+var _ ports.ProbeHostActionGrantSigner = (*Ed25519ProbeStageGrantSigner)(nil)
+
+// SignHostActionAdmission signs only the fixed, domain-separated host-action
+// message of a valid admission under this authority.
+func (s *Ed25519ProbeStageGrantSigner) SignHostActionAdmission(ctx context.Context, admission domain.ProbeHostActionAdmission) (domain.ProbeHostActionGrant, error) {
+	var zero domain.ProbeHostActionGrant
+	if s == nil || len(s.privateKey) != ed25519.PrivateKeySize {
+		return zero, domain.ErrInternal
+	}
+	if ctx == nil || (reflect.ValueOf(ctx).Kind() == reflect.Pointer && reflect.ValueOf(ctx).IsNil()) {
+		return zero, domain.ErrValidation
+	}
+	if err := ctx.Err(); err != nil {
+		return zero, err
+	}
+	if !admission.Valid() || admission.Request.Challenge.AuthorityKeyID != domain.ProbeBinaryStageAuthorityKeyID(s.publicKey) {
+		return zero, domain.ErrValidation
+	}
+	grant := domain.ProbeHostActionGrant{Request: admission.Request}
+	copy(grant.Signature[:], ed25519.Sign(s.privateKey, admission.Request.SigningMessage()))
+	if err := ctx.Err(); err != nil {
+		return zero, err
+	}
+	return grant, nil
+}

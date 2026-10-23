@@ -235,15 +235,41 @@ STAGE_AUTHORIZATION_REQUIRED = {
         "ColdReopenNoGrant", "ClockRollbackStamp", "DowngradeRetainsAdmission",
     )
 }
+HOST_ACTION_LEAVES = (
+        "AdmitsAndGrantsVerifiedSignature", "CallerCanceledAfterCommitNoGrant",
+        "CancelRequestedRefused", "CanceledContextRefused", "ClockRollbackStamp",
+        "ConcurrentAdmissionSingleGrant", "CorruptGraphNoGrant", "DifferentChallengeNoRearm",
+        "ExactReplayConflict", "ExpiredDeadlineDBClock", "ExpiryAfterAuthorityLock",
+        "IdentityMismatch", "IndependentReaderSeesAdmissionBeforeSign",
+        "LostAdmissionAckNoSign", "NonceReuseAcrossAttempts", "ResourceAlreadyApplied",
+        "ResourceNotInFlight", "SignFailureConsumesAdmission", "StoreRecordsExactRow",
+        "UncommittedPredecessorNotVisible", "WrongAttempt", "WrongOwner",
+)
+# A kind with predecessors also proves an unapplied predecessor is refused.
+HOST_ACTION_PREDECESSOR_LEAVES = (
+        "PredecessorNotApplied",
+)
+HOST_ACTION_REQUIRED = {
+    f"TestM8HostActionAuthorization/mariadb/{kind}/{case}"
+    for kind in ("data_directory", "unit_file", "service")
+    for case in HOST_ACTION_LEAVES + (HOST_ACTION_PREDECESSOR_LEAVES if kind != "data_directory" else ())
+} | {
+    f"TestM8HostActionAdmissionSchema/mariadb/{case}"
+    for case in (
+        "ArtifactDirectoryRefused", "DowngradeGuard", "SchemaConstraints",
+        "UnknownOperationNotFound",
+    )
+}
 STAGE_AUTHORIZATION_SQLITE_REQUIRED = {
-    name.replace("/mariadb/", "/sqlite/") for name in STAGE_AUTHORIZATION_REQUIRED
+    name.replace("/mariadb/", "/sqlite/") for name in STAGE_AUTHORIZATION_REQUIRED | HOST_ACTION_REQUIRED
 }
 STAGE_AUTHORIZATION_RUN = (
     "^TestProbeInstall(Journal|Identity|Graph|States)|^TestInstallRunner|"
     "^TestM8Install(Journal|Runner)|^TestM8BinaryStageAuthorization$|"
-    "^TestProbeBinaryStage(Admission|Grant|Authorization)|^TestEd25519ProbeStageGrantSigner"
+    "^TestProbeBinaryStage(Admission|Grant|Authorization)|^TestEd25519ProbeStageGrantSigner|"
+    "^TestM8HostAction(Authorization|AdmissionSchema)$|^TestProbeHostAction"
 )
-REQUIRED |= INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED | STAGE_AUTHORIZATION_REQUIRED
+REQUIRED |= INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED | STAGE_AUTHORIZATION_REQUIRED | HOST_ACTION_REQUIRED
 STAGE_OWNER_LABEL = "io.uptime-phoenix.stage-authorization-run"
 
 
@@ -382,7 +408,8 @@ def main():
         "full": REQUIRED,
         "m8-install-journal": INSTALL_JOURNAL_REQUIRED,
         "m8-install-runner": INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED,
-        "m8-stage-authorization": INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED | STAGE_AUTHORIZATION_REQUIRED,
+        "m8-stage-authorization": (INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED |
+                                   STAGE_AUTHORIZATION_REQUIRED | HOST_ACTION_REQUIRED),
     }[args.scope]
     strict_events = StageAuthorizationEvents(required) if args.scope == "m8-stage-authorization" else None
     minimum_engine_passes = 300 if args.scope == "full" else len(required)

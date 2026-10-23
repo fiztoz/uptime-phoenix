@@ -112,6 +112,21 @@ for disposable database setup.
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
 
+### M8 host-authorized systemd actions (data_directory, unit_file, service)
+
+See [the host-action record](multi-region/M8_HOST_ACTIONS.md). Migration `086` adds
+`probe_host_action_admissions`; its 72 MariaDB leaves are part of the
+`m8-stage-authorization` gate scope above and need a real disposable MariaDB.
+
+```sh
+go test -race -count=1 -timeout 900s ./internal/adapters/repository -run '^TestM8HostAction(Authorization|AdmissionSchema)$'
+go test -race -count=1 ./internal/core/domain ./internal/adapters/provisioning -run 'HostAction|ProbeSystemdUnit|ProbeInstallExecutor|ApplyProbe'
+go test -race -count=1 ./internal/bootstrap -run 'HostAction|AuthorizedProbeDispatch'
+python3 -B -m unittest scripts/test_m8_aws_acceptance.py
+```
+
+The full repository package now needs `-timeout 2400s` (CI already uses it).
+
 ### M8 stage grant verification and authorized delivery (increments B/C)
 
 The [grant record](multi-region/M8_BINARY_STAGE_GRANT.md) adds the host verb

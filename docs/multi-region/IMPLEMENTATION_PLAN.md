@@ -319,9 +319,10 @@ has no concrete remote adapter or installation-success path.
   (`stage-authority init|check|public-key`) and the first concrete executor,
   [`SSHArtifactDirectoryExecutor`](M8_BINARY_STAGE_GRANT.md#artifact-executor-increment-e),
   with a SQLite production-runner lifecycle test. No startup/route wiring.
-- [ ] Generalize one-shot admission/grants beyond `artifact_directory` (migration +
-  real MariaDB gate) and add host-authorized `data_directory`, `unit_file` and
-  `service` actions.
+- [x] Generalize one-shot admission/grants to [host-authorized systemd actions](M8_HOST_ACTIONS.md)
+  (migration `086`, `stage-host-action-authorized`, `authorized-dispatch`, `SendHostAction`,
+  `SSHProbeInstallExecutor` for all four systemd resources). SQLite/native only;
+  real MariaDB, OpenSSH and systemd acceptance (AWS) and owner review of the unit remain.
 - [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.

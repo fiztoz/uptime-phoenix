@@ -5,7 +5,22 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
-## M8 authority key custody and artifact executor (increments D/E) — working tree
+## M8 host-authorized systemd actions — working tree
+
+The [host-action record](M8_HOST_ACTIONS.md) extends one-shot admission and grants to
+`data_directory`, `unit_file` and `service`:
+- migration `086` adds a separate admission table;
+- a domain-separated host-action grant;
+- the `stage-host-action-authorized` verb and the `authorized-dispatch` forced command;
+- `SendHostAction`, and `SSHProbeInstallExecutor` for the whole systemd layout.
+
+The unit file (root, capabilities limited to `CAP_NET_RAW`, strict sandboxing) and
+"service = enabled, not started" still await owner review. The full native race suite
+passed with 8,522 passes, zero failures and 637 audited skips; SQLite only. The 72
+MariaDB leaves are in the `m8-stage-authorization` gate scope, for the planned AWS run
+(`scripts/m8_aws_acceptance.py`, offline-tested only).
+
+## M8 authority key custody and artifact executor (increments D/E) — `527805b`
 
 `phoenix-probe-admin stage-authority <init|check|public-key>` provisions a separate
 32-byte Ed25519 seed under the snapshot key's protections. It reports its key id and
@@ -23,6 +38,7 @@ deferred). `data_directory`, `unit_file` and `service` have no host-authorized
 executor; the admission schema admits only `artifact_directory`. Full native race suite (Darwin/arm64, no DSN): 7,333 passes, zero failures, 565 skips
 (560 missing-DSN repository, five known optional); build, vet, gofmt and Linux
 amd64/arm64 builds/vet passed. SQLite only. No MariaDB, OpenSSH or Linux runtime.
+Committed as `527805b`.
 
 ## M8 host grant verification and authorized delivery (increments B/C) — `6221326`
 

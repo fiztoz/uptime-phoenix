@@ -189,8 +189,11 @@ type stageSendCall struct {
 	// Authorized mode only: command is the fixed authorized helper, authorize
 	// obtains one grant for the helper's challenge, and nothing is staged
 	// until the first stdin byte is attempted.
-	command      string
-	authorizer   ProbeBinaryStageAuthorizer
+	command   string
+	grantPlan func(keyID string, nonce [32]byte) (func(context.Context) ([]byte, error), error)
+	// hostAction, when set, replaces the binary header/payload/receipt with
+	// one action frame, no payload and the canonical action receipt.
+	hostAction   *domain.ProbeHostActionIntent
 	challenge    []byte
 	grantFrame   []byte
 	stdinStarted bool
@@ -238,8 +241,10 @@ func (c *stageSendCall) run(insp *SSHBinaryStageInspector, binary ports.Prepared
 			err = ErrSSHBinaryStageUnknown
 		}
 	}()
-	if err = c.openSource(binary); err != nil {
-		return SSHBinaryStageAck{}, err
+	if c.hostAction == nil {
+		if err = c.openSource(binary); err != nil {
+			return SSHBinaryStageAck{}, err
+		}
 	}
 	if err = c.connect(insp); err != nil {
 		return SSHBinaryStageAck{}, err
@@ -248,12 +253,18 @@ func (c *stageSendCall) run(insp *SSHBinaryStageInspector, binary ports.Prepared
 		return SSHBinaryStageAck{}, err
 	}
 	body := c.stdout.snapshot()
-	if c.authorizer != nil {
+	if c.grantPlan != nil {
 		// The challenge line is the only output before the receipt.
 		if len(c.challenge) == 0 || !bytes.HasPrefix(body, c.challenge) {
 			return SSHBinaryStageAck{}, ErrSSHBinaryStageUnknown
 		}
 		body = body[len(c.challenge):]
+	}
+	if c.hostAction != nil {
+		if !ProbeHostActionReceiptMatches(body, *c.hostAction) || c.ctx.Err() != nil {
+			return SSHBinaryStageAck{}, ErrSSHBinaryStageUnknown
+		}
+		return SSHBinaryStageAck{Intent: c.intent}, nil
 	}
 	parsed, perr := parseSSHBinaryStageAck(c.ctx, body, c.intent)
 	if perr != nil {
@@ -329,7 +340,7 @@ func (c *stageSendCall) connect(insp *SSHBinaryStageInspector) error {
 		return stageSendBareTransport(c.ctx, c.tctx, domain.ErrProbeSSHConnect)
 	}
 	c.stdout = &stageSendBounded{max: stageSendStdoutMax, abort: func() { _ = conn.Close() }}
-	if c.authorizer != nil {
+	if c.grantPlan != nil {
 		c.stdout.max += ProbeBinaryStageChallengeLineSize
 		c.stdout.line = make(chan struct{})
 	}
@@ -347,14 +358,14 @@ func (c *stageSendCall) execute() error {
 	if err := c.tctx.Err(); err != nil {
 		return stageSendBareContext(err)
 	}
-	if c.command != SSHProbeBinaryStageCommand && c.command != SSHProbeBinaryStageAuthorizedCommand {
+	if c.command != SSHProbeBinaryStageCommand && c.command != SSHProbeBinaryStageAuthorizedCommand && c.command != SSHProbeHostActionCommand {
 		return ErrSSHBinaryStageInput // fails closed before any exec attempt
 	}
 	c.attempted = true
 	if err := c.session.Start(c.command); err != nil {
 		return err
 	}
-	if c.authorizer != nil {
+	if c.grantPlan != nil {
 		if err := c.authorize(); err != nil {
 			return err
 		}
@@ -399,6 +410,10 @@ func (c *stageSendCall) stream() error {
 		if err := stageSendWriteAll(c.stdin, c.grantFrame); err != nil {
 			return err
 		}
+	}
+	if c.hostAction != nil {
+		// A host action has no payload: real EOF follows the grant.
+		return nil
 	}
 	hash := sha256.New()
 	buf := make([]byte, stageSendCopyBuf)

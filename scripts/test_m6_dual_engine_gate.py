@@ -199,8 +199,83 @@ STAGE_AUTHORIZATION_LEAVES = {
         "ColdReopenNoGrant", "ClockRollbackStamp", "DowngradeRetainsAdmission",
     )
 }
-STAGE_SQLITE_LEAVES = {name.replace("/mariadb/", "/sqlite/") for name in STAGE_AUTHORIZATION_LEAVES}
-STAGE_REQUIRED = INSTALL_JOURNAL_LEAVES | INSTALL_RUNNER_LEAVES | STAGE_AUTHORIZATION_LEAVES
+# Independently restated from the actual SQLite run of the host-action tests.
+HOST_ACTION_LEAVES = {
+    "TestM8HostActionAdmissionSchema/mariadb/ArtifactDirectoryRefused",
+    "TestM8HostActionAdmissionSchema/mariadb/DowngradeGuard",
+    "TestM8HostActionAdmissionSchema/mariadb/SchemaConstraints",
+    "TestM8HostActionAdmissionSchema/mariadb/UnknownOperationNotFound",
+    "TestM8HostActionAuthorization/mariadb/data_directory/AdmitsAndGrantsVerifiedSignature",
+    "TestM8HostActionAuthorization/mariadb/data_directory/CallerCanceledAfterCommitNoGrant",
+    "TestM8HostActionAuthorization/mariadb/data_directory/CancelRequestedRefused",
+    "TestM8HostActionAuthorization/mariadb/data_directory/CanceledContextRefused",
+    "TestM8HostActionAuthorization/mariadb/data_directory/ClockRollbackStamp",
+    "TestM8HostActionAuthorization/mariadb/data_directory/ConcurrentAdmissionSingleGrant",
+    "TestM8HostActionAuthorization/mariadb/data_directory/CorruptGraphNoGrant",
+    "TestM8HostActionAuthorization/mariadb/data_directory/DifferentChallengeNoRearm",
+    "TestM8HostActionAuthorization/mariadb/data_directory/ExactReplayConflict",
+    "TestM8HostActionAuthorization/mariadb/data_directory/ExpiredDeadlineDBClock",
+    "TestM8HostActionAuthorization/mariadb/data_directory/ExpiryAfterAuthorityLock",
+    "TestM8HostActionAuthorization/mariadb/data_directory/IdentityMismatch",
+    "TestM8HostActionAuthorization/mariadb/data_directory/IndependentReaderSeesAdmissionBeforeSign",
+    "TestM8HostActionAuthorization/mariadb/data_directory/LostAdmissionAckNoSign",
+    "TestM8HostActionAuthorization/mariadb/data_directory/NonceReuseAcrossAttempts",
+    "TestM8HostActionAuthorization/mariadb/data_directory/ResourceAlreadyApplied",
+    "TestM8HostActionAuthorization/mariadb/data_directory/ResourceNotInFlight",
+    "TestM8HostActionAuthorization/mariadb/data_directory/SignFailureConsumesAdmission",
+    "TestM8HostActionAuthorization/mariadb/data_directory/StoreRecordsExactRow",
+    "TestM8HostActionAuthorization/mariadb/data_directory/UncommittedPredecessorNotVisible",
+    "TestM8HostActionAuthorization/mariadb/data_directory/WrongAttempt",
+    "TestM8HostActionAuthorization/mariadb/data_directory/WrongOwner",
+    "TestM8HostActionAuthorization/mariadb/service/AdmitsAndGrantsVerifiedSignature",
+    "TestM8HostActionAuthorization/mariadb/service/CallerCanceledAfterCommitNoGrant",
+    "TestM8HostActionAuthorization/mariadb/service/CancelRequestedRefused",
+    "TestM8HostActionAuthorization/mariadb/service/CanceledContextRefused",
+    "TestM8HostActionAuthorization/mariadb/service/ClockRollbackStamp",
+    "TestM8HostActionAuthorization/mariadb/service/ConcurrentAdmissionSingleGrant",
+    "TestM8HostActionAuthorization/mariadb/service/CorruptGraphNoGrant",
+    "TestM8HostActionAuthorization/mariadb/service/DifferentChallengeNoRearm",
+    "TestM8HostActionAuthorization/mariadb/service/ExactReplayConflict",
+    "TestM8HostActionAuthorization/mariadb/service/ExpiredDeadlineDBClock",
+    "TestM8HostActionAuthorization/mariadb/service/ExpiryAfterAuthorityLock",
+    "TestM8HostActionAuthorization/mariadb/service/IdentityMismatch",
+    "TestM8HostActionAuthorization/mariadb/service/IndependentReaderSeesAdmissionBeforeSign",
+    "TestM8HostActionAuthorization/mariadb/service/LostAdmissionAckNoSign",
+    "TestM8HostActionAuthorization/mariadb/service/NonceReuseAcrossAttempts",
+    "TestM8HostActionAuthorization/mariadb/service/PredecessorNotApplied",
+    "TestM8HostActionAuthorization/mariadb/service/ResourceAlreadyApplied",
+    "TestM8HostActionAuthorization/mariadb/service/ResourceNotInFlight",
+    "TestM8HostActionAuthorization/mariadb/service/SignFailureConsumesAdmission",
+    "TestM8HostActionAuthorization/mariadb/service/StoreRecordsExactRow",
+    "TestM8HostActionAuthorization/mariadb/service/UncommittedPredecessorNotVisible",
+    "TestM8HostActionAuthorization/mariadb/service/WrongAttempt",
+    "TestM8HostActionAuthorization/mariadb/service/WrongOwner",
+    "TestM8HostActionAuthorization/mariadb/unit_file/AdmitsAndGrantsVerifiedSignature",
+    "TestM8HostActionAuthorization/mariadb/unit_file/CallerCanceledAfterCommitNoGrant",
+    "TestM8HostActionAuthorization/mariadb/unit_file/CancelRequestedRefused",
+    "TestM8HostActionAuthorization/mariadb/unit_file/CanceledContextRefused",
+    "TestM8HostActionAuthorization/mariadb/unit_file/ClockRollbackStamp",
+    "TestM8HostActionAuthorization/mariadb/unit_file/ConcurrentAdmissionSingleGrant",
+    "TestM8HostActionAuthorization/mariadb/unit_file/CorruptGraphNoGrant",
+    "TestM8HostActionAuthorization/mariadb/unit_file/DifferentChallengeNoRearm",
+    "TestM8HostActionAuthorization/mariadb/unit_file/ExactReplayConflict",
+    "TestM8HostActionAuthorization/mariadb/unit_file/ExpiredDeadlineDBClock",
+    "TestM8HostActionAuthorization/mariadb/unit_file/ExpiryAfterAuthorityLock",
+    "TestM8HostActionAuthorization/mariadb/unit_file/IdentityMismatch",
+    "TestM8HostActionAuthorization/mariadb/unit_file/IndependentReaderSeesAdmissionBeforeSign",
+    "TestM8HostActionAuthorization/mariadb/unit_file/LostAdmissionAckNoSign",
+    "TestM8HostActionAuthorization/mariadb/unit_file/NonceReuseAcrossAttempts",
+    "TestM8HostActionAuthorization/mariadb/unit_file/PredecessorNotApplied",
+    "TestM8HostActionAuthorization/mariadb/unit_file/ResourceAlreadyApplied",
+    "TestM8HostActionAuthorization/mariadb/unit_file/ResourceNotInFlight",
+    "TestM8HostActionAuthorization/mariadb/unit_file/SignFailureConsumesAdmission",
+    "TestM8HostActionAuthorization/mariadb/unit_file/StoreRecordsExactRow",
+    "TestM8HostActionAuthorization/mariadb/unit_file/UncommittedPredecessorNotVisible",
+    "TestM8HostActionAuthorization/mariadb/unit_file/WrongAttempt",
+    "TestM8HostActionAuthorization/mariadb/unit_file/WrongOwner",
+}
+STAGE_SQLITE_LEAVES = {name.replace("/mariadb/", "/sqlite/") for name in STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES}
+STAGE_REQUIRED = INSTALL_JOURNAL_LEAVES | INSTALL_RUNNER_LEAVES | STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES
 
 
 def stage_event_values(omit=()):
@@ -565,7 +640,13 @@ class StrictBackendGateTest(BackendGateHarness, unittest.TestCase):
         # MariaDB-only diagnostic names remain exact, unsuffixed requirements.
         engine_leaves = sum("/mariadb" in name for name in gate.REQUIRED)
         self.assertEqual(summary["mariadb_named_passes"], 300 + engine_leaves)
-        self.assert_failed(passing_events(mariadb_count=299 - engine_leaves))
+        if engine_leaves < 300:
+            self.assert_failed(passing_events(mariadb_count=299 - engine_leaves))
+        else:
+            # The required engine leaves alone now exceed the 300-pass floor, so
+            # it can no longer be under-shot; a missing required leaf still fails.
+            omitted = sorted(name for name in gate.REQUIRED if "/mariadb" in name)[0]
+            self.assert_failed(passing_events(omit=(omitted,), mariadb_count=0))
 
     def test_mariadb_skip_is_rejected(self):
         summary = self.assert_failed(passing_events() + [event("TestExistingStorage/mariadb/skipped", "skip")])
@@ -587,9 +668,11 @@ class StageAuthorizationGateTest(BackendGateHarness, unittest.TestCase):
 
     def test_stage_fixed_names_preserve_all_old_requirements(self):
         self.assertEqual(gate.STAGE_AUTHORIZATION_REQUIRED, STAGE_AUTHORIZATION_LEAVES)
+        self.assertEqual(gate.HOST_ACTION_REQUIRED, HOST_ACTION_LEAVES)
         self.assertEqual(gate.STAGE_AUTHORIZATION_SQLITE_REQUIRED, STAGE_SQLITE_LEAVES)
         self.assertEqual(len(STAGE_AUTHORIZATION_LEAVES), 18)
-        self.assertEqual(len(STAGE_REQUIRED), 63)
+        self.assertEqual(len(HOST_ACTION_LEAVES), 72)
+        self.assertEqual(len(STAGE_REQUIRED), 135)
         self.assertTrue(STAGE_REQUIRED <= gate.REQUIRED)
         status, summary = self.run_stage()
         self.assertEqual(status, 0)
