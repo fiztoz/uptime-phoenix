@@ -4,6 +4,8 @@
 Default scope is the full backend; --scope m8-install-journal selects the
 journal's hermetic domain/use-case and exact SQLite/MariaDB acceptance leaves.
 --scope m8-install-runner also requires the one-shot coordinator's real-store leaves.
+--scope m8-stage-authorization adds irreversible admission/signing acceptance and
+validates ordered package/test lifecycles, including its 18 SQLite leaves.
 The image and Go modules/toolchain must already be cached. This gate is a
 backend regression run, NOT proof that the full section-13 matrix or a canary
 was executed. Never accepts an externally supplied test DSN.
@@ -221,7 +223,143 @@ INSTALL_RUNNER_REQUIRED = {
         "ObservationLossStopsDispatch",
     )
 }
-REQUIRED |= INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED
+STAGE_AUTHORIZATION_REQUIRED = {
+    f"TestM8BinaryStageAuthorization/mariadb/{case}"
+    for case in (
+        "GrantBindsCommittedReservation", "RejectPlannedResource",
+        "RejectUncommittedPredecessor", "IdentityOwnerAttemptMismatch",
+        "CancelBeforeAdmission", "AdmissionBeforeCancel", "ExpiryAfterLock",
+        "CorruptGraphNoGrant", "ConcurrentAdmissionSingleGrant", "ExactReplayNoGrant",
+        "DifferentChallengeNoRearm", "LostAdmissionAckNoSign", "SignFailureConsumesAdmission",
+        "CallerCanceledAfterCommitNoGrant", "IndependentReaderSeesAdmissionBeforeSign",
+        "ColdReopenNoGrant", "ClockRollbackStamp", "DowngradeRetainsAdmission",
+    )
+}
+STAGE_AUTHORIZATION_SQLITE_REQUIRED = {
+    name.replace("/mariadb/", "/sqlite/") for name in STAGE_AUTHORIZATION_REQUIRED
+}
+STAGE_AUTHORIZATION_RUN = (
+    "^TestProbeInstall(Journal|Identity|Graph|States)|^TestInstallRunner|"
+    "^TestM8Install(Journal|Runner)|^TestM8BinaryStageAuthorization$|"
+    "^TestProbeBinaryStage(Admission|Grant|Authorization)|^TestEd25519ProbeStageGrantSigner"
+)
+REQUIRED |= INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED | STAGE_AUTHORIZATION_REQUIRED
+STAGE_OWNER_LABEL = "io.uptime-phoenix.stage-authorization-run"
+
+
+class StageAuthorizationEvents:
+    """Validate complete ordered lifecycles in the new bounded scope."""
+
+    repository = "github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
+    packages = {
+        repository,
+        "github.com/fiztoz/uptime-phoenix/internal/core/domain",
+        "github.com/fiztoz/uptime-phoenix/internal/core/services",
+        "github.com/fiztoz/uptime-phoenix/internal/adapters/provisioning",
+    }
+
+    def __init__(self, required, *, packages=None, include_sqlite=True):
+        # Main always supplies the fixed scope. Narrow internal use is solely
+        # for the separately reported, fixed-name semantic mutation controls.
+        self.required = required | (STAGE_AUTHORIZATION_SQLITE_REQUIRED if include_sqlite else set())
+        self.packages = self.packages if packages is None else packages
+        # Frozen repository cases use real root and engine t.Run calls. Keep
+        # those mandatory even though deeper name segments may be literals.
+        self.required_parents = {"/".join(name.split("/")[:depth])
+                                 for name in self.required for depth in (1, 2)}
+        self.started = set()
+        self.completed = set()
+        self.states = {}
+        self.errors = []
+
+    def refuse(self, reason):
+        if len(self.errors) < 20:
+            self.errors.append(reason)
+
+    def observe(self, event):
+        package, action, name = event["Package"], event["Action"], event.get("Test", "")
+        if package not in self.packages:
+            self.refuse("unexpected package")
+            return
+        if action == "start" and not name:
+            if package in self.started:
+                self.refuse("duplicate package start")
+            self.started.add(package)
+            return
+        if package not in self.started or package in self.completed:
+            self.refuse("event outside live package")
+            return
+        if action == "output":
+            output = event.get("Output")
+            if not isinstance(output, str) or any(marker in output for marker in (
+                    "panic:", "fatal error:", "WARNING: DATA RACE", "test timed out")):
+                self.refuse("abnormal output")
+            return
+        if not name:
+            if action != "pass" or any(p == package and state != "pass" for (p, _), state in self.states.items()):
+                self.refuse("abnormal or incomplete package completion")
+            if not any(p == package for p, _ in self.states):
+                self.refuse("package selected zero named tests")
+            self.completed.add(package)
+            return
+        item = (package, name)
+        if action == "run":
+            if item in self.states:
+                self.refuse("duplicate test run")
+            if "/" in name:
+                # A slash can occur inside a single t.Run argument (e.g. I/O).
+                # Only emitted ancestors have lifecycles; textual prefixes do
+                # not invent parent run/pass events. Never bypass the nearest
+                # emitted ancestor when it has already completed or paused.
+                parts = name.split("/")
+                ancestors = ("/".join(parts[:depth]) for depth in range(len(parts)-1, 0, -1))
+                parent = next((candidate for candidate in ancestors
+                               if (package, candidate) in self.states), None)
+                if parent is None or self.states[(package, parent)] != "run":
+                    self.refuse("test without live parent")
+            self.states[item] = "run"
+        elif action == "pause":
+            if self.states.get(item) != "run":
+                self.refuse("pause without run")
+            self.states[item] = "pause"
+        elif action == "cont":
+            if self.states.get(item) != "pause":
+                self.refuse("continue without pause")
+            self.states[item] = "run"
+        elif action in ("pass", "fail", "skip"):
+            if self.states.get(item) != "run":
+                self.refuse("terminal test without live run")
+            if any(p == package and child.startswith(name + "/") and state in ("run", "pause")
+                   for (p, child), state in self.states.items()):
+                self.refuse("parent completed before children")
+            if action != "pass":
+                self.refuse("failed or skipped named test")
+            self.states[item] = action
+        else:
+            self.refuse("unknown event action")
+
+    def finish(self):
+        if self.started != self.packages or self.completed != self.packages:
+            self.refuse("missing package lifecycle")
+        if any(state != "pass" for state in self.states.values()):
+            self.refuse("incomplete or unsuccessful named lifecycle")
+        if any(self.states.get((self.repository, name)) != "pass" for name in self.required_parents):
+            self.refuse("missing required engine parent lifecycle")
+        missing = sorted(name for name in self.required
+                         if self.states.get((self.repository, name)) != "pass")
+        if missing:
+            self.refuse("required leaf lacks repository run and pass")
+        return self.errors, missing
+
+
+def unique_event_object(pairs):
+    """Reject duplicate JSON event fields."""
+    result = {}
+    for name, value in pairs:
+        if name in result:
+            raise ValueError("duplicate event field")
+        result[name] = value
+    return result
 
 
 def docker(*args, env=None):
@@ -233,7 +371,7 @@ def docker(*args, env=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scope", choices=("full", "m8-install-journal", "m8-install-runner"), default="full",
+    parser.add_argument("--scope", choices=("full", "m8-install-journal", "m8-install-runner", "m8-stage-authorization"), default="full",
                         help="full backend or bounded M8 journal/coordinator acceptance (not installation)")
     parser.add_argument("--mariadb-image", choices=(DEFAULT_IMAGE, "mariadb:12.3", "mariadb@sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15"),
                         default=DEFAULT_IMAGE, help="cached disposable DB image, never a live instance")
@@ -244,7 +382,9 @@ def main():
         "full": REQUIRED,
         "m8-install-journal": INSTALL_JOURNAL_REQUIRED,
         "m8-install-runner": INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED,
+        "m8-stage-authorization": INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED | STAGE_AUTHORIZATION_REQUIRED,
     }[args.scope]
+    strict_events = StageAuthorizationEvents(required) if args.scope == "m8-stage-authorization" else None
     minimum_engine_passes = 300 if args.scope == "full" else len(required)
     allowed_skips = SKIPS_ALLOWED if args.scope == "full" else set()
     event_log = None
@@ -259,22 +399,28 @@ def main():
     if not host.startswith("unix://"):
         raise RuntimeError("requires a local Unix Docker socket; refuses remote Docker")
     docker("image", "inspect", args.mariadb_image)  # Do not pull an image on demand.
-    name = "phoenix-m6-matrix-" + uuid.uuid4().hex[:10]
+    run_id = uuid.uuid4().hex
+    name = "phoenix-m6-matrix-" + run_id[:10]
     summary = None
+    container_id = ""
     root_password = secrets.token_urlsafe(32)
+    db_password = secrets.token_urlsafe(32)
     try:
-        docker("run", "-d", "--pull=never", "--name", name, "--memory", "1g", "--cpus", "2",
+        container_id = docker("run", "-d", "--pull=never", "--name", name,
+               "--label", f"{STAGE_OWNER_LABEL}={run_id}", "--memory", "1g", "--cpus", "2",
                "-p", "127.0.0.1::3306", "-e", "MARIADB_ROOT_PASSWORD",
                "-e", "MARIADB_DATABASE=phoenix_ci", "-e", "MARIADB_USER=phoenix",
-               "-e", "MARIADB_PASSWORD=phoenix", args.mariadb_image,
-               env={**os.environ, "MARIADB_ROOT_PASSWORD": root_password})
+               "-e", "MARIADB_PASSWORD", args.mariadb_image,
+               env={**os.environ, "MARIADB_ROOT_PASSWORD": root_password,
+                    "MARIADB_PASSWORD": db_password})
         port = int(docker("port", name, "3306/tcp").split(":")[-1])
         if not 1024 < port <= 65535:
             raise RuntimeError("Docker did not bind a random localhost test port")
         for _ in range(90):
             ready = subprocess.run(
-                ["docker", "exec", name, "mariadb", "-uphoenix", "-pphoenix",
+                ["docker", "exec", "-e", "MYSQL_PWD", name, "mariadb", "-uphoenix",
                  "-N", "-e", "SELECT 1", "phoenix_ci"],
+                env={**os.environ, "MYSQL_PWD": db_password},
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
             )
             if ready.returncode == 0:
@@ -310,8 +456,9 @@ def main():
         if len(toolchains) != 1:
             raise RuntimeError("cached Go 1.26.9 toolchain required; refusing download")
         env.pop("GOROOT", None)
+        env["PATH"] = str(toolchains[0].parent) + os.pathsep + env.get("PATH", "")
         env.update(GOENV="off", GOTOOLCHAIN="local", GOPROXY="off", GOSUMDB="off", GOWORK="off",
-                   TEST_MARIADB_DSN=f"phoenix:phoenix@tcp(127.0.0.1:{port})/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true")
+                   TEST_MARIADB_DSN=f"phoenix:{db_password}@tcp(127.0.0.1:{port})/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true")
         started = time.monotonic()
         cmd = [str(toolchains[0]), "test", "-race", "-count=1", "-json", "-timeout", "2400s",
                "-p", "4", "./..."]
@@ -325,6 +472,11 @@ def main():
                    "-p", "4", "./internal/core/domain", "./internal/core/services",
                    "./internal/adapters/repository", "-run",
                    "^TestProbeInstall(Journal|Identity|Graph|States)|^TestInstallRunner|^TestM8Install(Journal|Runner)"]
+        if args.scope == "m8-stage-authorization":
+            cmd = [str(toolchains[0]), "test", "-race", "-count=1", "-json", "-timeout", "300s",
+                   "-p", "4", "./internal/core/domain", "./internal/core/services",
+                   "./internal/adapters/repository", "./internal/adapters/provisioning", "-run",
+                   STAGE_AUTHORIZATION_RUN]
         results = collections.Counter()
         mariadb = collections.Counter()
         packages = set()
@@ -338,10 +490,19 @@ def main():
                 if event_log:
                     event_log.write(line)
                 try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
+                    event = json.loads(line, object_pairs_hook=unique_event_object)
+                except ValueError:
                     malformed += 1
                     continue
+                if (not isinstance(event, dict) or not isinstance(event.get("Action"), str)
+                        or not isinstance(event.get("Package"), str)
+                        or not isinstance(event.get("Test", ""), str)):
+                    malformed += 1
+                    continue
+                if strict_events:
+                    if not line.endswith("\n"):
+                        strict_events.refuse("unterminated event line")
+                    strict_events.observe(event)
                 action = event.get("Action")
                 test = event.get("Test", "")
                 if test and action in ("pass", "fail", "skip"):
@@ -357,6 +518,7 @@ def main():
                 if not test and action == "pass":
                     packages.add(event.get("Package", ""))
             code = proc.wait()
+        lifecycle_errors, missing_lifecycles = strict_events.finish() if strict_events else ([], [])
         summary = {
             "scope": args.scope,
             "result": "passed" if code == 0 else "failed", "go_exit": code,
@@ -369,20 +531,39 @@ def main():
             "missing_required": sorted(required - passed),
             "unrecognized_skips": sorted(set(skipped) - allowed_skips),
             "malformed_json_lines": malformed,
+            "lifecycle_errors": lifecycle_errors,
+            "missing_required_lifecycles": missing_lifecycles,
             "database": f"fresh disposable {args.mariadb_image} on random localhost port",
             "full_section_13_matrix": False,
         }
-        if (code or failed or malformed or mariadb["pass"] < minimum_engine_passes or mariadb["skip"]
+        if (code or failed or malformed or lifecycle_errors or missing_lifecycles
+                or mariadb["pass"] < minimum_engine_passes or mariadb["skip"]
                 or required - passed or set(skipped) - allowed_skips):
             summary["result"] = "failed"
     finally:
         if event_log:
             event_log.close()
-        exists = subprocess.run(["docker", "container", "inspect", name],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                check=False)
-        if exists.returncode == 0:
-            docker("rm", "-f", "-v", name)
+        if args.scope == "m8-stage-authorization":
+            # Inspect only public identity fields, never the generated credentials.
+            identity = subprocess.run(
+                ["docker", "container", "inspect", "--format",
+                 '{{.Id}} {{index .Config.Labels "' + STAGE_OWNER_LABEL + '"}}', name],
+                text=True, capture_output=True, check=False)
+            if identity.returncode == 0:
+                fields = identity.stdout.strip().split()
+                if (len(fields) != 2 or len(fields[0]) != 64
+                        or any(c not in "0123456789abcdef" for c in fields[0])
+                        or fields[1] != run_id or (container_id and fields[0] != container_id)):
+                    raise RuntimeError("disposable identity mismatch; refusing removal")
+                docker("rm", "-f", "-v", fields[0])
+            elif container_id:
+                raise RuntimeError("owned disposable cleanup could not verify identity")
+        else:
+            exists = subprocess.run(["docker", "container", "inspect", name],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    check=False)
+            if exists.returncode == 0:
+                docker("rm", "-f", "-v", name)
     if summary is not None:
         print(json.dumps(summary, indent=2))
         if summary["result"] != "passed":

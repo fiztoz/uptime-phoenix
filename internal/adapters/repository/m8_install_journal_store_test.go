@@ -906,6 +906,17 @@ func TestM8InstallJournalStore(t *testing.T) {
 			})
 			t.Run("DowngradeGuard", func(t *testing.T) {
 				f := newProbeRegistryFixture(t, engine)
+				// Exercise 084 at its own schema boundary: the later empty
+				// admission table references its resources. Never disable FKs
+				// or erase consumption to make this historical guard pass.
+				if err := runEngineMigration(t, f.db, engine, "085_probe_binary_stage_admissions", "down"); err != nil {
+					t.Fatalf("remove empty later admission schema: %v", err)
+				}
+				t.Cleanup(func() {
+					if err := runEngineMigration(t, f.db, engine, "085_probe_binary_stage_admissions", "up"); err != nil {
+						t.Errorf("restore later admission schema: %v", err)
+					}
+				})
 				ctx := t.Context()
 				store := m8InstallStore(f)
 				down := func() error {

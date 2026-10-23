@@ -112,6 +112,70 @@ for disposable database setup.
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
 
+### M8 one-shot stage admission (increment A; not host authorization)
+
+This increment consumes one exact reserved artifact attempt before an injected
+Ed25519 signer may issue a grant. It adds no helper/sender, HTTP or startup wiring.
+Admission is authority at commit, **not** continuous remote fencing, an applied
+resource, or proof of remote termination.
+
+Run the offline parser regressions and SQLite semantic controls:
+
+```sh
+python3 -B -m unittest discover -s scripts -p test_m6_dual_engine_gate.py
+python3 -B scripts/test_m6_dual_engine_gate.py --stage-authorization-mutations
+```
+
+The mutation command uses the exact cached compiler named by `go.mod`, disables
+downloads and ambient integration credentials, and uses Go overlays rather than
+editing production files. Five fixed mutants must fail at their intended effect
+assertions; ten unchanged-source controls must pass. Build errors, timeouts,
+races, panics, missing events and surviving mutants are not successful controls.
+Evidence goes to a new private directory under `tmp/`. This is SQLite-only
+negative-control evidence, never MariaDB acceptance.
+
+After fresh explicit approval for a task-owned disposable database, execute:
+
+```sh
+python3 -B scripts/m6_dual_engine_gate.py --scope m8-stage-authorization \
+  --mariadb-image mariadb@sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15 \
+  --go-json tmp/m8-stage-authorization-NEW-events.jsonl
+```
+
+The image and exact Go 1.26.9 compiler/modules must already be cached. The gate
+refuses remote Docker endpoints and pulls, generates its own database credentials,
+binds only a random loopback port, and verifies the container ID and per-run
+ownership label before removal. No existing DSN is accepted. The event path must
+not exist. Raw logs can contain connection details: keep them private and redact
+before publishing. No host bind, shared-volume pruning or VM management is needed.
+
+Require all **63 MariaDB leaves** (34 journal, 11 runner, 18 stage admission), all
+18 new SQLite stage leaves, and ordered package/test lifecycles across domain,
+services, repository and provisioning. Missing or duplicate events, wrong package,
+truncation, parent-only or zero selection, skips, abnormal completion and nonzero
+process exit fail closed. This strict lifecycle validation applies to this scope;
+it does not establish equivalent evidence for older scopes. A native full-suite
+pass with MariaDB skips cannot replace this gate. These checks do not establish
+B/C host authorization, remote termination, executor integration or broad M6/M7
+operational acceptance.
+
+**Local increment-A verification checkpoint:** the canonical strict scope passed
+306 named tests, all 63 MariaDB requirements and 18 new SQLite leaves, four complete
+package lifecycles, and zero skips/failures. The client used exact Go 1.26.9 with
+race detection on Darwin/arm64; the disposable pinned MariaDB ran Linux/arm64.
+The final no-DSN full native suite passed 6,834 named tests / 565 audited skips;
+it is separate evidence, not a full MariaDB backend run. Parser regressions passed
+44 tests; five SQLite semantic mutants were caught and ten controls passed.
+
+The first actual engine run exposed a parser false rejection for
+`t.Run("attempts are copied before I/O", ...)`: slash-bearing names do not imply
+intermediate parent events. Validation now checks the nearest emitted ancestor
+while independently requiring repository root/engine lifecycles; regressions also
+reject missing engine parents and starts beneath completed ancestors. Its original
+failed result was retained, and a fresh canonical replacement passed. Evidence:
+`tmp/m8-stage-admission-verification/acceptance-04/`. Neither these runs nor their
+resource approvals authorize future pulls, database campaigns or deployment.
+
 ### M8 pinned binary preparation (offline; no execution)
 
 The [binary prerequisite](multi-region/M8_PINNED_BINARY_ARTIFACTS.md) adds no DB,
