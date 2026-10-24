@@ -5,6 +5,18 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
+## M8 intentional install cleanup
+
+[Cleanup](M8_CLEANUP.md) adds `POST`/`GET /api/probe-installs/:id/cleanup`. It is a
+durable one-shot removal of one install operation's host resources (unit, artifact
+directory and data directory), authorized by its own grant under migration 088.
+
+- **Eligibility.** The install must have no installer work left, and any activation
+  must be terminal. Once cleaned, the install cannot be cleaned again or activated.
+- **Evidence.** SQLite/native, plus the real MariaDB gate (292 leaves). The end-to-end
+  API test shows that a cleaned host accepts a new install.
+- **Remaining.** Real Linux systemd effects are part of the AWS matrix.
+
 ## M8 installer host preflight gate
 
 Every new install now passes a nonmutating host preflight before any row or host

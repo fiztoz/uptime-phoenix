@@ -357,8 +357,87 @@ ACTIVATION_LEAVES = {
     "TestM8InstallActivationStore/mariadb/UTCAndClockRollback",
     "TestM8InstallActivationStore/mariadb/UnknownOutcomeInterrupts",
 }
-STAGE_SQLITE_LEAVES = {name.replace("/mariadb", "/sqlite", 1) for name in STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES | ACTIVATION_LEAVES}
-STAGE_REQUIRED = INSTALL_JOURNAL_LEAVES | INSTALL_RUNNER_LEAVES | STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES | ACTIVATION_LEAVES
+CLEANUP_LEAVES = {
+    "TestM8InstallCleanup/mariadb/AbandonExpiredQueuedReturnsExpired",
+    "TestM8InstallCleanup/mariadb/AbandonQueuedInterrupts",
+    "TestM8InstallCleanup/mariadb/AbandonRefusesRunningWrongOwnerAndSettled",
+    "TestM8InstallCleanup/mariadb/AdmitAttemptOfAnotherOperation",
+    "TestM8InstallCleanup/mariadb/AdmitAuthorizationLifecycle",
+    "TestM8InstallCleanup/mariadb/AdmitCallerCanceledAfterCommitNoGrant",
+    "TestM8InstallCleanup/mariadb/AdmitCanceledContextRefused",
+    "TestM8InstallCleanup/mariadb/AdmitClockRollbackStamp",
+    "TestM8InstallCleanup/mariadb/AdmitConcurrentSingleGrant",
+    "TestM8InstallCleanup/mariadb/AdmitDifferentChallengeNoRearm",
+    "TestM8InstallCleanup/mariadb/AdmitExactReplayConflict",
+    "TestM8InstallCleanup/mariadb/AdmitExpiredDeadlineDBClock",
+    "TestM8InstallCleanup/mariadb/AdmitGrantsVerifiedSignature",
+    "TestM8InstallCleanup/mariadb/AdmitIdentityMismatch",
+    "TestM8InstallCleanup/mariadb/AdmitIndependentReaderSeesAdmissionBeforeSign",
+    "TestM8InstallCleanup/mariadb/AdmitInvalidRequestRefused",
+    "TestM8InstallCleanup/mariadb/AdmitLostAckNoSign",
+    "TestM8InstallCleanup/mariadb/AdmitNonceReuseAcrossCleanups",
+    "TestM8InstallCleanup/mariadb/AdmitOnlyRunningCleanup",
+    "TestM8InstallCleanup/mariadb/AdmitSeparationFromOtherStores",
+    "TestM8InstallCleanup/mariadb/AdmitSignFailureConsumesAdmission",
+    "TestM8InstallCleanup/mariadb/AdmitStoreRecordsExactRow",
+    "TestM8InstallCleanup/mariadb/AdmitUnknownOperationNotFound",
+    "TestM8InstallCleanup/mariadb/AdmitWrongAttempt",
+    "TestM8InstallCleanup/mariadb/AdmitWrongKind",
+    "TestM8InstallCleanup/mariadb/AdmitWrongOwner",
+    "TestM8InstallCleanup/mariadb/BeginAfterDeadlineReconciles",
+    "TestM8InstallCleanup/mariadb/BeginRefusesWrongStateAndOwner",
+    "TestM8InstallCleanup/mariadb/BeginReservesAttempt",
+    "TestM8InstallCleanup/mariadb/ClockAfterAuthorityLock/Abandon",
+    "TestM8InstallCleanup/mariadb/ClockAfterAuthorityLock/Admit",
+    "TestM8InstallCleanup/mariadb/ClockAfterAuthorityLock/Begin",
+    "TestM8InstallCleanup/mariadb/ClockAfterAuthorityLock/Create",
+    "TestM8InstallCleanup/mariadb/ClockAfterAuthorityLock/Latest",
+    "TestM8InstallCleanup/mariadb/ClockAfterAuthorityLock/Observe",
+    "TestM8InstallCleanup/mariadb/ClockAfterAuthorityLock/Record",
+    "TestM8InstallCleanup/mariadb/CorruptRowRefusedBeforeReconcile/Abandon",
+    "TestM8InstallCleanup/mariadb/CorruptRowRefusedBeforeReconcile/Admit",
+    "TestM8InstallCleanup/mariadb/CorruptRowRefusedBeforeReconcile/Begin",
+    "TestM8InstallCleanup/mariadb/CorruptRowRefusedBeforeReconcile/Create",
+    "TestM8InstallCleanup/mariadb/CorruptRowRefusedBeforeReconcile/Latest",
+    "TestM8InstallCleanup/mariadb/CorruptRowRefusedBeforeReconcile/Observe",
+    "TestM8InstallCleanup/mariadb/CorruptRowRefusedBeforeReconcile/Record",
+    "TestM8InstallCleanup/mariadb/CreateActivationRefusedAfterCleanup",
+    "TestM8InstallCleanup/mariadb/CreateActivationVersusCleanupSingleWinner",
+    "TestM8InstallCleanup/mariadb/CreateAfterTerminalActivation",
+    "TestM8InstallCleanup/mariadb/CreateAllowsNewCleanupAfterFailureOrInterruption",
+    "TestM8InstallCleanup/mariadb/CreateChangedIdentityConflicts",
+    "TestM8InstallCleanup/mariadb/CreateCommitsAtMostOneWinner",
+    "TestM8InstallCleanup/mariadb/CreateExactRetryReturnsStored",
+    "TestM8InstallCleanup/mariadb/CreateInstallIdentityMismatchConflicts",
+    "TestM8InstallCleanup/mariadb/CreateMissingInstallNotFound",
+    "TestM8InstallCleanup/mariadb/CreateQueuedOverEachEligibleInstall",
+    "TestM8InstallCleanup/mariadb/CreateReconcilesExpiredActivation",
+    "TestM8InstallCleanup/mariadb/CreateReconcilesExpiredCleanup",
+    "TestM8InstallCleanup/mariadb/CreateReconcilesExpiredInstall",
+    "TestM8InstallCleanup/mariadb/CreateRefusesAfterCleaned",
+    "TestM8InstallCleanup/mariadb/CreateRefusesIneligibleInstallStates",
+    "TestM8InstallCleanup/mariadb/CreateRefusesNonterminalActivation",
+    "TestM8InstallCleanup/mariadb/CreateRefusesNonterminalCleanup",
+    "TestM8InstallCleanup/mariadb/CreateRejectsInvalidRequest",
+    "TestM8InstallCleanup/mariadb/DowngradeGuard",
+    "TestM8InstallCleanup/mariadb/LatestNotFoundWithoutCleanup",
+    "TestM8InstallCleanup/mariadb/LatestOrderingSurvivesClockRollback",
+    "TestM8InstallCleanup/mariadb/LatestReturnsNewestAndReconciles",
+    "TestM8InstallCleanup/mariadb/LatestTieBreaksByCleanupID",
+    "TestM8InstallCleanup/mariadb/NoSecretColumns",
+    "TestM8InstallCleanup/mariadb/ObserveReconcilesExpiryAndKeepsTerminal",
+    "TestM8InstallCleanup/mariadb/ObserveUnknownAndInvalidIDs",
+    "TestM8InstallCleanup/mariadb/RecordAppliedCleans",
+    "TestM8InstallCleanup/mariadb/RecordNotStartedFails",
+    "TestM8InstallCleanup/mariadb/RecordPastDeadlineReconcilesToExpired",
+    "TestM8InstallCleanup/mariadb/RecordUnknownInterrupts",
+    "TestM8InstallCleanup/mariadb/RecordWrongOwnerAttemptStateConflicts",
+    "TestM8InstallCleanup/mariadb/RefusedCreateKeepsInstallExpiryReconciliation",
+    "TestM8InstallCleanup/mariadb/SchemaConstraints",
+    "TestM8InstallCleanup/mariadb/UTCAndClockRollback",
+}
+STAGE_SQLITE_LEAVES = {name.replace("/mariadb", "/sqlite", 1) for name in STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES | ACTIVATION_LEAVES | CLEANUP_LEAVES}
+STAGE_REQUIRED = INSTALL_JOURNAL_LEAVES | INSTALL_RUNNER_LEAVES | STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES | ACTIVATION_LEAVES | CLEANUP_LEAVES
 
 
 def stage_event_values(omit=()):
@@ -478,7 +557,7 @@ class BackendGateHarness:
                         "./internal/core/domain", "./internal/core/services", "./internal/adapters/repository",
                         "-run", "^TestProbeInstall(Journal|Identity|Graph|States)|^TestInstallRunner|^TestM8Install(Journal|Runner)"]
         if scope == "m8-stage-authorization":
-            expected = ["test", "-race", "-count=1", "-json", "-timeout", "300s", "-p", "4",
+            expected = ["test", "-race", "-count=1", "-json", "-timeout", "1800s", "-p", "4",
                         "./internal/core/domain", "./internal/core/services", "./internal/adapters/repository",
                         "./internal/adapters/provisioning", "-run", gate.STAGE_AUTHORIZATION_RUN]
         self.assertEqual(launch.call_args.args[0][1:], expected)
@@ -757,7 +836,9 @@ class StageAuthorizationGateTest(BackendGateHarness, unittest.TestCase):
         self.assertEqual(gate.ACTIVATION_REQUIRED, ACTIVATION_LEAVES)
         self.assertEqual(len(HOST_ACTION_LEAVES), 72)
         self.assertEqual(len(ACTIVATION_LEAVES), 80)
-        self.assertEqual(len(STAGE_REQUIRED), 215)
+        self.assertEqual(gate.CLEANUP_REQUIRED, CLEANUP_LEAVES)
+        self.assertEqual(len(CLEANUP_LEAVES), 77)
+        self.assertEqual(len(STAGE_REQUIRED), 292)
         self.assertTrue(STAGE_REQUIRED <= gate.REQUIRED)
         status, summary = self.run_stage()
         self.assertEqual(status, 0)

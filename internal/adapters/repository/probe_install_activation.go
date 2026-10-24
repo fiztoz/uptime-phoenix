@@ -309,7 +309,9 @@ var _ ports.ProbeActivationAdmissionRepository = (*ProbeInstallActivationStore)(
 // An exact identity retry returns the original owner, deadline and history with
 // created=false and never replenishes authority, whatever owner the retrying
 // process presents (so an acknowledgement lost after commit can never produce a
-// second fresh grant); a changed identity conflicts.
+// second fresh grant); a changed identity conflicts. A fresh activation also
+// conflicts when any cleanup row exists for the operation, checked under the same
+// operation lock.
 func (s *ProbeInstallActivationStore) CreateActivation(ctx context.Context, identity domain.ProbeActivationIdentity, ownerID string) (*domain.ProbeActivation, bool, error) {
 	if s == nil || s.db == nil || !identity.Valid() || !domain.ValidProbeOperationID(ownerID) {
 		return nil, false, fmt.Errorf("invalid probe activation create request: %w", domain.ErrValidation)
@@ -344,6 +346,18 @@ func (s *ProbeInstallActivationStore) CreateActivation(ctx context.Context, iden
 				// including its owner, deadline and step history.
 				out = &stored
 				return nil
+			}
+			// Once any cleanup row exists the install's host resources are being
+			// (or were) removed on purpose, so a new activation can never be
+			// admitted over them. CreateCleanup refuses nonterminal activations
+			// under the same operation lock, so the two can never interleave.
+			var cleanups int
+			if err := tx.NewSelect().Table("probe_install_cleanups").
+				ColumnExpr("COUNT(*)").Where("operation_id = ?", operationID).Scan(ctx, &cleanups); err != nil {
+				return err
+			}
+			if cleanups > 0 {
+				return ports.ErrConflict
 			}
 			now, err := replayDatabaseTime(ctx, tx)
 			if err != nil {

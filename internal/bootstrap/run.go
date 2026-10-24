@@ -814,6 +814,7 @@ func Run(cfg Config) error {
 		ProbePreflights:  handlers.NewProbePreflightHandlers(preflightOperations, cfg.ProbeSSHPreflightEnabled && cfg.Mode != "worker"),
 		ProbeInstalls:    handlers.NewProbeInstallHandlers(installOperations.service(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
 		ProbeActivations: handlers.NewProbeActivationHandlers(installOperations.activationService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
+		ProbeCleanups:    handlers.NewProbeCleanupHandlers(installOperations.cleanupService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
 		Production:       cfg.Production,
 		RateLimit: middleware.RateLimitConfig{
 			RequestsPerSecond: cfg.RateLimitRPS,

@@ -37,7 +37,7 @@ func (i ProbeHostActionIntent) Valid() bool {
 	}
 	switch i.Kind {
 	case ProbeHostActionDataDirectory, ProbeHostActionUnitFile, ProbeHostActionService,
-		ProbeActivationProbeInit, ProbeActivationServiceStart:
+		ProbeActivationProbeInit, ProbeActivationServiceStart, ProbeHostActionCleanup:
 		return true
 	}
 	return false
@@ -55,6 +55,10 @@ func (i ProbeHostActionIntent) Resource() (ProbeInstallResourceSpec, bool) {
 		return ProbeInstallResourceSpec{Ordinal: 1, Kind: i.Kind, Reference: install[0].Reference, Owned: true}, true
 	case ProbeActivationServiceStart:
 		return ProbeInstallResourceSpec{Ordinal: 3, Kind: i.Kind, Reference: install[3].Reference, Owned: true}, true
+	case ProbeHostActionCleanup:
+		// Cleanup acts on the operation's whole resource family, which every
+		// resource is named after.
+		return ProbeInstallResourceSpec{Ordinal: 1, Kind: i.Kind, Reference: ProbeCleanupResourceName(i.Identity), Owned: true}, true
 	}
 	for _, spec := range install {
 		if spec.Kind == i.Kind {

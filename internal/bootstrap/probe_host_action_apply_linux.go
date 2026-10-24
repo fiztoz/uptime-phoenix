@@ -65,6 +65,21 @@ func applyHostProbeAction(ctx context.Context, intent domain.ProbeHostActionInte
 			}, "opt")
 		}, "var", "lib")
 		return receipt, err
+	case domain.ProbeHostActionCleanup:
+		// systemctl is only needed when the unit file is present, so a host
+		// without it can still clean a partial install that never wrote one.
+		// ApplyProbeCleanup refuses a present unit when it is nil.
+		var systemctl provisioning.ProbeSystemctl
+		if ctl, err := newHostProbeSystemctl(); err == nil {
+			systemctl = ctl
+		}
+		return nil, withProbeHostParent(func(data *os.File) error {
+			return withProbeHostParent(func(opt *os.File) error {
+				return withProbeHostParent(func(unit *os.File) error {
+					return provisioning.ApplyProbeCleanup(ctx, data, opt, unit, intent, systemctl)
+				}, "etc", "systemd", "system")
+			}, "opt")
+		}, "var", "lib")
 	default:
 		return nil, domain.ErrProbeBinaryStageWriteInput
 	}

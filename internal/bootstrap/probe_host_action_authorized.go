@@ -12,7 +12,7 @@ import (
 )
 
 // probeHostActionAuthorizedUsage is the only text for a non-empty argument list.
-const probeHostActionAuthorizedUsage = "Usage: phoenix-probe-admin stage-host-action-authorized\nNo flags, paths, or arguments. Linux uid 0 only; trusted key " + ProbeBinaryStageAuthorityKeyPath + ".\nEmits one challenge line, then applies one data_directory, unit_file or service action only under a verified one-shot grant.\nThis is NOT installation, enrollment, service start, cleanup, or continuous host authority.\n"
+const probeHostActionAuthorizedUsage = "Usage: phoenix-probe-admin stage-host-action-authorized\nNo flags, paths, or arguments. Linux uid 0 only; trusted key " + ProbeBinaryStageAuthorityKeyPath + ".\nEmits one challenge line, then applies one data_directory, unit_file, service, probe_init, service_start or cleanup action only under a verified one-shot grant.\nThis is NOT installation, enrollment, or continuous host authority.\n"
 
 // probeHostActionApply performs one verified host action. Definite refusals
 // before any effect return Input, Conflict or Unavailable; anything after a

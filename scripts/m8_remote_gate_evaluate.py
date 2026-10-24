@@ -20,7 +20,8 @@ import m6_dual_engine_gate as gate  # noqa: E402
 
 def evaluate(lines):
     required = (gate.INSTALL_JOURNAL_REQUIRED | gate.INSTALL_RUNNER_REQUIRED |
-                gate.STAGE_AUTHORIZATION_REQUIRED | gate.HOST_ACTION_REQUIRED | gate.ACTIVATION_REQUIRED)
+                gate.STAGE_AUTHORIZATION_REQUIRED | gate.HOST_ACTION_REQUIRED | gate.ACTIVATION_REQUIRED |
+                gate.CLEANUP_REQUIRED)
     strict = gate.StageAuthorizationEvents(required)
     results, mariadb = collections.Counter(), collections.Counter()
     passed, failed, skipped, packages = set(), [], [], set()

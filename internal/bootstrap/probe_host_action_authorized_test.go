@@ -468,6 +468,16 @@ func TestRunAuthorizedProbeHostActionHelperUsageNeverEchoesArgsOrLoads(t *testin
 		!strings.Contains(probeHostActionAuthorizedUsage, "NOT installation") || !strings.HasSuffix(probeHostActionAuthorizedUsage, "\n") {
 		t.Fatalf("usage text drifted: %q", probeHostActionAuthorizedUsage)
 	}
+	// Cleanup is an action this helper applies, so the usage must not
+	// disclaim it, and must name every action the helper accepts.
+	for _, kind := range []string{"data_directory", "unit_file", "service", "probe_init", "service_start", "cleanup"} {
+		if !strings.Contains(probeHostActionAuthorizedUsage, kind) {
+			t.Fatalf("usage text omits the %s action: %q", kind, probeHostActionAuthorizedUsage)
+		}
+	}
+	if strings.Contains(probeHostActionAuthorizedUsage, "NOT installation, enrollment, service start, cleanup") {
+		t.Fatalf("usage text still disclaims cleanup: %q", probeHostActionAuthorizedUsage)
+	}
 
 	// An input close failure on the usage path is a storage refusal, not exit 2.
 	h := newHactHarness(t, domain.ProbeHostActionUnitFile)

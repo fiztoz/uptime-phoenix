@@ -130,6 +130,11 @@ func (s *installAPISystemctl) Run(_ context.Context, args ...string) (string, in
 	case args[0] == "enable" && len(args) == 2:
 		s.enabled[args[1]] = true
 		return "", 0, nil
+	case args[0] == "disable" && len(args) == 3 && args[1] == "--now":
+		delete(s.enabled, args[2])
+		return "", 0, nil
+	case args[0] == "reset-failed" && len(args) == 2:
+		return "", 0, nil
 	}
 	return "", -1, errors.New("unexpected systemctl invocation " + args[0])
 }
@@ -145,12 +150,17 @@ func (s *installAPISystemctl) recorded() [][]string {
 type installAPITree struct {
 	varLib  string
 	unitDir string
-	sysctl  *installAPISystemctl
+	// opt is the stage parent, the /opt stand-in cleanup removes from.
+	opt    string
+	sysctl *installAPISystemctl
 }
 
 // apply is the injected host-action applier: the real provisioning appliers
 // beneath the stand-in directories.
 func (tr *installAPITree) apply(ctx context.Context, intent domain.ProbeHostActionIntent) error {
+	if intent.Kind == domain.ProbeHostActionCleanup {
+		return tr.cleanup(ctx, intent)
+	}
 	dir := tr.unitDir
 	if intent.Kind == domain.ProbeHostActionDataDirectory {
 		dir = tr.varLib
@@ -169,6 +179,24 @@ func (tr *installAPITree) apply(ctx context.Context, intent domain.ProbeHostActi
 		return provisioning.ApplyProbeService(ctx, parent, intent, tr.sysctl)
 	}
 	return domain.ErrProbeBinaryStageWriteInput
+}
+
+// cleanup runs the real cleanup applier beneath the three stand-in parents.
+func (tr *installAPITree) cleanup(ctx context.Context, intent domain.ProbeHostActionIntent) error {
+	var parents []*os.File
+	defer func() {
+		for _, parent := range parents {
+			_ = parent.Close()
+		}
+	}()
+	for _, dir := range []string{tr.varLib, tr.opt, tr.unitDir} {
+		parent, err := os.Open(dir)
+		if err != nil {
+			return domain.ErrProbeBinaryStageWriteUnavailable
+		}
+		parents = append(parents, parent)
+	}
+	return provisioning.ApplyProbeCleanup(ctx, parents[0], parents[1], parents[2], intent, tr.sysctl)
 }
 
 func (tr *installAPITree) dataPath(op string) string {
@@ -464,6 +492,8 @@ type installAPIFixture struct {
 	scratch     string
 
 	svc *services.ProbeInstallOperationService
+	// ops is the production composition (viaComposition only).
+	ops *probeInstallOperations
 	// shutdown joins every run and releases the artifact directory exactly
 	// once; the cleanup calls it and tests may call it explicitly first.
 	shutdown func(context.Context) error
@@ -519,7 +549,7 @@ func newInstallAPIFixture(t *testing.T, o installAPIOptions) *installAPIFixture 
 	} else {
 		authority, trusted = authzE2EAuthority(t)
 	}
-	tree := &installAPITree{varLib: t.TempDir(), unitDir: t.TempDir(), sysctl: &installAPISystemctl{enabled: map[string]bool{}}}
+	tree := &installAPITree{varLib: t.TempDir(), unitDir: t.TempDir(), opt: stageParent, sysctl: &installAPISystemctl{enabled: map[string]bool{}}}
 	server := serveInstallAPI(t, installAPIServerConfig{
 		trusted: trusted, stageParent: stageParent, tree: tree, holdApply: o.holdApply, holdStageChallenge: o.holdStageChallenge,
 	})
@@ -548,6 +578,7 @@ func newInstallAPIFixture(t *testing.T, o installAPIOptions) *installAPIFixture 
 			t.Fatalf("production composition: ops=%v err=%v", ops, err)
 		}
 		f.svc = ops.service()
+		f.ops = ops
 		f.shutdown = func(ctx context.Context) error {
 			closeOnce.Do(func() { closeErr = ops.Close(ctx) })
 			return closeErr
@@ -647,6 +678,10 @@ func (f *installAPIFixture) router(h *handlers.ProbeInstallHandlers) http.Handle
 	opts := httppkg.RouterOptions{}
 	if h != nil {
 		opts.ProbeInstalls = h
+	}
+	if f.ops != nil {
+		opts.ProbeActivations = handlers.NewProbeActivationHandlers(f.ops.activationService(), true)
+		opts.ProbeCleanups = handlers.NewProbeCleanupHandlers(f.ops.cleanupService(), true)
 	}
 	return httppkg.NewRouter(
 		handlers.NewHealthHandlers(func() bool { return true }), handlers.NewAuthHandlers(f.authSvc), nil, nil, nil,
@@ -1747,4 +1782,112 @@ func TestProbeInstallAPICancelOfResourcesReadyLeavesReceiptUnchanged(t *testing.
 	if v := f.server.view(); len(v.commands) != 4 {
 		t.Fatalf("cancel of a settled install reached SSH: %+v", v)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// 10. Intentional cleanup through the production composition
+// ---------------------------------------------------------------------------
+
+const installAPICleanupID = "c9999999-9999-4999-8999-999999999999"
+
+func (f *installAPIFixture) cleanupBody(t *testing.T, cleanupID string) string {
+	t.Helper()
+	out, err := json.Marshal(map[string]string{"cleanup_id": cleanupID, "private_key": string(f.server.clientPEM)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
+// awaitCleanup polls GET .../cleanup until a terminal status.
+func (f *installAPIFixture) awaitCleanup(t *testing.T, op string) handlers.ProbeCleanupView {
+	t.Helper()
+	deadline := time.Now().Add(installAPIWait)
+	for {
+		rec := f.asAdmin(t, http.MethodGet, installAPIPath+"/"+op+"/cleanup", "")
+		var view handlers.ProbeCleanupView
+		if rec.Code == http.StatusOK {
+			if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+				t.Fatal(err)
+			}
+			switch view.Status {
+			case domain.ProbeCleanupCleaned, domain.ProbeCleanupFailed, domain.ProbeCleanupInterrupted:
+				return view
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cleanup of %s never settled: %d %s", op, rec.Code, rec.Body.String())
+		}
+		time.Sleep(installAPIPoll)
+	}
+}
+
+// TestProbeInstallAPICleanupRemovesTheInstallAndFreesTheHost drives a full
+// install, then the cleanup route through the production composition: the
+// real cleanup applier removes the unit (disabled first), the artifact
+// directory and the data directory, after which the host preflight admits a
+// new install on the same host. A second cleanup and an activation of the
+// cleaned install are refused.
+func TestProbeInstallAPICleanupRemovesTheInstallAndFreesTheHost(t *testing.T) {
+	f := newInstallAPIFixture(t, installAPIOptions{viaComposition: true})
+	f.installToReady(t, installAPIOpA)
+	f.wantInstalledEffects(t, installAPIOpA)
+	cleanupPath := installAPIPath + "/" + installAPIOpA + "/cleanup"
+
+	if rec := f.asAdmin(t, http.MethodGet, cleanupPath, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("GET cleanup before any: %d %s", rec.Code, rec.Body.String())
+	}
+	// Non-admins never reach the cleanup surface.
+	if rec := f.call(t, f.handler, http.MethodPost, cleanupPath, "Bearer "+f.viewerToken, f.cleanupBody(t, installAPICleanupID)); rec.Code != http.StatusForbidden {
+		t.Fatalf("viewer cleanup: %d", rec.Code)
+	}
+	rec := f.asAdmin(t, http.MethodPost, cleanupPath, f.cleanupBody(t, installAPICleanupID))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("POST cleanup: %d %s", rec.Code, rec.Body.String())
+	}
+	f.wantNoDisclosure(t, "cleanup submit", rec.Body.String())
+	view := f.awaitCleanup(t, installAPIOpA)
+	if view.Status != domain.ProbeCleanupCleaned || view.Error != nil || view.CleanupID != installAPICleanupID || view.OperationID != installAPIOpA {
+		t.Fatalf("cleanup view %+v", view)
+	}
+	// Every resource of the operation is gone, and the unit was disabled
+	// before its file was removed.
+	hactWantEmptyDirs(t, f.stageParent, f.tree.varLib, f.tree.unitDir)
+	calls := f.tree.sysctl.recorded()
+	unit := f.tree.unitName(installAPIOpA)
+	var verbs []string
+	for _, call := range calls {
+		verbs = append(verbs, strings.Join(call, " "))
+	}
+	wantTail := []string{"disable --now " + unit, "daemon-reload", "reset-failed " + unit}
+	if len(verbs) < len(wantTail) || !slices.Equal(verbs[len(verbs)-len(wantTail):], wantTail) {
+		t.Fatalf("systemctl calls %q, want the cleanup tail %q", verbs, wantTail)
+	}
+
+	// An exact retry returns the settled receipt; a new cleanup of a cleaned
+	// install is refused, and so is activating it.
+	if rec := f.asAdmin(t, http.MethodPost, cleanupPath, f.cleanupBody(t, installAPICleanupID)); rec.Code != http.StatusOK {
+		t.Fatalf("exact cleanup retry: %d %s", rec.Code, rec.Body.String())
+	}
+	installAPIWantError(t, "second cleanup", f.asAdmin(t, http.MethodPost, cleanupPath, f.cleanupBody(t, "c8888888-8888-4888-8888-888888888888")),
+		http.StatusConflict, "cleanup_ineligible")
+	activate, err := json.Marshal(map[string]any{"private_key": string(f.server.clientPEM), "probe_key": "edge-a", "name": "Edge A", "location": "", "listen_port": 8443})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installAPIWantError(t, "activation after cleanup", f.asAdmin(t, http.MethodPost, installAPIPath+"/"+installAPIOpA+"/activate", string(activate)),
+		http.StatusConflict, "activation_conflict")
+
+	// The host is free again: a new operation passes the preflight and installs.
+	f.installToReady(t, installAPIOpB)
+	if info, err := os.Lstat(f.tree.dataPath(installAPIOpB)); err != nil || !info.IsDir() {
+		t.Fatalf("second install data directory: %v %v", info, err)
+	}
+	if _, err := os.Lstat(f.tree.unitPath(installAPIOpB)); err != nil {
+		t.Fatalf("second install unit file: %v", err)
+	}
+	if names := entryNames(t, f.stageParent); len(names) != 1 {
+		t.Fatalf("stage parent holds %v, want only the second install", names)
+	}
+	f.wantKeyNotAtRest(t)
 }

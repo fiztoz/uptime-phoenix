@@ -38,9 +38,11 @@ type RouterOptions struct {
 	// ProbeActivations takes a resources_ready install to an enrolled probe.
 	// Nil keeps the authenticated routes registered with typed unavailability.
 	ProbeActivations *handlers.ProbeActivationHandlers
-	Production       bool
-	RateLimit        middleware.RateLimitConfig
-	CORS             middleware.CORSConfig
+	// ProbeCleanups removes an install operation's host resources.
+	ProbeCleanups *handlers.ProbeCleanupHandlers
+	Production    bool
+	RateLimit     middleware.RateLimitConfig
+	CORS          middleware.CORSConfig
 }
 
 // NewRouter creates and configures the Echo router with all routes and
@@ -231,6 +233,12 @@ func NewRouter(
 		installGroup.POST("/:operation_id/activate", activations.Submit)
 		installGroup.GET("/:operation_id/activation", activations.Observe)
 		installGroup.POST("/:operation_id/activation/cancel", activations.Cancel)
+		cleanups := opts.ProbeCleanups
+		if cleanups == nil {
+			cleanups = handlers.NewProbeCleanupHandlers(nil, false)
+		}
+		installGroup.POST("/:operation_id/cleanup", cleanups.Submit)
+		installGroup.GET("/:operation_id/cleanup", cleanups.Latest)
 	}
 
 	// Reliability read model. The handler applies monitor visibility before it

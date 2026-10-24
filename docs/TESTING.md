@@ -112,6 +112,20 @@ for disposable database setup.
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
 
+### M8 install cleanup (migration 088)
+
+See [cleanup](multi-region/M8_CLEANUP.md). Its 77 MariaDB leaves
+(`TestM8InstallCleanup/mariadb/…`) are part of the `m8-stage-authorization` scope.
+That scope now requires 292 MariaDB leaves and runs `go test` with a 1800 s timeout.
+
+```sh
+go test -race -count=1 -timeout 1800s ./internal/adapters/repository -run '^TestM8InstallCleanup'
+go test -race -count=1 ./internal/adapters/provisioning -run 'Cleanup'
+go test -race -count=1 ./internal/core/services -run 'ProbeCleanup'
+go test -race -count=1 ./internal/adapters/http/handlers -run 'ProbeCleanup'
+go test -race -count=1 ./internal/bootstrap -run 'TestProbeInstallAPI'
+```
+
 ### M8 host-authorized systemd actions (data_directory, unit_file, service)
 
 See [the host-action record](multi-region/M8_HOST_ACTIONS.md). Migration `086` adds

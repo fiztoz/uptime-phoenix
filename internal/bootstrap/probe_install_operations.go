@@ -37,6 +37,7 @@ func validateProbeInstallConfig(cfg Config) error {
 type probeInstallOperations struct {
 	svc        *services.ProbeInstallOperationService
 	activation *services.ProbeActivationOperationService
+	cleanup    *services.ProbeCleanupOperationService
 	factory    *provisioning.SSHProbeInstallSessionFactory
 }
 
@@ -56,17 +57,28 @@ func (o *probeInstallOperations) activationService() *services.ProbeActivationOp
 	return o.activation
 }
 
-// Close joins every activation and install run, then releases the artifact
-// directory.
+// cleanupService returns the handler-facing cleanup service, or nil.
+func (o *probeInstallOperations) cleanupService() *services.ProbeCleanupOperationService {
+	if o == nil {
+		return nil
+	}
+	return o.cleanup
+}
+
+// Close joins every cleanup, activation and install run, then releases the
+// artifact directory.
 func (o *probeInstallOperations) Close(ctx context.Context) error {
 	if o == nil {
 		return nil
 	}
-	var activationErr error
+	var cleanupErr, activationErr error
+	if o.cleanup != nil {
+		cleanupErr = o.cleanup.Close(ctx)
+	}
 	if o.activation != nil {
 		activationErr = o.activation.Close(ctx)
 	}
-	return errors.Join(activationErr, o.svc.Close(ctx), o.factory.Close())
+	return errors.Join(cleanupErr, activationErr, o.svc.Close(ctx), o.factory.Close())
 }
 
 // newProbeInstallOperations is API-local like preflight: workers never run
@@ -123,7 +135,29 @@ func newProbeInstallOperations(ctx context.Context, cfg Config, db *bun.DB, admi
 		_ = factory.Close()
 		return nil, err
 	}
-	return &probeInstallOperations{svc: svc, activation: activation, factory: factory}, nil
+	cleanup, err := newProbeCleanupOperations(ctx, db, policy, signer, journal, owner.String())
+	if err != nil {
+		_ = activation.Close(ctx)
+		_ = svc.Close(ctx)
+		_ = factory.Close()
+		return nil, err
+	}
+	return &probeInstallOperations{svc: svc, activation: activation, cleanup: cleanup, factory: factory}, nil
+}
+
+// newProbeCleanupOperations composes cleanup: its own one-shot admission
+// table behind the same Ed25519 authority and an SSH cleanup session factory.
+func newProbeCleanupOperations(ctx context.Context, db *bun.DB, policy probe.EndpointPolicy, signer *provisioning.Ed25519ProbeStageGrantSigner, journal *services.ProbeInstallJournalService, owner string) (*services.ProbeCleanupOperationService, error) {
+	store := repository.NewProbeInstallCleanupStore(db)
+	actions, err := services.NewProbeCleanupActionAuthorizationService(store, signer)
+	if err != nil {
+		return nil, err
+	}
+	sessions, err := provisioning.NewSSHProbeCleanupSessionFactory(policy, actions)
+	if err != nil {
+		return nil, err
+	}
+	return services.NewProbeCleanupOperationService(ctx, store, journal, sessions, owner, probeInstallCapacity)
 }
 
 // newProbeActivationOperations composes activation: its own admission table

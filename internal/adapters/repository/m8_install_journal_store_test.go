@@ -907,17 +907,17 @@ func TestM8InstallJournalStore(t *testing.T) {
 			t.Run("DowngradeGuard", func(t *testing.T) {
 				f := newProbeRegistryFixture(t, engine)
 				// Exercise 084 at its own schema boundary: the later empty
-				// admission and activation tables reference its operations and
-				// resources (087 goes first: it references 084's operations too).
+				// admission, activation and cleanup tables reference its operations and
+				// resources (088 and 087 go first: they reference 084's operations too).
 				// Never disable FKs or erase consumption to make this
 				// historical guard pass.
-				for _, later := range []string{"087_probe_install_activations", "086_probe_host_action_admissions", "085_probe_binary_stage_admissions"} {
+				for _, later := range []string{"088_probe_install_cleanups", "087_probe_install_activations", "086_probe_host_action_admissions", "085_probe_binary_stage_admissions"} {
 					if err := runEngineMigration(t, f.db, engine, later, "down"); err != nil {
 						t.Fatalf("remove empty later admission schema %s: %v", later, err)
 					}
 				}
 				t.Cleanup(func() {
-					for _, later := range []string{"085_probe_binary_stage_admissions", "086_probe_host_action_admissions", "087_probe_install_activations"} {
+					for _, later := range []string{"085_probe_binary_stage_admissions", "086_probe_host_action_admissions", "087_probe_install_activations", "088_probe_install_cleanups"} {
 						if err := runEngineMigration(t, f.db, engine, later, "up"); err != nil {
 							t.Errorf("restore later admission schema %s: %v", later, err)
 						}
