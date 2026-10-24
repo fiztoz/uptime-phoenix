@@ -596,11 +596,11 @@ def render_plan(run_id: str, a: argparse.Namespace, edir: Path, d: Deps) -> list
     cost = estimate(a.max_minutes)
     out = ["M8 AWS acceptance PLAN (offline: no aws command was run)", "",
            f"run id          : {run_id}", f"region          : {a.region}", f"aws profile     : {a.profile or '(none: default credential chain)'}",
-           f"operator ssh    : {a.operator_cidr} (tcp/22 only)",
+           f"operator ssh    : {a.operator_cidr} (tcp/22" + (f" and tcp/{a.probe_port}" if a.probe_port else "") + " only)",
            f"expected account: {a.expect_account or '(none yet: pass --expect-account <12 digits> to up)'}",
            f"evidence dir    : {edir}", f"dead-man switch : shutdown -h +{a.max_minutes} (terminate on halt)", "",
            "Resources (all tagged Project=%s RunId=%s ExpiresAt=<UTC>):" % (PROJECT, run_id),
-           f"  security group {name_of(run_id)} (ingress tcp/22 from {a.operator_cidr} only)",
+           f"  security group {name_of(run_id)} (ingress tcp/22" + (f" and tcp/{a.probe_port}" if a.probe_port else "") + f" from {a.operator_cidr} only)",
            f"  ED25519 key pair {name_of(run_id)}"]
     out += [f"  instance {x['type']} ({arch}) Ubuntu 24.04, {ROOT_GIB} GiB encrypted gp3, IMDSv2 required, standard CPU credits"
             for arch, x in ARCHES.items()]

@@ -126,7 +126,7 @@ func newActOpHarness(t *testing.T, capacity int) *actOpHarness {
 		}
 		return nil, nil
 	}
-	svc, err := newProbeActivationOperationService(t.Context(), h.repo, h.installs, h.sessions, &actExecAdmin{}, run, actOpOwner, capacity)
+	svc, err := newProbeActivationOperationService(t.Context(), h.repo, h.installs, h.sessions, &actExecAdmin{}, actReady{}, run, actOpOwner, capacity)
 	if err != nil {
 		t.Fatal(err)
 	}

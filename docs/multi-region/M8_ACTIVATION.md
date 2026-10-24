@@ -157,3 +157,54 @@ load-timing flake, not fixed here.
 
 Not executed: real MariaDB, a real `probe init`/`probe run`, real systemd start and
 real hub↔probe enrollment. These are the planned AWS acceptance for this slice.
+
+## Real-host acceptance (AWS run `96429584638b`, 2026-10-24)
+
+Run with `scripts/m8_aws_acceptance.py --probe-port 8443`: Ubuntu 24.04 on `t4g.small`
+arm64 and `t3.small` amd64, SSH **and** TCP 8443 allowed only from the operator /32.
+The **real hub** (`cmd/app`, SQLite, probes and installer enabled, a fresh stage
+authority key, an artifact directory of pinned release builds) ran locally on
+`127.0.0.1:3900`. Everything was driven through its REST API as an admin:
+`POST /api/probe-installs`, then `POST /api/probe-installs/:id/activate`. Hosts were
+provisioned as an operator would be: the admin binary, the authority public file and
+root's `authorized_keys` forced to `authorized-dispatch`.
+
+**Defect found and fixed: an enrollment race.** In the first attempt arm64 reached
+`active`, but amd64 ended `interrupted`: enrollment `unknown/outcome_unknown`, hub
+log "probe connection unavailable".
+- **Root cause.** The unit is `Type=simple`, so systemd reports `active` at exec. The
+  probe logged "probe runtime listening" at 07:43:32.807 UTC, after the hub's
+  enrollment attempt had already failed in that same second.
+- **Fix.** Enrollment first waits (bounded at 30 s) on a new
+  `ports.ProbeEndpointReadiness`. It is implemented by `probe.EndpointReadiness`:
+  policy-checked TCP connects, with nothing sent. The one-time token goes out only
+  once the probe listens; a probe that never becomes reachable is a definite
+  `not_started`, and the token is never sent.
+- **Regression tests.** They cover the executor (no token sent when unready) and the
+  adapter (a late listener, its bound, policy and malformed refusals).
+
+**After the fix**, with the old probe units stopped by hand, fresh installs and
+activations on both architectures reached **`active`** with all four steps applied.
+Hub fleet API (`GET /api/probes/:id`), for both probes:
+- `enrollment_state=active`;
+- `connection_status=online` (connection and runtime `live`);
+- `execution_status=ready`;
+- **desired config revision 1 = applied config revision 1**.
+
+On each host the unit was `active` and `enabled` with 0 restarts, listening on 8443,
+with `systemd-analyze security` exposure 3.5, and identity files root-only 0600.
+
+**Real MariaDB gate** (arm64 host, MariaDB 11.8.9 from the pinned digest, loopback
+only, owned container removed): `scripts/m8_remote_gate_evaluate.py` passed with
+**all 215 required leaves** (63 + 72 + 80 activation), 235 MariaDB passes, 771 passes
+in total, zero failures, skips or lifecycle errors, 4 packages. The binaries were
+cross-compiled, so this run is **not race-enabled**.
+
+After the readiness fix, the full native race suite (Darwin/arm64, no DSN) passed:
+10,117 passes, 0 failures, 717 audited skips.
+
+Teardown terminated both instances and deleted the key pair and security group. An
+independent tag query found 0 security groups, key pairs, volumes and network
+interfaces. Private evidence is under `tmp/m8-aws-run2/` and
+`tmp/m8-aws-96429584638b/` (gitignored). Not covered: race-enabled MariaDB, recovery
+of a lost token (`probe token` reissue), and helper/key-file provenance.

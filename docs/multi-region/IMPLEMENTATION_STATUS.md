@@ -5,7 +5,17 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
-## M8 probe activation — working tree
+## M8 probe activation — accepted on real hosts (AWS run `96429584638b`)
+
+Through the real hub's REST API, SSH installs plus activations took fresh Ubuntu 24.04
+arm64 and amd64 hosts to probes that are **enrolled, online, ready and applying the
+hub's configuration** (desired = applied revision 1). The run found and fixed an
+enrollment race: the unit is active before the listener, so enrollment now waits
+on endpoint readiness before sending the token. Real MariaDB 11.8.9 passed all 215
+required `m8-stage-authorization` leaves (not race-enabled). See the
+[activation record](M8_ACTIVATION.md#real-host-acceptance-aws-run-96429584638b-2026-10-24).
+
+## M8 probe activation — `0d39ff9`
 
 [Activation](M8_ACTIVATION.md) takes a `resources_ready` systemd install to an
 enrolled, running probe. It is a separate durable operation (migration 087) with four

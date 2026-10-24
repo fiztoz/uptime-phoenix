@@ -46,6 +46,11 @@ func actExecReceipt(t *testing.T, index int) domain.ProbeActivation {
 	return a
 }
 
+// actReady is a readiness check that is always ready (or returns err).
+type actReady struct{ err error }
+
+func (r actReady) WaitReady(context.Context, string) error { return r.err }
+
 type actExecHost struct {
 	initOutcome  domain.ProbeInstallResourceOutcome
 	initFacts    domain.ProbeActivationFacts
@@ -98,7 +103,7 @@ var (
 
 func actExecNew(t *testing.T, host *actExecHost, admin *actExecAdmin) *ProbeActivationExecutor {
 	t.Helper()
-	e, err := newProbeActivationExecutor(host, admin)
+	e, err := newProbeActivationExecutor(host, admin, actReady{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,21 +276,42 @@ func TestProbeActivationExecutorRefusesMismatchedReceiptsWithoutWork(t *testing.
 
 func TestProbeActivationExecutorConstructorAndNilSafety(t *testing.T) {
 	var typedHost *actExecHost
-	if _, err := newProbeActivationExecutor(nil, &actExecAdmin{}); err == nil {
+	if _, err := newProbeActivationExecutor(nil, &actExecAdmin{}, actReady{}); err == nil {
 		t.Fatal("nil host accepted")
 	}
-	if _, err := newProbeActivationExecutor(typedHost, &actExecAdmin{}); err == nil {
+	if _, err := newProbeActivationExecutor(typedHost, &actExecAdmin{}, actReady{}); err == nil {
 		t.Fatal("typed-nil host accepted")
 	}
-	if _, err := newProbeActivationExecutor(&actExecHost{}, nil); err == nil {
+	if _, err := newProbeActivationExecutor(&actExecHost{}, nil, actReady{}); err == nil {
 		t.Fatal("nil admin accepted")
 	}
-	if _, err := NewProbeActivationExecutor(&actExecHost{}, nil); err == nil {
+	if _, err := NewProbeActivationExecutor(&actExecHost{}, nil, actReady{}); err == nil {
 		t.Fatal("nil admin service accepted")
 	}
 	var e *ProbeActivationExecutor
 	e.Forget()
 	if outcome, _, err := e.ApplyStep(t.Context(), actExecReceipt(t, 0), domain.ProbeActivationProbeInit); err != nil || outcome != actNotStarted {
 		t.Fatalf("nil executor: %+v %v", outcome, err)
+	}
+}
+
+// A started probe that never accepts connections never receives the token:
+// enrollment is a definite not_started and the token is still cleared.
+func TestProbeActivationExecutorEnrollmentWaitsForReadinessBeforeSendingToken(t *testing.T) {
+	host := &actExecHost{initOutcome: actApplied, initFacts: actRunnerFacts(), initToken: actExecToken}
+	admin := &actExecAdmin{enrollOp: &domain.ProbeOperation{Status: domain.ProbeOperationSucceeded}}
+	e, err := newProbeActivationExecutor(host, admin, actReady{err: context.DeadlineExceeded})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actExecApply(t, e, actExecReceipt(t, 0), domain.ProbeActivationProbeInit)
+	if outcome, _ := actExecApply(t, e, actExecReceipt(t, 3), domain.ProbeActivationEnrollment); outcome != actNotStarted {
+		t.Fatalf("unready enrollment: %+v", outcome)
+	}
+	if len(admin.enrolls) != 0 || e.token != "" {
+		t.Fatalf("token sent=%d held=%v", len(admin.enrolls), e.token != "")
+	}
+	if _, err := newProbeActivationExecutor(host, admin, nil); err == nil {
+		t.Fatal("nil readiness accepted")
 	}
 }

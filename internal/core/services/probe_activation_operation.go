@@ -40,6 +40,7 @@ type ProbeActivationOperationService struct {
 	installs probeActivationInstalls
 	sessions ports.ProbeActivationSessionFactory
 	admin    probeActivationAdmin
+	ready    ports.ProbeEndpointReadiness
 	run      probeActivationRunFunc
 	ownerID  string
 	capacity int
@@ -58,7 +59,7 @@ type ProbeActivationOperationService struct {
 func NewProbeActivationOperationService(ctx context.Context, store interface {
 	ports.ProbeActivationRepository
 	ports.ProbeActivationStepJournal
-}, installs *ProbeInstallJournalService, sessions ports.ProbeActivationSessionFactory, admin *ProbeAdminService, ownerID string, capacity int) (*ProbeActivationOperationService, error) {
+}, installs *ProbeInstallJournalService, sessions ports.ProbeActivationSessionFactory, admin *ProbeAdminService, ready ports.ProbeEndpointReadiness, ownerID string, capacity int) (*ProbeActivationOperationService, error) {
 	if binaryStageAuthorizationNil(store) || installs == nil || admin == nil {
 		return nil, domain.ErrValidation
 	}
@@ -69,18 +70,18 @@ func NewProbeActivationOperationService(ctx context.Context, store interface {
 		}
 		return runner.Run(runCtx, identity, owner, attempts)
 	}
-	return newProbeActivationOperationService(ctx, store, installs, sessions, admin, run, ownerID, capacity)
+	return newProbeActivationOperationService(ctx, store, installs, sessions, admin, ready, run, ownerID, capacity)
 }
 
-func newProbeActivationOperationService(ctx context.Context, repo ports.ProbeActivationRepository, installs probeActivationInstalls, sessions ports.ProbeActivationSessionFactory, admin probeActivationAdmin, run probeActivationRunFunc, ownerID string, capacity int) (*ProbeActivationOperationService, error) {
+func newProbeActivationOperationService(ctx context.Context, repo ports.ProbeActivationRepository, installs probeActivationInstalls, sessions ports.ProbeActivationSessionFactory, admin probeActivationAdmin, ready ports.ProbeEndpointReadiness, run probeActivationRunFunc, ownerID string, capacity int) (*ProbeActivationOperationService, error) {
 	if ctx == nil || binaryStageAuthorizationNil(repo) || binaryStageAuthorizationNil(installs) || binaryStageAuthorizationNil(sessions) ||
-		binaryStageAuthorizationNil(admin) || run == nil || !domain.ValidProbeOperationID(ownerID) ||
+		binaryStageAuthorizationNil(admin) || binaryStageAuthorizationNil(ready) || run == nil || !domain.ValidProbeOperationID(ownerID) ||
 		capacity < probeInstallMinCapacity || capacity > probeInstallMaxCapacity {
 		return nil, domain.ErrValidation
 	}
 	rootCtx, rootCancel := context.WithCancel(ctx)
 	return &ProbeActivationOperationService{
-		repo: repo, installs: installs, sessions: sessions, admin: admin, run: run,
+		repo: repo, installs: installs, sessions: sessions, admin: admin, ready: ready, run: run,
 		ownerID: ownerID, capacity: capacity, rootCtx: rootCtx, rootCancel: rootCancel,
 	}, nil
 }
@@ -165,7 +166,7 @@ func (s *ProbeActivationOperationService) Submit(ctx context.Context, request Pr
 	if !created {
 		return activation, nil
 	}
-	executor, err := newProbeActivationExecutor(session, s.admin)
+	executor, err := newProbeActivationExecutor(session, s.admin, s.ready)
 	if err != nil {
 		return nil, domain.ErrInternal
 	}

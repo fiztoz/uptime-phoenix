@@ -74,3 +74,10 @@ type ProbeActivationHostSession interface {
 type ProbeActivationSessionFactory interface {
 	NewActivationSession(ctx context.Context, privateKey []byte, hostFingerprint string) (ProbeActivationHostSession, string, error)
 }
+
+// ProbeEndpointReadiness waits, within the caller's bound, until a probe's
+// runtime endpoint accepts connections under the endpoint policy. Enrollment
+// uses it so the one-time token is sent only to a listening probe.
+type ProbeEndpointReadiness interface {
+	WaitReady(ctx context.Context, endpoint string) error
+}

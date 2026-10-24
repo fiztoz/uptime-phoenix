@@ -285,9 +285,11 @@ plus real MariaDB (see that record). The [installer API](M8_INSTALL_API.md) then
 default-disabled admin routes and an API-local service that drives it with a
 transient deployment key. [Activation](M8_ACTIVATION.md) then adds
 `probe_init` → registration → `service_start` → enrollment as a separate durable
-operation (migration 087), with the one-time token kept only in memory. Next: real
-AWS acceptance of activation (MariaDB gate now 215 leaves; real hub↔probe
-enrollment), then bounded redacted progress and the Docker executor. Operators must still install the public trust file and the
+operation (migration 087), with the one-time token kept only in memory. AWS run
+`96429584638b` accepted it end to end through the real hub API on arm64 and amd64
+(enrolled, online, config applied) and on real MariaDB (215 leaves), after fixing an
+enrollment readiness race. Next: bounded redacted progress, lost-token recovery
+(`probe token` reissue) and the Docker executor. Operators must still install the public trust file and the
 `stage-binary-authorized` forced command themselves. The operator must protect the helper,
 ancestors and root shell; a pinned host key is not their provenance or DB authority.
 Do not wire an ack/seal to artifact_directory/applied or invent a fresh grant from

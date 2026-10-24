@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -24,6 +25,7 @@ type probeActivationAdmin interface {
 type ProbeActivationExecutor struct {
 	host  ports.ProbeActivationHostSession
 	admin probeActivationAdmin
+	ready ports.ProbeEndpointReadiness
 
 	mu    sync.Mutex
 	token string
@@ -31,19 +33,24 @@ type ProbeActivationExecutor struct {
 
 var _ ports.ProbeActivationStepExecutor = (*ProbeActivationExecutor)(nil)
 
-// NewProbeActivationExecutor binds one host session and the admin service.
-func NewProbeActivationExecutor(host ports.ProbeActivationHostSession, admin *ProbeAdminService) (*ProbeActivationExecutor, error) {
+// probeActivationReadyWait bounds how long enrollment waits for a started
+// probe's listener before sending the one-time token.
+const probeActivationReadyWait = 30 * time.Second
+
+// NewProbeActivationExecutor binds one host session, the admin service and
+// the endpoint readiness check enrollment waits on.
+func NewProbeActivationExecutor(host ports.ProbeActivationHostSession, admin *ProbeAdminService, ready ports.ProbeEndpointReadiness) (*ProbeActivationExecutor, error) {
 	if admin == nil {
 		return nil, domain.ErrValidation
 	}
-	return newProbeActivationExecutor(host, admin)
+	return newProbeActivationExecutor(host, admin, ready)
 }
 
-func newProbeActivationExecutor(host ports.ProbeActivationHostSession, admin probeActivationAdmin) (*ProbeActivationExecutor, error) {
-	if binaryStageAuthorizationNil(host) || binaryStageAuthorizationNil(admin) {
+func newProbeActivationExecutor(host ports.ProbeActivationHostSession, admin probeActivationAdmin, ready ports.ProbeEndpointReadiness) (*ProbeActivationExecutor, error) {
+	if binaryStageAuthorizationNil(host) || binaryStageAuthorizationNil(admin) || binaryStageAuthorizationNil(ready) {
 		return nil, domain.ErrValidation
 	}
-	return &ProbeActivationExecutor{host: host, admin: admin}, nil
+	return &ProbeActivationExecutor{host: host, admin: admin, ready: ready}, nil
 }
 
 // Forget clears any held enrollment token. The runner's owner calls it when
@@ -66,7 +73,7 @@ func (e *ProbeActivationExecutor) ApplyStep(ctx context.Context, activation doma
 	notStarted := domain.ProbeInstallResourceOutcome{State: domain.ProbeInstallResourceNotStarted, ErrorCode: "not_started"}
 	unknown := domain.ProbeInstallResourceOutcome{State: domain.ProbeInstallResourceUnknown, ErrorCode: "outcome_unknown"}
 	applied := domain.ProbeInstallResourceOutcome{State: domain.ProbeInstallResourceApplied}
-	if e == nil || binaryStageAuthorizationNil(e.host) || binaryStageAuthorizationNil(e.admin) || ctx == nil {
+	if e == nil || binaryStageAuthorizationNil(e.host) || binaryStageAuthorizationNil(e.admin) || binaryStageAuthorizationNil(e.ready) || ctx == nil {
 		return notStarted, noFacts, nil
 	}
 	step, ok := probeActivationInFlightStep(activation, kind)
@@ -122,6 +129,16 @@ func (e *ProbeActivationExecutor) ApplyStep(ctx context.Context, activation doma
 		e.mu.Unlock()
 		if token == "" || !activation.Facts.Valid() {
 			// The token is lost (or never existed): nothing can be sent.
+			return notStarted, noFacts, nil
+		}
+		// systemd reports a Type=simple unit active before its listener is
+		// up. Send the token only once the probe accepts connections; a probe
+		// that never becomes reachable received nothing.
+		readyCtx, cancel := context.WithTimeout(ctx, probeActivationReadyWait)
+		readyErr := e.ready.WaitReady(readyCtx, identity.Endpoint())
+		cancel()
+		if readyErr != nil {
+			token = ""
 			return notStarted, noFacts, nil
 		}
 		operation, err := e.admin.EnrollSource(ctx, activation.Facts.ProbeID, token, activation.Facts.StreamID)

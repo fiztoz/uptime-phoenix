@@ -142,5 +142,5 @@ func newProbeActivationOperations(ctx context.Context, db *bun.DB, policy probe.
 	if err != nil {
 		return nil, err
 	}
-	return services.NewProbeActivationOperationService(ctx, store, journal, sessions, admin, owner, probeInstallCapacity)
+	return services.NewProbeActivationOperationService(ctx, store, journal, sessions, admin, probe.NewEndpointReadiness(policy), owner, probeInstallCapacity)
 }
