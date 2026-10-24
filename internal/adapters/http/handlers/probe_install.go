@@ -77,7 +77,11 @@ type ProbeInstallView struct {
 	DeadlineAt  time.Time                  `json:"deadline_at"`
 	Binary      ProbeInstallBinaryView     `json:"binary"`
 	Resources   []ProbeInstallResourceView `json:"resources"`
-	Error       *ProbeInstallErrorView     `json:"error"`
+	// FailedPhase is the first resource kind whose action did not apply
+	// (not_started or unknown), set only for a failed, canceled or
+	// interrupted install; null otherwise.
+	FailedPhase *string                `json:"failed_phase"`
+	Error       *ProbeInstallErrorView `json:"error"`
 }
 
 // ProbeInstallBinaryView names the operator pin without its digest or size.
@@ -92,6 +96,10 @@ type ProbeInstallResourceView struct {
 	Kind      string  `json:"kind"`
 	State     string  `json:"state"`
 	ErrorCode *string `json:"error_code"`
+	// StartedAt and FinishedAt are the journal's DB-clock attempt times:
+	// null until the attempt was reserved, and until it settled.
+	StartedAt  *time.Time `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
 }
 
 // ProbeInstallErrorView carries only a fixed allowlisted machine code and its
@@ -453,6 +461,7 @@ func toProbeInstallView(operation *domain.ProbeInstallOperation, wantOperationID
 			return view, errors.New("non-allowlisted install resource state")
 		}
 		item := ProbeInstallResourceView{Kind: resource.Spec.Kind, State: resource.State}
+		item.StartedAt, item.FinishedAt = probeStepTimes(resource)
 		if resource.ErrorCode != "" {
 			if _, ok := probeInstallResourceErrorCodes[resource.ErrorCode]; !ok {
 				return view, errors.New("non-allowlisted install resource error code")
@@ -476,10 +485,41 @@ func toProbeInstallView(operation *domain.ProbeInstallOperation, wantOperationID
 		},
 		Resources: resources,
 	}
+	switch operation.State {
+	case domain.ProbeInstallFailed, domain.ProbeInstallCanceled, domain.ProbeInstallInterrupted:
+		view.FailedPhase = probeFailedPhase(operation.Resources)
+	}
 	if operation.ErrorCode != "" {
 		view.Error = &ProbeInstallErrorView{Code: operation.ErrorCode, Message: message}
 	}
 	return view, nil
+}
+
+// probeStepTimes renders a step's DB-clock attempt times, null when unset.
+func probeStepTimes(step domain.ProbeInstallResource) (*time.Time, *time.Time) {
+	var started, finished *time.Time
+	if !step.StartedAt.IsZero() {
+		t := step.StartedAt.UTC()
+		started = &t
+	}
+	if !step.FinishedAt.IsZero() {
+		t := step.FinishedAt.UTC()
+		finished = &t
+	}
+	return started, finished
+}
+
+// probeFailedPhase names the first step, in journal order, whose attempt did
+// not apply, or nil when no attempt failed (for example a cancel before any
+// step began).
+func probeFailedPhase(steps []domain.ProbeInstallResource) *string {
+	for _, step := range steps {
+		if step.State == domain.ProbeInstallResourceNotStarted || step.State == domain.ProbeInstallResourceUnknown {
+			kind := step.Spec.Kind
+			return &kind
+		}
+	}
+	return nil
 }
 
 // probeInstallServiceError maps the frozen service sentinel set onto the

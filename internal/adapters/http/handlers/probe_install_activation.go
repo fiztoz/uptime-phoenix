@@ -85,6 +85,9 @@ type ProbeActivationView struct {
 	ListenPort  int                       `json:"listen_port"`
 	ProbeID     *string                   `json:"probe_id"`
 	Steps       []ProbeActivationStepView `json:"steps"`
+	// FailedPhase is the first step whose attempt did not apply, set only for
+	// a failed, canceled or interrupted activation; null otherwise.
+	FailedPhase *string                   `json:"failed_phase"`
 	Error       *ProbeActivationErrorView `json:"error"`
 }
 
@@ -94,6 +97,9 @@ type ProbeActivationStepView struct {
 	Kind      string  `json:"kind"`
 	State     string  `json:"state"`
 	ErrorCode *string `json:"error_code"`
+	// StartedAt and FinishedAt are the DB-clock attempt times, null until set.
+	StartedAt  *time.Time `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
 }
 
 // ProbeActivationErrorView carries only a fixed allowlisted machine code and
@@ -461,6 +467,7 @@ func toProbeActivationView(activation *domain.ProbeActivation, wantOperationID s
 			return view, errors.New("non-allowlisted activation step state")
 		}
 		item := ProbeActivationStepView{Kind: step.Spec.Kind, State: step.State}
+		item.StartedAt, item.FinishedAt = probeStepTimes(step)
 		if step.ErrorCode != "" {
 			if _, ok := probeActivationStepErrorCodes[step.ErrorCode]; !ok {
 				return view, errors.New("non-allowlisted activation step error code")
@@ -482,6 +489,10 @@ func toProbeActivationView(activation *domain.ProbeActivation, wantOperationID s
 		Location:    activation.Identity.Location,
 		ListenPort:  activation.Identity.ListenPort,
 		Steps:       steps,
+	}
+	switch activation.State {
+	case domain.ProbeActivationFailed, domain.ProbeActivationCanceled, domain.ProbeActivationInterrupted:
+		view.FailedPhase = probeFailedPhase(activation.Steps)
 	}
 	// Valid binds the facts to probe_init applied, so a valid receipt carries
 	// the public probe identity exactly once the host reported it.

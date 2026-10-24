@@ -583,7 +583,7 @@ func TestProbeInstallViewShape(t *testing.T) {
 				t.Fatal(err)
 			}
 			installSameKeys(t, "view", installKeys(view),
-				"operation_id", "kind", "status", "mode", "created_at", "updated_at", "deadline_at", "binary", "resources", "error")
+				"operation_id", "kind", "status", "mode", "created_at", "updated_at", "deadline_at", "binary", "resources", "failed_phase", "error")
 
 			var binary map[string]json.RawMessage
 			if err := json.Unmarshal(view["binary"], &binary); err != nil {
@@ -603,7 +603,9 @@ func TestProbeInstallViewShape(t *testing.T) {
 				t.Fatalf("resources = %d, want %d", len(resources), len(wantKinds))
 			}
 			for i, resource := range resources {
-				installSameKeys(t, "resource", installKeys(resource), "kind", "state", "error_code")
+				installSameKeys(t, "resource", installKeys(resource), "kind", "state", "error_code", "started_at", "finished_at")
+				probeWantStepTime(t, resource["started_at"], operation.Resources[i].StartedAt)
+				probeWantStepTime(t, resource["finished_at"], operation.Resources[i].FinishedAt)
 				if string(resource["kind"]) != strconv.Quote(wantKinds[i]) {
 					t.Fatalf("resource %d kind = %s, want %s (order must follow the journal ordinals)", i, resource["kind"], wantKinds[i])
 				}
@@ -619,6 +621,7 @@ func TestProbeInstallViewShape(t *testing.T) {
 				}
 			}
 
+			probeWantFailedPhase(t, view["failed_phase"], operation.State, operation.Resources)
 			if operation.ErrorCode == "" {
 				if string(view["error"]) != "null" {
 					t.Fatalf("error = %s, want null", view["error"])
@@ -1108,5 +1111,39 @@ func TestProbeInstallPreflightMessagesCoverEveryCode(t *testing.T) {
 		if !domain.ValidProbeInstallPreflightCode(code) || probeInstallPreflightMessages[code] == "" {
 			t.Fatalf("code %q lacks a domain or HTTP entry", code)
 		}
+	}
+}
+
+// probeWantStepTime asserts a nullable step time renders exactly the stored
+// DB-clock instant, or null when unset.
+func probeWantStepTime(t *testing.T, raw json.RawMessage, want time.Time) {
+	t.Helper()
+	if want.IsZero() {
+		if string(raw) != "null" {
+			t.Fatalf("unset step time rendered %s", raw)
+		}
+		return
+	}
+	var got time.Time
+	if err := json.Unmarshal(raw, &got); err != nil || !got.Equal(want) {
+		t.Fatalf("step time %s, want %s (%v)", raw, want, err)
+	}
+}
+
+// probeWantFailedPhase asserts failed_phase names the first step that did not
+// apply, only for failed, canceled and interrupted receipts.
+func probeWantFailedPhase(t *testing.T, raw json.RawMessage, state string, steps []domain.ProbeInstallResource) {
+	t.Helper()
+	want := "null"
+	if state == "failed" || state == "canceled" || state == "interrupted" {
+		for _, step := range steps {
+			if step.State == domain.ProbeInstallResourceNotStarted || step.State == domain.ProbeInstallResourceUnknown {
+				want = strconv.Quote(step.Spec.Kind)
+				break
+			}
+		}
+	}
+	if string(raw) != want {
+		t.Fatalf("failed_phase = %s, want %s (state %s)", raw, want, state)
 	}
 }

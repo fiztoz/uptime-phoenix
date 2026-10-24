@@ -660,7 +660,7 @@ func TestProbeActivationSubmitAccepted(t *testing.T) {
 		t.Fatal(err)
 	}
 	activationSameKeys(t, "view", activationKeys(view),
-		"operation_id", "kind", "status", "created_at", "updated_at", "deadline_at", "probe_key", "name", "location", "listen_port", "probe_id", "steps", "error")
+		"operation_id", "kind", "status", "created_at", "updated_at", "deadline_at", "probe_key", "name", "location", "listen_port", "probe_id", "steps", "failed_phase", "error")
 	for key, wantRaw := range map[string]string{
 		"operation_id": strconv.Quote(activationOpID), "kind": `"probe_activation"`, "status": `"queued"`,
 		"created_at": `"2026-10-24T09:30:00Z"`, "updated_at": `"2026-10-24T09:30:00Z"`, "deadline_at": `"2026-10-24T09:45:00Z"`,
@@ -723,7 +723,7 @@ func TestProbeActivationViewShape(t *testing.T) {
 				t.Fatal(err)
 			}
 			activationSameKeys(t, "view", activationKeys(view),
-				"operation_id", "kind", "status", "created_at", "updated_at", "deadline_at", "probe_key", "name", "location", "listen_port", "probe_id", "steps", "error")
+				"operation_id", "kind", "status", "created_at", "updated_at", "deadline_at", "probe_key", "name", "location", "listen_port", "probe_id", "steps", "failed_phase", "error")
 			if string(view["kind"]) != `"probe_activation"` || string(view["status"]) != strconv.Quote(activation.State) || string(view["operation_id"]) != strconv.Quote(activationOpID) {
 				t.Fatalf("identity fields = %s %s %s", view["kind"], view["status"], view["operation_id"])
 			}
@@ -747,7 +747,9 @@ func TestProbeActivationViewShape(t *testing.T) {
 				t.Fatalf("steps = %d, want %d", len(steps), len(wantKinds))
 			}
 			for i, step := range steps {
-				activationSameKeys(t, "step", activationKeys(step), "kind", "state", "error_code")
+				activationSameKeys(t, "step", activationKeys(step), "kind", "state", "error_code", "started_at", "finished_at")
+				probeWantStepTime(t, step["started_at"], activation.Steps[i].StartedAt)
+				probeWantStepTime(t, step["finished_at"], activation.Steps[i].FinishedAt)
 				if string(step["kind"]) != strconv.Quote(wantKinds[i]) {
 					t.Fatalf("step %d kind = %s, want %s (order must follow the journal ordinals)", i, step["kind"], wantKinds[i])
 				}
@@ -763,6 +765,7 @@ func TestProbeActivationViewShape(t *testing.T) {
 				}
 			}
 
+			probeWantFailedPhase(t, view["failed_phase"], activation.State, activation.Steps)
 			if activation.ErrorCode == "" {
 				if string(view["error"]) != "null" {
 					t.Fatalf("error = %s, want null", view["error"])

@@ -169,9 +169,30 @@ View (never a domain type):
 {"operation_id":"…","kind":"ssh_probe_install","mode":"systemd","status":"running",
  "created_at":"…","updated_at":"…","deadline_at":"…",
  "binary":{"version":"…","architecture":"arm64"},
- "resources":[{"kind":"data_directory","state":"applied","error_code":null}, …],
+ "resources":[{"kind":"data_directory","state":"applied","error_code":null,
+               "started_at":"…","finished_at":"…"}, …],
+ "failed_phase":null,
  "error":null}
 ```
+
+### Progress, output and redaction
+
+The receipt is the progress stream; clients poll GET.
+- **Per step.** Each resource (and each activation step) carries its state, a fixed
+  error code, and DB-clock `started_at`/`finished_at` (null until reserved and until
+  settled).
+- **Failed phase.** `failed_phase` names the first step whose attempt did not apply,
+  for `failed`, `canceled` and `interrupted` receipts only.
+- **Exit status.** It is the step state: `applied`, `not_started` (definitely
+  nothing reached the host), or `unknown`.
+- **Cancellation.** The cancel routes.
+- **Retention** is bounded by construction: the step layout is fixed and each step has
+  exactly one immutable attempt.
+
+Remote stdout and stderr are **never captured, stored or returned**. Redaction holds by
+construction, not by filtering. Helpers answer with one canonical receipt line; the
+SSH layer discards stderr and bounds stdout. The enrollment token exists only in the
+activation executor's memory and never reaches a view, a log or the database.
 
 `status` is the journal state (`queued`, `running`, `cancel_requested`,
 `resources_ready`, `failed`, `canceled`, `interrupted`). `error` is a fixed
