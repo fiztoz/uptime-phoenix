@@ -5,7 +5,22 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
-## M8 real-host acceptance on AWS (run `b6ffc9ac26ab`) — working tree
+## M8 admin installer API — working tree
+
+The [installer API](M8_INSTALL_API.md) is a default-disabled admin surface:
+- `PROBE_SSH_INSTALL_ENABLED`, requiring `PROBES_ENABLED`, the stage authority key
+  file and `PROBE_INSTALL_ARTIFACT_DIR`;
+- routes `POST/GET /api/probe-installs[/:id]` and `/:id/cancel`;
+- an API-local service running the accepted systemd install path with a transient
+  deployment key that is never stored.
+
+Artifacts are verified against the request's pin before any durable write. Exact
+retries never redispatch. `resources_ready` is not reported as installed, and is
+returned unchanged by cancel. The end-to-end composition test (router, auth, service,
+journal, admissions, Go SSH, real helpers) is SQLite only. Enrollment, service start
+and the Docker path remain open.
+
+## M8 real-host acceptance on AWS (run `b6ffc9ac26ab`) — `0f71d1f`
 
 On real Ubuntu 24.04 hosts (arm64 and amd64), the production install runner applied
 all four systemd resources through real sshd and the authorized helpers. It wrote

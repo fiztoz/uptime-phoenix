@@ -32,9 +32,12 @@ type RouterOptions struct {
 	// ProbePreflights is optional asynchronous discovery, never installation.
 	// Nil keeps the authenticated routes registered with typed unavailability.
 	ProbePreflights *handlers.ProbePreflightHandlers
-	Production      bool
-	RateLimit       middleware.RateLimitConfig
-	CORS            middleware.CORSConfig
+	// ProbeInstalls is optional asynchronous SSH systemd installation. Nil
+	// keeps the authenticated routes registered with typed unavailability.
+	ProbeInstalls *handlers.ProbeInstallHandlers
+	Production    bool
+	RateLimit     middleware.RateLimitConfig
+	CORS          middleware.CORSConfig
 }
 
 // NewRouter creates and configures the Echo router with all routes and
@@ -208,6 +211,16 @@ func NewRouter(
 		preflightGroup.POST("", preflights.Submit)
 		preflightGroup.GET("/:operation_id", preflights.Observe)
 		preflightGroup.POST("/:operation_id/cancel", preflights.Cancel)
+
+		installs := opts.ProbeInstalls
+		if installs == nil {
+			installs = handlers.NewProbeInstallHandlers(nil, false)
+		}
+		installGroup := e.Group("/api/probe-installs",
+			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"), requireAdmin)
+		installGroup.POST("", installs.Submit)
+		installGroup.GET("/:operation_id", installs.Observe)
+		installGroup.POST("/:operation_id/cancel", installs.Cancel)
 	}
 
 	// Reliability read model. The handler applies monitor visibility before it

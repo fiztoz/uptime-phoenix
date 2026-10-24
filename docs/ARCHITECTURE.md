@@ -2307,6 +2307,11 @@ receipts, never private keys. Database-clock owner/state/deadline fences and
 joined cancellation apply; no takeover or automatic credential replay exists.
 Compatibility supports Linux amd64/arm64; this does not change other binaries'
 cross-compilation targets or implement SSH installation.
+The default-disabled [asynchronous admin installer API](multi-region/M8_INSTALL_API.md)
+(`PROBE_SSH_INSTALL_ENABLED`, requiring `PROBES_ENABLED`,
+`PROBE_STAGE_AUTHORITY_KEY_FILE` and `PROBE_INSTALL_ARTIFACT_DIR`) drives the same
+`x/crypto/ssh` sender through one-shot DB admissions (migrations 085/086) and Ed25519
+grants verified on the host. It adds no dependency and stores no private key.
 The [pinned binary preparation seam](multi-region/M8_PINNED_BINARY_ARTIFACTS.md)
 uses only Go stdlib (streaming SHA-256, private files, ELF/build-info readers).
 `ProbeBinaryPreparer` returns a private copied snapshot through a port; the

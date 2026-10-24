@@ -323,7 +323,7 @@ has no concrete remote adapter or installation-success path.
   (migration `086`, `stage-host-action-authorized`, `authorized-dispatch`, `SendHostAction`,
   `SSHProbeInstallExecutor` for all four systemd resources). SQLite/native only;
   real MariaDB, OpenSSH and systemd acceptance (AWS) and owner review of the unit remain.
-- [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
+- [x] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port ([installer API](M8_INSTALL_API.md); systemd only, default-disabled).
 - [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.
 - [ ] Preserve unrelated host resources and make rerun behavior explicit. Track resources created by the operation so partial failure can be diagnosed and intentionally cleaned up.
