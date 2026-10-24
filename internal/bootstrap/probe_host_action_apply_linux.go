@@ -23,21 +23,56 @@ const (
 // probeSystemctlCandidates are the only systemctl paths ever executed.
 var probeSystemctlCandidates = []string{"/usr/bin/systemctl", "/bin/systemctl"}
 
-// applyHostProbeAction opens the protected fixed parent for the intent's kind
-// (literal /var/lib or /etc/systemd/system) and applies the action beneath it.
-func applyHostProbeAction(ctx context.Context, intent domain.ProbeHostActionIntent) error {
+// applyHostProbeAction opens the protected fixed parent(s) for the intent's
+// kind (literal /var/lib, /opt or /etc/systemd/system) and applies the action
+// beneath them. Only probe_init returns its own receipt.
+func applyHostProbeAction(ctx context.Context, intent domain.ProbeHostActionIntent) ([]byte, error) {
 	if err := probeBinaryStageAuthorityPrecheck(ctx); err != nil {
-		return err
+		return nil, err
 	}
-	var names []string
 	switch intent.Kind {
 	case domain.ProbeHostActionDataDirectory:
-		names = []string{"var", "lib"}
-	case domain.ProbeHostActionUnitFile, domain.ProbeHostActionService:
-		names = []string{"etc", "systemd", "system"}
+		return nil, withProbeHostParent(func(parent *os.File) error {
+			return provisioning.ApplyProbeDataDirectory(ctx, parent, intent)
+		}, "var", "lib")
+	case domain.ProbeHostActionUnitFile:
+		return nil, withProbeHostParent(func(parent *os.File) error {
+			return provisioning.ApplyProbeUnitFile(ctx, parent, intent)
+		}, "etc", "systemd", "system")
+	case domain.ProbeHostActionService, domain.ProbeActivationServiceStart:
+		systemctl, err := newHostProbeSystemctl()
+		if err != nil {
+			return nil, domain.ErrProbeBinaryStageWriteUnavailable
+		}
+		return nil, withProbeHostParent(func(parent *os.File) error {
+			if intent.Kind == domain.ProbeActivationServiceStart {
+				return provisioning.ApplyProbeServiceStart(ctx, parent, intent, systemctl)
+			}
+			return provisioning.ApplyProbeService(ctx, parent, intent, systemctl)
+		}, "etc", "systemd", "system")
+	case domain.ProbeActivationProbeInit:
+		var receipt []byte
+		err := withProbeHostParent(func(data *os.File) error {
+			return withProbeHostParent(func(opt *os.File) error {
+				result, err := provisioning.ApplyProbeInit(ctx, data, opt, intent, hostProbeCommand{})
+				if err != nil {
+					return err
+				}
+				if receipt = provisioning.EncodeProbeInitReceipt(intent, result); receipt == nil {
+					return domain.ErrProbeBinaryStageWriteUnknown
+				}
+				return nil
+			}, "opt")
+		}, "var", "lib")
+		return receipt, err
 	default:
-		return domain.ErrProbeBinaryStageWriteInput
+		return nil, domain.ErrProbeBinaryStageWriteInput
 	}
+}
+
+// withProbeHostParent opens one protected fixed directory chain, runs fn
+// beneath it and closes it.
+func withProbeHostParent(fn func(*os.File) error, names ...string) error {
 	fd, err := openProtectedProbeBinaryStageDir(names...)
 	if err != nil {
 		return domain.ErrProbeBinaryStageWriteUnavailable
@@ -48,18 +83,36 @@ func applyHostProbeAction(ctx context.Context, intent domain.ProbeHostActionInte
 		return domain.ErrProbeBinaryStageWriteUnavailable
 	}
 	defer func() { _ = parent.Close() }()
-	switch intent.Kind {
-	case domain.ProbeHostActionDataDirectory:
-		return provisioning.ApplyProbeDataDirectory(ctx, parent, intent)
-	case domain.ProbeHostActionUnitFile:
-		return provisioning.ApplyProbeUnitFile(ctx, parent, intent)
-	default:
-		systemctl, err := newHostProbeSystemctl()
-		if err != nil {
-			return domain.ErrProbeBinaryStageWriteUnavailable
-		}
-		return provisioning.ApplyProbeService(ctx, parent, intent, systemctl)
+	return fn(parent)
+}
+
+// hostProbeCommand runs the staged probe binary for probe_init with fixed
+// arguments, an empty environment, a bounded timeout and bounded output.
+type hostProbeCommand struct{}
+
+// Run returns bounded stdout and the exit status; a nonzero exit is not an
+// error. stderr is discarded: it is never part of any receipt.
+func (hostProbeCommand) Run(ctx context.Context, path string, args ...string) ([]byte, int, error) {
+	runCtx, cancel := context.WithTimeout(ctx, probeSystemctlTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, path, args...)
+	cmd.Env = []string{}
+	cmd.Dir = "/"
+	stdout := &probeBoundedBuffer{max: probeSystemctlMaxOutput}
+	cmd.Stdout = stdout
+	cmd.Stderr = &probeBoundedBuffer{max: probeSystemctlMaxOutput}
+	err := cmd.Run()
+	if stdout.over {
+		return nil, -1, domain.ErrProbeBinaryStageWriteUnknown
 	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && runCtx.Err() == nil {
+		return stdout.Bytes(), exit.ExitCode(), nil
+	}
+	if err != nil {
+		return nil, -1, err
+	}
+	return stdout.Bytes(), 0, nil
 }
 
 // hostProbeSystemctl executes one root-owned, non-group/world-writable

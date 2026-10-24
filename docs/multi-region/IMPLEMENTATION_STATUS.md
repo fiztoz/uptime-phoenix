@@ -5,7 +5,24 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
-## M8 admin installer API — working tree
+## M8 probe activation — working tree
+
+[Activation](M8_ACTIVATION.md) takes a `resources_ready` systemd install to an
+enrolled, running probe. It is a separate durable operation (migration 087) with four
+steps:
+1. `probe_init` (authorized host action; returns the public identity plus the
+   one-time token over the pinned SSH channel);
+2. hub `registration`;
+3. `service_start` (authorized host action);
+4. hub `enrollment` (`EnrollSource`).
+
+The token is held only in the per-run executor's memory and cleared after enrollment.
+Routes are `POST /api/probe-installs/:id/activate`, `GET .../activation` and
+`POST .../activation/cancel`, admin only, behind the installer flag. Evidence is
+SQLite and native only; real MariaDB and real-host enrollment remain the AWS
+acceptance for this slice.
+
+## M8 admin installer API — `8eac9f6`
 
 The [installer API](M8_INSTALL_API.md) is a default-disabled admin surface:
 - `PROBE_SSH_INSTALL_ENABLED`, requiring `PROBES_ENABLED`, the stage authority key

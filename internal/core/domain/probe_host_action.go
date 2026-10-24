@@ -9,8 +9,9 @@ import (
 	"time"
 )
 
-// Host actions are the systemd resources other than artifact_directory. Each is
-// applied by the authorized host helper under its own one-shot DB admission.
+// Host actions are the systemd resources other than artifact_directory, plus
+// the activation's probe_init and service_start steps. Each is applied by the
+// authorized host helper under its own one-shot DB admission.
 const (
 	ProbeHostActionDataDirectory = "data_directory"
 	ProbeHostActionUnitFile      = "unit_file"
@@ -35,7 +36,8 @@ func (i ProbeHostActionIntent) Valid() bool {
 		return false
 	}
 	switch i.Kind {
-	case ProbeHostActionDataDirectory, ProbeHostActionUnitFile, ProbeHostActionService:
+	case ProbeHostActionDataDirectory, ProbeHostActionUnitFile, ProbeHostActionService,
+		ProbeActivationProbeInit, ProbeActivationServiceStart:
 		return true
 	}
 	return false
@@ -46,7 +48,15 @@ func (i ProbeHostActionIntent) Resource() (ProbeInstallResourceSpec, bool) {
 	if !i.Valid() {
 		return ProbeInstallResourceSpec{}, false
 	}
-	for _, spec := range i.Identity.Resources() {
+	install := i.Identity.Resources()
+	switch i.Kind {
+	case ProbeActivationProbeInit:
+		// The activation layout's host steps act on the installed paths.
+		return ProbeInstallResourceSpec{Ordinal: 1, Kind: i.Kind, Reference: install[0].Reference, Owned: true}, true
+	case ProbeActivationServiceStart:
+		return ProbeInstallResourceSpec{Ordinal: 3, Kind: i.Kind, Reference: install[3].Reference, Owned: true}, true
+	}
+	for _, spec := range install {
 		if spec.Kind == i.Kind {
 			return spec, true
 		}

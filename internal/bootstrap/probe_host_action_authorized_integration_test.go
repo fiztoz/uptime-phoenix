@@ -179,7 +179,7 @@ func hactSenderFrames(t *testing.T, priv ed25519.PrivateKey, keyID string, nonce
 type hactRunOptions struct {
 	keys     authzKeys // the authority the helper trusts
 	nonce    [32]byte  // the deterministic entropy the helper turns into its challenge
-	apply    probeHostActionApply
+	apply    func(context.Context, domain.ProbeHostActionIntent) error
 	osPipe   bool // use a real os.Pipe for stdin instead of the counting io.Pipe
 	hostKeys func(context.Context) ([]string, error)
 }
@@ -228,7 +228,7 @@ func startHactRun(t *testing.T, o hactRunOptions) *hactRun {
 	}
 	entropy := bytes.NewReader(append([]byte(nil), o.nonce[:]...))
 	go func() {
-		r.done <- runAuthorizedProbeHostActionHelper(ctx, nil, input, r.stdout, &r.stderr, loadKey, hostKeys, entropy, apply)
+		r.done <- runAuthorizedProbeHostActionHelper(ctx, nil, input, r.stdout, &r.stderr, loadKey, hostKeys, entropy, probeHostActionWithoutReceipt(apply))
 	}()
 	t.Cleanup(func() {
 		cancel()

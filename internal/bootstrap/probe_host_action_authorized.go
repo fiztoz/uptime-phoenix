@@ -16,8 +16,21 @@ const probeHostActionAuthorizedUsage = "Usage: phoenix-probe-admin stage-host-ac
 
 // probeHostActionApply performs one verified host action. Definite refusals
 // before any effect return Input, Conflict or Unavailable; anything after a
-// possible effect returns Unknown.
-type probeHostActionApply func(ctx context.Context, intent domain.ProbeHostActionIntent) error
+// possible effect returns Unknown. A nil receipt means the standard
+// host_action_applied line; probe_init returns its own receipt, which is the
+// only place its one-time enrollment token ever appears.
+type probeHostActionApply func(ctx context.Context, intent domain.ProbeHostActionIntent) ([]byte, error)
+
+// probeHostActionWithoutReceipt adapts an error-only action to the standard
+// receipt.
+func probeHostActionWithoutReceipt(apply func(context.Context, domain.ProbeHostActionIntent) error) probeHostActionApply {
+	if apply == nil {
+		return nil
+	}
+	return func(ctx context.Context, intent domain.ProbeHostActionIntent) ([]byte, error) {
+		return nil, apply(ctx, intent)
+	}
+}
 
 // RunAuthorizedProbeHostActionHelper applies one authorized host action. The
 // prerequisites, challenge, host binding and grant check match
@@ -95,7 +108,8 @@ func runAuthorizedProbeHostActionHelper(ctx context.Context, args []string, inpu
 	if err := opCtx.Err(); err != nil {
 		return probeBinaryStageHelperExit(stderr, probeBinaryStageHelperContextError(err))
 	}
-	if err := apply(opCtx, intent); err != nil {
+	receipt, err := apply(opCtx, intent)
+	if err != nil {
 		// Unknown wins: a joined cause is never reported as a definite refusal.
 		reason := domain.ErrProbeBinaryStageWriteUnknown
 		if !errors.Is(err, domain.ErrProbeBinaryStageWriteUnknown) {
@@ -111,7 +125,10 @@ func runAuthorizedProbeHostActionHelper(ctx context.Context, args []string, inpu
 	if ctx.Err() != nil || opCtx.Err() != nil {
 		return probeBinaryStageHelperExit(stderr, domain.ErrProbeBinaryStageWriteUnknown)
 	}
-	if err := writeProbeBinaryStageHelperReceipt(out, provisioning.EncodeProbeHostActionReceipt(intent)); err != nil {
+	if receipt == nil {
+		receipt = provisioning.EncodeProbeHostActionReceipt(intent)
+	}
+	if err := writeProbeBinaryStageHelperReceipt(out, receipt); err != nil {
 		return probeBinaryStageHelperExit(stderr, domain.ErrProbeBinaryStageWriteUnknown)
 	}
 	return 0

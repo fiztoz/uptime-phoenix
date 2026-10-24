@@ -28,6 +28,41 @@ type SSHHostActionAck struct {
 // ErrSSHBinaryStageNotStaged before the first stdin byte,
 // ErrSSHBinaryStageUnknown after it.
 func (s *SSHBinaryStageSender) SendHostAction(ctx context.Context, intent domain.ProbeHostActionIntent, authorizer ProbeHostActionAuthorizer) (SSHHostActionAck, error) {
+	if intent.Kind == domain.ProbeActivationProbeInit {
+		// probe_init has its own receipt; SendProbeInit returns its result.
+		return SSHHostActionAck{}, ErrSSHBinaryStageInput
+	}
+	return s.sendHostAction(ctx, intent, authorizer, func(body []byte) bool {
+		return ProbeHostActionReceiptMatches(body, intent)
+	})
+}
+
+// SendProbeInit runs the authorized probe_init action and returns its
+// parsed result: public facts plus the one-time enrollment token. Outcomes
+// follow SendHostAction. The token exists only in the returned value; the
+// caller must pass it straight to enrollment and never store or log it.
+func (s *SSHBinaryStageSender) SendProbeInit(ctx context.Context, intent domain.ProbeHostActionIntent, authorizer ProbeHostActionAuthorizer) (ProbeInitResult, error) {
+	if intent.Kind != domain.ProbeActivationProbeInit {
+		return ProbeInitResult{}, ErrSSHBinaryStageInput
+	}
+	var result ProbeInitResult
+	ack, err := s.sendHostAction(ctx, intent, authorizer, func(body []byte) bool {
+		parsed, ok := ParseProbeInitReceipt(body, intent)
+		if ok {
+			result = parsed
+		}
+		return ok
+	})
+	if err != nil || ack.Intent != intent || !result.Valid() {
+		if err == nil {
+			err = ErrSSHBinaryStageUnknown
+		}
+		return ProbeInitResult{}, err
+	}
+	return result, nil
+}
+
+func (s *SSHBinaryStageSender) sendHostAction(ctx context.Context, intent domain.ProbeHostActionIntent, authorizer ProbeHostActionAuthorizer, receipt func([]byte) bool) (SSHHostActionAck, error) {
 	var zero SSHHostActionAck
 	if imageSnapshotNil(authorizer) || s == nil || s.insp == nil || s.insp.host == nil || s.insp.host.signer == nil ||
 		s.insp.host.trust == nil || s.insp.hostPin == "" || s.insp.clientPin == "" || imageSnapshotNil(ctx) {
@@ -60,6 +95,7 @@ func (s *SSHBinaryStageSender) SendHostAction(ctx context.Context, intent domain
 		command:      SSHProbeHostActionCommand,
 		grantPlan:    hostActionGrantPlan(intent, authorizer),
 		hostAction:   &action,
+		hostReceipt:  receipt,
 		waited:       make(chan struct{}),
 	}
 	ack, err := call.run(s.insp, nil)

@@ -328,7 +328,7 @@ has no concrete remote adapter or installation-success path.
 - [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.
 - [ ] Preserve unrelated host resources and make rerun behavior explicit. Track resources created by the operation so partial failure can be diagnosed and intentionally cleaned up.
 - [ ] Stream redacted output with bounded retention, cancellation, exit status, and failed phase. Do not print enrollment/runtime tokens into the UI terminal.
-- [ ] Finish only after verified runtime enrollment and successful config activation. Keep remote application update/rollback separate from initial install.
+- [~] Finish only after verified runtime enrollment and successful config activation. Keep remote application update/rollback separate from initial install. ([Activation](M8_ACTIVATION.md) reaches enrolled + running; exact config activation and real-host acceptance remain.)
 
 **Acceptance:** supported clean host, existing install, interrupted install, missing sudo, bad host key, wrong architecture, inaccessible runtime port, and non-Docker systemd path all have tested outcomes. No failure branch returns success.
 

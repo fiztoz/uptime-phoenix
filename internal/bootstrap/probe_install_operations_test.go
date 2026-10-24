@@ -34,7 +34,7 @@ func TestNewProbeInstallOperationsDisabledLoadsNothing(t *testing.T) {
 		{},
 		{Mode: "worker", ProbeSSHInstallEnabled: true, ProbesEnabled: true, ProbeStageAuthorityKeyFile: "/absent/key", ProbeInstallArtifactDir: "/absent/dir"},
 	} {
-		ops, err := newProbeInstallOperations(context.Background(), cfg, nil)
+		ops, err := newProbeInstallOperations(context.Background(), cfg, nil, nil)
 		if err != nil || ops != nil || ops.service() != nil {
 			t.Fatalf("cfg %+v: ops=%v err=%v", cfg.Mode, ops, err)
 		}
@@ -44,7 +44,7 @@ func TestNewProbeInstallOperationsDisabledLoadsNothing(t *testing.T) {
 	}
 	// Enabled with an unreadable key fails fast at startup.
 	cfg := Config{ProbeSSHInstallEnabled: true, ProbesEnabled: true, ProbeStageAuthorityKeyFile: "/absent/key", ProbeInstallArtifactDir: t.TempDir()}
-	if ops, err := newProbeInstallOperations(context.Background(), cfg, nil); err == nil || ops != nil {
+	if ops, err := newProbeInstallOperations(context.Background(), cfg, nil, nil); err == nil || ops != nil {
 		t.Fatalf("missing key accepted: ops=%v err=%v", ops, err)
 	}
 }

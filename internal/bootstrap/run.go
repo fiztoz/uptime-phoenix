@@ -798,7 +798,7 @@ func Run(cfg Config) error {
 		// and its bounded final writes before the database is closed.
 		defer func() { _ = preflightOperations.Close(context.Background()) }()
 	}
-	installOperations, err := newProbeInstallOperations(ctx, cfg, db)
+	installOperations, err := newProbeInstallOperations(ctx, cfg, db, adminSvc)
 	if err != nil {
 		return err
 	}
@@ -813,6 +813,7 @@ func Run(cfg Config) error {
 		ProbeAdmin:       handlers.NewProbeAdminHandlers(adminSvc, fleetSvc, cfg.ProbesEnabled),
 		ProbePreflights:  handlers.NewProbePreflightHandlers(preflightOperations, cfg.ProbeSSHPreflightEnabled && cfg.Mode != "worker"),
 		ProbeInstalls:    handlers.NewProbeInstallHandlers(installOperations.service(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
+		ProbeActivations: handlers.NewProbeActivationHandlers(installOperations.activationService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
 		Production:       cfg.Production,
 		RateLimit: middleware.RateLimitConfig{
 			RequestsPerSecond: cfg.RateLimitRPS,

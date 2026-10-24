@@ -194,6 +194,7 @@ type stageSendCall struct {
 	// hostAction, when set, replaces the binary header/payload/receipt with
 	// one action frame, no payload and the canonical action receipt.
 	hostAction   *domain.ProbeHostActionIntent
+	hostReceipt  func(body []byte) bool
 	challenge    []byte
 	grantFrame   []byte
 	stdinStarted bool
@@ -261,7 +262,7 @@ func (c *stageSendCall) run(insp *SSHBinaryStageInspector, binary ports.Prepared
 		body = body[len(c.challenge):]
 	}
 	if c.hostAction != nil {
-		if !ProbeHostActionReceiptMatches(body, *c.hostAction) || c.ctx.Err() != nil {
+		if c.hostReceipt == nil || !c.hostReceipt(body) || c.ctx.Err() != nil {
 			return SSHBinaryStageAck{}, ErrSSHBinaryStageUnknown
 		}
 		return SSHBinaryStageAck{Intent: c.intent}, nil

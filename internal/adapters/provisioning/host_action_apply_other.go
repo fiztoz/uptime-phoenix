@@ -23,3 +23,13 @@ func ApplyProbeUnitFile(context.Context, *os.File, domain.ProbeHostActionIntent)
 func ApplyProbeService(context.Context, *os.File, domain.ProbeHostActionIntent, ProbeSystemctl) error {
 	return domain.ErrProbeBinaryStageWriteUnavailable
 }
+
+// ApplyProbeInit is unavailable on this platform.
+func ApplyProbeInit(context.Context, *os.File, *os.File, domain.ProbeHostActionIntent, ProbeCommandRunner) (ProbeInitResult, error) {
+	return ProbeInitResult{}, domain.ErrProbeBinaryStageWriteUnavailable
+}
+
+// ApplyProbeServiceStart is unavailable on this platform.
+func ApplyProbeServiceStart(context.Context, *os.File, domain.ProbeHostActionIntent, ProbeSystemctl) error {
+	return domain.ErrProbeBinaryStageWriteUnavailable
+}

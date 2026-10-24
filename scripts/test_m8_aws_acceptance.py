@@ -992,3 +992,46 @@ class SshTests(HarnessCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProbePortTests(HarnessCase):
+    """The opt-in probe port is only ever opened to the same operator /32."""
+
+    def plan_with_port(self, port):
+        code, out, err = self.main(["plan", "--operator-cidr", CIDR, "--probe-port", str(port)])
+        return code, out, err
+
+    def test_default_opens_ssh_only(self):
+        self.up()
+        ingress = self.calls_of("authorize-security-group-ingress")
+        self.assertEqual(len(ingress), 1)
+        self.assertEqual(json.loads(opts(ingress[0])["--ip-permissions"][0])[0]["FromPort"], 22)
+
+    def test_probe_port_is_planned_and_opened_to_the_operator_only(self):
+        code, out, _ = self.plan_with_port(8443)
+        self.assertEqual(code, 0)
+        self.assertIn("allow tcp/8443 (probe runtime) from the operator /32 only", out)
+        run_id = re.search(r"run id\s+: ([0-9a-f]{12})", out).group(1)
+        code, _, err = self.main(self.up_args(run_id, **{"--probe-port": "8443"}))
+        self.assertEqual(code, 0, err)
+        rules = [json.loads(opts(c)["--ip-permissions"][0])[0] for c in self.calls_of("authorize-security-group-ingress")]
+        self.assertEqual(rules, [
+            {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22, "IpRanges": [{"CidrIp": CIDR, "Description": "m8 operator ssh"}]},
+            {"IpProtocol": "tcp", "FromPort": 8443, "ToPort": 8443, "IpRanges": [{"CidrIp": CIDR, "Description": "m8 operator probe"}]},
+        ])
+
+    def test_up_refuses_a_probe_port_that_differs_from_the_plan(self):
+        code, out, _ = self.plan_with_port(8443)
+        run_id = re.search(r"run id\s+: ([0-9a-f]{12})", out).group(1)
+        for port in ("0", "9443"):
+            code, _, err = self.main(self.up_args(run_id, **{"--probe-port": port}))
+            self.assertEqual(code, 1)
+            self.assertIn("plan_mismatch", err)
+        self.assertEqual(self.mutations(), [])
+
+    def test_invalid_probe_ports_are_refused_offline(self):
+        for port in (22, 80, 1023, 65536, -1):
+            code, _, err = self.plan_with_port(port)
+            self.assertNotEqual(code, 0, port)
+            self.assertIn("invalid_probe_port", err)
+        self.assertEqual(self.fake.calls, [])

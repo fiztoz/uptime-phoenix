@@ -148,76 +148,11 @@ func (o ProbeInstallOperation) Valid() bool {
 		!o.DeadlineAt.Equal(o.CreatedAt.Add(ProbeInstallLifetime)) || o.UpdatedAt.Before(o.CreatedAt) {
 		return false
 	}
-	specs := o.Identity.Resources()
-	if len(o.Resources) != len(specs) {
+	g, ok := validProbeStepGraph(o.Resources, o.Identity.Resources(), o.ErrorCode, o.CreatedAt, o.UpdatedAt, o.DeadlineAt)
+	if !ok {
 		return false
 	}
-	stopped, allApplied, allPlanned, hasInFlight, hasUnknown := false, true, true, false, false
-	attempts := make(map[string]bool, len(o.Resources))
-	var previousFinish time.Time
-	for i, r := range o.Resources {
-		if r.Spec != specs[i] {
-			return false
-		}
-		if r.State == ProbeInstallResourceApplied {
-			if stopped {
-				return false
-			}
-		} else {
-			allApplied = false
-			if r.State != ProbeInstallResourcePlanned && stopped {
-				return false
-			}
-			stopped = true
-		}
-		if r.State != ProbeInstallResourcePlanned {
-			allPlanned = false
-		}
-		if r.State == ProbeInstallResourcePlanned {
-			if r.AttemptID != "" || r.ErrorCode != "" || !r.StartedAt.IsZero() || !r.FinishedAt.IsZero() {
-				return false
-			}
-			continue
-		}
-		if !ValidProbeOperationID(r.AttemptID) || !installUTC(r.StartedAt) || r.StartedAt.Before(o.CreatedAt) || !r.StartedAt.Before(o.DeadlineAt) || r.StartedAt.After(o.UpdatedAt) {
-			return false
-		}
-		if attempts[r.AttemptID] || (!previousFinish.IsZero() && r.StartedAt.Before(previousFinish)) {
-			return false
-		}
-		attempts[r.AttemptID] = true
-		if r.State == ProbeInstallResourceInFlight {
-			if r.ErrorCode != "" || !r.FinishedAt.IsZero() {
-				return false
-			}
-			hasInFlight = true
-			continue
-		}
-		if !installUTC(r.FinishedAt) || r.FinishedAt.Before(r.StartedAt) || r.FinishedAt.After(o.UpdatedAt) {
-			return false
-		}
-		switch r.State {
-		case ProbeInstallResourceApplied:
-			if r.ErrorCode != "" || !r.FinishedAt.Before(o.DeadlineAt) {
-				return false
-			}
-			previousFinish = r.FinishedAt
-		case ProbeInstallResourceNotStarted:
-			if r.ErrorCode != "not_started" || !r.FinishedAt.Before(o.DeadlineAt) {
-				return false
-			}
-		case ProbeInstallResourceUnknown:
-			hasUnknown = true
-			if (r.ErrorCode != "outcome_unknown" && r.ErrorCode != "deadline_expired" && r.ErrorCode != "owner_interrupted") || r.ErrorCode != o.ErrorCode {
-				return false
-			}
-			if r.ErrorCode != "deadline_expired" && !r.FinishedAt.Before(o.DeadlineAt) {
-				return false
-			}
-		default:
-			return false
-		}
-	}
+	allApplied, allPlanned, hasInFlight, hasUnknown := g.allApplied, g.allPlanned, g.hasInFlight, g.hasUnknown
 	switch o.State {
 	case ProbeInstallQueued:
 		return o.ErrorCode == "" && allPlanned && o.UpdatedAt.Before(o.DeadlineAt)
@@ -243,4 +178,85 @@ func (o ProbeInstallOperation) Valid() bool {
 		}
 	}
 	return false
+}
+
+// probeStepGraph summarizes one validated ordered step graph.
+type probeStepGraph struct{ allApplied, allPlanned, hasInFlight, hasUnknown bool }
+
+// validProbeStepGraph applies the journal's causal rules to an ordered step
+// graph: exact derived specs, applied-prefix order, one fresh attempt per
+// started step, UTC microsecond times inside the operation window, and
+// unknown codes matching the operation's error code. It is shared by install
+// resources and activation steps.
+func validProbeStepGraph(steps []ProbeInstallResource, specs []ProbeInstallResourceSpec, errorCode string, createdAt, updatedAt, deadlineAt time.Time) (probeStepGraph, bool) {
+	if len(steps) != len(specs) {
+		return probeStepGraph{}, false
+	}
+	stopped, allApplied, allPlanned, hasInFlight, hasUnknown := false, true, true, false, false
+	attempts := make(map[string]bool, len(steps))
+	var previousFinish time.Time
+	for i, r := range steps {
+		if r.Spec != specs[i] {
+			return probeStepGraph{}, false
+		}
+		if r.State == ProbeInstallResourceApplied {
+			if stopped {
+				return probeStepGraph{}, false
+			}
+		} else {
+			allApplied = false
+			if r.State != ProbeInstallResourcePlanned && stopped {
+				return probeStepGraph{}, false
+			}
+			stopped = true
+		}
+		if r.State != ProbeInstallResourcePlanned {
+			allPlanned = false
+		}
+		if r.State == ProbeInstallResourcePlanned {
+			if r.AttemptID != "" || r.ErrorCode != "" || !r.StartedAt.IsZero() || !r.FinishedAt.IsZero() {
+				return probeStepGraph{}, false
+			}
+			continue
+		}
+		if !ValidProbeOperationID(r.AttemptID) || !installUTC(r.StartedAt) || r.StartedAt.Before(createdAt) || !r.StartedAt.Before(deadlineAt) || r.StartedAt.After(updatedAt) {
+			return probeStepGraph{}, false
+		}
+		if attempts[r.AttemptID] || (!previousFinish.IsZero() && r.StartedAt.Before(previousFinish)) {
+			return probeStepGraph{}, false
+		}
+		attempts[r.AttemptID] = true
+		if r.State == ProbeInstallResourceInFlight {
+			if r.ErrorCode != "" || !r.FinishedAt.IsZero() {
+				return probeStepGraph{}, false
+			}
+			hasInFlight = true
+			continue
+		}
+		if !installUTC(r.FinishedAt) || r.FinishedAt.Before(r.StartedAt) || r.FinishedAt.After(updatedAt) {
+			return probeStepGraph{}, false
+		}
+		switch r.State {
+		case ProbeInstallResourceApplied:
+			if r.ErrorCode != "" || !r.FinishedAt.Before(deadlineAt) {
+				return probeStepGraph{}, false
+			}
+			previousFinish = r.FinishedAt
+		case ProbeInstallResourceNotStarted:
+			if r.ErrorCode != "not_started" || !r.FinishedAt.Before(deadlineAt) {
+				return probeStepGraph{}, false
+			}
+		case ProbeInstallResourceUnknown:
+			hasUnknown = true
+			if (r.ErrorCode != "outcome_unknown" && r.ErrorCode != "deadline_expired" && r.ErrorCode != "owner_interrupted") || r.ErrorCode != errorCode {
+				return probeStepGraph{}, false
+			}
+			if r.ErrorCode != "deadline_expired" && !r.FinishedAt.Before(deadlineAt) {
+				return probeStepGraph{}, false
+			}
+		default:
+			return probeStepGraph{}, false
+		}
+	}
+	return probeStepGraph{allApplied: allApplied, allPlanned: allPlanned, hasInFlight: hasInFlight, hasUnknown: hasUnknown}, true
 }

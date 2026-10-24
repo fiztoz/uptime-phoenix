@@ -32,11 +32,12 @@ func validateProbeInstallConfig(cfg Config) error {
 	return nil
 }
 
-// probeInstallOperations owns the API-local install service and the artifact
-// directory handle its session factory holds open.
+// probeInstallOperations owns the API-local install and activation services
+// and the artifact directory handle the install session factory holds open.
 type probeInstallOperations struct {
-	svc     *services.ProbeInstallOperationService
-	factory *provisioning.SSHProbeInstallSessionFactory
+	svc        *services.ProbeInstallOperationService
+	activation *services.ProbeActivationOperationService
+	factory    *provisioning.SSHProbeInstallSessionFactory
 }
 
 // service returns the handler-facing service, or a typed nil when disabled.
@@ -47,18 +48,33 @@ func (o *probeInstallOperations) service() *services.ProbeInstallOperationServic
 	return o.svc
 }
 
-// Close joins every run, then releases the artifact directory.
+// activationService returns the handler-facing activation service, or nil.
+func (o *probeInstallOperations) activationService() *services.ProbeActivationOperationService {
+	if o == nil {
+		return nil
+	}
+	return o.activation
+}
+
+// Close joins every activation and install run, then releases the artifact
+// directory.
 func (o *probeInstallOperations) Close(ctx context.Context) error {
 	if o == nil {
 		return nil
 	}
-	return errors.Join(o.svc.Close(ctx), o.factory.Close())
+	var activationErr error
+	if o.activation != nil {
+		activationErr = o.activation.Close(ctx)
+	}
+	return errors.Join(activationErr, o.svc.Close(ctx), o.factory.Close())
 }
 
 // newProbeInstallOperations is API-local like preflight: workers never run
 // installs, and the default deployment loads no key, policy or artifact dir.
 // The stage authority key loads at startup so a bad key fails fast.
-func newProbeInstallOperations(ctx context.Context, cfg Config, db *bun.DB) (*probeInstallOperations, error) {
+// admin is the hub's probe admin service; activation registers and enrolls
+// through it.
+func newProbeInstallOperations(ctx context.Context, cfg Config, db *bun.DB, admin *services.ProbeAdminService) (*probeInstallOperations, error) {
 	if err := validateProbeInstallConfig(cfg); err != nil {
 		return nil, err
 	}
@@ -101,5 +117,30 @@ func newProbeInstallOperations(ctx context.Context, cfg Config, db *bun.DB) (*pr
 		_ = factory.Close()
 		return nil, err
 	}
-	return &probeInstallOperations{svc: svc, factory: factory}, nil
+	activation, err := newProbeActivationOperations(ctx, db, policy, signer, journal, admin, owner.String())
+	if err != nil {
+		_ = svc.Close(ctx)
+		_ = factory.Close()
+		return nil, err
+	}
+	return &probeInstallOperations{svc: svc, activation: activation, factory: factory}, nil
+}
+
+// newProbeActivationOperations composes activation: its own admission table
+// behind the same Ed25519 authority, the SSH host session factory and the
+// probe admin service for registration and enrollment.
+func newProbeActivationOperations(ctx context.Context, db *bun.DB, policy probe.EndpointPolicy, signer *provisioning.Ed25519ProbeStageGrantSigner, journal *services.ProbeInstallJournalService, admin *services.ProbeAdminService, owner string) (*services.ProbeActivationOperationService, error) {
+	if admin == nil {
+		return nil, fmt.Errorf("probe activation requires the probe admin service")
+	}
+	store := repository.NewProbeInstallActivationStore(db)
+	actions, err := services.NewProbeActivationActionAuthorizationService(store, signer)
+	if err != nil {
+		return nil, err
+	}
+	sessions, err := provisioning.NewSSHProbeActivationSessionFactory(policy, actions)
+	if err != nil {
+		return nil, err
+	}
+	return services.NewProbeActivationOperationService(ctx, store, journal, sessions, admin, owner, probeInstallCapacity)
 }

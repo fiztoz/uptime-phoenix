@@ -357,7 +357,7 @@ func (s *installAPIServer) dispatch(command string, ch ssh.Channel, stderr *byte
 		return runAuthorizedProbeBinaryStageHelper(ctx, nil, authzE2EInput{ch: ch}, ch, stderr, loadKey, acquire, rand.Reader, hostKeys)
 	case provisioning.SSHProbeHostActionCommand:
 		loadKey := func(context.Context) ([32]byte, error) { return s.cfg.trusted, nil }
-		return runAuthorizedProbeHostActionHelper(ctx, nil, authzE2EInput{ch: ch}, ch, stderr, loadKey, hostKeys, rand.Reader, s.apply)
+		return runAuthorizedProbeHostActionHelper(ctx, nil, authzE2EInput{ch: ch}, ch, stderr, loadKey, hostKeys, rand.Reader, probeHostActionWithoutReceipt(s.apply))
 	}
 	return 127
 }
@@ -510,7 +510,7 @@ func newInstallAPIFixture(t *testing.T, o installAPIOptions) *installAPIFixture 
 		ops, err := newProbeInstallOperations(ctx, Config{
 			ProbesEnabled: true, ProbeSSHInstallEnabled: true, ProbeStageAuthorityKeyFile: keyPath,
 			ProbeInstallArtifactDir: artifactDir, ProbeEndpointPolicyFile: policyPath,
-		}, db)
+		}, db, &services.ProbeAdminService{}) // activation is composed but unused here
 		if err != nil || ops == nil || ops.service() == nil {
 			t.Fatalf("production composition: ops=%v err=%v", ops, err)
 		}

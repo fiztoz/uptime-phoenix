@@ -340,6 +340,18 @@ def cmd_ssh_ingress(sg: str, cidr: str) -> list[str]:
     return ["ec2", "authorize-security-group-ingress", "--group-id", sg, "--ip-permissions", j([rule])]
 
 
+def cmd_probe_ingress(sg: str, cidr: str, port: int) -> list[str]:
+    """Opt-in: the probe's TLS runtime port, from the same operator /32 only."""
+    rule = {"IpProtocol": "tcp", "FromPort": port, "ToPort": port, "IpRanges": [{"CidrIp": cidr, "Description": "m8 operator probe"}]}
+    return ["ec2", "authorize-security-group-ingress", "--group-id", sg, "--ip-permissions", j([rule])]
+
+
+def validate_probe_port(port: int) -> int:
+    """0 means none; otherwise an unprivileged TCP port other than 22."""
+    need(isinstance(port, int) and (port == 0 or 1024 <= port <= 65535), "invalid_probe_port")
+    return port
+
+
 def cmd_create_key(run_id: str, tags: list[dict]) -> list[str]:
     return ["ec2", "create-key-pair", "--key-name", name_of(run_id), "--key-type", "ed25519", "--key-format", "pem",
             "--tag-specifications", j([tag_spec("key-pair", tags)])]
@@ -542,7 +554,7 @@ class Deps:
 
 # ----------------------------------------------------------------------------- plan
 
-def plan_steps(run_id: str, cidr: str, max_minutes: int) -> list[tuple[str, list[str]]]:
+def plan_steps(run_id: str, cidr: str, max_minutes: int, probe_port: int = 0) -> list[tuple[str, list[str]]]:
     """The ordered ``up`` calls with placeholders for discovered ids (same builders as ``up``)."""
     expires = "<NOW+" + str(max_minutes) + "m UTC>"
     steps = [("verify caller account", cmd_sts()), ("discover default VPC", cmd_default_vpc()),
@@ -551,8 +563,10 @@ def plan_steps(run_id: str, cidr: str, max_minutes: int) -> list[tuple[str, list
     steps += [(f"latest Ubuntu 24.04 {a} AMI (SSM public parameter)", cmd_ami_param(a)) for a in ARCHES]
     steps += [(f"verify {a} AMI owner/architecture", cmd_image(f"<AMI_{a.upper()}>")) for a in ARCHES]
     steps += [("create security group", cmd_create_sg(run_id, "<VPC_ID>", tags_for(run_id, expires, name_of(run_id)))),
-              ("allow tcp/22 from the operator /32 only", cmd_ssh_ingress("<SG_ID>", cidr)),
-              ("create ED25519 key pair (private key saved 0600, never logged)",
+              ("allow tcp/22 from the operator /32 only", cmd_ssh_ingress("<SG_ID>", cidr))]
+    if probe_port:
+        steps += [(f"allow tcp/{probe_port} (probe runtime) from the operator /32 only", cmd_probe_ingress("<SG_ID>", cidr, probe_port))]
+    steps += [("create ED25519 key pair (private key saved 0600, never logged)",
                cmd_create_key(run_id, tags_for(run_id, expires, name_of(run_id))))]
     steps += [(f"launch {a} instance", cmd_run_instance(run_id, a, f"<AMI_{a.upper()}>", "<ROOT_DEVICE>", "<SUBNET_ID>", "<SG_ID>",
                                                         "<EVIDENCE>/user-data.sh", tags_for(run_id, expires, f"{name_of(run_id)}-{a}")))
@@ -593,7 +607,7 @@ def render_plan(run_id: str, a: argparse.Namespace, edir: Path, d: Deps) -> list
     out += ["", "Estimated cost (rough ap-southeast-1 list prices, NOT fetched; verify before approving):",
             f"  ~${cost['hourly_usd']}/hour for both hosts, ~${cost['max_window_usd']} for the {a.max_minutes} minute window", "",
             "Commands, in order (placeholders in <> are discovered by up):"]
-    out += [f"  # {note}\n  {shlex.join(full_argv(a.region, argv, a.profile))}" for note, argv in plan_steps(run_id, a.operator_cidr, a.max_minutes)]
+    out += [f"  # {note}\n  {shlex.join(full_argv(a.region, argv, a.profile))}" for note, argv in plan_steps(run_id, a.operator_cidr, a.max_minutes, a.probe_port)]
     out += ["", "user-data (scheduled at first boot):"] + ["  " + line for line in user_data(run_id, a.max_minutes).splitlines()]
     out += ["", "Teardown plan (%s): only resources tagged Project=%s and RunId=%s are touched, each re-verified by "
             "describe before deletion:" % (d.hint(f"down --run-id {run_id} --region {a.region}"), PROJECT, run_id)]
@@ -610,12 +624,13 @@ def do_plan(d: Deps, a: argparse.Namespace, remote: list[str]) -> int:
     validate_profile(a.profile)
     validate_cidr(a.operator_cidr)
     validate_max_minutes(a.max_minutes)
+    validate_probe_port(a.probe_port)
     if a.expect_account:
         validate_account(a.expect_account)
     run_id = secrets.token_hex(6)
     edir = ensure_private_dir(d.run_dir(run_id))
     write_private(edir / "plan.json", json.dumps({"run_id": run_id, "region": a.region, "operator_cidr": a.operator_cidr,
-                                                  "max_minutes": a.max_minutes, "planned_at": utc_iso(d.now())},
+                                                  "max_minutes": a.max_minutes, "probe_port": a.probe_port, "planned_at": utc_iso(d.now())},
                                                  indent=2, sort_keys=True) + "\n")
     print("\n".join(render_plan(run_id, a, edir, d)))
     return 0
@@ -710,8 +725,9 @@ def do_up(d: Deps, a: argparse.Namespace, remote: list[str]) -> int:
     minutes, expect = validate_max_minutes(a.max_minutes), validate_account(a.expect_account)
     edir = d.run_dir(run_id)
     plan = read_json_file(edir / "plan.json", "run_id_not_printed_by_plan")
-    need(plan.get("run_id") == run_id and (plan.get("region"), plan.get("operator_cidr"), plan.get("max_minutes"))
-         == (region, cidr, minutes), "plan_mismatch")
+    probe_port = validate_probe_port(a.probe_port)
+    need(plan.get("run_id") == run_id and (plan.get("region"), plan.get("operator_cidr"), plan.get("max_minutes"), plan.get("probe_port", 0))
+         == (region, cidr, minutes, probe_port), "plan_mismatch")
     need(not (edir / "state.json").exists(), "run_id_already_used")
     private = ensure_private_dir(edir / "private")
     aws = d.aws(region, edir)
@@ -735,6 +751,8 @@ def do_up(d: Deps, a: argparse.Namespace, remote: list[str]) -> int:
         state["security_group_id"] = sg
         save_state(edir, state)
         aws.run_aws(cmd_ssh_ingress(sg, cidr))
+        if probe_port:
+            aws.run_aws(cmd_probe_ingress(sg, cidr, probe_port))
         key = aws.run_aws(cmd_create_key(run_id, tags_for(run_id, expires, name_of(run_id))))
         key_path = save_key(private, run_id, key)
         state.update(key_pair_id=field(key, "KeyPairId", str, IDS["key"]), key_name=name_of(run_id),
@@ -947,12 +965,14 @@ def build_parser() -> argparse.ArgumentParser:
     plan = sub.add_parser("plan", parents=[common], help="offline: print resources, commands, cost, teardown (default)")
     plan.add_argument("--operator-cidr", required=True, help="your IPv4 as a /32; the only source allowed on tcp/22")
     plan.add_argument("--max-minutes", type=int, default=120)
+    plan.add_argument("--probe-port", type=int, default=0, help="also allow this probe TLS port from the operator /32 (default: none)")
     plan.add_argument("--expect-account")
     up = sub.add_parser("up", parents=[common], help="create the two hosts (needs the run id printed by plan)")
     up.add_argument("--approve-run-id", required=True)
     up.add_argument("--operator-cidr", required=True)
     up.add_argument("--expect-account", required=True)
     up.add_argument("--max-minutes", type=int, default=120)
+    up.add_argument("--probe-port", type=int, default=0, help="must match plan")
     up.add_argument("--keep-on-failure", action="store_true", help="do not auto-teardown when up fails")
     down = sub.add_parser("down", parents=[common], help="terminate and delete one run's resources")
     down.add_argument("--run-id", required=True)

@@ -274,8 +274,91 @@ HOST_ACTION_LEAVES = {
     "TestM8HostActionAuthorization/mariadb/unit_file/WrongAttempt",
     "TestM8HostActionAuthorization/mariadb/unit_file/WrongOwner",
 }
-STAGE_SQLITE_LEAVES = {name.replace("/mariadb/", "/sqlite/") for name in STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES}
-STAGE_REQUIRED = INSTALL_JOURNAL_LEAVES | INSTALL_RUNNER_LEAVES | STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES
+# Independently restated from the actual SQLite run of the activation store tests.
+ACTIVATION_LEAVES = {
+    "TestM8InstallActivationAdmission/mariadb/probe_init/AdmitsAndGrantsVerifiedSignature",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/CallerCanceledAfterCommitNoGrant",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/CancelRequestedRefused",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/CanceledContextRefused",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/ClockRollbackStamp",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/ConcurrentAdmissionSingleGrant",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/CorruptGraphNoGrant",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/DifferentChallengeNoRearm",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/ExactReplayConflict",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/ExpiredDeadlineDBClock",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/IdentityMismatch",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/IndependentReaderSeesAdmissionBeforeSign",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/LostAdmissionAckNoSign",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/NonceReuseAcrossAttempts",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/SignFailureConsumesAdmission",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/StepAlreadyApplied",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/StepNotYetReserved",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/StoreRecordsExactRow",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/TerminalActivationRefused",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/UncommittedPredecessorNotVisible",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/WrongAttempt",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/WrongKind",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/WrongOwner",
+    "TestM8InstallActivationAdmission/mariadb/service_start/AdmitsAndGrantsVerifiedSignature",
+    "TestM8InstallActivationAdmission/mariadb/service_start/CallerCanceledAfterCommitNoGrant",
+    "TestM8InstallActivationAdmission/mariadb/service_start/CancelRequestedRefused",
+    "TestM8InstallActivationAdmission/mariadb/service_start/CanceledContextRefused",
+    "TestM8InstallActivationAdmission/mariadb/service_start/ClockRollbackStamp",
+    "TestM8InstallActivationAdmission/mariadb/service_start/ConcurrentAdmissionSingleGrant",
+    "TestM8InstallActivationAdmission/mariadb/service_start/CorruptGraphNoGrant",
+    "TestM8InstallActivationAdmission/mariadb/service_start/DifferentChallengeNoRearm",
+    "TestM8InstallActivationAdmission/mariadb/service_start/ExactReplayConflict",
+    "TestM8InstallActivationAdmission/mariadb/service_start/ExpiredDeadlineDBClock",
+    "TestM8InstallActivationAdmission/mariadb/service_start/IdentityMismatch",
+    "TestM8InstallActivationAdmission/mariadb/service_start/IndependentReaderSeesAdmissionBeforeSign",
+    "TestM8InstallActivationAdmission/mariadb/service_start/LostAdmissionAckNoSign",
+    "TestM8InstallActivationAdmission/mariadb/service_start/NonceReuseAcrossAttempts",
+    "TestM8InstallActivationAdmission/mariadb/service_start/PredecessorNotApplied",
+    "TestM8InstallActivationAdmission/mariadb/service_start/SignFailureConsumesAdmission",
+    "TestM8InstallActivationAdmission/mariadb/service_start/StepAlreadyApplied",
+    "TestM8InstallActivationAdmission/mariadb/service_start/StepNotYetReserved",
+    "TestM8InstallActivationAdmission/mariadb/service_start/StoreRecordsExactRow",
+    "TestM8InstallActivationAdmission/mariadb/service_start/TerminalActivationRefused",
+    "TestM8InstallActivationAdmission/mariadb/service_start/UncommittedPredecessorNotVisible",
+    "TestM8InstallActivationAdmission/mariadb/service_start/WrongAttempt",
+    "TestM8InstallActivationAdmission/mariadb/service_start/WrongKind",
+    "TestM8InstallActivationAdmission/mariadb/service_start/WrongOwner",
+    "TestM8InstallActivationAdmissionSeparation/mariadb/ActivationStoreRefusesNonActivationIntents",
+    "TestM8InstallActivationAdmissionSeparation/mariadb/InstallStoreRefusesActivationIntents",
+    "TestM8InstallActivationAuthorizationLifecycle/mariadb",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Admit",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Begin",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Cancel",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Finish",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Observe",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Record",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Reserve",
+    "TestM8InstallActivationSchema/mariadb/DowngradeGuard",
+    "TestM8InstallActivationSchema/mariadb/SchemaConstraints",
+    "TestM8InstallActivationStore/mariadb/AtomicCreateAndImmutableRetry",
+    "TestM8InstallActivationStore/mariadb/CancelDuringLastStepEndsActive",
+    "TestM8InstallActivationStore/mariadb/CancelQueuedCanceled",
+    "TestM8InstallActivationStore/mariadb/CanceledContextRefused",
+    "TestM8InstallActivationStore/mariadb/CancellationIntentVersusJoinedFinish",
+    "TestM8InstallActivationStore/mariadb/ColdExpiryMakesInFlightUnknown",
+    "TestM8InstallActivationStore/mariadb/CommittedPrerequisiteAndOneAttempt",
+    "TestM8InstallActivationStore/mariadb/ConcurrentCreateBeginReserveSingleWinner",
+    "TestM8InstallActivationStore/mariadb/ConflictRollsBack",
+    "TestM8InstallActivationStore/mariadb/CorruptGraphRefusalBeforeReconcile",
+    "TestM8InstallActivationStore/mariadb/CreateRequiresResourcesReadyInstall",
+    "TestM8InstallActivationStore/mariadb/ExpiryReconciliationCommitsThroughRefusal",
+    "TestM8InstallActivationStore/mariadb/FullLifecycleActive",
+    "TestM8InstallActivationStore/mariadb/GlobalAttemptIdentity",
+    "TestM8InstallActivationStore/mariadb/InstallExpiryRefusesCreateAndReconciles",
+    "TestM8InstallActivationStore/mariadb/InstallLifecycleDoesNotBreakActivation",
+    "TestM8InstallActivationStore/mariadb/OwnerInterruptionAndFailure",
+    "TestM8InstallActivationStore/mariadb/OwnerStateExpiryFences",
+    "TestM8InstallActivationStore/mariadb/ProbeInitFactsRequiredAndStored",
+    "TestM8InstallActivationStore/mariadb/UTCAndClockRollback",
+    "TestM8InstallActivationStore/mariadb/UnknownOutcomeInterrupts",
+}
+STAGE_SQLITE_LEAVES = {name.replace("/mariadb", "/sqlite", 1) for name in STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES | ACTIVATION_LEAVES}
+STAGE_REQUIRED = INSTALL_JOURNAL_LEAVES | INSTALL_RUNNER_LEAVES | STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES | ACTIVATION_LEAVES
 
 
 def stage_event_values(omit=()):
@@ -671,8 +754,10 @@ class StageAuthorizationGateTest(BackendGateHarness, unittest.TestCase):
         self.assertEqual(gate.HOST_ACTION_REQUIRED, HOST_ACTION_LEAVES)
         self.assertEqual(gate.STAGE_AUTHORIZATION_SQLITE_REQUIRED, STAGE_SQLITE_LEAVES)
         self.assertEqual(len(STAGE_AUTHORIZATION_LEAVES), 18)
+        self.assertEqual(gate.ACTIVATION_REQUIRED, ACTIVATION_LEAVES)
         self.assertEqual(len(HOST_ACTION_LEAVES), 72)
-        self.assertEqual(len(STAGE_REQUIRED), 135)
+        self.assertEqual(len(ACTIVATION_LEAVES), 80)
+        self.assertEqual(len(STAGE_REQUIRED), 215)
         self.assertTrue(STAGE_REQUIRED <= gate.REQUIRED)
         status, summary = self.run_stage()
         self.assertEqual(status, 0)

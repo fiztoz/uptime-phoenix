@@ -14,7 +14,7 @@ class RemoteGateEvaluateTest(unittest.TestCase):
         summary = remote.evaluate(fixtures.stage_lines())
         self.assertEqual(summary["result"], "passed", summary)
         self.assertEqual(summary["missing_required"], [])
-        self.assertEqual(summary["required"], 135)
+        self.assertEqual(summary["required"], 215)
 
     def test_missing_host_action_leaf_fails(self):
         omitted = sorted(fixtures.HOST_ACTION_LEAVES)[0]

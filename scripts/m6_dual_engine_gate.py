@@ -260,16 +260,101 @@ HOST_ACTION_REQUIRED = {
         "UnknownOperationNotFound",
     )
 }
+# Probe activation (migration 087), exact leaf names from a full SQLite run.
+ACTIVATION_REQUIRED = {
+    "TestM8InstallActivationAdmission/mariadb/probe_init/AdmitsAndGrantsVerifiedSignature",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/CallerCanceledAfterCommitNoGrant",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/CancelRequestedRefused",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/CanceledContextRefused",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/ClockRollbackStamp",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/ConcurrentAdmissionSingleGrant",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/CorruptGraphNoGrant",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/DifferentChallengeNoRearm",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/ExactReplayConflict",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/ExpiredDeadlineDBClock",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/IdentityMismatch",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/IndependentReaderSeesAdmissionBeforeSign",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/LostAdmissionAckNoSign",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/NonceReuseAcrossAttempts",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/SignFailureConsumesAdmission",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/StepAlreadyApplied",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/StepNotYetReserved",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/StoreRecordsExactRow",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/TerminalActivationRefused",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/UncommittedPredecessorNotVisible",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/WrongAttempt",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/WrongKind",
+    "TestM8InstallActivationAdmission/mariadb/probe_init/WrongOwner",
+    "TestM8InstallActivationAdmission/mariadb/service_start/AdmitsAndGrantsVerifiedSignature",
+    "TestM8InstallActivationAdmission/mariadb/service_start/CallerCanceledAfterCommitNoGrant",
+    "TestM8InstallActivationAdmission/mariadb/service_start/CancelRequestedRefused",
+    "TestM8InstallActivationAdmission/mariadb/service_start/CanceledContextRefused",
+    "TestM8InstallActivationAdmission/mariadb/service_start/ClockRollbackStamp",
+    "TestM8InstallActivationAdmission/mariadb/service_start/ConcurrentAdmissionSingleGrant",
+    "TestM8InstallActivationAdmission/mariadb/service_start/CorruptGraphNoGrant",
+    "TestM8InstallActivationAdmission/mariadb/service_start/DifferentChallengeNoRearm",
+    "TestM8InstallActivationAdmission/mariadb/service_start/ExactReplayConflict",
+    "TestM8InstallActivationAdmission/mariadb/service_start/ExpiredDeadlineDBClock",
+    "TestM8InstallActivationAdmission/mariadb/service_start/IdentityMismatch",
+    "TestM8InstallActivationAdmission/mariadb/service_start/IndependentReaderSeesAdmissionBeforeSign",
+    "TestM8InstallActivationAdmission/mariadb/service_start/LostAdmissionAckNoSign",
+    "TestM8InstallActivationAdmission/mariadb/service_start/NonceReuseAcrossAttempts",
+    "TestM8InstallActivationAdmission/mariadb/service_start/PredecessorNotApplied",
+    "TestM8InstallActivationAdmission/mariadb/service_start/SignFailureConsumesAdmission",
+    "TestM8InstallActivationAdmission/mariadb/service_start/StepAlreadyApplied",
+    "TestM8InstallActivationAdmission/mariadb/service_start/StepNotYetReserved",
+    "TestM8InstallActivationAdmission/mariadb/service_start/StoreRecordsExactRow",
+    "TestM8InstallActivationAdmission/mariadb/service_start/TerminalActivationRefused",
+    "TestM8InstallActivationAdmission/mariadb/service_start/UncommittedPredecessorNotVisible",
+    "TestM8InstallActivationAdmission/mariadb/service_start/WrongAttempt",
+    "TestM8InstallActivationAdmission/mariadb/service_start/WrongKind",
+    "TestM8InstallActivationAdmission/mariadb/service_start/WrongOwner",
+    "TestM8InstallActivationAdmissionSeparation/mariadb/ActivationStoreRefusesNonActivationIntents",
+    "TestM8InstallActivationAdmissionSeparation/mariadb/InstallStoreRefusesActivationIntents",
+    "TestM8InstallActivationAuthorizationLifecycle/mariadb",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Admit",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Begin",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Cancel",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Finish",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Observe",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Record",
+    "TestM8InstallActivationClockAfterAuthorityLock/mariadb/Reserve",
+    "TestM8InstallActivationSchema/mariadb/DowngradeGuard",
+    "TestM8InstallActivationSchema/mariadb/SchemaConstraints",
+    "TestM8InstallActivationStore/mariadb/AtomicCreateAndImmutableRetry",
+    "TestM8InstallActivationStore/mariadb/CancelDuringLastStepEndsActive",
+    "TestM8InstallActivationStore/mariadb/CancelQueuedCanceled",
+    "TestM8InstallActivationStore/mariadb/CanceledContextRefused",
+    "TestM8InstallActivationStore/mariadb/CancellationIntentVersusJoinedFinish",
+    "TestM8InstallActivationStore/mariadb/ColdExpiryMakesInFlightUnknown",
+    "TestM8InstallActivationStore/mariadb/CommittedPrerequisiteAndOneAttempt",
+    "TestM8InstallActivationStore/mariadb/ConcurrentCreateBeginReserveSingleWinner",
+    "TestM8InstallActivationStore/mariadb/ConflictRollsBack",
+    "TestM8InstallActivationStore/mariadb/CorruptGraphRefusalBeforeReconcile",
+    "TestM8InstallActivationStore/mariadb/CreateRequiresResourcesReadyInstall",
+    "TestM8InstallActivationStore/mariadb/ExpiryReconciliationCommitsThroughRefusal",
+    "TestM8InstallActivationStore/mariadb/FullLifecycleActive",
+    "TestM8InstallActivationStore/mariadb/GlobalAttemptIdentity",
+    "TestM8InstallActivationStore/mariadb/InstallExpiryRefusesCreateAndReconciles",
+    "TestM8InstallActivationStore/mariadb/InstallLifecycleDoesNotBreakActivation",
+    "TestM8InstallActivationStore/mariadb/OwnerInterruptionAndFailure",
+    "TestM8InstallActivationStore/mariadb/OwnerStateExpiryFences",
+    "TestM8InstallActivationStore/mariadb/ProbeInitFactsRequiredAndStored",
+    "TestM8InstallActivationStore/mariadb/UTCAndClockRollback",
+    "TestM8InstallActivationStore/mariadb/UnknownOutcomeInterrupts",
+}
 STAGE_AUTHORIZATION_SQLITE_REQUIRED = {
-    name.replace("/mariadb/", "/sqlite/") for name in STAGE_AUTHORIZATION_REQUIRED | HOST_ACTION_REQUIRED
+    name.replace("/mariadb", "/sqlite", 1)
+    for name in STAGE_AUTHORIZATION_REQUIRED | HOST_ACTION_REQUIRED | ACTIVATION_REQUIRED
 }
 STAGE_AUTHORIZATION_RUN = (
     "^TestProbeInstall(Journal|Identity|Graph|States)|^TestInstallRunner|"
     "^TestM8Install(Journal|Runner)|^TestM8BinaryStageAuthorization$|"
     "^TestProbeBinaryStage(Admission|Grant|Authorization)|^TestEd25519ProbeStageGrantSigner|"
-    "^TestM8HostAction(Authorization|AdmissionSchema)$|^TestProbeHostAction"
+    "^TestM8HostAction(Authorization|AdmissionSchema)$|^TestProbeHostAction|^TestM8InstallActivation"
 )
-REQUIRED |= INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED | STAGE_AUTHORIZATION_REQUIRED | HOST_ACTION_REQUIRED
+REQUIRED |= (INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED | STAGE_AUTHORIZATION_REQUIRED |
+             HOST_ACTION_REQUIRED | ACTIVATION_REQUIRED)
 STAGE_OWNER_LABEL = "io.uptime-phoenix.stage-authorization-run"
 
 
@@ -409,7 +494,7 @@ def main():
         "m8-install-journal": INSTALL_JOURNAL_REQUIRED,
         "m8-install-runner": INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED,
         "m8-stage-authorization": (INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED |
-                                   STAGE_AUTHORIZATION_REQUIRED | HOST_ACTION_REQUIRED),
+                                   STAGE_AUTHORIZATION_REQUIRED | HOST_ACTION_REQUIRED | ACTIVATION_REQUIRED),
     }[args.scope]
     strict_events = StageAuthorizationEvents(required) if args.scope == "m8-stage-authorization" else None
     minimum_engine_passes = 300 if args.scope == "full" else len(required)

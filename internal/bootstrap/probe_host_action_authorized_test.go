@@ -219,11 +219,11 @@ type hactArgs struct {
 	loadKey  func(context.Context) ([32]byte, error)
 	hostKeys func(context.Context) ([]string, error)
 	entropy  io.Reader
-	apply    probeHostActionApply
+	apply    func(context.Context, domain.ProbeHostActionIntent) error
 }
 
 func (a hactArgs) run(args []string) int {
-	return runAuthorizedProbeHostActionHelper(a.ctx, args, a.input, a.out, a.stderr, a.loadKey, a.hostKeys, a.entropy, a.apply)
+	return runAuthorizedProbeHostActionHelper(a.ctx, args, a.input, a.out, a.stderr, a.loadKey, a.hostKeys, a.entropy, probeHostActionWithoutReceipt(a.apply))
 }
 
 type hactApplyCall struct {
@@ -527,7 +527,7 @@ func TestRunAuthorizedProbeHostActionHelperRejectsNilBeforeAnyDispatch(t *testin
 		{"nil entropy", func(a *hactArgs) { a.entropy = nil }, true, true},
 		{"typed-nil entropy", func(a *hactArgs) { a.entropy = typedEntropy }, true, true},
 		{"nil apply", func(a *hactArgs) { a.apply = nil }, true, true},
-		{"typed-nil apply", func(a *hactArgs) { a.apply = (probeHostActionApply)(nil) }, true, true},
+		{"typed-nil apply", func(a *hactArgs) { a.apply = (func(context.Context, domain.ProbeHostActionIntent) error)(nil) }, true, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

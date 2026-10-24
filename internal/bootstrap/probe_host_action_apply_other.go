@@ -9,9 +9,9 @@ import (
 )
 
 // applyHostProbeAction never changes host state on unsupported platforms.
-func applyHostProbeAction(ctx context.Context, _ domain.ProbeHostActionIntent) error {
+func applyHostProbeAction(ctx context.Context, _ domain.ProbeHostActionIntent) ([]byte, error) {
 	if probeBinaryStageHelperNil(ctx) {
-		return domain.ErrProbeBinaryStageWriteInput
+		return nil, domain.ErrProbeBinaryStageWriteInput
 	}
-	return domain.ErrProbeBinaryStageWriteUnavailable
+	return nil, domain.ErrProbeBinaryStageWriteUnavailable
 }
