@@ -46,11 +46,14 @@ type ProbeActivationIdentity struct {
 }
 
 // Valid requires a root systemd install identity, a canonical probe key slug,
-// a bounded display name, an unprivileged-safe port and the requesting actor.
+// a bounded display name, the installed unit's listen port and the
+// requesting actor. The unit runs the probe on its default listener
+// (ProbeActivationDefaultPort) with no --listen override, so any other port
+// would register an endpoint nothing listens on.
 func (a ProbeActivationIdentity) Valid() bool {
 	return a.Install.Valid() && a.Install.Mode == ProbeInstallSystemd && a.Install.Host.User == "root" &&
 		validProbeActivationKey(a.ProbeKey) && validProbeActivationText(a.Name, 1, 200) &&
-		validProbeActivationText(a.Location, 0, 255) && a.ListenPort >= 1024 && a.ListenPort <= 65535 &&
+		validProbeActivationText(a.Location, 0, 255) && a.ListenPort == ProbeActivationDefaultPort &&
 		ValidSSHKeyFingerprint(a.ClientKeyFingerprint) && a.RequestedBy > 0 && a.Endpoint() != ""
 }
 

@@ -564,7 +564,6 @@ func TestM8InstallActivationStore(t *testing.T) {
 					"probe_key":  func(i *domain.ProbeActivationIdentity) { i.ProbeKey = "edge-eu-2" },
 					"name":       func(i *domain.ProbeActivationIdentity) { i.Name = "Edge EU 2" },
 					"location":   func(i *domain.ProbeActivationIdentity) { i.Location = "Paris" },
-					"port":       func(i *domain.ProbeActivationIdentity) { i.ListenPort = 9443 },
 					"client_key": func(i *domain.ProbeActivationIdentity) { i.ClientKeyFingerprint = m8InstallFingerprint('d') },
 					"actor":      func(i *domain.ProbeActivationIdentity) { i.RequestedBy++ },
 					"install":    func(i *domain.ProbeActivationIdentity) { i.Install.HostKeyFingerprint = m8InstallFingerprint('e') },
@@ -581,11 +580,15 @@ func TestM8InstallActivationStore(t *testing.T) {
 				}
 				m8ActRequireSame(t, e.observe(m8InstallOp1), progressed, "conflicting retries")
 				// Invalid requests never reach the journal.
+				// The port is fixed to the installed unit's listener: any other
+				// value is invalid rather than a changed identity.
 				badPort := identity
 				badPort.ListenPort = 80
+				otherPort := identity
+				otherPort.ListenPort = 9443
 				badKey := identity
 				badKey.ProbeKey = "Not A Slug"
-				for name, bad := range map[string]domain.ProbeActivationIdentity{"port": badPort, "key": badKey, "zero": {}} {
+				for name, bad := range map[string]domain.ProbeActivationIdentity{"port": badPort, "other port": otherPort, "key": badKey, "zero": {}} {
 					if _, _, err := e.store.CreateActivation(ctx, bad, m8InstallOwnerA); !errors.Is(err, domain.ErrValidation) {
 						t.Fatalf("invalid %s must fail validation, got %v", name, err)
 					}

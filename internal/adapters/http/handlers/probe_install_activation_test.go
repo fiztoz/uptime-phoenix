@@ -445,8 +445,9 @@ func TestProbeActivationSubmitStrictBinding(t *testing.T) {
 	for _, location := range []string{" x", "x ", "x\ny", "x\x00y", strings.Repeat("a", 256), strings.Repeat("é", 256)} {
 		cases = append(cases, bindCase{"location " + strconv.Quote(location), activationJSON(activationSet(base, "location", activationQuote(location))), 400, "invalid_activation"})
 	}
-	// listen_port: 0 (default) or 1024..65535.
-	for _, port := range []string{"1", "80", "1023", "65536", "70000", "99999", "4294967296"} {
+	// listen_port: 0 (default) or exactly the installed unit's 8443; the
+	// probe listens nowhere else.
+	for _, port := range []string{"1", "80", "1023", "1024", "8080", "9443", "65535", "65536", "70000", "99999", "4294967296"} {
 		cases = append(cases, bindCase{"listen_port " + port, activationJSON(activationSet(base, "listen_port", port)), 400, "invalid_activation"})
 	}
 	// Every member: missing, null, duplicate, case variant, wrong JSON type.
@@ -557,13 +558,13 @@ func TestProbeActivationSubmitAcceptedBoundaries(t *testing.T) {
 				t.Fatalf("port = %d, want 0 (service applies the default)", got.ListenPort)
 			}
 		}},
-		{"lowest port", activationJSON(activationSet(base, "listen_port", "1024")), func(t *testing.T, got services.ProbeActivationSubmission) {
-			if got.ListenPort != 1024 {
-				t.Fatalf("port = %d", got.ListenPort)
+		{"default port", activationJSON(activationSet(base, "listen_port", "0")), func(t *testing.T, got services.ProbeActivationSubmission) {
+			if got.ListenPort != 0 {
+				t.Fatalf("port = %d, want 0 passed through as the default", got.ListenPort)
 			}
 		}},
-		{"highest port", activationJSON(activationSet(base, "listen_port", "65535")), func(t *testing.T, got services.ProbeActivationSubmission) {
-			if got.ListenPort != 65535 {
+		{"unit port", activationJSON(activationSet(base, "listen_port", "8443")), func(t *testing.T, got services.ProbeActivationSubmission) {
+			if got.ListenPort != 8443 {
 				t.Fatalf("port = %d", got.ListenPort)
 			}
 		}},

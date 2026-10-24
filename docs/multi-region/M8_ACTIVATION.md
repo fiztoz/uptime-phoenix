@@ -30,8 +30,12 @@ install journal (migrations 084–086, real-MariaDB accepted) stays unchanged.
 | 3 | `service_start` | host (authorized) | unit name | `systemctl start <unit>`; applied only when `is-active` reports `active` within 20 s |
 | 4 | `enrollment` | hub | endpoint | `EnrollSource(probeID, token, streamID)`; applied only when the operation succeeds |
 
-The endpoint is `wss://<install SSH host>:<listen_port>/ws/probe/v1`, with
-`listen_port` defaulting to 8443. The probe must be reachable from the hub there.
+The endpoint is `wss://<install SSH host>:<listen_port>/ws/probe/v1`. The installed
+unit runs the probe on its default listener with no `--listen` override, so
+`listen_port` must be 0 (the default) or exactly 8443. Any other value is refused
+(400): it would register an endpoint nothing listens on. Before this check, such an
+activation could only end in failure at readiness. The probe must be reachable from
+the hub on 8443.
 
 ## Storage — migration `087_probe_install_activations` (both engines)
 
