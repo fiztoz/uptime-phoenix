@@ -25,6 +25,12 @@ type hkServer struct {
 	conns, auths   atomic.Int32
 	execs          atomic.Int32
 	wg             sync.WaitGroup
+	// exec (guarded by mu) answers one exec request
+	// with stdout and an exit status; the default emulates a helper that
+	// exits 1 with no output.
+	exec     func(command string) ([]byte, uint32)
+	mu       sync.Mutex
+	commands []string
 }
 
 func newHKServer(t *testing.T, clientPub ssh.PublicKey) *hkServer {
@@ -80,8 +86,20 @@ func newHKServer(t *testing.T, clientPub ssh.PublicKey) *hkServer {
 					for req := range creqs {
 						if req.Type == "exec" {
 							s.execs.Add(1)
+							var payload struct{ Command string }
+							_ = ssh.Unmarshal(req.Payload, &payload)
+							s.mu.Lock()
+							s.commands = append(s.commands, payload.Command)
+							exec := s.exec
+							s.mu.Unlock()
 							_ = req.Reply(true, nil)
-							_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{1}))
+							var stdout []byte
+							status := uint32(1)
+							if exec != nil {
+								stdout, status = exec(payload.Command)
+							}
+							_, _ = ch.Write(stdout)
+							_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{status}))
 							_ = ch.Close()
 							break
 						}

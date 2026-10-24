@@ -107,6 +107,12 @@ type sshProbeInstallSession struct {
 	err      error
 }
 
+// Preflight runs the fixed install preflight over the session's pinned
+// transport. It never authenticates to an unverified host.
+func (s *sshProbeInstallSession) Preflight(ctx context.Context, host domain.ProbeSSHHost) (domain.ProbeInstallHostReport, error) {
+	return s.sender.insp.host.InspectInstallHost(ctx, host)
+}
+
 // Close disposes the prepared snapshot exactly once.
 func (s *sshProbeInstallSession) Close(ctx context.Context) error {
 	s.once.Do(func() { s.err = s.prepared.Close(ctx) })

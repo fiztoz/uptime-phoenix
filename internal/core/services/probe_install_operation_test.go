@@ -135,8 +135,11 @@ type opInstallSession struct {
 
 	// applyHook, when set, replaces the default "applied" report.
 	applyHook func(ctx context.Context, kind string) (domain.ProbeInstallResourceOutcome, error)
+	// preflightHook, when set, replaces the default qualifying report.
+	preflightHook func(ctx context.Context, host domain.ProbeSSHHost) (domain.ProbeInstallHostReport, error)
 
 	mu               sync.Mutex
+	preflights       []domain.ProbeSSHHost
 	applied          []string
 	closes           int
 	closeErr         error
@@ -160,6 +163,29 @@ func (s *opInstallSession) ApplyResource(ctx context.Context, _ domain.ProbeInst
 		return hook(ctx, kind)
 	}
 	return domain.ProbeInstallResourceOutcome{State: domain.ProbeInstallResourceApplied}, nil
+}
+
+// opInstallQualifyingReport is a clean amd64 systemd host.
+func opInstallQualifyingReport() domain.ProbeInstallHostReport {
+	return domain.ProbeInstallHostReport{Kernel: "Linux", Machine: "x86_64", Systemd: true, Root: true, Authority: true}
+}
+
+func (s *opInstallSession) Preflight(ctx context.Context, host domain.ProbeSSHHost) (domain.ProbeInstallHostReport, error) {
+	s.mu.Lock()
+	s.preflights = append(s.preflights, host)
+	hook := s.preflightHook
+	s.mu.Unlock()
+	s.events.add("preflight")
+	if hook != nil {
+		return hook(ctx, host)
+	}
+	return opInstallQualifyingReport(), nil
+}
+
+func (s *opInstallSession) preflightCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.preflights)
 }
 
 func (s *opInstallSession) Close(ctx context.Context) error {
@@ -214,6 +240,7 @@ type opInstallFactory struct {
 	closeErr        error
 	gate            func(ctx context.Context) error
 	applyHook       func(ctx context.Context, kind string) (domain.ProbeInstallResourceOutcome, error)
+	preflightHook   func(ctx context.Context, host domain.ProbeSSHHost) (domain.ProbeInstallHostReport, error)
 }
 
 func (f *opInstallFactory) NewInstallSession(ctx context.Context, privateKey []byte, hostFingerprint string, pin domain.ProbeBinaryPin) (ports.ProbeInstallSession, string, error) {
@@ -223,7 +250,7 @@ func (f *opInstallFactory) NewInstallSession(ctx context.Context, privateKey []b
 	f.mu.Lock()
 	f.calls = append(f.calls, call)
 	gate, err, fingerprint := f.gate, f.err, f.fingerprint
-	nilSession, typedNil, applyHook, closeErr := f.nilSession, f.typedNilSession, f.applyHook, f.closeErr
+	nilSession, typedNil, applyHook, closeErr, preflightHook := f.nilSession, f.typedNilSession, f.applyHook, f.closeErr, f.preflightHook
 	f.mu.Unlock()
 	if gate != nil {
 		if gateErr := gate(ctx); gateErr != nil {
@@ -244,6 +271,7 @@ func (f *opInstallFactory) NewInstallSession(ctx context.Context, privateKey []b
 	defer f.mu.Unlock()
 	session := newOpInstallSession(len(f.sessions)+1, f.events)
 	session.applyHook = applyHook
+	session.preflightHook = preflightHook
 	session.closeErr = closeErr
 	f.sessions = append(f.sessions, session)
 	return session, fingerprint, nil
@@ -1101,8 +1129,8 @@ func TestProbeInstallOperationServiceFreshCreateDispatchesExactlyOneRun(t *testi
 	if string(call.key) != opInstallKeyMaterial || call.hostFP != request.HostKeyFingerprint || call.pin != request.Binary {
 		t.Fatalf("factory input %+v", call)
 	}
-	if remaining := call.deadline.Sub(call.calledAt); !call.hasDeadline || remaining <= 0 || remaining > probeInstallAdmissionTTL {
-		t.Fatalf("admission context deadline %v outside (0, %v]", remaining, probeInstallAdmissionTTL)
+	if remaining := call.deadline.Sub(call.calledAt); !call.hasDeadline || remaining <= 0 || remaining > probeInstallSubmitTTL {
+		t.Fatalf("admission context deadline %v outside (0, %v]", remaining, probeInstallSubmitTTL)
 	}
 
 	// The identity committed to the journal.
@@ -1262,8 +1290,16 @@ func TestProbeInstallOperationServiceExactRetryReturnsStoredReceiptWithoutDispat
 					t.Fatalf("active=%d after a retry", env.active())
 				}
 			}
-			if creates := env.journal.createCalls(); len(creates) != 3 {
-				t.Fatalf("journal Create calls=%d, want 3 (one per retry)", len(creates))
+			// Committed work is answered from the journal: no Create and no
+			// host preflight (its own resources would read as existing).
+			if creates := env.journal.createCalls(); len(creates) != 0 {
+				t.Fatalf("journal Create calls=%d, want 0", len(creates))
+			}
+			if observes := env.journal.observeCalls(); len(observes) != 3 {
+				t.Fatalf("journal Observe calls=%d, want 3 (one per retry)", len(observes))
+			}
+			if env.events.count("preflight") != 0 {
+				t.Fatalf("a retry preflighted the host: %v", env.events.snapshot())
 			}
 			env.assertNothingDispatched(t)
 			if env.factory.sessionCount() != 3 {
@@ -1295,8 +1331,11 @@ func TestProbeInstallOperationServiceRetryAfterRunNeverDispatchesTwice(t *testin
 	if env.runnerCount() != 1 || env.events.count("new_runner") != 1 || env.totalRuns() != 1 {
 		t.Fatalf("retry dispatched again: %v", env.events.snapshot())
 	}
-	if creates := env.journal.createCalls(); len(creates) != 2 {
-		t.Fatalf("journal creates=%d, want 2", len(creates))
+	if creates := env.journal.createCalls(); len(creates) != 1 {
+		t.Fatalf("journal creates=%d, want 1", len(creates))
+	}
+	if env.events.count("preflight") != 1 {
+		t.Fatalf("preflights %v, want only the first submit's", env.events.snapshot())
 	}
 	env.assertSessionClosedOnce(t, 0)
 }
@@ -2400,4 +2439,118 @@ func TestProbeInstallOperationServiceLifecycleCloseRecordsHonestInterruptionBefo
 	if got := env.factory.sessionAt(t, 0).appliedKinds(); len(got) != 1 {
 		t.Fatalf("applied %v: shutdown must not let dependents start", got)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Host preflight gate: every refusal is definite and creates nothing.
+// ---------------------------------------------------------------------------
+
+func TestProbeInstallOperationServicePreflightRefusalsCreateNothing(t *testing.T) {
+	canary := errors.New("canary uname=Linux key=/root/.ssh/id_ed25519")
+	report := func(edit func(*domain.ProbeInstallHostReport)) func(context.Context, domain.ProbeSSHHost) (domain.ProbeInstallHostReport, error) {
+		return func(context.Context, domain.ProbeSSHHost) (domain.ProbeInstallHostReport, error) {
+			r := opInstallQualifyingReport()
+			edit(&r)
+			return r, nil
+		}
+	}
+	fail := func(err error) func(context.Context, domain.ProbeSSHHost) (domain.ProbeInstallHostReport, error) {
+		return func(context.Context, domain.ProbeSSHHost) (domain.ProbeInstallHostReport, error) {
+			return domain.ProbeInstallHostReport{}, err
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		hook func(context.Context, domain.ProbeSSHHost) (domain.ProbeInstallHostReport, error)
+		code string // "" means a bare sentinel is wanted instead
+		want error
+	}{
+		{"unsupported_os", report(func(r *domain.ProbeInstallHostReport) { r.Kernel = "FreeBSD" }), domain.ProbeInstallPreflightOS, nil},
+		{"wrong_architecture", report(func(r *domain.ProbeInstallHostReport) { r.Machine = "aarch64" }), domain.ProbeInstallPreflightArchitecture, nil},
+		{"unknown_architecture", report(func(r *domain.ProbeInstallHostReport) { r.Machine = "riscv64" }), domain.ProbeInstallPreflightArchitecture, nil},
+		{"not_root", report(func(r *domain.ProbeInstallHostReport) { r.Root, r.Authority = false, false }), domain.ProbeInstallPreflightRoot, nil},
+		{"no_systemd", report(func(r *domain.ProbeInstallHostReport) { r.Systemd = false }), domain.ProbeInstallPreflightSystemd, nil},
+		{"no_authority", report(func(r *domain.ProbeInstallHostReport) { r.Authority = false }), domain.ProbeInstallPreflightAuthority, nil},
+		{"existing_install", report(func(r *domain.ProbeInstallHostReport) { r.ExistingInstalls = 3 }), domain.ProbeInstallPreflightExisting, nil},
+		{"invalid_report", report(func(r *domain.ProbeInstallHostReport) { r.Kernel = "" }), domain.ProbeInstallPreflightHelper, nil},
+		{"bad_host_key", fail(&domain.ProbeInstallPreflightError{Code: domain.ProbeInstallPreflightTrust}), domain.ProbeInstallPreflightTrust, nil},
+		{"auth_refused", fail(fmt.Errorf("wrap: %w", &domain.ProbeInstallPreflightError{Code: domain.ProbeInstallPreflightAuth})), domain.ProbeInstallPreflightAuth, nil},
+		{"unknown_code_is_internal", fail(&domain.ProbeInstallPreflightError{Code: "host_" + canary.Error()}), "", domain.ErrInternal},
+		{"arbitrary_error_is_internal", fail(canary), "", domain.ErrInternal},
+		{"deadline_passes_through", fail(fmt.Errorf("%w: %w", canary, context.DeadlineExceeded)), "", context.DeadlineExceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := opInstallEnvFor(t, t.Context(), 1)
+			env.factory.mu.Lock()
+			env.factory.preflightHook = tc.hook
+			env.factory.mu.Unlock()
+			operation, err := env.svc.Submit(t.Context(), opInstallSubmission(opInstallID, 7))
+			if operation != nil || err == nil {
+				t.Fatalf("operation=%+v error=%v, want a refusal", operation, err)
+			}
+			if tc.code != "" {
+				var refusal *domain.ProbeInstallPreflightError
+				if !errors.As(err, &refusal) || refusal.Code != tc.code || !errors.Is(err, domain.ErrProbeInstallPreflight) {
+					t.Fatalf("error %v, want preflight refusal %q", err, tc.code)
+				}
+			} else if err != tc.want {
+				t.Fatalf("error %v, want the bare %v", err, tc.want)
+			}
+			if strings.Contains(err.Error(), "canary") {
+				t.Fatalf("refusal leaked host detail: %q", err)
+			}
+			if got := env.journal.createCalls(); len(got) != 0 {
+				t.Fatalf("journal Create called after a refused preflight: %+v", got)
+			}
+			if env.journal.rowCount() != 0 {
+				t.Fatal("a row exists after a refused preflight")
+			}
+			env.assertNothingDispatched(t)
+			env.assertSessionClosedOnce(t, 0)
+			if applied := env.factory.sessionAt(t, 0).appliedKinds(); len(applied) != 0 {
+				t.Fatalf("host resources applied after a refusal: %v", applied)
+			}
+			if env.active() != 0 {
+				t.Fatalf("slot leaked: active=%d", env.active())
+			}
+		})
+	}
+}
+
+func TestProbeInstallOperationServicePreflightRunsAfterLookupAndBeforeCreate(t *testing.T) {
+	env := opInstallEnvFor(t, t.Context(), 1)
+	request := opInstallSubmission(opInstallID, 7)
+	operation, err := env.svc.Submit(t.Context(), request)
+	if err != nil || operation == nil {
+		t.Fatalf("submit: operation=%+v error=%v", operation, err)
+	}
+	observe, preflight, create := env.events.indexOf("observe"), env.events.indexOf("preflight"), env.events.indexOf("create")
+	if observe < 0 || preflight < 0 || create < 0 || !(env.events.indexOf("factory") < observe && observe < preflight && preflight < create) {
+		t.Fatalf("want factory < observe < preflight < create, got %v", env.events.snapshot())
+	}
+	session := env.factory.sessionAt(t, 0)
+	session.mu.Lock()
+	hosts := append([]domain.ProbeSSHHost(nil), session.preflights...)
+	session.mu.Unlock()
+	if len(hosts) != 1 || hosts[0] != request.Host {
+		t.Fatalf("preflight hosts %+v, want exactly the request's host", hosts)
+	}
+	opInstallAwait(t, env.runnerAt(t, 0).done, "the run to finish")
+}
+
+func TestProbeInstallOperationServiceLookupFailureSkipsPreflight(t *testing.T) {
+	env := opInstallEnvFor(t, t.Context(), 1)
+	boom := errors.New("journal unavailable")
+	env.journal.mu.Lock()
+	env.journal.observeErr = boom
+	env.journal.mu.Unlock()
+	operation, err := env.svc.Submit(t.Context(), opInstallSubmission(opInstallID, 7))
+	if operation != nil || !errors.Is(err, boom) {
+		t.Fatalf("operation=%+v error=%v, want the lookup failure", operation, err)
+	}
+	if env.events.count("preflight") != 0 || len(env.journal.createCalls()) != 0 {
+		t.Fatalf("lookup failure still preflighted or created: %v", env.events.snapshot())
+	}
+	env.assertNothingDispatched(t)
+	env.assertSessionClosedOnce(t, 0)
 }

@@ -20,7 +20,11 @@ const (
 	probeInstallMinCapacity  = 1
 	probeInstallMaxCapacity  = 4
 	probeInstallAdmissionTTL = 30 * time.Second
-	probeInstallCloseTTL     = 10 * time.Second
+	// probeInstallSubmitTTL bounds a whole install admission: session
+	// preparation, the journal lookup and the SSH host preflight (which may
+	// learn the pinned host-key family and retry once).
+	probeInstallSubmitTTL = 90 * time.Second
+	probeInstallCloseTTL  = 10 * time.Second
 )
 
 // probeInstallJournal is the subset of ProbeInstallJournalService the API
@@ -84,9 +88,16 @@ func newProbeInstallOperationService(ctx context.Context, journal probeInstallJo
 
 // Submit admits one install request. The session (key parse and artifact
 // verification) is built before any durable write, so a rejected key or
-// artifact creates nothing. Execution is dispatched only after Create commits
-// a brand-new operation; an exact retry returns the stored receipt without a
-// second dispatch, and a changed identity is the journal's conflict.
+// artifact creates nothing. An exact retry of a committed operation returns
+// the stored receipt without touching the host or dispatching again, and a
+// changed identity conflicts. A new operation must then pass the host's
+// nonmutating install preflight; any refusal returns a
+// *domain.ProbeInstallPreflightError and creates nothing anywhere. Execution
+// is dispatched only after Create commits a brand-new operation.
+//
+// The preflight is not a host lock: two different operations admitted for
+// one host at the same moment can both pass it. The second install then
+// fails honestly at its own resources or at activation readiness.
 func (s *ProbeInstallOperationService) Submit(ctx context.Context, request domain.ProbeInstallSubmission) (*domain.ProbeInstallOperation, error) {
 	if ctx == nil {
 		return nil, domain.ErrValidation
@@ -108,7 +119,7 @@ func (s *ProbeInstallOperationService) Submit(ctx context.Context, request domai
 			s.release()
 		}
 	}()
-	admitCtx, cancelAdmission := context.WithTimeout(ctx, probeInstallAdmissionTTL)
+	admitCtx, cancelAdmission := context.WithTimeout(ctx, probeInstallSubmitTTL)
 	stop := context.AfterFunc(s.rootCtx, cancelAdmission)
 	defer stop()
 	defer cancelAdmission()
@@ -157,6 +168,31 @@ func (s *ProbeInstallOperationService) Submit(ctx context.Context, request domai
 			return nil, ports.ErrConflict
 		}
 		return current, nil
+	}
+	// Rerun is explicit: committed work is answered from the journal, never
+	// re-preflighted (its own resources would read as an existing install).
+	current, err := s.journal.Observe(admitCtx, identity.OperationID)
+	switch {
+	case err == nil:
+		if current == nil || current.Identity != identity {
+			return nil, ports.ErrConflict
+		}
+		return current, nil
+	case !errors.Is(err, ports.ErrNotFound):
+		if s.rootCtx.Err() != nil && ctx.Err() == nil {
+			return nil, domain.ErrProbeInstallClosed
+		}
+		return nil, err
+	}
+	report, err := session.Preflight(admitCtx, identity.Host)
+	if err != nil {
+		if s.rootCtx.Err() != nil && ctx.Err() == nil {
+			return nil, domain.ErrProbeInstallClosed
+		}
+		return nil, probeInstallPreflightError(err)
+	}
+	if code := report.Refusal(identity); code != "" {
+		return nil, &domain.ProbeInstallPreflightError{Code: code}
 	}
 	operation, created, err := s.journal.Create(admitCtx, identity, s.ownerID)
 	if err != nil {
@@ -286,6 +322,21 @@ func probeInstallSessionError(err error) error {
 		if errors.Is(err, safe) {
 			return safe
 		}
+	}
+	return domain.ErrInternal
+}
+
+// probeInstallPreflightError keeps context errors and fixed refusal codes;
+// anything else from a session is an internal failure.
+func probeInstallPreflightError(err error) error {
+	for _, ctxErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		if errors.Is(err, ctxErr) {
+			return ctxErr
+		}
+	}
+	var refusal *domain.ProbeInstallPreflightError
+	if errors.As(err, &refusal) && refusal != nil && domain.ValidProbeInstallPreflightCode(refusal.Code) {
+		return &domain.ProbeInstallPreflightError{Code: refusal.Code}
 	}
 	return domain.ErrInternal
 }

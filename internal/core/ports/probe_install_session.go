@@ -18,7 +18,11 @@ type ProbeInstallSessionFactory interface {
 
 // ProbeInstallSession executes one operation's resources and then must be
 // closed, which disposes its prepared artifact snapshot. Close is idempotent.
+// Preflight runs the host's fixed nonmutating install preflight with the
+// session's key and trust; it changes nothing and returns the context's error
+// or a *domain.ProbeInstallPreflightError on failure.
 type ProbeInstallSession interface {
 	ProbeInstallResourceExecutor
+	Preflight(ctx context.Context, host domain.ProbeSSHHost) (domain.ProbeInstallHostReport, error)
 	Close(ctx context.Context) error
 }

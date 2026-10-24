@@ -324,8 +324,8 @@ has no concrete remote adapter or installation-success path.
   `SSHProbeInstallExecutor` for all four systemd resources). SQLite/native only;
   real MariaDB, OpenSSH and systemd acceptance (AWS) and owner review of the unit remain.
 - [x] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port ([installer API](M8_INSTALL_API.md); systemd only, default-disabled).
-- [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
-- [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.
+- [x] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database. (Installer: explicit fingerprint of any host-key type, learned family; the deployment key lives only in the per-operation session.)
+- [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit. (Systemd done, including the [host preflight gate](M8_INSTALL_API.md#host-preflight-gate); Docker open.)
 - [ ] Preserve unrelated host resources and make rerun behavior explicit. Track resources created by the operation so partial failure can be diagnosed and intentionally cleaned up.
 - [ ] Stream redacted output with bounded retention, cancellation, exit status, and failed phase. Do not print enrollment/runtime tokens into the UI terminal.
 - [x] Finish only after verified runtime enrollment and successful config activation. Keep remote application update/rollback separate from initial install. ([Activation](M8_ACTIVATION.md): real-host acceptance shows enrolled, online, ready, desired = applied config revision.)

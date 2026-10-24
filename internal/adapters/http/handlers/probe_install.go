@@ -493,6 +493,16 @@ func probeInstallServiceError(c echo.Context, err error) error {
 		return probeInstallUnavailableError(c)
 	case errors.Is(err, domain.ErrProbeInstallArtifact):
 		return fleetError(c, http.StatusUnprocessableEntity, "artifact_rejected", "pinned probe artifact was rejected")
+	case errors.Is(err, domain.ErrProbeInstallPreflight):
+		var refusal *domain.ProbeInstallPreflightError
+		if !errors.As(err, &refusal) || refusal == nil {
+			return probeInstallUnavailableError(c)
+		}
+		message, ok := probeInstallPreflightMessages[refusal.Code]
+		if !ok {
+			return probeInstallUnavailableError(c)
+		}
+		return fleetError(c, http.StatusUnprocessableEntity, refusal.Code, message)
 	case errors.Is(err, domain.ErrValidation), errors.Is(err, domain.ErrProbeSSHInput):
 		return fleetError(c, http.StatusBadRequest, "invalid_install", "invalid install submission")
 	case errors.Is(err, ports.ErrConflict), errors.Is(err, domain.ErrConflict):
@@ -507,6 +517,22 @@ func probeInstallServiceError(c echo.Context, err error) error {
 	default:
 		return probeInstallUnavailableError(c)
 	}
+}
+
+// probeInstallPreflightMessages is the fixed allowlist of host preflight
+// refusals. Each is reached before any operation row or host change exists.
+var probeInstallPreflightMessages = map[string]string{
+	domain.ProbeInstallPreflightTrust:        "the host did not present the pinned host key",
+	domain.ProbeInstallPreflightDestination:  "the SSH destination is refused by the endpoint policy",
+	domain.ProbeInstallPreflightAuth:         "the host refused the deployment key for root",
+	domain.ProbeInstallPreflightUnreachable:  "the SSH host could not be reached",
+	domain.ProbeInstallPreflightHelper:       "the host helper did not return a valid install preflight",
+	domain.ProbeInstallPreflightOS:           "the host is not Linux",
+	domain.ProbeInstallPreflightArchitecture: "the pinned binary architecture does not match the host",
+	domain.ProbeInstallPreflightRoot:         "the host helper is not running as root",
+	domain.ProbeInstallPreflightSystemd:      "the host is not running systemd",
+	domain.ProbeInstallPreflightAuthority:    "the host has no trusted stage-authority key",
+	domain.ProbeInstallPreflightExisting:     "the host already has an Uptime Phoenix probe install; clean it up first",
 }
 
 // probeInstallUnavailableError is the single closed-fail 503 for disabled

@@ -939,6 +939,11 @@ func TestProbeInstallHTTPErrors(t *testing.T) {
 		{"ssh input", domain.ErrProbeSSHInput, 400, "invalid_install", ""},
 		{"artifact rejected", domain.ErrProbeInstallArtifact, 422, "artifact_rejected", ""},
 		{"wrapped artifact rejected", fmt.Errorf("preparing %s: %w", installLeakMarker, domain.ErrProbeInstallArtifact), 422, "artifact_rejected", ""},
+		{"preflight architecture", &domain.ProbeInstallPreflightError{Code: domain.ProbeInstallPreflightArchitecture}, 422, "host_architecture_mismatch", ""},
+		{"preflight existing install", fmt.Errorf("gate %s: %w", installLeakMarker, &domain.ProbeInstallPreflightError{Code: domain.ProbeInstallPreflightExisting}), 422, "host_existing_install", ""},
+		{"preflight bad host key", &domain.ProbeInstallPreflightError{Code: domain.ProbeInstallPreflightTrust}, 422, "host_trust_failed", ""},
+		{"preflight unknown code", &domain.ProbeInstallPreflightError{Code: "host_" + installLeakMarker}, 503, "install_unavailable", ""},
+		{"bare preflight sentinel", domain.ErrProbeInstallPreflight, 503, "install_unavailable", ""},
 		{"port conflict", ports.ErrConflict, 409, "install_conflict", ""},
 		{"domain conflict", fmt.Errorf("journal: %w", domain.ErrConflict), 409, "install_conflict", ""},
 		{"port not found", ports.ErrNotFound, 404, "install_not_found", ""},
@@ -1084,5 +1089,24 @@ func TestProbeInstallResponseIsNotADomainType(t *testing.T) {
 	}
 	if !strings.Contains(rec.Header().Get("Content-Type"), "application/json") {
 		t.Fatalf("Content-Type = %q", rec.Header().Get("Content-Type"))
+	}
+}
+
+// TestProbeInstallPreflightMessagesCoverEveryCode keeps the HTTP allowlist
+// and the domain's fixed refusal codes identical.
+func TestProbeInstallPreflightMessagesCoverEveryCode(t *testing.T) {
+	codes := []string{
+		domain.ProbeInstallPreflightTrust, domain.ProbeInstallPreflightDestination, domain.ProbeInstallPreflightAuth,
+		domain.ProbeInstallPreflightUnreachable, domain.ProbeInstallPreflightHelper, domain.ProbeInstallPreflightOS,
+		domain.ProbeInstallPreflightArchitecture, domain.ProbeInstallPreflightRoot, domain.ProbeInstallPreflightSystemd,
+		domain.ProbeInstallPreflightAuthority, domain.ProbeInstallPreflightExisting,
+	}
+	if len(probeInstallPreflightMessages) != len(codes) {
+		t.Fatalf("messages=%d codes=%d", len(probeInstallPreflightMessages), len(codes))
+	}
+	for _, code := range codes {
+		if !domain.ValidProbeInstallPreflightCode(code) || probeInstallPreflightMessages[code] == "" {
+			t.Fatalf("code %q lacks a domain or HTTP entry", code)
+		}
 	}
 }

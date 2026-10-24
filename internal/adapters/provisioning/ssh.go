@@ -151,27 +151,48 @@ func (s *SSHHostInspector) InspectHost(ctx context.Context, host domain.ProbeSSH
 }
 
 func (s *SSHHostInspector) inspectHostOnce(ctx context.Context, host domain.ProbeSSHHost) (domain.ProbeHostFacts, error) {
-	var empty domain.ProbeHostFacts
+	text, err := s.runFixedCommand(ctx, host, discoveryCommand)
+	if errors.Is(err, errSSHAuthRejected) {
+		// Discovery keeps its documented connection-or-authentication sentinel.
+		return domain.ProbeHostFacts{}, domain.ErrProbeSSHConnect
+	}
+	if err != nil {
+		return domain.ProbeHostFacts{}, err
+	}
+	return parseDiscovery(text)
+}
+
+// errSSHAuthRejected reports a handshake that verified the host key and then
+// failed: the server refused the client key (or dropped the connection
+// during authentication). Nothing was executed.
+var errSSHAuthRejected = errors.New("SSH authentication rejected after host verification")
+
+// runFixedCommand authenticates only after host-key verification, runs one
+// fixed command with bounded stdout+stderr and returns its stdout. A nonzero
+// exit, oversized output or any channel failure is ErrProbeSSHDiscovery; raw
+// output and library diagnostics are discarded. Cancellation closes the
+// connection during handshake, channel creation, execution and collection.
+func (s *SSHHostInspector) runFixedCommand(ctx context.Context, host domain.ProbeSSHHost, command string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, preflightTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
-		return empty, err
+		return "", err
 	}
 	if s == nil || s.signer == nil || s.trust == nil || !host.Valid() {
-		return empty, domain.ErrProbeSSHInput
+		return "", domain.ErrProbeSSHInput
 	}
 	conn, err := s.connect(ctx, host.Address)
 	if err != nil {
-		return empty, err
+		return "", err
 	}
 	defer func() { _ = conn.Close() }()
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 	deadline, _ := ctx.Deadline()
 	if err := conn.SetDeadline(deadline); err != nil {
-		return empty, domain.ErrProbeSSHConnect
+		return "", domain.ErrProbeSSHConnect
 	}
-	trustRejected := false
+	trustRejected, trusted := false, false
 	config := &ssh.ClientConfig{
 		User:              host.User,
 		Auth:              []ssh.AuthMethod{ssh.PublicKeys(s.signer)},
@@ -181,39 +202,43 @@ func (s *SSHHostInspector) inspectHostOnce(ctx context.Context, host domain.Prob
 				trustRejected = true
 				return domain.ErrProbeSSHTrust
 			}
+			trusted = true
 			return nil
 		},
 	}
 	cc, channels, requests, err := ssh.NewClientConn(conn, host.Address, config)
 	if err != nil {
 		if err := ctx.Err(); err != nil {
-			return empty, err
+			return "", err
 		}
 		if trustRejected {
-			return empty, domain.ErrProbeSSHTrust
+			return "", domain.ErrProbeSSHTrust
 		}
-		return empty, domain.ErrProbeSSHConnect
+		if trusted {
+			return "", errSSHAuthRejected
+		}
+		return "", domain.ErrProbeSSHConnect
 	}
 	client := ssh.NewClient(cc, channels, requests)
 	defer func() { _ = client.Close() }()
 	session, err := client.NewSession()
 	if err != nil {
-		return empty, discoveryError(ctx)
+		return "", discoveryError(ctx)
 	}
 	defer func() { _ = session.Close() }()
 	output := &discoveryOutput{close: conn.Close}
 	session.Stdout = discoveryWriter{output: output, capture: true}
 	session.Stderr = discoveryWriter{output: output}
-	if err := session.Run(discoveryCommand); err != nil {
-		return empty, discoveryError(ctx)
+	if err := session.Run(command); err != nil {
+		return "", discoveryError(ctx)
 	}
 	if err := ctx.Err(); err != nil {
-		return empty, err
+		return "", err
 	}
 	if output.exceeded {
-		return empty, domain.ErrProbeSSHDiscovery
+		return "", domain.ErrProbeSSHDiscovery
 	}
-	return parseDiscovery(output.stdout.String())
+	return output.stdout.String(), nil
 }
 
 func discoveryError(ctx context.Context) error {

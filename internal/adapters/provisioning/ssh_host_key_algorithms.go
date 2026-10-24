@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"slices"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -13,8 +14,11 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
-// sshHostKeyProbeTimeout bounds one pre-authentication probe handshake.
-const sshHostKeyProbeTimeout = 10 * time.Second
+// sshHostKeyProbeTimeout bounds the whole learning step: every family is
+// probed concurrently within it. A real sshd answers a pre-authentication
+// handshake well inside it; a server that does not answer leaves the original
+// trust failure standing.
+const sshHostKeyProbeTimeout = 5 * time.Second
 
 // sshHostKeyFamilies are tried in order to find which host-key family a server
 // presents the pinned key under. A server offers one key per negotiated
@@ -40,9 +44,10 @@ func (s *SSHHostInspector) hostKeyAlgorithms(address string) []string {
 }
 
 // learnHostKeyAlgorithms is called after a pre-authentication trust
-// rejection. It probes each host-key family once, with handshakes aborted
-// inside the host-key callback before any user authentication, and caches the
-// family under which the server presents the pinned key. It reports whether a
+// rejection. It probes each host-key family once, concurrently and within one
+// bound, with handshakes aborted inside the host-key callback before any user
+// authentication, and caches the first family (in sshHostKeyFamilies order)
+// under which the server presents the pinned key. It reports whether a
 // retry restricted to a newly learned family could succeed. With known_hosts
 // trust, or when no family presents the pinned key, it returns false and the
 // trust failure stands.
@@ -51,31 +56,42 @@ func (s *SSHHostInspector) learnHostKeyAlgorithms(ctx context.Context, address s
 		return false
 	}
 	previous := s.hostKeyAlgorithms(address)
-	for _, family := range sshHostKeyFamilies {
-		if ctx.Err() != nil {
+	pctx, cancel := context.WithTimeout(ctx, sshHostKeyProbeTimeout)
+	defer cancel()
+	matched := make([]bool, len(sshHostKeyFamilies))
+	var wg sync.WaitGroup
+	for i, family := range sshHostKeyFamilies {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			matched[i] = s.probeHostKeyFamily(pctx, address, family)
+		}()
+	}
+	wg.Wait()
+	if ctx.Err() != nil {
+		return false
+	}
+	for i, family := range sshHostKeyFamilies {
+		if !matched[i] {
+			continue
+		}
+		if slices.Equal(family, previous) {
 			return false
 		}
-		if s.probeHostKeyFamily(ctx, address, family) {
-			if slices.Equal(family, previous) {
-				return false
-			}
-			s.algMu.Lock()
-			if s.algCache == nil {
-				s.algCache = make(map[string][]string)
-			}
-			s.algCache[address] = family
-			s.algMu.Unlock()
-			return true
+		s.algMu.Lock()
+		if s.algCache == nil {
+			s.algCache = make(map[string][]string)
 		}
+		s.algCache[address] = family
+		s.algMu.Unlock()
+		return true
 	}
 	return false
 }
 
 // probeHostKeyFamily reports whether the server presents the pinned key when
 // restricted to family. It never authenticates: the callback always aborts.
-func (s *SSHHostInspector) probeHostKeyFamily(ctx context.Context, address string, family []string) bool {
-	pctx, cancel := context.WithTimeout(ctx, sshHostKeyProbeTimeout)
-	defer cancel()
+func (s *SSHHostInspector) probeHostKeyFamily(pctx context.Context, address string, family []string) bool {
 	conn, err := s.connect(pctx, address)
 	if err != nil {
 		return false

@@ -5,6 +5,22 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
+## M8 installer host preflight gate
+
+Every new install now passes a nonmutating host preflight before any row or host
+change exists. The check is `phoenix-probe-admin install-preflight`, routed by the
+restricted key's forced command.
+
+It refuses with fixed 422 codes for:
+- bad host key, refused root login, unreachable host, missing helper;
+- non-Linux kernel, wrong architecture, non-root, no systemd;
+- missing stage authority, or any existing Phoenix install.
+
+Exact retries are answered from the journal and are never re-preflighted. Host-key
+pins of any type now work: the pinned family is learned on a trust rejection.
+Evidence is native/SQLite plus the Linux gatherer test; real-host evidence is in
+the M8 AWS matrix. See [installer API](M8_INSTALL_API.md#host-preflight-gate).
+
 ## M8 probe activation — accepted on real hosts (AWS run `96429584638b`)
 
 Through the real hub's REST API, SSH installs plus activations took fresh Ubuntu 24.04

@@ -70,13 +70,72 @@ platform, size, SHA-256) before returning. Errors are reduced to fixed sentinels
   2. Reserve a slot.
   3. Create the session; artifact or key failures happen here, before any row exists.
   4. Build the identity: systemd mode, layout 1, the public client fingerprint.
-  5. `journal.Create(identity, ownerID)`.
-  6. On `created=true`, dispatch one goroutine: `Run(rootCtx, identity, owner,
+  5. `journal.Observe(id)`. An existing operation is answered here: the stored
+     receipt for an exact retry (never re-preflighted, never redispatched), or a
+     conflict for a changed identity. Rerun behaviour is therefore explicit:
+     the same operation ID always returns its receipt; a new install on the same
+     host is a new operation ID and must pass the preflight.
+  6. **Host preflight** (`session.Preflight`, see below). A refusal returns a fixed
+     code and creates nothing: no row, no host change.
+  7. `journal.Create(identity, ownerID)`.
+  8. On `created=true`, dispatch one goroutine: `Run(rootCtx, identity, owner,
      fresh attempt UUIDs)`, close the session, release the slot.
-  7. On `created=false`, close the session and return the stored receipt with no
-     dispatch. A changed identity conflicts (journal).
-  8. When saturated, only an exact retry of committed work may answer; anything else
-     is Busy.
+  9. On `created=false` (a concurrent identical submit committed first), close the
+     session and return the stored receipt with no dispatch.
+  10. When saturated, only an exact retry of committed work may answer; anything
+      else is Busy.
+
+  The whole admission is bounded by 90 s (`probeInstallSubmitTTL`), covering the
+  artifact preparation, the lookup and the preflight with one host-key-family retry.
+
+### Host preflight gate
+
+Before anything is created, the installer runs the fixed command
+`/usr/local/bin/phoenix-probe-admin install-preflight` over the pinned SSH
+transport with the deployment key. `authorized-dispatch` routes it by exact
+`SSH_ORIGINAL_COMMAND` match, like the two authorized verbs. It needs no grant: it
+reads no input, changes nothing and prints one canonical report:
+
+```
+phoenix-install-preflight-v1
+kernel=Linux
+machine=x86_64
+systemd=1
+docker=0
+root=1
+authority=1
+existing=0
+```
+
+- `systemd` means `/run/systemd/system` is a directory and `systemctl` is present.
+- `authority` means the protected stage-authority loader accepts the key; the
+  authorized helpers would accept it too.
+- `existing` counts `uptime-phoenix-probe-*` entries under `/var/lib`, `/opt` and
+  `/etc/systemd/system`, capped at 64.
+
+`ProbeInstallHostReport.Refusal` checks in a fixed order, so the most fundamental
+mismatch is the one reported. Every refusal is HTTP **422** with one of these codes:
+
+| Code | Cause |
+|---|---|
+| `host_trust_failed` | no presented host key matches the pin (nothing authenticated) |
+| `host_destination_refused` | endpoint policy refused the resolved address |
+| `host_auth_failed` | host verified, then root refused the deployment key (missing root access) |
+| `host_unreachable` | TCP connection or handshake failed before host verification |
+| `host_helper_unavailable` | helper absent, nonzero exit, or a noncanonical or oversized report |
+| `host_unsupported_os` | kernel is not Linux |
+| `host_architecture_mismatch` | `machine` does not map (`x86_64`→amd64, `aarch64`→arm64) to the pin |
+| `host_root_required` | helper's effective uid is not 0 |
+| `host_systemd_unavailable` | systemd mode and the host is not booted with systemd |
+| `host_authority_missing` | no protected trusted stage-authority key |
+| `host_existing_install` | any Phoenix probe entry exists, including leftovers of an interrupted install |
+
+An existing install is never adopted or overwritten. A second probe would contend
+for the listener. Leftovers are removed by an intentional cleanup.
+
+The preflight is not a host lock: two different operations submitted for one host
+at the same instant can both pass it. The later install then fails honestly at its
+own resources, or at activation readiness.
 - **Observe:** `journal.Observe`; cold expiry reconciles in storage.
 - **Cancel:** reads first, and returns a `resources_ready` receipt unchanged: it has
   no remaining installer work, and the journal would otherwise demote it to a

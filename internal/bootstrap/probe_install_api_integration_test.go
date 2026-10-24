@@ -209,13 +209,16 @@ type installAPIServer struct {
 	release     chan struct{}
 	releaseOnce sync.Once
 
-	mu       sync.Mutex
-	conns    int
-	commands []string
-	codes    []int
-	applies  []string
-	stderr   bytes.Buffer
-	wg       sync.WaitGroup
+	mu    sync.Mutex
+	conns int
+	// preflights counts install-preflight runs; their connections are not
+	// in conns, so the resource-helper assertions stay exact.
+	preflights int
+	commands   []string
+	codes      []int
+	applies    []string
+	stderr     bytes.Buffer
+	wg         sync.WaitGroup
 }
 
 func serveInstallAPI(t *testing.T, cfg installAPIServerConfig) *installAPIServer {
@@ -322,6 +325,17 @@ func (s *installAPIServer) serve(conn net.Conn) {
 				continue
 			}
 			_ = req.Reply(true, nil)
+			if exec.Command == provisioning.SSHProbeInstallPreflightCommand {
+				var stderr bytes.Buffer
+				code := runProbeInstallPreflightHelper(context.Background(), nil, authzE2EInput{ch: ch}, ch, &stderr, s.preflightReport)
+				s.mu.Lock()
+				s.conns--
+				s.preflights++
+				s.mu.Unlock()
+				_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{uint32(code)}))
+				_ = ch.Close()
+				break
+			}
 			s.mu.Lock()
 			s.commands = append(s.commands, exec.Command)
 			s.mu.Unlock()
@@ -362,6 +376,24 @@ func (s *installAPIServer) dispatch(command string, ch ssh.Channel, stderr *byte
 	return 127
 }
 
+// preflightReport describes a clean amd64 systemd host whose existing
+// installs are the Phoenix entries already in the fixture tree.
+func (s *installAPIServer) preflightReport(context.Context) (domain.ProbeInstallHostReport, error) {
+	report := domain.ProbeInstallHostReport{Kernel: "Linux", Machine: "x86_64", Systemd: true, Root: true, Authority: true}
+	for _, dir := range []string{s.cfg.stageParent, s.cfg.tree.varLib, s.cfg.tree.unitDir} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return domain.ProbeInstallHostReport{}, err
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), probeInstallPreflightOwnedPrefix) {
+				report.ExistingInstalls++
+			}
+		}
+	}
+	return report, nil
+}
+
 // apply records the action, optionally holds it, then applies it for real.
 func (s *installAPIServer) apply(ctx context.Context, intent domain.ProbeHostActionIntent) error {
 	s.mu.Lock()
@@ -374,18 +406,19 @@ func (s *installAPIServer) apply(ctx context.Context, intent domain.ProbeHostAct
 }
 
 type installAPIServerView struct {
-	conns    int
-	commands []string
-	codes    []int
-	applies  []string
-	stderr   string
+	conns      int
+	preflights int
+	commands   []string
+	codes      []int
+	applies    []string
+	stderr     string
 }
 
 func (s *installAPIServer) view() installAPIServerView {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return installAPIServerView{
-		conns: s.conns, commands: slices.Clone(s.commands), codes: slices.Clone(s.codes),
+		conns: s.conns, preflights: s.preflights, commands: slices.Clone(s.commands), codes: slices.Clone(s.codes),
 		applies: slices.Clone(s.applies), stderr: s.stderr.String(),
 	}
 }
@@ -993,6 +1026,9 @@ func (f *installAPIFixture) wantServerRanFullInstall(t *testing.T, installs int)
 		if code != 0 {
 			t.Fatalf("a helper exited non-zero: %v", v.codes)
 		}
+	}
+	if v.preflights < installs {
+		t.Fatalf("host preflights = %d, want at least one per install (%d)", v.preflights, installs)
 	}
 	stages, actions := 0, 0
 	for _, command := range v.commands {
@@ -1624,27 +1660,33 @@ func TestProbeInstallAPISaturationRefusesNewWorkButAnswersExactRetry(t *testing.
 		t.Fatalf("saturated retries reached SSH: %+v -> %+v", before, after)
 	}
 
-	// Releasing the held actions lets both installs finish; the slots free up
-	// and the refused request can then be admitted.
+	// Releasing the held actions lets both installs finish and frees the
+	// slots. The refused request is then admitted past capacity, but the host
+	// preflight now finds the two installs on this host and refuses it with a
+	// definite 422 that creates nothing: no row, no SSH resource helper.
 	f.server.releaseAll()
 	f.awaitStatus(t, installAPIOpA, installAPIWait, domain.ProbeInstallResourcesReady)
 	f.awaitStatus(t, installAPIOpB, installAPIWait, domain.ProbeInstallResourcesReady)
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		rec = f.post(t, installAPIOpC)
-		if rec.Code == http.StatusAccepted {
+		if rec.Code != http.StatusServiceUnavailable {
 			break
 		}
-		if rec.Code != http.StatusServiceUnavailable || time.Now().After(deadline) {
-			t.Fatalf("third install after capacity freed: %d %s", rec.Code, rec.Body.String())
+		if time.Now().After(deadline) {
+			t.Fatalf("third install still busy after capacity freed: %s", rec.Body.String())
 		}
 		time.Sleep(installAPIPoll)
 	}
-	f.awaitStatus(t, installAPIOpC, installAPIWait, domain.ProbeInstallResourcesReady)
-	f.wantServerRanFullInstall(t, 3)
-	f.wantCounts(t, "after three installs", installAPICounts{operations: 3, resources: 12, stage: 3, actions: 9})
-	if names := entryNames(t, f.stageParent); len(names) != 3 {
-		t.Fatalf("stage parent holds %v, want one directory per install", names)
+	installAPIWantError(t, "third install on an occupied host", rec, http.StatusUnprocessableEntity, domain.ProbeInstallPreflightExisting)
+	installAPIWantError(t, "refused third GET", f.asAdmin(t, http.MethodGet, installAPIPath+"/"+installAPIOpC, ""), http.StatusNotFound, "install_not_found")
+	f.wantServerRanFullInstall(t, 2)
+	f.wantCounts(t, "after the refused third install", installAPICounts{operations: 2, resources: 8, stage: 2, actions: 6})
+	if names := entryNames(t, f.stageParent); len(names) != 2 {
+		t.Fatalf("stage parent holds %v, want one directory per admitted install", names)
+	}
+	if v := f.server.view(); v.preflights != 3 {
+		t.Fatalf("host preflights = %d, want one per admitted submission (A, B, C)", v.preflights)
 	}
 	f.wantKeyNotAtRest(t)
 }
