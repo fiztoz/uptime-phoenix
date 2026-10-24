@@ -70,21 +70,24 @@ func (s *SSHBinaryStageSender) SendAuthorized(ctx context.Context, intent domain
 	if err != nil || len(header) == 0 {
 		return zero, ErrSSHBinaryStageInput
 	}
-	tctx, cancel := context.WithTimeout(ctx, stageSendTimeout)
-	defer cancel()
-	call := &stageSendCall{
-		ctx:          ctx,
-		tctx:         tctx,
-		intent:       intent,
-		pin:          pin,
-		header:       header,
-		src:          &stageSendSource{},
-		cancelJoined: make(chan struct{}),
-		command:      SSHProbeBinaryStageAuthorizedCommand,
-		grantPlan:    binaryStageGrantPlan(intent, authorizer),
-		waited:       make(chan struct{}),
+	attempt := func() (SSHBinaryStageAck, error) {
+		tctx, cancel := context.WithTimeout(ctx, stageSendTimeout)
+		defer cancel()
+		call := &stageSendCall{
+			ctx:          ctx,
+			tctx:         tctx,
+			intent:       intent,
+			pin:          pin,
+			header:       header,
+			src:          &stageSendSource{},
+			cancelJoined: make(chan struct{}),
+			command:      SSHProbeBinaryStageAuthorizedCommand,
+			grantPlan:    binaryStageGrantPlan(intent, authorizer),
+			waited:       make(chan struct{}),
+		}
+		return call.run(s.insp, binary)
 	}
-	return call.run(s.insp, binary)
+	return s.withHostKeyRetry(ctx, intent.Identity.Host.Address, attempt)
 }
 
 // notStaged reports whether an authorized call failed before any stdin byte.

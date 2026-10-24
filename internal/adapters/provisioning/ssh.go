@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net"
 	"net/netip"
@@ -67,6 +68,10 @@ type SSHHostInspector struct {
 	policy probe.EndpointPolicy
 	lookup func(context.Context, string, string) ([]netip.Addr, error)
 	dial   func(context.Context, string, string) (net.Conn, error)
+	// pin is the explicit host fingerprint, empty for known_hosts trust.
+	pin      string
+	algMu    sync.Mutex
+	algCache map[string][]string
 }
 
 var _ ports.ProbeHostInspector = (*SSHHostInspector)(nil)
@@ -116,7 +121,7 @@ func NewSSHHostInspector(ctx context.Context, privateKey []byte, trust SSHHostTr
 		}
 	}
 	return &SSHHostInspector{
-		signer: signer, trust: verify, policy: policy,
+		signer: signer, trust: verify, policy: policy, pin: trust.Fingerprint,
 		lookup: net.DefaultResolver.LookupNetIP,
 		dial:   (&net.Dialer{}).DialContext,
 	}, nil
@@ -136,6 +141,16 @@ func validFingerprint(pin string) bool {
 // output and library diagnostics. Cancellation closes the underlying connection
 // during handshake, channel creation, command execution and output collection.
 func (s *SSHHostInspector) InspectHost(ctx context.Context, host domain.ProbeSSHHost) (domain.ProbeHostFacts, error) {
+	facts, err := s.inspectHostOnce(ctx, host)
+	// A pre-authentication trust rejection executed nothing: learn the host's
+	// matching key family once and retry.
+	if errors.Is(err, domain.ErrProbeSSHTrust) && ctx != nil && s.learnHostKeyAlgorithms(ctx, host.Address) {
+		return s.inspectHostOnce(ctx, host)
+	}
+	return facts, err
+}
+
+func (s *SSHHostInspector) inspectHostOnce(ctx context.Context, host domain.ProbeSSHHost) (domain.ProbeHostFacts, error) {
 	var empty domain.ProbeHostFacts
 	ctx, cancel := context.WithTimeout(ctx, preflightTimeout)
 	defer cancel()
@@ -158,8 +173,9 @@ func (s *SSHHostInspector) InspectHost(ctx context.Context, host domain.ProbeSSH
 	}
 	trustRejected := false
 	config := &ssh.ClientConfig{
-		User: host.User,
-		Auth: []ssh.AuthMethod{ssh.PublicKeys(s.signer)},
+		User:              host.User,
+		Auth:              []ssh.AuthMethod{ssh.PublicKeys(s.signer)},
+		HostKeyAlgorithms: s.hostKeyAlgorithms(host.Address),
 		HostKeyCallback: func(name string, addr net.Addr, key ssh.PublicKey) error {
 			if err := s.trust(name, addr, key); err != nil {
 				trustRejected = true

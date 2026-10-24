@@ -208,7 +208,11 @@ listened on 8443. It was then stopped. Enrollment was not attempted.
 **Findings from the run:**
 - Go's SSH client negotiates the **ECDSA** host key first. The operation's pinned
   `host_key_fingerprint` must therefore be the ECDSA key's; an ED25519 pin fails
-  trust before exec, harmlessly. Pinning a specific key type is a follow-up.
+  trust before exec, harmlessly. **Resolved:** on a trust rejection the inspector
+  now probes each host-key family (ECDSA, ED25519, RSA-SHA2) with no
+  authentication, caches the family that presents the pinned key, and retries the
+  call once restricted to it. A pin of any host key type works; a pin of no
+  presented key still fails before authentication.
 - The first remote gate attempt ran the test binaries outside their package
   directories, so migration SQL files were not found; it is retained as a failed
   setup run. Its script also aborted before removing its container, which was then

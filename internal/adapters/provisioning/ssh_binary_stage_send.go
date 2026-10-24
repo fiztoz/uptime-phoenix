@@ -153,19 +153,22 @@ func (s *SSHBinaryStageSender) Send(ctx context.Context, intent domain.ProbeBina
 	}
 	// A fixed two-minute per-call budget, shortened by the caller. This is
 	// cooperative local work budgeting, not a remote termination guarantee.
-	tctx, cancel := context.WithTimeout(ctx, stageSendTimeout)
-	defer cancel()
-	call := &stageSendCall{
-		ctx:          ctx,
-		tctx:         tctx,
-		intent:       intent,
-		pin:          pin,
-		header:       header,
-		src:          &stageSendSource{},
-		cancelJoined: make(chan struct{}),
-		command:      SSHProbeBinaryStageCommand,
+	attempt := func() (SSHBinaryStageAck, error) {
+		tctx, cancel := context.WithTimeout(ctx, stageSendTimeout)
+		defer cancel()
+		call := &stageSendCall{
+			ctx:          ctx,
+			tctx:         tctx,
+			intent:       intent,
+			pin:          pin,
+			header:       header,
+			src:          &stageSendSource{},
+			cancelJoined: make(chan struct{}),
+			command:      SSHProbeBinaryStageCommand,
+		}
+		return call.run(s.insp, binary)
 	}
-	return call.run(s.insp, binary)
+	return s.withHostKeyRetry(ctx, intent.Identity.Host.Address, attempt)
 }
 
 // stageSendCall owns one Send call's transport and borrowed snapshot stream.
@@ -314,8 +317,9 @@ func (c *stageSendCall) connect(insp *SSHBinaryStageInspector) error {
 	}
 	trustRejected := false
 	config := &ssh.ClientConfig{
-		User: c.intent.Identity.Host.User,
-		Auth: []ssh.AuthMethod{ssh.PublicKeys(insp.host.signer)},
+		User:              c.intent.Identity.Host.User,
+		Auth:              []ssh.AuthMethod{ssh.PublicKeys(insp.host.signer)},
+		HostKeyAlgorithms: insp.host.hostKeyAlgorithms(c.intent.Identity.Host.Address),
 		HostKeyCallback: func(name string, addr net.Addr, key ssh.PublicKey) error {
 			if err := insp.host.trust(name, addr, key); err != nil {
 				trustRejected = true

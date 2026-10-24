@@ -82,23 +82,26 @@ func (s *SSHBinaryStageSender) sendHostAction(ctx context.Context, intent domain
 	if err != nil {
 		return zero, ErrSSHBinaryStageInput
 	}
-	tctx, cancel := context.WithTimeout(ctx, stageSendTimeout)
-	defer cancel()
-	action := intent
-	call := &stageSendCall{
-		ctx:          ctx,
-		tctx:         tctx,
-		intent:       stage,
-		header:       frame,
-		src:          &stageSendSource{},
-		cancelJoined: make(chan struct{}),
-		command:      SSHProbeHostActionCommand,
-		grantPlan:    hostActionGrantPlan(intent, authorizer),
-		hostAction:   &action,
-		hostReceipt:  receipt,
-		waited:       make(chan struct{}),
+	attempt := func() (SSHBinaryStageAck, error) {
+		tctx, cancel := context.WithTimeout(ctx, stageSendTimeout)
+		defer cancel()
+		action := intent
+		call := &stageSendCall{
+			ctx:          ctx,
+			tctx:         tctx,
+			intent:       stage,
+			header:       frame,
+			src:          &stageSendSource{},
+			cancelJoined: make(chan struct{}),
+			command:      SSHProbeHostActionCommand,
+			grantPlan:    hostActionGrantPlan(intent, authorizer),
+			hostAction:   &action,
+			hostReceipt:  receipt,
+			waited:       make(chan struct{}),
+		}
+		return call.run(s.insp, nil)
 	}
-	ack, err := call.run(s.insp, nil)
+	ack, err := s.withHostKeyRetry(ctx, intent.Identity.Host.Address, attempt)
 	if err != nil || ack.Intent != stage {
 		if err == nil {
 			err = ErrSSHBinaryStageUnknown

@@ -102,6 +102,14 @@ func NewSSHBinaryStageInspector(ctx context.Context, privateKey []byte, hostFing
 // read-only OPEN, FSTAT, READ and CLOSE. Cancellation and transport failure
 // discard every observation. A match is not an atomic snapshot or a fence.
 func (s *SSHBinaryStageInspector) InspectBinaryStage(ctx context.Context, intent domain.ProbeBinaryStageIntent) (domain.ProbeBinaryStageObservation, error) {
+	obs, err := s.inspectBinaryStageOnce(ctx, intent)
+	if errors.Is(err, domain.ErrProbeSSHTrust) && ctx != nil && s != nil && s.host != nil && s.host.learnHostKeyAlgorithms(ctx, intent.Identity.Host.Address) {
+		return s.inspectBinaryStageOnce(ctx, intent)
+	}
+	return obs, err
+}
+
+func (s *SSHBinaryStageInspector) inspectBinaryStageOnce(ctx context.Context, intent domain.ProbeBinaryStageIntent) (domain.ProbeBinaryStageObservation, error) {
 	var zero domain.ProbeBinaryStageObservation
 	if s == nil || imageSnapshotNil(ctx) || s.host == nil || s.host.signer == nil || s.host.trust == nil || s.hostPin == "" || s.clientPin == "" {
 		return zero, domain.ErrProbeBinaryStageInput
@@ -219,8 +227,9 @@ func (s *SSHBinaryStageInspector) openSFTP(ctx context.Context, intent domain.Pr
 	}
 	trustRejected := false
 	config := &ssh.ClientConfig{
-		User: intent.Identity.Host.User,
-		Auth: []ssh.AuthMethod{ssh.PublicKeys(s.host.signer)},
+		User:              intent.Identity.Host.User,
+		Auth:              []ssh.AuthMethod{ssh.PublicKeys(s.host.signer)},
+		HostKeyAlgorithms: s.host.hostKeyAlgorithms(intent.Identity.Host.Address),
 		HostKeyCallback: func(name string, addr net.Addr, key ssh.PublicKey) error {
 			if err := s.host.trust(name, addr, key); err != nil {
 				trustRejected = true

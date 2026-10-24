@@ -732,9 +732,11 @@ func TestSSHArtifactDirectoryExecutorHostTrustFailureIsNotStarted(t *testing.T) 
 		got := adExecApply(t, t.Context(), e, adExecOperation(t, intent), "artifact_directory")
 		adExecRequireOutcome(t, got, adExecNotStarted)
 		// The trust path really ran: the TCP connection was made and rejected
-		// before the client authenticated, so no helper was ever started.
-		if h.f.connCalls.Load() != 1 {
-			t.Fatalf("connections = %d, want 1 (trust rejected after dial)", h.f.connCalls.Load())
+		// before the client authenticated, so no helper was ever started. A
+		// rejection triggers one pre-authentication probe per host-key family
+		// (none presents the wrong pin), and no retry follows.
+		if n := h.f.connCalls.Load(); n < 1 || n > 1+int32(len(sshHostKeyFamilies)) {
+			t.Fatalf("connections = %d, want 1 plus at most %d probes", n, len(sshHostKeyFamilies))
 		}
 		if h.f.authCalls.Load() != 0 {
 			t.Fatalf("client authenticated before host trust: %d", h.f.authCalls.Load())
