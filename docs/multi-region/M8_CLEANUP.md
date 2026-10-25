@@ -155,5 +155,7 @@ Verification. Executed locally unless noted:
   3. an exact retry returns the settled receipt;
   4. a second cleanup is refused (`cleanup_ineligible`), and so is activation;
   5. a new install on the same host passes the preflight.
-- **Not yet executed.** Real systemd/root effects on Linux; these belong to the AWS
-  acceptance matrix.
+- **Real hosts.** Real systemd and root effects on Linux passed in AWS run
+  `398107b05ed2` on arm64 and amd64. Cleanup of an active probe, of an interrupted
+  install and of a failed activation each left 0 resources, an inactive unit and no
+  listener.

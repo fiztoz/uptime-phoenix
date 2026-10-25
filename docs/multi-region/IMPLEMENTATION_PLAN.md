@@ -332,6 +332,8 @@ has no concrete remote adapter or installation-success path.
 
 **Acceptance:** supported clean host, existing install, interrupted install, missing sudo, bad host key, wrong architecture, inaccessible runtime port, and non-Docker systemd path all have tested outcomes. No failure branch returns success.
 
+**Status:** passed on real hosts. AWS run `398107b05ed2` covered all 13 matrix cases on arm64 and amd64 ([record](IMPLEMENTATION_STATUS.md#m8-acceptance-matrix--passed-on-real-hosts-aws-run-398107b05ed2-2026-10-25)). "Missing sudo" is the installer's root-only model: a key that root does not accept is refused with `host_auth_failed`, and a non-root SSH user is refused at validation. The Docker container path remains an optional follow-up.
+
 ## 12. Follow-on M9 — optional public push gateway
 
 - [ ] Define regional push ownership and timeout behavior separately from pull scheduling.

@@ -5,6 +5,47 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
+## M8 acceptance matrix — passed on real hosts (AWS run `398107b05ed2`, 2026-10-25)
+
+Every §11 acceptance case was driven through the hub's real REST API by
+`scripts/m8_aws_matrix.py`. The hosts were fresh Ubuntu 24.04 machines (t4g.small
+arm64, t3.small amd64) in ap-southeast-1, and the hub ran locally on SQLite.
+**13/13 cases passed:**
+
+| Case | Host | Observed outcome |
+|---|---|---|
+| bad host key | amd64 | 422 `host_trust_failed`, no receipt |
+| wrong architecture | amd64 | 422 `host_architecture_mismatch`, no receipt |
+| missing root access (unauthorized key) | amd64 | 422 `host_auth_failed`, no receipt |
+| missing helper | arm64 | 422 `host_helper_unavailable`, no receipt |
+| clean host, systemd, ED25519 pin | amd64 | `resources_ready` → activation `active`; unit active, listening on 8443 |
+| existing install | amd64 | 422 `host_existing_install`, no receipt |
+| cleanup of an active probe | amd64 | `cleaned`; 0 resources, unit inactive, no listener |
+| reinstall after cleanup | amd64 | `resources_ready`, then `cleaned` |
+| interrupted install (cancel after the first resource) | arm64 | `canceled`, `failed_phase=artifact_directory`, 1 leftover; new install 422 `host_existing_install`; cleanup `cleaned`, 0 left |
+| inaccessible runtime port (8443 dropped on the host) | arm64 | activation `failed`, `failed_phase=enrollment`, enrollment `not_started` (token never sent) |
+| cleanup after the failed activation | arm64 | `cleaned`; 0 resources, no listener |
+| clean host, systemd, ECDSA pin | arm64 | `resources_ready` → activation `active`; unit active, listening on 8443 |
+| final cleanup | arm64 | `cleaned` |
+
+- **Real Linux unit tests.** On both architectures, as root and as an unprivileged
+  user, the cross-compiled Linux tests for the cleanup applier and the install-preflight
+  gatherer and helper passed. Each host's real `install-preflight` report was canonical.
+- **MariaDB.** The real-MariaDB `m8-stage-authorization` gate (292 leaves) passed
+  locally on the cleanup commit.
+- **Teardown.** Both instances were terminated, and the key pair and security group
+  deleted. The harness sweep reports 0 active resources.
+- **Operator IP rotation.** The operator's public IP rotated after launch. The run's
+  tagged security group was updated by hand to the new /32 on 22 and 8443, and the
+  stale rule was revoked.
+- **Driver fixes.** Two driver bugs aborted earlier passes of the matrix:
+  - remote shell quoting;
+  - a keyword clash.
+
+  Both were fixed in the driver. No product change was needed. Install `fc344c81`,
+  activated in an aborted pass, was cleaned through the API with real systemd effects
+  verified.
+
 ## M8 intentional install cleanup
 
 [Cleanup](M8_CLEANUP.md) adds `POST`/`GET /api/probe-installs/:id/cleanup`. It is a

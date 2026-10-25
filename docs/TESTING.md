@@ -141,6 +141,28 @@ python3 -B -m unittest scripts/test_m8_aws_acceptance.py
 
 The full repository package now needs `-timeout 2400s` (CI already uses it).
 
+**M8 acceptance matrix (AWS, operator-approved only).**
+- **Run.** `python3 -B scripts/m8_aws_matrix.py <run_dir> <run_id> <arm64_ip> <amd64_ip>`
+  drives every §11 case through a locally running hub's REST API.
+- **Hosts.** First prepare each host with the helper, the stage-authority public key
+  and the restricted staging key, as root:
+
+  ```sh
+  install -o root -g root -m 0755 phoenix-probe-admin /usr/local/bin/phoenix-probe-admin
+  install -d -o root -g root -m 0755 /etc/phoenix-probe
+  install -o root -g root -m 0644 stage-authority.pub /etc/phoenix-probe/stage-authority.pub
+  printf 'restrict,command="/usr/local/bin/phoenix-probe-admin authorized-dispatch" %s\n' "$(cat staging_key.pub)" > /root/.ssh/authorized_keys
+  chmod 0600 /root/.ssh/authorized_keys
+  ```
+- **Run directory.** `<run_dir>` holds:
+  - the hub's `admin.password` and `hub.db`;
+  - `staging_key`, plus an `unauthorized_key` that root does not accept;
+  - `artifacts/` with the pinned probe releases (version `0.9.2-m8matrix`).
+- **Output.** It prints one JSON line per case and exits nonzero on any failure.
+- **Hub requirement.** The hub must reach 8443 on the hosts.
+- **Operator IP.** If your public IP rotates mid-run, update the run's tagged security
+  group to the new /32.
+
 **Real-host acceptance (AWS, operator-approved only).** `scripts/m8_aws_acceptance.py`
 runs `plan` (offline; prints a run id), then `up --approve-run-id <id> --expect-account
 <id> --operator-cidr <ip>/32 [--profile <p>]`, `ssh`, `down --run-id <id>` and `sweep`.

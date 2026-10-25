@@ -140,6 +140,19 @@ before choosing work. Completed M2/M3 handoffs are not active assignments.
 
 ## M8 continuation
 
+**Current state (2026-10-25).** The §11 checklist is complete, and the acceptance
+matrix passed on real arm64 and amd64 hosts (AWS run `398107b05ed2`; see
+IMPLEMENTATION_STATUS). The systemd path is:
+1. host preflight;
+2. install;
+3. activation (enrolled, config applied);
+4. cleanup.
+
+The only open item is the optional Docker container path. Its seams are image
+metadata, archive and snapshot. Before starting it, read
+[cleanup](M8_CLEANUP.md), [installer API](M8_INSTALL_API.md) and
+[activation](M8_ACTIVATION.md). The history below is retained for context.
+
 The first [verified SSH preflight slice](M8_SSH_PREFLIGHT.md) is implemented:
 `phoenix-probe-admin inspect-host` performs host-key-verified, policy-bound,
 bounded nonmutating discovery without loading hub configuration or touching the
