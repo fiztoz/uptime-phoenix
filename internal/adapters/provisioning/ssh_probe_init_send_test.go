@@ -934,7 +934,7 @@ func TestSendHostActionServiceStartNotStagedCases(t *testing.T) {
 func TestSendHostActionReceiptCallbackIsTheOnlyAuthority(t *testing.T) {
 	t.Run("a nil callback never acknowledges", func(t *testing.T) {
 		h := newHostActSendHarness(t, domain.ProbeActivationServiceStart, nil)
-		ack, err := h.sender.sendHostAction(t.Context(), h.intent, h.auth, nil)
+		ack, err := h.sender.sendHostAction(t.Context(), h.intent, h.auth, nil, nil)
 		if err != ErrSSHBinaryStageUnknown || ack != (SSHHostActionAck{}) {
 			t.Fatalf("nil callback = %+v %v, want Unknown", ack, err)
 		}
@@ -947,7 +947,7 @@ func TestSendHostActionReceiptCallbackIsTheOnlyAuthority(t *testing.T) {
 	t.Run("a refusing callback overrides a perfect receipt", func(t *testing.T) {
 		h := newHostActSendHarness(t, domain.ProbeActivationServiceStart, nil)
 		calls := 0
-		ack, err := h.sender.sendHostAction(t.Context(), h.intent, h.auth, func([]byte) bool { calls++; return false })
+		ack, err := h.sender.sendHostAction(t.Context(), h.intent, h.auth, nil, func([]byte) bool { calls++; return false })
 		if err != ErrSSHBinaryStageUnknown || ack != (SSHHostActionAck{}) || calls != 1 {
 			t.Fatalf("refusing callback = %+v %v after %d calls", ack, err, calls)
 		}
@@ -956,7 +956,7 @@ func TestSendHostActionReceiptCallbackIsTheOnlyAuthority(t *testing.T) {
 	t.Run("the callback sees exactly the bytes after the challenge", func(t *testing.T) {
 		h := newProbeInitSendHarness(t, nil)
 		var seen [][]byte
-		ack, err := h.sender.sendHostAction(t.Context(), h.intent, h.auth, func(body []byte) bool {
+		ack, err := h.sender.sendHostAction(t.Context(), h.intent, h.auth, nil, func(body []byte) bool {
 			seen = append(seen, bytes.Clone(body))
 			return true
 		})
@@ -972,7 +972,7 @@ func TestSendHostActionReceiptCallbackIsTheOnlyAuthority(t *testing.T) {
 	t.Run("the callback never runs after a failed exit", func(t *testing.T) {
 		h := newProbeInitSendHarness(t, func(helper *hostActSendHelper, _ *hostActSendAuthorizer) { helper.exit = sendTExit() })
 		calls := 0
-		ack, err := h.sender.sendHostAction(t.Context(), h.intent, h.auth, func([]byte) bool { calls++; return true })
+		ack, err := h.sender.sendHostAction(t.Context(), h.intent, h.auth, nil, func([]byte) bool { calls++; return true })
 		if err != ErrSSHBinaryStageUnknown || ack != (SSHHostActionAck{}) {
 			t.Fatalf("failed exit = %+v %v, want Unknown", ack, err)
 		}
@@ -987,7 +987,7 @@ func TestSendHostActionReceiptCallbackIsTheOnlyAuthority(t *testing.T) {
 			helper.noChallengeStatus = 1
 		})
 		calls := 0
-		_, err := h.sender.sendHostAction(t.Context(), h.intent, h.auth, func([]byte) bool { calls++; return true })
+		_, err := h.sender.sendHostAction(t.Context(), h.intent, h.auth, nil, func([]byte) bool { calls++; return true })
 		if err != ErrSSHBinaryStageNotStaged || calls != 0 {
 			t.Fatalf("no challenge = %v after %d callback calls, want NotStaged and 0", err, calls)
 		}

@@ -18,17 +18,41 @@ import (
 const (
 	probeSystemctlTimeout   = 30 * time.Second
 	probeSystemctlMaxOutput = 4096
+
+	// probeDockerTimeout bounds every docker invocation but load, which
+	// probeDockerLoadTimeout bounds. probeDockerMaxOutput bounds stdout; the
+	// largest answer is docker load's per-layer progress for a 128-layer image.
+	probeDockerTimeout     = 30 * time.Second
+	probeDockerLoadTimeout = 10 * time.Minute
+	probeDockerMaxOutput   = 1 << 20
+	// probeDockerHost pins every invocation to the daemon socket preflight
+	// checks, so a docker context in root's config can never redirect the
+	// install to another daemon.
+	probeDockerHost = "unix:///var/run/docker.sock"
 )
 
 // probeSystemctlCandidates are the only systemctl paths ever executed.
 var probeSystemctlCandidates = []string{"/usr/bin/systemctl", "/bin/systemctl"}
 
+// probeDockerCandidates are the only docker CLI paths ever executed.
+var probeDockerCandidates = []string{"/usr/bin/docker", "/usr/local/bin/docker"}
+
 // applyHostProbeAction opens the protected fixed parent(s) for the intent's
 // kind (literal /var/lib, /opt or /etc/systemd/system) and applies the action
-// beneath them. Only probe_init returns its own receipt.
-func applyHostProbeAction(ctx context.Context, intent domain.ProbeHostActionIntent) ([]byte, error) {
+// beneath them; Docker identities route to the Docker appliers. stagedArchive
+// is the verified image_cache payload path and is empty for every other kind.
+// Only probe_init returns its own receipt.
+func applyHostProbeAction(ctx context.Context, intent domain.ProbeHostActionIntent, stagedArchive string) ([]byte, error) {
 	if err := probeBinaryStageAuthorityPrecheck(ctx); err != nil {
 		return nil, err
+	}
+	if intent.Identity.Mode == domain.ProbeInstallDocker {
+		return applyProbeDockerHostAction(ctx, intent, stagedArchive,
+			func() (provisioning.ProbeDocker, error) { return newHostProbeDocker() },
+			func(fn func(*os.File) error) error { return withProbeHostParent(fn, "var", "lib") })
+	}
+	if stagedArchive != "" {
+		return nil, domain.ErrProbeBinaryStageWriteInput
 	}
 	switch intent.Kind {
 	case domain.ProbeHostActionDataDirectory:
@@ -151,12 +175,50 @@ func newHostProbeSystemctl() (*hostProbeSystemctl, error) {
 
 // Run returns bounded stdout and the exit status; a nonzero exit is not an error.
 func (s *hostProbeSystemctl) Run(ctx context.Context, args ...string) (string, int, error) {
-	runCtx, cancel := context.WithTimeout(ctx, probeSystemctlTimeout)
+	return runHostProbeFixed(ctx, s.path, []string{}, probeSystemctlTimeout, probeSystemctlMaxOutput, args)
+}
+
+// hostProbeDocker executes one root-owned, non-group/world-writable docker CLI
+// from a fixed absolute path with a minimal fixed environment.
+type hostProbeDocker struct{ path string }
+
+func newHostProbeDocker() (*hostProbeDocker, error) {
+	for _, candidate := range probeDockerCandidates {
+		info, err := os.Stat(candidate)
+		if err != nil {
+			continue
+		}
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !info.Mode().IsRegular() || !ok || st.Uid != 0 || info.Mode().Perm()&0o022 != 0 {
+			return nil, domain.ErrProbeBinaryStageWriteUnavailable
+		}
+		return &hostProbeDocker{path: candidate}, nil
+	}
+	return nil, domain.ErrProbeBinaryStageWriteUnavailable
+}
+
+// Run returns bounded stdout and the exit status; a nonzero exit is not an
+// error. The environment is only HOME (the CLI reads root's config there) and
+// the pinned local daemon socket; stderr is discarded. docker load streams a
+// whole image archive and gets the longer timeout.
+func (d *hostProbeDocker) Run(ctx context.Context, args ...string) (string, int, error) {
+	timeout := probeDockerTimeout
+	if len(args) > 0 && args[0] == "load" {
+		timeout = probeDockerLoadTimeout
+	}
+	return runHostProbeFixed(ctx, d.path, []string{"HOME=/root", "DOCKER_HOST=" + probeDockerHost}, timeout, probeDockerMaxOutput, args)
+}
+
+// runHostProbeFixed runs one fixed absolute executable with the given
+// environment, a bounded timeout and bounded stdout, from "/". A nonzero exit
+// is returned as the exit code, not an error; stderr is never kept.
+func runHostProbeFixed(ctx context.Context, path string, env []string, timeout time.Duration, maxOutput int, args []string) (string, int, error) {
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, s.path, args...)
-	cmd.Env = []string{}
+	cmd := exec.CommandContext(runCtx, path, args...)
+	cmd.Env = env
 	cmd.Dir = "/"
-	stdout := &probeBoundedBuffer{max: probeSystemctlMaxOutput}
+	stdout := &probeBoundedBuffer{max: maxOutput}
 	cmd.Stdout = stdout
 	cmd.Stderr = &probeBoundedBuffer{max: probeSystemctlMaxOutput}
 	err := cmd.Run()
@@ -171,6 +233,24 @@ func (s *hostProbeSystemctl) Run(ctx context.Context, args ...string) (string, i
 		return "", -1, err
 	}
 	return stdout.String(), 0, nil
+}
+
+// stageHostProbeImage opens the exclusive staging file for one image_cache
+// attempt inside the protected /var/lib/uptime-phoenix-image-stage directory.
+func stageHostProbeImage(ctx context.Context, intent domain.ProbeHostActionIntent) (probeStagedArchive, error) {
+	if err := probeBinaryStageAuthorityPrecheck(ctx); err != nil {
+		return nil, err
+	}
+	var staged *provisioning.ProbeImageStageFile
+	err := withProbeHostParent(func(parent *os.File) error {
+		file, err := provisioning.OpenProbeImageStageFile(ctx, parent, "/var/lib", intent)
+		staged = file
+		return err
+	}, "var", "lib")
+	if err != nil {
+		return nil, err
+	}
+	return staged, nil
 }
 
 type probeBoundedBuffer struct {

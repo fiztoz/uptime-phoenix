@@ -975,8 +975,9 @@ func (s *ProbeInstallActivationStore) AdmitActivationAction(ctx context.Context,
 	if !request.Valid() {
 		return zero, domain.ErrValidation
 	}
-	// Install host actions (data_directory, unit_file, service) belong to the
-	// install journal's admission store and are never consumable here.
+	// Install host actions (data_directory, unit_file, service, image_cache,
+	// container) belong to the install journal's admission store and are never
+	// consumable here.
 	switch request.Intent.Kind {
 	case domain.ProbeActivationProbeInit, domain.ProbeActivationServiceStart:
 	default:

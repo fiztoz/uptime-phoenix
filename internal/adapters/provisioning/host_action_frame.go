@@ -14,8 +14,9 @@ type ProbeSystemctl interface {
 }
 
 const (
-	// ProbeHostActionPrefixSize is the PHXACT1 newline magic plus one kind
-	// length byte. The kind bytes and an unchanged stage header follow.
+	// ProbeHostActionPrefixSize is the PHXACT1 (systemd) or PHXACT2 (Docker)
+	// newline magic plus one kind length byte. The kind bytes and the
+	// identity header (PHXSTG1 or PHXDKR1) follow.
 	ProbeHostActionPrefixSize = 9
 	// MaxProbeHostActionKindSize bounds the kind name.
 	MaxProbeHostActionKindSize = 32
@@ -27,11 +28,15 @@ const (
 )
 
 // EncodeProbeHostActionFrame writes the action prefix, the kind and the
-// unchanged stage header of the intent's identity/owner/attempt. Invalid
+// identity header: for systemd the unchanged stage header (v1), for Docker the
+// strict Docker header including any payload descriptor (v2). Invalid
 // intents return nil.
 func EncodeProbeHostActionFrame(intent domain.ProbeHostActionIntent) ([]byte, error) {
 	if !intent.Valid() || len(intent.Kind) > MaxProbeHostActionKindSize {
 		return nil, domain.ErrProbeBinaryStageWriteInput
+	}
+	if intent.Identity.Mode == domain.ProbeInstallDocker {
+		return encodeProbeDockerActionFrame(intent)
 	}
 	header, err := EncodeProbeBinaryStageHeader(hostActionStageIntent(intent))
 	if err != nil {
@@ -44,10 +49,12 @@ func EncodeProbeHostActionFrame(intent domain.ProbeHostActionIntent) ([]byte, er
 	return append(frame, header...), nil
 }
 
-// ProbeHostActionKindLength reads the exact 9-byte prefix and returns the
-// kind length N (1..32). It does not inspect anything that follows.
+// ProbeHostActionKindLength reads the exact 9-byte prefix (v1 or v2) and
+// returns the kind length N (1..32). It does not inspect anything that
+// follows; ProbeHostActionFrameIsDocker tells the versions apart.
 func ProbeHostActionKindLength(prefix []byte) (int, error) {
-	if len(prefix) != ProbeHostActionPrefixSize || string(prefix[:len(hostActionMagic)]) != hostActionMagic {
+	if len(prefix) != ProbeHostActionPrefixSize ||
+		(string(prefix[:len(hostActionMagic)]) != hostActionMagic && string(prefix[:len(hostActionDockerMagic)]) != hostActionDockerMagic) {
 		return 0, domain.ErrProbeBinaryStageWriteInput
 	}
 	n := int(prefix[len(hostActionMagic)])
@@ -57,16 +64,27 @@ func ProbeHostActionKindLength(prefix []byte) (int, error) {
 	return n, nil
 }
 
-// DecodeProbeHostActionIntent combines exact kind bytes with an exact stage
-// header (prefix plus JSON) into a valid host-action intent.
-func DecodeProbeHostActionIntent(kind, header []byte) (domain.ProbeHostActionIntent, error) {
+// ProbeHostActionFrameIsDocker reports whether a valid 9-byte prefix is a
+// v2 (Docker) frame.
+func ProbeHostActionFrameIsDocker(prefix []byte) bool {
+	return len(prefix) == ProbeHostActionPrefixSize && string(prefix[:len(hostActionDockerMagic)]) == hostActionDockerMagic
+}
+
+// DecodeProbeHostActionIntent combines exact kind bytes with an exact identity
+// header (prefix plus JSON) into a valid host-action intent. docker must be
+// the frame's version: a v1 frame carries only a systemd stage header and a
+// v2 frame only a Docker header.
+func DecodeProbeHostActionIntent(kind, header []byte, docker bool) (domain.ProbeHostActionIntent, error) {
 	var zero domain.ProbeHostActionIntent
+	if docker {
+		return decodeProbeDockerActionIntent(kind, header)
+	}
 	stage, err := DecodeProbeBinaryStageHeader(header)
 	if err != nil {
 		return zero, domain.ErrProbeBinaryStageWriteInput
 	}
 	intent := domain.ProbeHostActionIntent{Identity: stage.Identity, OwnerID: stage.OwnerID, AttemptID: stage.AttemptID, Kind: string(kind)}
-	if !intent.Valid() {
+	if intent.Identity.Mode != domain.ProbeInstallSystemd || !intent.Valid() {
 		return zero, domain.ErrProbeBinaryStageWriteInput
 	}
 	return intent, nil

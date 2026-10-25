@@ -436,8 +436,43 @@ CLEANUP_LEAVES = {
     "TestM8InstallCleanup/mariadb/SchemaConstraints",
     "TestM8InstallCleanup/mariadb/UTCAndClockRollback",
 }
-STAGE_SQLITE_LEAVES = {name.replace("/mariadb", "/sqlite", 1) for name in STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES | ACTIVATION_LEAVES | CLEANUP_LEAVES}
-STAGE_REQUIRED = INSTALL_JOURNAL_LEAVES | INSTALL_RUNNER_LEAVES | STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES | ACTIVATION_LEAVES | CLEANUP_LEAVES
+# Independently restated from the actual SQLite run of the Docker host-action tests.
+DOCKER_LEAVES = {
+    "TestM8DockerHostActions/mariadb/ActivationCreateAndSteps",
+    "TestM8DockerHostActions/mariadb/ActivationStepAdmissions",
+    "TestM8DockerHostActions/mariadb/CleanupCreateAndAdmit",
+    "TestM8DockerHostActions/mariadb/CleanupOverPartialInstall",
+    "TestM8DockerHostActions/mariadb/DockerKindsRefusedForSystemdInstall",
+    "TestM8DockerHostActions/mariadb/DowngradeGuard",
+    "TestM8DockerHostActions/mariadb/ImageCachePayloadBindsMarker",
+    "TestM8DockerHostActions/mariadb/ModeBoundMarkersStoredSeparately",
+    "TestM8DockerHostActions/mariadb/SchemaAcceptsDockerKinds",
+    "TestM8DockerHostActions/mariadb/SchemaKeepsConstraints",
+    "TestM8DockerHostActions/mariadb/SystemdKindsRefusedForDockerInstall",
+    "TestM8DockerHostActions/mariadb/UpgradePreservesAdmissions",
+    "TestM8DockerHostActions/mariadb/container/AdmitsAndGrantsVerifiedSignature",
+    "TestM8DockerHostActions/mariadb/container/DifferentChallengeNoRearm",
+    "TestM8DockerHostActions/mariadb/container/ExactReplayConflict",
+    "TestM8DockerHostActions/mariadb/container/PredecessorNotApplied",
+    "TestM8DockerHostActions/mariadb/container/ResourceNotInFlight",
+    "TestM8DockerHostActions/mariadb/container/StoreRecordsExactRow",
+    "TestM8DockerHostActions/mariadb/container/WrongAttempt",
+    "TestM8DockerHostActions/mariadb/data_directory/AdmitsAndGrantsVerifiedSignature",
+    "TestM8DockerHostActions/mariadb/data_directory/DifferentChallengeNoRearm",
+    "TestM8DockerHostActions/mariadb/data_directory/ExactReplayConflict",
+    "TestM8DockerHostActions/mariadb/data_directory/PredecessorNotApplied",
+    "TestM8DockerHostActions/mariadb/data_directory/ResourceNotInFlight",
+    "TestM8DockerHostActions/mariadb/data_directory/StoreRecordsExactRow",
+    "TestM8DockerHostActions/mariadb/data_directory/WrongAttempt",
+    "TestM8DockerHostActions/mariadb/image_cache/AdmitsAndGrantsVerifiedSignature",
+    "TestM8DockerHostActions/mariadb/image_cache/DifferentChallengeNoRearm",
+    "TestM8DockerHostActions/mariadb/image_cache/ExactReplayConflict",
+    "TestM8DockerHostActions/mariadb/image_cache/ResourceNotInFlight",
+    "TestM8DockerHostActions/mariadb/image_cache/StoreRecordsExactRow",
+    "TestM8DockerHostActions/mariadb/image_cache/WrongAttempt",
+}
+STAGE_SQLITE_LEAVES = {name.replace("/mariadb", "/sqlite", 1) for name in STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES | ACTIVATION_LEAVES | CLEANUP_LEAVES | DOCKER_LEAVES}
+STAGE_REQUIRED = INSTALL_JOURNAL_LEAVES | INSTALL_RUNNER_LEAVES | STAGE_AUTHORIZATION_LEAVES | HOST_ACTION_LEAVES | ACTIVATION_LEAVES | CLEANUP_LEAVES | DOCKER_LEAVES
 
 
 def stage_event_values(omit=()):
@@ -838,7 +873,9 @@ class StageAuthorizationGateTest(BackendGateHarness, unittest.TestCase):
         self.assertEqual(len(ACTIVATION_LEAVES), 80)
         self.assertEqual(gate.CLEANUP_REQUIRED, CLEANUP_LEAVES)
         self.assertEqual(len(CLEANUP_LEAVES), 77)
-        self.assertEqual(len(STAGE_REQUIRED), 292)
+        self.assertEqual(gate.DOCKER_REQUIRED, DOCKER_LEAVES)
+        self.assertEqual(len(DOCKER_LEAVES), 32)
+        self.assertEqual(len(STAGE_REQUIRED), 324)
         self.assertTrue(STAGE_REQUIRED <= gate.REQUIRED)
         status, summary = self.run_stage()
         self.assertEqual(status, 0)
@@ -846,6 +883,14 @@ class StageAuthorizationGateTest(BackendGateHarness, unittest.TestCase):
         self.assertEqual(summary["missing_required_lifecycles"], [])
         self.assertEqual(summary["passed_packages"], 4)
         self.assertFalse(any("GRANT " in str(call[0]) for call in self.docker_calls))
+
+    def test_stage_run_pattern_selects_every_required_top_level_test(self):
+        # `go test -run` matches each top-level name; a required leaf whose
+        # parent the pattern does not select could never run, so never pass.
+        for leaf in sorted(STAGE_REQUIRED):
+            with self.subTest(leaf=leaf):
+                self.assertTrue(re.search(gate.STAGE_AUTHORIZATION_RUN, leaf.split("/")[0]))
+        self.assertFalse(re.search(gate.STAGE_AUTHORIZATION_RUN, "TestM8DockerHostActionsOther"))
 
     def test_stage_every_required_leaf_needs_its_own_run_and_pass(self):
         for leaf in sorted(STAGE_REQUIRED | STAGE_SQLITE_LEAVES):

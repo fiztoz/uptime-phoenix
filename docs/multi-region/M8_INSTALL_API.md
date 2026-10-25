@@ -156,7 +156,15 @@ and responses are `Cache-Control: no-store`.
 - `POST /api/probe-installs/:operation_id/cancel`
 
 POST takes one strict JSON object (≤ 128 KiB) that refuses unknown, duplicate,
-case-variant or null keys and trailing JSON:
+case-variant or null keys and trailing JSON.
+
+An optional `mode` selects `systemd` (the default) or `docker`. A Docker install
+replaces the binary members with these, and any `binary_*` member is refused:
+- strings `image_repository`, `image_version`, `image_architecture`,
+  `image_index_sha256`;
+- integer `image_index_size`.
+
+See [Docker install](M8_DOCKER_INSTALL.md). The systemd members are:
 - strings: `operation_id`, `ssh_address`, `ssh_user`, `host_key_fingerprint`,
   `private_key`, `binary_version`, `binary_architecture`, `binary_sha256`;
 - integer: `binary_size`.

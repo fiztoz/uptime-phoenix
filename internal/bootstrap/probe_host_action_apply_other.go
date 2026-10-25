@@ -9,7 +9,15 @@ import (
 )
 
 // applyHostProbeAction never changes host state on unsupported platforms.
-func applyHostProbeAction(ctx context.Context, _ domain.ProbeHostActionIntent) ([]byte, error) {
+func applyHostProbeAction(ctx context.Context, _ domain.ProbeHostActionIntent, _ string) ([]byte, error) {
+	if probeBinaryStageHelperNil(ctx) {
+		return nil, domain.ErrProbeBinaryStageWriteInput
+	}
+	return nil, domain.ErrProbeBinaryStageWriteUnavailable
+}
+
+// stageHostProbeImage never stages anything on unsupported platforms.
+func stageHostProbeImage(ctx context.Context, _ domain.ProbeHostActionIntent) (probeStagedArchive, error) {
 	if probeBinaryStageHelperNil(ctx) {
 		return nil, domain.ErrProbeBinaryStageWriteInput
 	}
