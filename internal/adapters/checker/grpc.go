@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
@@ -80,9 +81,18 @@ func (checker GRPCChecker) Check(ctx context.Context, config map[string]any) (po
 	// Build dial options. grpc.NewClient is non-blocking (lazy); an
 	// unreachable server surfaces as a failure on the health RPC below,
 	// which is bounded by the checkCtx deadline.
+	// The custom dialer also turns off gRPC's own HTTPS_PROXY handling, so
+	// every connection is guarded by the owner's outbound policy.
+	policy := netguard.ForContext(ctx)
 	dialOpts := []grpc.DialOption{
 		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			return netguard.Default().DialContext(ctx, "tcp", addr)
+			if path, ok := strings.CutPrefix(addr, "unix://"); ok {
+				return policy.DialContext(ctx, "unix", path)
+			}
+			if path, ok := strings.CutPrefix(addr, "unix:"); ok {
+				return policy.DialContext(ctx, "unix", path)
+			}
+			return policy.DialContext(ctx, "tcp", addr)
 		}),
 	}
 

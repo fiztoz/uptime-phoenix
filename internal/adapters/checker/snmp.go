@@ -7,6 +7,7 @@ import (
 
 	"github.com/gosnmp/gosnmp"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
@@ -81,6 +82,9 @@ func (SNMPChecker) Check(ctx context.Context, config map[string]any) (ports.Chec
 		Version:   snmpVersion,
 		Timeout:   time.Duration(timeoutSec * float64(time.Second)),
 		Context:   ctx,
+		// The socket to the agent is guarded by the owner's outbound policy:
+		// SNMP reads values back into the heartbeat message.
+		Control: netguard.ForContext(ctx).Control,
 	}
 
 	// Measure total check latency from start.

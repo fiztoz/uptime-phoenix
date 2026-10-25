@@ -62,7 +62,7 @@ func (TCPChecker) Check(ctx context.Context, config map[string]any) (ports.Check
 	defer cancel()
 
 	start := time.Now()
-	conn, err := netguard.Default().DialContext(ctx, "tcp", addr)
+	conn, err := netguard.ForContext(ctx).DialContext(ctx, "tcp", addr)
 	latencyMs := time.Since(start).Milliseconds()
 
 	if err != nil {

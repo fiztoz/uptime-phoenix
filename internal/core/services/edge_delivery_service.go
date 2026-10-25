@@ -186,7 +186,10 @@ func (s *EdgeDeliveryService) process(ctx context.Context, item domain.QueuedDel
 		return fmt.Errorf("capacity delivery %s has no renderable snapshot", stored.DeliveryID)
 	}
 	alert := edgeAlertContext(*stored, *assignment, config, channel.Notification, includeTarget, s.now().UTC())
-	err = provider.Send(sendCtx, channel.Notification.Config, alert)
+	// Edge delivery runs only on a remote probe, which the operator deploys
+	// into the network it serves: deliveries get the always-blocked floor only
+	// (see domain.OutboundTrustAdmin and netguard).
+	err = provider.Send(domain.WithOutboundTrust(sendCtx, domain.OutboundTrustProbe), channel.Notification.Config, alert)
 	cancel()
 	journal, _ := s.outbox.(ports.SourceProviderAttemptJournal)
 	if releaseErr := finishProviderAttempt(ctx, journal, stored.ProviderAttemptID, err); releaseErr != nil {

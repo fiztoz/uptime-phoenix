@@ -163,7 +163,7 @@ type smtpTransportConfig struct {
 }
 
 func (c smtpTransportConfig) send(ctx context.Context, from string, to []string, message io.WriterTo) error {
-	conn, err := netguard.Default().DialContext(ctx, "tcp", net.JoinHostPort(c.host, strconv.Itoa(c.port)))
+	conn, err := netguard.ForContext(ctx).DialContext(ctx, "tcp", net.JoinHostPort(c.host, strconv.Itoa(c.port)))
 	if err != nil {
 		return err
 	}

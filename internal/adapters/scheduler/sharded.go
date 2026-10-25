@@ -39,6 +39,7 @@ type ShardedScheduler struct {
 	slots     *checkSlots
 
 	proxyResolver *proxyResolver
+	outboundTrust services.OutboundTrustResolver
 }
 
 // ShardedSchedulerConfig holds configuration for the sharded scheduler.
@@ -92,6 +93,12 @@ func NewShardedScheduler(
 // Mirrors LocalScheduler.SetProxyRepo.
 func (s *ShardedScheduler) SetProxyRepo(repo ports.ProxyRepository) {
 	s.proxyResolver.setRepo(repo)
+}
+
+// SetOutboundTrustResolver decides each check's outbound reach from its
+// monitor's owner. Mirrors LocalScheduler.SetOutboundTrustResolver.
+func (s *ShardedScheduler) SetOutboundTrustResolver(r services.OutboundTrustResolver) {
+	s.outboundTrust = r
 }
 
 // SetAssignmentRepo scopes hub execution to monitors the local probe may run.
@@ -233,7 +240,7 @@ func (s *ShardedScheduler) tick(ctx context.Context) {
 		return
 	}
 
-	checks, err := captureScheduledChecks(ctx, runnable, s.activation, s.proxyResolver)
+	checks, err := captureScheduledChecks(ctx, runnable, s.activation, s.proxyResolver, s.outboundTrust)
 	if err != nil {
 		s.logger.Error("scheduler: capture applied settings failed", "error", err)
 		return
@@ -317,6 +324,7 @@ func (s *ShardedScheduler) runCheck(ctx context.Context, check scheduledCheck) {
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	checkCtx = domain.WithOutboundTrust(checkCtx, check.OutboundTrust)
 
 	checker, ok := s.checkerFn(m.Type)
 	if !ok {

@@ -67,7 +67,7 @@ func (t *lineTestTransport) Requests() int {
 func installLineTransport(t *testing.T, rt http.RoundTripper) {
 	t.Helper()
 	orig := notifierHTTPClient
-	notifierHTTPClient = func() *http.Client { return &http.Client{Transport: rt} }
+	notifierHTTPClient = func(context.Context) *http.Client { return &http.Client{Transport: rt} }
 	t.Cleanup(func() { notifierHTTPClient = orig })
 }
 

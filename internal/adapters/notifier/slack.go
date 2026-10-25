@@ -103,7 +103,7 @@ func (SlackSender) Send(ctx context.Context, config map[string]any, alert domain
 			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/json")
-		return notifierHTTPClient().Do(req)
+		return notifierHTTPClient(req.Context()).Do(req)
 	}
 
 	resp, err := retryWithBackoff(ctx, doReq)

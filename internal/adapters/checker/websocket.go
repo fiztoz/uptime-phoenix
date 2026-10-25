@@ -62,7 +62,7 @@ func (WebSocketChecker) Check(ctx context.Context, config map[string]any) (ports
 	start := time.Now()
 	ws, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
 		HTTPHeader: headers,
-		HTTPClient: netguard.Default().Client(0),
+		HTTPClient: netguard.ForContext(ctx).Client(0),
 	})
 	latencyMs := time.Since(start).Milliseconds()
 

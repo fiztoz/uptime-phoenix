@@ -67,6 +67,8 @@ type AccessService struct {
 	perms    ports.UserPermissionRepository
 	groups   ports.MonitorGroupRepository
 	monitors ports.MonitorRepository
+	// notifications is optional; see SetNotificationRepository. Guarded by mu.
+	notifications ports.NotificationRepository
 
 	// In-process TTL cache. Dashboard/list pages hit CanViewMonitor once per
 	// monitor; without this, N concurrent users × M monitors is N×M GetByID
@@ -193,8 +195,11 @@ func (s *AccessService) CanCreateMonitors(ctx context.Context, userID int64) (bo
 // adminOnlyMonitorTypes are monitor types only admins may create, clone or
 // reconfigure. A docker monitor talks to a Docker daemon (the local socket or a
 // configured docker_daemon address), which is host-level access rather than
-// an ordinary network check.
-var adminOnlyMonitorTypes = map[string]bool{"docker": true}
+// an ordinary network check. A database monitor connects through six
+// different engine drivers whose dialers the outbound guard does not cover
+// (see internal/adapters/netguard), so a restricted owner could otherwise
+// reach any internal database.
+var adminOnlyMonitorTypes = map[string]bool{"docker": true, "database": true}
 
 // CanUseMonitorType reports whether the user may create, clone or reconfigure
 // a monitor of the given type. Admins may use every type.

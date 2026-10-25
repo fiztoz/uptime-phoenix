@@ -537,7 +537,7 @@ func TestEvaluateJSONAssertion_HasValue(t *testing.T) {
 			message := evaluateJSONAssertion(tt.body, tt.path, map[string]any{
 				"json_query":    tt.path,
 				"json_operator": "has_value",
-			})
+			}, false)
 			if tt.fail && message == "" {
 				t.Fatal("evaluateJSONAssertion() passed, want failure")
 			}
@@ -782,6 +782,8 @@ func TestHTTPChecker_Check_OAuth2ClientCredentials(t *testing.T) {
 	}
 }
 
+// save_body_on_* applies to admin-owned monitors only; restricted owners are
+// covered in netguard_test.go.
 func TestHTTPChecker_Check_SaveBodyOnError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -790,7 +792,7 @@ func TestHTTPChecker_Check_SaveBodyOnError(t *testing.T) {
 	defer srv.Close()
 
 	c := HTTPChecker{}
-	result, err := c.Check(context.Background(), map[string]any{
+	result, err := c.Check(adminCtx(), map[string]any{
 		"url":                srv.URL,
 		"timeout":            5.0,
 		"save_body_on_error": true,
@@ -843,7 +845,7 @@ func TestHTTPChecker_Check_SaveBodyOnSuccess(t *testing.T) {
 	defer srv.Close()
 
 	c := HTTPChecker{}
-	result, err := c.Check(context.Background(), map[string]any{
+	result, err := c.Check(adminCtx(), map[string]any{
 		"url":                  srv.URL,
 		"timeout":              5.0,
 		"save_body_on_success": true,

@@ -169,7 +169,7 @@ func (RabbitMQChecker) Check(ctx context.Context, config map[string]any) (ports.
 	defer cancel()
 
 	start := time.Now()
-	dialer := netguard.Default()
+	dialer := netguard.ForContext(ctx)
 	conn, err := amqp.DialConfig(amqpURL, amqp.Config{
 		Locale:    "en_US",
 		Heartbeat: 10 * time.Second,
