@@ -86,7 +86,7 @@ func hostActApplyNlink(t *testing.T, info os.FileInfo) uint64 {
 	if !ok {
 		t.Fatal("no stat_t")
 	}
-	return uint64(st.Nlink)
+	return uint64(st.Nlink) //nolint:unconvert // Nlink is uint64 on linux/amd64 but uint32 on linux/arm64 and darwin
 }
 
 func hostActApplyRequireBorrowedParentOpen(t *testing.T, parent *os.File) {
