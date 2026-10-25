@@ -371,6 +371,12 @@ helm-validate: ## Assert the MariaDB topology renders its workload and the guard
 	@helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-production-split.yaml \
 		--set mariadbExternal.password=ci --set secret.existingSecret=phoenix-jwt --set secret.existingSecretKey=signing-key \
 		| python3 -B scripts/helm-jwt-secret-check.py --expect 2
+	@echo "==> NetworkPolicy opens in-release ports (3000/8080) only toward this release's pods"
+	@helm template uptime-phoenix charts/uptime-phoenix --set mode=split --set web.split=true \
+		--set networkPolicy.enabled=true --set cloudflareTunnel.enabled=true --set cloudflareTunnel.token=ci \
+		| python3 -B scripts/helm-networkpolicy-check.py
+	@helm template uptime-phoenix charts/uptime-phoenix --set networkPolicy.enabled=true \
+		| python3 -B scripts/helm-networkpolicy-check.py
 	@echo "==> a supplied secret.jwt shorter than 32 bytes must fail the render"
 	@if helm template uptime-phoenix charts/uptime-phoenix --set secret.jwt=change_me_jwt >/dev/null 2>&1; then \
 		echo "EXPECTED FAILURE: secret.jwt shorter than 32 bytes"; exit 1; fi
