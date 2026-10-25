@@ -122,9 +122,10 @@ func (r *rbacFakeMonitorTagRepo) ListByMonitors(ctx context.Context, monitorIDs 
 // middleware stack the production router uses, so the admin gate on mutations is
 // under test too — not just the in-handler checks.
 type rbacHarness struct {
-	router *echo.Echo
-	users  *memory.UserRepo
-	access *services.AccessService
+	router   *echo.Echo
+	users    *memory.UserRepo
+	access   *services.AccessService
+	monitors ports.MonitorRepository
 
 	adminToken  string // admin: sees and does everything
 	memberToken string // non-admin, granted the visible folder, NO capabilities
@@ -282,6 +283,7 @@ func newRBACHarness(t *testing.T) *rbacHarness {
 		router:         e,
 		users:          userRepo,
 		access:         accessSvc,
+		monitors:       monitorRepo,
 		adminToken:     adminToken,
 		memberToken:    memberToken,
 		creatorToken:   creatorToken,

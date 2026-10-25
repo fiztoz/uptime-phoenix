@@ -393,6 +393,7 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `DB_DSN` | `file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)` | Engine-specific DSN. MariaDB migrations require `multiStatements=true`; use `parseTime=true&loc=UTC`. |
 | `JWT_SECRET` | `change-me-in-production` | Session-signing secret. Replace with a stable secret before first production start. |
 | `JWT_EXPIRE_HOURS` | `24` | Session JWT lifetime in hours. Must be `> 0`; non-positive values refuse to boot (they would mint an already-expired token). |
+| `OUTBOUND_ALLOWED_CIDRS` | empty | Comma-separated CIDRs or IPs that monitors and notifications may reach even though they are internal (loopback, RFC 1918, link-local/cloud metadata, CGNAT, ULA, multicast). Empty blocks all of them. Allow only what you monitor, e.g. `10.20.0.0/16`; never `169.254.0.0/16`. An env `HTTP(S)_PROXY` address must be listed if it is internal. An invalid value refuses to boot. |
 | `TOTP_ISSUER` | `Phoenix` | Issuer label shown in authenticator apps. |
 | `PRODUCTION` | `false` | Selects secure production defaults, including deny-by-default CORS when no allow-list is supplied. |
 | `REDIS_URL` | empty | Optional Redis URL. Required and shared across processes in split mode. |

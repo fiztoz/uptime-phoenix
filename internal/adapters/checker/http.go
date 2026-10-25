@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
+
 	"github.com/tidwall/gjson"
 	"golang.org/x/net/proxy"
 
@@ -310,7 +312,7 @@ func buildHTTPClient(config map[string]any) (*http.Client, error) {
 	}
 	if ignore, ok := config["tls_ignore"].(bool); ok && ignore {
 		if transport == nil {
-			transport = &http.Transport{}
+			transport = netguard.Default().Transport()
 		}
 		// Operator opt-in per monitor (Monitor.TLSIgnore / config tls_ignore).
 		// Verification is skipped only when the operator explicitly enables it
@@ -318,9 +320,10 @@ func buildHTTPClient(config map[string]any) (*http.Client, error) {
 		// peer certs remain available for tls_days_remaining / tls_issuer.
 		transport.TLSClientConfig = operatorTLSIgnoreConfig()
 	}
-	if transport != nil {
-		client.Transport = transport
+	if transport == nil {
+		transport = netguard.Default().SharedTransport()
 	}
+	client.Transport = transport
 	return client, nil
 }
 
@@ -362,9 +365,13 @@ func buildProxyTransport(config map[string]any) (*http.Transport, error) {
 
 	switch protocol {
 	case "http", "https":
-		return &http.Transport{Proxy: http.ProxyURL(proxyURL)}, nil
+		// The guarded dial reaches the proxy, so a proxy on an internal
+		// address needs the operator allowlist like any other target.
+		transport := netguard.Default().Transport()
+		transport.Proxy = http.ProxyURL(proxyURL)
+		return transport, nil
 	case "socks5":
-		dialer, err := proxy.FromURL(proxyURL, proxy.Direct)
+		dialer, err := proxy.FromURL(proxyURL, netguard.Default().Dialer(30*time.Second))
 		if err != nil {
 			return nil, fmt.Errorf("configure socks5 proxy: %w", err)
 		}
@@ -623,20 +630,24 @@ func evaluateJSONAssertion(body, jsonQuery string, config map[string]any) string
 		return fmt.Sprintf("JSON path %q returned an empty value", jsonQuery)
 	}
 
+	// Failure messages name the query and the operator's expected value but
+	// never the response value: check messages are visible to every user who
+	// can view the monitor, and echoing response data turns a check into a
+	// read primitive (#88).
 	expected, _ := config["expected_value"].(string)
 	actual := jsonAssertionValue(result)
 	switch operator {
 	case jsonOperatorEquals:
 		if actual != expected {
-			return fmt.Sprintf("JSON path %q returned %q; expected %q", jsonQuery, compactJSONAssertionValue(actual), expected)
+			return fmt.Sprintf("JSON path %q did not equal %q", jsonQuery, expected)
 		}
 	case jsonOperatorNotEquals:
 		if actual == expected {
-			return fmt.Sprintf("JSON path %q returned the disallowed value %q", jsonQuery, compactJSONAssertionValue(actual))
+			return fmt.Sprintf("JSON path %q returned the disallowed value %q", jsonQuery, expected)
 		}
 	case jsonOperatorContains:
 		if !strings.Contains(actual, expected) {
-			return fmt.Sprintf("JSON path %q returned %q; expected it to contain %q", jsonQuery, compactJSONAssertionValue(actual), expected)
+			return fmt.Sprintf("JSON path %q did not contain %q", jsonQuery, expected)
 		}
 	case jsonOperatorNotContains:
 		if strings.Contains(actual, expected) {
@@ -671,15 +682,6 @@ func jsonAssertionValue(result gjson.Result) string {
 		return "null"
 	}
 	return result.String()
-}
-
-func compactJSONAssertionValue(value string) string {
-	const maxRunes = 160
-	runes := []rune(value)
-	if len(runes) <= maxRunes {
-		return value
-	}
-	return string(runes[:maxRunes]) + "…"
 }
 
 // applyHTTPAuth mutates req with the configured auth method.
@@ -750,7 +752,7 @@ func fetchOAuth2ClientCredentialsToken(ctx context.Context, client *http.Client,
 	tokenReq.SetBasicAuth(clientID, clientSecret)
 
 	if client == nil {
-		client = http.DefaultClient
+		client = netguard.Default().Client(30 * time.Second)
 	}
 	resp, err := client.Do(tokenReq)
 	if err != nil {

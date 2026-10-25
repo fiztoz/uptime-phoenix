@@ -46,6 +46,7 @@ DB_ENGINE=sqlite \
 	PROBES_ENABLED=true \
 	PROBE_SECRET_KEY_FILE="$probe_key" \
 	ESCALATION_POLL_SECONDS=1 \
+	OUTBOUND_ALLOWED_CIDRS='127.0.0.0/8,::1/128' \
 	"$e2e_tmp_dir/uptime-phoenix" &
 app_pid=$!
 

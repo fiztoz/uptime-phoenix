@@ -19,6 +19,7 @@ import (
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/auth"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/notifier"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/probe"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/edge"
@@ -55,6 +56,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	var cfg edgeOptions
 	if err := env.Parse(&cfg); err != nil {
 		_, _ = io.WriteString(stderr, "Invalid probe environment configuration\n")
+		return 2
+	}
+	if err := netguard.Validate(); err != nil {
+		_, _ = io.WriteString(stderr, err.Error()+"\n")
 		return 2
 	}
 	var resetPlanFile string

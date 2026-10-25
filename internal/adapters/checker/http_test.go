@@ -336,6 +336,7 @@ func TestHTTPChecker_Check_JSONAssertions(t *testing.T) {
 		config     map[string]any
 		wantStatus string
 		wantMsg    string
+		rejectMsg  string
 	}{
 		{
 			name: "kubernetes ready string equals True",
@@ -425,7 +426,9 @@ func TestHTTPChecker_Check_JSONAssertions(t *testing.T) {
 				"expected_value": "False",
 			},
 			wantStatus: "DOWN",
-			wantMsg:    `expected "False"`,
+			wantMsg:    `did not equal "False"`,
+			// The response value must not be echoed back (#88).
+			rejectMsg: "True",
 		},
 		{
 			name: "existing path fails not exists",
@@ -463,6 +466,9 @@ func TestHTTPChecker_Check_JSONAssertions(t *testing.T) {
 			}
 			if tt.wantMsg != "" && !strings.Contains(result.Message, tt.wantMsg) {
 				t.Errorf("Check() message = %q, want it to contain %q", result.Message, tt.wantMsg)
+			}
+			if tt.rejectMsg != "" && strings.Contains(result.Message, tt.rejectMsg) {
+				t.Errorf("Check() message = %q, must not contain response value %q", result.Message, tt.rejectMsg)
 			}
 		})
 	}

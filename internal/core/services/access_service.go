@@ -190,6 +190,21 @@ func (s *AccessService) CanCreateMonitors(ctx context.Context, userID int64) (bo
 	return u.IsAdmin || u.CanCreateMonitors, nil
 }
 
+// adminOnlyMonitorTypes are monitor types only admins may create, clone or
+// reconfigure. A docker monitor talks to a Docker daemon (the local socket or a
+// configured docker_daemon address), which is host-level access rather than
+// an ordinary network check.
+var adminOnlyMonitorTypes = map[string]bool{"docker": true}
+
+// CanUseMonitorType reports whether the user may create, clone or reconfigure
+// a monitor of the given type. Admins may use every type.
+func (s *AccessService) CanUseMonitorType(ctx context.Context, userID int64, monitorType string) (bool, error) {
+	if !adminOnlyMonitorTypes[monitorType] {
+		return true, nil
+	}
+	return s.IsAdmin(ctx, userID)
+}
+
 // CanCreateTopLevelMonitors reports whether the user may place a monitor
 // outside any group (group_id null). Admins always may. A non-admin needs both
 // CanCreateMonitors (to hit the create route) and this flag (to choose top

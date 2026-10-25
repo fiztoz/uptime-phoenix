@@ -29,8 +29,20 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Monitor checks (HTTP/HTTPS)
-    - ports:
+    # Monitor checks (HTTP/HTTPS). Cloud metadata endpoints are excluded so a
+    # monitor cannot read instance credentials even if the app-level guard
+    # (OUTBOUND_ALLOWED_CIDRS) is widened (#88).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fd00:ec2::254/128
+              - fe80::/10
+      ports:
         - protocol: TCP
           port: 80
         - protocol: TCP

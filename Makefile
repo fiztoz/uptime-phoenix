@@ -316,6 +316,10 @@ helm-validate: ## Assert the MariaDB topology renders its workload and the guard
 	printf '%s\n' "$$out" | python3 -B scripts/helm-db-secret-check.py || exit 1; \
 	printf '%s\n' "$$out" | grep -q '^  name: uptime-phoenix-mariadb$$' \
 		|| { echo "MariaDB workload/Service is not named <release>-mariadb"; exit 1; }
+	@echo "==> the Phoenix NetworkPolicy must keep cloud metadata out of HTTP egress (#88)"
+	@helm template uptime-phoenix charts/uptime-phoenix --set networkPolicy.enabled=true \
+		--show-only templates/networkpolicy.yaml | grep -q -- '- 169.254.0.0/16$$' \
+		|| { echo "MISSING: 169.254.0.0/16 egress exception"; exit 1; }
 	@echo "==> the MariaDB Pod must not carry the labels the all-in-one Service selects on"
 	@helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true \
 		| awk '/^kind: StatefulSet/{ss=1} ss&&/^  template:/{tpl=1} tpl&&/^      labels:/{lab=1;next} lab&&/^      [^ ]/{lab=0} lab&&/app.kubernetes.io\/name: uptime-phoenix$$/{bad=1} END{exit bad?1:0}' \

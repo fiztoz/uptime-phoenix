@@ -14,7 +14,7 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
-// lineTestTransport intercepts requests made through http.DefaultClient,
+// lineTestTransport intercepts requests made through notifierHTTPClient,
 // records the URL the sender actually addressed (LineSender hardcodes the
 // LINE API endpoint, so there is nothing to inject at the config level),
 // and redirects the connection to a local httptest server so the request
@@ -61,14 +61,14 @@ func (t *lineTestTransport) Requests() int {
 	return t.requests
 }
 
-// installLineTransport swaps http.DefaultClient's transport for the
-// duration of the test (LineSender always calls http.DefaultClient.Do).
+// installLineTransport swaps notifierHTTPClient for the duration of the
+// test (LineSender always sends through it).
 // Notifier package tests never run in parallel, so this is safe.
 func installLineTransport(t *testing.T, rt http.RoundTripper) {
 	t.Helper()
-	orig := http.DefaultClient.Transport
-	http.DefaultClient.Transport = rt
-	t.Cleanup(func() { http.DefaultClient.Transport = orig })
+	orig := notifierHTTPClient
+	notifierHTTPClient = func() *http.Client { return &http.Client{Transport: rt} }
+	t.Cleanup(func() { notifierHTTPClient = orig })
 }
 
 const lineExpectedURL = "https://api.line.me/v2/bot/message/push"

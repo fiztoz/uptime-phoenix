@@ -157,7 +157,7 @@ func (DiscordSender) Send(ctx context.Context, config map[string]any, alert doma
 			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/json")
-		return http.DefaultClient.Do(req)
+		return notifierHTTPClient().Do(req)
 	}
 
 	resp, err := retryWithBackoff(ctx, doReq)

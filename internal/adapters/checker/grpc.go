@@ -5,7 +5,10 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"time"
+
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -77,7 +80,11 @@ func (checker GRPCChecker) Check(ctx context.Context, config map[string]any) (po
 	// Build dial options. grpc.NewClient is non-blocking (lazy); an
 	// unreachable server surfaces as a failure on the health RPC below,
 	// which is bounded by the checkCtx deadline.
-	dialOpts := []grpc.DialOption{}
+	dialOpts := []grpc.DialOption{
+		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+			return netguard.Default().DialContext(ctx, "tcp", addr)
+		}),
+	}
 
 	if useTLS {
 		// Real TLS transport credentials: the server certificate is verified
