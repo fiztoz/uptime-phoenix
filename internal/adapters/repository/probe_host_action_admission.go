@@ -24,10 +24,14 @@ type hostActionAdmissionModel struct {
 	AdmittedAt     time.Time `bun:"admitted_at"`
 }
 
-// ProbeHostActionAdmissionStore consumes one exact journal data_directory,
-// unit_file or service attempt. It shares operation-first locking with the
-// journal, never signs inside a transaction and never returns a historical
-// consumption as a new admission.
+// ProbeHostActionAdmissionStore consumes one exact journal host-action attempt
+// of a root install: data_directory, unit_file or service for a systemd
+// install, image_cache, data_directory or container for a Docker install. The
+// install mode is never assumed here: the intent's kind and spec are derived by
+// the domain from the identity, and the stored graph must hold exactly that
+// resource. It shares operation-first locking with the journal, never signs
+// inside a transaction and never returns a historical consumption as a new
+// admission.
 type ProbeHostActionAdmissionStore struct{ db *bun.DB }
 
 var _ ports.ProbeHostActionAdmissionRepository = (*ProbeHostActionAdmissionStore)(nil)
@@ -39,8 +43,10 @@ func NewProbeHostActionAdmissionStore(db *bun.DB) *ProbeHostActionAdmissionStore
 }
 
 // AdmitHostAction locks current authority and durably consumes exactly one
-// root/systemd host-action attempt, only after every earlier resource of the
-// layout is applied. All failures return a zero admission, including ambiguous
+// root host-action attempt (systemd or Docker layout), only after every earlier
+// resource of that layout is applied. An image_cache admission stores the marker
+// that binds its payload, so a different archive is a different admission
+// identity that can never rearm a consumed attempt. All failures return a zero admission, including ambiguous
 // commit acknowledgment and caller cancellation after commit. A later
 // cancellation/expiry does not retroactively revoke an admitted remote action.
 func (s *ProbeHostActionAdmissionStore) AdmitHostAction(ctx context.Context, request domain.ProbeHostActionAdmissionRequest) (domain.ProbeHostActionAdmission, error) {

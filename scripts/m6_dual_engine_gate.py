@@ -423,19 +423,42 @@ CLEANUP_REQUIRED = {
     "TestM8InstallCleanup/mariadb/SchemaConstraints",
     "TestM8InstallCleanup/mariadb/UTCAndClockRollback",
 }
+# Docker install host actions (migration 089), exact leaf names from a full SQLite run.
+DOCKER_KIND_LEAVES = (
+    "AdmitsAndGrantsVerifiedSignature", "DifferentChallengeNoRearm", "ExactReplayConflict",
+    "ResourceNotInFlight", "StoreRecordsExactRow", "WrongAttempt",
+)
+# A Docker kind with predecessors also proves an unapplied predecessor is refused.
+DOCKER_PREDECESSOR_LEAVES = (
+    "PredecessorNotApplied",
+)
+DOCKER_REQUIRED = {
+    f"TestM8DockerHostActions/mariadb/{kind}/{case}"
+    for kind in ("image_cache", "data_directory", "container")
+    for case in DOCKER_KIND_LEAVES + (DOCKER_PREDECESSOR_LEAVES if kind != "image_cache" else ())
+} | {
+    f"TestM8DockerHostActions/mariadb/{case}"
+    for case in (
+        "ActivationCreateAndSteps", "ActivationStepAdmissions", "CleanupCreateAndAdmit",
+        "CleanupOverPartialInstall", "DockerKindsRefusedForSystemdInstall", "DowngradeGuard",
+        "ImageCachePayloadBindsMarker", "ModeBoundMarkersStoredSeparately", "SchemaAcceptsDockerKinds",
+        "SchemaKeepsConstraints", "SystemdKindsRefusedForDockerInstall", "UpgradePreservesAdmissions",
+    )
+}
 STAGE_AUTHORIZATION_SQLITE_REQUIRED = {
     name.replace("/mariadb", "/sqlite", 1)
-    for name in STAGE_AUTHORIZATION_REQUIRED | HOST_ACTION_REQUIRED | ACTIVATION_REQUIRED | CLEANUP_REQUIRED
+    for name in (STAGE_AUTHORIZATION_REQUIRED | HOST_ACTION_REQUIRED | ACTIVATION_REQUIRED |
+                 CLEANUP_REQUIRED | DOCKER_REQUIRED)
 }
 STAGE_AUTHORIZATION_RUN = (
     "^TestProbeInstall(Journal|Identity|Graph|States)|^TestInstallRunner|"
     "^TestM8Install(Journal|Runner)|^TestM8BinaryStageAuthorization$|"
     "^TestProbeBinaryStage(Admission|Grant|Authorization)|^TestEd25519ProbeStageGrantSigner|"
     "^TestM8HostAction(Authorization|AdmissionSchema)$|^TestProbeHostAction|^TestM8InstallActivation|"
-    "^TestM8InstallCleanup"
+    "^TestM8InstallCleanup|^TestM8DockerHostActions$"
 )
 REQUIRED |= (INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED | STAGE_AUTHORIZATION_REQUIRED |
-             HOST_ACTION_REQUIRED | ACTIVATION_REQUIRED | CLEANUP_REQUIRED)
+             HOST_ACTION_REQUIRED | ACTIVATION_REQUIRED | CLEANUP_REQUIRED | DOCKER_REQUIRED)
 STAGE_OWNER_LABEL = "io.uptime-phoenix.stage-authorization-run"
 
 
@@ -576,7 +599,7 @@ def main():
         "m8-install-runner": INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED,
         "m8-stage-authorization": (INSTALL_JOURNAL_REQUIRED | INSTALL_RUNNER_REQUIRED |
                                    STAGE_AUTHORIZATION_REQUIRED | HOST_ACTION_REQUIRED | ACTIVATION_REQUIRED |
-                                   CLEANUP_REQUIRED),
+                                   CLEANUP_REQUIRED | DOCKER_REQUIRED),
     }[args.scope]
     strict_events = StageAuthorizationEvents(required) if args.scope == "m8-stage-authorization" else None
     minimum_engine_passes = 300 if args.scope == "full" else len(required)

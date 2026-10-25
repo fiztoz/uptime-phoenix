@@ -951,17 +951,23 @@ func TestM8HostActionAdmissionSchema(t *testing.T) {
 			})
 			t.Run("DowngradeGuard", func(t *testing.T) {
 				const migration = "086_probe_host_action_admissions"
+				const widening = "089_probe_docker_host_actions"
 				e := newM8HostEnv(t, engine, domain.ProbeHostActionDataDirectory, m8HostNone)
-				// 086 references 084's resources and is itself unreferenced, so it
-				// is the first migration a rollback would remove.
-				if err := runEngineMigration(t, e.f.db, engine, migration, "down"); err != nil {
-					t.Fatal("empty admission downgrade refused")
+				// 086 references 084's resources and 089 only widens 086's table, so
+				// 089 is the first migration a rollback removes and the last one a
+				// restore reapplies. The shared MariaDB schema must end at 089's shape.
+				for _, name := range []string{widening, migration} {
+					if err := runEngineMigration(t, e.f.db, engine, name, "down"); err != nil {
+						t.Fatalf("empty admission downgrade of %s refused: %v", name, err)
+					}
 				}
 				if _, err := m8HostCount(e.ctx, e.f.db); err == nil {
 					t.Fatal("empty downgrade did not remove the table")
 				}
-				if err := runEngineMigration(t, e.f.db, engine, migration, "up"); err != nil {
-					t.Fatal("admission re-upgrade failed")
+				for _, name := range []string{migration, widening} {
+					if err := runEngineMigration(t, e.f.db, engine, name, "up"); err != nil {
+						t.Fatalf("admission re-upgrade of %s failed: %v", name, err)
+					}
 				}
 				m8HostPrepare(t, e.f, e.r, m8HostInFlight)
 				g, err := e.svc.Authorize(e.ctx, e.r)
@@ -969,6 +975,8 @@ func TestM8HostActionAdmissionSchema(t *testing.T) {
 				t.Cleanup(func() {
 					_, _ = e.f.db.ExecContext(context.Background(), "DROP TABLE IF EXISTS probe_host_action_admissions_downgrade_guard")
 				})
+				// 089 alone would narrow over a legacy-kind admission, so the
+				// refusal under test is 086's: its guard runs before it drops anything.
 				if err := runEngineMigration(t, e.f.db, engine, migration, "down"); err == nil {
 					t.Fatal("downgrade erased an irreversible admission")
 				}
