@@ -68,6 +68,42 @@ func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
 	return nil
 }
 
+// firstUserClaimKey is a settings row whose unique key elects the single
+// first user across concurrent requests and replicas. Counting users alone
+// is not enough: two transactions can both see an empty table.
+const firstUserClaimKey = "auth.first_user_claimed"
+
+// CreateFirst inserts u only while no user exists. The claim row and the user
+// commit together, so a failed insert leaves registration open.
+func (r *UserRepo) CreateFirst(ctx context.Context, u *domain.User) error {
+	m := repository.UserModelFromDomain(u)
+	now := time.Now().UTC()
+	m.CreatedAt = now
+	m.UpdatedAt = now
+	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		count, err := tx.NewSelect().Model((*repository.UserModel)(nil)).Count(ctx)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			return ports.ErrConflict
+		}
+		claim := &repository.SettingModel{Key: firstUserClaimKey, Value: u.Username}
+		if _, err := tx.NewInsert().Model(claim).Exec(ctx); err != nil {
+			return err
+		}
+		_, err = tx.NewInsert().Model(m).Exec(ctx)
+		return err
+	})
+	if err != nil {
+		return translateError(err)
+	}
+	u.ID = m.ID
+	u.CreatedAt = m.CreatedAt
+	u.UpdatedAt = m.UpdatedAt
+	return nil
+}
+
 func (r *UserRepo) GetByID(ctx context.Context, id int64) (*domain.User, error) {
 	m := new(repository.UserModel)
 	if err := r.db.NewSelect().Model(m).Where("id = ?", id).Scan(ctx); err != nil {

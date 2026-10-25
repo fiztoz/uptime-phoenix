@@ -189,16 +189,41 @@ func TestAuthService_Register_Success(t *testing.T) {
 	}
 }
 
-func TestAuthService_Register_Duplicate(t *testing.T) {
+// Register only ever creates the first user (#92); any later call, with the
+// same or a different username, is closed.
+func TestAuthService_Register_ClosedAfterFirstUser(t *testing.T) {
 	svc, _, _ := newTestService(t)
 	ctx := context.Background()
 
 	if _, err := svc.Register(ctx, "alice", "supersecret"); err != nil {
 		t.Fatalf("first Register: %v", err)
 	}
-	_, err := svc.Register(ctx, "alice", "anothersecret")
-	if !errors.Is(err, ErrUserExists) {
-		t.Errorf("second Register returned %v; want ErrUserExists", err)
+	for _, name := range []string{"alice", "bob"} {
+		if _, err := svc.Register(ctx, name, "anothersecret"); !errors.Is(err, ErrRegistrationClosed) {
+			t.Errorf("Register(%q) after first user returned %v; want ErrRegistrationClosed", name, err)
+		}
+	}
+}
+
+func TestAuthService_RegisterWithSetupToken(t *testing.T) {
+	svc, _, _ := newTestService(t)
+	ctx := context.Background()
+
+	// No token configured: the UI path is closed even on an empty install.
+	if _, err := svc.RegisterWithSetupToken(ctx, "", "alice", "supersecret"); !errors.Is(err, ErrInvalidSetupToken) {
+		t.Fatalf("unconfigured token: err = %v; want ErrInvalidSetupToken", err)
+	}
+
+	token := FirstUserSetupToken("a-jwt-secret-of-reasonable-length")
+	if token == FirstUserSetupToken("another-jwt-secret-entirely") || len(token) != 32 {
+		t.Fatalf("setup token %q must be 32 hex chars and depend on the secret", token)
+	}
+	WithFirstUserSetupToken(token)(svc)
+	if _, err := svc.RegisterWithSetupToken(ctx, "wrong", "alice", "supersecret"); !errors.Is(err, ErrInvalidSetupToken) {
+		t.Fatalf("wrong token: err = %v; want ErrInvalidSetupToken", err)
+	}
+	if _, err := svc.RegisterWithSetupToken(ctx, token, "alice", "supersecret"); err != nil {
+		t.Fatalf("valid token: %v", err)
 	}
 }
 
@@ -504,6 +529,13 @@ func (r *inMemUserRepo) Create(_ context.Context, u *domain.User) error {
 	r.users[u.ID] = u
 	r.byName[u.Username] = u.ID
 	return nil
+}
+
+func (r *inMemUserRepo) CreateFirst(ctx context.Context, u *domain.User) error {
+	if len(r.users) > 0 {
+		return ports.ErrConflict
+	}
+	return r.Create(ctx, u)
 }
 
 func (r *inMemUserRepo) GetByID(_ context.Context, id int64) (*domain.User, error) {

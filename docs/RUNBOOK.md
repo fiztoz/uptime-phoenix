@@ -400,7 +400,7 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `WEBAUTHN_RP_NAME` | `Phoenix` | Passkey relying-party display name. |
 | `WEBAUTHN_RP_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Comma-separated exact browser origins, including scheme. |
 | `BOOTSTRAP_USERNAME` | empty | Creates the first user only when paired with `BOOTSTRAP_PASSWORD`; do not use as an ongoing user-sync mechanism. |
-| `BOOTSTRAP_PASSWORD` | empty | First-user bootstrap password; minimum eight characters. Supply via a secret and remove from runtime configuration after bootstrap. |
+| `BOOTSTRAP_PASSWORD` | empty | First-user bootstrap password; minimum eight characters. Supply via a secret and remove from runtime configuration after bootstrap. Without bootstrap credentials, an empty install logs a one-time `setup_token` (derived from `JWT_SECRET`) that the web UI requires to create the first admin. |
 | `MODE` | `all` | `all`, `api`, or `worker` for `cmd/app`; role-specific binaries override it. |
 | `CORS_ALLOW_ORIGINS` | empty | Comma-separated full origins. Empty + `PRODUCTION=false` allows `*`; empty + `PRODUCTION=true` emits no CORS grant. Same-origin requests are unaffected. |
 | `WS_ALLOWED_ORIGINS` | empty | Extra WebSocket origin **host patterns without schemes**, comma-separated, in addition to secure same-origin access; for example `status.example.com,localhost:5173`. |

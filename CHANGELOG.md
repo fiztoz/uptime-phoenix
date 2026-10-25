@@ -27,6 +27,13 @@ at the bottom.
   read-only root. Every chart workload, including the backup, partition,
   rollup and migrate jobs, runs non-root under `seccompProfile:
   RuntimeDefault` (#91).
+- **Breaking:** creating the first admin from the web UI now needs the one-time
+  setup token that the server logs at startup while it has no users and no
+  `BOOTSTRAP_USERNAME`/`BOOTSTRAP_PASSWORD`. The token is derived from
+  `JWT_SECRET`, so every replica logs the same one; `JWT_SECRET` (now required, #87) keeps it
+  unguessable.
+  First-user creation is now atomic across replicas: concurrent sign-ups on
+  an empty install create exactly one admin (#92).
 - Align active build, CI, release, Docker, E2E and offline verification pins to
   Go 1.26.10, fixing the reachable standard-library advisory GO-2026-6809
   (distrust compromised intermediate certificates in `crypto/x509`).
