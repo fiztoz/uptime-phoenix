@@ -13,6 +13,20 @@ at the bottom.
 
 ### Security
 
+- **Breaking:** `JWT_SECRET` is now required and must be at least 32 bytes;
+  the published default secrets were removed from compose files, the Helm
+  chart and docs (#87).
+- Monitor and notification secrets (webhook URLs, tokens, DSNs, auth
+  headers, URL passwords) are write-only. API and WebSocket responses carry
+  `__REDACTED__`; sending it back on update keeps the stored value. A push
+  monitor's token is still shown to users who can edit that monitor (#89).
+- Sign-in is throttled: login, 2FA and passkey verification share a per-IP
+  budget, accounts back off exponentially after repeated password or TOTP
+  failures, and a 2FA ticket is spent after five wrong codes (#90).
+- The split web image runs nginx-unprivileged (uid 101, port 8080) on a
+  read-only root. Every chart workload, including the backup, partition,
+  rollup and migrate jobs, runs non-root under `seccompProfile:
+  RuntimeDefault` (#91).
 - Align active build, CI, release, Docker, E2E and offline verification pins to
   Go 1.26.10, fixing the reachable standard-library advisory GO-2026-6809
   (distrust compromised intermediate certificates in `crypto/x509`).
