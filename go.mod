@@ -13,7 +13,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gosnmp/gosnmp v1.45.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/labstack/echo/v4 v4.16.0
+	github.com/labstack/echo/v4 v4.16.1
 	github.com/microsoft/go-mssqldb v1.11.2
 	github.com/miekg/dns v1.1.73
 	github.com/moby/moby/client v0.6.2
