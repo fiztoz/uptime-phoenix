@@ -996,7 +996,7 @@ func hactRefusalCases(t *testing.T, h *hactHarness) []hactRefusal {
 		{"kind length 255", hactJoin(hactRawAction("PHXACT1\n", 255, I.Kind, header), G), input, 9, nil},
 		{"kind length longer than the kind", hactJoin(hactRawAction("PHXACT1\n", byte(kindLen+1), I.Kind, header), G), input, -1, nil},
 		{"kind length shorter than the kind", hactJoin(hactRawAction("PHXACT1\n", byte(kindLen-1), I.Kind, header), G), input, -1, nil},
-		{"wrong action magic version", hactJoin(hactRawAction("PHXACT2\n", byte(kindLen), I.Kind, header), G), input, 9, nil},
+		{"wrong action magic version", hactJoin(hactRawAction("PHXACT3\n", byte(kindLen), I.Kind, header), G), input, 9, nil},
 		{"action magic with CR terminator", hactJoin(hactRawAction("PHXACT1\r", byte(kindLen), I.Kind, header), G), input, 9, nil},
 		{"lowercase action magic", hactJoin(hactRawAction("phxact1\n", byte(kindLen), I.Kind, header), G), input, 9, nil},
 		{"plain stage header instead of an action frame", hactJoin(header, G), input, 9, nil},

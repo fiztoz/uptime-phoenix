@@ -571,6 +571,7 @@ var probeInstallPreflightMessages = map[string]string{
 	domain.ProbeInstallPreflightArchitecture: "the pinned binary architecture does not match the host",
 	domain.ProbeInstallPreflightRoot:         "the host helper is not running as root",
 	domain.ProbeInstallPreflightSystemd:      "the host is not running systemd",
+	domain.ProbeInstallPreflightDocker:       "the host has no docker CLI and daemon socket",
 	domain.ProbeInstallPreflightAuthority:    "the host has no trusted stage-authority key",
 	domain.ProbeInstallPreflightExisting:     "the host already has an Uptime Phoenix probe install; clean it up first",
 }

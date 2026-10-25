@@ -45,13 +45,13 @@ type ProbeActivationIdentity struct {
 	RequestedBy          int64
 }
 
-// Valid requires a root systemd install identity, a canonical probe key slug,
+// Valid requires a root systemd or Docker install identity, a canonical probe key slug,
 // a bounded display name, the installed unit's listen port and the
 // requesting actor. The unit runs the probe on its default listener
 // (ProbeActivationDefaultPort) with no --listen override, so any other port
 // would register an endpoint nothing listens on.
 func (a ProbeActivationIdentity) Valid() bool {
-	return a.Install.Valid() && a.Install.Mode == ProbeInstallSystemd && a.Install.Host.User == "root" &&
+	return a.Install.Valid() && (a.Install.Mode == ProbeInstallSystemd || a.Install.Mode == ProbeInstallDocker) && a.Install.Host.User == "root" &&
 		validProbeActivationKey(a.ProbeKey) && validProbeActivationText(a.Name, 1, 200) &&
 		validProbeActivationText(a.Location, 0, 255) && a.ListenPort == ProbeActivationDefaultPort &&
 		ValidSSHKeyFingerprint(a.ClientKeyFingerprint) && a.RequestedBy > 0 && a.Endpoint() != ""
@@ -71,12 +71,15 @@ func (a ProbeActivationIdentity) Steps() []ProbeInstallResourceSpec {
 	if !a.Valid() {
 		return nil
 	}
-	install := a.Install.Resources()
+	data, service, ok := ProbeInstallLayout(a.Install)
+	if !ok {
+		return nil
+	}
 	endpoint := a.Endpoint()
 	return []ProbeInstallResourceSpec{
-		{Ordinal: 1, Kind: ProbeActivationProbeInit, Reference: install[0].Reference, Owned: true},
+		{Ordinal: 1, Kind: ProbeActivationProbeInit, Reference: data.Reference, Owned: true},
 		{Ordinal: 2, Kind: ProbeActivationRegistration, Reference: endpoint, Owned: false},
-		{Ordinal: 3, Kind: ProbeActivationServiceStart, Reference: install[3].Reference, Owned: true},
+		{Ordinal: 3, Kind: ProbeActivationServiceStart, Reference: service.Reference, Owned: true},
 		{Ordinal: 4, Kind: ProbeActivationEnrollment, Reference: endpoint, Owned: false},
 	}
 }

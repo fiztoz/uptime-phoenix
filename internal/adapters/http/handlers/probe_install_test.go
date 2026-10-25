@@ -1105,7 +1105,7 @@ func TestProbeInstallPreflightMessagesCoverEveryCode(t *testing.T) {
 		domain.ProbeInstallPreflightTrust, domain.ProbeInstallPreflightDestination, domain.ProbeInstallPreflightAuth,
 		domain.ProbeInstallPreflightUnreachable, domain.ProbeInstallPreflightHelper, domain.ProbeInstallPreflightOS,
 		domain.ProbeInstallPreflightArchitecture, domain.ProbeInstallPreflightRoot, domain.ProbeInstallPreflightSystemd,
-		domain.ProbeInstallPreflightAuthority, domain.ProbeInstallPreflightExisting,
+		domain.ProbeInstallPreflightAuthority, domain.ProbeInstallPreflightExisting, domain.ProbeInstallPreflightDocker,
 	}
 	if len(probeInstallPreflightMessages) != len(codes) {
 		t.Fatalf("messages=%d codes=%d", len(probeInstallPreflightMessages), len(codes))

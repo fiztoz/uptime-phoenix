@@ -96,7 +96,7 @@ func hostActFrameParse(frame []byte) (domain.ProbeHostActionIntent, []byte, erro
 		return zero, nil, domain.ErrProbeBinaryStageWriteInput
 	}
 	header, tail := rest[:ProbeBinaryStagePrefixSize+hl], rest[ProbeBinaryStagePrefixSize+hl:]
-	intent, err := DecodeProbeHostActionIntent(kind, header)
+	intent, err := DecodeProbeHostActionIntent(kind, header, false)
 	return intent, tail, err
 }
 
@@ -138,7 +138,7 @@ func TestEncodeProbeHostActionFrameRoundTrip(t *testing.T) {
 		if err != nil || n != len(kind) {
 			t.Fatalf("%s: kind length %d %v", kind, n, err)
 		}
-		got, err := DecodeProbeHostActionIntent(frame[ProbeHostActionPrefixSize:ProbeHostActionPrefixSize+n], frame[ProbeHostActionPrefixSize+n:])
+		got, err := DecodeProbeHostActionIntent(frame[ProbeHostActionPrefixSize:ProbeHostActionPrefixSize+n], frame[ProbeHostActionPrefixSize+n:], false)
 		if err != nil || got != intent {
 			t.Fatalf("%s: round trip %+v %v", kind, got, err)
 		}
@@ -219,7 +219,7 @@ func TestProbeHostActionKindLengthAcceptsOnlyExactPrefix(t *testing.T) {
 		}
 	}
 	// The stage header and grant magics are not an action prefix.
-	for _, magic := range []string{hostActFrameStageMagic, hostActFrameGrantMagic, "PHXACT2\n", "phxact1\n", "PHXACT1 "} {
+	for _, magic := range []string{hostActFrameStageMagic, hostActFrameGrantMagic, "PHXACT3\n", "phxact1\n", "PHXACT1 "} {
 		if got, err := ProbeHostActionKindLength(append([]byte(magic), 5)); err != domain.ErrProbeBinaryStageWriteInput || got != 0 {
 			t.Fatalf("magic %q accepted: %d %v", magic, got, err)
 		}
@@ -245,13 +245,13 @@ func TestDecodeProbeHostActionIntentRefusals(t *testing.T) {
 	intent := hostActFrameIntent(hostActFrameKindService)
 	header := hostActFrameStageHeader(t, intent)
 
-	if got, err := DecodeProbeHostActionIntent([]byte(hostActFrameKindService), header); err != nil || got != intent {
+	if got, err := DecodeProbeHostActionIntent([]byte(hostActFrameKindService), header, false); err != nil || got != intent {
 		t.Fatalf("control decode %+v %v", got, err)
 	}
 
 	refused := func(name string, kind, hdr []byte) {
 		t.Helper()
-		got, err := DecodeProbeHostActionIntent(kind, hdr)
+		got, err := DecodeProbeHostActionIntent(kind, hdr, false)
 		if err != domain.ErrProbeBinaryStageWriteInput || got != (domain.ProbeHostActionIntent{}) {
 			t.Fatalf("%s: %+v %v, want the zero intent and the input sentinel", name, got, err)
 		}
@@ -312,7 +312,7 @@ func TestProbeHostActionFrameTruncationAndExtension(t *testing.T) {
 		}
 		n := len(kind)
 		// Growing the header inside the exact slice is refused.
-		if _, err := DecodeProbeHostActionIntent(frame[ProbeHostActionPrefixSize:ProbeHostActionPrefixSize+n], append(frame[ProbeHostActionPrefixSize+n:len(frame):len(frame)], 'x')); err == nil {
+		if _, err := DecodeProbeHostActionIntent(frame[ProbeHostActionPrefixSize:ProbeHostActionPrefixSize+n], append(frame[ProbeHostActionPrefixSize+n:len(frame):len(frame)], 'x'), false); err == nil {
 			t.Fatalf("%s: header plus one byte decoded", kind)
 		}
 		// Shrinking the kind length byte makes the kind a strict prefix of the

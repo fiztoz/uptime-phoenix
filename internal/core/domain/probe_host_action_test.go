@@ -146,16 +146,51 @@ func TestProbeHostActionIntentValidAcceptsOnlyRootSystemdAndThreeKinds(t *testin
 		})
 	}
 
-	t.Run("a valid docker identity is refused by mode alone", func(t *testing.T) {
+	t.Run("docker identities accept only their own kinds", func(t *testing.T) {
 		docker := installTestIdentity(ProbeInstallDocker)
 		if !docker.Valid() || docker.Host.User != "root" {
 			t.Fatalf("fixture docker identity must be valid and root: %+v", docker)
 		}
-		for _, kind := range append([]string{"image_cache", "container"}, hostActDomainKinds...) {
-			intent := ProbeHostActionIntent{Identity: docker, OwnerID: hostActDomainOwnerID, AttemptID: hostActDomainAttemptID, Kind: kind}
-			if intent.Valid() || intent.Marker() != "" {
-				t.Fatalf("docker %q accepted", kind)
+		payload := ProbeHostActionPayload{SHA256: strings.Repeat("a", 64), Size: 4096, LayoutIndexSHA256: strings.Repeat("b", 64)}
+		intent := func(kind string, p ProbeHostActionPayload) ProbeHostActionIntent {
+			return ProbeHostActionIntent{Identity: docker, OwnerID: hostActDomainOwnerID, AttemptID: hostActDomainAttemptID, Kind: kind, Payload: p}
+		}
+		for _, kind := range []string{ProbeHostActionDataDirectory, ProbeHostActionContainer, ProbeActivationProbeInit, ProbeActivationServiceStart, ProbeHostActionCleanup} {
+			if i := intent(kind, ProbeHostActionPayload{}); !i.Valid() || i.Marker() == "" {
+				t.Fatalf("docker %q refused", kind)
 			}
+			if intent(kind, payload).Valid() {
+				t.Fatalf("docker %q accepted a payload", kind)
+			}
+		}
+		if i := intent(ProbeHostActionImageCache, payload); !i.Valid() || !strings.Contains(i.Marker(), "payload_sha256="+payload.SHA256+"\n") {
+			t.Fatalf("image_cache with payload refused or unbound: %q", i.Marker())
+		}
+		if intent(ProbeHostActionImageCache, ProbeHostActionPayload{}).Valid() {
+			t.Fatal("image_cache without a payload accepted")
+		}
+		for _, kind := range []string{ProbeHostActionUnitFile, ProbeHostActionService} {
+			if i := intent(kind, ProbeHostActionPayload{}); i.Valid() || i.Marker() != "" {
+				t.Fatalf("systemd-only %q accepted for docker", kind)
+			}
+		}
+		// The systemd identity refuses the docker-only kinds.
+		systemd := hostActDomainIntent(ProbeHostActionService)
+		for _, kind := range []string{ProbeHostActionImageCache, ProbeHostActionContainer} {
+			systemd.Kind, systemd.Payload = kind, payload
+			if systemd.Valid() {
+				t.Fatalf("systemd %q accepted", kind)
+			}
+		}
+		// The container marker binds the exact derived docker arguments.
+		c := intent(ProbeHostActionContainer, ProbeHostActionPayload{})
+		other := c
+		other.Identity.Image.ManifestSHA256 = strings.Repeat("c", 64)
+		if !other.Valid() {
+			t.Fatalf("fixture mutation must stay valid: %+v", other.Identity.Image)
+		}
+		if c.MarkerSHA256() == other.MarkerSHA256() || !strings.Contains(c.Marker(), "container_sha256=") {
+			t.Fatal("container marker does not bind the image selection and arguments")
 		}
 	})
 

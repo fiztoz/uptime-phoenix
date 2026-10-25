@@ -152,11 +152,12 @@ func readAuthorizedProbeHostAction(ctx context.Context, r io.Reader, key, nonce 
 	if err := st.exact(kind); err != nil {
 		return zero, err
 	}
-	header, err := readProbeBinaryStageHeader(ctx, r)
+	docker := provisioning.ProbeHostActionFrameIsDocker(prefix)
+	header, err := readProbeHostActionHeader(ctx, r, docker)
 	if err != nil {
 		return zero, err
 	}
-	intent, err := provisioning.DecodeProbeHostActionIntent(kind, header)
+	intent, err := provisioning.DecodeProbeHostActionIntent(kind, header, docker)
 	if err != nil {
 		return zero, domain.ErrProbeBinaryStageWriteInput
 	}
@@ -207,4 +208,27 @@ func probeHostActionRequireEOF(ctx context.Context, r io.Reader) error {
 		return probeBinaryStageHelperPreError(err)
 	}
 	return domain.ErrProbeArtifactStorage
+}
+
+// readProbeHostActionHeader reads the identity header that follows the kind:
+// the v1 binary-stage header, or for a v2 frame the Docker header.
+func readProbeHostActionHeader(ctx context.Context, r io.Reader, docker bool) ([]byte, error) {
+	if !docker {
+		return readProbeBinaryStageHeader(ctx, r)
+	}
+	st := probeBinaryStageHeaderRead{ctx: ctx, r: r}
+	prefix := make([]byte, provisioning.ProbeDockerHeaderPrefixSize)
+	if err := st.exact(prefix); err != nil {
+		return nil, err
+	}
+	n, err := provisioning.ProbeHostActionHeaderLength(prefix, true)
+	if err != nil {
+		return nil, domain.ErrProbeBinaryStageWriteInput
+	}
+	header := make([]byte, provisioning.ProbeDockerHeaderPrefixSize+n)
+	copy(header, prefix)
+	if err := st.exact(header[provisioning.ProbeDockerHeaderPrefixSize:]); err != nil {
+		return nil, err
+	}
+	return header, nil
 }
