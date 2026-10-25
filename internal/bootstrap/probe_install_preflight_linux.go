@@ -29,7 +29,7 @@ func gatherHostProbeInstallReport(ctx context.Context) (domain.ProbeInstallHostR
 	}
 	booted, err := os.Stat("/run/systemd/system")
 	report.Systemd = err == nil && booted.IsDir() && probeInstallExecutable("/usr/bin/systemctl", "/bin/systemctl")
-	report.DockerCLI = probeInstallExecutable("/usr/bin/docker", "/usr/local/bin/docker")
+	report.DockerCLI = probeInstallExecutable("/usr/bin/docker", "/usr/local/bin/docker") && probeInstallSocket(probeInstallDockerSocket)
 	if report.Root {
 		key, err := loadHostProbeBinaryStageAuthority(ctx)
 		report.Authority = err == nil && key != ([32]byte{})
@@ -56,6 +56,16 @@ func gatherHostProbeInstallReport(ctx context.Context) (domain.ProbeInstallHostR
 		return zero, domain.ErrProbeBinaryStageWriteUnavailable
 	}
 	return report, nil
+}
+
+// probeInstallDockerSocket is the daemon socket the Docker install path uses.
+const probeInstallDockerSocket = "/var/run/docker.sock"
+
+// probeInstallSocket reports whether path is itself a unix socket (Lstat, so a
+// link or any other file type never counts).
+func probeInstallSocket(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSocket != 0
 }
 
 // probeInstallExecutable reports whether any fixed path is an executable

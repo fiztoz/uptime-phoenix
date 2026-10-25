@@ -126,7 +126,17 @@ func (s *ProbeInstallOperationService) Submit(ctx context.Context, request domai
 
 	// The key is borrowed only for this synchronous call; the factory never
 	// retains the caller's buffer.
-	session, clientFingerprint, err := s.sessions.NewInstallSession(admitCtx, request.PrivateKey, request.HostKeyFingerprint, request.Binary)
+	var (
+		session           ports.ProbeInstallSession
+		clientFingerprint string
+		selection         domain.ProbeImageSelection
+		err               error
+	)
+	if request.InstallMode() == domain.ProbeInstallDocker {
+		session, clientFingerprint, selection, err = s.sessions.NewDockerInstallSession(admitCtx, request.PrivateKey, request.HostKeyFingerprint, request.Image)
+	} else {
+		session, clientFingerprint, err = s.sessions.NewInstallSession(admitCtx, request.PrivateKey, request.HostKeyFingerprint, request.Binary)
+	}
 	if err != nil || binaryStageAuthorizationNil(session) {
 		if s.rootCtx.Err() != nil && ctx.Err() == nil {
 			return nil, domain.ErrProbeInstallClosed
@@ -148,8 +158,12 @@ func (s *ProbeInstallOperationService) Submit(ctx context.Context, request domai
 		ClientKeyFingerprint: clientFingerprint,
 		RequestedBy:          request.RequestedBy,
 		LayoutVersion:        1,
-		Mode:                 domain.ProbeInstallSystemd,
-		Binary:               request.Binary,
+		Mode:                 request.InstallMode(),
+	}
+	if identity.Mode == domain.ProbeInstallDocker {
+		identity.Image = selection
+	} else {
+		identity.Binary = request.Binary
 	}
 	if !identity.Valid() {
 		return nil, domain.ErrInternal

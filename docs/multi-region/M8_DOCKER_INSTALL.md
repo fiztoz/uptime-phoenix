@@ -42,8 +42,11 @@ content, snapshots and the closed OCI archive.
      directory (`/var/lib/uptime-phoenix-image-stage`) and verifies the exact
      SHA-256 and size before anything is loaded.
    - **Load and verify.** It then runs `docker load --input` and removes the file. It
-     requires the image to resolve by `sha256:<config>` (classic store) or
-     `sha256:<layout index>` (containerd store); any other result is Unknown.
+     requires the image to resolve to one of these IDs; any other result is
+     Unknown:
+     - `sha256:<config>` (classic store);
+     - `sha256:<manifest>` (containerd store, as observed with Docker 29);
+     - `sha256:<layout index>`.
    - **Tag.** It tags that image ID `uptime-phoenix-probe:<manifest hex>`.
    - **Ownership.** The image is shared (`Owned=false`); cleanup never removes it.
      Tags are local root state, and root on the host is trusted.

@@ -1,6 +1,9 @@
 package domain
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Docker install resource kinds. image_cache loads the pinned image (shared,
 // never owned or removed); container creates, but does not start, the probe
@@ -103,10 +106,9 @@ func ProbeDockerCreateArgs(r ProbeInstallIdentity) []string {
 	if tag == "" || !ok || common == nil {
 		return nil
 	}
-	args := []string{"create", "--name", service.Reference, "--restart", "unless-stopped"}
-	args = append(args, common...)
-	args = append(args, "--publish", "8443:8443", tag, "run", "--data-dir", ProbeDockerDataMount)
-	return args
+	head := []string{"create", "--name", service.Reference, "--restart", "unless-stopped"}
+	tail := []string{"--publish", "8443:8443", tag, "run", "--data-dir", ProbeDockerDataMount}
+	return slices.Concat(head, common, tail)
 }
 
 // ProbeDockerInitArgs derives the exact `docker` argument vector for the
@@ -117,10 +119,9 @@ func ProbeDockerInitArgs(r ProbeInstallIdentity) []string {
 	if tag == "" || common == nil {
 		return nil
 	}
-	args := []string{"run", "--rm", "--network", "none"}
-	args = append(args, common...)
-	args = append(args, tag, "init", "--data-dir", ProbeDockerDataMount)
-	return args
+	head := []string{"run", "--rm", "--network", "none"}
+	tail := []string{tag, "init", "--data-dir", ProbeDockerDataMount}
+	return slices.Concat(head, common, tail)
 }
 
 // probeDockerArgsDigestInput joins an argument vector unambiguously for the

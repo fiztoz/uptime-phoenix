@@ -23,6 +23,8 @@ type SSHProbeInstallSessionFactory struct {
 	policy    probe.EndpointPolicy
 	artifacts *os.Root
 	preparer  *ProbeBinaryPreparer
+	snapshots *ProbeImageSnapshotPreparer
+	packer    *ProbeImageArchivePacker
 	stage     ProbeBinaryStageAuthorizer
 	actions   ProbeHostActionAuthorizer
 }
@@ -41,7 +43,11 @@ func NewSSHProbeInstallSessionFactory(artifactDir string, policy probe.EndpointP
 		return nil, errors.New("probe install artifact directory unavailable")
 	}
 	policy.AllowedCIDRs = slices.Clone(policy.AllowedCIDRs)
-	return &SSHProbeInstallSessionFactory{policy: policy, artifacts: root, preparer: NewProbeBinaryPreparer(""), stage: stage, actions: actions}, nil
+	return &SSHProbeInstallSessionFactory{
+		policy: policy, artifacts: root, preparer: NewProbeBinaryPreparer(""),
+		snapshots: NewProbeImageSnapshotPreparer(""), packer: NewProbeImageArchivePacker(""),
+		stage: stage, actions: actions,
+	}, nil
 }
 
 // Close releases the artifact directory handle.
@@ -99,12 +105,70 @@ func (f *SSHProbeInstallSessionFactory) NewInstallSession(ctx context.Context, p
 	return &sshProbeInstallSession{SSHProbeInstallExecutor: executor, prepared: prepared}, clientFingerprint, nil
 }
 
+// NewDockerInstallSession parses the borrowed key without retaining its
+// buffer, opens the pinned image's OCI layout from the artifact directory,
+// verifies it into a private snapshot, packs the closed archive and returns
+// the session with the key's PUBLIC fingerprint and the verified selection.
+// It performs no SSH I/O. Key and trust input failures are
+// domain.ErrProbeSSHInput; artifact failures domain.ErrProbeInstallArtifact.
+func (f *SSHProbeInstallSessionFactory) NewDockerInstallSession(ctx context.Context, privateKey []byte, hostFingerprint string, pin domain.ProbeImagePin) (ports.ProbeInstallSession, string, domain.ProbeImageSelection, error) {
+	var none domain.ProbeImageSelection
+	if f == nil || f.artifacts == nil || f.snapshots == nil || f.packer == nil || imageSnapshotNil(ctx) {
+		return nil, "", none, domain.ErrValidation
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, "", none, err
+	}
+	if !pin.Valid() {
+		return nil, "", none, domain.ErrProbeInstallArtifact
+	}
+	signer, err := ssh.ParsePrivateKey(privateKey)
+	if err != nil {
+		return nil, "", none, domain.ErrProbeSSHInput
+	}
+	clientFingerprint := ssh.FingerprintSHA256(signer.PublicKey())
+	sender, err := NewSSHBinaryStageSender(ctx, privateKey, hostFingerprint, clientFingerprint, f.policy)
+	if err != nil {
+		return nil, "", none, domain.ErrProbeSSHInput
+	}
+	artifactErr := func() error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return domain.ErrProbeInstallArtifact
+	}
+	inputs, err := openProbeImageLayout(f.artifacts, pin)
+	if err != nil {
+		return nil, "", none, artifactErr()
+	}
+	image, err := f.snapshots.PrepareImageSnapshot(ctx, pin, inputs) // consumes inputs
+	if err != nil {
+		return nil, "", none, artifactErr()
+	}
+	archive, err := f.packer.PackImageArchive(ctx, pin, image)
+	// The archive is self-contained; the snapshot is only borrowed by packing.
+	_ = image.Close(context.WithoutCancel(ctx))
+	if err != nil {
+		return nil, "", none, artifactErr()
+	}
+	selection := archive.Descriptor().Content.Selection
+	executor, err := NewSSHProbeDockerInstallExecutor(sender, archive, f.actions)
+	if err != nil || !selection.Valid() || selection.Pin != pin {
+		_ = archive.Close(context.WithoutCancel(ctx))
+		return nil, "", none, domain.ErrInternal
+	}
+	return &sshProbeInstallSession{SSHProbeInstallExecutor: executor, prepared: archive}, clientFingerprint, selection, nil
+}
+
 // sshProbeInstallSession owns one prepared snapshot until Close.
 type sshProbeInstallSession struct {
 	*SSHProbeInstallExecutor
-	prepared ports.PreparedProbeBinary
-	once     sync.Once
-	err      error
+	// prepared is the owned binary snapshot (systemd) or image archive (Docker).
+	prepared interface {
+		Close(ctx context.Context) error
+	}
+	once sync.Once
+	err  error
 }
 
 // Preflight runs the fixed install preflight over the session's pinned
