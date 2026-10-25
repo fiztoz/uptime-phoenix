@@ -186,6 +186,33 @@ func TestAuthHandlers_Login_InvalidCredentials(t *testing.T) {
 	}
 }
 
+// TestAuthHandlers_Login_LockedAccountReturns429 checks that the per-account
+// backoff from AuthService reaches clients as 429, and that the correct
+// password is refused while it lasts (issue #90).
+func TestAuthHandlers_Login_LockedAccountReturns429(t *testing.T) {
+	h := newHarness(t)
+	_ = h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
+		"username": "alice",
+		"password": "supersecret",
+	}, "")
+	for i := 0; i < services.LoginFailuresBeforeBackoff; i++ {
+		rec := h.do(t, http.MethodPost, "/api/auth/login", map[string]string{
+			"username": "alice",
+			"password": "wrong",
+		}, "")
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("failure %d: status = %d; want 401", i+1, rec.Code)
+		}
+	}
+	rec := h.do(t, http.MethodPost, "/api/auth/login", map[string]string{
+		"username": "alice",
+		"password": "supersecret",
+	}, "")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d; want 429; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAuthHandlers_Login_Success(t *testing.T) {
 	h := newHarness(t)
 	_ = h.do(t, http.MethodPost, "/api/auth/register", map[string]string{

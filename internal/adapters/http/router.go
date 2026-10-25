@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -15,6 +16,14 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/http/middleware"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
+)
+
+// Per-IP budgets for the public sign-in endpoints (issue #90).
+const (
+	// SignInAttemptsPerMinute covers login, verify-2fa and passkey finish.
+	SignInAttemptsPerMinute = 10
+	// AuthBeginAttemptsPerMinute covers passkey begin and first-user register.
+	AuthBeginAttemptsPerMinute = 20
 )
 
 // RouterOptions configures global HTTP middleware (Phase 3 hardening).
@@ -120,13 +129,32 @@ func NewRouter(
 
 	// Public auth endpoints (no auth required).
 	authGroup := e.Group("/api/auth")
+	// Credential guessing is throttled per client IP here and per account in
+	// AuthService (issue #90). Password, TOTP and passkey verification share
+	// one budget, so splitting guesses across endpoints buys nothing.
+	signInLimit := middleware.CredentialRateLimit(middleware.CredentialRateLimitConfig{
+		MaxAttempts: SignInAttemptsPerMinute,
+		Window:      time.Minute,
+		RedisURL:    opts.RateLimit.RedisURL,
+		Scope:       "auth-signin",
+		Message:     "too many sign-in attempts; try again later",
+	})
+	// Starting a ceremony and registering the first user verify nothing, but
+	// they cost work (challenge state, bcrypt), so they get a looser budget.
+	authBeginLimit := middleware.CredentialRateLimit(middleware.CredentialRateLimitConfig{
+		MaxAttempts: AuthBeginAttemptsPerMinute,
+		Window:      time.Minute,
+		RedisURL:    opts.RateLimit.RedisURL,
+		Scope:       "auth-begin",
+		Message:     "too many sign-in attempts; try again later",
+	})
 	authGroup.GET("/has-users", authHandlers.HasUsers)
-	authGroup.POST("/register", authHandlers.Register)
-	authGroup.POST("/login", authHandlers.Login)
-	authGroup.POST("/verify-2fa", authHandlers.Verify2FA)
+	authGroup.POST("/register", authHandlers.Register, authBeginLimit)
+	authGroup.POST("/login", authHandlers.Login, signInLimit)
+	authGroup.POST("/verify-2fa", authHandlers.Verify2FA, signInLimit)
 	// Public passkey (WebAuthn) assertion endpoints — used for passwordless login.
-	authGroup.POST("/webauthn/login/begin", authHandlers.WebAuthnLoginBegin)
-	authGroup.POST("/webauthn/login/finish", authHandlers.WebAuthnLoginFinish)
+	authGroup.POST("/webauthn/login/begin", authHandlers.WebAuthnLoginBegin, authBeginLimit)
+	authGroup.POST("/webauthn/login/finish", authHandlers.WebAuthnLoginFinish, signInLimit)
 	// OIDC SSO (public). Status always answers; login/callback 404 when disabled.
 	authGroup.GET("/oidc/status", authHandlers.OIDCStatus)
 	authGroup.GET("/oidc/login", authHandlers.OIDCLogin)

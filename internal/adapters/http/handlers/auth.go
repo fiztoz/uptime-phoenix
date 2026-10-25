@@ -621,6 +621,8 @@ func mapAuthError(c echo.Context, err error) error {
 		return c.JSON(http.StatusUnauthorized, errorBody("TOTP token required"))
 	case errors.Is(err, services.ErrTOTPInvalid):
 		return c.JSON(http.StatusUnauthorized, errorBody("invalid TOTP token"))
+	case errors.Is(err, services.ErrTooManyAttempts):
+		return c.JSON(http.StatusTooManyRequests, errorBody("too many failed attempts; try again later"))
 	case errors.Is(err, services.ErrTOTPAlreadyEnabled):
 		return c.JSON(http.StatusConflict, errorBody("TOTP is already enabled"))
 	case errors.Is(err, services.ErrTOTPNotEnabled):

@@ -19,6 +19,11 @@ type CredentialRateLimitConfig struct {
 	MaxAttempts int
 	Window      time.Duration
 	RedisURL    string
+	// Scope namespaces the counters so two limiters (status-page access codes
+	// and sign-in, say) never share a budget. Empty keeps the original keys.
+	Scope string
+	// Message is the 429 error text. Empty keeps the access-code wording.
+	Message string
 }
 
 // DefaultCredentialRateLimitConfig allows five attempts per IP and protected
@@ -41,6 +46,13 @@ func CredentialRateLimit(cfg CredentialRateLimitConfig) echo.MiddlewareFunc {
 	if cfg.Window <= 0 {
 		cfg.Window = defaults.Window
 	}
+	if cfg.Message == "" {
+		cfg.Message = "too many access-code attempts"
+	}
+	scope := ""
+	if cfg.Scope != "" {
+		scope = cfg.Scope + ":"
+	}
 
 	local := &credentialMemoryLimiter{
 		entries:     make(map[string]credentialAttemptWindow),
@@ -56,7 +68,7 @@ func CredentialRateLimit(cfg CredentialRateLimitConfig) echo.MiddlewareFunc {
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			key := c.RealIP() + ":" + c.Param("slug")
+			key := scope + c.RealIP() + ":" + c.Param("slug")
 			allowed := false
 			if shared != nil {
 				var err error
@@ -69,7 +81,7 @@ func CredentialRateLimit(cfg CredentialRateLimitConfig) echo.MiddlewareFunc {
 			}
 			if !allowed {
 				return c.JSON(http.StatusTooManyRequests, map[string]string{
-					"error": "too many access-code attempts",
+					"error": cfg.Message,
 				})
 			}
 			return next(c)

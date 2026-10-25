@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -118,6 +119,10 @@ type AuthService struct {
 	// Optional. AccessService.InvalidateUser so a flag/password change is not
 	// served from the 30s auth cache. Wired in bootstrap after both exist.
 	onUserChange func(userID int64)
+
+	// throttle holds per-account login backoff and per-ticket 2FA attempt
+	// counts (issue #90).
+	throttle *loginThrottle
 }
 
 // AuthServiceOption is a functional option for NewAuthService.
@@ -158,6 +163,7 @@ func NewAuthService(
 		twoFactor:        twoFactor,
 		clock:            realClock{},
 		webAuthnSessions: newWebAuthnSessionStore(),
+		throttle:         newLoginThrottle(),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -192,11 +198,15 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (str
 	if username == "" || password == "" {
 		return "", fmt.Errorf("%w", ErrInvalidCredentials)
 	}
+	if err := s.checkLoginBackoff(username); err != nil {
+		return "", err
+	}
 	user, err := s.users.GetByUsername(ctx, username)
 	if err != nil {
 		// Map "not found" to a generic invalid-credentials response so the
 		// endpoint does not leak which usernames exist.
 		if errors.Is(err, domain.ErrNotFound) || errors.Is(err, ports.ErrNotFound) || isNotFound(err) {
+			s.recordLoginFailure(username, "unknown user")
 			return "", fmt.Errorf("%w", ErrInvalidCredentials)
 		}
 		return "", fmt.Errorf("auth service: login: %w", err)
@@ -205,12 +215,42 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (str
 		return "", fmt.Errorf("%w", ErrUserInactive)
 	}
 	if err := s.auth.VerifyPassword(user.PasswordHash, password); err != nil {
+		s.recordLoginFailure(username, "bad password")
 		return "", fmt.Errorf("%w", ErrInvalidCredentials)
 	}
 	if user.TOTPEnabled {
 		return "", fmt.Errorf("%w", ErrTOTPRequired)
 	}
-	return s.auth.Login(ctx, username, password)
+	token, err := s.auth.Login(ctx, username, password)
+	if err == nil {
+		s.throttle.succeed(username)
+	}
+	return token, err
+}
+
+// checkLoginBackoff refuses an attempt while the account is locked out. It
+// runs before any password check, for known and unknown usernames alike, so
+// a lockout reveals neither whether the account exists nor the password.
+func (s *AuthService) checkLoginBackoff(username string) error {
+	if wait, locked := s.throttle.locked(username, s.clock.Now()); locked {
+		slog.Warn("auth: login refused during backoff", "username", username, "retry_after", wait.Round(time.Second))
+		return fmt.Errorf("%w", ErrTooManyAttempts)
+	}
+	return nil
+}
+
+// recordLoginFailure counts a failed password or TOTP attempt against the
+// account and logs it for audit. The username is logged; the password and
+// code never are.
+func (s *AuthService) recordLoginFailure(username, reason string) {
+	n := s.throttle.fail(username, s.clock.Now())
+	attrs := []any{"username", username, "reason", reason, "consecutive_failures", n}
+	if n >= LoginFailuresBeforeBackoff {
+		slog.Warn("auth: repeated login failures; account in backoff",
+			append(attrs, "backoff", loginBackoff(n))...)
+		return
+	}
+	slog.Info("auth: login failed", attrs...)
 }
 
 // LoginWith2FA authenticates a user with username + password + TOTP token
@@ -220,9 +260,13 @@ func (s *AuthService) LoginWith2FA(ctx context.Context, username, password, totp
 	if username == "" || password == "" || totpToken == "" {
 		return "", fmt.Errorf("%w", ErrInvalidCredentials)
 	}
+	if err := s.checkLoginBackoff(username); err != nil {
+		return "", err
+	}
 	user, err := s.users.GetByUsername(ctx, username)
 	if err != nil {
 		if isNotFound(err) {
+			s.recordLoginFailure(username, "unknown user")
 			return "", fmt.Errorf("%w", ErrInvalidCredentials)
 		}
 		return "", fmt.Errorf("auth service: login with 2fa: %w", err)
@@ -231,17 +275,20 @@ func (s *AuthService) LoginWith2FA(ctx context.Context, username, password, totp
 		return "", fmt.Errorf("%w", ErrUserInactive)
 	}
 	if err := s.auth.VerifyPassword(user.PasswordHash, password); err != nil {
+		s.recordLoginFailure(username, "bad password")
 		return "", fmt.Errorf("%w", ErrInvalidCredentials)
 	}
-	if !user.TOTPEnabled {
-		// Mirror Login's behavior: if 2FA is not required, return the token
-		// directly. This makes the call safe to use for both modes.
-		return s.auth.Login(ctx, username, password)
-	}
-	if !s.twoFactor.VerifyToken(user.TOTPSecret, totpToken) {
+	// Mirror Login's behavior: if 2FA is not required, return the token
+	// directly. This makes the call safe to use for both modes.
+	if user.TOTPEnabled && !s.twoFactor.VerifyToken(user.TOTPSecret, totpToken) {
+		s.recordLoginFailure(username, "bad totp")
 		return "", fmt.Errorf("%w", ErrTOTPInvalid)
 	}
-	return s.auth.Login(ctx, username, password)
+	token, err := s.auth.Login(ctx, username, password)
+	if err == nil {
+		s.throttle.succeed(username)
+	}
+	return token, err
 }
 
 // Begin2FALogin verifies a username + password pair and, if the user has
@@ -252,9 +299,13 @@ func (s *AuthService) LoginWith2FA(ctx context.Context, username, password, totp
 // If 2FA is not enabled, this method returns an empty ticket and a nil
 // error so the caller can fall through to a regular login.
 func (s *AuthService) Begin2FALogin(ctx context.Context, username, password string) (string, *domain.User, error) {
+	if err := s.checkLoginBackoff(username); err != nil {
+		return "", nil, err
+	}
 	user, err := s.users.GetByUsername(ctx, username)
 	if err != nil {
 		if isNotFound(err) {
+			s.recordLoginFailure(username, "unknown user")
 			return "", nil, fmt.Errorf("%w", ErrInvalidCredentials)
 		}
 		return "", nil, fmt.Errorf("auth service: begin 2fa: %w", err)
@@ -263,6 +314,7 @@ func (s *AuthService) Begin2FALogin(ctx context.Context, username, password stri
 		return "", nil, fmt.Errorf("%w", ErrUserInactive)
 	}
 	if verifyErr := s.auth.VerifyPassword(user.PasswordHash, password); verifyErr != nil {
+		s.recordLoginFailure(username, "bad password")
 		return "", nil, fmt.Errorf("%w", ErrInvalidCredentials)
 	}
 	if !user.TOTPEnabled {
@@ -286,16 +338,28 @@ func (s *AuthService) Complete2FALogin(ctx context.Context, ticket, totpToken st
 	if err != nil {
 		return "", nil, fmt.Errorf("auth service: verify 2fa ticket: %w", err)
 	}
+	now := s.clock.Now()
+	if s.throttle.ticketSpent(ticket, now) {
+		slog.Warn("auth: 2fa ticket refused after attempt cap", "user_id", userID)
+		return "", nil, fmt.Errorf("%w", ErrTooManyAttempts)
+	}
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return "", nil, fmt.Errorf("auth service: complete 2fa: %w", err)
+	}
+	if err := s.checkLoginBackoff(user.Username); err != nil {
+		return "", nil, err
 	}
 	if !user.TOTPEnabled {
 		return "", nil, fmt.Errorf("%w", ErrTOTPNotEnabled)
 	}
 	if !s.twoFactor.VerifyToken(user.TOTPSecret, totpToken) {
+		s.throttle.ticketFail(ticket, now)
+		s.recordLoginFailure(user.Username, "bad totp")
 		return "", nil, fmt.Errorf("%w", ErrTOTPInvalid)
 	}
+	s.throttle.spendTicket(ticket, now)
+	s.throttle.succeed(user.Username)
 	// Ticket + valid TOTP code is the credential at this point. Mint a
 	// session token directly via the Authenticator so the password is
 	// not required a second time.
