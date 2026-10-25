@@ -393,7 +393,7 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `DB_DSN` | `file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)` | Engine-specific DSN. MariaDB migrations require `multiStatements=true`; use `parseTime=true&loc=UTC`. |
 | `JWT_SECRET` | `change-me-in-production` | Session-signing secret. Replace with a stable secret before first production start. |
 | `JWT_EXPIRE_HOURS` | `24` | Session JWT lifetime in hours. Must be `> 0`; non-positive values refuse to boot (they would mint an already-expired token). |
-| `OUTBOUND_ALLOWED_CIDRS` | empty | Comma-separated CIDRs or IPs that monitors and notifications may reach even though they are internal (loopback, RFC 1918, link-local/cloud metadata, CGNAT, ULA, multicast). Empty blocks all of them. Allow only what you monitor, e.g. `10.20.0.0/16`; never `169.254.0.0/16`. An env `HTTP(S)_PROXY` address must be listed if it is internal. An invalid value refuses to boot. |
+| `OUTBOUND_ALLOWED_CIDRS` | empty | Comma-separated CIDRs or IPs that monitors and notifications owned by **non-admin** users may reach although they are internal (loopback, RFC 1918, CGNAT, IPv6 ULA). Admin-owned monitors and notifications do not need it. The always-blocked floor (link-local, cloud metadata, multicast, unspecified) cannot be allowlisted. Write IPv4 ranges as IPv4 (`::ffff:10.0.0.0/104` is converted to `10.0.0.0/8`). Helm: `outbound.allowedCIDRs`. An invalid value refuses to boot. See [Outbound guard](#outbound-guard-for-monitors-and-notifications-88). |
 | `TOTP_ISSUER` | `Phoenix` | Issuer label shown in authenticator apps. |
 | `PRODUCTION` | `false` | Selects secure production defaults, including deny-by-default CORS when no allow-list is supplied. |
 | `REDIS_URL` | empty | Optional Redis URL. Required and shared across processes in split mode. |
@@ -509,6 +509,69 @@ Rules worth remembering:
 
 Tests: `internal/core/services/configascode_test.go`. Local agent contracts (gitignored):
 `docs/local/F5-S14-CONFIG-AS-CODE-CONTRACTS.md`.
+
+### Outbound guard for monitors and notifications (#88)
+
+A monitor check or notification delivery reaches what its **owner** may reach. The owner is
+the account that created it (`monitors.user_id` / `notifications.user_id`); whether that
+account is an admin is read through `AccessService` (cached for 30 seconds, so promoting or
+demoting a user takes effect within a minute without a restart).
+
+| Owner | May reach |
+|---|---|
+| Admin | Everything except the floor. Admin-only installs behave as before the guard. |
+| Non-admin, deleted user (`user_id` NULL), or an owner that cannot be loaded | Public addresses, plus `OUTBOUND_ALLOWED_CIDRS`. Loopback, RFC 1918, CGNAT `100.64.0.0/10`, IPv6 ULA and reserved ranges are refused. |
+| Remote probe (any owner) | Everything except the floor. Probes are deployed by the operator into the networks they monitor, and only an admin assigns monitors to them; this is set in code, not by environment, so the SSH installer needs nothing. A probe cannot see the owner, so it never echoes JSON-assertion values. |
+
+The **floor** is refused for every owner and cannot be allowlisted: link-local
+`169.254.0.0/16` and `fe80::/10` (including `169.254.169.254`), `fd00:ec2::254`,
+`100.100.100.200`, Azure WireServer `168.63.129.16`, multicast, unspecified, and the
+IPv4-mapped and NAT64 forms of these.
+
+The check runs on the address actually dialled, after DNS resolution, so hostnames that
+resolve inward, DNS rebinding and redirects are covered. Refused checks go DOWN with
+`destination address is not allowed`.
+
+What is guarded:
+
+- **Checks:** HTTP (including redirects, the OAuth2 token request, `tls_ignore`), S3,
+  WebSocket, TCP, gRPC (the custom dialer also disables gRPC's own proxy handling),
+  RabbitMQ, MQTT (tcp, tls, ws, wss; unix sockets are admin-only), DNS (the dial to
+  `resolve_server`), SNMP (the agent socket), and ping (the resolved address is checked
+  before any packet is sent).
+- **Notifications:** every HTTP provider and SMTP.
+- **Proxies:** with `HTTP(S)_PROXY` or a monitor proxy, the proxy dials the target, so the
+  target host is resolved and checked **before** the request is handed to the proxy (a
+  name that cannot be resolved locally is refused for non-admin owners). The proxy
+  endpoint itself is dialled with the floor only, so an internal egress proxy keeps
+  working. A rebinding window between that check and the proxy's own lookup remains;
+  the proxy owns egress filtering beyond it.
+- **Read-back:** for non-admin-owned monitors, JSON-assertion failures name the query and
+  the expected value but not the response value, and OAuth2 token errors omit the body.
+  Admin-owned monitors keep the (truncated) actual value.
+
+Admin-only, because they cannot be guarded or they widen reach:
+
+- `docker` and `database` monitor types (the database drivers dial through six engines'
+  own dialers, which the guard does not cover).
+- Assigning or changing a monitor's `proxy_id` (keeping or clearing one an admin set is
+  allowed).
+- `save_body_on_error` / `save_body_on_success`: only on monitors owned by an admin,
+  whoever edits them; the HTTP checker also refuses to save bodies for other owners.
+- Changing the config (destination) of a notification created by an admin; other
+  notification managers can still rename, toggle and attach it.
+
+Not guarded: the transactional SMTP used for status-page subscription emails (an admin
+setting), and existing `docker`/`database` monitors created by non-admins before upgrade
+(they keep running but can no longer be reconfigured or cloned by their owner).
+
+**Upgrade.** At worker start Phoenix logs one warning, `outbound guard: some monitors owned
+by non-admin users target destinations ...`, with `blocked_monitors` (active non-admin-owned
+monitors whose target resolves into a refused range), `admin_only_type_monitors` and
+`unresolved_targets` (at most 100 names are resolved). Either list the ranges in
+`OUTBOUND_ALLOWED_CIDRS` (Helm `outbound.allowedCIDRs`) or have an admin recreate the
+monitors. The chart NetworkPolicy (when enabled) allows HTTP(S) to in-cluster Pods through a
+`namespaceSelector` peer and excludes the metadata addresses from its `ipBlock` peers.
 
 ## 6. Troubleshooting
 

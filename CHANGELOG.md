@@ -13,23 +13,33 @@ at the bottom.
 
 ### Security
 
-- **Breaking:** monitors and notifications can no longer reach internal
-  addresses (loopback, RFC 1918, link-local including cloud metadata
-  `169.254.169.254`, CGNAT, IPv6 ULA/link-local, multicast) by default (#88).
-  The check runs on the resolved address at dial time, so redirects, DNS
-  rebinding, proxies and IPv4-mapped/NAT64 forms are covered for HTTP(S),
-  keyword/JSON, S3, TCP, WebSocket, gRPC, RabbitMQ and every HTTP/SMTP
-  notifier. **Migration:** if you monitor internal services, set
-  `OUTBOUND_ALLOWED_CIDRS` (e.g. `10.20.0.0/16,192.168.1.0/24`) on the API,
-  worker and probe processes. An internal `HTTP(S)_PROXY` must be listed too.
-  Database, MQTT, SNMP, ping and DNS checks are not guarded (they return no
-  response content).
-- Docker monitors are admin-only: a non-admin with "create monitors" can no
-  longer create, clone or reconfigure them (#88).
-- JSON-query assertion failures no longer echo the response value in the
-  monitor message, so a monitor cannot be used to read a response body (#88).
-- The chart NetworkPolicy excludes `169.254.0.0/16` (and AWS IPv6 metadata)
-  from HTTP/HTTPS egress (#88).
+- Monitors and notifications now reach only what their **owner** may reach
+  (#88). Those owned by an admin are refused only the always-blocked floor:
+  link-local (`169.254.0.0/16`, `fe80::/10`, including `169.254.169.254`),
+  cloud metadata (`fd00:ec2::254`, `100.100.100.200`, Azure `168.63.129.16`),
+  multicast and unspecified addresses, which nothing can allowlist. Those owned
+  by a non-admin (or by a deleted user) are also refused loopback, RFC 1918,
+  CGNAT and IPv6 ULA destinations unless an operator lists them in
+  `OUTBOUND_ALLOWED_CIDRS` (Helm `outbound.allowedCIDRs`). Remote probes apply
+  the floor only. The check runs on the resolved address at dial time, so
+  redirects, DNS rebinding and IPv4-mapped/NAT64 forms are covered for HTTP(S),
+  S3, WebSocket, TCP, gRPC, RabbitMQ, MQTT, DNS (the resolver dial), SNMP and
+  ping checks, and for every HTTP and SMTP notifier. Through `HTTP(S)_PROXY` or
+  a monitor proxy, the target is resolved and checked before the request is
+  handed to the proxy. **Upgrade:** admin-only installs need no change; a
+  startup warning counts non-admin-owned monitors whose targets are now
+  refused. See RUNBOOK "Outbound guard".
+- Admin-only now (#88): `docker` and `database` monitors (the database drivers'
+  dialers are not guarded), assigning a monitor `proxy_id`,
+  `save_body_on_error`/`save_body_on_success` (only on admin-owned monitors),
+  and changing the destination of a notification an admin created. The monitor
+  form hides these options from non-admins.
+- For non-admin-owned monitors, JSON-assertion failures and OAuth2 token
+  errors no longer echo response content; admin-owned monitors keep the
+  truncated actual value (#88).
+- The chart NetworkPolicy keeps in-cluster HTTP(S) targets reachable (a
+  `namespaceSelector` peer) and excludes the metadata addresses from its
+  `ipBlock` egress peers (#88).
 - Align active build, CI, release, Docker, E2E and offline verification pins to
   Go 1.26.10, fixing the reachable standard-library advisory GO-2026-6809
   (distrust compromised intermediate certificates in `crypto/x509`).
