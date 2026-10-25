@@ -164,6 +164,9 @@ func toNotificationAssignmentsView(v *services.NotificationAssignmentView) Notif
 	return out
 }
 
+// toNotificationView projects a notification. Credential config values
+// (delivery URLs, tokens, passwords) are write-only for every caller and come
+// back as domain.SecretConfigPlaceholder (issue #89).
 func toNotificationView(n *domain.Notification) *NotificationView {
 	if n == nil {
 		return nil
@@ -177,7 +180,7 @@ func toNotificationView(n *domain.Notification) *NotificationView {
 		IsDefault:     n.IsDefault,
 		IncludeAckURL: n.IncludeAckURL,
 		TemplateID:    n.TemplateID,
-		Config:        n.Config,
+		Config:        domain.RedactNotificationConfig(n.Config),
 		CreatedAt:     n.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:     n.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
@@ -202,6 +205,9 @@ func (h *NotificationHandlers) Create(c echo.Context) error {
 	}
 	if req.Type == "" {
 		return badRequest(c, "type is required")
+	}
+	if domain.ConfigHasSecretPlaceholder(req.Config) {
+		return badRequest(c, "invalid config: "+domain.SecretConfigPlaceholder+" is a masked value; send the real secret")
 	}
 
 	active := true
@@ -496,7 +502,9 @@ func (h *NotificationHandlers) Update(c echo.Context) error {
 	// null template_id means "use the provider default layout".
 	existing.TemplateID = req.TemplateID
 	if req.Config != nil {
-		existing.Config = req.Config
+		// Masked values sent back unchanged keep the stored secret; a new
+		// value replaces it.
+		existing.Config = domain.RestoreSecretConfig(existing.Config, req.Config)
 	}
 
 	if err := h.svc.Update(c.Request().Context(), existing); err != nil {

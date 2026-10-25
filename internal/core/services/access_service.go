@@ -389,6 +389,20 @@ func (s *AccessService) CanEditMonitor(ctx context.Context, userID, monitorID in
 	return m.UserID == userID, nil
 }
 
+// MonitorEditPredicate binds CanEditMonitor's rule (admin, or the creator) to
+// one user for callers that already hold the loaded monitors, such as a list
+// response deciding which write-only config values the caller may see. It
+// costs one admin lookup instead of one query per monitor.
+func (s *AccessService) MonitorEditPredicate(ctx context.Context, userID int64) (func(*domain.Monitor) bool, error) {
+	admin, err := s.IsAdmin(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return func(m *domain.Monitor) bool {
+		return m != nil && (admin || m.UserID == userID)
+	}, nil
+}
+
 // CanEditGroup reports whether the user may fully UPDATE (including name and
 // parent) or DELETE one specific monitor group. Admin or creator only — never a
 // grant, and never the CanEditGroupMetadata capability (that is a narrower

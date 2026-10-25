@@ -133,6 +133,10 @@ type rbacHarness struct {
 	// you have no capability" apart from "denied because it isn't yours".
 	creatorToken string
 	creatorID    int64
+	// viewAllToken holds can_view_all_monitors: install-wide read, no write.
+	viewAllToken string
+
+	monitors *fakeMonitorRepo
 
 	monitorVisible int64
 	monitorHidden  int64
@@ -182,6 +186,16 @@ func newRBACHarness(t *testing.T) *rbacHarness {
 	creatorToken, err := authSvc.Login(ctx, "rbac-creator", "password123")
 	if err != nil {
 		t.Fatalf("login creator: %v", err)
+	}
+
+	if _, err := authSvc.CreateUser(ctx, "rbac-viewall", "password123", true, false, "UTC", services.UserCapabilities{
+		CanViewAllMonitors: true,
+	}); err != nil {
+		t.Fatalf("create view-all user: %v", err)
+	}
+	viewAllToken, err := authSvc.Login(ctx, "rbac-viewall", "password123")
+	if err != nil {
+		t.Fatalf("login view-all user: %v", err)
 	}
 
 	monitorRepo := newFakeMonitorRepo()
@@ -286,6 +300,8 @@ func newRBACHarness(t *testing.T) *rbacHarness {
 		memberToken:    memberToken,
 		creatorToken:   creatorToken,
 		creatorID:      creator.ID,
+		viewAllToken:   viewAllToken,
+		monitors:       monitorRepo,
 		monitorVisible: visible.ID,
 		monitorHidden:  hidden.ID,
 		groupVisible:   visibleGroup.ID,

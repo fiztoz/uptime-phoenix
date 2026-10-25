@@ -348,8 +348,8 @@ func toMonitorView(m *domain.Monitor, status string) MonitorView {
 		EffectiveOwner:    m.Owner, // hub may overwrite when groups are available
 		Type:              m.Type,
 		Status:            wireStatus,
-		Target:            m.Target(),
-		Config:            cfg,
+		Target:            domain.RedactURLPassword(m.Target()),
+		Config:            domain.RedactSecretConfig(cfg),
 		Active:            m.Active,
 		Interval:          m.Interval,
 		Timeout:           m.Timeout,
@@ -404,10 +404,11 @@ func monitorMapToView(m map[string]any, status string) MonitorView {
 	if v.Timeout == 0 {
 		v.Timeout = extractFloat64(m, "Timeout")
 	}
+	// Broadcasts reach viewers: credential config values are write-only.
 	if cfg, ok := m["config"].(map[string]any); ok {
-		v.Config = cfg
+		v.Config = domain.RedactSecretConfig(cfg)
 	} else if cfg, ok := m["Config"].(map[string]any); ok {
-		v.Config = cfg
+		v.Config = domain.RedactSecretConfig(cfg)
 	} else {
 		v.Config = map[string]any{}
 	}
