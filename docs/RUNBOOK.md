@@ -394,7 +394,7 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `JWT_SECRET` | — | Session-signing secret, **required, no default** (≥32 bytes; the server refuses to start without it). Generate with `openssl rand -base64 48`. Keep it stable across restarts. |
 | `JWT_EXPIRE_HOURS` | `24` | Session JWT lifetime in hours. Must be `> 0`; non-positive values refuse to boot (they would mint an already-expired token). |
 | `TOTP_ISSUER` | `Phoenix` | Issuer label shown in authenticator apps. |
-| `PRODUCTION` | `false` | Selects secure production defaults, including deny-by-default CORS when no allow-list is supplied. |
+| `PRODUCTION` | `false` (compose and chart: `true`) | Selects secure production defaults: a strict Content-Security-Policy (no inline scripts except the hashed SPA bootstrap, no `eval`) and deny-by-default CORS when no allow-list is supplied. Set `false` only for local development. |
 | `REDIS_URL` | empty | Optional Redis URL. Required and shared across processes in split mode. |
 | `WEBAUTHN_RP_ID` | `localhost` | Passkey relying-party ID; use the registrable production hostname. |
 | `WEBAUTHN_RP_NAME` | `Phoenix` | Passkey relying-party display name. |

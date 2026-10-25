@@ -34,6 +34,14 @@ at the bottom.
   unguessable.
   First-user creation is now atomic across replicas: concurrent sign-ups on
   an empty install create exactly one admin (#92).
+- **Breaking:** `docker-compose.yml`, `docker-compose.split.yml` and the Helm
+  chart now default to `PRODUCTION=true`, `LOG_LEVEL=info` and no bootstrap
+  admin password. Production mode serves a strict Content-Security-Policy:
+  `script-src` allows only the SPA's own files and the SHA-256 hashes of its
+  inline bootstrap script, computed from the embedded build at startup. Use
+  `docker-compose.dev.yml` for the old relaxed local defaults. The chart now
+  refuses `bootstrap.enabled` without a password or existing Secret. The
+  binary's own default stays `PRODUCTION=false` (#92).
 - Align active build, CI, release, Docker, E2E and offline verification pins to
   Go 1.26.10, fixing the reachable standard-library advisory GO-2026-6809
   (distrust compromised intermediate certificates in `crypto/x509`).

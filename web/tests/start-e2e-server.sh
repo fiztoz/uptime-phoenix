@@ -41,6 +41,7 @@ DB_ENGINE=sqlite \
 	JWT_SECRET="$(head -c 48 /dev/urandom | base64 | tr -d '\n')" \
 	BOOTSTRAP_USERNAME=admin \
 	BOOTSTRAP_PASSWORD='ChangeMe123!' \
+	PRODUCTION=true \
 	PUBLIC_URL='http://127.0.0.1:3100' \
 	PORT=3100 \
 	PROBES_ENABLED=true \

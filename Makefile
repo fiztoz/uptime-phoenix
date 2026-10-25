@@ -355,6 +355,14 @@ helm-validate: ## Assert the MariaDB topology renders its workload and the guard
 	@echo "==> a supplied secret.jwt shorter than 32 bytes must fail the render"
 	@if helm template uptime-phoenix charts/uptime-phoenix --set secret.jwt=change_me_jwt >/dev/null 2>&1; then \
 		echo "EXPECTED FAILURE: secret.jwt shorter than 32 bytes"; exit 1; fi
+	@echo "==> default chart runs in production mode with no default admin password (#92)"
+	@out="$$(helm template uptime-phoenix charts/uptime-phoenix)"; \
+	printf '%s\n' "$$out" | grep -q '^  production: "true"$$' \
+		|| { echo "default chart does not set production: \"true\""; exit 1; }; \
+	if printf '%s\n' "$$out" | grep -q 'BOOTSTRAP_PASSWORD'; then \
+		echo "default chart seeds a bootstrap admin password"; exit 1; fi
+	@if helm template uptime-phoenix charts/uptime-phoenix --set bootstrap.enabled=true >/dev/null 2>&1; then \
+		echo "EXPECTED FAILURE: bootstrap.enabled without a password or existingSecret"; exit 1; fi
 	@echo "==> helm-validate OK"
 
 .PHONY: helm-template-mariadb

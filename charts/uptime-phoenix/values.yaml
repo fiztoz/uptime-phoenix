@@ -702,7 +702,9 @@ dbMigration:
 
 # ── HTTP hardening / observability (ConfigMap → env) ──────────────────────────
 security:
-  production: false
+  # Strict Content-Security-Policy and deny-by-default CORS. Set false only
+  # for local development against the Vite dev server.
+  production: true
   corsAllowOrigins: ""
   rateLimitRPS: 50
   rateLimitBurst: 100
