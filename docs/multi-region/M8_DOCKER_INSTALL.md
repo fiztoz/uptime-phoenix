@@ -1,4 +1,4 @@
-# M8 — Docker install path (design contract)
+# M8 — Docker install path
 
 The systemd path (preflight → install → activation → cleanup) is accepted on real
 hosts. This slice adds the **Docker container** alternative: the same operator flow
@@ -98,3 +98,41 @@ content, snapshots and the closed OCI archive.
 | D3 persistence | agent | migration 089, stores that assume systemd, gate leaves |
 | D4 hub side | integrator | sender v2 frame and payload, executors, OCI layout reader and session factory, service/API, preflight |
 | D5 acceptance | integrator | AWS hosts with `docker.io`, OCI images built from `Dockerfile.probe`, the matrix extended for Docker |
+
+## Implementation status and verification
+
+| Part | Where |
+|---|---|
+| Contract | `domain/probe_docker_install.go`, `ProbeHostActionIntent.Payload`, frame v2 (`host_action_docker_frame.go`) |
+| Hub side | `SendImageCache`, `NewSSHProbeDockerInstallExecutor`, `NewDockerInstallSession` with `openProbeImageLayout`, `ProbeInstallSubmission.Mode`/`Image`, HTTP `mode`/`image_*` and the `image` view |
+| Host side | `ApplyProbeImageCache`, `ApplyProbeContainer`, `ApplyProbeDockerInit`, `ApplyProbeDockerStart`, `ApplyProbeDockerCleanup`; payload staging in the authorized helper; `hostProbeDocker` (fixed path, `DOCKER_HOST` pinned) |
+| Persistence | Migration `089` widens the host-action admission kinds (MariaDB `MODIFY`, SQLite rebuild, guarded downgrade) |
+
+**Findings that changed the design:**
+- **Image ID.** A real `docker load` of the closed archive on Docker 29 (containerd image
+  store) reports the **manifest** digest as the image ID, so the helper accepts the
+  config, manifest or layout-index ID.
+- **Hardened arguments.** The derived `init` and container arguments were run locally
+  against the real probe image: read-only root, root with `CAP_NET_RAW` only, and the
+  data bind mount. Init wrote its identity, and the container ran and listened on 8443.
+
+**Real hosts** (AWS run `1a4e47cca4db`, 2026-10-25). The hosts were Ubuntu 24.04 arm64
+and amd64 with `docker.io` 29.1.3 (containerd store). The image was built from
+`Dockerfile.probe` at `4a1f27f` as two per-architecture OCI exports, joined under one
+pinned index. **7/7 Docker cases passed:**
+
+| Case | Host | Observed |
+|---|---|---|
+| Docker absent | amd64 | 422 `host_docker_unavailable` (run before `docker.io` was installed) |
+| wrong architecture (arm64 image on amd64) | amd64 | 422 `host_architecture_mismatch` |
+| clean install and activation | amd64 | `resources_ready` → `active`; container running, 8443 published |
+| existing install | amd64 | 422 `host_existing_install` |
+| cleanup of the active probe | amd64 | `cleaned`; container and data gone, no listener, image tag retained |
+| clean install and activation | arm64 | `resources_ready` → `active`; container running |
+| cleanup of the active probe | arm64 | `cleaned`; container and data gone, image retained |
+
+**Local evidence:**
+- **MariaDB.** The real-MariaDB `m8-stage-authorization` gate now requires 324 leaves,
+  including the 32 `TestM8DockerHostActions/mariadb` leaves. It passed with
+  1006 named passes (351 on MariaDB), 0 failures and 0 skips.
+- **Host side.** Host-side tests were run under linux/arm64 as root in a container.

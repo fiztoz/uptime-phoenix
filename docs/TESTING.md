@@ -112,6 +112,22 @@ for disposable database setup.
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
 
+### M8 Docker install (migration 089)
+
+See [Docker install](multi-region/M8_DOCKER_INSTALL.md).
+- **Gate.** The 32 `TestM8DockerHostActions/mariadb/…` leaves are part of the
+  `m8-stage-authorization` scope, which now requires 324 leaves.
+- **AWS.** On AWS, `scripts/m8_aws_matrix.py <run_dir> <run_id> <arm64_ip> <amd64_ip> docker-preflight`
+  must run before Docker is installed. `… docker` then runs the Docker cases. It needs:
+  - `<run_dir>/image_pin.json`;
+  - the OCI layout `artifacts/uptime-phoenix-probe_<version>_oci/blobs/sha256/…`.
+
+```sh
+go test -race -count=1 ./internal/adapters/provisioning -run 'Docker|ImageCache|OpenProbeImageLayout'
+go test -race -count=1 ./internal/bootstrap -run 'Docker|ImagePayload|HostAction'
+go test -race -count=1 -timeout 1800s ./internal/adapters/repository -run '^TestM8DockerHostActions$'
+```
+
 ### M8 install cleanup (migration 088)
 
 See [cleanup](multi-region/M8_CLEANUP.md). Its 77 MariaDB leaves
