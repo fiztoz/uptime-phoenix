@@ -34,9 +34,12 @@ func TestUserCreateFirstElectsOneWinner(t *testing.T) {
 			wg.Wait()
 			close(errs)
 			wins := 0
+			var losses []error
 			for err := range errs {
 				if err == nil {
 					wins++
+				} else {
+					losses = append(losses, err)
 				}
 			}
 			count, err := users.Count(ctx)
@@ -44,7 +47,7 @@ func TestUserCreateFirstElectsOneWinner(t *testing.T) {
 				t.Fatal(err)
 			}
 			if wins != 1 || count != 1 {
-				t.Fatalf("wins=%d users=%d; want exactly one", wins, count)
+				t.Fatalf("wins=%d users=%d; want exactly one (losers: %v)", wins, count, losses)
 			}
 			err = users.CreateFirst(ctx, &domain.User{Username: "late", PasswordHash: "x", Timezone: "UTC"})
 			if !errors.Is(err, ports.ErrConflict) {

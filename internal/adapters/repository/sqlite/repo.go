@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -88,7 +89,12 @@ func (r *UserRepo) CreateFirst(ctx context.Context, u *domain.User) error {
 		if count > 0 {
 			return ports.ErrConflict
 		}
-		claim := &repository.SettingModel{Key: firstUserClaimKey, Value: u.Username}
+		// settings.value is a JSON column on MariaDB, so store a JSON string.
+		value, err := json.Marshal(u.Username)
+		if err != nil {
+			return err
+		}
+		claim := &repository.SettingModel{Key: firstUserClaimKey, Value: string(value)}
 		if _, err := tx.NewInsert().Model(claim).Exec(ctx); err != nil {
 			return err
 		}
