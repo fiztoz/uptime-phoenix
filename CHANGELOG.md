@@ -42,6 +42,9 @@ at the bottom.
   `docker-compose.dev.yml` for the old relaxed local defaults. The chart now
   refuses `bootstrap.enabled` without a password or existing Secret. The
   binary's own default stays `PRODUCTION=false` (#92).
+- CI pins every action to a commit SHA, its token is read-only by default,
+  and only the docker job gets `actions: write` (for the build cache).
+  `make action-pins` and CI fail on any tag-only `uses:` (#92).
 - Align active build, CI, release, Docker, E2E and offline verification pins to
   Go 1.26.10, fixing the reachable standard-library advisory GO-2026-6809
   (distrust compromised intermediate certificates in `crypto/x509`).

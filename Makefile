@@ -217,6 +217,7 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-production-split.yaml --set mariadbExternal.password=ci > /dev/null
 	helm template uptime-phoenix charts/uptime-phoenix --set redis.enabled=true --set redis.existingSecret=phoenix-redis > /dev/null
 	@$(MAKE) --no-print-directory helm-validate
+	@$(MAKE) --no-print-directory action-pins
 	@$(MAKE) --no-print-directory m6-backend-harness-gate
 	@$(MAKE) --no-print-directory release-image-gate
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -241,6 +242,10 @@ lint-backend: ## Run golangci-lint
 .PHONY: lint-frontend
 lint-frontend: ## Run eslint + prettier check
 	cd web && bun run lint
+
+.PHONY: action-pins
+action-pins: ## Fail when a workflow uses an action by tag instead of commit SHA
+	python3 -B scripts/check-action-pins.py
 
 .PHONY: govulncheck
 govulncheck: ## Run govulncheck (installs it if missing)
