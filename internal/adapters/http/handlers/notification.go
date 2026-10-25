@@ -459,9 +459,12 @@ func (h *NotificationHandlers) ListAssignments(c echo.Context) error {
 }
 
 // Update handles PUT /api/notifications/:id. Requires can_manage_notifications;
-// the notification's creator is irrelevant (see the type doc).
+// the notification's creator is irrelevant (see the type doc), except that
+// only an admin may change the config of an admin-created notification
+// (requireNotificationRetarget).
 func (h *NotificationHandlers) Update(c echo.Context) error {
-	if _, err := h.requireManageNotifications(c); err != nil {
+	actorID, err := h.requireManageNotifications(c)
+	if err != nil {
 		return err
 	}
 
@@ -478,6 +481,9 @@ func (h *NotificationHandlers) Update(c echo.Context) error {
 	var req UpdateNotificationRequest
 	if err := c.Bind(&req); err != nil {
 		return badRequest(c, "invalid request body")
+	}
+	if err := h.requireNotificationRetarget(c, actorID, existing, req.Config); err != nil {
+		return err
 	}
 
 	if req.Name != "" {

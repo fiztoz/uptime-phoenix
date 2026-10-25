@@ -311,6 +311,11 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 	if err := requireMonitorTypeAccess(c, h.access, userID, req.Type); err != nil {
 		return err
 	}
+	if err := requireMonitorOutboundSettings(c, h.access, monitorOutboundChange{
+		ActorID: userID, OwnerID: userID, Config: req.Config, AssignsProxy: req.ProxyID != nil,
+	}); err != nil {
+		return err
+	}
 
 	if req.Config == nil {
 		req.Config = make(map[string]any)
@@ -563,6 +568,18 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 		}
 	}
 
+	// Outbound-sensitive options (#88): see requireMonitorOutboundSettings.
+	actorID, ok := userIDFromContext(c)
+	if !ok {
+		return unauthenticated(c)
+	}
+	if err := requireMonitorOutboundSettings(c, h.access, monitorOutboundChange{
+		ActorID: actorID, OwnerID: existing.UserID, Config: req.Config,
+		AssignsProxy: req.ProxyID.set && req.ProxyID.value != nil && !sameOptionalID(existing.ProxyID, req.ProxyID.value),
+	}); err != nil {
+		return err
+	}
+
 	// Apply only the fields the client sent. Omitted keys keep the stored
 	// value — pause/resume is {active: …} and must not reset placement,
 	// flags, retry policy, owner, proxy, or weight.
@@ -706,6 +723,12 @@ func (h *MonitorHandlers) Clone(c echo.Context) error {
 		return c.JSON(http.StatusForbidden, errorBody("monitor creation is limited to an allowed group"))
 	}
 	if err := requireMonitorTypeAccess(c, h.access, userID, source.Type); err != nil {
+		return err
+	}
+	// The clone belongs to the caller, so it must satisfy the caller's limits.
+	if err := requireMonitorOutboundSettings(c, h.access, monitorOutboundChange{
+		ActorID: userID, OwnerID: userID, Config: source.Config, AssignsProxy: source.ProxyID != nil,
+	}); err != nil {
 		return err
 	}
 
