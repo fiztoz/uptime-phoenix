@@ -342,7 +342,8 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 	}
 
 	// A placeholder has no stored value behind it on create; refuse it rather
-	// than persist the marker as a credential.
+	// than persist the marker as a credential (update refuses one it cannot
+	// match: unresolvedPlaceholderMessage).
 	if domain.ConfigHasSecretPlaceholder(req.Config) {
 		return badRequest(c, "invalid config: "+domain.SecretConfigPlaceholder+" is a masked value; send the real secret")
 	}
@@ -585,6 +586,9 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 	// sent back unchanged are first swapped for the stored secrets.
 	if req.Config != nil {
 		req.Config = domain.RestoreSecretConfig(existing.Config, req.Config)
+		if domain.ConfigHasSecretPlaceholder(req.Config) {
+			return badRequest(c, unresolvedPlaceholderMessage)
+		}
 		if err := validateMonitorConfig(existing.Type, req.Config); err != nil {
 			return badRequest(c, "invalid config: "+err.Error())
 		}
@@ -781,3 +785,9 @@ func mapMonitorError(c echo.Context, err error) error {
 		return c.JSON(http.StatusInternalServerError, errorBody("internal error"))
 	}
 }
+
+// unresolvedPlaceholderMessage answers an update whose masked value could not
+// be matched to a stored secret (a list entry added or removed next to a
+// masked one): guessing would hand one entry's secret to another.
+const unresolvedPlaceholderMessage = "invalid config: a " + domain.SecretConfigPlaceholder +
+	" masked value could not be matched to a stored secret; re-enter that secret"
