@@ -3,11 +3,7 @@ import { createSessionResource } from "../session-resource";
 
 export type InsightsPeriod = "24h" | "7d" | "30d" | "90d";
 export type InsightsMetric =
-  | "availability"
-  | "outages"
-  | "downtime"
-  | "latency"
-  | "flapping";
+  "availability" | "outages" | "downtime" | "latency" | "flapping";
 export type InsightsQualification = "qualified" | "insufficient_data";
 
 export interface InsightsRow {

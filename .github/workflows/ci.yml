@@ -86,6 +86,17 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
           govulncheck ./...
 
+      - name: osv-scanner
+        env:
+          OSV_SCANNER_VERSION: v2.7.0
+          OSV_SCANNER_SHA256: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+        run: |
+          # Release binary checked against a pinned digest; exceptions live in osv-scanner.toml.
+          curl -fsSL -o "$RUNNER_TEMP/osv-scanner" "https://github.com/google/osv-scanner/releases/download/${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SCANNER_SHA256}  $RUNNER_TEMP/osv-scanner" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/osv-scanner"
+          "$RUNNER_TEMP/osv-scanner" scan source --config osv-scanner.toml --lockfile go.mod --lockfile web/bun.lock
+
   frontend:
     name: frontend
     runs-on: ubuntu-latest

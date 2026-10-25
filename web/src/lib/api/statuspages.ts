@@ -61,10 +61,7 @@ export interface CreateStatusPageInput {
 export interface UpdateStatusPageInput extends Partial<CreateStatusPageInput> {}
 
 export type IncidentTimelineStatus =
-  | "investigating"
-  | "identified"
-  | "monitoring"
-  | "resolved";
+  "investigating" | "identified" | "monitoring" | "resolved";
 
 export interface IncidentUpdate {
   id: number;
