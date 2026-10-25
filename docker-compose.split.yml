@@ -99,6 +99,9 @@ services:
       DB_ENGINE: mariadb
       DB_DSN: "phoenix:${MARIADB_PASSWORD:-change_me_app}@tcp(mariadb:3306)/phoenix?parseTime=true&loc=UTC&multiStatements=true"
       REDIS_URL: "redis://redis:6379/0"
+      # Same key as uptime-phoenix-api: the worker refuses to boot without a
+      # strong JWT_SECRET.
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET to a random value of at least 32 bytes (openssl rand -base64 48)}"
       LOG_LEVEL: ${LOG_LEVEL:-debug}
     depends_on:
       api-ready-gate:

@@ -67,6 +67,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "phoenix.fullname" . }}
                   key: db-dsn
+            # The worker loads the same Config as the API, and LoadConfig
+            # refuses to start without a strong JWT_SECRET: use the API's key.
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phoenix.jwtSecretName" . }}
+                  key: {{ include "phoenix.jwtSecretKey" . }}
             {{- include "phoenix.eventBusEnv" . | nindent 12 }}
             {{- if .Values.worker.shards.enabled }}
             - name: WORKER_ID

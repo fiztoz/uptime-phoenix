@@ -5,10 +5,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -25,6 +27,48 @@ func TestProbeAdminHelperProcess(t *testing.T) {
 	}
 	os.Args = append([]string{"phoenix-probe-admin"}, os.Args[separator+1:]...)
 	main()
+}
+
+// A missing or weak JWT_SECRET must be named on stderr: the generic
+// "Invalid hub environment configuration" left operators guessing which of
+// the hub's settings broke the CLI.
+func TestProbeAdminNamesJWTSecretWhenItIsTheConfigProblem(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	for _, secret := range []string{"", "change_me_jwt", "short-but-not-published"} {
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		cmd := exec.CommandContext(ctx, executable, "-test.run=^TestProbeAdminHelperProcess$", "--", "status")
+		cmd.Env = append(os.Environ(), "PHOENIX_PROBE_ADMIN_TEST_PROCESS=1", "DB_ENGINE=sqlite",
+			"DB_DSN=file:"+filepath.Join(dir, "hub.db"), "PROBES_ENABLED=false", "PROBE_HUB_ID=",
+			"PRODUCTION=false", "JWT_SECRET="+secret)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		runErr := cmd.Run()
+		cancel()
+		var exitErr *exec.ExitError
+		if !errors.As(runErr, &exitErr) || exitErr.ExitCode() != 2 {
+			t.Fatalf("JWT_SECRET of length %d: exit = %v, want exit code 2; stderr=%s", len(secret), runErr, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "JWT_SECRET") {
+			t.Fatalf("JWT_SECRET of length %d: stderr does not name JWT_SECRET: %q", len(secret), stderr.String())
+		}
+		if secret != "" && strings.Contains(stderr.String(), secret) {
+			t.Fatalf("stderr echoes the configured JWT_SECRET")
+		}
+		if stdout.Len() != 0 {
+			t.Fatalf("config failure wrote to stdout: %q", stdout.String())
+		}
+	}
+}
+
+func TestHubConfigErrorMessageStaysGenericForOtherErrors(t *testing.T) {
+	t.Parallel()
+	if got := hubConfigErrorMessage(errors.New(`DB_DSN "user:pw@tcp(x)/db" invalid`)); got != "Invalid hub environment configuration" {
+		t.Fatalf("non-JWT config error message = %q; must stay generic (other errors may quote values)", got)
+	}
 }
 
 func TestProbeAdminWatchdogSettingsAcrossProcesses(t *testing.T) {

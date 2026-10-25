@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -15,11 +16,13 @@ func TestValidateJWTSecret(t *testing.T) {
 		secret  string
 		wantErr string
 	}
-	cases := make([]jwtCase, 0, 5+len(knownJWTSecrets))
+	cases := make([]jwtCase, 0, 6+len(knownJWTSecrets))
 	cases = append(cases,
 		jwtCase{"empty", "", "JWT_SECRET is required"},
 		jwtCase{"whitespace", "   ", "JWT_SECRET is required"},
 		jwtCase{"31 bytes", strings.Repeat("a", 31), "at least 32 bytes"},
+		// Whitespace padding must not satisfy the length floor.
+		jwtCase{"31 bytes padded to 40", "    " + strings.Repeat("a", 31) + "     ", "at least 32 bytes"},
 		jwtCase{"32 bytes", strings.Repeat("a", 32), ""},
 		jwtCase{"48 bytes", testJWTSecret, ""},
 	)
@@ -36,6 +39,9 @@ func TestValidateJWTSecret(t *testing.T) {
 		}
 		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 			t.Errorf("%s: error = %v, want containing %q", tc.name, err, tc.wantErr)
+		}
+		if err != nil && !errors.Is(err, ErrInvalidJWTSecret) {
+			t.Errorf("%s: error does not wrap ErrInvalidJWTSecret", tc.name)
 		}
 		if err != nil && tc.secret != "" && strings.TrimSpace(tc.secret) != "" && strings.Contains(err.Error(), tc.secret) {
 			t.Errorf("%s: error echoes the secret", tc.name)
