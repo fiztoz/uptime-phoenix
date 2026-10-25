@@ -250,10 +250,8 @@ func probeBinaryStageHelperReceipt(seal domain.ProbeBinaryStageSeal) ([]byte, er
 	if err != nil || len(body) == 0 || len(body)+1 > probeBinaryStageHelperMaxResponse {
 		return nil, domain.ErrProbeBinaryStageWriteUnknown
 	}
-	payload := make([]byte, len(body)+1)
-	copy(payload, body)
-	payload[len(body)] = '\n'
-	return payload, nil
+	// body is freshly marshalled and owned here; appending needs no size arithmetic.
+	return append(body, '\n'), nil
 }
 
 func probeBinaryStageHelperRelativeName(name string) bool {

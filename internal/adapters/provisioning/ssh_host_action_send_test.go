@@ -396,6 +396,32 @@ func (h *hostActSendHarness) requireNotStaged(t *testing.T, res hostActSendResul
 	h.requireNoStageInput(t, rounds)
 }
 
+// requireExitRaceOutcome accepts the two consistent classes of a helper that
+// exits right after a valid challenge (as TestSSHBinaryStageSenderAuthorized
+// ChallengeThenHelperExitWithGrant does for staging): the sender observed the
+// exit before its first stdin byte (NotStaged), or only after the grant was
+// obtained and written into the dead channel (Unknown, exactly one grant).
+// Neither is a success, and the exited helper never read a stdin byte.
+func (h *hostActSendHarness) requireExitRaceOutcome(t *testing.T, res hostActSendResult) {
+	t.Helper()
+	if res.ack != (SSHHostActionAck{}) {
+		t.Fatalf("acknowledged a dead helper: %+v", res.ack)
+	}
+	switch res.err {
+	case ErrSSHBinaryStageNotStaged:
+		if n := h.auth.calls.Load(); n > 1 {
+			t.Fatalf("NotStaged after %d authorizer calls", n)
+		}
+	case ErrSSHBinaryStageUnknown:
+		if n := h.auth.calls.Load(); n != 1 {
+			t.Fatalf("Unknown without exactly one grant (%d authorizer calls)", n)
+		}
+	default:
+		t.Fatalf("result %v, want NotStaged or (exit observed late) Unknown", res.err)
+	}
+	h.requireNoStageInput(t, 1)
+}
+
 func (h *hostActSendHarness) requireNoStageInput(t *testing.T, rounds int) {
 	t.Helper()
 	h.helper.waitIdle(t, h.f)
@@ -727,8 +753,8 @@ func TestSendHostActionHelperRefusalBeforeStdinIsNotStaged(t *testing.T) {
 		name string
 		tune func(helper *hostActSendHelper)
 		// racy marks the one case where a helper that exits right after a valid
-		// challenge can be observed dead before or after the authorizer runs.
-		// NotStaged and zero stdin hold either way.
+		// challenge can be observed dead before or after the grant is written:
+		// NotStaged or Unknown, with zero stdin received either way.
 		racy bool
 	}{
 		{name: "helper exits 1 without a challenge", tune: func(helper *hostActSendHelper) {
@@ -770,8 +796,12 @@ func TestSendHostActionHelperRefusalBeforeStdinIsNotStaged(t *testing.T) {
 				if elapsed := time.Since(start); elapsed > 10*time.Second {
 					t.Fatalf("classification took %v; want prompt return", elapsed)
 				}
+				if tc.racy {
+					h.requireExitRaceOutcome(t, res)
+					return
+				}
 				h.requireNotStaged(t, res, 1)
-				if !tc.racy && h.auth.calls.Load() != 0 {
+				if h.auth.calls.Load() != 0 {
 					t.Fatalf("authorizer called %d times for a refused challenge", h.auth.calls.Load())
 				}
 			})

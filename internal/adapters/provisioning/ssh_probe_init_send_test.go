@@ -604,9 +604,16 @@ func TestSendProbeInitNotStagedBeforeFirstStdinByte(t *testing.T) {
 			if elapsed := time.Since(start); elapsed > 10*time.Second {
 				t.Fatalf("classification took %v; want prompt return", elapsed)
 			}
-			h.requireInitNotStaged(t, out, 1)
 			requireNoInitMaterial(t, out.err)
-			if !tc.racy && h.auth.calls.Load() != 0 {
+			if tc.racy {
+				if out.result != (ProbeInitResult{}) {
+					t.Fatalf("a dead helper returned %+v", out.result)
+				}
+				h.requireExitRaceOutcome(t, hostActSendResult{err: out.err})
+				return
+			}
+			h.requireInitNotStaged(t, out, 1)
+			if h.auth.calls.Load() != 0 {
 				t.Fatalf("authorizer called %d times for a refused challenge", h.auth.calls.Load())
 			}
 		})

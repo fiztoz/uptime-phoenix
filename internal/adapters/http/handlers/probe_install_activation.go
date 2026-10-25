@@ -179,13 +179,19 @@ func (h *ProbeActivationHandlers) Submit(c echo.Context) error {
 	if len(privateKey) < 1 || len(privateKey) > domain.MaxProbeInstallPrivateKeySize || !probeActivationRequestValid(request, userID) {
 		return fleetError(c, http.StatusBadRequest, "invalid_activation", "invalid activation submission")
 	}
+	// Validity already bounds the port; the explicit range keeps the
+	// conversion visibly lossless.
+	port := 0
+	if request.ListenPort > 0 && request.ListenPort <= 65535 {
+		port = int(request.ListenPort)
+	}
 	activation, err := h.svc.Submit(c.Request().Context(), services.ProbeActivationSubmission{
 		OperationID: operationID,
 		PrivateKey:  privateKey,
 		ProbeKey:    request.ProbeKey,
 		Name:        request.Name,
 		Location:    request.Location,
-		ListenPort:  int(request.ListenPort),
+		ListenPort:  port,
 		RequestedBy: userID,
 	})
 	if err != nil {

@@ -574,6 +574,7 @@ func TestSSHArtifactDirectoryExecutorHelperRefusalBeforeStdinIsNotStarted(t *tes
 	cases := []struct {
 		name string
 		tune func(helper *authSendHelper)
+		racy bool
 	}{
 		{name: "helper exits 1 without a challenge", tune: func(helper *authSendHelper) {
 			helper.noChallenge = true
@@ -583,14 +584,22 @@ func TestSSHArtifactDirectoryExecutorHelperRefusalBeforeStdinIsNotStarted(t *tes
 		{name: "malformed challenge line", tune: func(helper *authSendHelper) {
 			helper.challengeFn = func(*sendTFixture) []byte { return []byte("this is not a challenge line\n") }
 		}},
-		{name: "helper exits right after the challenge", tune: func(helper *authSendHelper) { helper.exitAfterChallenge = true }},
+		// The sender may observe this exit only after the grant was written
+		// into the dead channel; that late observation is unknown.
+		{name: "helper exits right after the challenge", racy: true, tune: func(helper *authSendHelper) { helper.exitAfterChallenge = true }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newAuthSendHarness(t, func(helper *authSendHelper, _ *authSendAuthorizer) { tc.tune(helper) })
 			e := adExecNew(t, h)
 			got := adExecApply(t, t.Context(), e, adExecOperation(t, h.intent), "artifact_directory")
-			adExecRequireOutcome(t, got, adExecNotStarted)
+			if tc.racy && got == adExecUnknown {
+				if n := h.auth.calls.Load(); n != 1 {
+					t.Fatalf("unknown without exactly one grant (%d authorizer calls)", n)
+				}
+			} else {
+				adExecRequireOutcome(t, got, adExecNotStarted)
+			}
 			h.requireNoStageInput(t, 1)
 		})
 	}
