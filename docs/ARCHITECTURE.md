@@ -2296,4 +2296,129 @@ require (
 
 All libraries are **CGO-free** (except MongoDB's optional CSE, which we don't use). The final binary is a single static executable that cross-compiles for `linux/amd64`, `linux/arm64`, and `linux/arm/v7`.
 
+The optional [M8 SSH preflight](multi-region/M8_SSH_PREFLIGHT.md) uses `ssh` and
+`ssh/knownhosts` from the already-pinned `golang.org/x/crypto` module (CGO-free;
+no new dependency). It implements the discovery-only `ProbeHostInspector` port
+and is available through the explicit operator CLI or the default-disabled
+[asynchronous admin preflight API](multi-region/M8_ASYNC_PREFLIGHT.md).
+`PROBE_SSH_PREFLIGHT_ENABLED` requires `PROBES_ENABLED`; only API/all processes
+execute locally admitted jobs. Migration 083 stores secret-free discovery
+receipts, never private keys. Database-clock owner/state/deadline fences and
+joined cancellation apply; no takeover or automatic credential replay exists.
+Compatibility supports Linux amd64/arm64; this does not change other binaries'
+cross-compilation targets or implement SSH installation.
+The default-disabled [asynchronous admin installer API](multi-region/M8_INSTALL_API.md)
+(`PROBE_SSH_INSTALL_ENABLED`, requiring `PROBES_ENABLED`,
+`PROBE_STAGE_AUTHORITY_KEY_FILE` and `PROBE_INSTALL_ARTIFACT_DIR`) drives the same
+`x/crypto/ssh` sender through one-shot DB admissions (migrations 085/086) and Ed25519
+grants verified on the host. It adds no dependency and stores no private key.
+The [pinned binary preparation seam](multi-region/M8_PINNED_BINARY_ARTIFACTS.md)
+uses only Go stdlib (streaming SHA-256, private files, ELF/build-info readers).
+`ProbeBinaryPreparer` returns a private copied snapshot through a port; the
+DB-independent `verify-artifact` CLI disposes it before reporting verification.
+Version provenance is an explicit trusted operator pin, not inferred linker flags
+(which release `-trimpath` builds omit). No download, execution or installer is
+introduced. The [Docker metadata prerequisite](multi-region/M8_DIGEST_PINNED_IMAGES.md)
+adds the stdlib-only `ProbeImagePreparer` port and DB-independent `verify-image`
+CLI: exact trusted index → unique Linux platform manifest → image config digest
+binding, with an immutable platform reference. It checks the Dockerfile startup
+contract and digest-bound version label, not layer bytes or runtime version.
+No registry, Docker daemon, pull or execution is introduced.
+The [internal install-intent/resource journal](multi-region/M8_INSTALL_JOURNAL.md)
+adds two small ports and a use-case facade over migration 084 on both engines.
+Immutable operation/owner/artifact intent and a canonical resource graph use a
+fixed 15-minute DB-clock lifetime; one committed attempt per resource requires
+committed predecessors. Unknown effects remain unknown; cancellation intent
+precedes joined cancellation, and guarded downgrade preserves held/owned work.
+`resources_ready` is nonterminal: no installed/success state, executor, endpoint,
+cleanup authority, new dependency or feature activation is introduced. Actual
+remote installation and authenticated enrollment/config activation remain open.
+The [one-shot resource coordinator](multi-region/M8_INSTALL_RUNNER.md) now reuses
+this facade for acknowledged Begin/reserve→joined executor→record sequencing,
+with bounded durable-state observation and independent completion contexts.
+It adds one small executor port, no concrete remote adapter, dependency,
+startup/HTTP wiring or installed-success outcome.
+The [offline image content verifier](multi-region/M8_IMAGE_CONTENT.md) separately
+binds supplied raw/gzip layer bytes and bounded uncompressed diff IDs to the
+existing trusted metadata chain. It adds a small port and local
+`verify-image-content` command, reusing the metadata and source-opening policy.
+It retains/extracts/executes nothing; zstd content refuses without a new dependency.
+Digest binding is not rootfs safety, publisher/runtime proof or transferable
+verified-byte authority. The separate [local built-image gate](multi-region/M8_IMAGE_CORRESPONDENCE.md)
+uses approved public pulls, pinned base references and bounded local OCI exports;
+it reuses all three artifact CLIs and checks the actual copied ELF platform.
+Its real builds exposed and corrected TARGETARCH defaults overriding BuildKit.
+Local build/export evidence does not prove publisher/registry/runtime identity,
+merged rootfs safety, remote delivery, installation or activation.
+The [private image snapshot seam](multi-region/M8_IMAGE_SNAPSHOT.md) now copies
+supplied metadata/ordered compressed layers into trusted local 0700/0400 storage,
+then re-runs the same verifier over the private copies. Descriptor-rooted,
+context-bound readers expose one bounded bundle; joined disposal refuses
+replacement/unknown contents and never recursively removes them. This uses
+stdlib `os.Root` with the locked Go toolchain, adds no dependency or network
+client, and is neither a complete multiarch OCI layout nor remote transfer or
+cleanup authority. Existing verification-only CLIs still retain no content.
+The subsequent [closed single-platform archive](multi-region/M8_IMAGE_ARCHIVE.md)
+borrows that snapshot, re-verifies its original pinned graph, and streams unique
+unchanged blobs into deterministic USTAR. Its generated one-target OCI root has
+separate hash/size fields from the original trusted index. Sealed private output
+is independently hashed before context-bound reading; this adds no daemon loader,
+registry client, remote transfer, publisher/runtime proof or installation wiring.
+The [read-only binary staging inspection](multi-region/M8_BINARY_STAGE_INSPECTION.md)
+adds a separate systemd intent/marker observation port. Its SSH adapter uses only a
+fixed SFTP-v3 read-only subset, numeric destination policy, public-key pins,
+client-side bounded size/hash checks and joined local cancellation. It neither
+uploads nor executes/deletes files. A `content_matches` observation is not an
+atomic snapshot, closed directory graph, host fence, DB grant or cleanup token;
+there is no executor, endpoint or startup wiring.
+The subsequent [fresh-only local binary writer](multi-region/M8_LOCAL_BINARY_STAGE.md)
+materializes verified bytes and the canonical marker beneath a borrowed trusted
+parent descriptor, using exclusive creation and fd-relative no-follow operations.
+It re-verifies sealed local files and retains all partial effects on uncertainty;
+no overwrite, adoption or cleanup. The seal does not assert that the parent is
+`/opt`, the identity host, current DB authority, or a host fence. This local effect
+is not SSH delivery and remains separate from the resource executor.
+Inspection and local writing are locally committed as `ce6e106` (not pushed).
+The next [exact-stream receive composition](multi-region/M8_BINARY_STAGE_RECEIVE.md)
+prepares raw input for a typed intent, requires unambiguous real outer EOF, closes
+and joins the input, then calls that writer once. It adds no framing/identity
+codec, new port, process helper or SSH transport. Prepared snapshots are disposed;
+post-stage cancellation/cleanup failure is Unknown, never a seal or installed success.
+That receive checkpoint is locally committed as `eb0dd00` (not pushed).
+The separate [one-shot local process helper](multi-region/M8_BINARY_STAGE_HELPER.md)
+adds the config-free `phoenix-probe-admin stage-binary` verb, a strict bounded
+14-field frame and inherited trusted directory fd 3. It reuses Receive unchanged,
+requires real stdin EOF and joined closure, then closes its parent duplicate before
+acknowledging a bounded relative receipt. Pipe input has an owned pollable duplicate
+and restored status flags; a two-minute context is not a hard kernel-stop bound.
+It accepts no parent pathname/command, never resolves the identity's `/opt` target
+or opens the DB, and grants no host/current-resource authority. Preparation uses
+the launcher's OS temporary directory, separate from the fd-relative stage. Remote deployment/launch, fencing and installation
+remain separate; ordinary SSH invocation does not supply this trusted fd contract.
+The inherited-fd helper is locally committed as `718e3b8` (not pushed).
+A separate [fixed Linux host-local launcher](multi-region/M8_BINARY_STAGE_HOST_LAUNCHER.md)
+adds `stage-binary-host`: effective uid0, retained `/` then literal no-follow `opt`,
+live root-owned non-writable directory checks, and owned parent close before receipt.
+Its isolated Linux namespace evidence selects a local `/opt` graph, not physical/SSH
+host identity, current DB authority, ownership fencing or an applied/installed resource.
+That host-local checkpoint is locally committed as `ac9c126` (not pushed).
+The subsequent [one-shot pinned SSH sender](multi-region/M8_BINARY_STAGE_SSH_DELIVERY.md)
+now delivers the unchanged frame and exact prepared bytes to the trusted,
+preinstalled `/usr/local/bin/phoenix-probe-admin stage-binary-host` command.
+It borrows the snapshot, owns one reader, checks real EOF/hash/size and closes
+that reader before normal channel EOF. A strict intent-bound receipt plus normal
+exit0, joined local resources and live context is only an adapter acknowledgment.
+All failures from the exec-attempt boundary are Unknown; disconnect can itself
+complete remote stdin and cause staging. The sender does not retry, reap remotely,
+install the helper or wire into the runner/HTTP/startup. Actual isolated Linux/arm64
+OpenSSH effects are verified separately from native race tests. Trusted helper,
+root shell/account authorization and current-host fencing remain external or
+future requirements; host-key authentication does not establish them.
+A subsequent [restricted-key OpenSSH fixture](multi-region/M8_BINARY_STAGE_SSH_AUTHORIZATION.md)
+uses native `restrict,command=...` policy with generated controls, not a new wrapper
+or production policy installer. Real exec/shell/subsystem replacement, direct TCP
+forwarding refusal and privileged-monitor root denial are tested separately from
+current DB/host authority. Key possession permits the fixed fresh-staging action;
+it does not bind an intent to a live reservation or grant an applied resource.
+
 > **Staged extension:** [M3 completion acceptance](multi-region/M3_COMPLETION_ACCEPTANCE.md) records verified optional probes, atomic configuration, ordered replay/current state, watchdogs, commands/rotation/reset, storage bounds and bounded shutdown. M4 adds supported pull-checker and existing-feature compatibility. [M5 completion](multi-region/M5_COMPLETION.md) adds fleet and regional UI, durable revocation, source ACK and authorized browser events, with overall public coverage. [Implementation status](multi-region/IMPLEMENTATION_STATUS.md) tracks the remaining M6 release validation and controlled activation. Single-pod defaults remain unchanged.

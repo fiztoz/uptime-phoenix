@@ -138,6 +138,184 @@ Read [current status](IMPLEMENTATION_STATUS.md) and
 [M3 final acceptance](M3_COMPLETION_ACCEPTANCE.md)
 before choosing work. Completed M2/M3 handoffs are not active assignments.
 
+## M8 continuation
+
+**Current state (2026-10-25).** The §11 checklist is complete, and the acceptance
+matrix passed on real arm64 and amd64 hosts (AWS run `398107b05ed2`; see
+IMPLEMENTATION_STATUS). The systemd path is:
+1. host preflight;
+2. install;
+3. activation (enrolled, config applied);
+4. cleanup.
+
+The only open item is the optional Docker container path. Its seams are image
+metadata, archive and snapshot. Before starting it, read
+[cleanup](M8_CLEANUP.md), [installer API](M8_INSTALL_API.md) and
+[activation](M8_ACTIVATION.md). The history below is retained for context.
+
+The first [verified SSH preflight slice](M8_SSH_PREFLIGHT.md) is implemented:
+`phoenix-probe-admin inspect-host` performs host-key-verified, policy-bound,
+bounded nonmutating discovery without loading hub configuration or touching the
+hub DB. This is compatibility evidence only, not an install/enrollment/config
+receipt. The follow-on [asynchronous preflight API](M8_ASYNC_PREFLIGHT.md) is
+implemented as default-disabled admin-only discovery with durable receipts,
+API-local bounded execution, immutable retries and joined cancellation. Read
+its verification record and credential-loss/expiry contracts before extending it.
+The M8-specific real-engine control passed, but broad dual-engine acceptance is
+blocked by operative M7 failures; the first was also reproduced at the committed
+baseline. Do not infer a green whole-backend MariaDB gate or change those fences inside
+this M8 slice. See the failed-run/baseline evidence and limits in that record.
+The [pinned binary seam](M8_PINNED_BINARY_ARTIFACTS.md) now prepares a private
+verified release-binary snapshot or verifies/disposes it with the offline
+`verify-artifact` CLI. It does not independently extract runtime version from
+trimmed Go metadata; version-to-digest trust is an explicit operator pin.
+The [Docker metadata seam](M8_DIGEST_PINNED_IMAGES.md) now selects a digest-bound
+platform reference from an explicit trusted index plus manifest/config bytes.
+`verify-image` is offline and DB-independent; config-label provenance is not
+runtime-version proof and layer bytes are not verified. Before an installer uses
+this seam, verify correspondence with a real built image (including inherited
+base config), then independently verify actual digest/platform pull results.
+The image metadata checkpoint `54fdc44` is published on `feat/m8-ssh-preflight`.
+The next [internal install-intent/resource journal](M8_INSTALL_JOURNAL.md) now
+records immutable intent, one-shot committed action reports and conservative
+expiry/cancellation on both engines. It has no executor, startup or endpoint
+wiring; resources_ready is nonterminal, not installed success. Requested artifact
+pins and owned flags are not verification or cleanup authority. Use its dedicated
+34-leaf MariaDB gate and read its final evidence before continuing. This checkpoint
+is published as `7b38761` on the same branch.
+The next [one-shot resource coordinator](M8_INSTALL_RUNNER.md) connects acknowledged
+Begin/reservation grants to joined executor reports, bounds cancellation and
+observes durable revocation. Its dedicated gate requires all 34 journal plus 11
+runner MariaDB leaves. It remains an internal use case with an executor port,
+not a concrete SSH/Docker/systemd adapter, startup worker or installer endpoint.
+That coordinator checkpoint `0870c3a` is published on the same branch.
+The [offline image content seam](M8_IMAGE_CONTENT.md) now verifies ordered supplied
+raw/gzip layer bytes and bounded diff IDs against the existing pinned chain.
+It retains/extracts/executes nothing; no mutable source path may be reused on the
+authority of its receipt. Its `c983ec2` checkpoint is published. The follow-on
+[actual local image correspondence gate](M8_IMAGE_CORRESPONDENCE.md) uses explicitly
+approved public base pulls and local builds, and found an actual Dockerfile bug:
+arm64 labels contained an amd64 ELF because ARG defaults overrode BuildKit targets.
+Read its source pins, corrected target bindings, executable-platform controls and
+final verification evidence before installer use. That checkpoint is locally
+committed as `326ceda` (not pushed). Local export proof is not
+registry/publisher/runtime proof, rootfs safety or verified delivery.
+The [private image snapshot seam](M8_IMAGE_SNAPSHOT.md) now retains original
+pinned metadata and ordered layers, verifies the private copies, and exposes one
+context-bound reader bundle with joined owned cleanup. It adds no registry/daemon/
+SSH action or complete OCI layout; original verification-only commands still
+retain nothing. Read its trusted-staging threat model and cleanup-failure priority
+before using the handoff. It is now locally committed as `f1dd181` (not pushed),
+with unchanged verified inputs and no commit-only test rerun.
+The next [closed single-platform archive](M8_IMAGE_ARCHIVE.md) borrows that
+snapshot and streams unique unchanged blobs into deterministic bounded tar.
+Read its original-index versus generated-root provenance and borrowed-input
+lifecycle contracts before consuming it. No daemon importer or actual remote
+transport is supplied. The archive checkpoint is now locally committed as
+`b9cb6ed` (not pushed), with verified source/docs/config unchanged and no
+commit-only test rerun.
+The next [read-only binary staging inspection](M8_BINARY_STAGE_INSPECTION.md)
+observes only a canonical systemd marker and requested binary size/hash through
+a bounded SSH/SFTP-v3 subset. It adds no upload, shell exec, remote deletion,
+resource transition or startup/HTTP wiring. A match is not an atomic snapshot,
+closed graph, current DB grant, host fence or cleanup authority. A future writer
+still needs exclusive creation, current authorization, truthful uncertainty and
+ownership/termination protocols; do not turn observation into mutation authority.
+The subsequent [fresh-only local binary staging writer](M8_LOCAL_BINARY_STAGE.md)
+now produces actual local files under a borrowed trusted parent fd, with exclusive
+creation, independent readback, joined source closure and honest post-create
+uncertainty. It never adopts, overwrites or cleans partial state. A local seal does
+not name actual /opt, prove host identity/current DB authority or fence a stale
+remote actor. The combined inspection/writer snapshot is locally committed as
+`ce6e106`, with exact verified source/docs/config and no commit-only test rerun;
+it was not pushed. Its scratch cleanup remains deferred by the prior shared-VM
+open-handle finding; this continuation does not recheck/remove it or stop that VM.
+The next [exact-stream receiver](M8_BINARY_STAGE_RECEIVE.md) composes the existing
+preparer and writer for typed-intent raw bytes. It independently confirms outer
+EOF and closes/joins input before Stage, disposes the private snapshot and retains
+post-stage uncertainty. That checkpoint kept the prior 1,512 source entries
+unchanged and is now locally committed as `eb0dd00` (exact15files, no commit-only
+test rerun, no push). It adds no wire format, process helper or remote transport.
+The separate [local process helper](M8_BINARY_STAGE_HELPER.md) now adds a strict
+bounded frame and early config-free stage-binary verb under inherited directory
+fd3. It reuses Receive/writer, joins owned pollable pipe input and restores flags,
+closes the parent duplicate before receipt, and preserves post-attempt Unknown.
+Only a relative local graph is acknowledged; no caller parent path, identity-derived
+/opt target open, DB transition, current host authority, cleanup or installed success.
+Preparation scratch uses the launcher's trusted OS temporary directory. This
+inherited-fd checkpoint is locally committed as `718e3b8` (exact18files, no
+commit-only rerun, no push). The separate [fixed Linux host-local launcher](M8_BINARY_STAGE_HOST_LAUNCHER.md)
+adds `stage-binary-host`, selecting retained root-owned/non-group-world-writable
+literal `/` -> `opt` descriptors as effective uid0, with no inherited fd3 or target
+path argument. The parent closes before the unchanged helper receipt is emitted.
+Main-owned isolated Linux namespace tests exercise actual admin processes, kernel
+UID/mode/CLOEXEC and local graph effects; they are not physical/SSH host identity,
+current authority, a hostile-root/mount fence, or installed success.
+This fixed host-local checkpoint is locally committed as `ac9c126` (not pushed).
+The subsequent [one-shot pinned SSH sender](M8_BINARY_STAGE_SSH_DELIVERY.md) is
+committed at `d159fd4` and unwired. It calls only the trusted preinstalled
+absolute stage-binary-host command, borrows the prepared snapshot and closes its
+one owned exact/EOF-checked reader before normal channel EOF. A strict matching
+receipt plus normal exit0 and joined live local context is an acknowledgment,
+not an applied resource. All exec-attempt failures are Unknown; disconnect may
+itself finish remote stdin and stage bytes. No retry, remote termination or cleanup
+claim is made. The frozen source is `dcffab8b5266e3094a13e70c9f6c462e179dbd3865a923db249b01b74b623011`
+(1,544 inputs; all 1,535 prior inputs unchanged): full native race 6,758 passes / 547
+audited skips, focused 171, artifact 3,018, 23 intended mutants, Python 19 and actual
+isolated Linux/arm64 OpenSSH 27 named passes (24 required completions) across three
+repetitions. No new MariaDB or Linux-amd64 runtime acceptance is implied.
+The subsequent [restricted staging-key fixture](M8_BINARY_STAGE_SSH_AUTHORIZATION.md)
+adds native OpenSSH policy acceptance, not a new verb/wrapper or a real policy
+installer. Actual generated-key exec/shell/subsystem replacement, direct TCP
+forwarding refusal and privileged-monitor root denial are verified in the same
+isolated Linux/arm64 boundary. A client handshake is not a root-monitor grant;
+subsystem stderr is intentionally suppressed. Its frozen source is
+`064b566500016ce9e7f691217270ced6928b9901558776ed8370d6704036ca56`
+(1,547 inputs; all 1,535 committed inputs unchanged): full native race 6,758 passes /
+547 audited skips, Python 36, 11 intended mutants and actual authorization
+36 required / 39 named completions across three repetitions passed, with default
+and authorization post-mutation controls. No new MariaDB or Linux-amd64 runtime
+coverage is implied; final audit/cleanup are recorded separately.
+The [one-shot stage grant record](M8_BINARY_STAGE_GRANT.md) then adds the
+current-reservation authority this paragraph asked for. Increment A (`19fb9cc`)
+irreversibly admits one exact `artifact_directory` attempt in the DB before an
+injected Ed25519 signer issues a grant. Increment B adds `stage-binary-authorized`:
+a fresh helper nonce challenge, a protected root-owned trusted key at
+`/etc/phoenix-probe/stage-authority.pub`, a binding of the intent's pinned host key
+to the helper's own sshd host keys, and grant verification before any payload byte
+or filesystem effect. Increment C adds `SendAuthorized` and the honest
+`ErrSSHBinaryStageNotStaged` outcome for failures before the first stdin byte. B/C
+are native-tested and composed end to end over a Go SSH server; actual OpenSSH/Linux
+acceptance of the new verb, key custody/export and policy installation remain open.
+Increment D adds `phoenix-probe-admin stage-authority` key custody/export. Increment
+E adds `SSHArtifactDirectoryExecutor`, the first concrete install executor, proven on
+SQLite through the production runner. The [host-action slice](M8_HOST_ACTIONS.md) then
+generalizes admission and grants to `data_directory`, `unit_file` and `service`
+(migration `086`, `stage-host-action-authorized`, the `authorized-dispatch` forced
+command) and adds `SSHProbeInstallExecutor` for the whole systemd layout. The owner approved the unit, and
+the AWS run `b6ffc9ac26ab` accepted the whole systemd path on real arm64/amd64 hosts
+plus real MariaDB (see that record). The [installer API](M8_INSTALL_API.md) then adds
+default-disabled admin routes and an API-local service that drives it with a
+transient deployment key. [Activation](M8_ACTIVATION.md) then adds
+`probe_init` → registration → `service_start` → enrollment as a separate durable
+operation (migration 087), with the one-time token kept only in memory. AWS run
+`96429584638b` accepted it end to end through the real hub API on arm64 and amd64
+(enrolled, online, config applied) and on real MariaDB (215 leaves), after fixing an
+enrollment readiness race. Next: bounded redacted progress, lost-token recovery
+(`probe token` reissue) and the Docker executor. Operators must still install the public trust file and the
+`stage-binary-authorized` forced command themselves. The operator must protect the helper,
+ancestors and root shell; a pinned host key is not their provenance or DB authority.
+Do not wire an ack/seal to artifact_directory/applied or invent a fresh grant from
+labels. Ordinary SSH still does not supply fd3; the fixed launcher supplies its
+own parent. Broad M7, M6/release and older writer deferred cleanup stay open.
+These are internal prerequisites, not a concrete executor, endpoint, enrollment
+or activation path.
+Production delivery compatibility, host-side ownership/fencing, the concrete
+Docker/systemd executor, bounded redacted progress, authenticated enrollment
+plus exact config activation remain open.
+Do not reuse a preflight receipt as installation or cleanup authority. M6
+operational/release and deployment approval gates remain unchanged.
+
 ## Start here
 
 1. Read [AGENTS.md](../../AGENTS.md), [testing](../TESTING.md), this status, and the

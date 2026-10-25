@@ -29,9 +29,20 @@ type RouterOptions struct {
 	// (protocol section 7). A nil handler keeps the routes registered but
 	// unavailable; operation routes never fake a 202.
 	ProbeAdmin *handlers.ProbeAdminHandlers
-	Production bool
-	RateLimit  middleware.RateLimitConfig
-	CORS       middleware.CORSConfig
+	// ProbePreflights is optional asynchronous discovery, never installation.
+	// Nil keeps the authenticated routes registered with typed unavailability.
+	ProbePreflights *handlers.ProbePreflightHandlers
+	// ProbeInstalls is optional asynchronous SSH systemd installation. Nil
+	// keeps the authenticated routes registered with typed unavailability.
+	ProbeInstalls *handlers.ProbeInstallHandlers
+	// ProbeActivations takes a resources_ready install to an enrolled probe.
+	// Nil keeps the authenticated routes registered with typed unavailability.
+	ProbeActivations *handlers.ProbeActivationHandlers
+	// ProbeCleanups removes an install operation's host resources.
+	ProbeCleanups *handlers.ProbeCleanupHandlers
+	Production    bool
+	RateLimit     middleware.RateLimitConfig
+	CORS          middleware.CORSConfig
 }
 
 // NewRouter creates and configures the Echo router with all routes and
@@ -195,6 +206,39 @@ func NewRouter(
 		probeGroup.DELETE("/:probe_id", admin.Delete)
 		e.GET("/api/probe-operations/:operation_id", admin.Operation,
 			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"), requireAdmin)
+
+		preflights := opts.ProbePreflights
+		if preflights == nil {
+			preflights = handlers.NewProbePreflightHandlers(nil, false)
+		}
+		preflightGroup := e.Group("/api/probe-host-preflights",
+			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"), requireAdmin)
+		preflightGroup.POST("", preflights.Submit)
+		preflightGroup.GET("/:operation_id", preflights.Observe)
+		preflightGroup.POST("/:operation_id/cancel", preflights.Cancel)
+
+		installs := opts.ProbeInstalls
+		if installs == nil {
+			installs = handlers.NewProbeInstallHandlers(nil, false)
+		}
+		installGroup := e.Group("/api/probe-installs",
+			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"), requireAdmin)
+		installGroup.POST("", installs.Submit)
+		installGroup.GET("/:operation_id", installs.Observe)
+		installGroup.POST("/:operation_id/cancel", installs.Cancel)
+		activations := opts.ProbeActivations
+		if activations == nil {
+			activations = handlers.NewProbeActivationHandlers(nil, false)
+		}
+		installGroup.POST("/:operation_id/activate", activations.Submit)
+		installGroup.GET("/:operation_id/activation", activations.Observe)
+		installGroup.POST("/:operation_id/activation/cancel", activations.Cancel)
+		cleanups := opts.ProbeCleanups
+		if cleanups == nil {
+			cleanups = handlers.NewProbeCleanupHandlers(nil, false)
+		}
+		installGroup.POST("/:operation_id/cleanup", cleanups.Submit)
+		installGroup.GET("/:operation_id/cleanup", cleanups.Latest)
 	}
 
 	// Reliability read model. The handler applies monitor visibility before it

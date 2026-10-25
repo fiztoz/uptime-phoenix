@@ -91,3 +91,28 @@ after publication can leave the destination present even if the command did not
 report success. Preserve it, check it, and establish filesystem durability and
 backup before use; never delete it just to make `init` succeed. Only remove
 abandoned staging files after establishing that no creator is running.
+
+## Stage authority key (M8 binary staging grants)
+
+The hub's [stage grant](M8_BINARY_STAGE_GRANT.md) signer uses a **separate** 32-byte
+Ed25519 seed file. Never reuse `PROBE_SECRET_KEY_FILE`. Create, check and export it with
+the config-free admin command; `--file` overrides `PROBE_STAGE_AUTHORITY_KEY_FILE`:
+
+```sh
+mkdir -m 700 /persistent/private-stage-authority
+phoenix-probe-admin stage-authority init --file /persistent/private-stage-authority/stage.key
+phoenix-probe-admin stage-authority check --file /persistent/private-stage-authority/stage.key
+phoenix-probe-admin stage-authority public-key --file /persistent/private-stage-authority/stage.key > stage-authority.pub
+```
+
+`init` and loading reuse the snapshot key's creation, ownership, mode, size and
+symlink rules above. `check` prints the authority key id (SHA-256 of the public key)
+and nothing secret. `public-key` writes only the canonical 65-byte public trust file
+(64 lowercase hex + LF). Install that file on each target host as
+`/etc/phoenix-probe/stage-authority.pub`: root-owned, single link, not group/world
+writable, beneath root-owned non-writable `/etc` and `/etc/phoenix-probe`.
+
+Back the seed up like the snapshot key. Rotating it means installing the new public
+file on every host. Grants signed by the old key stop verifying immediately, and stored
+admissions are never reset. The process holds the expanded key in memory; no
+zeroization of that copy is claimed. No hub startup path loads this key yet.

@@ -112,6 +112,736 @@ for disposable database setup.
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
 
+### M8 install cleanup (migration 088)
+
+See [cleanup](multi-region/M8_CLEANUP.md). Its 77 MariaDB leaves
+(`TestM8InstallCleanup/mariadb/…`) are part of the `m8-stage-authorization` scope.
+That scope now requires 292 MariaDB leaves and runs `go test` with a 1800 s timeout.
+
+```sh
+go test -race -count=1 -timeout 1800s ./internal/adapters/repository -run '^TestM8InstallCleanup'
+go test -race -count=1 ./internal/adapters/provisioning -run 'Cleanup'
+go test -race -count=1 ./internal/core/services -run 'ProbeCleanup'
+go test -race -count=1 ./internal/adapters/http/handlers -run 'ProbeCleanup'
+go test -race -count=1 ./internal/bootstrap -run 'TestProbeInstallAPI'
+```
+
+### M8 host-authorized systemd actions (data_directory, unit_file, service)
+
+See [the host-action record](multi-region/M8_HOST_ACTIONS.md). Migration `086` adds
+`probe_host_action_admissions`; its 72 MariaDB leaves are part of the
+`m8-stage-authorization` gate scope above and need a real disposable MariaDB.
+
+```sh
+go test -race -count=1 -timeout 900s ./internal/adapters/repository -run '^TestM8HostAction(Authorization|AdmissionSchema)$'
+go test -race -count=1 ./internal/core/domain ./internal/adapters/provisioning -run 'HostAction|ProbeSystemdUnit|ProbeInstallExecutor|ApplyProbe'
+go test -race -count=1 ./internal/bootstrap -run 'HostAction|AuthorizedProbeDispatch'
+python3 -B -m unittest scripts/test_m8_aws_acceptance.py
+```
+
+The full repository package now needs `-timeout 2400s` (CI already uses it).
+
+**M8 acceptance matrix (AWS, operator-approved only).**
+- **Run.** `python3 -B scripts/m8_aws_matrix.py <run_dir> <run_id> <arm64_ip> <amd64_ip>`
+  drives every §11 case through a locally running hub's REST API.
+- **Hosts.** First prepare each host with the helper, the stage-authority public key
+  and the restricted staging key, as root:
+
+  ```sh
+  install -o root -g root -m 0755 phoenix-probe-admin /usr/local/bin/phoenix-probe-admin
+  install -d -o root -g root -m 0755 /etc/phoenix-probe
+  install -o root -g root -m 0644 stage-authority.pub /etc/phoenix-probe/stage-authority.pub
+  printf 'restrict,command="/usr/local/bin/phoenix-probe-admin authorized-dispatch" %s\n' "$(cat staging_key.pub)" > /root/.ssh/authorized_keys
+  chmod 0600 /root/.ssh/authorized_keys
+  ```
+- **Run directory.** `<run_dir>` holds:
+  - the hub's `admin.password` and `hub.db`;
+  - `staging_key`, plus an `unauthorized_key` that root does not accept;
+  - `artifacts/` with the pinned probe releases (version `0.9.2-m8matrix`).
+- **Output.** It prints one JSON line per case and exits nonzero on any failure.
+- **Hub requirement.** The hub must reach 8443 on the hosts.
+- **Operator IP.** If your public IP rotates mid-run, update the run's tagged security
+  group to the new /32.
+
+**Real-host acceptance (AWS, operator-approved only).** `scripts/m8_aws_acceptance.py`
+runs `plan` (offline; prints a run id), then `up --approve-run-id <id> --expect-account
+<id> --operator-cidr <ip>/32 [--profile <p>]`, `ssh`, `down --run-id <id>` and `sweep`.
+The lifecycle driver is `go test -c -tags m8aws ./internal/bootstrap` with
+`M8AWS_*` inputs (pin any of the host's key fingerprints; the pinned family is learned). Remote MariaDB output
+converted with `go tool test2json` is judged by
+`python3 -B scripts/m8_remote_gate_evaluate.py <events>`. Every launch creates billable
+resources and needs fresh owner approval.
+
+### M8 stage grant verification and authorized delivery (increments B/C)
+
+The [grant record](multi-region/M8_BINARY_STAGE_GRANT.md) adds the host verb
+`stage-binary-authorized` and `SSHBinaryStageSender.SendAuthorized`. No DB, schema
+or HTTP change. Run the codec, helper, sender and end-to-end composition tests:
+
+```sh
+go test -race -count=1 ./internal/adapters/provisioning \
+  -run 'ProbeBinaryStageGrantFrame|ProbeBinaryStageChallengeLine|ProbeBinaryStageAuthorityKey|SSHBinaryStageSenderAuthorized'
+go test -race -count=1 ./internal/bootstrap \
+  -run 'AuthorizedProbeBinaryStage|VerifyProbeBinaryStageGrant|ProbeBinaryStageAuthorityReadKey'
+```
+
+The end-to-end tests (`TestAuthorizedProbeBinaryStageSSH*`) run the real sender
+against a loopback Go SSH server that executes the real helper, the real
+authorization service and Ed25519 signer, and a real temporary parent. This is
+protocol and effect evidence, **not** OpenSSH or Linux `/etc`/`/opt` acceptance: the
+Linux key loader is only cross-compiled and vetted. Generated keys only.
+
+### M8 one-shot stage admission (increment A; not host authorization)
+
+This increment consumes one exact reserved artifact attempt before an injected
+Ed25519 signer may issue a grant. It adds no helper/sender, HTTP or startup wiring.
+Admission is authority at commit, **not** continuous remote fencing, an applied
+resource, or proof of remote termination.
+
+Run the offline parser regressions and SQLite semantic controls:
+
+```sh
+python3 -B -m unittest discover -s scripts -p test_m6_dual_engine_gate.py
+python3 -B scripts/test_m6_dual_engine_gate.py --stage-authorization-mutations
+```
+
+The mutation command uses the exact cached compiler named by `go.mod`, disables
+downloads and ambient integration credentials, and uses Go overlays rather than
+editing production files. Five fixed mutants must fail at their intended effect
+assertions; ten unchanged-source controls must pass. Build errors, timeouts,
+races, panics, missing events and surviving mutants are not successful controls.
+Evidence goes to a new private directory under `tmp/`. This is SQLite-only
+negative-control evidence, never MariaDB acceptance.
+
+After fresh explicit approval for a task-owned disposable database, execute:
+
+```sh
+python3 -B scripts/m6_dual_engine_gate.py --scope m8-stage-authorization \
+  --mariadb-image mariadb@sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15 \
+  --go-json tmp/m8-stage-authorization-NEW-events.jsonl
+```
+
+The image and exact Go 1.26.10 compiler/modules must already be cached. The gate
+refuses remote Docker endpoints and pulls, generates its own database credentials,
+binds only a random loopback port, and verifies the container ID and per-run
+ownership label before removal. No existing DSN is accepted. The event path must
+not exist. Raw logs can contain connection details: keep them private and redact
+before publishing. No host bind, shared-volume pruning or VM management is needed.
+
+Require all **63 MariaDB leaves** (34 journal, 11 runner, 18 stage admission), all
+18 new SQLite stage leaves, and ordered package/test lifecycles across domain,
+services, repository and provisioning. Missing or duplicate events, wrong package,
+truncation, parent-only or zero selection, skips, abnormal completion and nonzero
+process exit fail closed. This strict lifecycle validation applies to this scope;
+it does not establish equivalent evidence for older scopes. A native full-suite
+pass with MariaDB skips cannot replace this gate. These checks do not establish
+B/C host authorization, remote termination, executor integration or broad M6/M7
+operational acceptance.
+
+**Local increment-A verification checkpoint:** the canonical strict scope passed
+306 named tests, all 63 MariaDB requirements and 18 new SQLite leaves, four complete
+package lifecycles, and zero skips/failures. The client used exact Go 1.26.9 with
+race detection on Darwin/arm64; the disposable pinned MariaDB ran Linux/arm64.
+The final no-DSN full native suite passed 6,834 named tests / 565 audited skips;
+it is separate evidence, not a full MariaDB backend run. Parser regressions passed
+44 tests; five SQLite semantic mutants were caught and ten controls passed.
+
+The first actual engine run exposed a parser false rejection for
+`t.Run("attempts are copied before I/O", ...)`: slash-bearing names do not imply
+intermediate parent events. Validation now checks the nearest emitted ancestor
+while independently requiring repository root/engine lifecycles; regressions also
+reject missing engine parents and starts beneath completed ancestors. Its original
+failed result was retained, and a fresh canonical replacement passed. Evidence:
+`tmp/m8-stage-admission-verification/acceptance-04/`. Neither these runs nor their
+resource approvals authorize future pulls, database campaigns or deployment.
+
+### M8 pinned binary preparation (offline; no execution)
+
+The [binary prerequisite](multi-region/M8_PINNED_BINARY_ARTIFACTS.md) adds no DB,
+HTTP surface or dependency. Run its real ELF/build-info, copy/cancellation and
+subprocess CLI tests with the pinned Go toolchain:
+
+```sh
+go test -race -count=1 ./internal/core/domain ./internal/core/services \
+  ./internal/adapters/provisioning ./internal/bootstrap ./cmd/phoenix-probe-admin \
+  -run 'TestProbe(Binary|AdminBinary)'
+```
+
+The tests build Linux amd64/arm64 release-shaped fixtures and an actual probe
+binary, but never execute those artifacts. Assert digest/size/component/platform
+refusal, source ownership and private-copy independence, source/metadata/read
+cancellation, read revocation and replacement-directory cleanup refusal. The
+subprocess CLI must run before invalid hub configuration and remove snapshots
+before success. A version label is explicitly `operator_pin`, not an inferred
+runtime version; `-trimpath` omits `-ldflags` from Go metadata. No VM, Docker
+install, publisher authenticity, enrollment or config activation is established.
+
+### M8 digest-bound Docker metadata (offline; no daemon)
+
+The [image metadata prerequisite](multi-region/M8_DIGEST_PINNED_IMAGES.md) adds no
+DB, dependency, registry request or Docker execution. Run its actual CLI and
+bound JSON-chain tests, including the binary source-opener regression:
+
+```sh
+go test -race -count=1 ./internal/core/domain ./internal/core/services \
+  ./internal/adapters/provisioning ./internal/bootstrap ./cmd/phoenix-probe-admin \
+  -run 'TestProbe(Image|AdminImage|Binary|AdminBinary)'
+```
+
+Cover OCI and Docker schema-2 chains on both supported architectures, BuildKit
+attestation selection, exact byte/digest/size identity, duplicate target refusal,
+startup/version/rootfs constraints, bounded duplicate/case-alias/UTF-8/depth/token
+JSON guards, all-stream closure and joined cancellation at every input and during
+parsing. Subprocesses must succeed despite invalid hub settings, never execute a
+Docker canary, preserve input files and expose an explicit DTO with both
+`layers_verified` and `runtime_version_verified` false. Negative tests retain an
+otherwise valid chain so removing the tested guard produces a genuine acceptance
+or intended-effect failure, not a substitute rejection on missing metadata.
+
+Fixtures are digest-linked metadata, not a downloaded/publisher-authenticated
+image. A real image-build correspondence check (including inherited base config),
+registry pull/daemon results, layers and runtime evidence remain unverified before
+installer use. Existing M7 broad MariaDB acceptance remains separately blocked.
+
+### M8 supplied image content (offline; no extraction or daemon)
+
+The [content verifier](multi-region/M8_IMAGE_CONTENT.md) reuses the metadata chain
+and source opener, then checks exact supplied raw/gzip layer hashes/sizes and
+bounded uncompressed diff IDs. No registry/daemon, artifact execution, extraction,
+retention, remote host or DB is used. Run its actual service/adapter/CLI paths:
+
+```sh
+go test -race -count=3 ./internal/core/domain ./internal/core/services \
+  ./internal/adapters/provisioning ./internal/bootstrap ./cmd/phoenix-probe-admin \
+  -run 'ProbeImageContent|ProbeAdminImageContent'
+```
+
+Use real small tar/gzip fixtures for both schemas/architectures, multiple ordered
+layers, rebound wrong diff IDs, valid compressed bytes with a wrong declared size,
+and a gzip-header-only change (same decoded bytes) to isolate compressed identity.
+Keep exact-size and digest-order assertions independent: layer compression sizes
+may differ even when the fixture strings/tar sizes match. Test exact/one-over
+per-layer and aggregate compressed/inflated bounds with smaller per-instance
+budgets; unsupported later zstd and over-limit declarations must refuse before
+any layer read. Include footer/truncation/trailing-invalid/multimember gzip,
+reader secrecy, all-stream ownership, cancel during read/inflate/Close, joined
+closure, and unchanged inputs. A digest-bound opaque non-tar fixture should still
+prove the deliberate non-claim of rootfs safety.
+
+The subprocess CLI must dispatch before invalid hub config, refuse FIFO/device
+inputs without blocking or leaking paths, and report `rootfs_verified=false`,
+`runtime_version_verified=false`, `content_retained=false`. FD growth assertions
+must execute on both supported hosts; macOS `/dev/fd` enumeration is not reliable.
+Synthetic tar/gzip verification does not close actual image correspondence or
+authorize loading mutable source files into a daemon. The separate gate below
+records genuine local builds under explicit public-pull approval. Existing M7
+MariaDB and M6/M8 operational/release/installation gates remain separate.
+
+### M8 actual local image correspondence (explicit network approval)
+
+Read [the contract and runbook](multi-region/M8_IMAGE_CORRESPONDENCE.md).
+`make release-image-gate` now includes its **24 offline unit controls**, also run
+by existing backend CI and local `gate-full`; they never contact Docker/network.
+Actual image acceptance separately requires an available local Unix Docker
+endpoint, matching installed Go compiler, explicit `--allow-public-pulls`, a new
+private work directory and the built-in builder. Follow the complete command in
+the runbook rather than inheriting Docker auth, application secrets or DSNs.
+
+The gate builds tracked source with only digest-pinned base references; an
+intentional uncommitted Dockerfile fix needs `--allow-working-dockerfile` and is
+recorded as an overlay, never attributed falsely to the Git commit. Build each
+platform sequentially on small Docker VMs; do not drop arm64 or silently prune
+shared caches to obtain green. Read bounded OCI archive blobs without rootfs
+extraction. For each architecture require original index/manifest/config/layers,
+all three real artifact CLIs, actual copied ELF machine and three intended
+negative refusals. Fake-CLI unit passes never substitute for these executions.
+
+The first actual run found that `ARG TARGETARCH=amd64` overrode BuildKit's target
+and placed the same amd64 ELF under the arm64 label. The fix uses unvalued
+TARGETOS/TARGETARCH declarations, and both fast regression and real copied-byte
+checks now cover it. Existing direct Go cross-builds or image labels alone
+cannot establish this. Local per-platform export proof is not combined registry
+index, publisher/runtime identity, rootfs safety, delivery or installation proof.
+
+### M8 private image snapshots (local filesystem; no network/daemon)
+
+Read [the snapshot contract](multi-region/M8_IMAGE_SNAPSHOT.md). This separate
+internal API retains supplied metadata/layers and re-runs the existing verifier
+against sealed private copies. Verification-only CLIs and their
+`content_retained=false` response remain unchanged. Use the cached locked compiler
+with offline modules; no DB, registry, Docker or SSH endpoint is required:
+
+```sh
+go test -race -count=3 -timeout 300s \
+  ./internal/core/services ./internal/adapters/provisioning \
+  -run '^TestProbeImageSnapshot'
+```
+
+Exercise the real service→adapter→private-copy/readback→Open/Close path, not just
+mock results. Cover raw/gzip OCI and Docker schemas on both declared architectures,
+source independence, copied-byte corruption, exact/one-over limits, typed-nil and
+dynamically non-comparable handles, metadata refusal before layer reads, all
+closures/callback joins, one active bundle, the full 131-reader bound, partial
+opens, cancellation, concurrent disposal and ownership/unknown-file refusal with
+cleanup retry. No recursive deletion of unknown/replacement content is permitted.
+A confirmed disposal failure must remain fixed `ErrProbeImageSnapshotStorage`
+even if cancellation also occurred; never lose retained storage behind a generic
+canceled response. Compare assertions against intended mutants, then rerun
+untouched-source control.
+
+These Go tests are included in existing backend CI automatically. Report which
+filesystem OS actually executed them: native host success plus Linux cross-builds
+are not Linux filesystem-runtime acceptance. Snapshots neither export a complete
+OCI layout nor establish actual delivery, publisher/runtime identity, host fencing
+or installation. Broad M7 MariaDB and M6/M8 operational gates remain separate.
+
+### M8 closed single-platform archives (offline; no daemon importer)
+
+Read [the archive contract](multi-region/M8_IMAGE_ARCHIVE.md). The packer borrows
+rather than closes a verified snapshot, re-verifies its original pinned graph,
+and streams deterministic USTAR with a separately identified one-target root.
+Use the locked cached compiler and offline modules; no network/DB/SSH is needed:
+
+```sh
+go test -race -count=3 -timeout 300s \
+  ./internal/core/domain ./internal/core/services ./internal/adapters/provisioning \
+  -run '^TestProbeImageArchive'
+```
+
+Parse the real service→packer output independently. Assert unique closed blob
+graphs and unchanged bytes, repeated ordered-layer verification, original versus
+generated index identities, deterministic headers/terminators, both schemas,
+raw/gzip and both declared architectures. Exercise actual filesystem readers,
+not only byte mocks: EOF must remain EOF after source closure. Include exact and
+one-over archive budgets, private readback corruption, partial Open ownership,
+fixed errors, borrowed-source usability, joined cancellation, one active reader,
+automatic reader revocation, maximum 128-layer graphs, concurrent disposal and
+replacement/unknown-file refusal with cleanup retry. Mutants require the intended
+assertion failure and an untouched control; compiler errors/timeouts do not count.
+These tests join existing backend CI automatically. Native host filesystem tests
+and Linux cross-builds are not Linux runtime acceptance. No Docker-load support,
+registry/publisher/runtime identity, remote delivery or installation is asserted.
+
+### M8 read-only binary staging inspection (loopback SSH/SFTP)
+
+Read [the staging inspection contract](multi-region/M8_BINARY_STAGE_INSPECTION.md).
+This separate read-only API uses generated test keys and an in-process loopback
+SSH/SFTP server; no installed SSH daemon, home credentials, external destination,
+DB, remote writes or privilege changes are required. Use offline locked Go:
+
+```sh
+go test -race -count=3 -timeout 300s \
+  ./internal/core/domain ./internal/core/services ./internal/adapters/provisioning \
+  -run 'BinaryStage'
+```
+
+Use that selector to include codec tests whose names lack the `Probe` prefix;
+the broader artifact selector is not a substitute for this complete focused gate.
+Test service→real SSH→SFTP framing, not only mocked observations or scripted byte
+buffers. Assert host trust before authentication, client/request pins before dial,
+one DNS resolution and numeric policy-bound dial, only the `sftp` subsystem,
+read-only OPEN and bounded LSTAT/FSTAT/READ/CLOSE with exact IDs. Cover absence vs
+permission errors, marker/attempt/binary mismatches, symlink/special refusal,
+size+1/EOF/progress/packet/handle/attrs/version limits, CLOSE acknowledgement,
+bounded stderr, fixed error secrecy, typed-nil contexts and short-write refusal.
+Cancel at handshake, channel, subsystem and read phases; hold the cancellation
+callback to prove inspection cannot return before it joins. Run intended mutants
+and then untouched control. Existing backend CI discovers these tests unchanged.
+Simulated-server success is not OpenSSH deployment compatibility or Linux runtime
+acceptance, host fencing, upload, cleanup authority or installation. No DB gate
+or broad MariaDB acceptance is closed by this slice.
+
+### M8 fresh-only local binary staging (disposable directory fd)
+
+Read [the local staging contract](multi-region/M8_LOCAL_BINARY_STAGE.md). This is
+an actual local filesystem write under an already-open disposable parent, not
+an SSH uploader, /opt writer, cleanup path or DB resource executor. The service
+borrows a prepared binary; only its opened stream and duplicated descriptors are
+owned. Never run these tests against an operator data directory.
+
+```sh
+go test -race -count=3 -timeout 300s \
+  ./internal/core/domain ./internal/core/services ./internal/adapters/provisioning \
+  -run 'LocalBinaryStage|BinaryStageWrite|BinaryStageSeal'
+```
+
+Assert real prepared input→fd-relative fresh graph→independent binary/marker
+readback, both ELF architectures without execution, exact modes/identity/hash,
+source/parent survival, EEXIST for prior dir/file/symlink and concurrent callers,
+parent-path rename safety and child-replacement refusal. Include confirmed EOF
+(not 0,nil), bounded no progress, before-marker cancel, source-close failure/join,
+unknown entry preservation and sync/close faults. After create, every uncertainty
+must retain partial files and return zero seal/Unknown—never not_started or replay.
+Existing preflight/inspection/journal/runner and their Go bytes remain unchanged.
+Use the whole CI-source race gate and `LocalBinaryStage` in broad artifact selection.
+Actual Linux filesystem acceptance is separate from a cross-build: the documented
+isolated scratch test image runs only static test code with network disabled,
+read-only fixture mounts and a non-root tmpfs. Do not execute the staged probe,
+pull/publish images or infer OpenSSH/host-fencing/installer acceptance from it.
+
+### M8 exact-stream receive to fresh local staging
+
+Read [the receive contract](multi-region/M8_BINARY_STAGE_RECEIVE.md). This composes
+the existing preparer and writer for a typed intent plus raw bytes, not another
+wire format or host-helper executable. The caller transfers input ownership;
+real outer EOF and joined input Close must precede the first writer call.
+
+```sh
+go test -race -count=3 -timeout 300s \
+  ./internal/core/services ./internal/adapters/provisioning \
+  -run BinaryStageReceive
+```
+
+The real preparer→receive→fd writer tests must inspect both ELF fixtures as data,
+exact staged graph/modes/marker, source closed before writer, empty private
+preparation scratch, borrowed parent survival and conflict on repeated receive.
+Short/extra/paused-extra/no-progress/error-bearing input and absent EOF with cancel
+must never stage. A joined EOF plus another cause is a failure, not completion;
+a single wrapped EOF remains supported. Source context errors and overlapping
+reads remain sticky even if a broken preparer ignores Read's error. Hold Close/
+Read blocked during a bounded no-return observation, then release and join them;
+a default-only select is not a sufficient blocked-lifetime assertion. Mutation
+controls include active-read join and actual snapshot disposal, not just mocks.
+After a Stage attempt, cleanup/cancel/malformed receipt means zero seal/Unknown
+and preserves all staged effects. No SSH/DB/host authority or installation proof.
+Run whole CI-source race and existing harness gates. No new Linux runtime claim
+from cross-builds or the preceding writer's narrower Linux effect evidence.
+
+### M8 inherited-fd one-shot local binary helper
+
+Read [the process contract](multi-region/M8_BINARY_STAGE_HELPER.md). Receive is
+locally committed as `eb0dd00`; this separate continuation adds only a concrete
+local process boundary, not SSH transport or an install executor.
+
+```sh
+go test -race -count=3 -timeout 300s \
+  ./internal/adapters/provisioning ./internal/bootstrap ./cmd/phoenix-probe-admin \
+  -run 'BinaryStageHeader|BinaryStageHelper|StageBinary'
+```
+
+The command fixture builds and runs the actual admin executable with invalid hub
+environment, disposable ExtraFiles fd3 and one stdin header+payload stream. Require
+normal exit0 plus the exact bounded9-field response and real graph/hash/marker/modes.
+Refusals require exact normal exit1 and their fixed sentinel (usage exit2); child
+signal/deadline kills are failures, not refusal. Corrupted existing markers must
+remain untouched on conflict. Do not use /opt, real hosts or shared directories.
+
+Withholding real pipe EOF must not stage; signal cancellation must join and exit1,
+not wait for a test kill. Generic io.Pipe is not proof that inherited os.Stdin is
+closable: test the blocking-to-pollable duplicate and restore flags on Close.
+Owned source Close is once; parent fd3 is borrowed. Test failed response-buffer
+discard, parent-close-before-output and partial/short/error output as Unknown,
+retaining actual effects. Isolate malformed header counts with nil source errors,
+and inject mixed EOF errors only in the selected header read so payload refusal
+cannot hide a missing guard. Hold actual read/callback lifetimes; the final callback
+tail also has an explicitly synthetic preemption test, not an OS scheduling claim.
+
+Linux ELF fixtures are read as data, not executed by tests. A missing fixture
+execution canary is runtime evidence only on matching Linux hosts, not Darwin.
+Native process verification does not establish new Linux runtime or OpenSSH
+acceptance; cross-builds and the prior writer's Linux cases do not extend this.
+Run the full frozen-source race, build/vet/format, existing Make harness and
+intended assertion mutants with untouched control. Default MariaDB skips leave
+broad M7/real-engine acceptance open. No new DB/container/VM action is required.
+
+### M8 fixed Linux host-local binary launcher
+
+The inherited-fd helper is locally committed as `718e3b8`. The separate
+[fixed-parent contract](multi-region/M8_BINARY_STAGE_HOST_LAUNCHER.md) adds
+`phoenix-probe-admin stage-binary-host`, zero arguments, Linux effective uid0.
+It opens retained literal `/` then `opt`, requiring live root-owned directories
+without group/world write and with no-follow/directory/CLOEXEC. This is a local
+namespace selector, not SSH/current DB authority, a hostile-root/mount fence,
+artifact_directory/applied or installation. Native Darwin must refuse without
+opening host `/opt`; native wrapper tests alone are not Linux acceptance.
+
+Committed fresh-checkout commands (no local agent skill required):
+
+```sh
+python3 -B -m unittest discover -s scripts -p 'test_m8_binary_stage_host*.py'
+
+# Requires explicit permission for task-owned local Docker fixtures. Set GO_BIN
+# to an already installed compiler binary; the runner uses offline local mode.
+: "${GO_BIN:?set the installed Go compiler binary}"
+DOCKER_ENDPOINT="$(docker context inspect --format '{{.Endpoints.docker.Host}}')"
+python3 -B scripts/m8_binary_stage_host_sandbox.py \
+  --allow-local-docker --docker-endpoint "$DOCKER_ENDPOINT" --go "$GO_BIN" \
+  --work-dir "tmp/m8-host-stage-$(date +%s)"
+```
+
+The runner refuses remote endpoints, missing local sockets and an existing work
+folder; it does not start/reconfigure a VM or pull any image. It imports only
+private task-authored scratch images, runs no network, binds no host path/socket,
+executes the actual prebuilt admin (not either probe ELF), and verifies/cleans only
+nonce-labelled owned images/containers/fixture volume. Read-only rootfs and
+all-dropped capabilities are normal. Two explicitly approved root-inode fixture
+setups instead use writable **private** container layers and a read-only task
+volume; only the owner setup starts with CHOWN. PID1 validates nonce/isolation,
+changes that private inode, clears capabilities and reexecs the test; `/proc`
+checks zero effective/permitted/inheritable/ambient capabilities plus sticky
+no-new-privileges before invoking the helper. Never run setup on a host root.
+No shared-VM stop, host `/opt`, cache prune, deployment or probe execution.
+
+Whole-matrix acceptance requires `result.json` **passed=true, full_matrix=true**,
+all eight scenarios and no cleanup errors. Explicit `--scenario` diagnostics
+have full_matrix=false, diagnostic_passed=true only for a passing subset, and
+exit nonzero/passed=false: a diagnostic can never masquerade as acceptance.
+The strict parser requires normal process exit0, package completion, every
+mandatory leaf and top-level exactly3 passes with zero skips/failures; it rejects
+missing/zero/parent-only/malformed/wrong-package/timeout/race coverage. Require
+actual /opt dev+ino and kernel UID/mode/CLOEXEC, graph/hash/marker/modes/exact
+receipt, preserved foreign marker bytes/inode/mtime, source close before mutation,
+withheld real EOF plus joined normal signal refusal (not deadline kill), and
+post-effect output failure retaining the graph as Unknown. Refusals separately
+prove nonroot, unsafe parent owner, absent/symlink/regular parent and unsafe root
+owner/mode without masking fixtures. Fresh frozen-source build/vet/full-race,
+Linux CGO0 cross-builds and intended assertion mutants remain required. This
+scoped Linux evidence does not close OpenSSH/Linux-amd64 runtime or broad M7
+MariaDB acceptance, and it never turns local receipts into current authority.
+
+### M8 one-shot pinned SSH binary-stage delivery
+
+Read the [delivery contract](multi-region/M8_BINARY_STAGE_SSH_DELIVERY.md).
+`NewSSHBinaryStageSender` is an internal concrete adapter, not a runner, HTTP,
+startup or installer entry point. It calls only the trusted preinstalled
+`/usr/local/bin/phoenix-probe-admin stage-binary-host` as root. Host-key pinning
+is not helper/root-shell provenance or current database/reservation authority.
+No live host, real SSH credential or helper deployment is part of this gate.
+
+```sh
+go test -race -count=3 -json -timeout 180s \
+  ./internal/adapters/provisioning -run 'SSHBinaryStage|ParseSSHBinaryStageAck'
+python3 -B -m unittest discover -s scripts -p 'test_m8_binary_stage_ssh*.py'
+
+# Explicit approval and a cached digest-pinned public fixture image are required.
+# SOURCE_DIR is a disposable frozen copy with the normal frontend build or CI
+# embed placeholder; do not overwrite a real frontend build to run this gate.
+: "${GO_BIN:?set an installed compiler binary}"
+: "${GO_MODULE_CACHE:?set its populated offline module cache}"
+: "${DOCKER_ENDPOINT:?set the approved local unix Docker socket}"
+: "${FIXTURE_IMAGE:?set the cached approved Linux/OpenSSH image@sha256:digest}"
+: "${SOURCE_DIR:?set the disposable frozen source copy}"
+python3 -B scripts/m8_binary_stage_ssh_sandbox.py \
+  --allow-local-docker --docker-endpoint "$DOCKER_ENDPOINT" \
+  --fixture-image "$FIXTURE_IMAGE" --go "$GO_BIN" \
+  --module-cache "$GO_MODULE_CACHE" --source-dir "$SOURCE_DIR" \
+  --work-dir "tmp/m8-ssh-stage-$(date +%s)"
+```
+
+Public acquisition is separate from runtime: the runner never pulls, starts a VM,
+uses user Docker credentials, accepts a remote socket or falls back from a missing
+image. The recorded Linux/arm64 fixture is
+`docker.io/linuxserver/openssh-server@sha256:d9b26e329e4ca14a1dd57029c4b18bf31035ef2bd9a573abe7fc5781e71a9739`.
+It supplies `/usr/sbin/sshd.pam`; the generated sshd configuration explicitly
+sets `UsePAM no`, key-only authentication, protected generated key paths and
+invalid hub environment values. Do not substitute an unapproved image or imply
+Linux-amd64 runtime acceptance from cross-builds.
+
+Only task-labelled never-started carrier/derived images and isolated runtime
+containers are used. The runtime has PID1 test ownership, private network/PID
+namespaces, loopback-only SSH, read-only root, no binds/volumes/added host devices
+or privileged mode, bounded tmpfs/CPU/memory/PIDs, no-new-privileges and only SETUID, SETGID,
+SYS_CHROOT and KILL capabilities. Inspect daemon facts and actual kernel state,
+not just create arguments. Fixture teardown joins sshd and reaps only its private
+namespace children; it is not evidence the sender can reap a remote process.
+Both ELF architectures are data. Modes and noexec mounts prohibit staged-probe
+execution; an absent execution canary alone is not proof of no attempted exec.
+
+Require `result.json` passed=true, normal exit0, no cleanup errors and strict
+per-repetition completion: all eight exact required names run/pass three times
+(24 required completions, 27 total named passes including the extra parent), one
+normal package completion, no skips/failures/subset/parent-only/zero selection,
+malformed/truncated output, wrong package/case, panic/race or timeout. Container
+binaries are CGO0/non-race; native race evidence is separate.
+
+Actual helper cases verify persisted `/opt` binary/marker bytes, hash, size and
+modes, plus preservation of a foreign marker's bytes/inode/mtime on replay.
+Controlled ForceCommand faults first require the exact original command, run the
+unchanged helper, then change only exit status or receipt delivery: the graph
+must remain while Send returns zero ack/Unknown. Positive cases use ordinary exec,
+not ForceCommand. Last-byte disconnect must return Unknown; absent, partial or
+complete effects are all possible and are not converted to a no-effect claim.
+Native direct-stdin/source-close and callback-tail models supplement, not replace,
+these real effects. Keep source-count/hash/real-EOF, pre-exec close-error priority,
+short writes, output abort, Start uncertainty and post-join context checks.
+Run intended assertion mutants with untouched native/Python/OpenSSH controls.
+No acknowledgment grants artifact_directory/applied, ownership, cleanup authority
+or installation. Current-host fencing and concrete executor integration remain
+separate. Default MariaDB skips still leave broad M7 acceptance open.
+
+### M8 restricted staging-key authorization (actual OpenSSH; no policy installer)
+
+Read the [restricted-key contract](multi-region/M8_BINARY_STAGE_SSH_AUTHORIZATION.md).
+Reuse the preceding section's approved cached digest, installed compiler, populated
+module cache, disposable frozen source and local Unix Docker endpoint. This is a
+second **whole matrix**, not a subset of the default sender acceptance:
+
+```sh
+python3 -B -m unittest discover -s scripts -p 'test_m8_binary_stage_ssh*.py'
+python3 -B scripts/m8_binary_stage_ssh_sandbox.py --authorization \
+  --allow-local-docker --docker-endpoint "${DOCKER_ENDPOINT:?approved local Unix socket}" \
+  --fixture-image "${FIXTURE_IMAGE:?approved cached digest-pinned fixture}" \
+  --go "${GO_BIN:?installed compiler}" \
+  --module-cache "${GO_MODULE_CACHE:?populated offline module cache}" \
+  --source-dir "${SOURCE_DIR:?disposable frozen source}" \
+  --work-dir "tmp/m8-ssh-authorization-$(date +%s)"
+```
+
+The selector binds `TestSSHBinaryStageAuthorization`, its second explicit runtime
+opt-in, strict fixed parser and `actual-linux-openssh-restricted-key` scope together.
+Require all **12 exact required names three times: 36 required completions,
+39 named passes including Sender's parent, one normal package/process completion,
+zero skips/failures/cleanup errors**. All lifecycle/refusal rules of the default
+gate apply. Run the default 24-required/27-named sender matrix too; its API/default
+behavior must not be silently replaced by this selector.
+
+Generated restricted/control keys share a protected private authorized_keys file.
+The actual unchanged sender must stage both ELF architectures. Different exec and
+shell requests with valid frames are **replaced**, not rejected: require fixed
+helper receipts and exact persisted graphs, plus absence of the independently
+working control canary. SFTP controls perform only INIT/VERSION, no file operations;
+the restricted key must refuse that packet and stage a valid frame through a fresh
+subsystem request. OpenSSH intentionally discards subsystem stderr. Do not infer
+refusal identity from a missing diagnostic or a synthetic exit1.
+
+Enable TCP forwarding globally only in this disposable control profile; prove a
+real unrestricted loopback echo, then require restricted direct-tcpip
+`ssh.Prohibited`. Do not credit global PTY/agent/X11 denials to per-key `restrict`.
+For `PermitRootLogin forced-commands-only`, check effective sshd policy, successful
+restricted staging, no accepted unforced session and a **new privileged-monitor
+root refusal**. A client-visible handshake can precede monitor denial; generic
+EOF, failed setup or a stale/child log does not establish policy enforcement.
+Replay preserves foreign marker bytes/inode/mtime, without adoption/deletion rights.
+
+Keep positive default/authorization controls after intended policy/effect/schema
+mutants. Check the actual container/test process exit (`run-openssh`), separately
+from the JSON converter's exit; converter exit0 does not mean test success. Guard
+metadata-only checks must not mask actual-effect mutations. Probe ELFs remain data
+under the same noexec/mode restrictions and no extra capabilities/network/binds.
+No real key/account policy is installed. Key possession permits fixed staging, not
+current reservation authority, storage admission/quota, host fencing or installation.
+
+### M8 one-shot resource coordinator (real DB; no remote executor)
+
+The [internal resource coordinator](multi-region/M8_INSTALL_RUNNER.md) calls an
+executor port only after acknowledged Begin and a new committed reservation,
+then joins the invocation before recording or completing. No SSH/Docker/systemd
+adapter, installer endpoint or startup worker is included. Use a cached toolchain,
+modules and MariaDB image; the gate creates and removes its own disposable DB:
+
+```sh
+mkdir -p tmp/m8-runner-acceptance
+chmod 700 tmp/m8-runner-acceptance
+python3 -B scripts/m6_dual_engine_gate.py --scope m8-install-runner \
+  --go-json tmp/m8-runner-acceptance/NEW-events.jsonl
+python3 -B -m unittest discover -s scripts -p test_m6_dual_engine_gate.py
+```
+
+A new private event path is required. All **45 exact MariaDB leaves** must run:
+34 original journal leaves plus 11 runner leaves. No skipped/failed/missing or
+parent-only/SQLite substitutes count; malformed JSON and nonzero Go exit fail.
+The default full gate retains M7 requirements and also requires all runner leaves.
+A scoped pass does not close the existing whole-backend MariaDB blocker.
+
+Callbacks must read actual committed intent/predecessors on another connection.
+Hold an invocation after cancellation to prove no terminal state or Run return
+precedes joining. Test lost Begin/reservation/report acknowledgements, cold
+retries, malformed/private executor errors, observer loss, DB expiry and late
+applied reports. Test owner loss at **both the first and last applied resource**:
+a final readiness fast path must not bypass cancellation just because there is
+no next loop iteration. Preserve definite applied history but interrupt the owner.
+Final acknowledgements must retain the entire expected immutable identity, not
+only matching operation ID/owner/outcome. Unit fakes are supplementary; real-store
+leaves exercise the actual facade→runner→store path on both engines.
+
+### M8 internal install journal (real DB, no remote installer)
+
+The [install-intent/resource journal](multi-region/M8_INSTALL_JOURNAL.md) has a
+service facade and migration 084 on both engines, but no executor/startup/HTTP
+wiring. Use the repository's fail-closed bounded gate; it creates a fresh disposable
+local MariaDB and never accepts an existing DSN, pulls an image or provisions a
+host. The Go toolchain/modules and MariaDB image must already be cached:
+
+```sh
+mkdir -p tmp/m8-journal-acceptance
+chmod 700 tmp/m8-journal-acceptance
+python3 -B scripts/m6_dual_engine_gate.py --scope m8-install-journal \
+  --go-json tmp/m8-journal-acceptance/NEW-events.jsonl
+python3 -B -m unittest discover -s scripts -p test_m6_dual_engine_gate.py
+```
+
+The log path must be new (exclusive private creation). All **34 exact MariaDB
+leaves** are mandatory: 13 store, seven schema/precision, eight lifecycle, six
+clock-after-lock cases. Missing configuration/execution, skipped/failed leaves,
+parent-only or SQLite substitutes fail. Scoped acceptance allows no named skips
+and requires no PROCESS/migration-schema grants. The default full-backend gate
+also requires these leaves and retains the separate existing M7 requirements.
+
+Test the actual facade→store path, independent connections, lost commit
+acknowledgements (never fresh re-execution), committed prerequisites, immutable
+outcomes, cancellation races, cold expiry, and corrupt-graph refusal. Hold
+unchanged authority until the **DB** clock passes its committed deadline; inspect
+raw persisted rows before an Observe call can reconcile again. Direct SQL must
+reject NULL terminal codes on both engines. SQLite precision corruption must
+really be persisted as nanosecond strings (Bun time.Time bindings truncate to
+microseconds); MariaDB DATETIME(6) precision is asserted from its actual schema.
+
+A three-repeat package race run needs a 900-second budget (300 per repetition);
+`go test -timeout` covers all repetitions together. Tests report resource intent
+only: no real host mutation/ownership, cleanup, image-build correspondence,
+enrollment or config activation is proved. Broad M7 MariaDB acceptance and full
+M8/M6 operational/release gates remain separate and open.
+
+### M8 SSH preflight (no external host or credentials)
+
+The first [M8 slice](multi-region/M8_SSH_PREFLIGHT.md) has no database changes.
+Its effect-based tests run a real loopback SSH protocol server with temporary
+keys, execute the fixed discovery script with controlled shell fixtures, and
+exercise the actual operator CLI before hub configuration loading:
+
+```bash
+GOTOOLCHAIN=go1.26.10 go test -race -count=1 \
+  ./cmd/phoenix-probe-admin ./internal/bootstrap \
+  ./internal/adapters/provisioning ./internal/core/domain ./internal/core/services \
+  -run 'Test(ProbeAdminSSHPreflight|ProbeSSHPreflight|SSHPreflight|ProbeHostPreflight|ProbeSSHHost)'
+```
+
+Assert wrong/unknown/revoked host keys cause **zero public-key authentication
+attempts**, numeric-IP dialing enforces the existing destination policy, and
+cancellation closes stalled handshake/channel/exec/execution transports. Check
+combined stdout/stderr overflow, nonzero remote exits, invalid discovery,
+unsupported platform, missing privilege, private input validation and nonsecret
+CLI output. `preflight_passed` is not proof of installation, Docker daemon
+health, runtime-port reachability, enrollment or config activation. A real-host
+installation matrix remains a future M8 gate, not coverage from these fixtures.
+
+### M8 asynchronous preflight (disposable DB required for acceptance)
+
+The [async preflight contract](multi-region/M8_ASYNC_PREFLIGHT.md) adds migration
+083 and admin-only operation routes, not installation. Run focused race coverage:
+
+```sh
+# Set TEST_MARIADB_DSN only to a newly created disposable test database;
+# repository fixtures modify/delete its data. Never print or reuse a live DSN.
+: "${TEST_MARIADB_DSN:?Set an owned disposable MariaDB test database}"
+GOTOOLCHAIN=go1.26.10 go test -race -count=1 -json \
+  ./internal/core/domain ./internal/core/services ./internal/bootstrap \
+  ./internal/adapters/provisioning ./internal/adapters/http/handlers \
+  ./internal/adapters/repository \
+  -run 'Test(ProbePreflight|M8Preflight|SSHPreflightFactory)'
+```
+
+Require every new `/mariadb` leaf to have a pass event with zero selected skips.
+The committed `scripts/m6_dual_engine_gate.py` creates its own database and now
+requires all 14 M8 real-engine leaves; its parser regressions refuse absent,
+skipped, failed, parent-only and SQLite-only substitutes. In addition to strict
+input/auth/secret-safe DTO checks, assert commit-before-dispatch, saturated exact
+retries, separate-connection races, expired/corrupt cancellation, hard-clock
+sampling after a held row lock, cold interruption and guarded downgrade. The
+actual router/service/store lifecycle uses a controlled discovery port; real
+loopback SSH factory tests separately verify borrowed-key lifetime and policy/
+trust refusal. No real-host installer, enrollment or config activation is proved.
+
 ### Repository CI shards and future test growth
 
 The expensive `internal/adapters/repository` package exceeded the former single
@@ -185,7 +915,7 @@ local Unix socket; Colima is optional. Select your disposable local Docker conte
 and inspect its endpoint before running a database or disk-full harness. Cache
 Go modules/toolchain and the required images first; the strict database harness
 refuses downloads during execution. The strict runner currently expects cached
-Go 1.26.9. The disk-full recipe in the final section uses the installed Go toolchain.
+Go 1.26.10. The disk-full recipe in the final section uses the installed Go toolchain.
 
 Run the following from the repository root in **Bash**. The output directory is
 outside the repository; keep this shell open for the subsequent commands.
@@ -490,7 +1220,7 @@ GRANT ALL PRIVILEGES ON `phoenix_migration_%`.* TO 'phoenix'@'%';
 GRANT PROCESS ON *.* TO 'phoenix'@'%';
 SQL
 
-GOTOOLCHAIN=go1.26.9 TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43306)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
+GOTOOLCHAIN=go1.26.10 TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43306)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
   go test -race -count=1 -timeout 40m ./internal/adapters/repository/...
 
 # Remove only this disposable test container.
@@ -585,10 +1315,10 @@ library (e.g. `could not import math/rand/v2 ... method must have no type
 parameters`) followed by a `go/types` stack dump and exit 2. That is a toolchain
 mismatch, not a code defect, and it is easy to misread as "the linter is broken
 here, use the `go vet` fallback". Align the toolchain with `go.mod` (currently
-`go 1.26.9`) instead:
+`go 1.26.10`) instead:
 
 ```bash
-GOTOOLCHAIN=go1.26.9 golangci-lint run
+GOTOOLCHAIN=go1.26.10 golangci-lint run
 ```
 
 The same pin the MariaDB contract suites in §2 use. `go vet` and `gofmt -l`
@@ -1670,23 +2400,23 @@ acceptance are in
 
 ```sh
 # Service gate, scheduler attestation ordering, and the store on SQLite.
-GOTOOLCHAIN=go1.26.9 go test -race -count=1 \
+GOTOOLCHAIN=go1.26.10 go test -race -count=1 \
   -run 'TestFleetActivationGate|TestProbeAssignmentServiceReplaceFleetGate|TestMonitorServiceCreateWithAssignmentsFleetGate' \
   ./internal/core/services/
-GOTOOLCHAIN=go1.26.9 go test -race -count=1 -run 'TestShardedScheduler' ./internal/adapters/scheduler/
-GOTOOLCHAIN=go1.26.9 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
+GOTOOLCHAIN=go1.26.10 go test -race -count=1 -run 'TestShardedScheduler' ./internal/adapters/scheduler/
+GOTOOLCHAIN=go1.26.10 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
 
 # The same store cases against real MariaDB. REQUIRED: without the DSN every
 # mariadb subtest silently SKIPS and the run still prints "ok".
 TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43316)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
-  GOTOOLCHAIN=go1.26.9 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
+  GOTOOLCHAIN=go1.26.10 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
 ```
 
 Confirm the MariaDB legs actually ran before trusting the result — count named
 passes with `go test -json` and require `skips=0`:
 
 ```sh
-TEST_MARIADB_DSN=... GOTOOLCHAIN=go1.26.9 go test -count=1 -json \
+TEST_MARIADB_DSN=... GOTOOLCHAIN=go1.26.10 go test -count=1 -json \
   -run 'TestHubWorkerReadiness' ./internal/adapters/repository/ \
   | python3 -c 'import sys,json;p=s=f=0
 for l in sys.stdin:
@@ -1720,7 +2450,7 @@ The admission numbers it cites are frozen by
 `TestOperatorStorageBudgetsMatchDocumentedContract`:
 
 ```sh
-GOTOOLCHAIN=go1.26.9 go test -count=1 -run 'TestOperatorStorageBudgetsMatchDocumentedContract' \
+GOTOOLCHAIN=go1.26.10 go test -count=1 -run 'TestOperatorStorageBudgetsMatchDocumentedContract' \
   ./internal/adapters/repository/edge/
 ```
 
@@ -1745,7 +2475,7 @@ retired scripts and their limitations; they are not current runnable commands.
 
 Run `python3 -B scripts/m6_dual_engine_gate.py` for MariaDB 11, or add
 `--mariadb-image mariadb:12.3` for the operator's engine. It requires a local
-Unix Docker socket, the selected cached image, Go 1.26.9 toolchain and modules. The gate
+Unix Docker socket, the selected cached image, Go 1.26.10 toolchain and modules. The gate
 creates and deletes **its own** localhost-bound MariaDB test container, runs
 `go test -race -count=1 -json -timeout 2400s -p 4 ./...`, and refuses missing
 MariaDB passes or unrecognized skips. It never uses the caller's DB DSN or
@@ -1798,10 +2528,10 @@ The disk-full test verifies the isolated mount before filling it, checks actual
 kernel ENOSPC, rollback and exact-once retry. The crash test checks all-or-nothing
 state on reopen. The image supplies Linux userspace only; no database server runs.
 
-Also run `GOTOOLCHAIN=go1.26.9 go test -count=1 -run '^TestEdgeHealthStorageUnavailable$' ./cmd/probe`
+Also run `GOTOOLCHAIN=go1.26.10 go test -count=1 -run '^TestEdgeHealthStorageUnavailable$' ./cmd/probe`
 for the production health mapping (`ready=false`, `db_writable=false`,
 `storage_unavailable`). See [the evidence and limits](multi-region/M6_VALIDATION_REPORT_2026-10-04.md).
-Also run `GOTOOLCHAIN=go1.26.9 go test -race -count=1 -run '^TestEdgeCheckCrashAroundCommit$' ./internal/adapters/repository/edge`
+Also run `GOTOOLCHAIN=go1.26.10 go test -race -count=1 -run '^TestEdgeCheckCrashAroundCommit$' ./internal/adapters/repository/edge`
 for a race-instrumented local-host T06 run. See the [crash evidence and limits](multi-region/M6_VALIDATION_REPORT_2026-10-04.md).
 A normal `go test ./...` SKIPS the disk-full test outside its guarded container;
 a package PASS therefore does not establish T20. Neither slice exercises the

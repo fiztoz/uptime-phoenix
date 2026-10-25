@@ -215,14 +215,124 @@ at the [foundation](M5_FOUNDATION.md).
 
 ## 11. Follow-on M8 — optional SSH provisioning
 
-- [ ] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port.
-- [ ] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database.
-- [ ] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit.
-- [ ] Preserve unrelated host resources and make rerun behavior explicit. Track resources created by the operation so partial failure can be diagnosed and intentionally cleaned up.
-- [ ] Stream redacted output with bounded retention, cancellation, exit status, and failed phase. Do not print enrollment/runtime tokens into the UI terminal.
-- [ ] Finish only after verified runtime enrollment and successful config activation. Keep remote application update/rollback separate from initial install.
+The first bounded [verified SSH preflight](M8_SSH_PREFLIGHT.md) adds a local
+operator command, discovery port and compatibility service with host trust,
+destination policy, bounded output and cancellation. The follow-on
+[asynchronous discovery API](M8_ASYNC_PREFLIGHT.md) now adds durable,
+secret-free receipts and API-local fenced execution/cancellation. Both are
+preflight only; neither satisfies the installer or full M8 acceptance below.
+The [pinned binary prerequisite](M8_PINNED_BINARY_ARTIFACTS.md) additionally
+provides offline explicit pin verification and private snapshots. It is not a
+Docker image verifier, remote installer or authenticated runtime-version proof.
+The [Docker metadata prerequisite](M8_DIGEST_PINNED_IMAGES.md) now verifies a
+trusted index/platform-manifest/config chain and Dockerfile startup contract;
+it does not download layers, authenticate a publisher or inspect a runtime.
+The [internal install journal](M8_INSTALL_JOURNAL.md) adds durable nonsecret intent
+and one-shot resource reports. It is not wired to an executor, installer route
+or startup path and has no installed/success completion outcome. The follow-on
+[resource coordinator](M8_INSTALL_RUNNER.md) drives one acknowledged Begin and
+fresh per-resource grants through synchronous joined executor reports; it still
+has no concrete remote adapter or installation-success path.
+
+- [x] Add default-disabled admin-only asynchronous **preflight** routes, immutable
+  operation identities, hard DB-clock deadlines and joined cancellation.
+- [x] Add offline raw probe-binary pin verification and private copied snapshots
+  without executing them; preserve explicit operator version provenance.
+
+- [x] Add offline Docker image metadata selection bound to an explicit trusted
+  index and unique platform manifest/config, with honest layer/runtime non-claims.
+
+- [x] Add internal immutable install intent/resource storage, committed prerequisite
+  fencing, honest unknown/expiry history and guarded dual-engine downgrade.
+  This does not prove real resource creation/ownership or provide cleanup authority.
+- [x] Add an internal one-shot resource coordinator over the existing journal:
+  no historical replay, joined reports, bounded revocation/cancellation and
+  honest uncertainty. No remote executor, endpoint or startup wiring yet.
+- [x] Add bounded offline verification of supplied raw/gzip layer hashes and
+  uncompressed diff IDs ([content contract](M8_IMAGE_CONTENT.md)); no retained
+  snapshot, tar/rootfs validation, daemon/publisher/runtime or built-image proof.
+- [x] Add an explicitly approved [actual local image gate](M8_IMAGE_CORRESPONDENCE.md):
+  digest-pinned public bases, tracked source plus explicit Dockerfile-only overlay,
+  sequential real platform exports and all three existing artifact CLIs. Check
+  copied ELF architecture, not image labels. Fix automatic target ARG defaults.
+  No image load/run/push, combined registry-index or publisher/runtime proof.
+- [x] Add a [private verified image snapshot](M8_IMAGE_SNAPSHOT.md), reusing the
+  content verifier before and after copying. Bound the one-reader-bundle handoff,
+  join revocation and preserve/refuse unknown storage on cleanup. This is not a
+  complete OCI layout, actual remote delivery, journal or installation authority.
+- [x] Add a [closed single-platform archive](M8_IMAGE_ARCHIVE.md) from a borrowed
+  verified snapshot. Re-verify original pinned metadata/layers, emit deterministic
+  unique blobs, separately identify the generated root, and seal/read back bounded
+  private bytes with joined disposal. This is not daemon-import compatibility,
+  combined registry-index/publisher proof, remote delivery or installation.
+- [x] Add [operation-bound read-only binary staging inspection](M8_BINARY_STAGE_INSPECTION.md)
+  with canonical secret-free marker bytes, a no-shell read-only SSH/SFTP subset,
+  requested size/hash checks and joined local I/O. No upload, host ownership/fence,
+  cleanup, journal mutation or concrete executor is implied by matching content.
+- [x] Add a [fresh-only local binary staging writer](M8_LOCAL_BINARY_STAGE.md)
+  under a borrowed trusted parent fd. Exclusive no-follow creation, binary/marker
+  readback and retained post-create uncertainty are local effects, not SSH delivery,
+  host fencing/ownership, cleanup, a DB-authorized resource or installation success.
+- [x] Compose [exact-stream preparation and fresh local staging](M8_BINARY_STAGE_RECEIVE.md)
+  for typed-intent raw input, requiring real outer EOF and joined source closure
+  before any stage. Dispose prepared snapshots; post-stage cleanup/cancellation
+  revokes the seal as Unknown. No new codec, port, host helper or SSH transport.
+  This exact receive checkpoint is locally committed as `eb0dd00` (not pushed).
+- [x] Add a [one-shot inherited-fd local process helper](M8_BINARY_STAGE_HELPER.md)
+  with strict bounded stdin metadata, raw payload and real EOF, early config-free
+  stage-binary dispatch, owned closable pipe input and parent-close-before-receipt.
+  The relative local seal is not /opt/current-host authority, an applied journal
+  resource or installation. This helper checkpoint is locally committed as `718e3b8`.
+- [x] Add a [fixed Linux host-local launcher](M8_BINARY_STAGE_HOST_LAUNCHER.md),
+  early zero-argument stage-binary-host, effective uid0 and protected literal
+  retained root -> opt descriptors, no inherited fd3/path parameter. Reuse unchanged
+  framing/Receive/writer, close owned parent before receipt. Isolated Linux process
+  tests do not establish physical/SSH host identity, DB authority or fencing.
+  This host-local checkpoint is locally committed as `ac9c126` (not pushed).
+- [x] Add a [one-shot pinned SSH binary-stage sender](M8_BINARY_STAGE_SSH_DELIVERY.md)
+  as a concrete adapter only: root/pin/intent validation, existing numeric-policy
+  SSH trust before auth, one fixed preinstalled helper exec, exact frame/payload/
+  real EOF and source-close-before-channel-EOF. Require bounded strict receipt,
+  normal exit0 and joined live local context. Exec-attempt ambiguity stays Unknown,
+  with no retry, remote reaping, adoption or deletion. Native races and actual
+  isolated Linux/arm64 OpenSSH effect checks passed; this slice is committed at
+  `d159fd4` and has no runner/HTTP/startup caller. Trusted helper/root authorization, current-host
+  fencing, resource application and installation remain open.
+- [x] Add [restricted staging-key actual-effect acceptance](M8_BINARY_STAGE_SSH_AUTHORIZATION.md)
+  using native OpenSSH `restrict,command=...`, generated unrestricted controls,
+  real helper graphs for exec/shell/subsystem replacement, direct TCP forwarding
+  refusal and privileged-monitor root denial. No production policy installation,
+  wrapper, current reservation authorization or host fence. Full native race,
+  build/vet/cross-build, Python/mutation and old/new OpenSSH matrices passed;
+  final audit/cleanup remain separately recorded, not broad release acceptance.
+- [x] Add [one-shot DB stage admission](M8_BINARY_STAGE_GRANT.md) (increment A,
+  `19fb9cc`): consume one exact root/systemd `artifact_directory` attempt under current
+  stored authority (migration `085`), then sign a domain-separated Ed25519 grant.
+  No replay, rearm or signature storage; authority at commit, not continuous.
+- [x] Add [host grant verification and authorized delivery](M8_BINARY_STAGE_GRANT.md)
+  (increments B/C): `stage-binary-authorized` with a protected trusted key, fresh
+  nonce challenge and pre-payload signature check; `SendAuthorized` with one
+  `Authorize` call and `ErrSSHBinaryStageNotStaged` before any stdin byte. Native and
+  Go-SSH end-to-end tests only; actual OpenSSH/Linux acceptance, key custody/export
+  and forced-command policy installation remain open.
+- [x] Add [stage authority key custody](KEY_PROVISIONING.md#stage-authority-key-m8-binary-staging-grants)
+  (`stage-authority init|check|public-key`) and the first concrete executor,
+  [`SSHArtifactDirectoryExecutor`](M8_BINARY_STAGE_GRANT.md#artifact-executor-increment-e),
+  with a SQLite production-runner lifecycle test. No startup/route wiring.
+- [x] Generalize one-shot admission/grants to [host-authorized systemd actions](M8_HOST_ACTIONS.md)
+  (migration `086`, `stage-host-action-authorized`, `authorized-dispatch`, `SendHostAction`,
+  `SSHProbeInstallExecutor` for all four systemd resources). SQLite/native only;
+  real MariaDB, OpenSSH and systemd acceptance (AWS) and owner review of the unit remain.
+- [x] Add admin-only asynchronous operation routes and an idempotent installer service behind a provisioning port ([installer API](M8_INSTALL_API.md); systemd only, default-disabled).
+- [x] Verify host keys through known-hosts or an explicit verified fingerprint. Support a temporary deployment key; avoid persistent passwords/private keys in the hub database. (Installer: explicit fingerprint of any host-key type, learned family; the deployment key lives only in the per-operation session.)
+- [x] Detect OS/architecture/runtime, select a version-pinned artifact, verify integrity, create persistent identity/data/secret paths, and install Docker or a complete systemd unit. (Complete systemd unit, with the [host preflight gate](M8_INSTALL_API.md#host-preflight-gate). The Docker container path is a separate optional follow-up and is not part of the section 11 acceptance list.)
+- [x] Preserve unrelated host resources and make rerun behavior explicit. Track resources created by the operation so partial failure can be diagnosed and intentionally cleaned up. (Operation-named resources only; exact retries answer from the journal; the [preflight](M8_INSTALL_API.md#host-preflight-gate) refuses existing installs; [cleanup](M8_CLEANUP.md) removes one operation's resources.)
+- [x] Stream redacted output with bounded retention, cancellation, exit status, and failed phase. Do not print enrollment/runtime tokens into the UI terminal. (Structured progress: per-step state, fixed codes, DB-clock times and `failed_phase` in the install/activation views; remote output is never captured, so redaction holds by construction. See [progress](M8_INSTALL_API.md#progress-output-and-redaction).)
+- [x] Finish only after verified runtime enrollment and successful config activation. Keep remote application update/rollback separate from initial install. ([Activation](M8_ACTIVATION.md): real-host acceptance shows enrolled, online, ready, desired = applied config revision.)
 
 **Acceptance:** supported clean host, existing install, interrupted install, missing sudo, bad host key, wrong architecture, inaccessible runtime port, and non-Docker systemd path all have tested outcomes. No failure branch returns success.
+
+**Status:** passed on real hosts. AWS run `398107b05ed2` covered all 13 matrix cases on arm64 and amd64 ([record](IMPLEMENTATION_STATUS.md#m8-acceptance-matrix--passed-on-real-hosts-aws-run-398107b05ed2-2026-10-25)). "Missing sudo" is the installer's root-only model: a key that root does not accept is refused with `host_auth_failed`, and a non-root SSH user is refused at validation. The Docker container path remains an optional follow-up.
 
 ## 12. Follow-on M9 — optional public push gateway
 

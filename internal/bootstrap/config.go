@@ -143,8 +143,18 @@ type Config struct {
 	// ProbesAggregatePagingEnabled opts into operative cutover, never standby.
 	// Disabled workers drain previously persisted barriers before source resume.
 	ProbesAggregatePagingEnabled bool `env:"PROBES_AGGREGATE_PAGING_ENABLED" envDefault:"false"`
+	// ProbeSSHPreflightEnabled admits admin-only asynchronous SSH discovery.
+	// It never installs a probe and requires protected probes to be enabled.
+	ProbeSSHPreflightEnabled bool `env:"PROBE_SSH_PREFLIGHT_ENABLED" envDefault:"false"`
 	// ProbeEndpointPolicyFile explicitly permits private management destinations.
 	ProbeEndpointPolicyFile string `env:"PROBE_ENDPOINT_POLICY_FILE" envDefault:""`
+	// ProbeSSHInstallEnabled admits admin-only asynchronous SSH systemd installs.
+	// It requires protected probes, the stage authority key and an artifact dir.
+	ProbeSSHInstallEnabled bool `env:"PROBE_SSH_INSTALL_ENABLED" envDefault:"false"`
+	// ProbeStageAuthorityKeyFile is the protected Ed25519 seed signing grants.
+	ProbeStageAuthorityKeyFile string `env:"PROBE_STAGE_AUTHORITY_KEY_FILE" envDefault:""`
+	// ProbeInstallArtifactDir holds operator-placed pinned release binaries.
+	ProbeInstallArtifactDir string `env:"PROBE_INSTALL_ARTIFACT_DIR" envDefault:""`
 }
 
 // LoadConfig parses environment into Config.
@@ -161,6 +171,12 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.ProbesEnabled && cfg.ProbeSecretKeyFile == "" {
 		return Config{}, fmt.Errorf("PROBES_ENABLED requires PROBE_SECRET_KEY_FILE")
+	}
+	if err := validateProbePreflightConfig(cfg); err != nil {
+		return Config{}, err
+	}
+	if err := validateProbeInstallConfig(cfg); err != nil {
+		return Config{}, err
 	}
 	if cfg.ProbesAggregatePagingEnabled && !cfg.ProbesEnabled {
 		return Config{}, fmt.Errorf("PROBES_AGGREGATE_PAGING_ENABLED requires PROBES_ENABLED")
