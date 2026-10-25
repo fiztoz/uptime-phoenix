@@ -654,7 +654,7 @@ func mapAuthError(c echo.Context, err error) error {
 }
 
 // loginContext is the request context carrying the client IP, which the
-// auth service's per-(account, IP) sign-in backoff keys on. RealIP honours
+// auth service's per-(account, IP) sign-in backoff keys on. RealIP honors
 // the router's IPExtractor, the same source the per-IP limiter uses.
 func loginContext(c echo.Context) context.Context {
 	return services.WithLoginClientIP(c.Request().Context(), c.RealIP())
