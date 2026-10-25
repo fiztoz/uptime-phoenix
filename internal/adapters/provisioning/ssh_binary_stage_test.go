@@ -275,7 +275,8 @@ func TestSSHBinaryStageInspectorPinsBeforeDial(t *testing.T) {
 	otherFP := ssh.FingerprintSHA256(otherSigner.PublicKey())
 	ctx := context.Background()
 
-	if _, err := NewSSHBinaryStageInspector(nil, key, hostFP, clientFP, probe.EndpointPolicy{}); err != domain.ErrProbeSSHInput {
+	var nilCtx context.Context // deliberately nil: the refusal under test
+	if _, err := NewSSHBinaryStageInspector(nilCtx, key, hostFP, clientFP, probe.EndpointPolicy{}); err != domain.ErrProbeSSHInput {
 		t.Fatalf("nil ctx %v", err)
 	}
 	canceled, cancel := context.WithCancel(ctx)

@@ -154,7 +154,7 @@ func m8ActCount(t *testing.T, f probeRegistryFixture, table string) int64 {
 	if err != nil {
 		t.Fatalf("count %s: %v", table, err)
 	}
-	return int64(count)
+	return count
 }
 
 // m8ActSnapshot renders every durable activation column of one operation so a
@@ -311,10 +311,10 @@ func (e *m8ActEnv) installReady(operationID string) {
 	m8InstallCreate(e.t, istore, m8ActIdentity(operationID).Install, m8InstallOwnerA)
 	m8InstallBeginOK(e.t, istore, operationID, m8InstallOwnerA)
 	var last *domain.ProbeInstallOperation
-	for i, kind := range m8InstallKinds(domain.ProbeInstallSystemd) {
+	for i, kind := range m8InstallSystemdKinds() {
 		attempt := m8ActInstallAttempt(operationID, i+1)
 		m8InstallReserveOK(e.t, istore, operationID, m8InstallOwnerA, kind, attempt)
-		last = m8InstallRecordOK(e.t, istore, operationID, m8InstallOwnerA, kind, attempt, m8InstallApplied())
+		last = m8InstallRecordOK(e.t, istore, operationID, kind, attempt, m8InstallApplied())
 	}
 	if last.State != domain.ProbeInstallResourcesReady {
 		e.t.Fatalf("install did not reach resources_ready: %+v", last)
@@ -337,10 +337,10 @@ func (e *m8ActEnv) create(operationID, ownerID string) *domain.ProbeActivation {
 }
 
 // fresh builds a ready install plus its queued activation under owner A.
-func (e *m8ActEnv) fresh(operationID string) *domain.ProbeActivation {
+func (e *m8ActEnv) fresh(operationID string) {
 	e.t.Helper()
 	e.installReady(operationID)
-	return e.create(operationID, m8InstallOwnerA)
+	e.create(operationID, m8InstallOwnerA)
 }
 
 func (e *m8ActEnv) begin(operationID, ownerID string) *domain.ProbeActivation {
@@ -387,13 +387,14 @@ func (e *m8ActEnv) record(operationID, ownerID, kind string, outcome domain.Prob
 	return a
 }
 
-// advance reserves and records the first n steps applied, in order.
-func (e *m8ActEnv) advance(operationID, ownerID string, n int) *domain.ProbeActivation {
+// advance reserves and records the first n steps applied, in order, under
+// owner A.
+func (e *m8ActEnv) advance(operationID string, n int) *domain.ProbeActivation {
 	e.t.Helper()
 	var last *domain.ProbeActivation
 	for _, kind := range m8ActKinds[:n] {
-		e.reserve(operationID, ownerID, kind)
-		last = e.record(operationID, ownerID, kind, m8InstallApplied())
+		e.reserve(operationID, m8InstallOwnerA, kind)
+		last = e.record(operationID, m8InstallOwnerA, kind, m8InstallApplied())
 	}
 	return last
 }
@@ -446,16 +447,16 @@ func TestM8InstallActivationStore(t *testing.T) {
 				// running with a fully applied prefix short of resources_ready
 				m8InstallCreate(t, istore, m8ActIdentity(m8InstallOp3).Install, m8InstallOwnerA)
 				m8InstallBeginOK(t, istore, m8InstallOp3, m8InstallOwnerA)
-				for i, kind := range m8InstallKinds(domain.ProbeInstallSystemd)[:3] {
+				for i, kind := range m8InstallSystemdKinds()[:3] {
 					attempt := m8ActInstallAttempt(m8InstallOp3, i+1)
 					m8InstallReserveOK(t, istore, m8InstallOp3, m8InstallOwnerA, kind, attempt)
-					m8InstallRecordOK(t, istore, m8InstallOp3, m8InstallOwnerA, kind, attempt, m8InstallApplied())
+					m8InstallRecordOK(t, istore, m8InstallOp3, kind, attempt, m8InstallApplied())
 				}
 				// failed
 				m8InstallCreate(t, istore, m8ActIdentity(m8InstallOp4).Install, m8InstallOwnerA)
 				m8InstallBeginOK(t, istore, m8InstallOp4, m8InstallOwnerA)
 				m8InstallReserveOK(t, istore, m8InstallOp4, m8InstallOwnerA, "data_directory", m8ActInstallAttempt(m8InstallOp4, 1))
-				m8InstallRecordOK(t, istore, m8InstallOp4, m8InstallOwnerA, "data_directory", m8ActInstallAttempt(m8InstallOp4, 1), m8InstallApplied())
+				m8InstallRecordOK(t, istore, m8InstallOp4, "data_directory", m8ActInstallAttempt(m8InstallOp4, 1), m8InstallApplied())
 				if _, err := istore.FinishInstall(ctx, m8InstallOp4, m8InstallOwnerA, m8ActFinish(domain.ProbeInstallFailed, "execution_failed")); err != nil {
 					t.Fatal(err)
 				}
@@ -468,7 +469,7 @@ func TestM8InstallActivationStore(t *testing.T) {
 				m8InstallCreate(t, istore, m8ActIdentity(m8InstallOp6).Install, m8InstallOwnerA)
 				m8InstallBeginOK(t, istore, m8InstallOp6, m8InstallOwnerA)
 				m8InstallReserveOK(t, istore, m8InstallOp6, m8InstallOwnerA, "data_directory", m8ActInstallAttempt(m8InstallOp6, 1))
-				m8InstallRecordOK(t, istore, m8InstallOp6, m8InstallOwnerA, "data_directory", m8ActInstallAttempt(m8InstallOp6, 1), m8InstallUnknownOutcome())
+				m8InstallRecordOK(t, istore, m8InstallOp6, "data_directory", m8ActInstallAttempt(m8InstallOp6, 1), m8InstallUnknownOutcome())
 				// resources_ready, then install cancellation intent
 				e.installReady(m8InstallOp7)
 				if cancel, err := istore.RequestInstallCancellation(ctx, m8InstallOp7); err != nil || cancel.State != domain.ProbeInstallCancelRequested {
@@ -726,7 +727,7 @@ func TestM8InstallActivationStore(t *testing.T) {
 				// Committed applied predecessors unlock exactly one successor.
 				e.fresh(m8InstallOp2)
 				e.begin(m8InstallOp2, m8InstallOwnerA)
-				e.advance(m8InstallOp2, m8InstallOwnerA, 1)
+				e.advance(m8InstallOp2, 1)
 				inFlight := e.reserve(m8InstallOp2, m8InstallOwnerA, domain.ProbeActivationRegistration)
 				// One attempt per step.
 				_, _, err = e.store.ReserveActivationStep(ctx, m8InstallOp2, m8InstallOwnerA, domain.ProbeActivationRegistration, m8ActForeignAttempt)
@@ -934,7 +935,7 @@ func TestM8InstallActivationStore(t *testing.T) {
 				// A joined owner cannot fabricate cancellation without durable intent.
 				e.fresh(m8InstallOp1)
 				e.begin(m8InstallOp1, m8InstallOwnerA)
-				e.advance(m8InstallOp1, m8InstallOwnerA, 1)
+				e.advance(m8InstallOp1, 1)
 				_, err := e.store.FinishActivation(ctx, m8InstallOp1, m8InstallOwnerA, m8ActFinish(domain.ProbeInstallCanceled, "canceled"))
 				e.conflicts("joined cancel without prior intent", err)
 				intent, err := e.store.RequestActivationCancellation(ctx, m8InstallOp1)
@@ -998,7 +999,7 @@ func TestM8InstallActivationStore(t *testing.T) {
 				ctx := t.Context()
 				e.fresh(m8InstallOp1)
 				e.begin(m8InstallOp1, m8InstallOwnerA)
-				e.advance(m8InstallOp1, m8InstallOwnerA, 3)
+				e.advance(m8InstallOp1, 3)
 				e.reserve(m8InstallOp1, m8InstallOwnerA, domain.ProbeActivationEnrollment)
 				if intent, err := e.store.RequestActivationCancellation(ctx, m8InstallOp1); err != nil || intent.State != domain.ProbeActivationCancelRequested {
 					t.Fatalf("cancel intent: %+v err=%v", intent, err)
@@ -1026,7 +1027,7 @@ func TestM8InstallActivationStore(t *testing.T) {
 				ctx := t.Context()
 				e.fresh(m8InstallOp1)
 				e.begin(m8InstallOp1, m8InstallOwnerA)
-				e.advance(m8InstallOp1, m8InstallOwnerA, 1)
+				e.advance(m8InstallOp1, 1)
 				e.reserve(m8InstallOp1, m8InstallOwnerA, domain.ProbeActivationRegistration)
 				a := e.record(m8InstallOp1, m8InstallOwnerA, domain.ProbeActivationRegistration, m8InstallUnknownOutcome())
 				if a.State != domain.ProbeActivationInterrupted || a.ErrorCode != "outcome_unknown" || !a.Terminal() || a.Facts != m8ActFacts(m8InstallOp1) {
@@ -1066,7 +1067,7 @@ func TestM8InstallActivationStore(t *testing.T) {
 				// Owner interruption converts the in-flight step to unknown.
 				e.fresh(m8InstallOp1)
 				e.begin(m8InstallOp1, m8InstallOwnerA)
-				e.advance(m8InstallOp1, m8InstallOwnerA, 2)
+				e.advance(m8InstallOp1, 2)
 				e.reserve(m8InstallOp1, m8InstallOwnerA, domain.ProbeActivationServiceStart)
 				a, err := e.store.FinishActivation(ctx, m8InstallOp1, m8InstallOwnerA, m8ActFinish(domain.ProbeInstallInterrupted, "owner_interrupted"))
 				if err != nil {
@@ -1098,7 +1099,7 @@ func TestM8InstallActivationStore(t *testing.T) {
 					want := domain.ProbeActivationFacts{}
 					if code == "internal" {
 						// Failure after an applied init keeps its facts.
-						e.advance(op, m8InstallOwnerA, 1)
+						e.advance(op, 1)
 						want = m8ActFacts(op)
 					}
 					failed, err := e.store.FinishActivation(ctx, op, m8InstallOwnerA, m8ActFinish(domain.ProbeInstallFailed, code))
@@ -1113,7 +1114,7 @@ func TestM8InstallActivationStore(t *testing.T) {
 				ctx := t.Context()
 				e.fresh(m8InstallOp1)
 				e.begin(m8InstallOp1, m8InstallOwnerA)
-				e.advance(m8InstallOp1, m8InstallOwnerA, 2)
+				e.advance(m8InstallOp1, 2)
 				e.reserve(m8InstallOp1, m8InstallOwnerA, domain.ProbeActivationServiceStart)
 				m8ActExpire(t, e.f, m8InstallOp1)
 				observed := e.observe(m8InstallOp1)
@@ -1168,10 +1169,10 @@ func TestM8InstallActivationStore(t *testing.T) {
 					t.Fatal(err)
 				}
 				m8ActExpire(t, e.f, m8InstallOp4)
-				cancelled := e.observe(m8InstallOp4)
-				if cancelled.State != domain.ProbeActivationInterrupted || cancelled.ErrorCode != "deadline_expired" ||
-					m8ActStep(t, cancelled, domain.ProbeActivationProbeInit).State != domain.ProbeInstallResourceUnknown {
-					t.Fatalf("cancel_requested expiry: %+v", cancelled)
+				canceled := e.observe(m8InstallOp4)
+				if canceled.State != domain.ProbeActivationInterrupted || canceled.ErrorCode != "deadline_expired" ||
+					m8ActStep(t, canceled, domain.ProbeActivationProbeInit).State != domain.ProbeInstallResourceUnknown {
+					t.Fatalf("cancel_requested expiry: %+v", canceled)
 				}
 			})
 			t.Run("ExpiryReconciliationCommitsThroughRefusal", func(t *testing.T) {
@@ -1269,7 +1270,7 @@ func TestM8InstallActivationStore(t *testing.T) {
 				// Applied init whose facts were erased.
 				e.fresh(m8InstallOp2)
 				e.begin(m8InstallOp2, m8InstallOwnerA)
-				e.advance(m8InstallOp2, m8InstallOwnerA, 1)
+				e.advance(m8InstallOp2, 1)
 				if _, err := e.f.db.ExecContext(ctx, "UPDATE probe_install_activations SET probe_id = NULL, stream_id = NULL, certificate_fingerprint = NULL WHERE operation_id = ?", m8InstallOp2); err != nil {
 					t.Fatalf("erase facts: %v", err)
 				}
@@ -1367,7 +1368,7 @@ func TestM8InstallActivationStore(t *testing.T) {
 				e.fresh(m8InstallOp1)
 				begun := e.begin(m8InstallOp1, m8InstallOwnerA)
 				deadline := begun.DeadlineAt
-				e.advance(m8InstallOp1, m8InstallOwnerA, 1)
+				e.advance(m8InstallOp1, 1)
 				// A rewound DB clock never rewinds stored updated stamps.
 				future := deadline.Add(-time.Minute)
 				if _, err := e.f.db.ExecContext(ctx, "UPDATE probe_install_activations SET updated_at = ? WHERE operation_id = ?", future, m8InstallOp1); err != nil {

@@ -135,7 +135,7 @@ func preflightBodyWithout(drop string) string {
 
 // preflightServe invokes one handler method with an authenticated context,
 // mirroring the router's param wiring without claiming middleware coverage.
-func preflightServe(h *ProbePreflightHandlers, method, path, id, body string, call func(echo.Context) error) *httptest.ResponseRecorder {
+func preflightServe(method, path, id, body string, call func(echo.Context) error) *httptest.ResponseRecorder {
 	e := echo.New()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -193,7 +193,7 @@ func TestProbePreflightSubmitStrictBinding(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fake := &preflightFake{op: preflightReceipt(domain.ProbePreflightQueued)}
 			h := NewProbePreflightHandlers(fake, true)
-			rec := preflightServe(h, http.MethodPost, "/api/probe-host-preflights", "", tc.body, h.Submit)
+			rec := preflightServe(http.MethodPost, "/api/probe-host-preflights", "", tc.body, h.Submit)
 			if rec.Code != tc.status {
 				t.Fatalf("status = %d, want %d (%s)", rec.Code, tc.status, rec.Body.String())
 			}
@@ -216,7 +216,7 @@ func TestProbePreflightSubmitStrictBinding(t *testing.T) {
 func TestProbePreflightSubmitAccepted(t *testing.T) {
 	fake := &preflightFake{op: preflightReceipt(domain.ProbePreflightQueued)}
 	h := NewProbePreflightHandlers(fake, true)
-	rec := preflightServe(h, http.MethodPost, "/api/probe-host-preflights", "", preflightBody(preflightKeyCanary), h.Submit)
+	rec := preflightServe(http.MethodPost, "/api/probe-host-preflights", "", preflightBody(preflightKeyCanary), h.Submit)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want 202 (%s)", rec.Code, rec.Body.String())
 	}
@@ -292,7 +292,7 @@ func TestProbePreflightSubmitAccepted(t *testing.T) {
 func TestProbePreflightSubmitTerminalRetry(t *testing.T) {
 	fake := &preflightFake{op: preflightReceipt(domain.ProbePreflightFailed)}
 	h := NewProbePreflightHandlers(fake, true)
-	rec := preflightServe(h, http.MethodPost, "/api/probe-host-preflights", "", preflightBody(preflightKeyCanary), h.Submit)
+	rec := preflightServe(http.MethodPost, "/api/probe-host-preflights", "", preflightBody(preflightKeyCanary), h.Submit)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body.String())
 	}
@@ -317,7 +317,7 @@ func TestProbePreflightSubmitTerminalRetry(t *testing.T) {
 
 	// A passed terminal retry renders the explicit compatibility facts.
 	fake.op = preflightReceipt(domain.ProbePreflightPassed)
-	rec = preflightServe(h, http.MethodPost, "/api/probe-host-preflights", "", preflightBody(preflightKeyCanary), h.Submit)
+	rec = preflightServe(http.MethodPost, "/api/probe-host-preflights", "", preflightBody(preflightKeyCanary), h.Submit)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("passed retry status = %d, want 200", rec.Code)
 	}
@@ -349,7 +349,7 @@ func TestProbePreflightObserveAndCancel(t *testing.T) {
 	t.Run("observe queued", func(t *testing.T) {
 		fake := &preflightFake{op: preflightReceipt(domain.ProbePreflightQueued)}
 		h := NewProbePreflightHandlers(fake, true)
-		rec := preflightServe(h, http.MethodGet, "/api/probe-host-preflights/"+preflightOpID, preflightOpID, "", h.Observe)
+		rec := preflightServe(http.MethodGet, "/api/probe-host-preflights/"+preflightOpID, preflightOpID, "", h.Observe)
 		if rec.Code != http.StatusOK || fake.operationID != preflightOpID {
 			t.Fatalf("observe = %d, op = %q (%s)", rec.Code, fake.operationID, rec.Body.String())
 		}
@@ -360,7 +360,7 @@ func TestProbePreflightObserveAndCancel(t *testing.T) {
 	t.Run("cancel requests intent", func(t *testing.T) {
 		fake := &preflightFake{op: preflightReceipt(domain.ProbePreflightCancelRequested)}
 		h := NewProbePreflightHandlers(fake, true)
-		rec := preflightServe(h, http.MethodPost, "/api/probe-host-preflights/"+preflightOpID+"/cancel", preflightOpID, "", h.Cancel)
+		rec := preflightServe(http.MethodPost, "/api/probe-host-preflights/"+preflightOpID+"/cancel", preflightOpID, "", h.Cancel)
 		if rec.Code != http.StatusAccepted || fake.operationID != preflightOpID {
 			t.Fatalf("cancel = %d, op = %q (%s)", rec.Code, fake.operationID, rec.Body.String())
 		}
@@ -377,7 +377,7 @@ func TestProbePreflightObserveAndCancel(t *testing.T) {
 	t.Run("cancel on terminal is unchanged", func(t *testing.T) {
 		fake := &preflightFake{op: preflightReceipt(domain.ProbePreflightPassed)}
 		h := NewProbePreflightHandlers(fake, true)
-		rec := preflightServe(h, http.MethodPost, "/api/probe-host-preflights/"+preflightOpID+"/cancel", preflightOpID, "", h.Cancel)
+		rec := preflightServe(http.MethodPost, "/api/probe-host-preflights/"+preflightOpID+"/cancel", preflightOpID, "", h.Cancel)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("terminal cancel = %d, want 200 (%s)", rec.Code, rec.Body.String())
 		}
@@ -394,7 +394,7 @@ func TestProbePreflightObserveAndCancel(t *testing.T) {
 	t.Run("cancel rejects a payload", func(t *testing.T) {
 		fake := &preflightFake{op: preflightReceipt(domain.ProbePreflightCancelRequested)}
 		h := NewProbePreflightHandlers(fake, true)
-		rec := preflightServe(h, http.MethodPost, "/api/probe-host-preflights/"+preflightOpID+"/cancel", preflightOpID, `{"reason":"x"}`, h.Cancel)
+		rec := preflightServe(http.MethodPost, "/api/probe-host-preflights/"+preflightOpID+"/cancel", preflightOpID, `{"reason":"x"}`, h.Cancel)
 		if rec.Code != http.StatusBadRequest || preflightErrorBody(t, rec).Code != "invalid_request" {
 			t.Fatalf("cancel payload = %d (%s)", rec.Code, rec.Body.String())
 		}
@@ -405,7 +405,7 @@ func TestProbePreflightObserveAndCancel(t *testing.T) {
 	t.Run("nonterminal receipt that is not cancel_requested fails closed", func(t *testing.T) {
 		fake := &preflightFake{op: preflightReceipt(domain.ProbePreflightQueued)}
 		h := NewProbePreflightHandlers(fake, true)
-		rec := preflightServe(h, http.MethodPost, "/api/probe-host-preflights/"+preflightOpID+"/cancel", preflightOpID, "", h.Cancel)
+		rec := preflightServe(http.MethodPost, "/api/probe-host-preflights/"+preflightOpID+"/cancel", preflightOpID, "", h.Cancel)
 		if rec.Code != http.StatusServiceUnavailable || preflightErrorBody(t, rec).Code != "preflight_unavailable" {
 			t.Fatalf("unexpected cancel receipt = %d (%s)", rec.Code, rec.Body.String())
 		}
@@ -423,7 +423,7 @@ func TestProbePreflightObserveAndCancel(t *testing.T) {
 			if tc.method == http.MethodPost {
 				call = h.Cancel
 			}
-			rec := preflightServe(h, tc.method, tc.path, tc.id, "", call)
+			rec := preflightServe(tc.method, tc.path, tc.id, "", call)
 			if rec.Code != http.StatusBadRequest || preflightErrorBody(t, rec).Code != "invalid_operation_id" {
 				t.Fatalf("malformed id = %d (%s)", rec.Code, rec.Body.String())
 			}
@@ -435,7 +435,7 @@ func TestProbePreflightObserveAndCancel(t *testing.T) {
 	t.Run("missing operation", func(t *testing.T) {
 		fake := &preflightFake{err: ports.ErrNotFound}
 		h := NewProbePreflightHandlers(fake, true)
-		rec := preflightServe(h, http.MethodGet, "/api/probe-host-preflights/"+preflightOpID, preflightOpID, "", h.Observe)
+		rec := preflightServe(http.MethodGet, "/api/probe-host-preflights/"+preflightOpID, preflightOpID, "", h.Observe)
 		if rec.Code != http.StatusNotFound || preflightErrorBody(t, rec).Code != "preflight_not_found" {
 			t.Fatalf("missing operation = %d (%s)", rec.Code, rec.Body.String())
 		}
@@ -462,7 +462,7 @@ func TestProbePreflightHTTPErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fake := &preflightFake{err: tc.fakeErr}
 			h := NewProbePreflightHandlers(fake, true)
-			rec := preflightServe(h, http.MethodPost, "/api/probe-host-preflights", "", preflightBody(preflightKeyCanary), h.Submit)
+			rec := preflightServe(http.MethodPost, "/api/probe-host-preflights", "", preflightBody(preflightKeyCanary), h.Submit)
 			if rec.Code != tc.status {
 				t.Fatalf("status = %d, want %d (%s)", rec.Code, tc.status, rec.Body.String())
 			}
@@ -510,7 +510,7 @@ func TestProbePreflightSurfaceGates(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := NewProbePreflightHandlers(tc.svc, tc.enabled)
-			rec := preflightServe(h, http.MethodGet, "/api/probe-host-preflights/"+preflightOpID, preflightOpID, "", h.Observe)
+			rec := preflightServe(http.MethodGet, "/api/probe-host-preflights/"+preflightOpID, preflightOpID, "", h.Observe)
 			if rec.Code != http.StatusServiceUnavailable {
 				t.Fatalf("status = %d, want 503 (%s)", rec.Code, rec.Body.String())
 			}
@@ -552,7 +552,7 @@ func TestProbePreflightCorruptReceipts(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fake := &preflightFake{op: tc.op}
 			h := NewProbePreflightHandlers(fake, true)
-			rec := preflightServe(h, http.MethodGet, "/api/probe-host-preflights/"+preflightOpID, preflightOpID, "", h.Observe)
+			rec := preflightServe(http.MethodGet, "/api/probe-host-preflights/"+preflightOpID, preflightOpID, "", h.Observe)
 			if rec.Code != http.StatusServiceUnavailable || preflightErrorBody(t, rec).Code != "preflight_unavailable" {
 				t.Fatalf("corrupt receipt = %d (%s)", rec.Code, rec.Body.String())
 			}
@@ -576,7 +576,7 @@ func TestProbePreflightUTCTimestamps(t *testing.T) {
 	op.DeadlineAt = op.CreatedAt.Add(domain.ProbePreflightLifetime)
 	fake := &preflightFake{op: op}
 	h := NewProbePreflightHandlers(fake, true)
-	rec := preflightServe(h, http.MethodGet, "/api/probe-host-preflights/"+preflightOpID, preflightOpID, "", h.Observe)
+	rec := preflightServe(http.MethodGet, "/api/probe-host-preflights/"+preflightOpID, preflightOpID, "", h.Observe)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
 	}

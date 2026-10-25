@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -113,7 +114,7 @@ func TestProbeImageSnapshotAdapterLifecycle(t *testing.T) {
 							}
 						}
 					}
-					if err := p.Close(nil); err != nil {
+					if err := p.Close(t.Context()); err != nil {
 						t.Fatal(err)
 					}
 					snapshotEmpty(t, base)
@@ -525,8 +526,9 @@ func TestProbeImageSnapshotAdapterInputAndStorage(t *testing.T) {
 				in.Metadata.Config = in.Metadata.Index
 				owned = []*contentStream{all[0], all[1], all[3]}
 			case "layer_count":
-				in.Layers = append(in.Layers, &contentStream{r: strings.NewReader("extra")})
-				owned = append(owned, in.Layers[1].(*contentStream))
+				extra := &contentStream{r: strings.NewReader("extra")}
+				in.Layers = append(in.Layers, extra)
+				owned = slices.Concat(all, []*contentStream{extra})
 			case "private_reader":
 				all[3].r = snapshotErrorReader{}
 				want = domain.ErrProbeImageUnavailable
@@ -562,7 +564,8 @@ func TestProbeImageSnapshotAdapterInputAndStorage(t *testing.T) {
 
 func TestProbeImageSnapshotMaximumBundleAndAutomaticClose(t *testing.T) {
 	p, base := snapshotPrepare(t, testutil.NewProbeImageContentFixture(t, "arm64", true, true, domain.MaxProbeImageLayers))
-	if _, e := p.Open(nil); e != domain.ErrProbeImageInput {
+	var nilCtx context.Context // deliberately nil: the refusal under test
+	if _, e := p.Open(nilCtx); e != domain.ErrProbeImageInput {
 		t.Fatal("nil open context accepted")
 	}
 	ctx, cancel := context.WithCancel(t.Context())

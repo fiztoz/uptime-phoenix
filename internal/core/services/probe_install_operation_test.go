@@ -182,12 +182,6 @@ func (s *opInstallSession) Preflight(ctx context.Context, host domain.ProbeSSHHo
 	return opInstallQualifyingReport(), nil
 }
 
-func (s *opInstallSession) preflightCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.preflights)
-}
-
 func (s *opInstallSession) Close(ctx context.Context) error {
 	s.mu.Lock()
 	s.closes++
@@ -2137,7 +2131,7 @@ func TestProbeInstallOperationServiceObserveAndCancelDelegateUntouched(t *testin
 		t.Fatalf("resources_ready reached journal Cancel %d times", n)
 	}
 
-	// Active work is cancelled through the journal, whose receipt is returned.
+	// Active work is canceled through the journal, whose receipt is returned.
 	running := &domain.ProbeInstallOperation{Identity: identity, OwnerID: opInstallOwnerB, State: domain.ProbeInstallRunning}
 	env.journal.observeResult = running
 	if got, err := env.svc.Cancel(ctx, opInstallID); err != nil || got != requested {

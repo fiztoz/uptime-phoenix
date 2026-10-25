@@ -44,7 +44,7 @@ func main(){if p:=os.Getenv("PHOENIX_ARTIFACT_EXECUTION_CANARY");p!=""{_=os.Writ
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-trimpath", "-ldflags=-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=0.4.5", "-o", "fixture", "./cmd/probe")
+	cmd := exec.CommandContext(ctx, goToolPath(t), "build", "-trimpath", "-ldflags=-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=0.4.5", "-o", "fixture", "./cmd/probe")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+arch, "CGO_ENABLED=0", "GOENV=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off", "GOWORK=off", "GOFLAGS=")
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -115,7 +115,7 @@ func TestProbeAdminStageBinaryAcrossProcesses(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
 	executable := filepath.Join(t.TempDir(), "phoenix-probe-admin")
-	build := exec.CommandContext(ctx, filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-o", executable, "./cmd/phoenix-probe-admin")
+	build := exec.CommandContext(ctx, goToolPath(t), "build", "-o", executable, "./cmd/phoenix-probe-admin")
 	build.Dir = filepath.Join("..", "..")
 	build.Env = append(os.Environ(), "GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH, "CGO_ENABLED=0", "GOENV=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off", "GOWORK=off", "GOFLAGS=")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -159,7 +159,7 @@ func TestProbeAdminStageBinaryAcrossProcesses(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer fd.Close()
+			defer func() { _ = fd.Close() }()
 			cmd, out, stderr, scratch, work := newCommand(t, fd)
 			cmd.Stdin = bytes.NewReader(stageBinaryCLIFrame(t, intent, data))
 			if err := cmd.Run(); err != nil || stderr.Len() != 0 {
@@ -233,7 +233,7 @@ func TestProbeAdminStageBinaryAcrossProcesses(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer fd.Close()
+			defer func() { _ = fd.Close() }()
 			passed := fd
 			var args []string
 			item := intent
@@ -255,7 +255,7 @@ func TestProbeAdminStageBinaryAcrossProcesses(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer passed.Close()
+				defer func(f *os.File) { _ = f.Close() }(passed)
 			case "args":
 				passed = nil
 				args = []string{"--path=/private-canary"}
@@ -319,13 +319,13 @@ func TestProbeAdminStageBinaryAcrossProcesses(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer fd.Close()
+		defer func() { _ = fd.Close() }()
 		cmd, out, stderr, scratch, work := newCommand(t, fd)
 		stdin, err := cmd.StdinPipe()
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer stdin.Close()
+		defer func() { _ = stdin.Close() }()
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}

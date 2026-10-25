@@ -78,34 +78,36 @@ func newHKServer(t *testing.T, clientPub ssh.PublicKey) *hkServer {
 				}
 				defer func() { _ = sc.Close() }()
 				go ssh.DiscardRequests(reqs)
-				for nc := range chans {
-					ch, creqs, err := nc.Accept()
-					if err != nil {
-						return
-					}
-					for req := range creqs {
-						if req.Type == "exec" {
-							s.execs.Add(1)
-							var payload struct{ Command string }
-							_ = ssh.Unmarshal(req.Payload, &payload)
-							s.mu.Lock()
-							s.commands = append(s.commands, payload.Command)
-							exec := s.exec
-							s.mu.Unlock()
-							_ = req.Reply(true, nil)
-							var stdout []byte
-							status := uint32(1)
-							if exec != nil {
-								stdout, status = exec(payload.Command)
-							}
-							_, _ = ch.Write(stdout)
-							_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{status}))
-							_ = ch.Close()
-							break
-						}
-						_ = req.Reply(false, nil)
-					}
+				// Only the first channel is served: one exec, then the connection ends.
+				nc, ok := <-chans
+				if !ok {
 					return
+				}
+				ch, creqs, err := nc.Accept()
+				if err != nil {
+					return
+				}
+				for req := range creqs {
+					if req.Type == "exec" {
+						s.execs.Add(1)
+						var payload struct{ Command string }
+						_ = ssh.Unmarshal(req.Payload, &payload)
+						s.mu.Lock()
+						s.commands = append(s.commands, payload.Command)
+						exec := s.exec
+						s.mu.Unlock()
+						_ = req.Reply(true, nil)
+						var stdout []byte
+						status := uint32(1)
+						if exec != nil {
+							stdout, status = exec(payload.Command)
+						}
+						_, _ = ch.Write(stdout)
+						_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{status}))
+						_ = ch.Close()
+						break
+					}
+					_ = req.Reply(false, nil)
 				}
 			}()
 		}

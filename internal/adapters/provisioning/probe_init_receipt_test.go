@@ -29,6 +29,9 @@ const (
 var (
 	probeInitTestFingerprint = strings.Repeat("c0", 32)
 	probeInitTestToken       = probeInitTestMakeToken(0)
+	// probeInitTestNearPrefix is the real prefix with one letter dropped: a
+	// look-alike that must be refused.
+	probeInitTestNearPrefix = strings.Replace(probeInitTestPrefix, "ll", "l", 1)
 )
 
 // probeInitTestMakeToken builds a token shaped like the real one: the prefix
@@ -335,7 +338,7 @@ func TestParseProbeInitReceiptRefusesEveryNonCanonicalSpelling(t *testing.T) {
 		"prefixed fingerprint":       strings.Replace(canonical, result.Facts.CertificateFingerprint, "SHA256:"+result.Facts.CertificateFingerprint[:57], 1),
 		"empty token":                strings.Replace(canonical, result.EnrollmentToken, "", 1),
 		"short token":                strings.Replace(canonical, result.EnrollmentToken, result.EnrollmentToken[:len(result.EnrollmentToken)-1], 1),
-		"wrong prefix token":         strings.Replace(canonical, probeInitTestPrefix, "phx_probe_enrol_", 1),
+		"wrong prefix token":         strings.Replace(canonical, probeInitTestPrefix, probeInitTestNearPrefix, 1),
 		"bad character token":        strings.Replace(canonical, result.EnrollmentToken, result.EnrollmentToken[:len(result.EnrollmentToken)-1]+"+", 1),
 		"padded token":               strings.Replace(canonical, result.EnrollmentToken, result.EnrollmentToken+"=", 1),
 		"oversize token":             strings.Replace(canonical, result.EnrollmentToken, probeInitTestPrefix+strings.Repeat("A", 240), 1),
@@ -565,7 +568,7 @@ func TestValidProbeEnrollmentToken(t *testing.T) {
 		"no prefix":         strings.Repeat("A", 60),
 		"uppercase prefix":  "PHX_PROBE_ENROLL_" + strings.Repeat("A", 43),
 		"no final underbar": "phx_probe_enroll-" + strings.Repeat("A", 43),
-		"near prefix":       "phx_probe_enrol_" + strings.Repeat("A", 44),
+		"near prefix":       probeInitTestNearPrefix + strings.Repeat("A", 44),
 		"leading space":     " " + probeInitTestPrefix + strings.Repeat("A", 43),
 		"trailing LF":       probeInitTestPrefix + strings.Repeat("A", 43) + "\n",
 		"trailing space":    probeInitTestPrefix + strings.Repeat("A", 43) + " ",
@@ -580,7 +583,7 @@ func TestValidProbeEnrollmentToken(t *testing.T) {
 		"tab":               probeInitTestPrefix + strings.Repeat("A", 42) + "\t",
 		"latin e acute":     probeInitTestPrefix + strings.Repeat("A", 42) + "é",
 		"cyrillic a":        probeInitTestPrefix + strings.Repeat("A", 42) + "а",
-		"zero width space":  probeInitTestPrefix + strings.Repeat("A", 42) + "​",
+		"zero width space":  probeInitTestPrefix + strings.Repeat("A", 42) + "\u200b",
 		"fullwidth digit":   probeInitTestPrefix + strings.Repeat("A", 42) + "７",
 		"invalid utf8":      probeInitTestPrefix + strings.Repeat("A", 42) + "\xff",
 		"bad char early":    probeInitTestPrefix + "!" + strings.Repeat("A", 42),

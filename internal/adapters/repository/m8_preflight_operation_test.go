@@ -35,13 +35,13 @@ func m8PreflightFingerprint(seed byte) string {
 	return "SHA256:" + base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{seed}, 32))
 }
 
-func m8PreflightIdentity(opID string, actor int64) domain.ProbePreflightIdentity {
+func m8PreflightIdentity(opID string) domain.ProbePreflightIdentity {
 	return domain.ProbePreflightIdentity{
 		OperationID:          opID,
 		Host:                 domain.ProbeSSHHost{Address: "192.0.2.10:22", User: "phoenix"},
 		HostKeyFingerprint:   m8PreflightFingerprint(1),
 		ClientKeyFingerprint: m8PreflightFingerprint(2),
-		RequestedBy:          actor,
+		RequestedBy:          m8PreflightActorID,
 	}
 }
 
@@ -103,7 +103,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 			t.Run("CreateCommitAndExactRetryIdentity", func(t *testing.T) {
 				f := newProbeRegistryFixture(t, engine)
 				ctx := t.Context()
-				id := m8PreflightIdentity(m8PreflightOp1, m8PreflightActorID)
+				id := m8PreflightIdentity(m8PreflightOp1)
 				op, created, err := store(f).CreatePreflight(ctx, id, m8PreflightOwnerA)
 				if err != nil || !created {
 					t.Fatalf("create: created=%v err=%v", created, err)
@@ -176,7 +176,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 			t.Run("BeginOwnerExpiryFences", func(t *testing.T) {
 				f := newProbeRegistryFixture(t, engine)
 				ctx := t.Context()
-				id := m8PreflightIdentity(m8PreflightOp2, m8PreflightActorID)
+				id := m8PreflightIdentity(m8PreflightOp2)
 				if _, _, err := store(f).CreatePreflight(ctx, id, m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
@@ -195,7 +195,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 				}
 				// An expired queued row never begins: the DB clock fences it.
 				if _, _, err := store(f).CreatePreflight(ctx,
-					m8PreflightIdentity(m8PreflightOp4, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+					m8PreflightIdentity(m8PreflightOp4), m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
 				m8PreflightExpire(t, f, m8PreflightOp4)
@@ -210,7 +210,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 			t.Run("FinishStateExpiryAndIdempotentRetry", func(t *testing.T) {
 				f := newProbeRegistryFixture(t, engine)
 				ctx := t.Context()
-				id := m8PreflightIdentity(m8PreflightOp1, m8PreflightActorID)
+				id := m8PreflightIdentity(m8PreflightOp1)
 				if _, _, err := store(f).CreatePreflight(ctx, id, m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
@@ -250,7 +250,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 				// honest cold reconcile is interrupted, which the joined owner
 				// may also record idempotently.
 				if _, _, err := store(f).CreatePreflight(ctx,
-					m8PreflightIdentity(m8PreflightOp2, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+					m8PreflightIdentity(m8PreflightOp2), m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := store(f).BeginPreflight(ctx, m8PreflightOp2, m8PreflightOwnerA); err != nil {
@@ -274,7 +274,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 				// An expired queued row the owner joins on shutdown may record
 				// honest interruption directly, without a prior cold Observe.
 				if _, _, err := store(f).CreatePreflight(ctx,
-					m8PreflightIdentity(m8PreflightOp5, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+					m8PreflightIdentity(m8PreflightOp5), m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
 				m8PreflightExpire(t, f, m8PreflightOp5)
@@ -287,7 +287,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 				f := newProbeRegistryFixture(t, engine)
 				ctx := t.Context()
 				if _, _, err := store(f).CreatePreflight(ctx,
-					m8PreflightIdentity(m8PreflightOp3, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+					m8PreflightIdentity(m8PreflightOp3), m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
 				// Cancellation persists intent on any replica before any join.
@@ -318,7 +318,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 				}
 				// Canceled without prior cancel_requested is refused.
 				if _, _, err := store(f).CreatePreflight(ctx,
-					m8PreflightIdentity(m8PreflightOp4, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+					m8PreflightIdentity(m8PreflightOp4), m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := store(f).BeginPreflight(ctx, m8PreflightOp4, m8PreflightOwnerA); err != nil {
@@ -335,7 +335,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 				f := newProbeRegistryFixture(t, engine)
 				st := store(f)
 				ctx := t.Context()
-				if _, _, err := st.CreatePreflight(ctx, m8PreflightIdentity(m8PreflightOp1, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+				if _, _, err := st.CreatePreflight(ctx, m8PreflightIdentity(m8PreflightOp1), m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := st.RequestPreflightCancellation(ctx, m8PreflightOp1); err != nil {
@@ -371,7 +371,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 				f := newProbeRegistryFixture(t, engine)
 				second := m8SecondPreflightDB(t, f)
 				ctx := t.Context()
-				id := m8PreflightIdentity(m8PreflightOp5, m8PreflightActorID)
+				id := m8PreflightIdentity(m8PreflightOp5)
 				owners := []string{m8PreflightOwnerA, m8PreflightOwnerB}
 				const workers = 6
 				created := make([]bool, workers)
@@ -424,7 +424,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 				second := m8SecondPreflightDB(t, f)
 				ctx := t.Context()
 				if _, _, err := store(f).CreatePreflight(ctx,
-					m8PreflightIdentity(m8PreflightOp6, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+					m8PreflightIdentity(m8PreflightOp6), m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := store(f).BeginPreflight(ctx, m8PreflightOp6, m8PreflightOwnerA); err != nil {
@@ -481,7 +481,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 				ctx := t.Context()
 				st := store(f)
 				if _, _, err := st.CreatePreflight(ctx,
-					m8PreflightIdentity(m8PreflightOp1, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+					m8PreflightIdentity(m8PreflightOp1), m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
 				// SQL CHECK must refuse NULL outcomes too (SQL CHECK accepts
@@ -532,7 +532,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 				ctx := t.Context()
 				st := store(f)
 				if _, _, err := st.CreatePreflight(ctx,
-					m8PreflightIdentity(m8PreflightOp2, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+					m8PreflightIdentity(m8PreflightOp2), m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
 				before, err := st.ObservePreflight(ctx, m8PreflightOp2)
@@ -555,7 +555,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 				ctx := t.Context()
 				st := store(f)
 				if _, _, err := st.CreatePreflight(ctx,
-					m8PreflightIdentity(m8PreflightOp3, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+					m8PreflightIdentity(m8PreflightOp3), m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
 				// Simulate DB-clock rollback: the stored updated_at is ahead of
@@ -576,7 +576,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 				st := store(f)
 				// A live queued receipt blocks the downgrade loudly.
 				if _, _, err := st.CreatePreflight(ctx,
-					m8PreflightIdentity(m8PreflightOp4, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+					m8PreflightIdentity(m8PreflightOp4), m8PreflightOwnerA); err != nil {
 					t.Fatal(err)
 				}
 				if err := runEngineMigration(t, f.db, engine, "083_probe_host_preflights", "down"); err == nil {
@@ -603,7 +603,7 @@ func TestM8PreflightOperationContract(t *testing.T) {
 					t.Fatalf("re-upgrade: %v", err)
 				}
 				if _, _, err := st.CreatePreflight(ctx,
-					m8PreflightIdentity(m8PreflightOp5, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+					m8PreflightIdentity(m8PreflightOp5), m8PreflightOwnerA); err != nil {
 					t.Fatalf("store unusable after downgrade rehearsal: %v", err)
 				}
 			})

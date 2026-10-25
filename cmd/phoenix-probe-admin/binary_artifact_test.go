@@ -16,6 +16,17 @@ import (
 	"time"
 )
 
+// goToolPath resolves the go command from PATH. runtime.GOROOT is deprecated
+// because the build-time root is not meaningful once a binary moves hosts.
+func goToolPath(t *testing.T) string {
+	t.Helper()
+	path, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("locating the go command: %v", err)
+	}
+	return path
+}
+
 func TestProbeAdminBinaryArtifactAcrossProcesses(t *testing.T) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("offline artifact source is supported on Linux/macOS only")
@@ -25,7 +36,7 @@ func TestProbeAdminBinaryArtifactAcrossProcesses(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 	// Exercise the actual release probe, not only the minimal adapter fixtures.
-	build := exec.CommandContext(ctx, filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-trimpath", "-ldflags=-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=0.4.5", "-o", binary, "./cmd/probe")
+	build := exec.CommandContext(ctx, goToolPath(t), "build", "-trimpath", "-ldflags=-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=0.4.5", "-o", binary, "./cmd/probe")
 	build.Dir = filepath.Join("..", "..")
 	build.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0", "GOENV=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off", "GOWORK=off", "GOFLAGS=")
 	if data, err := build.CombinedOutput(); err != nil {

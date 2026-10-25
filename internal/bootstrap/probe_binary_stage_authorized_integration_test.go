@@ -180,7 +180,6 @@ func startAuthzRun(t *testing.T, o authzOptions) *authzRun {
 		r.stdin, r.w = &authzStdin{pr: pr}, pw
 		input = r.stdin
 	}
-	loadKey := func(context.Context) ([32]byte, error) { return o.keys.pub, nil }
 	acquire := func(context.Context) (*os.File, error) {
 		r.acquires.Add(1)
 		f, err := os.Open(o.parent)
@@ -198,7 +197,8 @@ func startAuthzRun(t *testing.T, o authzOptions) *authzRun {
 		hostKeys = o.hostKeys
 	}
 	go func() {
-		r.done <- runAuthorizedProbeBinaryStageHelper(ctx, nil, input, r.stdout, &r.stderr, loadKey, acquire, entropy, hostKeys)
+		r.done <- runAuthorizedProbeBinaryStageHelper(ctx, nil, input, r.stdout, &r.stderr,
+			func(context.Context) ([32]byte, error) { return o.keys.pub, nil }, acquire, entropy, hostKeys)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -620,22 +620,22 @@ func TestRunAuthorizedProbeBinaryStageHelperRefusesMissingOrTruncatedGrant(t *te
 	intent := authzEffectIntent(t, data)
 	keys := authzGeneratedKeys(t)
 
-	for name, build := range map[string]func(t *testing.T, header, frame []byte) []byte{
-		"stdin closed right after the challenge": func(*testing.T, []byte, []byte) []byte { return nil },
-		"stdin closed after the header":          func(t *testing.T, header, _ []byte) []byte { return header },
-		"stdin closed one byte short of the grant": func(t *testing.T, header, frame []byte) []byte {
+	for name, build := range map[string]func(header, frame []byte) []byte{
+		"stdin closed right after the challenge": func([]byte, []byte) []byte { return nil },
+		"stdin closed after the header":          func(header, _ []byte) []byte { return header },
+		"stdin closed one byte short of the grant": func(header, frame []byte) []byte {
 			return append(append([]byte(nil), header...), frame[:len(frame)-1]...)
 		},
-		"stdin closed inside the grant magic": func(t *testing.T, header, frame []byte) []byte {
+		"stdin closed inside the grant magic": func(header, frame []byte) []byte {
 			return append(append([]byte(nil), header...), frame[:4]...)
 		},
-		"stdin closed inside the header": func(t *testing.T, header, _ []byte) []byte { return header[:len(header)-1] },
+		"stdin closed inside the header": func(header, _ []byte) []byte { return header[:len(header)-1] },
 	} {
 		t.Run(name, func(t *testing.T) {
 			parent, _, scratch := helperEffectParent(t)
 			r := startAuthzRun(t, authzOptions{keys: keys, nonce: authzNonce("missing/" + name), parent: parent})
 			keyID, nonce, challenge := r.waitChallenge()
-			sent := build(t, authzHeader(t, intent), authzSignedFrame(t, keys.priv, keyID, nonce, intent))
+			sent := build(authzHeader(t, intent), authzSignedFrame(t, keys.priv, keyID, nonce, intent))
 			if len(sent) > 0 {
 				if n, err := r.write(sent, 0); err != nil || n != len(sent) {
 					t.Fatalf("write n=%d err=%v", n, err)

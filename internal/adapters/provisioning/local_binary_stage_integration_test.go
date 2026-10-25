@@ -224,7 +224,7 @@ func TestLocalBinaryStageUnknownEffects(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					defer f.Close()
+					defer func() { _ = f.Close() }()
 					if _, err := f.WriteAt([]byte{data[15] ^ 1}, 15); err != nil {
 						return err
 					}

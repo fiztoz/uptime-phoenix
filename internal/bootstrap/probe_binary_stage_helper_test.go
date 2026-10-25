@@ -92,7 +92,7 @@ func TestRunProbeBinaryStageHelperUsageDoesNotEchoOrTouchParent(t *testing.T) {
 	for _, args := range [][]string{{"--help"}, {"--path"}, {"--path=/opt/secret"}, {"sensitive-path-canary"}, {""}} {
 		input := &helperRC{}
 		var out, stderr bytes.Buffer
-		code := RunProbeBinaryStageHelper(nil, args, &os.File{}, input, &out, &stderr)
+		code := RunProbeBinaryStageHelper(nil, args, &os.File{}, input, &out, &stderr) //nolint:staticcheck // SA1012: usage is decided before the context is inspected, so nil must not matter
 		if code != 2 || out.Len() != 0 || input.closes.Load() != 1 || stderr.String() != probeBinaryStageUsage || strings.Contains(stderr.String(), "canary") || strings.Contains(stderr.String(), "/opt") {
 			t.Fatalf("args %q code=%d out=%q err=%q closes=%d", args, code, out.String(), stderr.String(), input.closes.Load())
 		}
@@ -100,7 +100,7 @@ func TestRunProbeBinaryStageHelperUsageDoesNotEchoOrTouchParent(t *testing.T) {
 	var typed *helperRC
 	var input io.ReadCloser = typed
 	var stderr bytes.Buffer
-	if RunProbeBinaryStageHelper(nil, []string{"--help"}, nil, input, io.Discard, &stderr) != 2 || stderr.String() != probeBinaryStageUsage {
+	if RunProbeBinaryStageHelper(nil, []string{"--help"}, nil, input, io.Discard, &stderr) != 2 || stderr.String() != probeBinaryStageUsage { //nolint:staticcheck // SA1012: typed-nil input must still reach usage with a deliberately nil context
 		t.Fatal("typed-nil usage dispatch")
 	}
 }
@@ -108,7 +108,7 @@ func TestRunProbeBinaryStageHelperUsageDoesNotEchoOrTouchParent(t *testing.T) {
 func TestRunInheritedProbeBinaryStageHelperRejectsArgsBeforeParent(t *testing.T) {
 	input := &helperRC{}
 	var out, stderr bytes.Buffer
-	code := RunInheritedProbeBinaryStageHelper(nil, []string{"--help", "sensitive-path-canary"}, input, &out, &stderr)
+	code := RunInheritedProbeBinaryStageHelper(nil, []string{"--help", "sensitive-path-canary"}, input, &out, &stderr) //nolint:staticcheck // SA1012: args are refused before the context is inspected, so nil must not matter
 	if code != 2 || out.Len() != 0 || input.closes.Load() != 1 || stderr.String() != probeBinaryStageUsage || strings.Contains(stderr.String(), "canary") {
 		t.Fatalf("inherited args code=%d out=%q err=%q closes=%d", code, out.String(), stderr.String(), input.closes.Load())
 	}
@@ -120,7 +120,7 @@ func TestRunProbeBinaryStageHelperRefusesNilWithoutDispatch(t *testing.T) {
 	var typedOut io.Writer = (*bytes.Buffer)(nil)
 	input := &helperRC{closeErr: errors.New("sensitive-close-canary")}
 	var out, stderr bytes.Buffer
-	code := RunProbeBinaryStageHelper(nil, nil, nil, input, &out, &stderr)
+	code := RunProbeBinaryStageHelper(nil, nil, nil, input, &out, &stderr) //nolint:staticcheck // SA1012: a nil context is the refusal under test
 	if code != 1 || out.Len() != 0 || input.closes.Load() != 1 || stderr.String() != domain.ErrProbeArtifactStorage.Error()+"\n" || strings.Contains(stderr.String(), "canary") {
 		t.Fatalf("close failure hidden: %d %q", code, stderr.String())
 	}

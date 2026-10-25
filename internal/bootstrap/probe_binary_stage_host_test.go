@@ -61,7 +61,7 @@ func TestRunHostProbeBinaryStageHelperUsageNeverEchoesArgsOrAcquires(t *testing.
 		input := &hostMockInput{}
 		var out, stderr bytes.Buffer
 		acq := &hostMockAcquirer{fn: hostAcquireFail(t)}
-		code := runHostProbeBinaryStageHelper(nil, args, input, &out, &stderr, acq.acquire)
+		code := runHostProbeBinaryStageHelper(nil, args, input, &out, &stderr, acq.acquire) //nolint:staticcheck // SA1012: usage is decided before the context is inspected, so nil must not matter
 		if code != 2 || out.Len() != 0 || input.closes.Load() != 1 || input.reads.Load() != 0 || acq.calls.Load() != 0 {
 			t.Fatalf("args %q code=%d closes=%d reads=%d calls=%d", args, code, input.closes.Load(), input.reads.Load(), acq.calls.Load())
 		}
@@ -76,7 +76,7 @@ func TestRunHostProbeBinaryStageHelperUsageNeverEchoesArgsOrAcquires(t *testing.
 	broken := &hostMockInput{closeErr: errors.New("sensitive-close-canary")}
 	var out, stderr bytes.Buffer
 	acq := &hostMockAcquirer{fn: hostAcquireFail(t)}
-	code := runHostProbeBinaryStageHelper(nil, []string{"--path=/opt/secret"}, broken, &out, &stderr, acq.acquire)
+	code := runHostProbeBinaryStageHelper(nil, []string{"--path=/opt/secret"}, broken, &out, &stderr, acq.acquire) //nolint:staticcheck // SA1012: usage close failure is reported with a deliberately nil context
 	if code != 1 || out.Len() != 0 || stderr.String() != domain.ErrProbeArtifactStorage.Error()+"\n" ||
 		strings.Contains(stderr.String(), "canary") || strings.Contains(stderr.String(), "/opt/secret") || acq.calls.Load() != 0 {
 		t.Fatalf("usage close failure code=%d err=%q calls=%d", code, stderr.String(), acq.calls.Load())
@@ -85,7 +85,7 @@ func TestRunHostProbeBinaryStageHelperUsageNeverEchoesArgsOrAcquires(t *testing.
 	var typed *hostMockInput
 	var input io.ReadCloser = typed
 	stderr.Reset()
-	if code = runHostProbeBinaryStageHelper(nil, []string{"--help"}, input, io.Discard, &stderr, acq.acquire); code != 2 || stderr.String() != probeBinaryStageHostUsage {
+	if code = runHostProbeBinaryStageHelper(nil, []string{"--help"}, input, io.Discard, &stderr, acq.acquire); code != 2 || stderr.String() != probeBinaryStageHostUsage { //nolint:staticcheck // SA1012: typed-nil input must still reach usage with a deliberately nil context
 		t.Fatalf("typed-nil usage dispatch code=%d err=%q", code, stderr.String())
 	}
 }

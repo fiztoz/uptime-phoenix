@@ -710,6 +710,16 @@ func hostActApplyResult(out string, code int, err error) func([]string) (string,
 	return func([]string) (string, int, error) { return out, code, err }
 }
 
+// hostActApplyHook is a scripted systemctl reply that runs side first (the
+// test's interference with the host) and then succeeds with out.
+func hostActApplyHook(side func(), out string) func([]string) (string, int, error) {
+	reply := hostActApplyResult(out, 0, nil)
+	return func(args []string) (string, int, error) {
+		side()
+		return reply(args)
+	}
+}
+
 func hostActApplyWantCalls(name string, n int) [][]string {
 	all := [][]string{{"is-enabled", name}, {"daemon-reload"}, {"enable", name}, {"is-enabled", name}}
 	return all[:n]
@@ -789,7 +799,7 @@ func TestApplyProbeServiceRefusesUnitThatIsNotExactlyDerivedWithoutAnySystemctlC
 		"mode 0444":    func(t *testing.T, dir string) { hostActApplyWriteRaw(t, dir, want, 0o444) },
 		"mode 0000":    func(t *testing.T, dir string) { hostActApplyWriteRaw(t, dir, want, 0o000) },
 		"setuid 04644": func(t *testing.T, dir string) { hostActApplyWriteRaw(t, dir, want, os.ModeSetuid|0o644) },
-		"hardlinked": func(t *testing.T, dir string) {
+		"hard-linked": func(t *testing.T, dir string) {
 			p := hostActApplyWriteRaw(t, dir, want, 0o644)
 			if err := os.Link(p, filepath.Join(dir, "second-name")); err != nil {
 				t.Fatal(err)
@@ -980,7 +990,7 @@ func TestApplyProbeServiceContextCancellation(t *testing.T) {
 		ctl := &hostActApplySystemctl{script: hostActApplyScript(map[int]func([]string) (string, int, error){
 			// The final probe reports a clean enabled unit, but the caller's
 			// context ended first: success must not be reported.
-			3: func([]string) (string, int, error) { cancel(); return "enabled\n", 0, nil },
+			3: hostActApplyHook(cancel, "enabled\n"),
 		})}
 		hostActApplyRequireErr(t, ApplyProbeService(ctx, parent, intent, ctl), domain.ErrProbeBinaryStageWriteUnknown)
 		hostActApplyRequireCalls(t, ctl, hostActApplyWantCalls(hostActApplyUnitName, 4))

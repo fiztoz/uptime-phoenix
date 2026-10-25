@@ -89,7 +89,7 @@ func TestM8InstallJournalClockAfterAuthorityLock(t *testing.T) {
 					peer := f
 					peer.db = m8InstallSecondDB(t, f, "")
 					hook := &m8JournalLockEntry{entered: make(chan struct{})}
-					peer.db.AddQueryHook(hook)
+					attachInPlaceQueryHook(peer.db, hook)
 					svc := m8JournalService(t, peer)
 					type reply struct {
 						operation *domain.ProbeInstallOperation

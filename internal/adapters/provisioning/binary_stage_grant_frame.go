@@ -32,7 +32,7 @@ const (
 // nonce to the helper's trusted authority; it carries no marker, because the
 // helper has not yet read the intent. Invalid input returns nil.
 func EncodeProbeBinaryStageChallengeLine(authorityKeyID string, nonce [32]byte) []byte {
-	if !stageGrantLowerHex(authorityKeyID, 64) || nonce == ([32]byte{}) {
+	if !stageGrantLowerHex(authorityKeyID) || nonce == ([32]byte{}) {
 		return nil
 	}
 	line := make([]byte, 0, ProbeBinaryStageChallengeLineSize)
@@ -55,7 +55,7 @@ func ParseProbeBinaryStageChallengeLine(line []byte) (string, [32]byte, error) {
 	}
 	body := line[len(stageChallengePrefix) : len(line)-len(stageChallengeSuffix)]
 	keyID, middle, nonceHex := string(body[:64]), body[64:64+len(stageChallengeMiddle)], string(body[64+len(stageChallengeMiddle):])
-	if string(middle) != stageChallengeMiddle || !stageGrantLowerHex(keyID, 64) || !stageGrantLowerHex(nonceHex, 64) {
+	if string(middle) != stageChallengeMiddle || !stageGrantLowerHex(keyID) || !stageGrantLowerHex(nonceHex) {
 		return "", nonce, domain.ErrProbeBinaryStageWriteInput
 	}
 	if _, err := hex.Decode(nonce[:], []byte(nonceHex)); err != nil || nonce == ([32]byte{}) {
@@ -106,7 +106,7 @@ func EncodeProbeBinaryStageAuthorityKey(publicKey [32]byte) []byte {
 // establishes that the operator installed it.
 func ParseProbeBinaryStageAuthorityKey(body []byte) ([32]byte, error) {
 	var key [32]byte
-	if len(body) != ProbeBinaryStageAuthorityKeyFileSize || body[64] != '\n' || !stageGrantLowerHex(string(body[:64]), 64) {
+	if len(body) != ProbeBinaryStageAuthorityKeyFileSize || body[64] != '\n' || !stageGrantLowerHex(string(body[:64])) {
 		return key, domain.ErrProbeBinaryStageWriteInput
 	}
 	if _, err := hex.Decode(key[:], body[:64]); err != nil || key == ([32]byte{}) {
@@ -115,8 +115,10 @@ func ParseProbeBinaryStageAuthorityKey(body []byte) ([32]byte, error) {
 	return key, nil
 }
 
-func stageGrantLowerHex(value string, size int) bool {
-	if len(value) != size {
+// stageGrantLowerHex reports whether value is exactly 64 lowercase hexadecimal
+// digits: the shape of an authority key ID and of a grant nonce.
+func stageGrantLowerHex(value string) bool {
+	if len(value) != 64 {
 		return false
 	}
 	for i := 0; i < len(value); i++ {

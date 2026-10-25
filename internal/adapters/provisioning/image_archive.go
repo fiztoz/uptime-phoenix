@@ -500,7 +500,7 @@ func readbackProbeImageArchive(ctx context.Context, root *os.Root, file *imageSn
 
 func bareProbeImageErr(err error) error {
 	if err == nil {
-		return err
+		return nil
 	}
 	for _, safe := range []error{
 		domain.ErrProbeImageInput,

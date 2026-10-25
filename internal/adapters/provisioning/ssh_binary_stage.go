@@ -580,7 +580,7 @@ func (p *sftpPipe) readExact(handle []byte, size int64, digest string) (bool, er
 }
 
 func (p *sftpPipe) lstat(path string) (lstatResult, error) {
-	typ, rest, err := p.exchange(sftpLstat, appendString(nil, []byte(path)))
+	typ, rest, err := p.exchange(sftpLstat, appendString([]byte(path)))
 	if err != nil {
 		return lstatResult{}, err
 	}
@@ -588,7 +588,7 @@ func (p *sftpPipe) lstat(path string) (lstatResult, error) {
 }
 
 func (p *sftpPipe) fstat(handle []byte) (fileAttrs, error) {
-	typ, rest, err := p.exchange(sftpFstat, appendString(nil, handle))
+	typ, rest, err := p.exchange(sftpFstat, appendString(handle))
 	if err != nil {
 		return fileAttrs{}, err
 	}
@@ -603,7 +603,7 @@ func (p *sftpPipe) fstat(handle []byte) (fileAttrs, error) {
 }
 
 func (p *sftpPipe) openRead(path string) ([]byte, error) {
-	body := appendString(nil, []byte(path))
+	body := appendString([]byte(path))
 	body = appendU32(body, sftpFXFRead)
 	body = appendU32(body, 0)
 	typ, rest, err := p.exchange(sftpOpen, body)
@@ -617,7 +617,7 @@ func (p *sftpPipe) openRead(path string) ([]byte, error) {
 }
 
 func (p *sftpPipe) closeHandle(handle []byte) error {
-	typ, rest, err := p.exchange(sftpClose, appendString(nil, handle))
+	typ, rest, err := p.exchange(sftpClose, appendString(handle))
 	if err != nil {
 		return err
 	}
@@ -635,7 +635,7 @@ func (p *sftpPipe) readChunk(handle []byte, offset uint64, n uint32) ([]byte, bo
 	if n == 0 || n > binaryStageReadMax {
 		return nil, false, errBinaryStage
 	}
-	body := appendString(nil, handle)
+	body := appendString(handle)
 	body = appendU64(body, offset)
 	body = appendU32(body, n)
 	typ, rest, err := p.exchange(sftpRead, body)
@@ -891,7 +891,6 @@ func appendU64(dst []byte, v uint64) []byte {
 	return append(dst, b[:]...)
 }
 
-func appendString(dst, s []byte) []byte {
-	dst = appendU32(dst, uint32(len(s)))
-	return append(dst, s...)
+func appendString(s []byte) []byte {
+	return append(appendU32(nil, uint32(len(s))), s...)
 }

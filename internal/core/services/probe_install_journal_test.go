@@ -85,10 +85,23 @@ func installJournalQueued(identity domain.ProbeInstallIdentity, ownerID string) 
 	return operation
 }
 
-// installJournalResource mutates one resource by canonical kind.
-func installJournalResource(operation *domain.ProbeInstallOperation, kind string) *domain.ProbeInstallResource {
+// Named hook types for the malformed-receipt tables. Every closure in those
+// tables returns a canned receipt and a nil error by design; the named types
+// record that each one must keep the journal fake's hook signature.
+type (
+	installJournalCreateHook  func(context.Context, domain.ProbeInstallIdentity, string) (*domain.ProbeInstallOperation, bool, error)
+	installJournalReserveHook func(context.Context, string, string, string, string) (*domain.ProbeInstallOperation, bool, error)
+	installJournalRecordHook  func(context.Context, string, string, string, string, domain.ProbeInstallResourceOutcome) (*domain.ProbeInstallOperation, error)
+	installJournalObserveHook func(context.Context, string) (*domain.ProbeInstallOperation, error)
+	installJournalBeginHook   func(context.Context, string, string) (*domain.ProbeInstallOperation, error)
+	installJournalFinishHook  func(context.Context, string, string, domain.ProbeInstallOutcome) (*domain.ProbeInstallOperation, error)
+)
+
+// installJournalResource returns the data_directory resource (the first
+// reservable kind) for in-place mutation, or nil when the plan has none.
+func installJournalResource(operation *domain.ProbeInstallOperation) *domain.ProbeInstallResource {
 	for i := range operation.Resources {
-		if operation.Resources[i].Spec.Kind == kind {
+		if operation.Resources[i].Spec.Kind == "data_directory" {
 			return &operation.Resources[i]
 		}
 	}
@@ -115,7 +128,7 @@ func installJournalInFlight(operation *domain.ProbeInstallOperation, attemptID s
 	installJournalApplyPrefix(operation, "data_directory")
 	operation.State = domain.ProbeInstallRunning
 	operation.UpdatedAt = installJournalBaseTime().Add(time.Minute)
-	resource := installJournalResource(operation, "data_directory")
+	resource := installJournalResource(operation)
 	resource.State = domain.ProbeInstallResourceInFlight
 	resource.AttemptID = attemptID
 	resource.StartedAt = installJournalBaseTime().Add(10 * time.Second)
@@ -127,7 +140,7 @@ func installJournalApplied(operation *domain.ProbeInstallOperation, attemptID st
 	installJournalApplyPrefix(operation, "data_directory")
 	operation.State = domain.ProbeInstallRunning
 	operation.UpdatedAt = installJournalBaseTime().Add(12 * time.Second)
-	resource := installJournalResource(operation, "data_directory")
+	resource := installJournalResource(operation)
 	resource.State = domain.ProbeInstallResourceApplied
 	resource.AttemptID = attemptID
 	resource.StartedAt = installJournalBaseTime().Add(10 * time.Second)
@@ -297,7 +310,7 @@ func TestProbeInstallJournalCreateAdmission(t *testing.T) {
 				}
 			})
 			t.Run("malformed admission is never a grant", func(t *testing.T) {
-				for name, hook := range map[string]func(context.Context, domain.ProbeInstallIdentity, string) (*domain.ProbeInstallOperation, bool, error){
+				for name, hook := range map[string]installJournalCreateHook{
 					"nil receipt": func(context.Context, domain.ProbeInstallIdentity, string) (*domain.ProbeInstallOperation, bool, error) {
 						return nil, true, nil
 					},
@@ -338,7 +351,8 @@ func TestProbeInstallJournalCreateAdmission(t *testing.T) {
 		if _, _, err := service.Create(context.Background(), installJournalIdentity(domain.ProbeInstallSystemd, installJournalOpID), "not-a-uuid"); !errors.Is(err, domain.ErrValidation) {
 			t.Fatalf("invalid owner accepted: %v", err)
 		}
-		if _, _, err := service.Create(nil, installJournalIdentity(domain.ProbeInstallSystemd, installJournalOpID), installJournalOwner); !errors.Is(err, domain.ErrValidation) {
+		var bareNilCtx context.Context
+		if _, _, err := service.Create(bareNilCtx, installJournalIdentity(domain.ProbeInstallSystemd, installJournalOpID), installJournalOwner); !errors.Is(err, domain.ErrValidation) {
 			t.Fatalf("nil context accepted: %v", err)
 		}
 		if operations.total() != 0 {
@@ -360,7 +374,7 @@ func TestProbeInstallJournalReserveGrant(t *testing.T) {
 				if err != nil || !created || operation == nil {
 					t.Fatalf("reserve failed: created=%v err=%v", created, err)
 				}
-				resource := installJournalResource(operation, "data_directory")
+				resource := installJournalResource(operation)
 				if operation.State != domain.ProbeInstallRunning || resource.State != domain.ProbeInstallResourceInFlight || resource.AttemptID != installJournalAttempt {
 					t.Fatalf("grant receipt mismatch: %+v", resource)
 				}
@@ -384,12 +398,12 @@ func TestProbeInstallJournalReserveGrant(t *testing.T) {
 				if err != nil || created || operation == nil {
 					t.Fatalf("applied retry rejected: created=%v err=%v", created, err)
 				}
-				if resource := installJournalResource(operation, "data_directory"); resource.State != domain.ProbeInstallResourceApplied {
+				if resource := installJournalResource(operation); resource.State != domain.ProbeInstallResourceApplied {
 					t.Fatalf("history mutated: %+v", resource)
 				}
 			})
 			t.Run("malformed grants are refused", func(t *testing.T) {
-				for name, hook := range map[string]func(context.Context, string, string, string, string) (*domain.ProbeInstallOperation, bool, error){
+				for name, hook := range map[string]installJournalReserveHook{
 					"grant for an applied resource": func(_ context.Context, _ string, ownerID, _ string, attemptID string) (*domain.ProbeInstallOperation, bool, error) {
 						return installJournalApplied(installJournalQueued(identity, ownerID), attemptID), true, nil
 					},
@@ -406,7 +420,7 @@ func TestProbeInstallJournalReserveGrant(t *testing.T) {
 					},
 					"receipt without the resource": func(_ context.Context, _ string, ownerID, _ string, attemptID string) (*domain.ProbeInstallOperation, bool, error) {
 						operation := installJournalInFlight(installJournalQueued(identity, ownerID), attemptID)
-						installJournalResource(operation, "data_directory").Spec.Kind = "unit_file"
+						installJournalResource(operation).Spec.Kind = "unit_file"
 						return operation, true, nil
 					},
 					"corrupt receipt": func(_ context.Context, _ string, ownerID, _ string, attemptID string) (*domain.ProbeInstallOperation, bool, error) {
@@ -454,7 +468,7 @@ func TestProbeInstallJournalRecordOutcome(t *testing.T) {
 			name:    "applied report",
 			outcome: domain.ProbeInstallResourceOutcome{State: domain.ProbeInstallResourceApplied},
 			stored: func(operation *domain.ProbeInstallOperation) {
-				resource := installJournalResource(operation, "data_directory")
+				resource := installJournalResource(operation)
 				resource.State = domain.ProbeInstallResourceApplied
 				resource.FinishedAt = installJournalBaseTime().Add(11 * time.Second)
 			},
@@ -463,7 +477,7 @@ func TestProbeInstallJournalRecordOutcome(t *testing.T) {
 			name:    "not_started report",
 			outcome: domain.ProbeInstallResourceOutcome{State: domain.ProbeInstallResourceNotStarted, ErrorCode: "not_started"},
 			stored: func(operation *domain.ProbeInstallOperation) {
-				resource := installJournalResource(operation, "data_directory")
+				resource := installJournalResource(operation)
 				resource.State = domain.ProbeInstallResourceNotStarted
 				resource.ErrorCode = "not_started"
 				resource.FinishedAt = installJournalBaseTime().Add(11 * time.Second)
@@ -473,7 +487,7 @@ func TestProbeInstallJournalRecordOutcome(t *testing.T) {
 			name:    "unknown report interrupts",
 			outcome: domain.ProbeInstallResourceOutcome{State: domain.ProbeInstallResourceUnknown, ErrorCode: "outcome_unknown"},
 			stored: func(operation *domain.ProbeInstallOperation) {
-				resource := installJournalResource(operation, "data_directory")
+				resource := installJournalResource(operation)
 				resource.State = domain.ProbeInstallResourceUnknown
 				resource.ErrorCode = "outcome_unknown"
 				resource.FinishedAt = installJournalBaseTime().Add(11 * time.Second)
@@ -493,17 +507,17 @@ func TestProbeInstallJournalRecordOutcome(t *testing.T) {
 			if err != nil || operation == nil {
 				t.Fatalf("record failed: %v", err)
 			}
-			resource := installJournalResource(operation, "data_directory")
+			resource := installJournalResource(operation)
 			if resource.State != tc.outcome.State || resource.ErrorCode != tc.outcome.ErrorCode {
 				t.Fatalf("recorded outcome = %+v, want %+v", *resource, tc.outcome)
 			}
 		})
 	}
 	t.Run("altered outcomes are refused", func(t *testing.T) {
-		for name, hook := range map[string]func(context.Context, string, string, string, string, domain.ProbeInstallResourceOutcome) (*domain.ProbeInstallOperation, error){
+		for name, hook := range map[string]installJournalRecordHook{
 			"stored outcome replaced": func(_ context.Context, _ string, ownerID, _ string, attemptID string, _ domain.ProbeInstallResourceOutcome) (*domain.ProbeInstallOperation, error) {
 				operation := installJournalApplied(installJournalQueued(identity, ownerID), attemptID)
-				resource := installJournalResource(operation, "data_directory")
+				resource := installJournalResource(operation)
 				resource.State = domain.ProbeInstallResourceUnknown
 				resource.ErrorCode = "outcome_unknown"
 				operation.State = domain.ProbeInstallInterrupted
@@ -512,7 +526,7 @@ func TestProbeInstallJournalRecordOutcome(t *testing.T) {
 			},
 			"stored code disagrees": func(_ context.Context, _ string, ownerID, _ string, attemptID string, _ domain.ProbeInstallResourceOutcome) (*domain.ProbeInstallOperation, error) {
 				operation := installJournalInFlight(installJournalQueued(identity, ownerID), attemptID)
-				resource := installJournalResource(operation, "data_directory")
+				resource := installJournalResource(operation)
 				resource.State = domain.ProbeInstallResourceNotStarted
 				resource.ErrorCode = "not_started"
 				resource.FinishedAt = installJournalBaseTime().Add(11 * time.Second)
@@ -581,7 +595,7 @@ func TestProbeInstallJournalObserveBeginCancelFinish(t *testing.T) {
 		}
 	})
 	t.Run("observe refuses malformed receipts", func(t *testing.T) {
-		for name, hook := range map[string]func(context.Context, string) (*domain.ProbeInstallOperation, error){
+		for name, hook := range map[string]installJournalObserveHook{
 			"nil receipt": func(context.Context, string) (*domain.ProbeInstallOperation, error) { return nil, nil },
 			"foreign operation": func(_ context.Context, _ string) (*domain.ProbeInstallOperation, error) {
 				return installJournalQueued(installJournalIdentity(domain.ProbeInstallDocker, installJournalOpIDTwo), installJournalOwner), nil
@@ -609,7 +623,7 @@ func TestProbeInstallJournalObserveBeginCancelFinish(t *testing.T) {
 		if err != nil || operation == nil || operation.State != domain.ProbeInstallRunning || operation.OwnerID != installJournalOwner {
 			t.Fatalf("begin failed: %v", err)
 		}
-		for name, hook := range map[string]func(context.Context, string, string) (*domain.ProbeInstallOperation, error){
+		for name, hook := range map[string]installJournalBeginHook{
 			"begin left the operation queued": func(_ context.Context, _ string, ownerID string) (*domain.ProbeInstallOperation, error) {
 				return installJournalQueued(identity, ownerID), nil
 			},
@@ -679,7 +693,7 @@ func TestProbeInstallJournalObserveBeginCancelFinish(t *testing.T) {
 			operation.State != outcome.State || operation.ErrorCode != outcome.ErrorCode {
 			t.Fatalf("finish failed: %v", err)
 		}
-		for name, hook := range map[string]func(context.Context, string, string, domain.ProbeInstallOutcome) (*domain.ProbeInstallOperation, error){
+		for name, hook := range map[string]installJournalFinishHook{
 			"outcome replaced": func(_ context.Context, _ string, ownerID string, _ domain.ProbeInstallOutcome) (*domain.ProbeInstallOperation, error) {
 				operation := installJournalQueued(identity, ownerID)
 				operation.State = domain.ProbeInstallFailed

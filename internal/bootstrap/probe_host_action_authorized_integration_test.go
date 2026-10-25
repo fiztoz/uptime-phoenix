@@ -217,7 +217,6 @@ func startHactRun(t *testing.T, o hactRunOptions) *hactRun {
 		r.stdin, r.w = &authzStdin{pr: pr}, pw
 		input = r.stdin
 	}
-	loadKey := func(context.Context) ([32]byte, error) { return o.keys.pub, nil }
 	hostKeys := authzIntentHost
 	if o.hostKeys != nil {
 		hostKeys = o.hostKeys
@@ -228,7 +227,8 @@ func startHactRun(t *testing.T, o hactRunOptions) *hactRun {
 	}
 	entropy := bytes.NewReader(append([]byte(nil), o.nonce[:]...))
 	go func() {
-		r.done <- runAuthorizedProbeHostActionHelper(ctx, nil, input, r.stdout, &r.stderr, loadKey, hostKeys, entropy, probeHostActionWithoutReceipt(apply))
+		r.done <- runAuthorizedProbeHostActionHelper(ctx, nil, input, r.stdout, &r.stderr,
+			func(context.Context) ([32]byte, error) { return o.keys.pub, nil }, hostKeys, entropy, probeHostActionWithoutReceipt(apply))
 	}()
 	t.Cleanup(func() {
 		cancel()

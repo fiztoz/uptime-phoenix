@@ -137,7 +137,7 @@ type hostActSendHelper struct {
 	// Grant phase.
 	verify bool
 
-	// Exit behaviour (consumed by the fixture's sendExit).
+	// Exit behavior (consumed by the fixture's sendExit).
 	exit           *uint32
 	signal         string
 	noExit         bool
@@ -386,14 +386,14 @@ func (h *hostActSendHarness) genuineSignature() []byte {
 }
 
 // requireNotStaged asserts the pre-stdin failure class and its server-side
-// evidence over rounds sequential calls: zero stdin bytes, one fixed exec on
-// one connection per call (no retry).
-func (h *hostActSendHarness) requireNotStaged(t *testing.T, res hostActSendResult, rounds int) {
+// evidence of one call: zero stdin bytes, one fixed exec on one connection (no
+// retry).
+func (h *hostActSendHarness) requireNotStaged(t *testing.T, res hostActSendResult) {
 	t.Helper()
 	if res.err != ErrSSHBinaryStageNotStaged || res.ack != (SSHHostActionAck{}) {
 		t.Fatalf("result %+v %v, want ErrSSHBinaryStageNotStaged", res.ack, res.err)
 	}
-	h.requireNoStageInput(t, rounds)
+	h.requireNoStageInput(t)
 }
 
 // requireExitRaceOutcome accepts the two consistent classes of a helper that
@@ -419,20 +419,20 @@ func (h *hostActSendHarness) requireExitRaceOutcome(t *testing.T, res hostActSen
 	default:
 		t.Fatalf("result %v, want NotStaged or (exit observed late) Unknown", res.err)
 	}
-	h.requireNoStageInput(t, 1)
+	h.requireNoStageInput(t)
 }
 
-func (h *hostActSendHarness) requireNoStageInput(t *testing.T, rounds int) {
+func (h *hostActSendHarness) requireNoStageInput(t *testing.T) {
 	t.Helper()
 	h.helper.waitIdle(t, h.f)
 	if got := h.f.stdinBytes(); len(got) != 0 {
 		t.Fatalf("server received %d stdin bytes, want 0", len(got))
 	}
-	if got, want := h.f.execCommands(), slices.Repeat([]string{hostActSendCommandLiteral}, rounds); !slices.Equal(got, want) {
+	if got, want := h.f.execCommands(), []string{hostActSendCommandLiteral}; !slices.Equal(got, want) {
 		t.Fatalf("exec commands %v, want %v", got, want)
 	}
-	if got := h.f.connCalls.Load(); got != int32(rounds) {
-		t.Fatalf("connections = %d, want %d (no retry)", got, rounds)
+	if got := h.f.connCalls.Load(); got != 1 {
+		t.Fatalf("connections = %d, want 1 (no retry)", got)
 	}
 }
 
@@ -800,7 +800,7 @@ func TestSendHostActionHelperRefusalBeforeStdinIsNotStaged(t *testing.T) {
 					h.requireExitRaceOutcome(t, res)
 					return
 				}
-				h.requireNotStaged(t, res, 1)
+				h.requireNotStaged(t, res)
 				if h.auth.calls.Load() != 0 {
 					t.Fatalf("authorizer called %d times for a refused challenge", h.auth.calls.Load())
 				}
@@ -829,7 +829,7 @@ func TestSendHostActionAuthorizerErrorIsNotStaged(t *testing.T) {
 					}
 				})
 				res := h.send(t)
-				h.requireNotStaged(t, res, 1)
+				h.requireNotStaged(t, res)
 				if errors.Is(res.err, tc.err) {
 					t.Fatalf("authorizer error %v leaked through %v", tc.err, res.err)
 				}
@@ -906,7 +906,7 @@ func TestSendHostActionGrantForDifferentRequestIsNotStaged(t *testing.T) {
 					}
 				})
 				res := h.send(t)
-				h.requireNotStaged(t, res, 1)
+				h.requireNotStaged(t, res)
 				if h.auth.calls.Load() != 1 {
 					t.Fatalf("authorizer calls = %d, want exactly 1", h.auth.calls.Load())
 				}
@@ -930,7 +930,7 @@ func TestSendHostActionCancelDuringAuthorization(t *testing.T) {
 		cancel()
 		res := hostActSendAwait(t, done, "cancel during authorization")
 		// Post-exec, pre-stdin: NotStaged, neither a bare context error nor Unknown.
-		h.requireNotStaged(t, res, 1)
+		h.requireNotStaged(t, res)
 		if h.auth.calls.Load() != 1 {
 			t.Fatalf("authorizer calls = %d, want 1", h.auth.calls.Load())
 		}
@@ -950,7 +950,7 @@ func TestSendHostActionCancelDuringAuthorization(t *testing.T) {
 		if h.auth.calls.Load() != 0 {
 			t.Fatalf("authorizer calls = %d, want 0 (remaining budget below the floor)", h.auth.calls.Load())
 		}
-		h.requireNotStaged(t, res, 1)
+		h.requireNotStaged(t, res)
 	})
 
 	t.Run("authorizer ignores cancellation and still returns a valid grant", func(t *testing.T) {
@@ -969,7 +969,7 @@ func TestSendHostActionCancelDuringAuthorization(t *testing.T) {
 			t.Fatal("authorizer call not reached")
 		}
 		cancel()
-		h.requireNotStaged(t, hostActSendAwait(t, done, "cancel with a late grant"), 1)
+		h.requireNotStaged(t, hostActSendAwait(t, done, "cancel with a late grant"))
 	})
 
 	t.Run("cancel while the challenge never arrives", func(t *testing.T) {
@@ -980,7 +980,7 @@ func TestSendHostActionCancelDuringAuthorization(t *testing.T) {
 		sendTWaitCount(t, &h.f.execCalls, "exec request")
 		hostActSendExpectBlocked(t, done, "send while the helper is silent")
 		cancel()
-		h.requireNotStaged(t, hostActSendAwait(t, done, "cancel while waiting for the challenge"), 1)
+		h.requireNotStaged(t, hostActSendAwait(t, done, "cancel while waiting for the challenge"))
 		if h.auth.calls.Load() != 0 {
 			t.Fatalf("authorizer called %d times without a challenge", h.auth.calls.Load())
 		}
@@ -1006,7 +1006,7 @@ func TestSendHostActionHelperDiesDuringAuthorization(t *testing.T) {
 		}
 	})
 	res := h.send(t)
-	h.requireNotStaged(t, res, 1)
+	h.requireNotStaged(t, res)
 	if h.auth.calls.Load() != 1 {
 		t.Fatalf("authorizer calls = %d, want 1", h.auth.calls.Load())
 	}

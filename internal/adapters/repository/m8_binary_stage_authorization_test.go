@@ -508,7 +508,7 @@ func m8StageBlockedCall(t *testing.T, ctx context.Context, f probeRegistryFixtur
 	t.Helper()
 	peer := m8InstallSecondDB(t, f, "")
 	hook := &m8JournalLockEntry{entered: make(chan struct{})}
-	peer.AddQueryHook(hook)
+	attachInPlaceQueryHook(peer, hook)
 	svc := m8StageService(t, repository.NewProbeBinaryStageAdmissionStore(peer), signer)
 	call, cancel := context.WithCancel(ctx)
 	result := make(chan m8StageResult, 1)

@@ -297,12 +297,13 @@ func applyStageHeaderToken(dst *probeBinaryStageHeaderDTO, key string, tok json.
 	case "sha256":
 		return takeStageString(&dst.SHA256, tok)
 	case "requested_by":
-		return takeStageInt64(&dst.RequestedBy, tok, 64)
+		return takeStageInt64(&dst.RequestedBy, tok)
 	case "size":
-		return takeStageInt64(&dst.Size, tok, 64)
+		return takeStageInt64(&dst.Size, tok)
 	case "layout_version":
 		var n int64
-		if !takeStageInt64(&n, tok, strconv.IntSize) {
+		// The value must also fit the platform int.
+		if !takeStageInt64(&n, tok) || int64(int(n)) != n {
 			return false
 		}
 		dst.LayoutVersion = int(n)
@@ -321,12 +322,12 @@ func takeStageString(dst *string, tok json.Token) bool {
 	return true
 }
 
-func takeStageInt64(dst *int64, tok json.Token, bits int) bool {
+func takeStageInt64(dst *int64, tok json.Token) bool {
 	number, ok := tok.(json.Number)
 	if !ok || !canonicalStageInteger(number.String()) {
 		return false
 	}
-	n, err := strconv.ParseInt(number.String(), 10, bits)
+	n, err := strconv.ParseInt(number.String(), 10, 64)
 	if err != nil {
 		return false
 	}

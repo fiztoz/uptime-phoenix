@@ -24,6 +24,17 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
+// goToolPath resolves the go command from PATH. runtime.GOROOT is deprecated
+// because the build-time root is not meaningful once a binary moves hosts.
+func goToolPath(t *testing.T) string {
+	t.Helper()
+	path, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("locating the go command: %v", err)
+	}
+	return path
+}
+
 func helperEffectFixture(t *testing.T, arch string) []byte {
 	t.Helper()
 	dir := t.TempDir()
@@ -45,7 +56,7 @@ func main(){if p:=os.Getenv("PHOENIX_ARTIFACT_EXECUTION_CANARY");p!=""{_=os.Writ
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-trimpath", "-ldflags=-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=1.2.3", "-o", "fixture", "./cmd/probe")
+	cmd := exec.CommandContext(ctx, goToolPath(t), "build", "-trimpath", "-ldflags=-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=1.2.3", "-o", "fixture", "./cmd/probe")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH="+arch, "CGO_ENABLED=0", "GOENV=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off", "GOWORK=off", "GOFLAGS=")
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -253,8 +264,8 @@ func TestProbeBinaryStageHelperWaitsForRealEOF(t *testing.T) {
 	parent, fd, scratch := helperEffectParent(t)
 	frame := helperEffectFrame(t, intent, data)
 	pr, pw := io.Pipe()
-	defer pr.Close()
-	defer pw.Close()
+	defer func() { _ = pr.Close() }()
+	defer func() { _ = pw.Close() }()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	entered := make(chan struct{})
@@ -348,7 +359,7 @@ func TestProbeBinaryStageHelperPollableInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pw.Close()
+	defer func() { _ = pw.Close() }()
 	// Fd deliberately models exec's inherited blocking stdin. Retain a second
 	// descriptor only to observe restoration after the owned original closes.
 	original := pr.Fd()
@@ -357,7 +368,7 @@ func TestProbeBinaryStageHelperPollableInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	observer := os.NewFile(uintptr(fd), "flag-observer")
-	defer observer.Close()
+	defer func() { _ = observer.Close() }()
 	before := helperEffectFlags(t, observer)
 	if before&unix.O_NONBLOCK != 0 {
 		t.Fatal("fixture did not model blocking inherited stdin")

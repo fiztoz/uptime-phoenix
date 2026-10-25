@@ -22,7 +22,7 @@ func TestM8PreflightClockAfterAuthorityLock(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			store := repository.NewProbePreflightStore(f.db)
-			if _, _, err := store.CreatePreflight(ctx, m8PreflightIdentity(m8PreflightOp1, m8PreflightActorID), m8PreflightOwnerA); err != nil {
+			if _, _, err := store.CreatePreflight(ctx, m8PreflightIdentity(m8PreflightOp1), m8PreflightOwnerA); err != nil {
 				t.Fatal(err)
 			}
 			var second *bun.DB

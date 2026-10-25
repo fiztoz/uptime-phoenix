@@ -220,10 +220,8 @@ func TestSSHArtifactDirectoryExecutorConstructorRefusesNilCollaborators(t *testi
 	if err != nil || e == nil {
 		t.Fatalf("valid collaborators refused: %v %v", e, err)
 	}
-	var port ports.ProbeInstallResourceExecutor = e
-	if port == nil {
-		t.Fatal("executor does not satisfy the port")
-	}
+	// The executor must satisfy the port (checked at compile time).
+	var _ ports.ProbeInstallResourceExecutor = e
 	// Construction performs no I/O of any kind.
 	adExecRequireNoIO(t, h)
 }

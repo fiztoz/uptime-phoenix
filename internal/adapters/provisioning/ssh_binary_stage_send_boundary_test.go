@@ -105,7 +105,7 @@ func TestSSHBinaryStageSenderKnownCancellationBeforeCompletion(t *testing.T) {
 	binary := sendTBinary(sendTPin(data), func(context.Context) (io.ReadCloser, error) { return reader, nil })
 	f := serveStageSend(t, sendTConfig{stdout: sendTReceiptFor(binary.Pin())})
 	call, stdin := sendBoundaryCall(t, ctx, f, binary)
-	defer call.join()
+	defer func() { _ = call.join() }()
 	if err := call.execute(); err == nil {
 		t.Error("known cancellation did not stop completion")
 	}
@@ -121,7 +121,7 @@ func TestSSHBinaryStageSenderKnownCancellationBeforeExec(t *testing.T) {
 	binary := sendTBytesBinary(data)
 	f := serveStageSend(t, sendTConfig{})
 	call, _ := sendBoundaryCall(t, ctx, f, binary)
-	defer call.join()
+	defer func() { _ = call.join() }()
 	cancel()
 	if err := call.execute(); !errors.Is(err, context.Canceled) {
 		t.Fatalf("pre-exec cancellation was not preserved: %v", err)
@@ -142,11 +142,11 @@ func sendBoundaryCall(t *testing.T, ctx context.Context, f *sendTFixture, binary
 	t.Cleanup(cancel)
 	call := &stageSendCall{ctx: ctx, tctx: tctx, intent: intent, pin: binary.Pin(), header: header, src: &stageSendSource{}, cancelJoined: make(chan struct{}), command: SSHProbeBinaryStageCommand}
 	if err := call.openSource(binary); err != nil {
-		call.join()
+		_ = call.join()
 		t.Fatal(err)
 	}
 	if err := call.connect(f.sender(t).insp); err != nil {
-		call.join()
+		_ = call.join()
 		t.Fatal(err)
 	}
 	stdin := &sendBoundaryStdin{WriteCloser: call.stdin}

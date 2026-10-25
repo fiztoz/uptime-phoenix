@@ -234,10 +234,8 @@ func TestSSHProbeInstallExecutorConstructorRefusesNilCollaborators(t *testing.T)
 			}
 		})
 	}
-	var port ports.ProbeInstallResourceExecutor = h.exec
-	if port == nil {
-		t.Fatal("executor does not satisfy the port")
-	}
+	// The executor must satisfy the port (checked at compile time).
+	var _ ports.ProbeInstallResourceExecutor = h.exec
 	// Construction performs no I/O of any kind.
 	h.requireNoIO(t)
 }
@@ -350,9 +348,10 @@ func TestSSHProbeInstallExecutorAppliesLayoutInOrder(t *testing.T) {
 	if h.stageAuth.calls.Load() != 1 || h.hostAuth.calls.Load() != 3 {
 		t.Fatalf("authorizers: stage %d host %d, want 1 and 3", h.stageAuth.calls.Load(), h.hostAuth.calls.Load())
 	}
-	var kinds []string
+	seen := h.hostAuth.seenRequests()
+	kinds := make([]string, 0, len(seen))
 	digests := map[string]bool{}
-	for _, r := range h.hostAuth.seenRequests() {
+	for _, r := range seen {
 		kinds = append(kinds, r.Intent.Kind)
 		if digests[r.Challenge.MarkerSHA256] {
 			t.Fatalf("two host actions share the marker digest %s", r.Challenge.MarkerSHA256)
@@ -487,7 +486,7 @@ func instExecReceiptMutations(otherFP, kind string) map[string]func(op *domain.P
 		"client key pin of another client": func(op *domain.ProbeInstallOperation) {
 			op.Identity.ClientKeyFingerprint = otherFP
 		},
-		"this resource and a neighbour swapped": func(op *domain.ProbeInstallOperation) {
+		"this resource and a neighbor swapped": func(op *domain.ProbeInstallOperation) {
 			j := (index + 1) % len(op.Resources)
 			op.Resources[index], op.Resources[j] = op.Resources[j], op.Resources[index]
 		},

@@ -347,7 +347,7 @@ func TestProbeImageInputOwnershipAndCancellation(t *testing.T) {
 			f := testutil.NewProbeImageFixture(t, "amd64", false)
 			in, all := imageInputs(f)
 			r, w := io.Pipe()
-			defer w.Close()
+			defer func() { _ = w.Close() }()
 			started := make(chan struct{})
 			blocked := &imageTrackedInput{Reader: &imageReadSignaler{r: r, started: started}, closeFn: r.Close}
 			switch stage {

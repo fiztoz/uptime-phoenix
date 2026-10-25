@@ -106,7 +106,6 @@ type runnerFakeCall struct {
 	kind     string
 	attempt  string
 	outcome  string
-	created  bool
 	deadline time.Duration
 	canceled bool
 }
@@ -196,8 +195,8 @@ func isRunnerJoined(state string) bool {
 	return state == domain.ProbeInstallRunning || state == domain.ProbeInstallResourcesReady || state == domain.ProbeInstallCancelRequested
 }
 
-func (f *runnerFakeJournal) log(ctx context.Context, method, kind, attempt, outcome string, created bool) {
-	entry := runnerFakeCall{method: method, kind: kind, attempt: attempt, outcome: outcome, created: created, canceled: ctx.Err() != nil}
+func (f *runnerFakeJournal) log(ctx context.Context, method, kind, attempt, outcome string) {
+	entry := runnerFakeCall{method: method, kind: kind, attempt: attempt, outcome: outcome, canceled: ctx.Err() != nil}
 	if deadline, ok := ctx.Deadline(); ok {
 		entry.deadline = time.Until(deadline)
 	}
@@ -222,7 +221,7 @@ func (f *runnerFakeJournal) CreateInstall(ctx context.Context, request domain.Pr
 			hook(ctx)
 		}
 	}()
-	f.log(ctx, "create", "", "", "", false)
+	f.log(ctx, "create", "", "", "")
 	f.counts.create++
 	if f.op != nil {
 		if f.op.identity != request {
@@ -256,7 +255,7 @@ func (f *runnerFakeJournal) ObserveInstall(ctx context.Context, operationID stri
 			hook(ctx)
 		}
 	}()
-	f.log(ctx, "observe", "", "", "", false)
+	f.log(ctx, "observe", "", "", "")
 	f.counts.observe++
 	if err := f.observeFailAt[f.counts.observe]; err != nil {
 		return nil, err
@@ -282,7 +281,7 @@ func (f *runnerFakeJournal) BeginInstall(ctx context.Context, operationID, owner
 			hook(ctx)
 		}
 	}()
-	f.log(ctx, "begin", "", "", "", false)
+	f.log(ctx, "begin", "", "", "")
 	f.counts.begin++
 	if f.op == nil || f.op.identity.OperationID != operationID {
 		return nil, ports.ErrNotFound
@@ -314,7 +313,7 @@ func (f *runnerFakeJournal) RequestInstallCancellation(ctx context.Context, oper
 			hook(ctx)
 		}
 	}()
-	f.log(ctx, "cancel", "", "", "", false)
+	f.log(ctx, "cancel", "", "", "")
 	f.counts.cancel++
 	if f.op == nil || f.op.identity.OperationID != operationID {
 		return nil, ports.ErrNotFound
@@ -346,7 +345,7 @@ func (f *runnerFakeJournal) FinishInstall(ctx context.Context, operationID, owne
 			hook(ctx)
 		}
 	}()
-	f.log(ctx, "finish", "", "", outcome.State+":"+outcome.ErrorCode, false)
+	f.log(ctx, "finish", "", "", outcome.State+":"+outcome.ErrorCode)
 	f.counts.finish++
 	if err := f.failBefore["finish"]; err != nil {
 		return nil, err
@@ -407,7 +406,7 @@ func (f *runnerFakeJournal) ReserveInstallResource(ctx context.Context, operatio
 			hook(ctx)
 		}
 	}()
-	f.log(ctx, "reserve", kind, attemptID, "", false)
+	f.log(ctx, "reserve", kind, attemptID, "")
 	f.counts.reserve++
 	if f.op == nil || f.op.identity.OperationID != operationID {
 		return nil, false, ports.ErrNotFound
@@ -463,7 +462,7 @@ func (f *runnerFakeJournal) RecordInstallResource(ctx context.Context, operation
 			hook(ctx)
 		}
 	}()
-	f.log(ctx, "record", kind, attemptID, outcome.State+":"+outcome.ErrorCode, false)
+	f.log(ctx, "record", kind, attemptID, outcome.State+":"+outcome.ErrorCode)
 	f.counts.record++
 	if f.op == nil || f.op.identity.OperationID != operationID {
 		return nil, ports.ErrNotFound
@@ -546,7 +545,7 @@ func (f *runnerFakeJournal) setOwner(owner string) {
 	f.op.owner = owner
 }
 
-// stageResource commits a resource receipt without a port call, modelling a
+// stageResource commits a resource receipt without a port call, modeling a
 // concurrent/earlier writer on another replica.
 func (f *runnerFakeJournal) stageResource(kind, state, attempt string) {
 	f.mu.Lock()
@@ -588,7 +587,7 @@ func (f *runnerFakeJournal) expire() {
 	f.dbNow = f.op.deadline.Add(time.Second)
 }
 
-func (f *runnerFakeJournal) forceDeadlineExpired(kind string) {
+func (f *runnerFakeJournal) forceDeadlineExpired() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.dbNow = f.op.deadline.Add(time.Second)
@@ -771,9 +770,6 @@ func TestInstallRunnerObserveGateBeforeBegin(t *testing.T) {
 		operation, err := fx.runner.Run(context.Background(), other, fx.owner, fx.attempts)
 		if !errors.Is(err, ports.ErrConflict) || operation != nil {
 			t.Fatalf("Run = (%v, %v), want (nil, conflict)", operation, err)
-		}
-		if errors.Is(err, ports.ErrConflict) && operation != nil {
-			t.Fatalf("foreign receipt surfaced: %+v", operation)
 		}
 		for _, call := range fx.fake.callLog() {
 			if call.method == "begin" || call.method == "reserve" || call.method == "record" || call.method == "finish" {
@@ -1391,9 +1387,8 @@ func TestInstallRunnerForeignStateNeverWrites(t *testing.T) {
 	t.Run("cold deadline expiry is never overwritten", func(t *testing.T) {
 		fx := runnerSetup(t, domain.ProbeInstallSystemd)
 		fx.runner.pollInterval = time.Hour
-		spec := fx.identity.Resources()[0]
 		fx.fake.onCommit["reserve"] = func(context.Context) {
-			fx.fake.forceDeadlineExpired(spec.Kind)
+			fx.fake.forceDeadlineExpired()
 		}
 		operation, err := fx.runner.Run(context.Background(), fx.identity, fx.owner, fx.attempts)
 		if !errors.Is(err, ports.ErrConflict) || operation == nil {
@@ -1598,7 +1593,6 @@ func TestInstallRunnerDefensiveCopies(t *testing.T) {
 			operation.Resources[0].State = "junk"
 			operation.Resources[0].AttemptID = "junk"
 			operation.Identity.Host.User = "junk"
-			operation.OwnerID = "junk"
 			return domain.ProbeInstallResourceOutcome{State: domain.ProbeInstallResourceApplied}, nil
 		}
 		operation, err := fx.runner.Run(context.Background(), fx.identity, fx.owner, fx.attempts)

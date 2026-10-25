@@ -103,7 +103,7 @@ func TestLocalBinaryStageReceiveRefusals(t *testing.T) {
 			s, scratch := receiveEffectService(t, wrapped)
 			intent := stageIntent(artifactPin(data, "amd64"), "11111111-1111-4111-8111-111111111142")
 			input := &stageStream{Reader: bytes.NewReader(data)}
-			want := error(domain.ErrProbeArtifactSize)
+			want := domain.ErrProbeArtifactSize
 			switch mode {
 			case "short":
 				input.Reader = bytes.NewReader(data[:len(data)-1])

@@ -97,7 +97,8 @@ func TestEd25519ProbeStageGrantSignerRefusals(t *testing.T) {
 	if g != (domain.ProbeBinaryStageGrant{}) || err != context.Canceled {
 		t.Fatal("canceled signing returned grant")
 	}
-	g, err = signer.SignStageAdmission(nil, admission)
+	var nilCtx context.Context // deliberately nil: the refusal under test
+	g, err = signer.SignStageAdmission(nilCtx, admission)
 	if g != (domain.ProbeBinaryStageGrant{}) || err != domain.ErrValidation {
 		t.Fatal("nil context accepted")
 	}

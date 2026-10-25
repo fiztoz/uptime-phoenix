@@ -72,7 +72,7 @@ func TestProbeImagePreparationServiceContract(t *testing.T) {
 			all := []*imageServiceInput{{Reader: bytes.NewReader(nil)}, {Reader: bytes.NewReader(nil)}, {Reader: bytes.NewReader(nil)}}
 			in := ports.ProbeImageInputs{Index: all[0], Manifest: all[1], Config: all[2]}
 			request := pin
-			var callCtx context.Context = ctx
+			callCtx := ctx
 			switch kind {
 			case "invalid_pin":
 				request.Version = "latest"

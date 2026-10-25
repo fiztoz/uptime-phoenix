@@ -17,7 +17,7 @@ func TestProbeImageArchiveExactBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	size := first.Descriptor().ArchiveSize
-	if err = first.Close(nil); err != nil {
+	if err = first.Close(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	for _, delta := range []int64{0, -1} {
@@ -35,12 +35,12 @@ func TestProbeImageArchiveExactBudget(t *testing.T) {
 					t.Fatal("exact archive budget refused", e)
 				}
 				_ = archiveRead(t, a)
-				if e = a.Close(nil); e != nil {
+				if e = a.Close(t.Context()); e != nil {
 					t.Fatal(e)
 				}
 			} else {
 				if a != nil {
-					_ = a.Close(nil)
+					_ = a.Close(t.Context())
 				}
 				if a != nil || e != domain.ErrProbeImageArchiveStorage {
 					t.Fatal("archive one-over budget accepted", e)
@@ -63,7 +63,7 @@ func TestProbeImageArchiveMaximumEdges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = a.Close(nil) }()
+	defer func() { _ = a.Close(t.Context()) }()
 	entries := archiveGraph(t, archiveRead(t, a))
 	if len(entries) != 5 || a.Descriptor().Content.Selection.LayerCount != domain.MaxProbeImageLayers {
 		t.Fatal("maximum repeated graph was not bounded/deduplicated")
@@ -91,7 +91,7 @@ func TestProbeImageArchiveLateSourceCloseCancellation(t *testing.T) {
 	base := t.TempDir()
 	a, err := NewProbeImageArchivePacker(base).PackImageArchive(ctx, f.Pin, fake)
 	if a != nil {
-		_ = a.Close(nil)
+		_ = a.Close(t.Context())
 	}
 	if a != nil || err != context.Canceled {
 		t.Fatal("source-close cancellation did not revoke archive", err)

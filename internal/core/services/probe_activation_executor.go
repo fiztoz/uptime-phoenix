@@ -138,11 +138,9 @@ func (e *ProbeActivationExecutor) ApplyStep(ctx context.Context, activation doma
 		readyErr := e.ready.WaitReady(readyCtx, identity.Endpoint())
 		cancel()
 		if readyErr != nil {
-			token = ""
-			return notStarted, noFacts, nil
+			return notStarted, noFacts, nil //nolint:nilerr // ApplyStep never returns an error; the outcome is carried in the returned state
 		}
 		operation, err := e.admin.EnrollSource(ctx, activation.Facts.ProbeID, token, activation.Facts.StreamID)
-		token = ""
 		switch {
 		case err == nil && operation != nil && operation.Status == domain.ProbeOperationSucceeded:
 			return applied, noFacts, nil

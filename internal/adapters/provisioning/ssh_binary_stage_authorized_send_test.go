@@ -151,7 +151,7 @@ type authSendHelper struct {
 	// Grant phase.
 	verify bool // check the grant frame under the authority key before replying
 
-	// Exit behaviour (consumed by the fixture's sendExit).
+	// Exit behavior (consumed by the fixture's sendExit).
 	exit           *uint32
 	signal         string
 	noExit         bool
@@ -382,15 +382,15 @@ func (h *authSendHarness) genuineSignature() []byte {
 }
 
 // requireNotStaged asserts the pre-stdin failure class and its server- and
-// source-side evidence over rounds sequential calls: no stdin byte reached the
-// server, the payload source was never read, each owned reader closed once,
-// every call used the single fixed exec on one connection (no retry).
-func (h *authSendHarness) requireNotStaged(t *testing.T, res sendTResult, rounds int) {
+// source-side evidence of one call: no stdin byte reached the server, the
+// payload source was never read, the owned reader closed once, and the call
+// used the single fixed exec on one connection (no retry).
+func (h *authSendHarness) requireNotStaged(t *testing.T, res sendTResult) {
 	t.Helper()
 	if res.err != ErrSSHBinaryStageNotStaged || res.ack != (SSHBinaryStageAck{}) {
 		t.Fatalf("result %+v %v, want ErrSSHBinaryStageNotStaged", res.ack, res.err)
 	}
-	h.requireNoStageInput(t, rounds)
+	h.requireNoStageInput(t, 1)
 }
 
 func (h *authSendHarness) requireNoStageInput(t *testing.T, rounds int) {
@@ -783,7 +783,7 @@ func TestSSHBinaryStageSenderAuthorizedHelperExitsWithoutChallenge(t *testing.T)
 			if elapsed := time.Since(start); elapsed > 10*time.Second {
 				t.Fatalf("dead helper took %v to classify; want prompt return", elapsed)
 			}
-			h.requireNotStaged(t, res, 1)
+			h.requireNotStaged(t, res)
 			if h.auth.calls.Load() != 0 {
 				t.Fatalf("authorizer called %d times for a helper that never challenged", h.auth.calls.Load())
 			}
@@ -853,7 +853,7 @@ func TestSSHBinaryStageSenderAuthorizedMalformedChallenge(t *testing.T) {
 			if elapsed := time.Since(start); elapsed > 10*time.Second {
 				t.Fatalf("malformed challenge took %v to classify; want prompt return", elapsed)
 			}
-			h.requireNotStaged(t, res, 1)
+			h.requireNotStaged(t, res)
 			if h.auth.calls.Load() != 0 {
 				t.Fatalf("authorizer called %d times for a malformed challenge", h.auth.calls.Load())
 			}
@@ -969,7 +969,7 @@ func TestSSHBinaryStageSenderAuthorizedHelperDiesDuringAuthorization(t *testing.
 	// The helper exited before the grant came back: the sender must notice
 	// and refuse before any stdin byte, so the outcome is definite.
 	res := h.send(t)
-	h.requireNotStaged(t, res, 1)
+	h.requireNotStaged(t, res)
 	if h.auth.calls.Load() != 1 {
 		t.Fatalf("authorizer calls = %d, want 1", h.auth.calls.Load())
 	}
@@ -994,7 +994,7 @@ func TestSSHBinaryStageSenderAuthorizedAuthorizerErrorIsNotStaged(t *testing.T) 
 				}
 			})
 			res := h.send(t)
-			h.requireNotStaged(t, res, 1)
+			h.requireNotStaged(t, res)
 			if errors.Is(res.err, tc.err) {
 				t.Fatalf("authorizer error %v leaked through %v", tc.err, res.err)
 			}
@@ -1051,7 +1051,7 @@ func TestSSHBinaryStageSenderAuthorizedGrantForDifferentRequestIsNotStaged(t *te
 				}
 			})
 			res := h.send(t)
-			h.requireNotStaged(t, res, 1)
+			h.requireNotStaged(t, res)
 			if h.auth.calls.Load() != 1 {
 				t.Fatalf("authorizer calls = %d, want exactly 1", h.auth.calls.Load())
 			}
@@ -1074,7 +1074,7 @@ func TestSSHBinaryStageSenderAuthorizedCancelDuringAuthorization(t *testing.T) {
 		}
 		// Post-exec, pre-stdin: the classification is NotStaged, not a bare
 		// context error and not Unknown.
-		h.requireNotStaged(t, res, 1)
+		h.requireNotStaged(t, res)
 		if h.auth.calls.Load() != 1 {
 			t.Fatalf("authorizer calls = %d, want 1", h.auth.calls.Load())
 		}
@@ -1094,7 +1094,7 @@ func TestSSHBinaryStageSenderAuthorizedCancelDuringAuthorization(t *testing.T) {
 		if h.auth.calls.Load() != 0 {
 			t.Fatalf("authorizer calls = %d, want 0 (remaining budget below the floor)", h.auth.calls.Load())
 		}
-		h.requireNotStaged(t, res, 1)
+		h.requireNotStaged(t, res)
 	})
 
 	t.Run("authorizer ignores cancellation and still returns a valid grant", func(t *testing.T) {
@@ -1110,7 +1110,7 @@ func TestSSHBinaryStageSenderAuthorizedCancelDuringAuthorization(t *testing.T) {
 		sendTWaitSignal(t, h.auth.entered, "authorizer call")
 		cancel()
 		res := sendTAwait(t, done, "cancel with a late grant")
-		h.requireNotStaged(t, res, 1)
+		h.requireNotStaged(t, res)
 	})
 
 	t.Run("cancel while the challenge never arrives", func(t *testing.T) {
@@ -1122,7 +1122,7 @@ func TestSSHBinaryStageSenderAuthorizedCancelDuringAuthorization(t *testing.T) {
 		sendTExpectBlocked(t, done, "send while the helper is silent")
 		cancel()
 		res := sendTAwait(t, done, "cancel while waiting for the challenge")
-		h.requireNotStaged(t, res, 1)
+		h.requireNotStaged(t, res)
 		if h.auth.calls.Load() != 0 {
 			t.Fatalf("authorizer called %d times without a challenge", h.auth.calls.Load())
 		}

@@ -159,7 +159,6 @@ type actRunnerCall struct {
 	attempt  string
 	outcome  string
 	facts    domain.ProbeActivationFacts
-	created  bool
 	deadline time.Duration
 	canceled bool
 }
@@ -177,7 +176,7 @@ type actRunnerFake struct {
 	failBefore    map[string]error
 	failAfter     map[string]error
 	onCommit      map[string]func(ctx context.Context)
-	// mangle rewrites a returned receipt after the commit, modelling a stale,
+	// mangle rewrites a returned receipt after the commit, modeling a stale,
 	// corrupt or forged acknowledgement.
 	mangle map[string]func(*domain.ProbeActivation) *domain.ProbeActivation
 }
@@ -623,7 +622,7 @@ func (f *actRunnerFake) setProbeKey(key string) {
 	f.op.identity.ProbeKey = key
 }
 
-// stageStep commits a step receipt without a port call, modelling a
+// stageStep commits a step receipt without a port call, modeling a
 // concurrent/earlier writer on another replica.
 func (f *actRunnerFake) stageStep(kind, state, attempt string) {
 	f.mu.Lock()
@@ -2145,8 +2144,6 @@ func TestProbeActivationRunnerDefensiveCopies(t *testing.T) {
 			activation.Steps[0].State = "junk"
 			activation.Steps[0].AttemptID = "junk"
 			activation.Identity.Install.Host.User = "junk"
-			activation.OwnerID = "junk"
-			activation.Facts = domain.ProbeActivationFacts{}
 			return actRunnerApplied(kind)
 		}
 		activation, err := fx.run()

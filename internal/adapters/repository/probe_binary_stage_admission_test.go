@@ -16,7 +16,7 @@ func TestProbeBinaryStageAdmissionStoreRefusals(t *testing.T) {
 		if a != (domain.ProbeBinaryStageAdmission{}) || err != domain.ErrInternal {
 			t.Fatal("missing DB returned admission")
 		}
-		a, err = store.AdmitBinaryStage(nil, r)
+		a, err = store.AdmitBinaryStage(nil, r) //nolint:staticcheck // SA1012: a nil context is the refusal under test
 		if a != (domain.ProbeBinaryStageAdmission{}) || err != domain.ErrValidation {
 			t.Fatal("nil context accepted")
 		}

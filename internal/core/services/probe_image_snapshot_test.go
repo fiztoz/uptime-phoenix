@@ -211,7 +211,7 @@ func TestProbeImageSnapshotServiceRefusesBeforeIO(t *testing.T) {
 			in, _ := imageSnapshotRequest()
 			want := domain.ErrProbeImageInput
 			request := pin
-			var callCtx context.Context = ctx
+			callCtx := ctx
 			switch kind {
 			case "nil_context":
 				callCtx = nil

@@ -19,9 +19,10 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/provisioning"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
-	"golang.org/x/crypto/ssh"
 )
 
 // This literal is independent of the sender: a changed caller command must not
@@ -164,7 +165,7 @@ func TestSSHBinaryStageAuthorization(t *testing.T) {
 				done <- err
 				return
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 				done <- errors.New("namespace echo deadline unavailable")
 				return
@@ -446,7 +447,7 @@ func sshAuthorizationRequest(t *testing.T, client *ssh.Client, request, command 
 	if err != nil {
 		t.Fatal("opening fixture session")
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 	out, diagnostic := &sshAuthorizationOutput{limit: 2048}, &sshAuthorizationOutput{limit: 4096}
 	session.Stdout, session.Stderr, session.Stdin = out, diagnostic, bytes.NewReader(body)
 	switch request {

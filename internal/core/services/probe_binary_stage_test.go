@@ -153,7 +153,7 @@ func TestProbeBinaryStageInspectionServiceRefusesBeforeIO(t *testing.T) {
 			callCtx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			request := intent
-			var target *ProbeBinaryStageInspectionService = svc
+			target := svc
 			want := domain.ErrProbeBinaryStageInput
 			switch kind {
 			case "nil_service":

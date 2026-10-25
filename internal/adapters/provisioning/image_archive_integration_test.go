@@ -110,7 +110,7 @@ func TestProbeImageArchiveRealGraph(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					defer func() { _ = a.Close(nil) }()
+					defer func() { _ = a.Close(t.Context()) }()
 					d := a.Descriptor()
 					if !d.Valid() || d.Content != snapshot.Verification() || d.Content.Selection.Pin != f.Pin {
 						t.Fatal("original receipt lost")
@@ -175,16 +175,16 @@ func TestProbeImageArchiveRealGraph(t *testing.T) {
 					if !bytes.Equal(b, archiveRead(t, second)) {
 						t.Fatal("archive bytes are nondeterministic")
 					}
-					if err = second.Close(nil); err != nil {
+					if err = second.Close(t.Context()); err != nil {
 						t.Fatal(err)
 					}
-					if err = snapshot.Close(nil); err != nil {
+					if err = snapshot.Close(t.Context()); err != nil {
 						t.Fatal(err)
 					}
 					if !bytes.Equal(b, archiveRead(t, a)) {
 						t.Fatal("archive depends on closed source")
 					}
-					if err = a.Close(nil); err != nil {
+					if err = a.Close(t.Context()); err != nil {
 						t.Fatal(err)
 					}
 					snapshotEmpty(t, base)
@@ -227,7 +227,7 @@ func TestProbeImageArchiveByteStreamDifferential(t *testing.T) {
 	if err != nil {
 		t.Fatal("valid byte-stream differential refused", err)
 	}
-	defer func() { _ = a.Close(nil) }()
+	defer func() { _ = a.Close(t.Context()) }()
 	_ = archiveGraph(t, archiveRead(t, a))
 	contentClosed(t, all)
 }
@@ -263,7 +263,7 @@ func TestProbeImageArchiveDuplicateLayers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = a.Close(nil) }()
+	defer func() { _ = a.Close(t.Context()) }()
 	entries := archiveGraph(t, archiveRead(t, a))
 	if len(entries) != 6 {
 		t.Fatal("duplicate digest emitted twice")
@@ -290,7 +290,7 @@ func TestProbeImageArchiveRefusals(t *testing.T) {
 	for _, kind := range []string{"digest", "size", "codec", "diff_id", "metadata", "receipt", "open_private", "open_eof", "partial_open", "typed_nil", "duplicate_handle", "source_io"} {
 		t.Run(kind, func(t *testing.T) {
 			f := testutil.NewProbeImageContentFixture(t, "amd64", false, true, 1)
-			want := error(domain.ErrProbeImageDigest)
+			want := domain.ErrProbeImageDigest
 			switch kind {
 			case "digest":
 				f.Layers[0][4] ^= 1
@@ -341,7 +341,7 @@ func TestProbeImageArchiveRefusals(t *testing.T) {
 			got, err := NewProbeImageArchivePacker(base).PackImageArchive(t.Context(), f.Pin, fake)
 			if got != nil || err != want {
 				if got != nil {
-					_ = got.Close(nil)
+					_ = got.Close(t.Context())
 				}
 				t.Fatal("refusal did not preserve fixed cause", err, want)
 			}
@@ -399,7 +399,7 @@ func TestProbeImageArchiveStorageAndReadback(t *testing.T) {
 			s, _ := snapshotPrepare(t, f)
 			base := t.TempDir()
 			p := NewProbeImageArchivePacker(base)
-			want := error(domain.ErrProbeImageArchiveStorage)
+			want := domain.ErrProbeImageArchiveStorage
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			switch kind {
@@ -422,7 +422,7 @@ func TestProbeImageArchiveStorageAndReadback(t *testing.T) {
 			a, err := p.PackImageArchive(ctx, f.Pin, s)
 			if a != nil || err != want {
 				if a != nil {
-					_ = a.Close(nil)
+					_ = a.Close(t.Context())
 				}
 				t.Fatal("storage or integrity failure hidden", err, want)
 			}
@@ -458,7 +458,7 @@ func TestProbeImageArchiveReaderLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			a := packed.(*preparedProbeImageArchive)
-			defer func() { _ = a.Close(nil) }()
+			defer func() { _ = a.Close(t.Context()) }()
 			name := filepath.Join(a.inner.dir, probeImageArchiveFile)
 			info, _ := os.Stat(name)
 			if info.Mode().Perm() != 0400 {
@@ -490,7 +490,7 @@ func TestProbeImageArchiveReaderLifecycle(t *testing.T) {
 						t.Fatal(e)
 					}
 				} else {
-					if e = a.Close(nil); e != nil {
+					if e = a.Close(t.Context()); e != nil {
 						t.Fatal(e)
 					}
 					if _, e = r.Read(make([]byte, 1)); e != domain.ErrProbeImageArchiveClosed {
@@ -502,7 +502,7 @@ func TestProbeImageArchiveReaderLifecycle(t *testing.T) {
 				if e := os.WriteFile(foreign, []byte("preserve"), 0600); e != nil {
 					t.Fatal(e)
 				}
-				if e := a.Close(nil); e != domain.ErrProbeImageArchiveStorage {
+				if e := a.Close(t.Context()); e != domain.ErrProbeImageArchiveStorage {
 					t.Fatal("unknown graph accepted", e)
 				}
 				if _, e := os.Stat(name); e != nil {
@@ -511,7 +511,7 @@ func TestProbeImageArchiveReaderLifecycle(t *testing.T) {
 				if e := os.Remove(foreign); e != nil {
 					t.Fatal(e)
 				}
-				if e := a.Close(nil); e != nil {
+				if e := a.Close(t.Context()); e != nil {
 					t.Fatal("cleanup retry failed", e)
 				}
 			case "file_replace":
@@ -525,7 +525,7 @@ func TestProbeImageArchiveReaderLifecycle(t *testing.T) {
 				if r, e := a.Open(t.Context()); r != nil || e != domain.ErrProbeImageArchiveStorage {
 					t.Fatal("replacement file adopted", e)
 				}
-				if e := a.Close(nil); e != domain.ErrProbeImageArchiveStorage {
+				if e := a.Close(t.Context()); e != domain.ErrProbeImageArchiveStorage {
 					t.Fatal("replacement removed", e)
 				}
 				data, _ := os.ReadFile(name)
@@ -534,7 +534,7 @@ func TestProbeImageArchiveReaderLifecycle(t *testing.T) {
 				}
 				_ = os.Remove(name)
 				_ = os.Rename(saved, name)
-				if e := a.Close(nil); e != nil {
+				if e := a.Close(t.Context()); e != nil {
 					t.Fatal(e)
 				}
 			case "symlink":
@@ -548,12 +548,12 @@ func TestProbeImageArchiveReaderLifecycle(t *testing.T) {
 				if r, e := a.Open(t.Context()); r != nil || e != domain.ErrProbeImageArchiveStorage {
 					t.Fatal("symlink archive adopted", e)
 				}
-				if e := a.Close(nil); e != domain.ErrProbeImageArchiveStorage {
+				if e := a.Close(t.Context()); e != domain.ErrProbeImageArchiveStorage {
 					t.Fatal("symlink graph accepted", e)
 				}
 				_ = os.Remove(name)
 				_ = os.Rename(saved, name)
-				if e := a.Close(nil); e != nil {
+				if e := a.Close(t.Context()); e != nil {
 					t.Fatal(e)
 				}
 			case "directory_replace":
@@ -569,13 +569,13 @@ func TestProbeImageArchiveReaderLifecycle(t *testing.T) {
 				if r, e := a.Open(t.Context()); r != nil || e != domain.ErrProbeImageArchiveStorage {
 					t.Fatal("replacement directory adopted", e)
 				}
-				if e := a.Close(nil); e != domain.ErrProbeImageArchiveStorage {
+				if e := a.Close(t.Context()); e != domain.ErrProbeImageArchiveStorage {
 					t.Fatal("replacement directory removed", e)
 				}
 				_ = os.Remove(foreign)
 				_ = os.Remove(a.inner.dir)
 				_ = os.Rename(saved, a.inner.dir)
-				if e := a.Close(nil); e != nil {
+				if e := a.Close(t.Context()); e != nil {
 					t.Fatal(e)
 				}
 			case "concurrent":
@@ -590,14 +590,14 @@ func TestProbeImageArchiveReaderLifecycle(t *testing.T) {
 						} else if e != domain.ErrProbeImageArchiveBusy && e != domain.ErrProbeImageArchiveClosed {
 							t.Error(e)
 						}
-						if e = a.Close(nil); e != nil {
+						if e = a.Close(t.Context()); e != nil {
 							t.Error(e)
 						}
 					}()
 				}
 				wg.Wait()
 			}
-			if e := a.Close(nil); e != nil {
+			if e := a.Close(t.Context()); e != nil {
 				t.Fatal(e)
 			}
 			if r, e := a.Open(t.Context()); r != nil || e != domain.ErrProbeImageArchiveClosed {
@@ -636,7 +636,7 @@ func TestProbeImageArchiveCancellationJoinsSources(t *testing.T) {
 	go func() {
 		a, err := NewProbeImageArchivePacker(base).PackImageArchive(ctx, f.Pin, fake)
 		if a != nil {
-			_ = a.Close(nil)
+			_ = a.Close(t.Context())
 			done <- errors.New("canceled pack returned archive")
 			return
 		}

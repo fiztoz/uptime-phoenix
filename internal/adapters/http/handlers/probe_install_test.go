@@ -308,7 +308,7 @@ func TestProbeInstallSubmitStrictBinding(t *testing.T) {
 		status     int
 		code       string
 	}
-	cases := []bindCase{
+	fixed := []bindCase{
 		{"empty", "", 400, "invalid_install"},
 		{"malformed", `{`, 400, "invalid_install"},
 		{"truncated member", `{"operation_id":`, 400, "invalid_install"},
@@ -347,6 +347,9 @@ func TestProbeInstallSubmitStrictBinding(t *testing.T) {
 		{"pin zero size", installJSON(installSet(base, "binary_size", "0")), 400, "invalid_install"},
 		{"pin oversized binary", installJSON(installSet(base, "binary_size", strconv.FormatInt(domain.MaxProbeBinarySize+1, 10))), 400, "invalid_install"},
 	}
+	// Every loop below appends to the fixed table; size it up front.
+	cases := make([]bindCase, 0, 256)
+	cases = append(cases, fixed...)
 	// Non-root users: the installer is root-only.
 	for _, user := range []string{"ubuntu", "Root", "ROOT", "root ", "administrator", "", "root\n", "root:x"} {
 		cases = append(cases, bindCase{"non-root user " + strconv.Quote(user), installJSON(installSet(base, "ssh_user", strconv.Quote(user))), 400, "invalid_install"})
@@ -650,7 +653,7 @@ func TestProbeInstallErrorAllowlist(t *testing.T) {
 		name, state, code string
 		operation         *domain.ProbeInstallOperation
 	}
-	var cases []codeCase
+	cases := make([]codeCase, 0, len(failedCodes)+4)
 	for _, code := range failedCodes {
 		if !(domain.ProbeInstallOutcome{State: domain.ProbeInstallFailed, ErrorCode: code}).Valid() {
 			t.Fatalf("journal no longer accepts failed code %q: update the allowlist", code)

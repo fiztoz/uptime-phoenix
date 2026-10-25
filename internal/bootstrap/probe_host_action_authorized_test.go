@@ -956,7 +956,7 @@ func hactRefusalCases(t *testing.T, h *hactHarness) []hactRefusal {
 	header := hactStageHeader(t, I)
 	nonRootFrame := hactRawAction("PHXACT1\n", byte(kindLen), I.Kind, nonRootHeader)
 
-	cases := []hactRefusal{
+	fixed := []hactRefusal{
 		// Host binding is checked before the grant frame is read.
 		{"foreign host key", hactJoin(A, G), unauthorized, len(A), []string{hactOtherFingerprint}},
 		{"foreign host key, several keys", hactJoin(A, G), unauthorized, len(A), []string{hactOtherFingerprint, "SHA256:another"}},
@@ -1013,12 +1013,16 @@ func hactRefusalCases(t *testing.T, h *hactHarness) []hactRefusal {
 		{"duplicate grant", hactJoin(A, G, G), input, len(A) + len(G) + 1, nil},
 		{"second action frame after the grant", hactJoin(A, G, A), input, len(A) + len(G) + 1, nil},
 	}
+	actionCuts := []int{1, 8, 9, 9 + kindLen - 1, 9 + kindLen, 9 + kindLen + 5, 9 + kindLen + 12, len(A) - 1}
+	grantCuts := []int{1, 7, 8, 9, 40, len(G) - 1}
+	cases := make([]hactRefusal, 0, len(fixed)+len(actionCuts)+len(grantCuts))
+	cases = append(cases, fixed...)
 	// Every strict prefix of the action frame is a short stream.
-	for _, cut := range []int{1, 8, 9, 9 + kindLen - 1, 9 + kindLen, 9 + kindLen + 5, 9 + kindLen + 12, len(A) - 1} {
+	for _, cut := range actionCuts {
 		cases = append(cases, hactRefusal{fmt.Sprintf("action frame truncated at %d", cut), A[:cut], input, cut, nil})
 	}
 	// Every strict prefix of the grant frame is a short stream.
-	for _, cut := range []int{1, 7, 8, 9, 40, len(G) - 1} {
+	for _, cut := range grantCuts {
 		cases = append(cases, hactRefusal{fmt.Sprintf("grant frame truncated at %d", cut), hactJoin(A, G[:cut]), input, len(A) + cut, nil})
 	}
 	return cases

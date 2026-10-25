@@ -250,7 +250,7 @@ func probeBinaryStageHelperReceipt(seal domain.ProbeBinaryStageSeal) ([]byte, er
 	if err != nil || len(body) == 0 || len(body)+1 > probeBinaryStageHelperMaxResponse {
 		return nil, domain.ErrProbeBinaryStageWriteUnknown
 	}
-	// body is freshly marshalled and owned here; appending needs no size arithmetic.
+	// body is freshly marshaled and owned here; appending needs no size arithmetic.
 	return append(body, '\n'), nil
 }
 

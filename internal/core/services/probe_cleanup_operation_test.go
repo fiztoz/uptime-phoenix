@@ -229,10 +229,10 @@ type cleanupEnv struct {
 	sessions *cleanupSessions
 }
 
-func cleanupEnvFor(t *testing.T, ctx context.Context, capacity int, installState string) *cleanupEnv {
+func cleanupEnvFor(t *testing.T, ctx context.Context, installState string) *cleanupEnv {
 	t.Helper()
 	env := &cleanupEnv{store: newCleanupStore(), installs: &cleanupInstalls{operation: cleanupTestInstall(installState)}, sessions: newCleanupSessions()}
-	svc, err := newProbeCleanupOperationService(ctx, env.store, env.installs, env.sessions, cleanupTestOwner, capacity)
+	svc, err := newProbeCleanupOperationService(ctx, env.store, env.installs, env.sessions, cleanupTestOwner, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,9 +241,10 @@ func cleanupEnvFor(t *testing.T, ctx context.Context, capacity int, installState
 	return env
 }
 
-// await waits until the stored cleanup reaches a terminal state.
-func (e *cleanupEnv) await(t *testing.T, id string) *domain.ProbeCleanup {
+// await waits until the stored cleanup (cleanupTestID) reaches a terminal state.
+func (e *cleanupEnv) await(t *testing.T) *domain.ProbeCleanup {
 	t.Helper()
+	id := cleanupTestID
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if r := e.store.row(id); r != nil && r.Terminal() {
@@ -259,10 +260,11 @@ func (e *cleanupEnv) await(t *testing.T, id string) *domain.ProbeCleanup {
 func TestProbeCleanupOperationServiceConstructorRefusals(t *testing.T) {
 	store, installs, sessions := newCleanupStore(), &cleanupInstalls{}, newCleanupSessions()
 	var nilStore *cleanupStore
+	var bareNilCtx context.Context
 	for name, build := range map[string]func() (*ProbeCleanupOperationService, error){
 		"nil ctx": func() (*ProbeCleanupOperationService, error) {
-			return newProbeCleanupOperationService(nil, store, installs, sessions, cleanupTestOwner, 1)
-		}, //nolint:staticcheck // nil ctx is the refused input
+			return newProbeCleanupOperationService(bareNilCtx, store, installs, sessions, cleanupTestOwner, 1)
+		},
 		"typed nil": func() (*ProbeCleanupOperationService, error) {
 			return newProbeCleanupOperationService(t.Context(), nilStore, installs, sessions, cleanupTestOwner, 1)
 		},
@@ -292,12 +294,12 @@ func TestProbeCleanupOperationServiceConstructorRefusals(t *testing.T) {
 }
 
 func TestProbeCleanupOperationServiceHappyPathCleansWithTheInstallsPinnedHost(t *testing.T) {
-	env := cleanupEnvFor(t, t.Context(), 1, domain.ProbeInstallInterrupted)
+	env := cleanupEnvFor(t, t.Context(), domain.ProbeInstallInterrupted)
 	receipt, err := env.svc.Submit(t.Context(), cleanupTestSubmission(cleanupTestID))
 	if err != nil || receipt == nil || receipt.State != domain.ProbeCleanupQueued {
 		t.Fatalf("submit: %+v %v", receipt, err)
 	}
-	final := env.await(t, cleanupTestID)
+	final := env.await(t)
 	if final.State != domain.ProbeCleanupCleaned || final.ErrorCode != "" {
 		t.Fatalf("final %+v", final)
 	}
@@ -333,12 +335,12 @@ func TestProbeCleanupOperationServiceRecordsEveryOutcomeHonestly(t *testing.T) {
 		{"invalid report is unknown", domain.ProbeInstallResourceOutcome{State: domain.ProbeInstallResourceApplied, ErrorCode: "x"}, domain.ProbeCleanupInterrupted, "outcome_unknown"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			env := cleanupEnvFor(t, t.Context(), 1, domain.ProbeInstallResourcesReady)
+			env := cleanupEnvFor(t, t.Context(), domain.ProbeInstallResourcesReady)
 			env.sessions.outcome = tc.outcome
 			if _, err := env.svc.Submit(t.Context(), cleanupTestSubmission(cleanupTestID)); err != nil {
 				t.Fatal(err)
 			}
-			if final := env.await(t, cleanupTestID); final.State != tc.state || final.ErrorCode != tc.code {
+			if final := env.await(t); final.State != tc.state || final.ErrorCode != tc.code {
 				t.Fatalf("final %s/%s, want %s/%s", final.State, final.ErrorCode, tc.state, tc.code)
 			}
 		})
@@ -361,7 +363,7 @@ func TestProbeCleanupOperationServiceRefusalsCreateNothing(t *testing.T) {
 		{"session leak is internal", func(e *cleanupEnv) { e.sessions.err = canary }, domain.ErrInternal},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			env := cleanupEnvFor(t, t.Context(), 1, domain.ProbeInstallFailed)
+			env := cleanupEnvFor(t, t.Context(), domain.ProbeInstallFailed)
 			tc.setup(env)
 			receipt, err := env.svc.Submit(t.Context(), cleanupTestSubmission(cleanupTestID))
 			if receipt != nil || !errors.Is(err, tc.want) {
@@ -376,7 +378,7 @@ func TestProbeCleanupOperationServiceRefusalsCreateNothing(t *testing.T) {
 		})
 	}
 	t.Run("store ineligibility passes through", func(t *testing.T) {
-		env := cleanupEnvFor(t, t.Context(), 1, domain.ProbeInstallFailed)
+		env := cleanupEnvFor(t, t.Context(), domain.ProbeInstallFailed)
 		env.store.createErr = domain.ErrProbeCleanupIneligible
 		if _, err := env.svc.Submit(t.Context(), cleanupTestSubmission(cleanupTestID)); !errors.Is(err, domain.ErrProbeCleanupIneligible) {
 			t.Fatalf("err %v", err)
@@ -386,7 +388,7 @@ func TestProbeCleanupOperationServiceRefusalsCreateNothing(t *testing.T) {
 		}
 	})
 	t.Run("invalid submission does no I/O", func(t *testing.T) {
-		env := cleanupEnvFor(t, t.Context(), 1, domain.ProbeInstallFailed)
+		env := cleanupEnvFor(t, t.Context(), domain.ProbeInstallFailed)
 		for _, bad := range []ProbeCleanupSubmission{
 			{CleanupID: "x", OperationID: opInstallID, PrivateKey: []byte("k"), RequestedBy: 1},
 			{CleanupID: cleanupTestID, OperationID: "x", PrivateKey: []byte("k"), RequestedBy: 1},
@@ -405,11 +407,11 @@ func TestProbeCleanupOperationServiceRefusalsCreateNothing(t *testing.T) {
 }
 
 func TestProbeCleanupOperationServiceExactRetryNeverDispatchesTwice(t *testing.T) {
-	env := cleanupEnvFor(t, t.Context(), 1, domain.ProbeInstallCanceled)
+	env := cleanupEnvFor(t, t.Context(), domain.ProbeInstallCanceled)
 	if _, err := env.svc.Submit(t.Context(), cleanupTestSubmission(cleanupTestID)); err != nil {
 		t.Fatal(err)
 	}
-	first := env.await(t, cleanupTestID)
+	first := env.await(t)
 	retry, err := env.svc.Submit(t.Context(), cleanupTestSubmission(cleanupTestID))
 	if err != nil || retry == nil || *retry != *first {
 		t.Fatalf("retry %+v %v, want %+v", retry, err, first)
@@ -420,12 +422,12 @@ func TestProbeCleanupOperationServiceExactRetryNeverDispatchesTwice(t *testing.T
 }
 
 func TestProbeCleanupOperationServiceBeginFailureAbandonsWithoutHostWork(t *testing.T) {
-	env := cleanupEnvFor(t, t.Context(), 1, domain.ProbeInstallInterrupted)
+	env := cleanupEnvFor(t, t.Context(), domain.ProbeInstallInterrupted)
 	env.store.beginErr = errors.New("lost connection")
 	if _, err := env.svc.Submit(t.Context(), cleanupTestSubmission(cleanupTestID)); err != nil {
 		t.Fatal(err)
 	}
-	final := env.await(t, cleanupTestID)
+	final := env.await(t)
 	if final.State != domain.ProbeCleanupInterrupted || final.ErrorCode != "owner_interrupted" || final.AttemptID != "" {
 		t.Fatalf("final %+v", final)
 	}
@@ -435,7 +437,7 @@ func TestProbeCleanupOperationServiceBeginFailureAbandonsWithoutHostWork(t *test
 }
 
 func TestProbeCleanupOperationServiceCloseRecordsTheJoinedOutcome(t *testing.T) {
-	env := cleanupEnvFor(t, t.Context(), 1, domain.ProbeInstallResourcesReady)
+	env := cleanupEnvFor(t, t.Context(), domain.ProbeInstallResourcesReady)
 	entered := make(chan struct{})
 	env.sessions.hook = func(ctx context.Context) {
 		close(entered)
@@ -462,7 +464,7 @@ func TestProbeCleanupOperationServiceCloseRecordsTheJoinedOutcome(t *testing.T) 
 }
 
 func TestProbeCleanupOperationServiceSaturationAnswersOnlyExactRetry(t *testing.T) {
-	env := cleanupEnvFor(t, t.Context(), 1, domain.ProbeInstallResourcesReady)
+	env := cleanupEnvFor(t, t.Context(), domain.ProbeInstallResourcesReady)
 	release := make(chan struct{})
 	env.sessions.hook = func(context.Context) { <-release }
 	if _, err := env.svc.Submit(t.Context(), cleanupTestSubmission(cleanupTestID)); err != nil {
@@ -476,14 +478,14 @@ func TestProbeCleanupOperationServiceSaturationAnswersOnlyExactRetry(t *testing.
 		t.Fatalf("saturated exact retry %+v %v", retry, err)
 	}
 	close(release)
-	env.await(t, cleanupTestID)
+	env.await(t)
 	if env.store.creates != 1 {
 		t.Fatalf("creates=%d, want only the first", env.store.creates)
 	}
 }
 
 func TestProbeCleanupOperationServiceReadsValidateIDs(t *testing.T) {
-	env := cleanupEnvFor(t, t.Context(), 1, domain.ProbeInstallResourcesReady)
+	env := cleanupEnvFor(t, t.Context(), domain.ProbeInstallResourcesReady)
 	if _, err := env.svc.Observe(t.Context(), "x"); !errors.Is(err, domain.ErrValidation) {
 		t.Fatal(err)
 	}

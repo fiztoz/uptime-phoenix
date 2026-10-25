@@ -500,7 +500,7 @@ func (r *ProbeInstallRunner) watch(
 			// spurious stop for our own teardown.
 			return
 		}
-		signal := installRunnerSignal{}
+		var signal installRunnerSignal
 		switch {
 		case err != nil:
 			signal = installRunnerSignal{stop: installRunnerStopObserve, err: err}

@@ -93,7 +93,8 @@ func TestProbeBinaryStageAuthorizationConstructionAndInput(t *testing.T) {
 	bad.Challenge.AuthorityKeyID = domain.ProbeBinaryStageAuthorityKeyID([32]byte{7})
 	g, err = svc.Authorize(t.Context(), bad)
 	stageAuthRefused(t, g, err, domain.ErrValidation)
-	g, err = svc.Authorize(nil, r)
+	var bareNilCtx context.Context
+	g, err = svc.Authorize(bareNilCtx, r)
 	stageAuthRefused(t, g, err, domain.ErrValidation)
 	var nilContext *stageAuthNilContext
 	g, err = svc.Authorize(nilContext, r)

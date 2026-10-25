@@ -231,11 +231,12 @@ func TestApplyProbeInitRunsTheExactPinnedBinaryOnce(t *testing.T) {
 }
 
 func TestApplyProbeInitRefusesDataDirectoryProblemsBeforeRunning(t *testing.T) {
-	cases := []struct {
+	type dataDirCase struct {
 		name  string
 		want  error
 		setup func(t *testing.T, e *actApplyEnv)
-	}{
+	}
+	cases := []dataDirCase{
 		{"missing", domain.ErrProbeBinaryStageWriteUnavailable, func(t *testing.T, e *actApplyEnv) {
 			if err := os.Remove(e.dataDir); err != nil {
 				t.Fatal(err)
@@ -267,16 +268,14 @@ func TestApplyProbeInitRefusesDataDirectoryProblemsBeforeRunning(t *testing.T) {
 			}
 		}},
 	}
-	for _, mode := range []os.FileMode{0o755, 0o750, 0o770, 0o777, 0o500, 0o600, 0o701, 0o710, 0o000, os.ModeSetgid | 0o700, os.ModeSticky | 0o700} {
-		cases = append(cases, struct {
-			name  string
-			want  error
-			setup func(t *testing.T, e *actApplyEnv)
-		}{"mode " + mode.String(), domain.ErrProbeBinaryStageWriteUnavailable, func(t *testing.T, e *actApplyEnv) {
+	modes := []os.FileMode{0o755, 0o750, 0o770, 0o777, 0o500, 0o600, 0o701, 0o710, 0o000, os.ModeSetgid | 0o700, os.ModeSticky | 0o700}
+	modeCases := make([]dataDirCase, 0, len(modes))
+	for _, mode := range modes {
+		modeCases = append(modeCases, dataDirCase{"mode " + mode.String(), domain.ErrProbeBinaryStageWriteUnavailable, func(t *testing.T, e *actApplyEnv) {
 			actApplyChmod(t, e.dataDir, mode)
 		}})
 	}
-	for name, populate := range map[string]func(t *testing.T, dir string){
+	populators := map[string]func(t *testing.T, dir string){
 		"a file":         func(t *testing.T, dir string) { actApplyMustWrite(t, filepath.Join(dir, "identity.db"), "x") },
 		"an empty file":  func(t *testing.T, dir string) { actApplyMustWrite(t, filepath.Join(dir, "empty"), "") },
 		"a dotfile":      func(t *testing.T, dir string) { actApplyMustWrite(t, filepath.Join(dir, ".hidden"), "x") },
@@ -291,15 +290,14 @@ func TestApplyProbeInitRefusesDataDirectoryProblemsBeforeRunning(t *testing.T) {
 			actApplyMustMkdir(t, filepath.Join(dir, "tls"))
 			actApplyMustWrite(t, filepath.Join(dir, "tls", "key"), "x")
 		},
-	} {
-		cases = append(cases, struct {
-			name  string
-			want  error
-			setup func(t *testing.T, e *actApplyEnv)
-		}{"not empty: " + name, domain.ErrProbeBinaryStageWriteConflict, func(t *testing.T, e *actApplyEnv) {
+	}
+	populatedCases := make([]dataDirCase, 0, len(populators))
+	for name, populate := range populators {
+		populatedCases = append(populatedCases, dataDirCase{"not empty: " + name, domain.ErrProbeBinaryStageWriteConflict, func(t *testing.T, e *actApplyEnv) {
 			populate(t, e.dataDir)
 		}})
 	}
+	cases = slices.Concat(cases, modeCases, populatedCases)
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -383,12 +381,12 @@ func TestApplyProbeInitRefusesBinaryProblemsBeforeRunning(t *testing.T) {
 				t.Skipf("no fifo here: %v", err)
 			}
 		}},
-		{"binary is hardlinked", func(t *testing.T, e *actApplyEnv) {
+		{"binary is hard-linked", func(t *testing.T, e *actApplyEnv) {
 			if err := os.Link(e.binary, filepath.Join(e.dataRoot, "alias")); err != nil {
 				t.Skipf("no hardlink here: %v", err)
 			}
 		}},
-		{"binary is hardlinked inside the artifact directory", func(t *testing.T, e *actApplyEnv) {
+		{"binary is hard-linked inside the artifact directory", func(t *testing.T, e *actApplyEnv) {
 			if err := os.Link(e.binary, filepath.Join(e.artifactDir, "alias")); err != nil {
 				t.Skipf("no hardlink here: %v", err)
 			}
@@ -412,9 +410,12 @@ func TestApplyProbeInitRefusesBinaryProblemsBeforeRunning(t *testing.T) {
 		{"intent pin names another release", func(t *testing.T, e *actApplyEnv) { e.intent.Identity.Binary.Version = "9.9.9" }},
 		{"intent pin names another architecture", func(t *testing.T, e *actApplyEnv) { e.intent.Identity.Binary.Architecture = "arm64" }},
 	}
-	for _, mode := range []os.FileMode{0o755, 0o557, 0o556, 0o554, 0o455, 0o444, 0o500, 0o775, 0o777, 0o600, 0o000, os.ModeSetuid | 0o555, os.ModeSetgid | 0o555, os.ModeSticky | 0o555, os.ModeSetuid | 0o755} {
-		cases = append(cases, tcase{"mode " + mode.String(), func(t *testing.T, e *actApplyEnv) { actApplyChmod(t, e.binary, mode) }})
+	modes := []os.FileMode{0o755, 0o557, 0o556, 0o554, 0o455, 0o444, 0o500, 0o775, 0o777, 0o600, 0o000, os.ModeSetuid | 0o555, os.ModeSetgid | 0o555, os.ModeSticky | 0o555, os.ModeSetuid | 0o755}
+	modeCases := make([]tcase, 0, len(modes))
+	for _, mode := range modes {
+		modeCases = append(modeCases, tcase{"mode " + mode.String(), func(t *testing.T, e *actApplyEnv) { actApplyChmod(t, e.binary, mode) }})
 	}
+	cases = slices.Concat(cases, modeCases)
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -812,7 +813,7 @@ func TestApplyProbeServiceStartRefusesAUnitThatIsNotExactlyDerivedWithoutAnySyst
 			actApplyMustSymlink(t, real, p)
 			return p
 		}},
-		{"hardlinked exact unit", func(t *testing.T, dir string) string {
+		{"hard-linked exact unit", func(t *testing.T, dir string) string {
 			p := raw(want, 0o644)(t, dir)
 			if err := os.Link(p, filepath.Join(t.TempDir(), "alias")); err != nil {
 				t.Skipf("no hardlink here: %v", err)
@@ -1150,12 +1151,13 @@ func (s *actApplyUnitHost) Run(_ context.Context, args ...string) (string, int, 
 	return "", 127, errors.New("unexpected systemctl invocation")
 }
 
-func (s *actApplyUnitHost) count(verb string) int {
+// startCalls counts the recorded systemctl start invocations.
+func (s *actApplyUnitHost) startCalls() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n := 0
 	for _, c := range s.calls {
-		if c[0] == verb {
+		if c[0] == "start" {
 			n++
 		}
 	}
@@ -1199,7 +1201,7 @@ func TestActivationHostLifecycleInitThenStart(t *testing.T) {
 		t.Fatalf("start before the unit is enabled: %v", err)
 	}
 	hostActApplyRequireErr(t, ApplyProbeService(ctx, unitParent, intentFor(hostActFrameKindService), host), nil)
-	if host.count("start") != 0 {
+	if host.startCalls() != 0 {
 		t.Fatal("a premature start reached systemd")
 	}
 
@@ -1210,8 +1212,8 @@ func TestActivationHostLifecycleInitThenStart(t *testing.T) {
 		t.Fatalf("init result %+v", got)
 	}
 	hostActApplyRequireErr(t, ApplyProbeServiceStart(ctx, unitParent, startIntent, host), nil)
-	if host.count("start") != 1 || !host.active {
-		t.Fatalf("start calls %d active %v", host.count("start"), host.active)
+	if host.startCalls() != 1 || !host.active {
+		t.Fatalf("start calls %d active %v", host.startCalls(), host.active)
 	}
 
 	// Every replay is a definite Conflict and does nothing.
@@ -1228,8 +1230,8 @@ func TestActivationHostLifecycleInitThenStart(t *testing.T) {
 	if _, err := ApplyProbeInit(ctx, e.dataParent, e.optParent, initIntent, runner); err != domain.ErrProbeBinaryStageWriteConflict {
 		t.Fatalf("replay of probe init: %v, want Conflict", err)
 	}
-	if n := len(runner.recorded()); n != 1 || host.count("start") != 1 {
-		t.Fatalf("replays acted: runner calls %d, start calls %d", n, host.count("start"))
+	if n := len(runner.recorded()); n != 1 || host.startCalls() != 1 {
+		t.Fatalf("replays acted: runner calls %d, start calls %d", n, host.startCalls())
 	}
 	hostActApplyRequireEntries(t, e.dataDir, "identity.db")
 	hostActApplyRequireEntries(t, unitRoot, hostActApplyUnitName)

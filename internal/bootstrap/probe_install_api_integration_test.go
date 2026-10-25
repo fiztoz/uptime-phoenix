@@ -986,10 +986,12 @@ func (f *installAPIFixture) stored(t *testing.T, op string) *domain.ProbeInstall
 	return stored
 }
 
-// wantInstalledEffects asserts every real effect of one complete install of op
-// on the fake host, using the stored receipt's identity and attempt IDs.
-func (f *installAPIFixture) wantInstalledEffects(t *testing.T, op string) *domain.ProbeInstallOperation {
+// wantInstalledEffects asserts every real effect of one complete install of
+// operation A on the fake host, using the stored receipt's identity and attempt
+// IDs.
+func (f *installAPIFixture) wantInstalledEffects(t *testing.T) *domain.ProbeInstallOperation {
 	t.Helper()
+	op := installAPIOpA
 	stored := f.stored(t, op)
 	if stored.State != domain.ProbeInstallResourcesReady || len(stored.Resources) != len(installAPIKinds) {
 		t.Fatalf("stored receipt %s with %d resources", stored.State, len(stored.Resources))
@@ -1122,7 +1124,7 @@ func TestProbeInstallAPIHappyPathAppliesEveryResourceOnTheHost(t *testing.T) {
 	}
 	f.wantNoDisclosure(t, "final GET", finalBody)
 
-	stored := f.wantInstalledEffects(t, installAPIOpA)
+	stored := f.wantInstalledEffects(t)
 	if stored.State != domain.ProbeInstallResourcesReady {
 		t.Fatalf("stored state %s", stored.State)
 	}
@@ -1140,7 +1142,7 @@ func TestProbeInstallAPIHappyPathAppliesEveryResourceOnTheHost(t *testing.T) {
 func TestProbeInstallAPIExactRetryAfterCompletionReturnsSameReceiptWithoutNewSession(t *testing.T) {
 	f := newInstallAPIFixture(t, installAPIOptions{})
 	_, finalBody := f.installToReady(t, installAPIOpA)
-	f.wantInstalledEffects(t, installAPIOpA)
+	f.wantInstalledEffects(t)
 	f.wantServerRanFullInstall(t, 1)
 	before := f.server.view()
 	beforeCounts := f.counts(t)
@@ -1173,7 +1175,7 @@ func TestProbeInstallAPIExactRetryAfterCompletionReturnsSameReceiptWithoutNewSes
 	if rec := f.asAdmin(t, http.MethodGet, installAPIPath+"/"+installAPIOpA, ""); rec.Body.String() != finalBody {
 		t.Fatal("receipt differs after retries")
 	}
-	f.wantInstalledEffects(t, installAPIOpA)
+	f.wantInstalledEffects(t)
 }
 
 // ---------------------------------------------------------------------------
@@ -1236,7 +1238,7 @@ func TestProbeInstallAPIChangedIdentityConflictsWithoutAnyExec(t *testing.T) {
 		t.Fatalf("the stored receipt changed after conflicts: %s", rec.Body.String())
 	}
 	f.wantScratchEmpty(t, "after conflicts")
-	f.wantInstalledEffects(t, installAPIOpA)
+	f.wantInstalledEffects(t)
 }
 
 // ---------------------------------------------------------------------------
@@ -1314,7 +1316,7 @@ func TestProbeInstallAPIRejectedArtifactCreatesNothingDurable(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.installToReady(t, installAPIOpA)
-	f.wantInstalledEffects(t, installAPIOpA)
+	f.wantInstalledEffects(t)
 	f.wantServerRanFullInstall(t, 1)
 }
 
@@ -1738,7 +1740,7 @@ func TestProbeInstallAPISaturationRefusesNewWorkButAnswersExactRetry(t *testing.
 func TestProbeInstallAPIThroughProductionCompositionRoot(t *testing.T) {
 	f := newInstallAPIFixture(t, installAPIOptions{viaComposition: true})
 	f.installToReady(t, installAPIOpA)
-	f.wantInstalledEffects(t, installAPIOpA)
+	f.wantInstalledEffects(t)
 	f.wantServerRanFullInstall(t, 1)
 	f.wantCounts(t, "composition install", installAPICounts{operations: 1, resources: 4, stage: 1, actions: 3})
 	f.wantKeyNotAtRest(t)
@@ -1764,7 +1766,7 @@ func TestProbeInstallAPIThroughProductionCompositionRoot(t *testing.T) {
 
 // resources_ready has no remaining installer work: cancel answers 200 with the
 // settled receipt byte-identical and never demotes it to a cancel_requested
-// that no runner would finish. The service reads before cancelling; the
+// that no runner would finish. The service reads before canceling; the
 // journal store's own cancellation semantics are unchanged.
 func TestProbeInstallAPICancelOfResourcesReadyLeavesReceiptUnchanged(t *testing.T) {
 	f := newInstallAPIFixture(t, installAPIOptions{})
@@ -1831,7 +1833,7 @@ func (f *installAPIFixture) awaitCleanup(t *testing.T, op string) handlers.Probe
 func TestProbeInstallAPICleanupRemovesTheInstallAndFreesTheHost(t *testing.T) {
 	f := newInstallAPIFixture(t, installAPIOptions{viaComposition: true})
 	f.installToReady(t, installAPIOpA)
-	f.wantInstalledEffects(t, installAPIOpA)
+	f.wantInstalledEffects(t)
 	cleanupPath := installAPIPath + "/" + installAPIOpA + "/cleanup"
 
 	if rec := f.asAdmin(t, http.MethodGet, cleanupPath, ""); rec.Code != http.StatusNotFound {
@@ -1855,7 +1857,7 @@ func TestProbeInstallAPICleanupRemovesTheInstallAndFreesTheHost(t *testing.T) {
 	hactWantEmptyDirs(t, f.stageParent, f.tree.varLib, f.tree.unitDir)
 	calls := f.tree.sysctl.recorded()
 	unit := f.tree.unitName(installAPIOpA)
-	var verbs []string
+	verbs := make([]string, 0, len(calls))
 	for _, call := range calls {
 		verbs = append(verbs, strings.Join(call, " "))
 	}

@@ -81,7 +81,7 @@ func TestRunAuthorizedProbeBinaryStageHelperHostKeyRefusalEmitsNoChallenge(t *te
 		"error":      func(context.Context) ([]string, error) { return nil, errors.New("sensitive-hostkey-canary") },
 		"empty":      func(context.Context) ([]string, error) { return nil, nil },
 		"storage":    func(context.Context) ([]string, error) { return nil, domain.ErrProbeArtifactStorage },
-		"cancelled":  func(context.Context) ([]string, error) { return nil, context.Canceled },
+		"canceled":   func(context.Context) ([]string, error) { return nil, context.Canceled },
 		"zero slice": func(context.Context) ([]string, error) { return []string{}, nil },
 	}
 	for name, hostKeys := range cases {

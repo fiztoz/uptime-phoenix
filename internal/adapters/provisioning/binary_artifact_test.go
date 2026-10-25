@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -41,7 +40,13 @@ func main(){if p:=os.Getenv("PHOENIX_ARTIFACT_EXECUTION_CANARY");p!=""{_=os.Writ
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, filepath.Join(runtime.GOROOT(), "bin", "go"), "build", "-trimpath", "-ldflags=-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=0.4.5", "-o", "fixture", "./"+pkg)
+	// go test puts the running toolchain's bin directory first on PATH, so this
+	// is the same go that built the test binary.
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(ctx, goBin, "build", "-trimpath", "-ldflags=-s -w -X github.com/fiztoz/uptime-phoenix/internal/version.Version=0.4.5", "-o", "fixture", "./"+pkg)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+arch, "CGO_ENABLED="+cgo, "GOWORK=off", "GOENV=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off", "GOFLAGS=")
 	if out, err := cmd.CombinedOutput(); err != nil {

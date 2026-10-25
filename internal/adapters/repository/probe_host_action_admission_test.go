@@ -18,7 +18,7 @@ func TestProbeHostActionAdmissionStoreRefusals(t *testing.T) {
 			if a != (domain.ProbeHostActionAdmission{}) || err != domain.ErrInternal {
 				t.Fatalf("%s: missing DB returned admission", kind)
 			}
-			a, err = store.AdmitHostAction(nil, r)
+			a, err = store.AdmitHostAction(nil, r) //nolint:staticcheck // SA1012: a nil context is the refusal under test
 			if a != (domain.ProbeHostActionAdmission{}) || err != domain.ErrValidation {
 				t.Fatalf("%s: nil context accepted", kind)
 			}

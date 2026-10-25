@@ -46,13 +46,12 @@ func TestProbeInstallPreflightHelperRefusals(t *testing.T) {
 		t.Fatalf("args: code=%d out=%q stderr=%q gathered=%d", code, out, stderr, gathered)
 	}
 	leak := errors.New("/etc/phoenix-probe/stage-authority.pub canary")
+	fixed := func(report domain.ProbeInstallHostReport, err error) func(context.Context) (domain.ProbeInstallHostReport, error) {
+		return func(context.Context) (domain.ProbeInstallHostReport, error) { return report, err }
+	}
 	for name, gather := range map[string]func(context.Context) (domain.ProbeInstallHostReport, error){
-		"gather error": func(context.Context) (domain.ProbeInstallHostReport, error) {
-			return domain.ProbeInstallHostReport{}, errors.Join(leak, domain.ErrProbeBinaryStageWriteUnavailable)
-		},
-		"invalid report": func(context.Context) (domain.ProbeInstallHostReport, error) {
-			return domain.ProbeInstallHostReport{Kernel: "Linux"}, nil
-		},
+		"gather error":   fixed(domain.ProbeInstallHostReport{}, errors.Join(leak, domain.ErrProbeBinaryStageWriteUnavailable)),
+		"invalid report": fixed(domain.ProbeInstallHostReport{Kernel: "Linux"}, nil),
 	} {
 		code, out, stderr, _ := runPreflightHelper(t.Context(), nil, gather)
 		if code != 1 || out != "" || stderr == "" || strings.Contains(stderr, "canary") {

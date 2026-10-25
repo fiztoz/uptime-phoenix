@@ -240,7 +240,7 @@ func (e *m8HostEnv) blockedCall() (<-chan m8HostResult, <-chan struct{}, <-chan 
 	e.t.Helper()
 	peer := m8InstallSecondDB(e.t, e.f, "")
 	hook := &m8JournalLockEntry{entered: make(chan struct{})}
-	peer.AddQueryHook(hook)
+	attachInPlaceQueryHook(peer, hook)
 	svc := m8HostService(e.t, repository.NewProbeHostActionAdmissionStore(peer), e.signer)
 	call, cancel := context.WithCancel(e.ctx)
 	result := make(chan m8HostResult, 1)

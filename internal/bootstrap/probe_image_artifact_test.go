@@ -81,7 +81,7 @@ func TestProbeImageVerificationCLIRefusals(t *testing.T) {
 				argv = []string{"--unknown=sensitive-flag-marker"}
 				want = 2
 			case "trailing":
-				argv = append(argv, "extra")
+				argv = append(append([]string(nil), argv...), "extra")
 				want = 2
 			case "bad_digest":
 				argv[7] = strings.Repeat("0", 64)

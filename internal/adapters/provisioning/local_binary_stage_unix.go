@@ -18,9 +18,11 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
-const localStageDirPerm = uint32(0o700)
+// localStageDirPerm and localStageBinPerm are untyped so they compare against
+// unix.Stat_t.Mode, which is a uint32 on Linux and a uint16 on Darwin.
+const localStageDirPerm = 0o700
 const localStageCreatePerm = uint32(0o600)
-const localStageBinPerm = uint32(0o555)
+const localStageBinPerm = 0o555
 const localStageMarkPerm = uint32(0o444)
 const localStageCopyBuf = 32 * 1024
 const localStageTargetBinary = "binary"

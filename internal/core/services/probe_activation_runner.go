@@ -520,7 +520,7 @@ func (r *ProbeActivationRunner) watch(
 			// spurious stop for our own teardown.
 			return
 		}
-		signal := probeActivationRunnerSignal{}
+		var signal probeActivationRunnerSignal
 		switch {
 		case err != nil:
 			signal = probeActivationRunnerSignal{stop: probeActivationStopObserve, err: err}

@@ -133,7 +133,7 @@ func (e *m8ActAdmEnv) blockedCall() (<-chan m8HostResult, <-chan struct{}, <-cha
 	e.t.Helper()
 	peer := m8InstallSecondDB(e.t, e.f, "")
 	hook := &m8JournalLockEntry{entered: make(chan struct{})}
-	peer.AddQueryHook(hook)
+	attachInPlaceQueryHook(peer, hook)
 	svc := m8ActServiceOver(e.t, repository.NewProbeInstallActivationStore(peer), e.signer)
 	call, cancel := context.WithCancel(e.ctx)
 	result := make(chan m8HostResult, 1)
@@ -788,11 +788,11 @@ func TestM8InstallActivationAdmissionSeparation(t *testing.T) {
 				istore := m8InstallStore(e.f)
 				m8InstallCreate(t, istore, m8ActIdentity(m8InstallOp3).Install, m8InstallOwnerA)
 				m8InstallBeginOK(t, istore, m8InstallOp3, m8InstallOwnerA)
-				for i, kind := range m8InstallKinds(domain.ProbeInstallSystemd) {
+				for i, kind := range m8InstallSystemdKinds() {
 					attempt := m8ActInstallAttempt(m8InstallOp3, i+1)
 					m8InstallReserveOK(t, istore, m8InstallOp3, m8InstallOwnerA, kind, attempt)
 					if i < 3 {
-						m8InstallRecordOK(t, istore, m8InstallOp3, m8InstallOwnerA, kind, attempt, m8InstallApplied())
+						m8InstallRecordOK(t, istore, m8InstallOp3, kind, attempt, m8InstallApplied())
 					}
 				}
 				for _, kind := range m8ActAdmissionKinds {
@@ -914,7 +914,7 @@ func TestM8InstallActivationClockAfterAuthorityLock(t *testing.T) {
 					}
 					peerDB := m8InstallSecondDB(t, e.f, "")
 					hook := &m8JournalLockEntry{entered: make(chan struct{})}
-					peerDB.AddQueryHook(hook)
+					attachInPlaceQueryHook(peerDB, hook)
 					peer := repository.NewProbeInstallActivationStore(peerDB)
 					type reply struct {
 						activation *domain.ProbeActivation

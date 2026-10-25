@@ -91,9 +91,10 @@ func TestLocalBinaryStageWriteRefusals(t *testing.T) {
 	var nilWriter *LocalBinaryStageWriter
 	seal, err := nilWriter.StageBinary(t.Context(), intent, &stagePrepared{pin: pin})
 	assertStageErr(t, seal, err, domain.ErrProbeBinaryStageWriteInput, "")
-	seal, err = w.StageBinary(nil, intent, &stagePrepared{pin: pin})
+	var nilCtx context.Context // deliberately nil: the refusal under test
+	seal, err = w.StageBinary(nilCtx, intent, &stagePrepared{pin: pin})
 	assertStageErr(t, seal, err, domain.ErrProbeBinaryStageWriteInput, "")
-	if _, err := NewLocalBinaryStageWriter(nil, parent); err != domain.ErrProbeBinaryStageWriteInput {
+	if _, err := NewLocalBinaryStageWriter(nilCtx, parent); err != domain.ErrProbeBinaryStageWriteInput {
 		t.Fatal(err)
 	}
 	if _, err := NewLocalBinaryStageWriter(t.Context(), nil); err != domain.ErrProbeBinaryStageWriteInput {

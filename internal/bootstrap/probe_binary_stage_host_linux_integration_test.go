@@ -53,7 +53,7 @@ func TestMain(m *testing.M) {
 		}
 		// Exec eliminates all other setup threads. no-new-privileges is sticky;
 		// the fresh test checks actual zero capabilities before the helper.
-		err = syscall.Exec("/fixtures/test", os.Args, append(os.Environ(), "PHOENIX_M8_HOST_SANDBOX_SETUP_DONE=1"))
+		_ = syscall.Exec("/fixtures/test", os.Args, append(os.Environ(), "PHOENIX_M8_HOST_SANDBOX_SETUP_DONE=1"))
 		_, _ = fmt.Fprintln(os.Stderr, "isolated test reexec refused")
 		os.Exit(1)
 	}

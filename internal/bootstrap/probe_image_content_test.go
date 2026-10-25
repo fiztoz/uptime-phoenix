@@ -40,7 +40,8 @@ func imageContentArgs(t *testing.T, f *testutil.ProbeImageContentFixture) ([]str
 		}
 		paths = append(paths, p)
 	}
-	args := []string{"--repository", f.Pin.Repository, "--version", f.Pin.Version, "--architecture", f.Pin.Architecture, "--index-sha256", f.Pin.IndexSHA256, "--index-size", strconv.FormatInt(f.Pin.IndexSize, 10), "--index", paths[0], "--manifest", paths[1], "--config", paths[2]}
+	args := make([]string, 0, 16+2*(len(paths)-3))
+	args = append(args, "--repository", f.Pin.Repository, "--version", f.Pin.Version, "--architecture", f.Pin.Architecture, "--index-sha256", f.Pin.IndexSHA256, "--index-size", strconv.FormatInt(f.Pin.IndexSize, 10), "--index", paths[0], "--manifest", paths[1], "--config", paths[2])
 	for _, p := range paths[3:] {
 		args = append(args, "--layer", p)
 	}
@@ -204,7 +205,7 @@ func TestProbeImageContentVerificationCLIRefusals(t *testing.T) {
 					layer := m["layers"].([]any)[0].(map[string]any)
 					layer["size"] = layer["size"].(int) + 1
 				})
-				args, paths = imageContentArgs(t, f)
+				args, _ = imageContentArgs(t, f)
 				argv = args
 				allowed = []string{domain.ErrProbeImageSize.Error()}
 			case "corrupt_gzip":
@@ -212,19 +213,19 @@ func TestProbeImageContentVerificationCLIRefusals(t *testing.T) {
 				b[len(b)/2] ^= 0xff
 				f.Layers[0] = b
 				f.RebindContent(t)
-				args, paths = imageContentArgs(t, f)
+				args, _ = imageContentArgs(t, f)
 				argv = args
 				allowed = []string{domain.ErrProbeImageContentEncoding.Error()}
 			case "truncated_gzip":
 				f.Layers[0] = f.Layers[0][:len(f.Layers[0])/2]
 				f.RebindContent(t)
-				args, paths = imageContentArgs(t, f)
+				args, _ = imageContentArgs(t, f)
 				argv = args
 				allowed = []string{domain.ErrProbeImageContentEncoding.Error()}
 			case "trailing_gzip":
 				f.Layers[0] = append(f.Layers[0], 0x00)
 				f.RebindContent(t)
-				args, paths = imageContentArgs(t, f)
+				args, _ = imageContentArgs(t, f)
 				argv = args
 				allowed = []string{domain.ErrProbeImageContentEncoding.Error()}
 			case "bad_diff_id":
@@ -232,21 +233,21 @@ func TestProbeImageContentVerificationCLIRefusals(t *testing.T) {
 					rootfs := c["rootfs"].(map[string]any)
 					rootfs["diff_ids"].([]any)[0] = "sha256:" + strings.Repeat("a", 64)
 				})
-				args, paths = imageContentArgs(t, f)
+				args, _ = imageContentArgs(t, f)
 				argv = args
 				allowed = []string{domain.ErrProbeImageContentDiffID.Error()}
 			case "zstd_chain":
 				f.ChangeManifest(t, func(m map[string]any) {
 					m["layers"].([]any)[0].(map[string]any)["mediaType"] = "application/vnd.oci.image.layer.v1.tar+zstd"
 				})
-				args, paths = imageContentArgs(t, f)
+				args, _ = imageContentArgs(t, f)
 				argv = args
 				allowed = []string{domain.ErrProbeImageContentEncoding.Error()}
 			case "over_limit_size":
 				f.ChangeManifest(t, func(m map[string]any) {
 					m["layers"].([]any)[0].(map[string]any)["size"] = int(domain.MaxProbeImageLayerBytes + 1)
 				})
-				args, paths = imageContentArgs(t, f)
+				args, _ = imageContentArgs(t, f)
 				argv = args
 				allowed = []string{domain.ErrProbeImageContentLimit.Error()}
 			case "layer_count_mismatch":

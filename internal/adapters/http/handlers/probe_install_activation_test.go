@@ -408,7 +408,7 @@ func TestProbeActivationSubmitStrictBinding(t *testing.T) {
 		status     int
 		code       string
 	}
-	cases := []bindCase{
+	fixed := []bindCase{
 		{"empty", "", 400, "invalid_activation"},
 		{"malformed", `{`, 400, "invalid_activation"},
 		{"truncated member", `{"private_key":`, 400, "invalid_activation"},
@@ -433,6 +433,9 @@ func TestProbeActivationSubmitStrictBinding(t *testing.T) {
 		{"oversized private key", activationBody(strings.Repeat("k", domain.MaxProbeInstallPrivateKeySize+1)), 400, "invalid_activation"},
 		{"empty private key", activationJSON(activationSet(base, "private_key", `""`)), 400, "invalid_activation"},
 	}
+	// Every loop below appends to the fixed table; size it up front.
+	cases := make([]bindCase, 0, 256)
+	cases = append(cases, fixed...)
 	// probe_key must be the registry's canonical slug and never the reserved local key.
 	for _, key := range []string{"", "Edge", "EDGE-1", "-edge", "edge-", "local", strings.Repeat("a", 64), "edge_1", "edge 1", "edge.1", "edge/1", "edgé", "edge\n", " edge", "edge "} {
 		cases = append(cases, bindCase{"probe_key " + strconv.Quote(key), activationJSON(activationSet(base, "probe_key", activationQuote(key))), 400, "invalid_activation"})
@@ -829,7 +832,7 @@ func TestProbeActivationErrorAllowlist(t *testing.T) {
 		name, state, code string
 		activation        *domain.ProbeActivation
 	}
-	var cases []codeCase
+	cases := make([]codeCase, 0, len(failedCodes)+4)
 	for _, code := range failedCodes {
 		if !(domain.ProbeInstallOutcome{State: domain.ProbeInstallFailed, ErrorCode: code}).Valid() {
 			t.Fatalf("journal no longer accepts failed code %q: update the allowlist", code)

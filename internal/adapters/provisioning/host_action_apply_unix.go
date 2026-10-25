@@ -18,9 +18,12 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
+// The permission constants are deliberately untyped: unix.Stat_t.Mode is a
+// uint32 on Linux but a uint16 on Darwin, and the mode comparisons below must
+// compile on both without a platform-dependent conversion.
 const (
-	hostActionDataDirPerm  = uint32(0o700)
-	hostActionUnitFilePerm = uint32(0o644)
+	hostActionDataDirPerm  = 0o700
+	hostActionUnitFilePerm = 0o644
 	hostActionUnitMaxRead  = 64 * 1024
 )
 
@@ -48,7 +51,7 @@ func ApplyProbeDataDirectory(ctx context.Context, parent *os.File, intent domain
 		return domain.ErrProbeBinaryStageWriteUnknown
 	}
 	st, err := fstatFile(dir)
-	if err != nil || st.Mode&unix.S_IFMT != unix.S_IFDIR || uint32(st.Mode)&0o7777 != hostActionDataDirPerm || int(st.Uid) != os.Geteuid() {
+	if err != nil || st.Mode&unix.S_IFMT != unix.S_IFDIR || st.Mode&0o7777 != hostActionDataDirPerm || int(st.Uid) != os.Geteuid() {
 		return domain.ErrProbeBinaryStageWriteUnknown
 	}
 	if err := hostActionSyncDir(parent); err != nil || ctx.Err() != nil {
@@ -169,7 +172,7 @@ func hostActionUnitMatches(parent *os.File, name string, want []byte) bool {
 	defer func() { _ = file.Close() }()
 	st, err := fstatFile(file)
 	if err != nil || st.Mode&unix.S_IFMT != unix.S_IFREG || st.Nlink != 1 || int(st.Uid) != os.Geteuid() ||
-		uint32(st.Mode)&0o7777 != hostActionUnitFilePerm || st.Size != int64(len(want)) {
+		st.Mode&0o7777 != hostActionUnitFilePerm || st.Size != int64(len(want)) {
 		return false
 	}
 	got := make([]byte, hostActionUnitMaxRead+1)
@@ -224,7 +227,7 @@ func ApplyProbeInit(ctx context.Context, dataParent, optParent *os.File, intent 
 	st, statErr := fstatFile(data)
 	entries, readErr := data.ReadDir(1)
 	_ = data.Close()
-	if statErr != nil || st.Mode&unix.S_IFMT != unix.S_IFDIR || uint32(st.Mode)&0o7777 != hostActionDataDirPerm || int(st.Uid) != os.Geteuid() {
+	if statErr != nil || st.Mode&unix.S_IFMT != unix.S_IFDIR || st.Mode&0o7777 != hostActionDataDirPerm || int(st.Uid) != os.Geteuid() {
 		return zero, domain.ErrProbeBinaryStageWriteUnavailable
 	}
 	if len(entries) != 0 {
@@ -306,7 +309,7 @@ func probeStagedBinaryMatches(optParent *os.File, dirName string, pin domain.Pro
 	// The binary runs by absolute path after this check, so its directory
 	// must also be ours alone: no one else can swap the file in between.
 	dst, err := fstatFile(dir)
-	if err != nil || dst.Mode&unix.S_IFMT != unix.S_IFDIR || int(dst.Uid) != os.Geteuid() || uint32(dst.Mode)&0o7777 != localStageDirPerm {
+	if err != nil || dst.Mode&unix.S_IFMT != unix.S_IFDIR || int(dst.Uid) != os.Geteuid() || dst.Mode&0o7777 != localStageDirPerm {
 		return false
 	}
 	file, err := openAt(dir, pin.ReleaseName(), localStageReadFlags, 0)
@@ -316,7 +319,7 @@ func probeStagedBinaryMatches(optParent *os.File, dirName string, pin domain.Pro
 	defer func() { _ = file.Close() }()
 	st, err := fstatFile(file)
 	if err != nil || st.Mode&unix.S_IFMT != unix.S_IFREG || st.Nlink != 1 || int(st.Uid) != os.Geteuid() ||
-		uint32(st.Mode)&0o7777 != localStageBinPerm || st.Size != pin.Size {
+		st.Mode&0o7777 != localStageBinPerm || st.Size != pin.Size {
 		return false
 	}
 	hash := sha256.New()

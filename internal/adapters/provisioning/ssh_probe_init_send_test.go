@@ -76,12 +76,12 @@ func (h *probeInitSendHarness) sendInit(t *testing.T) probeInitSendOutcome {
 	return probeInitSendAwait(t, h.initAsync(t.Context()), "probe init send")
 }
 
-func (h *probeInitSendHarness) requireInitNotStaged(t *testing.T, out probeInitSendOutcome, rounds int) {
+func (h *probeInitSendHarness) requireInitNotStaged(t *testing.T, out probeInitSendOutcome) {
 	t.Helper()
 	if out.result != (ProbeInitResult{}) {
 		t.Fatalf("a failed send returned %+v", out.result)
 	}
-	h.requireNotStaged(t, hostActSendResult{err: out.err}, rounds)
+	h.requireNotStaged(t, hostActSendResult{err: out.err})
 }
 
 func (h *probeInitSendHarness) requireInitUnknown(t *testing.T, out probeInitSendOutcome, wantStdin []byte) {
@@ -155,7 +155,7 @@ func TestSendProbeInitHappyPath(t *testing.T) {
 	}
 	// The token is only ever on the way back: nothing sent contains it.
 	if bytes.Contains(got, []byte(probeInitTestToken)) || strings.Contains(fmt.Sprintf("%+v", h.auth.seenRequests()), probeInitTestToken) {
-		t.Fatal("the enrollment token travelled toward the host")
+		t.Fatal("the enrollment token traveled toward the host")
 	}
 	if h.helper.verified.Load() != 1 {
 		t.Fatalf("helper emulation verdict %d, want accepted grant", h.helper.verified.Load())
@@ -612,7 +612,7 @@ func TestSendProbeInitNotStagedBeforeFirstStdinByte(t *testing.T) {
 				h.requireExitRaceOutcome(t, hostActSendResult{err: out.err})
 				return
 			}
-			h.requireInitNotStaged(t, out, 1)
+			h.requireInitNotStaged(t, out)
 			if h.auth.calls.Load() != 0 {
 				t.Fatalf("authorizer called %d times for a refused challenge", h.auth.calls.Load())
 			}
@@ -640,7 +640,7 @@ func TestSendProbeInitAuthorizerErrorIsNotStaged(t *testing.T) {
 				}
 			})
 			out := h.sendInit(t)
-			h.requireInitNotStaged(t, out, 1)
+			h.requireInitNotStaged(t, out)
 			if errors.Is(out.err, tc.err) {
 				t.Fatalf("authorizer error %v leaked through %v", tc.err, out.err)
 			}
@@ -713,7 +713,7 @@ func TestSendProbeInitGrantForDifferentRequestIsNotStaged(t *testing.T) {
 				}
 			})
 			out := h.sendInit(t)
-			h.requireInitNotStaged(t, out, 1)
+			h.requireInitNotStaged(t, out)
 			if h.auth.calls.Load() != 1 {
 				t.Fatalf("authorizer calls = %d, want exactly 1", h.auth.calls.Load())
 			}
@@ -741,7 +741,7 @@ func TestSendProbeInitCancelDuringAuthorizationIsNotStaged(t *testing.T) {
 	}
 	cancel()
 	out := probeInitSendAwait(t, done, "cancel during authorization")
-	h.requireInitNotStaged(t, out, 1)
+	h.requireInitNotStaged(t, out)
 	if h.auth.calls.Load() != 1 {
 		t.Fatalf("authorizer calls = %d, want 1", h.auth.calls.Load())
 	}
@@ -795,7 +795,7 @@ func TestSendProbeInitHelperDiesDuringAuthorizationIsNotStaged(t *testing.T) {
 			return hostActSendSign(a.authority, request), nil
 		}
 	})
-	h.requireInitNotStaged(t, h.sendInit(t), 1)
+	h.requireInitNotStaged(t, h.sendInit(t))
 	if h.auth.calls.Load() != 1 {
 		t.Fatalf("authorizer calls = %d, want 1", h.auth.calls.Load())
 	}
@@ -900,7 +900,7 @@ func TestSendHostActionServiceStartNotStagedCases(t *testing.T) {
 				return domain.ProbeHostActionGrant{}, errors.New("journal step is not in flight")
 			}
 		})
-		h.requireNotStaged(t, h.send(t), 1)
+		h.requireNotStaged(t, h.send(t))
 	})
 	for _, kind := range []string{domain.ProbeActivationProbeInit, hostActFrameKindService, hostActFrameKindData, hostActFrameKindUnit} {
 		t.Run("grant for "+kind+" validly signed", func(t *testing.T) {
@@ -911,7 +911,7 @@ func TestSendHostActionServiceStartNotStagedCases(t *testing.T) {
 					return hostActSendSign(a.authority, request), nil
 				}
 			})
-			h.requireNotStaged(t, h.send(t), 1)
+			h.requireNotStaged(t, h.send(t))
 		})
 	}
 	t.Run("grant signed by an unknown authority is rejected by the helper", func(t *testing.T) {

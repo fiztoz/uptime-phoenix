@@ -64,7 +64,8 @@ func TestProbeAdminImageContentAcrossProcesses(t *testing.T) {
 		err := cmd.Run()
 		return out.Bytes(), stderr.Bytes(), err
 	}
-	args := []string{"--repository", f.Pin.Repository, "--version", f.Pin.Version, "--architecture", "amd64", "--index", paths[0], "--index-sha256", f.Pin.IndexSHA256, "--index-size", strconv.FormatInt(f.Pin.IndexSize, 10), "--manifest", paths[1], "--config", paths[2]}
+	args := make([]string, 0, 16+2*(len(paths)-3))
+	args = append(args, "--repository", f.Pin.Repository, "--version", f.Pin.Version, "--architecture", "amd64", "--index", paths[0], "--index-sha256", f.Pin.IndexSHA256, "--index-size", strconv.FormatInt(f.Pin.IndexSize, 10), "--manifest", paths[1], "--config", paths[2])
 	for _, p := range paths[3:] {
 		args = append(args, "--layer", p)
 	}

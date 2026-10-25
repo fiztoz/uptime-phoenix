@@ -241,13 +241,6 @@ func (e *m8CleanEnv) abandon(n int) *domain.ProbeCleanup {
 	return e.check(c)
 }
 
-func (e *m8CleanEnv) conflict(what string, err error) {
-	e.t.Helper()
-	if !errors.Is(err, ports.ErrConflict) {
-		e.t.Fatalf("%s must conflict, got %v", what, err)
-	}
-}
-
 func (e *m8CleanEnv) ineligible(what string, err error) {
 	e.t.Helper()
 	if !errors.Is(err, domain.ErrProbeCleanupIneligible) {
@@ -306,11 +299,11 @@ func (e *m8CleanEnv) installInState(op, state string) {
 	case "running_prefix":
 		m8InstallCreate(e.t, istore, install, m8InstallOwnerA)
 		applyFirst()
-		m8InstallRecordOK(e.t, istore, op, m8InstallOwnerA, "data_directory", attempt, m8InstallApplied())
+		m8InstallRecordOK(e.t, istore, op, "data_directory", attempt, m8InstallApplied())
 	case domain.ProbeInstallFailed:
 		m8InstallCreate(e.t, istore, install, m8InstallOwnerA)
 		applyFirst()
-		m8InstallRecordOK(e.t, istore, op, m8InstallOwnerA, "data_directory", attempt, m8InstallApplied())
+		m8InstallRecordOK(e.t, istore, op, "data_directory", attempt, m8InstallApplied())
 		if _, err := istore.FinishInstall(ctx, op, m8InstallOwnerA, m8ActFinish(domain.ProbeInstallFailed, "execution_failed")); err != nil {
 			e.t.Fatal(err)
 		}
@@ -322,7 +315,7 @@ func (e *m8CleanEnv) installInState(op, state string) {
 	case domain.ProbeInstallInterrupted:
 		m8InstallCreate(e.t, istore, install, m8InstallOwnerA)
 		applyFirst()
-		m8InstallRecordOK(e.t, istore, op, m8InstallOwnerA, "data_directory", attempt, m8InstallUnknownOutcome())
+		m8InstallRecordOK(e.t, istore, op, "data_directory", attempt, m8InstallUnknownOutcome())
 	case domain.ProbeInstallCancelRequested:
 		e.installReady(op)
 		if c, err := istore.RequestInstallCancellation(ctx, op); err != nil || c.State != domain.ProbeInstallCancelRequested {
@@ -594,7 +587,7 @@ func m8CleanCreateLeaves() []m8CleanLeaf {
 			// active
 			e.fresh(m8InstallOp1)
 			e.m8ActEnv.begin(m8InstallOp1, owner)
-			if a := e.advance(m8InstallOp1, owner, 4); a.State != domain.ProbeActivationActive {
+			if a := e.advance(m8InstallOp1, 4); a.State != domain.ProbeActivationActive {
 				t.Fatalf("fixture activation must be active: %+v", a)
 			}
 			// failed
@@ -1344,7 +1337,7 @@ func m8CleanClockAfterAuthorityLock(t *testing.T, engine string) {
 			}
 			peerDB := m8InstallSecondDB(t, e.f, "")
 			hook := &m8JournalLockEntry{entered: make(chan struct{})}
-			peerDB.AddQueryHook(hook)
+			attachInPlaceQueryHook(peerDB, hook)
 			peer := repository.NewProbeInstallCleanupStore(peerDB)
 			type reply struct {
 				cleanup *domain.ProbeCleanup

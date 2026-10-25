@@ -764,7 +764,7 @@ func TestProbeBinaryStageReceiveServiceStagesExactStream(t *testing.T) {
 		t.Fatalf("input=%d snapshot=%d opens=%d", stream.closes, bin.closes, bin.opens)
 	}
 	if bin.closeCtx == nil || bin.closeCtx.Err() != nil {
-		t.Fatal("snapshot cleanup was bound to a cancelled context")
+		t.Fatal("snapshot cleanup was bound to a canceled context")
 	}
 
 	secondBin := receiveExactBinary(intent)

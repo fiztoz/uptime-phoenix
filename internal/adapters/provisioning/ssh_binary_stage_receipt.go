@@ -201,7 +201,7 @@ func applySSHBinaryStageReceiptToken(dst *sshBinaryStageReceiptDTO, key string, 
 	case "sha256":
 		return takeStageString(&dst.SHA256, tok)
 	case "size":
-		return takeStageInt64(&dst.Size, tok, 64)
+		return takeStageInt64(&dst.Size, tok)
 	default:
 		return false
 	}

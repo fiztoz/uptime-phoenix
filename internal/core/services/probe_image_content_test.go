@@ -131,7 +131,7 @@ func TestProbeImageContentServiceContract(t *testing.T) {
 				Layers:   []io.ReadCloser{layerMocks[0], layerMocks[1]},
 			}
 			request := pin
-			var callCtx context.Context = ctx
+			callCtx := ctx
 			switch tc.kind {
 			case "invalid_pin":
 				request.Version = "latest"

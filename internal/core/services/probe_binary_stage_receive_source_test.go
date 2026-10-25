@@ -118,7 +118,8 @@ func TestProbeBinaryStageReceiveSourceRefusesBeforeContextMethods(t *testing.T) 
 	}
 
 	input := &receiveCountCloser{data: []byte{1}}
-	if src, err := newProbeBinaryStageReceiveSource(nil, input, 1); src != nil || err != domain.ErrProbeBinaryStageWriteInput {
+	var bareNilCtx context.Context
+	if src, err := newProbeBinaryStageReceiveSource(bareNilCtx, input, 1); src != nil || err != domain.ErrProbeBinaryStageWriteInput {
 		t.Fatalf("nil context: src=%v err=%v", src, err)
 	}
 	if _, closes := input.snapshot(); closes != 1 {

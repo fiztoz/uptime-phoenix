@@ -76,11 +76,9 @@ func m8InstallIdentity(mode, operationID string) domain.ProbeInstallIdentity {
 	return identity
 }
 
-func m8InstallKinds(mode string) []string {
-	if mode == domain.ProbeInstallSystemd {
-		return []string{"data_directory", "artifact_directory", "unit_file", "service"}
-	}
-	return []string{"image_cache", "data_directory", "container"}
+// m8InstallSystemdKinds is the ordered resource list of a systemd install.
+func m8InstallSystemdKinds() []string {
+	return []string{"data_directory", "artifact_directory", "unit_file", "service"}
 }
 
 func m8InstallStore(f probeRegistryFixture) *repository.ProbeInstallJournalStore {
@@ -332,9 +330,10 @@ func m8InstallReserveOK(t *testing.T, store *repository.ProbeInstallJournalStore
 	return operation
 }
 
-func m8InstallRecordOK(t *testing.T, store *repository.ProbeInstallJournalStore, operationID, ownerID, kind, attemptID string, outcome domain.ProbeInstallResourceOutcome) *domain.ProbeInstallOperation {
+// m8InstallRecordOK records one resource outcome under owner A and asserts it.
+func m8InstallRecordOK(t *testing.T, store *repository.ProbeInstallJournalStore, operationID, kind, attemptID string, outcome domain.ProbeInstallResourceOutcome) *domain.ProbeInstallOperation {
 	t.Helper()
-	operation, err := store.RecordInstallResource(t.Context(), operationID, ownerID, kind, attemptID, outcome)
+	operation, err := store.RecordInstallResource(t.Context(), operationID, m8InstallOwnerA, kind, attemptID, outcome)
 	if err != nil {
 		t.Fatalf("record %s/%s %s: %v", operationID, kind, outcome.State, err)
 	}
@@ -547,7 +546,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 					t.Fatalf("successor reserve with in-flight predecessor must conflict, got %v", err)
 				}
 				// not_started never unlocks its successors.
-				m8InstallRecordOK(t, store, m8InstallOp1, m8InstallOwnerA, "data_directory", m8InstallAttempt1, m8InstallNotStartedOutcome())
+				m8InstallRecordOK(t, store, m8InstallOp1, "data_directory", m8InstallAttempt1, m8InstallNotStartedOutcome())
 				if _, _, err := store.ReserveInstallResource(ctx, m8InstallOp1, m8InstallOwnerA, "artifact_directory", m8InstallAttempt2); !errors.Is(err, ports.ErrConflict) {
 					t.Fatalf("successor reserve after not_started predecessor must conflict, got %v", err)
 				}
@@ -555,7 +554,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 				m8InstallCreate(t, store, m8InstallIdentity(domain.ProbeInstallSystemd, m8InstallOp2), m8InstallOwnerA)
 				m8InstallBeginOK(t, store, m8InstallOp2, m8InstallOwnerA)
 				m8InstallReserveOK(t, store, m8InstallOp2, m8InstallOwnerA, "data_directory", m8InstallAttempt3)
-				m8InstallRecordOK(t, store, m8InstallOp2, m8InstallOwnerA, "data_directory", m8InstallAttempt3, m8InstallApplied())
+				m8InstallRecordOK(t, store, m8InstallOp2, "data_directory", m8InstallAttempt3, m8InstallApplied())
 				inFlight := m8InstallReserveOK(t, store, m8InstallOp2, m8InstallOwnerA, "artifact_directory", m8InstallAttempt4)
 				// One attempt per resource per operation.
 				if _, _, err := store.ReserveInstallResource(ctx, m8InstallOp2, m8InstallOwnerA, "artifact_directory", m8InstallAttempt5); !errors.Is(err, ports.ErrConflict) {
@@ -571,11 +570,11 @@ func TestM8InstallJournalStore(t *testing.T) {
 				if _, _, err := store.ReserveInstallResource(ctx, m8InstallOp2, m8InstallOwnerA, "unit_file", m8InstallAttempt3); !errors.Is(err, ports.ErrConflict) {
 					t.Fatalf("duplicated attempt in one graph must conflict, got %v", err)
 				}
-				m8InstallRecordOK(t, store, m8InstallOp2, m8InstallOwnerA, "artifact_directory", m8InstallAttempt4, m8InstallApplied())
+				m8InstallRecordOK(t, store, m8InstallOp2, "artifact_directory", m8InstallAttempt4, m8InstallApplied())
 				m8InstallReserveOK(t, store, m8InstallOp2, m8InstallOwnerA, "unit_file", m8InstallAttempt6)
-				m8InstallRecordOK(t, store, m8InstallOp2, m8InstallOwnerA, "unit_file", m8InstallAttempt6, m8InstallApplied())
+				m8InstallRecordOK(t, store, m8InstallOp2, "unit_file", m8InstallAttempt6, m8InstallApplied())
 				m8InstallReserveOK(t, store, m8InstallOp2, m8InstallOwnerA, "service", m8InstallAttempt7)
-				operation := m8InstallRecordOK(t, store, m8InstallOp2, m8InstallOwnerA, "service", m8InstallAttempt7, m8InstallApplied())
+				operation := m8InstallRecordOK(t, store, m8InstallOp2, "service", m8InstallAttempt7, m8InstallApplied())
 				if operation.State != domain.ProbeInstallResourcesReady {
 					t.Fatalf("last applied must move running to resources_ready: %+v", operation)
 				}
@@ -587,7 +586,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 				m8InstallCreate(t, store, m8InstallIdentity(domain.ProbeInstallDocker, m8InstallOp1), m8InstallOwnerA)
 				m8InstallBeginOK(t, store, m8InstallOp1, m8InstallOwnerA)
 				m8InstallReserveOK(t, store, m8InstallOp1, m8InstallOwnerA, "image_cache", m8InstallAttempt1)
-				operation := m8InstallRecordOK(t, store, m8InstallOp1, m8InstallOwnerA, "image_cache", m8InstallAttempt1, m8InstallApplied())
+				operation := m8InstallRecordOK(t, store, m8InstallOp1, "image_cache", m8InstallAttempt1, m8InstallApplied())
 				if operation.State != domain.ProbeInstallRunning {
 					t.Fatalf("an applied prefix is not resources_ready: %+v", operation)
 				}
@@ -606,7 +605,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 				}
 				// not_started is immutable the same way.
 				m8InstallReserveOK(t, store, m8InstallOp1, m8InstallOwnerA, "data_directory", m8InstallAttempt2)
-				operation = m8InstallRecordOK(t, store, m8InstallOp1, m8InstallOwnerA, "data_directory", m8InstallAttempt2, m8InstallNotStartedOutcome())
+				operation = m8InstallRecordOK(t, store, m8InstallOp1, "data_directory", m8InstallAttempt2, m8InstallNotStartedOutcome())
 				retry, err = store.RecordInstallResource(ctx, m8InstallOp1, m8InstallOwnerA, "data_directory", m8InstallAttempt2, m8InstallNotStartedOutcome())
 				if err != nil {
 					t.Fatalf("not_started retry: %v", err)
@@ -627,9 +626,9 @@ func TestM8InstallJournalStore(t *testing.T) {
 				m8InstallCreate(t, store, m8InstallIdentity(domain.ProbeInstallSystemd, m8InstallOp1), m8InstallOwnerA)
 				m8InstallBeginOK(t, store, m8InstallOp1, m8InstallOwnerA)
 				m8InstallReserveOK(t, store, m8InstallOp1, m8InstallOwnerA, "data_directory", m8InstallAttempt1)
-				m8InstallRecordOK(t, store, m8InstallOp1, m8InstallOwnerA, "data_directory", m8InstallAttempt1, m8InstallApplied())
+				m8InstallRecordOK(t, store, m8InstallOp1, "data_directory", m8InstallAttempt1, m8InstallApplied())
 				m8InstallReserveOK(t, store, m8InstallOp1, m8InstallOwnerA, "artifact_directory", m8InstallAttempt2)
-				operation := m8InstallRecordOK(t, store, m8InstallOp1, m8InstallOwnerA, "artifact_directory", m8InstallAttempt2, m8InstallUnknownOutcome())
+				operation := m8InstallRecordOK(t, store, m8InstallOp1, "artifact_directory", m8InstallAttempt2, m8InstallUnknownOutcome())
 				if operation.State != domain.ProbeInstallInterrupted || operation.ErrorCode != "outcome_unknown" || !operation.Terminal() {
 					t.Fatalf("unknown outcome must interrupt atomically: %+v", operation)
 				}
@@ -682,11 +681,11 @@ func TestM8InstallJournalStore(t *testing.T) {
 				// work and their reports keep landing while the intent is active.
 				m8InstallCreate(t, store, m8InstallIdentity(domain.ProbeInstallSystemd, m8InstallOp2), m8InstallOwnerA)
 				m8InstallBeginOK(t, store, m8InstallOp2, m8InstallOwnerA)
-				kinds := m8InstallKinds(domain.ProbeInstallSystemd)
+				kinds := m8InstallSystemdKinds()
 				for i := 0; i < len(kinds)-1; i++ {
 					attempt := fmt.Sprintf("bbbb000%d-bbbb-4bbb-8bbb-bbbbbbbbbbbb", i+1)
 					m8InstallReserveOK(t, store, m8InstallOp2, m8InstallOwnerA, kinds[i], attempt)
-					m8InstallRecordOK(t, store, m8InstallOp2, m8InstallOwnerA, kinds[i], attempt, m8InstallApplied())
+					m8InstallRecordOK(t, store, m8InstallOp2, kinds[i], attempt, m8InstallApplied())
 				}
 				finalAttempt := fmt.Sprintf("bbbb000%d-bbbb-4bbb-8bbb-bbbbbbbbbbbb", len(kinds))
 				m8InstallReserveOK(t, store, m8InstallOp2, m8InstallOwnerA, kinds[len(kinds)-1], finalAttempt)
@@ -696,7 +695,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 				}
 				// Cancellation intent remains cancel_requested even if all
 				// resources apply afterwards.
-				m8InstallRecordOK(t, store, m8InstallOp2, m8InstallOwnerA, kinds[len(kinds)-1], finalAttempt, m8InstallApplied())
+				m8InstallRecordOK(t, store, m8InstallOp2, kinds[len(kinds)-1], finalAttempt, m8InstallApplied())
 				still, err := store.ObserveInstall(ctx, m8InstallOp2)
 				if err != nil || still.State != domain.ProbeInstallCancelRequested {
 					t.Fatalf("cancellation intent must survive fully applied resources: %+v err=%v", still, err)
@@ -719,7 +718,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 				if _, err := store.FinishInstall(ctx, m8InstallOp3, m8InstallOwnerA, domain.ProbeInstallOutcome{State: domain.ProbeInstallFailed, ErrorCode: "execution_failed"}); !errors.Is(err, ports.ErrConflict) {
 					t.Fatalf("failed with in-flight action must conflict, got %v", err)
 				}
-				m8InstallRecordOK(t, store, m8InstallOp3, m8InstallOwnerA, "data_directory", m8InstallAttempt1, m8InstallNotStartedOutcome())
+				m8InstallRecordOK(t, store, m8InstallOp3, "data_directory", m8InstallAttempt1, m8InstallNotStartedOutcome())
 				resolved, err := store.FinishInstall(ctx, m8InstallOp3, m8InstallOwnerA, domain.ProbeInstallOutcome{State: domain.ProbeInstallFailed, ErrorCode: "not_started"})
 				if err != nil || resolved.State != domain.ProbeInstallFailed || resolved.ErrorCode != "not_started" {
 					t.Fatalf("resolved failure: %+v err=%v", resolved, err)
@@ -747,7 +746,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 				m8InstallCreate(t, store, m8InstallIdentity(domain.ProbeInstallDocker, m8InstallOp1), m8InstallOwnerA)
 				m8InstallBeginOK(t, store, m8InstallOp1, m8InstallOwnerA)
 				m8InstallReserveOK(t, store, m8InstallOp1, m8InstallOwnerA, "image_cache", m8InstallAttempt1)
-				m8InstallRecordOK(t, store, m8InstallOp1, m8InstallOwnerA, "image_cache", m8InstallAttempt1, m8InstallApplied())
+				m8InstallRecordOK(t, store, m8InstallOp1, "image_cache", m8InstallAttempt1, m8InstallApplied())
 				m8InstallReserveOK(t, store, m8InstallOp1, m8InstallOwnerA, "data_directory", m8InstallAttempt2)
 				m8InstallExpire(t, f, m8InstallOp1)
 				observed, err := store.ObserveInstall(ctx, m8InstallOp1)
@@ -957,7 +956,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 				if err := down(); err == nil {
 					t.Fatal("downgrade must refuse in-flight actions")
 				}
-				m8InstallRecordOK(t, store, m8InstallOp1, m8InstallOwnerA, "data_directory", m8InstallAttempt1, m8InstallUnknownOutcome())
+				m8InstallRecordOK(t, store, m8InstallOp1, "data_directory", m8InstallAttempt1, m8InstallUnknownOutcome())
 				if err := down(); err == nil {
 					t.Fatal("downgrade must refuse unknown actions")
 				}
@@ -966,7 +965,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 				m8InstallCreate(t, store, m8InstallIdentity(domain.ProbeInstallSystemd, m8InstallOp1), m8InstallOwnerA)
 				m8InstallBeginOK(t, store, m8InstallOp1, m8InstallOwnerA)
 				m8InstallReserveOK(t, store, m8InstallOp1, m8InstallOwnerA, "data_directory", m8InstallAttempt2)
-				m8InstallRecordOK(t, store, m8InstallOp1, m8InstallOwnerA, "data_directory", m8InstallAttempt2, m8InstallApplied())
+				m8InstallRecordOK(t, store, m8InstallOp1, "data_directory", m8InstallAttempt2, m8InstallApplied())
 				if _, err := store.FinishInstall(ctx, m8InstallOp1, m8InstallOwnerA, domain.ProbeInstallOutcome{State: domain.ProbeInstallFailed, ErrorCode: "execution_failed"}); err != nil {
 					t.Fatalf("terminal failure: %v", err)
 				}
@@ -978,7 +977,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 				m8InstallCreate(t, store, m8InstallIdentity(domain.ProbeInstallDocker, m8InstallOp1), m8InstallOwnerA)
 				m8InstallBeginOK(t, store, m8InstallOp1, m8InstallOwnerA)
 				m8InstallReserveOK(t, store, m8InstallOp1, m8InstallOwnerA, "image_cache", m8InstallAttempt3)
-				m8InstallRecordOK(t, store, m8InstallOp1, m8InstallOwnerA, "image_cache", m8InstallAttempt3, m8InstallApplied())
+				m8InstallRecordOK(t, store, m8InstallOp1, "image_cache", m8InstallAttempt3, m8InstallApplied())
 				if _, err := store.FinishInstall(ctx, m8InstallOp1, m8InstallOwnerA, domain.ProbeInstallOutcome{State: domain.ProbeInstallFailed, ErrorCode: "resource_conflict"}); err != nil {
 					t.Fatalf("terminal failure: %v", err)
 				}
@@ -998,7 +997,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 				operation := m8InstallBeginOK(t, store, m8InstallOp1, m8InstallOwnerA)
 				deadline := operation.DeadlineAt
 				m8InstallReserveOK(t, store, m8InstallOp1, m8InstallOwnerA, "data_directory", m8InstallAttempt1)
-				m8InstallRecordOK(t, store, m8InstallOp1, m8InstallOwnerA, "data_directory", m8InstallAttempt1, m8InstallApplied())
+				m8InstallRecordOK(t, store, m8InstallOp1, "data_directory", m8InstallAttempt1, m8InstallApplied())
 				// A rewound DB clock never rewinds stored updated stamps.
 				future := deadline.Add(-time.Minute)
 				if _, err := f.db.ExecContext(ctx,
@@ -1009,7 +1008,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 				if !operation.UpdatedAt.Equal(future) {
 					t.Fatalf("updated stamp rewound under clock rollback: %v", operation.UpdatedAt)
 				}
-				m8InstallRecordOK(t, store, m8InstallOp1, m8InstallOwnerA, "artifact_directory", m8InstallAttempt2, m8InstallApplied())
+				m8InstallRecordOK(t, store, m8InstallOp1, "artifact_directory", m8InstallAttempt2, m8InstallApplied())
 				// Causal clamp: a successor may never start before its
 				// predecessor finished, even when the clock rewound past it.
 				predFinish := deadline.Add(-2 * time.Minute)
@@ -1032,7 +1031,7 @@ func TestM8InstallJournalStore(t *testing.T) {
 				m8InstallCreate(t, store, m8InstallIdentity(domain.ProbeInstallDocker, m8InstallOp2), m8InstallOwnerA)
 				m8InstallBeginOK(t, store, m8InstallOp2, m8InstallOwnerA)
 				m8InstallReserveOK(t, store, m8InstallOp2, m8InstallOwnerA, "image_cache", m8InstallAttempt4)
-				m8InstallRecordOK(t, store, m8InstallOp2, m8InstallOwnerA, "image_cache", m8InstallAttempt4, m8InstallApplied())
+				m8InstallRecordOK(t, store, m8InstallOp2, "image_cache", m8InstallAttempt4, m8InstallApplied())
 				holder := m8InstallSecondDB(t, f, "")
 				released := make(chan error, 1)
 				var holdStart time.Time

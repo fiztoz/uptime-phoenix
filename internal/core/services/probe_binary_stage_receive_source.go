@@ -74,7 +74,8 @@ func newProbeBinaryStageReceiveSource(ctx context.Context, input io.ReadCloser, 
 	src.child = &probeBinaryStageReceiveChild{src: src}
 	src.stop = context.AfterFunc(ctx, func() {
 		defer close(src.joined)
-		src.closeOuter()
+		// closeOuter memoizes its outcome; this callback has no caller to return it to.
+		_ = src.closeOuter()
 	})
 	return src, nil
 }

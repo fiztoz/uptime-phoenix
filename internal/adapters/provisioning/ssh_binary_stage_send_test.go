@@ -579,7 +579,8 @@ func TestSSHBinaryStageSenderConstructorTrustBeforeIO(t *testing.T) {
 	otherFP := ssh.FingerprintSHA256(otherSigner.PublicKey())
 	ctx := t.Context()
 
-	if s, err := NewSSHBinaryStageSender(nil, key, hostFP, clientFP, probe.EndpointPolicy{}); err != domain.ErrProbeSSHInput || s != nil {
+	var untypedNilCtx context.Context // deliberately nil: the refusal under test
+	if s, err := NewSSHBinaryStageSender(untypedNilCtx, key, hostFP, clientFP, probe.EndpointPolicy{}); err != domain.ErrProbeSSHInput || s != nil {
 		t.Fatalf("nil ctx %v", err)
 	}
 	var nilCtx *sendTNilContext

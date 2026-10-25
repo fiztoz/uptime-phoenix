@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -446,16 +447,17 @@ func (f *binaryStageServer) inspector(t *testing.T) *SSHBinaryStageInspector {
 }
 
 func TestProbeBinaryStageRealSSH(t *testing.T) {
-	cases := []struct {
+	type realSSHCase struct {
 		mode, state string
 		err         error
-	}{{"match", domain.ProbeBinaryStageContentMatches, nil}, {"extensions", domain.ProbeBinaryStageContentMatches, nil}, {"absent", domain.ProbeBinaryStageAbsent, nil}, {"marker_missing", domain.ProbeBinaryStageConflict, nil}, {"marker_digest", domain.ProbeBinaryStageConflict, nil}, {"foreign_attempt", domain.ProbeBinaryStageConflict, nil}, {"binary_digest", domain.ProbeBinaryStageConflict, nil}, {"size", domain.ProbeBinaryStageConflict, nil}, {"fstat_size", domain.ProbeBinaryStageConflict, nil}, {"truncated", domain.ProbeBinaryStageConflict, nil}, {"grown", domain.ProbeBinaryStageConflict, nil}, {"symlink", domain.ProbeBinaryStageConflict, nil}, {"directory_symlink", domain.ProbeBinaryStageConflict, nil}, {"special", domain.ProbeBinaryStageConflict, nil}}
-	for _, mode := range []string{"permission", "version", "extensions_over", "wrong_id", "handle", "attrs", "zero_data", "oversize_data", "oversize_packet", "trailing", "close_failure", "deny_subsystem", "stderr_overflow"} {
-		cases = append(cases, struct {
-			mode, state string
-			err         error
-		}{mode: mode, err: domain.ErrProbeBinaryStageInspection})
 	}
+	cases := []realSSHCase{{"match", domain.ProbeBinaryStageContentMatches, nil}, {"extensions", domain.ProbeBinaryStageContentMatches, nil}, {"absent", domain.ProbeBinaryStageAbsent, nil}, {"marker_missing", domain.ProbeBinaryStageConflict, nil}, {"marker_digest", domain.ProbeBinaryStageConflict, nil}, {"foreign_attempt", domain.ProbeBinaryStageConflict, nil}, {"binary_digest", domain.ProbeBinaryStageConflict, nil}, {"size", domain.ProbeBinaryStageConflict, nil}, {"fstat_size", domain.ProbeBinaryStageConflict, nil}, {"truncated", domain.ProbeBinaryStageConflict, nil}, {"grown", domain.ProbeBinaryStageConflict, nil}, {"symlink", domain.ProbeBinaryStageConflict, nil}, {"directory_symlink", domain.ProbeBinaryStageConflict, nil}, {"special", domain.ProbeBinaryStageConflict, nil}}
+	inspectionModes := []string{"permission", "version", "extensions_over", "wrong_id", "handle", "attrs", "zero_data", "oversize_data", "oversize_packet", "trailing", "close_failure", "deny_subsystem", "stderr_overflow"}
+	inspectionCases := make([]realSSHCase, 0, len(inspectionModes))
+	for _, mode := range inspectionModes {
+		inspectionCases = append(inspectionCases, realSSHCase{mode: mode, err: domain.ErrProbeBinaryStageInspection})
+	}
+	cases = slices.Concat(cases, inspectionCases)
 	for _, tc := range cases {
 		t.Run(tc.mode, func(t *testing.T) {
 			f := serveBinaryStage(t, tc.mode)
@@ -519,7 +521,7 @@ func TestProbeBinaryStageTrustAndPolicy(t *testing.T) {
 				policy = probe.EndpointPolicy{}
 			}
 			i, err := NewSSHBinaryStageInspector(t.Context(), f.key, hp, cp, policy)
-			want := error(domain.ErrProbeSSHInput)
+			want := domain.ErrProbeSSHInput
 			if err == nil {
 				intent := f.intent
 				if mode == "host_pin" {

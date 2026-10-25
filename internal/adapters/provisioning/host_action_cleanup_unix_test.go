@@ -297,14 +297,12 @@ func TestApplyProbeCleanupRemovesFullInstallExactly(t *testing.T) {
 	// The unit file must still exist while the service is stopped, and must be
 	// gone before systemd is told to reload.
 	ctl := cleanupTSystemctl(map[string]func([]string) (string, int, error){
-		"disable": func([]string) (string, int, error) {
+		"disable": hostActApplyHook(func() {
 			cleanupTRequirePresent(t, e.unitFile(), e.binary(), e.dataDir())
-			return "", 0, nil
-		},
-		"daemon-reload": func([]string) (string, int, error) {
+		}, ""),
+		"daemon-reload": hostActApplyHook(func() {
 			cleanupTRequireAbsent(t, e.unitFile())
-			return "", 0, nil
-		},
+		}, ""),
 	})
 	hostActApplyRequireErr(t, e.apply(ctl), nil)
 	hostActApplyRequireCalls(t, ctl, cleanupTWantCalls())
@@ -752,10 +750,7 @@ func TestApplyProbeCleanupContextCanceledAfterUnitRemovalIsUnknown(t *testing.T)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	ctl := cleanupTSystemctl(map[string]func([]string) (string, int, error){
-		"daemon-reload": func([]string) (string, int, error) {
-			cancel()
-			return "", 0, nil
-		},
+		"daemon-reload": hostActApplyHook(cancel, ""),
 	})
 	err := ApplyProbeCleanup(ctx, e.dataParent, e.optParent, e.unitParent, e.intent, ctl)
 	hostActApplyRequireErr(t, err, domain.ErrProbeBinaryStageWriteUnknown)
@@ -770,10 +765,9 @@ func TestApplyProbeCleanupArtifactDirectoryGainingAFileBeforeRemovalIsUnknown(t 
 	e.writeUnit(t)
 	e.writeArtifact(t, true, true)
 	ctl := cleanupTSystemctl(map[string]func([]string) (string, int, error){
-		"disable": func([]string) (string, int, error) {
+		"disable": hostActApplyHook(func() {
 			cleanupTWrite(t, filepath.Join(e.artifactDir(), "late"), "x", 0o600)
-			return "", 0, nil
-		},
+		}, ""),
 	})
 	hostActApplyRequireErr(t, e.apply(ctl), domain.ErrProbeBinaryStageWriteUnknown)
 	cleanupTRequirePresent(t, filepath.Join(e.artifactDir(), "late"))
@@ -860,10 +854,7 @@ func TestApplyProbeCleanupNameReappearingBeforeVerificationIsUnknown(t *testing.
 	e.writeArtifact(t, true, true)
 	e.writeData(t)
 	ctl := cleanupTSystemctl(map[string]func([]string) (string, int, error){
-		"reset-failed": func([]string) (string, int, error) {
-			e.writeUnit(t)
-			return "", 0, nil
-		},
+		"reset-failed": hostActApplyHook(func() { e.writeUnit(t) }, ""),
 	})
 	hostActApplyRequireErr(t, e.apply(ctl), domain.ErrProbeBinaryStageWriteUnknown)
 	hostActApplyRequireCalls(t, ctl, cleanupTWantCalls())
