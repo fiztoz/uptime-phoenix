@@ -25,7 +25,7 @@ var secretConfigKeys = map[string]struct{}{
 	// Keys read by checkers and notifiers that the export list did not cover.
 	"auth_token": {}, "auth_bearer_token": {}, "oauth2_client_secret": {},
 	"basic_auth_pass": {}, "basic_auth_password": {},
-	"connection_string": {}, "dsn": {}, "community": {},
+	"connection_string": {}, "connectionstring": {}, "dsn": {}, "community": {},
 	"app_token": {}, "channel_access_token": {}, "device_key": {},
 	"access_key": {}, "routing_key": {}, "integration_key": {},
 }

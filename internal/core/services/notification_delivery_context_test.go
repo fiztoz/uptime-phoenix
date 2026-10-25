@@ -233,3 +233,33 @@ func TestNotificationService_IncludeTargetToggle(t *testing.T) {
 		})
 	}
 }
+
+// A chat channel is not a place for a database password: the alert's target
+// for a database monitor is host/db, never the DSN it was configured with.
+func TestNotificationService_DatabaseTargetCarriesNoCredentials(t *testing.T) {
+	ctx := context.Background()
+	baseRepo := newFakeNotifRepo()
+	notification := &domain.Notification{UserID: 1, Name: "pager", Type: "delivery-context", Active: true}
+	if err := baseRepo.Create(ctx, notification); err != nil {
+		t.Fatalf("create notification: %v", err)
+	}
+	linkRepo := newFakeMonitorNotifLinkRepo()
+	if err := linkRepo.Attach(ctx, 9, notification.ID, true); err != nil {
+		t.Fatalf("attach link: %v", err)
+	}
+	repo := &deliveryContextNotifRepo{fakeNotifRepo: baseRepo, byMonitor: map[int64][]*domain.Notification{9: {notification}}}
+	sender := &deliveryContextSender{}
+	svc := NewNotificationService(repo, linkRepo)
+	svc.RegisterSender(sender)
+
+	monitor := &domain.Monitor{
+		ID: 9, UserID: 1, Name: "orders db", Type: "database",
+		Config: map[string]any{"engine": "mysql", "connection_string": "monitor:pw-DO-NOT-LEAK@tcp(orders-db:3306)/orders"},
+	}
+	if err := svc.NotifyWithAck(ctx, monitor, domain.StatusDown, domain.StatusUp, "", "connection refused"); err != nil {
+		t.Fatalf("NotifyWithAck: %v", err)
+	}
+	if got := sender.last(t).MonitorTarget; got != "orders-db:3306/orders" {
+		t.Fatalf("MonitorTarget = %q; want host:port/db without credentials", got)
+	}
+}

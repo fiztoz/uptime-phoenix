@@ -47,3 +47,41 @@ func TestMonitorMapToView_MasksSecrets(t *testing.T) {
 		t.Errorf("url credential leaked: target=%q url=%v", v.Target, v.Config["url"])
 	}
 }
+
+// The monitor card's target reaches every viewer of the monitor. For a
+// database monitor Monitor.Target() used to be the raw DSN, and
+// RedactURLPassword only understands scheme:// URLs, so Go MySQL DSNs and
+// libpq keyword DSNs went out with their passwords.
+func TestMonitorBroadcastTargetHidesDatabaseAndURLCredentials(t *testing.T) {
+	cases := []struct {
+		name, typ string
+		cfg       map[string]any
+		want      string
+	}{
+		{"mysql dsn", "database", map[string]any{"engine": "mysql", "connection_string": "monitor:pw-DO-NOT-LEAK@tcp(db:3306)/app?parseTime=true"}, "db:3306/app"},
+		{"postgres keyword dsn", "database", map[string]any{"engine": "postgres", "connection_string": "host=pg port=5432 user=monitor password=pw-DO-NOT-LEAK dbname=app"}, "pg:5432/app"},
+		{"url with password", "http", map[string]any{"url": "https://svc:pw-DO-NOT-LEAK@example.com/health"}, "https://example.com/health"},
+	}
+	for _, tc := range cases {
+		m := &domain.Monitor{ID: 9, Name: tc.name, Type: tc.typ, Active: true, Config: tc.cfg}
+		// Typed payload (in-process bus).
+		data, err := marshalWireEvent(ports.Event{Type: EventMonitorUpdate, Payload: m})
+		if err != nil {
+			t.Fatalf("%s: marshal: %v", tc.name, err)
+		}
+		if strings.Contains(string(data), "DO-NOT-LEAK") {
+			t.Fatalf("%s: broadcast leaked a credential: %s", tc.name, data)
+		}
+		if v := toMonitorView(m, "up"); v.Target != tc.want {
+			t.Errorf("%s: typed target = %q, want %q", tc.name, v.Target, tc.want)
+		}
+		// Map payload (Redis bus JSON round trip).
+		mv := monitorMapToView(map[string]any{"id": float64(9), "type": tc.typ, "active": true, "config": tc.cfg}, "up")
+		if mv.Target != tc.want {
+			t.Errorf("%s: map target = %q, want %q", tc.name, mv.Target, tc.want)
+		}
+		if strings.Contains(mv.Target, "DO-NOT-LEAK") {
+			t.Errorf("%s: map target leaked: %q", tc.name, mv.Target)
+		}
+	}
+}
