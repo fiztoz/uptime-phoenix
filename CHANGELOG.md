@@ -15,18 +15,48 @@ at the bottom.
 
 - **Breaking:** `JWT_SECRET` is now required and must be at least 32 bytes;
   the published default secrets were removed from compose files, the Helm
-  chart and docs (#87).
+  chart and docs (#87). This applies to **every** binary that loads the hub
+  config, including the split `worker` and `phoenix-probe-admin`: the chart
+  and both compose files now give the worker the API's key, but a
+  hand-written worker manifest or compose file must add the same
+  `JWT_SECRET` as the API or the worker exits at start. `make run`, `make dev`
+  and `make dev-split*` use a per-checkout random key in
+  `.secrets/dev_jwt_secret`.
 - Monitor and notification secrets (webhook URLs, tokens, DSNs, auth
-  headers, URL passwords) are write-only. API and WebSocket responses carry
-  `__REDACTED__`; sending it back on update keeps the stored value. A push
-  monitor's token is still shown to users who can edit that monitor (#89).
+  headers, URL passwords, the push monitor's `hmac_secret`, and webhook
+  headers saved as a JSON string) are write-only. API and WebSocket
+  responses carry `__REDACTED__`; sending it back on update keeps the stored
+  value. A push monitor's token is still shown to users who can edit that
+  monitor (#89). A masked list entry that cannot be matched to its stored
+  entry is refused with 400 instead of being restored by position.
+- A monitor's displayed target (WebSocket cards, notification messages)
+  never carries credentials: a database monitor shows `host:port/db`, not
+  its DSN, and URLs lose their `user:password@` (#89).
+- The webhook notifier now sends extra headers saved as a JSON string (the
+  form's "Extra Headers (JSON)" field), which were silently ignored, and
+  rejects headers that are not a JSON object of strings when saved.
 - Sign-in is throttled: login, 2FA and passkey verification share a per-IP
-  budget, accounts back off exponentially after repeated password or TOTP
-  failures, and a 2FA ticket is spent after five wrong codes (#90).
-- The split web image runs nginx-unprivileged (uid 101, port 8080) on a
-  read-only root. Every chart workload, including the backup, partition,
+  budget (10 failed attempts per minute); five failed password or TOTP
+  attempts from one client IP back that IP off the account exponentially
+  (30 s doubling to 15 min); fifty from any mix of IPs back off the account
+  for everyone; a 2FA ticket is spent after five codes. Accounts are keyed by
+  stored user ID, so collation variants of a username share one budget, and
+  attempts are reserved before the password check so parallel requests
+  cannot exceed it. See docs/RUNBOOK.md, "Sign-in lockout", for unlocking
+  (#90).
+- **Breaking (Helm, split web):** the web pod runs as uid 101 on a read-only
+  root with `seccompProfile: RuntimeDefault`, listening on 8080 (the Service
+  port stays 80). Images built from this tree use nginx-unprivileged. The
+  chart also mounts `/run` and `/var/cache/nginx` as emptyDirs, so the
+  already-published root-based `uptime-phoenix-web` image (0.5.1 and older)
+  runs unchanged under the new security context; anything that reached the
+  web pod's port 80 directly (custom NetworkPolicies, PodMonitors, sidecars)
+  must use 8080. Every chart workload, including the backup, partition,
   rollup and migrate jobs, runs non-root under `seccompProfile:
   RuntimeDefault` (#91).
+- The chart NetworkPolicy no longer opens 3000/80/8080 egress to every
+  destination for the tunnel: in-release traffic is scoped to this
+  release's pods, and cloudflared alone may reach Cloudflare's edge on 7844.
 - Align active build, CI, release, Docker, E2E and offline verification pins to
   Go 1.26.10, fixing the reachable standard-library advisory GO-2026-6809
   (distrust compromised intermediate certificates in `crypto/x509`).

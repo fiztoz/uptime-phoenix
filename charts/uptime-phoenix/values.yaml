@@ -371,9 +371,11 @@ web:
   service:
     type: ClusterIP
     port: 80
-  # nginx-unprivileged runs as uid/gid 101 and listens on 8080. The root
-  # filesystem is read-only; /tmp (pid file and proxy temp files) is an
-  # emptyDir.
+  # The web pod runs nginx as uid/gid 101 on a read-only root and listens on
+  # 8080 (the chart's ConfigMap replaces the image's default.conf, so the port
+  # does not depend on the image). /tmp, /run and /var/cache/nginx are
+  # emptyDirs, which covers both nginx-unprivileged (images built from this
+  # tree) and the stock root nginx of the published web image <= 0.5.1.
   containerPort: 8080
   podSecurityContext:
     runAsNonRoot: true

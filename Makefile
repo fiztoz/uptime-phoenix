@@ -377,6 +377,10 @@ helm-validate: ## Assert the MariaDB topology renders its workload and the guard
 		| python3 -B scripts/helm-networkpolicy-check.py
 	@helm template uptime-phoenix charts/uptime-phoenix --set networkPolicy.enabled=true \
 		| python3 -B scripts/helm-networkpolicy-check.py
+	@echo "==> the read-only web pod keeps nginx's writable paths (stock and unprivileged images)"
+	@for p in /tmp /run /var/cache/nginx; do \
+		helm template uptime-phoenix charts/uptime-phoenix --set web.split=true --show-only templates/deployment-web.yaml \
+			| grep -q "mountPath: $$p$$" || { echo "MISSING web mount: $$p"; exit 1; }; done
 	@echo "==> a supplied secret.jwt shorter than 32 bytes must fail the render"
 	@if helm template uptime-phoenix charts/uptime-phoenix --set secret.jwt=change_me_jwt >/dev/null 2>&1; then \
 		echo "EXPECTED FAILURE: secret.jwt shorter than 32 bytes"; exit 1; fi
