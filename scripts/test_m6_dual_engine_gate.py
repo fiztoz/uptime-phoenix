@@ -535,7 +535,7 @@ class BackendGateHarness:
             }, clear=True),
             mock.patch.object(sys, "argv", ["m6_dual_engine_gate.py", "--scope", scope]),
             mock.patch.object(gate, "docker", side_effect=docker_result) as docker,
-            mock.patch.object(gate.Path, "glob", return_value=[Path("/offline-gate-fixture/go1.26.9/bin/go")]),
+            mock.patch.object(gate.Path, "glob", return_value=[Path("/offline-gate-fixture/go1.26.10/bin/go")]),
             mock.patch.object(gate.subprocess, "run", side_effect=run_command),
             mock.patch.object(gate.subprocess, "Popen", side_effect=launch_process) as launch,
             contextlib.redirect_stdout(output)):
@@ -1022,7 +1022,7 @@ class StageAuthorizationGateTest(BackendGateHarness, unittest.TestCase):
         self.assertGreaterEqual(len(kwargs["env"]["MARIADB_PASSWORD"]), 32)
         self.assertFalse(any(kwargs["env"]["MARIADB_PASSWORD"] in arg for arg in args))
         go_env = self.go_launches[0][1]["env"]
-        self.assertTrue(go_env["PATH"].startswith("/offline-gate-fixture/go1.26.9/bin"))
+        self.assertTrue(go_env["PATH"].startswith("/offline-gate-fixture/go1.26.10/bin"))
         for name in ("MARIADB_PASSWORD", "MARIADB_ROOT_PASSWORD", "MYSQL_PWD"):
             self.assertNotIn(name, go_env)
         readiness = next(call for call in self.subprocess_calls if call[0][:2] == ["docker", "exec"])

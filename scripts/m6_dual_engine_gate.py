@@ -645,10 +645,10 @@ def main():
         # checksum-db bootstrap (which would fail with GOSUMDB=off).
         gopath = Path(env.get("GOPATH", str(Path.home() / "go")).split(os.pathsep)[0])
         toolchains = list((gopath / "pkg" / "mod" / "golang.org").glob(
-            "toolchain@v0.0.1-go1.26.9.*/bin/go"
+            "toolchain@v0.0.1-go1.26.10.*/bin/go"
         ))
         if len(toolchains) != 1:
-            raise RuntimeError("cached Go 1.26.9 toolchain required; refusing download")
+            raise RuntimeError("cached Go 1.26.10 toolchain required; refusing download")
         env.pop("GOROOT", None)
         env["PATH"] = str(toolchains[0].parent) + os.pathsep + env.get("PATH", "")
         env.update(GOENV="off", GOTOOLCHAIN="local", GOPROXY="off", GOSUMDB="off", GOWORK="off",

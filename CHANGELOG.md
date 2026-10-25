@@ -13,6 +13,9 @@ at the bottom.
 
 ### Security
 
+- Align active build, CI, release, Docker, E2E and offline verification pins to
+  Go 1.26.10, fixing the reachable standard-library advisory GO-2026-6809
+  (distrust compromised intermediate certificates in `crypto/x509`).
 - Update Go modules, including `golang.org/x/net` v0.60.0, and align active build,
   CI, release, Docker, E2E and offline verification pins to Go 1.26.9. This fixes
   the reachable standard-library vulnerabilities that blocked dependency PRs;
