@@ -18,7 +18,7 @@ test("login renders the hydrated dashboard", async ({ page }) => {
   await page.getByRole("button", { name: "Exit wallboard" }).click();
   await expect(page.getByTestId("dashboard-wallboard")).not.toBeVisible();
 
-  await page.getByRole("button", { name: "Sort monitors" }).click();
+  await page.getByRole("combobox", { name: "Sort monitors" }).click();
   await page.getByRole("option", { name: "Status priority" }).click();
   await expect
     .poll(() => new URL(page.url()).searchParams.get("sort"))
