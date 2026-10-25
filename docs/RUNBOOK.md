@@ -391,7 +391,7 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `LOG_LEVEL` | `info` | Application log level. |
 | `DB_ENGINE` | `sqlite` | `sqlite` or `mariadb`. Split mode requires MariaDB. |
 | `DB_DSN` | `file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)` | Engine-specific DSN. MariaDB migrations require `multiStatements=true`; use `parseTime=true&loc=UTC`. |
-| `JWT_SECRET` | `change-me-in-production` | Session-signing secret. Replace with a stable secret before first production start. |
+| `JWT_SECRET` | — | Session-signing secret, **required, no default** (≥32 bytes; the server refuses to start without it). Generate with `openssl rand -base64 48`. Keep it stable across restarts. |
 | `JWT_EXPIRE_HOURS` | `24` | Session JWT lifetime in hours. Must be `> 0`; non-positive values refuse to boot (they would mint an already-expired token). |
 | `TOTP_ISSUER` | `Phoenix` | Issuer label shown in authenticator apps. |
 | `PRODUCTION` | `false` | Selects secure production defaults, including deny-by-default CORS when no allow-list is supplied. |

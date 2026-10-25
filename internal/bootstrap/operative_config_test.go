@@ -7,6 +7,7 @@ import (
 
 // TestOperativePagingConfig requires a deliberate protected connector opt-in.
 func TestOperativePagingConfig(t *testing.T) {
+	t.Setenv("JWT_SECRET", testJWTSecret)
 	t.Setenv("PROBE_HUB_ID", "")
 	t.Setenv("PROBE_SECRET_KEY_FILE", "")
 	t.Setenv("PROBES_ENABLED", "false")

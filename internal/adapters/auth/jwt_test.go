@@ -124,3 +124,21 @@ func assertSessionTTL(t *testing.T, token, key string, want time.Duration) {
 		t.Errorf("token exp %s is not in the future; minted already-expired", exp.Time)
 	}
 }
+
+// TestVerifyToken_RejectsTokenSignedWithPublishedDefault proves a session
+// minted with the old published placeholder key cannot authenticate against
+// a server running with its own secret (issue #87).
+func TestVerifyToken_RejectsTokenSignedWithPublishedDefault(t *testing.T) {
+	t.Parallel()
+	for _, published := range []string{"change-me-in-production", "change_me_jwt"} {
+		forger := NewJWTAuthenticator(published, 24, nil)
+		forged, err := forger.IssueSession(context.Background(), 1)
+		if err != nil {
+			t.Fatalf("IssueSession: %v", err)
+		}
+		server := NewJWTAuthenticator("server-own-random-signing-key-0123456789abcdef", 24, nil)
+		if uid, err := server.VerifyToken(context.Background(), forged); err == nil {
+			t.Fatalf("token signed with %q accepted as user %d", published, uid)
+		}
+	}
+}

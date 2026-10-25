@@ -47,7 +47,7 @@ func TestProbeAdminWatchdogSettingsAcrossProcesses(t *testing.T) {
 	env := append(os.Environ(), "PHOENIX_PROBE_ADMIN_TEST_PROCESS=1", "DB_ENGINE=sqlite",
 		"DB_DSN=file:"+filepath.Join(dir, "hub.db")+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)",
 		"PROBE_SECRET_KEY_FILE="+keyFile, "PROBE_ENDPOINT_POLICY_FILE="+policyFile,
-		"PROBES_ENABLED=false", "PROBE_HUB_ID=", "JWT_SECRET=private-cli-test-only-secret", "PRODUCTION=false")
+		"PROBES_ENABLED=false", "PROBE_HUB_ID=", "JWT_SECRET=probe-admin-cli-test-only-jwt-secret-0123456789", "PRODUCTION=false")
 	type result struct {
 		State           string `json:"state"`
 		AppliedRevision string `json:"applied_revision"`

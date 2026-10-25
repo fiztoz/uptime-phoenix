@@ -13,7 +13,7 @@ mkdir -p "$SECRETS_DIR"
 for name in mariadb_root_password mariadb_password jwt_secret; do
   file="$SECRETS_DIR/$name"
   if [ ! -f "$file" ]; then
-    openssl rand -base64 24 > "$file"
+    openssl rand -base64 48 > "$file"
     chmod 600 "$file"
     echo "  Generated $name"
   else

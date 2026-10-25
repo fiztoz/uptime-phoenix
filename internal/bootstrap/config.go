@@ -25,7 +25,7 @@ type Config struct {
 	DBMaxIdleConns           int    `env:"DB_MAX_IDLE_CONNS" envDefault:"2"`
 	DBConnMaxIdleSeconds     int    `env:"DB_CONN_MAX_IDLE_SECONDS" envDefault:"30"`
 	DBConnMaxLifetimeSeconds int    `env:"DB_CONN_MAX_LIFETIME_SECONDS" envDefault:"300"`
-	JWTSecret                string `env:"JWT_SECRET" envDefault:"change-me-in-production"`
+	JWTSecret                string `env:"JWT_SECRET"` // required; see validateJWTSecret
 	JWTExpireH               int    `env:"JWT_EXPIRE_HOURS" envDefault:"24"`
 	TOTPIssuer               string `env:"TOTP_ISSUER" envDefault:"Phoenix"`
 	Production               bool   `env:"PRODUCTION" envDefault:"false"`
@@ -161,6 +161,9 @@ type Config struct {
 func LoadConfig() (Config, error) {
 	cfg := Config{}
 	if err := env.Parse(&cfg); err != nil {
+		return Config{}, err
+	}
+	if err := validateJWTSecret(cfg.JWTSecret); err != nil {
 		return Config{}, err
 	}
 	if err := validatePublicURL(cfg.PublicURL); err != nil {

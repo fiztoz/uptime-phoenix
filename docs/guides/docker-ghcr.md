@@ -69,7 +69,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      JWT_SECRET: ${JWT_SECRET:-change_me_jwt}
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET to a random value of at least 32 bytes (openssl rand -base64 48)}"
       BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-admin}
       BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-ChangeMe123!}
       DB_ENGINE: sqlite
@@ -145,7 +145,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      JWT_SECRET: change_me_jwt
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
       BOOTSTRAP_USERNAME: admin
       BOOTSTRAP_PASSWORD: ChangeMe123!
       DB_ENGINE: mariadb
@@ -167,7 +167,7 @@ services:
       api:
         condition: service_healthy
     environment:
-      JWT_SECRET: change_me_jwt
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
       DB_ENGINE: mariadb
       DB_DSN: phoenix:appsecret@tcp(mariadb:3306)/phoenix?parseTime=true&loc=UTC&multiStatements=true
       REDIS_URL: redis://redis:6379/0

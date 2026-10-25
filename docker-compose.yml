@@ -37,7 +37,7 @@ services:
       DB_ENGINE: mariadb
       DB_DSN: "phoenix:${MARIADB_PASSWORD:-change_me_app}@tcp(mariadb:3306)/phoenix?parseTime=true&loc=UTC&multiStatements=true"
       LOG_LEVEL: debug
-      JWT_SECRET: ${JWT_SECRET:-change_me_jwt}
+      JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET to a random value of at least 32 bytes (openssl rand -base64 48)}"
       JWT_EXPIRE_HOURS: "168"
       TOTP_ISSUER: Phoenix
       HOST: "0.0.0.0"

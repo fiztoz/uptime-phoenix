@@ -137,7 +137,7 @@ go build -o /tmp/phoenix-load-app ./cmd/app
 
 DB_ENGINE=mariadb \
 DB_DSN='phoenix:load_app@tcp(127.0.0.1:13307)/phoenix_load?charset=utf8mb4&parseTime=true&loc=UTC' \
-PORT=3102 JWT_SECRET=load_secret \
+PORT=3102 JWT_SECRET="$(openssl rand -base64 48)" \
 BOOTSTRAP_USERNAME=admin BOOTSTRAP_PASSWORD='ChangeMe123!' \
 /tmp/phoenix-load-app
 ```
@@ -168,7 +168,7 @@ DSN='phoenix:load_app@tcp(127.0.0.1:13307)/phoenix_load?charset=utf8mb4&parseTim
 
 # API tier owns migrations — wait for /api/health/ready before starting the worker.
 DB_ENGINE=mariadb DB_DSN="$DSN" REDIS_URL='redis://127.0.0.1:16380/0' \
-PORT=3102 JWT_SECRET=load_secret \
+PORT=3102 JWT_SECRET="$(openssl rand -base64 48)" \
 BOOTSTRAP_USERNAME=admin BOOTSTRAP_PASSWORD='ChangeMe123!' /tmp/uptime-phoenix-api &
 
 until curl -sf http://127.0.0.1:3102/api/health/ready >/dev/null; do sleep 1; done

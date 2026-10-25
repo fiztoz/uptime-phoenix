@@ -21,7 +21,9 @@ export PATH := $(GO_BIN):$(PATH)
 # Defaults — override via .env or: make dev-split MARIADB_PASSWORD=secret
 MARIADB_PASSWORD ?= change_me_app
 MARIADB_ROOT_PASSWORD ?= change_me_root
-JWT_SECRET ?= change_me_jwt
+# JWT_SECRET has no published default: dev targets read a per-checkout random
+# key from .secrets/dev_jwt_secret (gitignored), generated on first use.
+JWT_SECRET ?= $(shell mkdir -p .secrets && test -s .secrets/dev_jwt_secret || openssl rand -base64 48 > .secrets/dev_jwt_secret; cat .secrets/dev_jwt_secret)
 BOOTSTRAP_USERNAME ?= admin
 BOOTSTRAP_PASSWORD ?= ChangeMe123!
 LOG_LEVEL ?= debug
@@ -338,6 +340,9 @@ helm-validate: ## Assert the MariaDB topology renders its workload and the guard
 	@if helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true \
 		--set mariadb.persistence.enabled=false >/dev/null 2>&1; then \
 		echo "EXPECTED FAILURE: mariadb.persistence.enabled=false without mariadb.allowEphemeralData"; exit 1; fi
+	@echo "==> a supplied secret.jwt shorter than 32 bytes must fail the render"
+	@if helm template uptime-phoenix charts/uptime-phoenix --set secret.jwt=change_me_jwt >/dev/null 2>&1; then \
+		echo "EXPECTED FAILURE: secret.jwt shorter than 32 bytes"; exit 1; fi
 	@echo "==> helm-validate OK"
 
 .PHONY: helm-template-mariadb

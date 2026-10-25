@@ -73,7 +73,7 @@ Core settings (from `internal/bootstrap/config.go`):
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
 | `DB_ENGINE` | `sqlite` | `sqlite` \| `mariadb` |
 | `DB_DSN` | SQLite file DSN | Connection string (see examples below) |
-| `JWT_SECRET` | `change-me-in-production` | **Set a strong secret in production** |
+| `JWT_SECRET` | — | **required, no default** (≥32 bytes; the server refuses to start without it). Generate with `openssl rand -base64 48`. |
 | `JWT_EXPIRE_HOURS` | `24` | Session lifetime in hours (must be `> 0`) |
 | `BOOTSTRAP_USERNAME` | _(empty)_ | Create first admin if no users exist |
 | `BOOTSTRAP_PASSWORD` | _(empty)_ | Password for bootstrap admin (min 8 chars) |
@@ -136,7 +136,8 @@ After=network.target
 Type=simple
 User=uptime-phoenix
 WorkingDirectory=/var/lib/uptime-phoenix
-Environment=JWT_SECRET=replace-me
+# Generate once: openssl rand -base64 48
+Environment=JWT_SECRET=<output of openssl rand -base64 48>
 Environment=BOOTSTRAP_USERNAME=admin
 Environment=BOOTSTRAP_PASSWORD=ChangeMe123!
 Environment=DB_ENGINE=sqlite
