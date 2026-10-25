@@ -138,6 +138,9 @@ func NewRouter(
 		RedisURL:    opts.RateLimit.RedisURL,
 		Scope:       "auth-signin",
 		Message:     "too many sign-in attempts; try again later",
+		// Only failed sign-ins spend the budget, so users behind one NAT
+		// can still log in often.
+		RefundSuccess: true,
 	})
 	// Starting a ceremony and registering the first user verify nothing, but
 	// they cost work (challenge state, bcrypt), so they get a looser budget.

@@ -24,6 +24,11 @@ type CredentialRateLimitConfig struct {
 	Scope string
 	// Message is the 429 error text. Empty keeps the access-code wording.
 	Message string
+	// RefundSuccess gives an attempt back when the handler answers below 400,
+	// so only failed attempts spend the budget. Sign-in uses it: many people
+	// behind one NAT, or one test suite, can log in often, while guessing
+	// still runs out of attempts.
+	RefundSuccess bool
 }
 
 // DefaultCredentialRateLimitConfig allows five attempts per IP and protected
@@ -70,11 +75,15 @@ func CredentialRateLimit(cfg CredentialRateLimitConfig) echo.MiddlewareFunc {
 		return func(c echo.Context) error {
 			key := scope + c.RealIP() + ":" + c.Param("slug")
 			allowed := false
+			refund := func() { local.refund(key, time.Now().UTC()) }
 			if shared != nil {
+				redisKey := shared.windowKey(key, time.Now().UTC())
 				var err error
-				allowed, err = shared.allow(c.Request().Context(), key)
+				allowed, err = shared.allow(c.Request().Context(), redisKey)
 				if err != nil {
 					allowed = local.allow(key, time.Now().UTC())
+				} else {
+					refund = func() { shared.refund(context.WithoutCancel(c.Request().Context()), redisKey) }
 				}
 			} else {
 				allowed = local.allow(key, time.Now().UTC())
@@ -84,7 +93,11 @@ func CredentialRateLimit(cfg CredentialRateLimitConfig) echo.MiddlewareFunc {
 					"error": cfg.Message,
 				})
 			}
-			return next(c)
+			err := next(c)
+			if cfg.RefundSuccess && err == nil && c.Response().Committed && c.Response().Status < http.StatusBadRequest {
+				refund()
+			}
+			return err
 		}
 	}
 }
@@ -128,6 +141,18 @@ func (m *credentialMemoryLimiter) allow(key string, now time.Time) bool {
 	return true
 }
 
+// refund returns one attempt to key's current window.
+func (m *credentialMemoryLimiter) refund(key string, now time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry, ok := m.entries[key]
+	if !ok || !now.Before(entry.resetAt) || entry.count == 0 {
+		return
+	}
+	entry.count--
+	m.entries[key] = entry
+}
+
 type credentialRedisLimiter struct {
 	client      *redis.Client
 	maxAttempts int64
@@ -146,14 +171,17 @@ func newCredentialRedisLimiter(cfg CredentialRateLimitConfig) (*credentialRedisL
 	}, nil
 }
 
-func (r *credentialRedisLimiter) allow(ctx context.Context, key string) (bool, error) {
+// windowKey is the Redis counter for key in the fixed window containing now.
+func (r *credentialRedisLimiter) windowKey(key string, now time.Time) string {
 	windowSeconds := int64(r.window / time.Second)
 	if windowSeconds < 1 {
 		windowSeconds = 1
 	}
-	windowID := time.Now().UTC().Unix() / windowSeconds
-	redisKey := "phoenix:credential-limit:" + key + ":" + strconv.FormatInt(windowID, 10)
+	windowID := now.Unix() / windowSeconds
+	return "phoenix:credential-limit:" + key + ":" + strconv.FormatInt(windowID, 10)
+}
 
+func (r *credentialRedisLimiter) allow(ctx context.Context, redisKey string) (bool, error) {
 	pipe := r.client.Pipeline()
 	count := pipe.Incr(ctx, redisKey)
 	pipe.Expire(ctx, redisKey, r.window+time.Second)
@@ -165,4 +193,10 @@ func (r *credentialRedisLimiter) allow(ctx context.Context, key string) (bool, e
 		return false, err
 	}
 	return value <= r.maxAttempts, nil
+}
+
+// refund gives back the attempt allow counted. A failed refund only leaves
+// the window one attempt tighter, so the error is dropped.
+func (r *credentialRedisLimiter) refund(ctx context.Context, redisKey string) {
+	_ = r.client.Decr(ctx, redisKey).Err()
 }
