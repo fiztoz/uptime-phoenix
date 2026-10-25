@@ -501,6 +501,19 @@ config:
   # Additional env vars for the Go binary
   env: []
 
+# ── Outbound guard for monitors and notifications (#88) ───────────────────────
+# Monitors and notifications owned by an ADMIN may reach any address except the
+# always-blocked floor (link-local 169.254.0.0/16 and fe80::/10, cloud metadata
+# such as 169.254.169.254, fd00:ec2::254 and 168.63.129.16, multicast,
+# unspecified). Those owned by a NON-ADMIN (or by a deleted user) are also
+# refused loopback, RFC 1918, CGNAT 100.64.0.0/10 and IPv6 ULA destinations
+# unless they are listed here. The floor cannot be allowlisted.
+outbound:
+  # CIDRs or bare IPs (rendered as OUTBOUND_ALLOWED_CIDRS, comma-separated),
+  # e.g. ["10.20.0.0/16", "192.168.1.0/24"]. List the IPv4 range, not its
+  # ::ffff: form. An invalid entry refuses to boot.
+  allowedCIDRs: []
+
 # ── OIDC SSO (Phase 5 Sprint 13) ──────────────────────────────────────────────
 # Opt-in. When enabled, operators sign in via the internal IdP. Local password
 # + TOTP/passkey login remains available for bootstrap and break-glass recovery.

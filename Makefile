@@ -320,6 +320,14 @@ helm-validate: ## Assert the MariaDB topology renders its workload and the guard
 	@helm template uptime-phoenix charts/uptime-phoenix --set networkPolicy.enabled=true \
 		--show-only templates/networkpolicy.yaml | grep -q -- '- 169.254.0.0/16$$' \
 		|| { echo "MISSING: 169.254.0.0/16 egress exception"; exit 1; }
+	@echo "==> the Phoenix NetworkPolicy must keep in-cluster HTTP(S) monitor targets reachable (#88)"
+	@helm template uptime-phoenix charts/uptime-phoenix --set networkPolicy.enabled=true \
+		--show-only templates/networkpolicy.yaml | grep -q -- '- namespaceSelector: {}$$' \
+		|| { echo "MISSING: namespaceSelector peer on the HTTP(S) egress rule"; exit 1; }
+	@echo "==> OUTBOUND_ALLOWED_CIDRS must render from outbound.allowedCIDRs (#88)"
+	@helm template uptime-phoenix charts/uptime-phoenix --set 'outbound.allowedCIDRs={10.20.0.0/16,192.168.1.0/24}' \
+		--show-only templates/configmap.yaml | grep -q 'outbound-allowed-cidrs: "10.20.0.0/16,192.168.1.0/24"' \
+		|| { echo "MISSING: outbound.allowedCIDRs -> OUTBOUND_ALLOWED_CIDRS"; exit 1; }
 	@echo "==> the MariaDB Pod must not carry the labels the all-in-one Service selects on"
 	@helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true \
 		| awk '/^kind: StatefulSet/{ss=1} ss&&/^  template:/{tpl=1} tpl&&/^      labels:/{lab=1;next} lab&&/^      [^ ]/{lab=0} lab&&/app.kubernetes.io\/name: uptime-phoenix$$/{bad=1} END{exit bad?1:0}' \
