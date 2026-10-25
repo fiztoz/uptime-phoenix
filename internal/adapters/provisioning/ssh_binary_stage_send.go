@@ -59,14 +59,17 @@ type SSHBinaryStageAck struct {
 }
 
 const (
-	stageSendRootUser   = "root"
-	stageSendTimeout    = 2 * time.Minute
-	stageSendStdoutMax  = MaxSSHBinaryStageReceiptSize
-	stageSendStderrMax  = 4096
-	stageSendCopyBuf    = 32 * 1024
-	stageSendMaxEmpty   = 100
-	stageSendMaxUnwrap  = 32
-	stageSendStreamName = "ssh binary stage stream"
+	stageSendRootUser = "root"
+	stageSendTimeout  = 2 * time.Minute
+	// stageSendImageTimeout bounds an image_cache call: streaming the closed
+	// image archive and the helper's docker load before its receipt.
+	stageSendImageTimeout = 15 * time.Minute
+	stageSendStdoutMax    = MaxSSHBinaryStageReceiptSize
+	stageSendStderrMax    = 4096
+	stageSendCopyBuf      = 32 * 1024
+	stageSendMaxEmpty     = 100
+	stageSendMaxUnwrap    = 32
+	stageSendStreamName   = "ssh binary stage stream"
 )
 
 // Internal stream failures are private diagnostics. Every post-exec failure
@@ -195,13 +198,16 @@ type stageSendCall struct {
 	command   string
 	grantPlan func(keyID string, nonce [32]byte) (func(context.Context) ([]byte, error), error)
 	// hostAction, when set, replaces the binary header/payload/receipt with
-	// one action frame, no payload and the canonical action receipt.
-	hostAction   *domain.ProbeHostActionIntent
-	hostReceipt  func(body []byte) bool
-	challenge    []byte
-	grantFrame   []byte
-	stdinStarted bool
-	waited       chan struct{}
+	// one action frame and the canonical action receipt. Its payload, when
+	// payloadPrefix is set (image_cache), is the PHXIMG1 prefix and then
+	// exactly pin.Size source bytes with digest pin.SHA256.
+	hostAction    *domain.ProbeHostActionIntent
+	payloadPrefix []byte
+	hostReceipt   func(body []byte) bool
+	challenge     []byte
+	grantFrame    []byte
+	stdinStarted  bool
+	waited        chan struct{}
 
 	attempted bool
 	eofSent   bool
@@ -213,7 +219,7 @@ type stageSendCall struct {
 // run performs the whole call and joins every local resource before returning.
 // The deferred join precedes the caller's observation of the result; the
 // context is rechecked only after that join and before a successful ack.
-func (c *stageSendCall) run(insp *SSHBinaryStageInspector, binary ports.PreparedProbeBinary) (ack SSHBinaryStageAck, err error) {
+func (c *stageSendCall) run(insp *SSHBinaryStageInspector, source stagePayloadOpener) (ack SSHBinaryStageAck, err error) {
 	defer func() {
 		if closeErr := c.join(); closeErr != nil {
 			ack = SSHBinaryStageAck{}
@@ -245,8 +251,11 @@ func (c *stageSendCall) run(insp *SSHBinaryStageInspector, binary ports.Prepared
 			err = ErrSSHBinaryStageUnknown
 		}
 	}()
-	if c.hostAction == nil {
-		if err = c.openSource(binary); err != nil {
+	if c.hostAction == nil || c.payloadPrefix != nil {
+		if imageSnapshotNil(source) {
+			return SSHBinaryStageAck{}, ErrSSHBinaryStageInput
+		}
+		if err = c.openSource(source); err != nil {
 			return SSHBinaryStageAck{}, err
 		}
 	}
@@ -280,11 +289,17 @@ func (c *stageSendCall) run(insp *SSHBinaryStageInspector, binary ports.Prepared
 	return parsed, nil
 }
 
+// stagePayloadOpener opens one owned reader of the exact bytes to stream: a
+// prepared probe binary or a closed image archive.
+type stagePayloadOpener interface {
+	Open(ctx context.Context) (io.ReadCloser, error)
+}
+
 // openSource opens the single owned snapshot reader before any remote exec.
 // Partial and error readers are owned and closed exactly once. Any pre-exec
 // reader Open/Close failure is the bare artifact storage sentinel.
-func (c *stageSendCall) openSource(binary ports.PreparedProbeBinary) error {
-	reader, err := binary.Open(c.tctx)
+func (c *stageSendCall) openSource(source stagePayloadOpener) error {
+	reader, err := source.Open(c.tctx)
 	c.src.reader = reader
 	if err != nil || imageSnapshotNil(reader) {
 		_ = c.src.close()
@@ -417,8 +432,13 @@ func (c *stageSendCall) stream() error {
 		}
 	}
 	if c.hostAction != nil {
-		// A host action has no payload: real EOF follows the grant.
-		return nil
+		if c.payloadPrefix == nil {
+			// A host action without a payload: real EOF follows the grant.
+			return nil
+		}
+		if err := stageSendWriteAll(c.stdin, c.payloadPrefix); err != nil {
+			return err
+		}
 	}
 	hash := sha256.New()
 	buf := make([]byte, stageSendCopyBuf)

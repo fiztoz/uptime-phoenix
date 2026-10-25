@@ -20,25 +20,39 @@ const (
 
 const probeHostActionSigningDomain = "phoenix-host-action-admission-v1\x00"
 
-// ProbeHostActionIntent names one non-artifact systemd resource attempt.
-// OwnerID/AttemptID are labels, not proof of a current committed reservation.
+// ProbeHostActionIntent names one host-action attempt of a root install
+// (every install resource but the binary stage, plus the activation and
+// cleanup host steps). Payload is set only for image_cache. OwnerID/AttemptID
+// are labels, not proof of a current committed reservation.
 type ProbeHostActionIntent struct {
 	Identity  ProbeInstallIdentity
 	OwnerID   string
 	AttemptID string
 	Kind      string
+	Payload   ProbeHostActionPayload
 }
 
-// Valid accepts only the root systemd layout and the three host-action kinds.
+// Valid accepts a root install, a kind of its mode, and a payload exactly
+// when the kind streams one (image_cache).
 func (i ProbeHostActionIntent) Valid() bool {
-	if !i.Identity.Valid() || i.Identity.Mode != ProbeInstallSystemd || i.Identity.Host.User != "root" ||
+	if !i.Identity.Valid() || i.Identity.Host.User != "root" ||
 		!ValidProbeOperationID(i.OwnerID) || !ValidProbeOperationID(i.AttemptID) {
 		return false
 	}
+	if i.Kind == ProbeHostActionImageCache {
+		if !i.Payload.Valid() {
+			return false
+		}
+	} else if i.Payload != (ProbeHostActionPayload{}) {
+		return false
+	}
 	switch i.Kind {
-	case ProbeHostActionDataDirectory, ProbeHostActionUnitFile, ProbeHostActionService,
-		ProbeActivationProbeInit, ProbeActivationServiceStart, ProbeHostActionCleanup:
-		return true
+	case ProbeHostActionDataDirectory, ProbeActivationProbeInit, ProbeActivationServiceStart, ProbeHostActionCleanup:
+		return i.Identity.Mode == ProbeInstallSystemd || i.Identity.Mode == ProbeInstallDocker
+	case ProbeHostActionUnitFile, ProbeHostActionService:
+		return i.Identity.Mode == ProbeInstallSystemd
+	case ProbeHostActionImageCache, ProbeHostActionContainer:
+		return i.Identity.Mode == ProbeInstallDocker
 	}
 	return false
 }
@@ -49,12 +63,16 @@ func (i ProbeHostActionIntent) Resource() (ProbeInstallResourceSpec, bool) {
 		return ProbeInstallResourceSpec{}, false
 	}
 	install := i.Identity.Resources()
+	data, service, ok := ProbeInstallLayout(i.Identity)
+	if !ok {
+		return ProbeInstallResourceSpec{}, false
+	}
 	switch i.Kind {
 	case ProbeActivationProbeInit:
 		// The activation layout's host steps act on the installed paths.
-		return ProbeInstallResourceSpec{Ordinal: 1, Kind: i.Kind, Reference: install[0].Reference, Owned: true}, true
+		return ProbeInstallResourceSpec{Ordinal: 1, Kind: i.Kind, Reference: data.Reference, Owned: true}, true
 	case ProbeActivationServiceStart:
-		return ProbeInstallResourceSpec{Ordinal: 3, Kind: i.Kind, Reference: install[3].Reference, Owned: true}, true
+		return ProbeInstallResourceSpec{Ordinal: 3, Kind: i.Kind, Reference: service.Reference, Owned: true}, true
 	case ProbeHostActionCleanup:
 		// Cleanup acts on the operation's whole resource family, which every
 		// resource is named after.
@@ -69,8 +87,10 @@ func (i ProbeHostActionIntent) Resource() (ProbeInstallResourceSpec, bool) {
 }
 
 // Marker is the canonical secret-free description the grant signs. For
-// unit_file it also binds the exact derived unit content, so a hub and helper
-// deriving different templates refuse rather than install different bytes.
+// unit_file it also binds the exact derived unit content, and for container
+// the exact derived `docker create` arguments, so a hub and helper deriving
+// different templates refuse rather than install different resources. Docker
+// identities list the image selection, and image_cache its payload.
 func (i ProbeHostActionIntent) Marker() string {
 	spec, ok := i.Resource()
 	if !ok {
@@ -91,14 +111,40 @@ func (i ProbeHostActionIntent) Marker() string {
 		"requested_by=" + strconv.FormatInt(r.RequestedBy, 10),
 		"layout_version=" + strconv.Itoa(r.LayoutVersion),
 		"mode=" + r.Mode,
-		"version=" + b.Version,
-		"architecture=" + b.Architecture,
-		"sha256=" + b.SHA256,
-		"size=" + strconv.FormatInt(b.Size, 10),
 	}
-	if i.Kind == ProbeHostActionUnitFile {
+	if r.Mode == ProbeInstallDocker {
+		img := r.Image
+		lines = append(lines,
+			"image_repository="+img.Pin.Repository,
+			"version="+img.Pin.Version,
+			"architecture="+img.Pin.Architecture,
+			"image_index_sha256="+img.Pin.IndexSHA256,
+			"image_index_size="+strconv.FormatInt(img.Pin.IndexSize, 10),
+			"image_manifest_sha256="+img.ManifestSHA256,
+			"image_config_sha256="+img.ConfigSHA256,
+			"image_layer_count="+strconv.Itoa(img.LayerCount),
+		)
+	} else {
+		lines = append(lines,
+			"version="+b.Version,
+			"architecture="+b.Architecture,
+			"sha256="+b.SHA256,
+			"size="+strconv.FormatInt(b.Size, 10),
+		)
+	}
+	switch i.Kind {
+	case ProbeHostActionUnitFile:
 		sum := sha256.Sum256([]byte(ProbeSystemdUnit(r)))
 		lines = append(lines, "unit_sha256="+hex.EncodeToString(sum[:]))
+	case ProbeHostActionContainer:
+		sum := sha256.Sum256([]byte(probeDockerArgsDigestInput(ProbeDockerCreateArgs(r))))
+		lines = append(lines, "container_sha256="+hex.EncodeToString(sum[:]))
+	case ProbeHostActionImageCache:
+		lines = append(lines,
+			"payload_sha256="+i.Payload.SHA256,
+			"payload_size="+strconv.FormatInt(i.Payload.Size, 10),
+			"payload_layout_index_sha256="+i.Payload.LayoutIndexSHA256,
+		)
 	}
 	return strings.Join(append(lines, ""), "\n")
 }

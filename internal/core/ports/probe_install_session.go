@@ -14,6 +14,11 @@ import (
 // domain.ErrProbeSSHInput.
 type ProbeInstallSessionFactory interface {
 	NewInstallSession(ctx context.Context, privateKey []byte, hostFingerprint string, pin domain.ProbeBinaryPin) (ProbeInstallSession, string, error)
+	// NewDockerInstallSession is the Docker counterpart: it verifies the
+	// pinned image from the operator's OCI layout, packs the closed archive
+	// image_cache streams, and also returns the verified image selection
+	// (manifest, config, layer count) the install identity records.
+	NewDockerInstallSession(ctx context.Context, privateKey []byte, hostFingerprint string, pin domain.ProbeImagePin) (ProbeInstallSession, string, domain.ProbeImageSelection, error)
 }
 
 // ProbeInstallSession executes one operation's resources and then must be

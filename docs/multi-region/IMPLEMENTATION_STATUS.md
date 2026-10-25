@@ -5,6 +5,23 @@ Current results and accepted exceptions are consolidated in the
 Earlier checkpoints below retain their historical scope; M6 operational
 acceptance remains incomplete. UAT/load campaign details stay local.
 
+## M8 Docker install path — passed on real hosts (AWS run `1a4e47cca4db`)
+
+[Docker install](M8_DOCKER_INSTALL.md) adds `mode: "docker"` installs. The hub
+verifies an operator OCI layout against an image pin and streams the closed archive
+after a one-shot grant. The host helper:
+- verifies the archive digest;
+- runs `docker load`;
+- accepts the pinned config, manifest or layout-index image ID;
+- runs exactly the derived, hardened `docker` arguments.
+
+Activation and cleanup work unchanged on Docker installs. Migration 089 admits the
+`image_cache` and `container` kinds.
+
+On arm64 and amd64 Docker 29.1.3 hosts, **7/7 Docker cases passed**. The systemd
+matrix was re-run on the same hosts as a regression check, and the real-MariaDB gate
+passed with 324 required leaves.
+
 ## M8 acceptance matrix — passed on real hosts (AWS run `398107b05ed2`, 2026-10-25)
 
 Every §11 acceptance case was driven through the hub's real REST API by

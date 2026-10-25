@@ -120,7 +120,7 @@ func (s *ProbeActivationOperationService) Submit(ctx context.Context, request Pr
 	if err != nil {
 		return nil, err
 	}
-	if install == nil || install.State != domain.ProbeInstallResourcesReady || install.Identity.Mode != domain.ProbeInstallSystemd {
+	if install == nil || install.State != domain.ProbeInstallResourcesReady || (install.Identity.Mode != domain.ProbeInstallSystemd && install.Identity.Mode != domain.ProbeInstallDocker) {
 		return nil, ports.ErrConflict
 	}
 	session, clientFingerprint, err := s.sessions.NewActivationSession(admitCtx, request.PrivateKey, install.Identity.HostKeyFingerprint)

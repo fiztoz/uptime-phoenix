@@ -13,7 +13,7 @@ type ProbeInstallHostReport struct {
 	Kernel    string // uname sysname
 	Machine   string // uname machine
 	Systemd   bool   // booted with systemd and systemctl present
-	DockerCLI bool   // a docker CLI is present at a fixed path
+	DockerCLI bool   // a docker CLI at a fixed path and a /var/run/docker.sock socket
 	Root      bool   // the helper's effective uid is 0
 	Authority bool   // the trusted stage-authority key loads under protection
 	// ExistingInstalls counts Uptime Phoenix probe entries already on the
@@ -51,6 +51,7 @@ const (
 	ProbeInstallPreflightArchitecture = "host_architecture_mismatch"
 	ProbeInstallPreflightRoot         = "host_root_required"
 	ProbeInstallPreflightSystemd      = "host_systemd_unavailable"
+	ProbeInstallPreflightDocker       = "host_docker_unavailable"
 	ProbeInstallPreflightAuthority    = "host_authority_missing"
 	ProbeInstallPreflightExisting     = "host_existing_install"
 )
@@ -75,7 +76,7 @@ func ValidProbeInstallPreflightCode(code string) bool {
 	case ProbeInstallPreflightTrust, ProbeInstallPreflightDestination, ProbeInstallPreflightAuth,
 		ProbeInstallPreflightUnreachable, ProbeInstallPreflightHelper, ProbeInstallPreflightOS,
 		ProbeInstallPreflightArchitecture, ProbeInstallPreflightRoot, ProbeInstallPreflightSystemd,
-		ProbeInstallPreflightAuthority, ProbeInstallPreflightExisting:
+		ProbeInstallPreflightAuthority, ProbeInstallPreflightExisting, ProbeInstallPreflightDocker:
 		return true
 	}
 	return false
@@ -104,15 +105,21 @@ func (r ProbeInstallHostReport) Refusal(identity ProbeInstallIdentity) string {
 	if !r.Valid() || !identity.Valid() {
 		return ProbeInstallPreflightHelper
 	}
+	architecture := identity.Binary.Architecture
+	if identity.Mode == ProbeInstallDocker {
+		architecture = identity.Image.Pin.Architecture
+	}
 	switch {
 	case r.Kernel != "Linux":
 		return ProbeInstallPreflightOS
-	case ProbeInstallHostArchitecture(r.Machine) != identity.Binary.Architecture:
+	case ProbeInstallHostArchitecture(r.Machine) != architecture:
 		return ProbeInstallPreflightArchitecture
 	case !r.Root:
 		return ProbeInstallPreflightRoot
 	case identity.Mode == ProbeInstallSystemd && !r.Systemd:
 		return ProbeInstallPreflightSystemd
+	case identity.Mode == ProbeInstallDocker && !r.DockerCLI:
+		return ProbeInstallPreflightDocker
 	case !r.Authority:
 		return ProbeInstallPreflightAuthority
 	case r.ExistingInstalls > 0:
