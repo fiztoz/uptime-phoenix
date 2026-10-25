@@ -37,12 +37,11 @@ func TestLogin_LocksAccountAfterRepeatedFailures(t *testing.T) {
 
 	failLogins(t, svc, "alice", LoginFailuresBeforeBackoff)
 
-	// The right password is refused while locked, and so is any casing of
-	// the username: the lock follows the account, not the client.
-	for _, name := range []string{"alice", "ALICE"} {
-		if _, err := svc.Login(ctx, name, "supersecret"); !errors.Is(err, ErrTooManyAttempts) {
-			t.Fatalf("Login(%s) during backoff = %v; want ErrTooManyAttempts", name, err)
-		}
+	// The right password is refused while locked. (Spellings the database
+	// maps to the same row share the lock: see
+	// TestLogin_CollationVariantsShareOneBudget.)
+	if _, err := svc.Login(ctx, "alice", "supersecret"); !errors.Is(err, ErrTooManyAttempts) {
+		t.Fatalf("Login during backoff = %v; want ErrTooManyAttempts", err)
 	}
 	if _, _, err := svc.Begin2FALogin(ctx, "alice", "supersecret"); !errors.Is(err, ErrTooManyAttempts) {
 		t.Fatalf("Begin2FALogin during backoff = %v; want ErrTooManyAttempts", err)
@@ -77,7 +76,7 @@ func TestLogin_BackoffGrowsAndIsCapped(t *testing.T) {
 		t.Fatalf("Login after doubled backoff = %v; want success", err)
 	}
 
-	if got := loginBackoff(LoginFailuresBeforeBackoff + 50); got != LoginBackoffMax {
+	if got := loginBackoff(LoginFailuresBeforeBackoff+50, LoginFailuresBeforeBackoff); got != LoginBackoffMax {
 		t.Fatalf("loginBackoff(many) = %v; want cap %v", got, LoginBackoffMax)
 	}
 }
