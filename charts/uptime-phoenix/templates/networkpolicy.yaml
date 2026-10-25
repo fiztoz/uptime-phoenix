@@ -18,6 +18,10 @@ spec:
       ports:
         - protocol: TCP
           port: 3000
+        {{- if .Values.web.split }}
+        - protocol: TCP
+          port: {{ .Values.web.containerPort }}
+        {{- end }}
   egress:
     # Probe runtime (default :8443) and non-443 providers (SMTP 587/465/25,
     # custom webhook ports) are intentionally absent. See
@@ -46,12 +50,17 @@ spec:
           port: {{ include "phoenix.eventBusPort" . }}
     {{- end }}
     {{- if .Values.cloudflareTunnel.enabled }}
-    # cloudflared dials phoenix-api/web (3000/80) in-cluster and egresses to
-    # Cloudflare's edge over 443 (already allowed by the HTTP/HTTPS rule above).
+    # cloudflared dials phoenix-api/web in-cluster and egresses to Cloudflare's
+    # edge over 443 (already allowed by the HTTP/HTTPS rule above). Policies
+    # match the pod port, so web is its containerPort, not the Service port.
     - ports:
         - protocol: TCP
           port: 3000
         - protocol: TCP
           port: 80
+        {{- if .Values.web.split }}
+        - protocol: TCP
+          port: {{ .Values.web.containerPort }}
+        {{- end }}
     {{- end }}
 {{- end }}

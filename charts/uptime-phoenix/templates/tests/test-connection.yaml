@@ -8,9 +8,13 @@ metadata:
   annotations:
     "helm.sh/hook": test
 spec:
+  securityContext:
+    {{- toYaml .Values.podSecurityContext | nindent 4 }}
   containers:
     - name: curl
       image: curlimages/curl:8.7.1
+      securityContext:
+        {{- toYaml .Values.containerSecurityContext | nindent 8 }}
       command:
         - /bin/sh
         - -c
@@ -50,6 +54,8 @@ metadata:
   annotations:
     "helm.sh/hook": test
 spec:
+  securityContext:
+    {{- toYaml .Values.mariadb.podSecurityContext | nindent 4 }}
   containers:
     - name: mariadb
       image: {{ include "phoenix.mariadb.image" . | quote }}

@@ -117,7 +117,7 @@ services:
       uptime-phoenix-api:
         condition: service_started
     ports:
-      - "8080:80"
+      - "8080:8080"
 
 volumes:
   mariadb_data:

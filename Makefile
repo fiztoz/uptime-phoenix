@@ -340,6 +340,18 @@ helm-validate: ## Assert the MariaDB topology renders its workload and the guard
 	@if helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true \
 		--set mariadb.persistence.enabled=false >/dev/null 2>&1; then \
 		echo "EXPECTED FAILURE: mariadb.persistence.enabled=false without mariadb.allowEphemeralData"; exit 1; fi
+	@echo "==> every workload runs non-root with RuntimeDefault seccomp and no added capabilities (#91)"
+	@helm template uptime-phoenix charts/uptime-phoenix | python3 -B scripts/helm-security-context-check.py
+	@helm template uptime-phoenix charts/uptime-phoenix --set mode=split --set web.split=true \
+		--set database.engine=mariadb --set mariadb.enabled=true --set valkey.enabled=true \
+		--set networkPolicy.enabled=true --set cloudflareTunnel.enabled=true --set cloudflareTunnel.token=ci \
+		| python3 -B scripts/helm-security-context-check.py
+	@helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-internal-mariadb.yaml \
+		--set cronJobs.backup.enabled=true --set cronJobs.partition.enabled=true --set cronJobs.rollup.enabled=true \
+		--set dbMigration.enabled=true --set dbMigration.source.host=src.example --set dbMigration.source.existingSecret=src \
+		| python3 -B scripts/helm-security-context-check.py
+	@helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-production-split.yaml \
+		--set mariadbExternal.password=ci | python3 -B scripts/helm-security-context-check.py
 	@echo "==> a supplied secret.jwt shorter than 32 bytes must fail the render"
 	@if helm template uptime-phoenix charts/uptime-phoenix --set secret.jwt=change_me_jwt >/dev/null 2>&1; then \
 		echo "EXPECTED FAILURE: secret.jwt shorter than 32 bytes"; exit 1; fi
