@@ -45,6 +45,14 @@ at the bottom.
 - CI pins every action to a commit SHA, its token is read-only by default,
   and only the docker job gets `actions: write` (for the build cache).
   `make action-pins` and CI fail on any tag-only `uses:` (#92).
+- Dependencies: echo 4.16.1, dompurify 3.4.17 and a refreshed `web/bun.lock`.
+  CI runs osv-scanner over `go.mod` and `web/bun.lock`. The advisories that
+  can't be fixed yet are recorded, with reasons and an expiry date, in
+  `osv-scanner.toml` (#92).
+- Dependabot version PRs wait out a 7-day cooldown (14 days for Go and npm
+  majors). A gitleaks pre-commit hook (`.pre-commit-config.yaml`,
+  allowlist in `.gitleaks.toml`) and `make secrets-scan` catch committed
+  secrets (#92).
 - Align active build, CI, release, Docker, E2E and offline verification pins to
   Go 1.26.10, fixing the reachable standard-library advisory GO-2026-6809
   (distrust compromised intermediate certificates in `crypto/x509`).

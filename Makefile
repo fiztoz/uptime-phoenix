@@ -247,6 +247,11 @@ lint-frontend: ## Run eslint + prettier check
 action-pins: ## Fail when a workflow uses an action by tag instead of commit SHA
 	python3 -B scripts/check-action-pins.py
 
+.PHONY: secrets-scan
+secrets-scan: ## Scan git history for secrets with gitleaks (allowlist in .gitleaks.toml)
+	@command -v gitleaks >/dev/null || { echo "gitleaks not found: https://github.com/gitleaks/gitleaks#installing"; exit 1; }
+	gitleaks git --no-banner -c .gitleaks.toml .
+
 .PHONY: govulncheck
 govulncheck: ## Run govulncheck (installs it if missing)
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
