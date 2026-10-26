@@ -8,6 +8,13 @@ admin-only asynchronous routes and the API-local service that start it. It is
 or installation success. `resources_ready` is the best outcome and means "all
 four systemd resources applied", not "probe installed and running".
 
+**Host preparation.** The installer authenticates only with the restricted deployment
+key. A host gets the helper, the stage-authority key and that restricted entry once,
+either by hand ([TESTING.md](../TESTING.md#m8-host-authorized-systemd-actions-data_directory-unit_file-service))
+or with `POST /api/probe-host-bootstraps`, which uses an SSH password one time and
+then verifies the key ([host bootstrap](M8_HOST_BOOTSTRAP.md)). Nothing in this
+contract changes.
+
 ## Frozen contract
 
 ### Configuration (`internal/bootstrap/config.go`)

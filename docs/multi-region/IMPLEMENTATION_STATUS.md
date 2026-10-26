@@ -133,6 +133,13 @@ returned unchanged by cancel. The end-to-end composition test (router, auth, ser
 journal, admissions, Go SSH, real helpers) is SQLite only. Enrollment, service start
 and the Docker path remain open.
 
+**Host bootstrap (unreleased).** `POST /api/probe-host-bootstraps` replaces the
+manual root setup with a one-time SSH password login. It needs a pinned host key,
+the pinned helper release and the deployment key, and it verifies the restricted
+key. See [host bootstrap](M8_HOST_BOOTSTRAP.md). It adds no DB change. Verified
+with a real-shell loopback fixture (Darwin and Linux) and one disposable Debian
+OpenSSH + sudo host (arm64).
+
 ## M8 real-host acceptance on AWS (run `b6ffc9ac26ab`) — `0f71d1f`
 
 On real Ubuntu 24.04 hosts (arm64 and amd64), the production install runner applied

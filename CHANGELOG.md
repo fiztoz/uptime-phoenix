@@ -11,6 +11,24 @@ at the bottom.
 
 ## [Unreleased]
 
+### Added
+
+- **One-time SSH password host bootstrap for the M8 probe installer.** Admins can
+  now prepare a probe host from the hub with an SSH password
+  (`POST /api/probe-host-bootstraps`, and *Prepare host (SSH password)* on the
+  Probes page) instead of the manual root setup. The hub:
+  - checks the pinned host key before sending the password;
+  - installs the pinned `phoenix-probe-admin` helper, its stage-authority public key
+    and a `restrict` forced-command `authorized_keys` entry for the deployment key
+    (atomically and idempotently; it never rewrites unrelated lines and refuses
+    conflicts rather than overwriting them);
+  - verifies the restricted key with the real install preflight.
+
+  The password, also used for `sudo -S` when the user is not root, lives only for
+  that request. It is never stored, logged or returned. The endpoint is admin-only
+  and rate-limited to 5 attempts a minute. Installs still use the restricted key
+  only. See `docs/multi-region/M8_HOST_BOOTSTRAP.md`.
+
 ### Security
 
 - Monitors and notifications now reach only what their **owner** may reach

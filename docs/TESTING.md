@@ -161,7 +161,9 @@ The full repository package now needs `-timeout 2400s` (CI already uses it).
 - **Run.** `python3 -B scripts/m8_aws_matrix.py <run_dir> <run_id> <arm64_ip> <amd64_ip>`
   drives every §11 case through a locally running hub's REST API.
 - **Hosts.** First prepare each host with the helper, the stage-authority public key
-  and the restricted staging key, as root:
+  and the restricted staging key. Either use the one-time password
+  [host bootstrap](multi-region/M8_HOST_BOOTSTRAP.md) (`POST /api/probe-host-bootstraps`)
+  or do it by hand as root:
 
   ```sh
   install -o root -g root -m 0755 phoenix-probe-admin /usr/local/bin/phoenix-probe-admin
@@ -187,6 +189,23 @@ The lifecycle driver is `go test -c -tags m8aws ./internal/bootstrap` with
 converted with `go tool test2json` is judged by
 `python3 -B scripts/m8_remote_gate_evaluate.py <events>`. Every launch creates billable
 resources and needs fresh owner approval.
+
+### M8 one-time SSH password host bootstrap
+
+See [the host bootstrap record](multi-region/M8_HOST_BOOTSTRAP.md). No DB or schema
+change. The adapter tests run the real root/upload scripts through a loopback
+password SSH server against a private prefix (POSIX `/bin/sh` required):
+
+```sh
+go test -race -count=1 ./internal/adapters/provisioning -run 'TestSSHHostBootstrap'
+go test -race -count=1 ./internal/core/services ./internal/adapters/http/handlers -run 'TestProbeHostBootstrap'
+go test -race -count=1 ./internal/bootstrap -run 'TestProbeHostBootstrapAPI'
+```
+
+Opt-in real-host gate (`-tags m8bootstrap`, `M8BOOT_*` inputs; it fails rather than
+skips when an input is missing). It writes root-owned files in the production
+layout, so point it only at a disposable OpenSSH + sudo host. See the record for
+the exact command.
 
 ### M8 stage grant verification and authorized delivery (increments B/C)
 

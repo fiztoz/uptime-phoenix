@@ -573,6 +573,41 @@ monitors whose target resolves into a refused range), `admin_only_type_monitors`
 monitors. The chart NetworkPolicy (when enabled) allows HTTP(S) to in-cluster Pods through a
 `namespaceSelector` peer and excludes the metadata addresses from its `ipBlock` peers.
 
+### Preparing a remote probe host (M8 SSH installer)
+
+The admin installer (`PROBE_SSH_INSTALL_ENABLED=true`) logs in only with a restricted
+root key forced to `phoenix-probe-admin authorized-dispatch`. Prepare each host once:
+
+- **Password bootstrap (recommended).** Probes page → *Prepare host (SSH password)*, or
+  `POST /api/probe-host-bootstraps`.
+  - Enter the host, port, SSH user and password.
+  - Enter the host-key fingerprint, verified on the host:
+    `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
+  - Paste the deployment private key you will use for installs.
+  - Pin the `phoenix-probe-admin_<version>_linux_<arch>` release placed in
+    `PROBE_INSTALL_ARTIFACT_DIR`.
+
+  A non-root user must be able to `sudo` with the same password, without a TTY. The
+  password is used once and never stored, logged or returned. The hub installs the
+  helper, `/etc/phoenix-probe/stage-authority.pub` and the restricted `authorized_keys`
+  line, then verifies that line. Re-running it is safe. Details, error codes and
+  security properties: [host bootstrap](multi-region/M8_HOST_BOOTSTRAP.md).
+- **By hand.** Follow the root commands in
+  [TESTING.md](TESTING.md#m8-host-authorized-systemd-actions-data_directory-unit_file-service).
+
+Root key login must be allowed (`PermitRootLogin prohibit-password` or
+`forced-commands-only`). After bootstrapping you may disable password SSH logins on
+the host; installs no longer need them.
+
+Common refusals:
+- `host_trust_failed`: the fingerprint is wrong; the password was **not** sent.
+- `host_privilege_failed`: sudo refused.
+- `host_authority_conflict`: the host already trusts another hub's stage authority.
+  Replacing it is a deliberate manual step.
+- `host_authorized_key_conflict`: the deployment key is already in root's
+  `authorized_keys` with other options. Remove that line by hand.
+- `verify_auth_failed`: sshd refused root key login.
+
 ## 6. Troubleshooting
 
 ### Dashboard data loads but WebSocket status does not update
