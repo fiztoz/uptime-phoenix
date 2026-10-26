@@ -11,8 +11,30 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-10-26
+
 ### Added
 
+- **Aggregate paging for multi-region probes (M7, default-disabled).** Desired
+  `alert_delivery` (`regional`, `aggregate`, `both`) is stored on assignment
+  sets and carried in probe config (#81). With `PROBES_AGGREGATE_PAGING_ENABLED`,
+  a receipt-backed cutover moves every source through quiesce, apply, active,
+  drain and resume before the hub pages from aggregate incidents: AGGREGATE
+  suppresses regional availability alerts, BOTH keeps them. Provider sends are
+  re-authorized against the database clock immediately before I/O and recorded
+  in attempt journals (#84). Regional paging is unchanged while the flag is off.
+- **Optional SSH probe provisioning (M8, admin-only, default-disabled).** With
+  `PROBE_SSH_INSTALL_ENABLED`, an admin installs a regional probe on a Linux host
+  over SSH with a pinned host key: read-only host preflight, a durable install
+  journal of one-shot Ed25519-granted steps, activation (init, registration,
+  service start, enrollment) and exact cleanup. Fixed 422 codes report every
+  refusal; remote output and the enrollment token are never stored (#86).
+  Accepted on AWS Ubuntu 24.04 arm64 and amd64.
+- **Docker install path for M8.** `POST /api/probe-installs` with
+  `mode: "docker"` and an image pin installs the probe as a container from the
+  operator's OCI layout. The host helper loads only the pinned image and runs it
+  as root with `CAP_NET_RAW` only, `no-new-privileges` and a read-only root
+  (#99). See `docs/multi-region/M8_DOCKER_INSTALL.md`.
 - **One-time SSH password host bootstrap for the M8 probe installer.** Admins can
   now prepare a probe host from the hub with an SSH password
   (`POST /api/probe-host-bootstraps`, and *Prepare host (SSH password)* on the
@@ -141,6 +163,59 @@ at the bottom.
   CI, release, Docker, E2E and offline verification pins to Go 1.26.9. This fixes
   the reachable standard-library vulnerabilities that blocked dependency PRs;
   vulnerability scanning remains mandatory and unsuppressed.
+- SvelteKit 3.1 and adapter-static 4 (#105) close two SvelteKit advisories
+  (GHSA-27mw-82g8-phjj, GHSA-pfhg-q3qv-9q6r). Neither was reachable: the app
+  uses no `setHeaders` and no `use:enhance`.
+
+### Fixed
+
+- Regional history keeps the newest rows when timestamps tie (#71).
+- Edge maintenance observations are recorded (#72); deleting a monitor removes
+  its partitioned heartbeat history (#73).
+- Delayed outage summaries persist across edge recovery (#74), and a failed
+  ingest health state holds until durable replay recovers (#75).
+- Replay acquires observation-assignment and history-commit locks in a fixed
+  order, removing MariaDB deadlocks (#77, #78).
+- Status-page recovery filters before reading health (#79).
+
+### Changed
+
+- Go toolchain 1.27.3 across `go.mod`, CI, release and every Docker builder
+  (#104); golangci-lint v2.15.0 and govulncheck v1.9.0 in CI (#104, #106).
+- The frontend uses SvelteKit 3: project config moved from `svelte.config.js`
+  into `vite.config.ts`, and `$lib` imports became the `#lib` subpath import
+  (#105).
+- Dependabot updates `web/` with the `bun` ecosystem; the `npm` entry failed on
+  every run because it cannot update `bun.lock` (#105).
+- Go module, GitHub Actions and frontend dependency updates (#82, #83, #101,
+  #103).
+
+### Upgrade notes
+
+- **Read the four Breaking entries under Security before upgrading:**
+  `JWT_SECRET` (at least 32 bytes) is required by the API, the worker and
+  `phoenix-probe-admin`; the first web sign-up needs the setup token from the
+  server log; the split web pod listens on 8080; compose and Helm default to
+  production mode (strict CSP, CORS deny-by-default, no bootstrap password).
+- Monitors and notifications owned by non-admins can no longer reach private
+  addresses unless they are listed in `OUTBOUND_ALLOWED_CIDRS`. A startup
+  warning counts the affected monitors. Non-admins can no longer create or
+  reconfigure `docker` or `database` monitors; existing ones keep running.
+- Hub migrations 076–089 and edge migrations 015–017 run at startup. Back up a
+  populated MariaDB first and stop old writers during the migration, as for
+  0.5.0.
+- M7 aggregate paging and M8 SSH provisioning stay off until
+  `PROBES_AGGREGATE_PAGING_ENABLED` / `PROBE_SSH_INSTALL_ENABLED` are set.
+
+## [0.5.1] — 2026-10-06
+
+### Fixed
+
+- Monitoring and release regressions (#52–#67, #69), including migration 075.
+
+### Changed
+
+- Go module updates (#68); chart version 0.5.1 (#70).
 
 ## [0.5.0] — 2026-10-04
 
