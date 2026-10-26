@@ -278,7 +278,7 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 			stop()
 			if !joined {
 				select {
-				case <-done:
+				case _ = <-done:
 				case <-time.After(3 * time.Second):
 					t.Error("configuration session did not join")
 				}
@@ -464,7 +464,7 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 		stop()
 		if !joined {
 			select {
-			case <-done:
+			case _ = <-done:
 				joined = true
 			case <-time.After(3 * time.Second):
 				t.Fatal("configuration session did not join")

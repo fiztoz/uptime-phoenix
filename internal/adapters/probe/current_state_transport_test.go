@@ -52,7 +52,7 @@ func TestHubHealthConfirmsConfigImmediatelyAfterDurableReceipt(t *testing.T) {
 			return nil, domain.ErrInternal
 		})
 	}()
-	defer func() { cancel(); <-done }()
+	defer func() { cancel(); _ = <-done }()
 	var conn *websocket.Conn
 	select {
 	case conn = <-s.connCh:
@@ -219,7 +219,7 @@ func TestHubTransportCurrentStateReceiptRequiresCommit(t *testing.T) {
 			}
 			cancel()
 			select {
-			case <-done:
+			case _ = <-done:
 			case <-time.After(3 * time.Second):
 				t.Fatal("state transport did not join")
 			}

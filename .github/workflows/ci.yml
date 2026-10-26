@@ -77,7 +77,7 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           # v1.x binaries are built with older Go and refuse to lint go1.25 modules.
-          version: v2.12.2
+          version: v2.15.0
           args: --timeout=10m
 
       - name: govulncheck
@@ -142,7 +142,7 @@ jobs:
       # Warm caches so start-e2e-server.sh can finish inside Playwright's wait.
       - name: Prebuild frontend + Go modules for e2e
         env:
-          GOTOOLCHAIN: go1.26.10
+          GOTOOLCHAIN: go1.27.3
         run: |
           go mod download
           (cd web && bun run build)
@@ -156,7 +156,7 @@ jobs:
         working-directory: web
         env:
           CI: true
-          GOTOOLCHAIN: go1.26.10
+          GOTOOLCHAIN: go1.27.3
         # start-e2e-server.sh builds web + Go binary and serves on :3100
         run: bun run test:e2e
 

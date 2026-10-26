@@ -532,7 +532,7 @@ func TestProbeBinaryStageReceiveActiveCloseJoinsRead(t *testing.T) {
 		t.Fatal("close did not join read")
 	}
 	select {
-	case <-readDone:
+	case _ = <-readDone:
 	case <-time.After(2 * time.Second):
 		t.Fatal("read did not finish")
 	}

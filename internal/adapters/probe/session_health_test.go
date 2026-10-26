@@ -35,7 +35,7 @@ func TestSessionHealthProgressesDuringBlockedWork(t *testing.T) {
 			return nil
 		})
 	}()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(func() { cancel(); _ = <-done })
 	if err := peer.Write(ctx, websocket.MessageText, makeValidControlFrame(t, 1, "state.begin")); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestSessionHealthRetainsUnhealthySamplesAndReceiptTime(t *testing.T) {
 			return nil
 		})
 	}()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(func() { cancel(); _ = <-done })
 	write := func(data []byte) {
 		t.Helper()
 		if err := peer.Write(ctx, websocket.MessageText, data); err != nil {
@@ -176,7 +176,7 @@ func TestSessionHealthDuplicateRunDoesNotCloseOwner(t *testing.T) {
 	frame := func(context.Context, probe.Envelope) error { return nil }
 	health := func(ctx context.Context, _ probe.HealthReceipt) error { samples <- struct{}{}; return ctx.Err() }
 	go func() { done <- session.RunWithHealth(ctx, frame, health) }()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(func() { cancel(); _ = <-done })
 	check := func() {
 		t.Helper()
 		if err := peer.Write(ctx, websocket.MessageText, makeValidHealthFrame(t, 1, "hub")); err != nil {
@@ -241,7 +241,7 @@ func TestSessionHealthUsesValidatedFields(t *testing.T) {
 	go func() {
 		done <- session.RunWithHealth(ctx, func(context.Context, probe.Envelope) error { return nil }, func(_ context.Context, sample probe.HealthReceipt) error { samples <- sample; return nil })
 	}()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(func() { cancel(); _ = <-done })
 	// Wire validation reads exact field names. encoding/json's case-insensitive
 	// struct mapping would let a later unknown alias overwrite the validated value.
 	frame := strings.Replace(string(makeValidHealthFrame(t, 1, "hub")), `"ready":true`, `"ready":false,"READY":true`, 1)

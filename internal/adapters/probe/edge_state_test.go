@@ -89,7 +89,7 @@ func TestEdgeStatePumpWaitsForConfirmedConfigAndSingleReceipt(t *testing.T) {
 	go func() {
 		sessionDone <- session.Run(ctx, func(ctx context.Context, env Envelope) error { return ctx.Err() })
 	}()
-	defer func() { cancel(); _ = session.Close(); <-sessionDone }()
+	defer func() { cancel(); _ = session.Close(); _ = <-sessionDone }()
 	pumpDone := make(chan error, 1)
 	go func() { pumpDone <- pump.run(ctx) }()
 	frames := make(chan []byte, 16)

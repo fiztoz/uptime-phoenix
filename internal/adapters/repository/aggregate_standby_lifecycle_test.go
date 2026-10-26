@@ -68,7 +68,7 @@ func testStandbyWriter(t *testing.T, s standbyFixture) {
 	case <-e.entered:
 	case <-ctx.Done():
 		close(e.release)
-		<-reader
+		_ = <-reader
 		t.Fatal("reader did not capture current snapshot")
 	}
 	go func() {
@@ -78,7 +78,7 @@ func testStandbyWriter(t *testing.T, s standbyFixture) {
 	select {
 	case err := <-writer:
 		close(e.release)
-		<-reader
+		_ = <-reader
 		t.Fatal("writer passed captured-state locks", err)
 	case <-time.After(50 * time.Millisecond):
 	}

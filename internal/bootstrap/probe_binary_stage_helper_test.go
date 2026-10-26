@@ -314,7 +314,7 @@ func TestProbeBinaryStageHelperGuardJoinsBlockedCallback(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- guard.Close() }()
 	select {
-	case <-done:
+	case _ = <-done:
 		t.Fatal("Close returned before callback finished")
 	case <-time.After(30 * time.Millisecond):
 	}

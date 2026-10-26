@@ -239,7 +239,7 @@ func (h *regionalTransportHarness) run(ctx context.Context) <-chan error {
 	h.t.Cleanup(func() {
 		cancel()
 		select {
-		case <-done:
+		case _ = <-done:
 		case <-time.After(3 * time.Second):
 			h.t.Error("transport worker did not join during cleanup")
 		}
@@ -538,7 +538,7 @@ func TestRegionalTransportControlledProbeNegotiatesAndRejectsUnsolicitedFrames(t
 			defer func() {
 				cancel()
 				select {
-				case <-done:
+				case _ = <-done:
 				case <-time.After(3 * time.Second):
 					t.Error("controlled transport did not join")
 				}

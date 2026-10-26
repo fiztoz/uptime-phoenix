@@ -54,7 +54,7 @@ func TestSessionWatchdogAdmitsValidatedHealthBeforeBlockedWorkers(t *testing.T) 
 					return ctx.Err()
 				}, admission)
 			}()
-			t.Cleanup(func() { cancel(); <-done })
+			t.Cleanup(func() { cancel(); _ = <-done })
 			write := func(frame []byte) {
 				t.Helper()
 				if err := peer.Write(ctx, websocket.MessageText, frame); err != nil {
