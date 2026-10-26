@@ -359,14 +359,14 @@ func testLocalPreparationConcurrent(t *testing.T, f probeRegistryFixture) {
 		cancel()
 		if !readJoined {
 			select {
-			case <-readDone:
+			case _ = <-readDone:
 			case <-time.After(5 * time.Second):
 				t.Error("reader did not join after failure")
 			}
 		}
 		if activateStarted && !activateJoined {
 			select {
-			case <-activateDone:
+			case _ = <-activateDone:
 			case <-time.After(5 * time.Second):
 				t.Error("activation did not join after failure")
 			}

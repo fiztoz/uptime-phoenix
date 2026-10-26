@@ -87,7 +87,7 @@ Requirements:
 - optional `syft` for SBOMs (`SKIP_SBOM=1` to skip)
 - optional `file(1)` for additional human-readable architecture output
 
-The three Go Docker builders pin Go 1.26.10, matching the current release gate.
+The three Go Docker builders pin Go 1.27.3, matching the current release gate.
 All-in-one, probe, API, worker and web images must build for both Linux amd64
 and arm64. Missing Docker, failed builds, failed extraction, empty binaries or
 wrong ELF architecture fail the required image stage. `SKIP_DOCKER=1` explicitly

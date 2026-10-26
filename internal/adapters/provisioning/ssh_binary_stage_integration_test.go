@@ -665,7 +665,7 @@ func TestProbeBinaryStageCancelCallbackJoined(t *testing.T) {
 	}
 	early := false
 	select {
-	case <-done:
+	case _ = <-done:
 		early = true
 	case <-time.After(30 * time.Millisecond):
 	}

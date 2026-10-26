@@ -318,7 +318,7 @@ func TestSession_SingleRun(t *testing.T) {
 	}
 
 	cancel()
-	<-runErrCh
+	_ = <-runErrCh
 
 	// Sequential Run call after finished must also fail
 	thirdErr := sess.Run(context.Background(), func(c context.Context, e probe.Envelope) error {
@@ -654,7 +654,7 @@ func TestSession_IncomingFrameRejections(t *testing.T) {
 			t.Fatal("reader stalled on oversized inbound frame")
 		}
 		select {
-		case <-writeErrCh: // The peer may observe a close while writing the oversized frame.
+		case _ = <-writeErrCh: // The peer may observe a close while writing the oversized frame.
 		case <-ctx.Done():
 			t.Fatal("peer writer stalled after reader rejected the oversized frame")
 		}

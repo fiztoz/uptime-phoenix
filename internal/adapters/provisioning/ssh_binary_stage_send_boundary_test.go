@@ -248,14 +248,14 @@ func TestSSHBinaryStageSenderCallbackTailJoin(t *testing.T) {
 	t.Cleanup(func() {
 		releaseTail()
 		select {
-		case <-done:
+		case _ = <-done:
 		case <-time.After(10 * time.Second):
 			t.Error("synthetic callback-tail model did not join")
 		}
 	})
 	sendTWaitSignal(t, entered, "stop(false) callback-tail boundary")
 	select {
-	case <-done:
+	case _ = <-done:
 		t.Fatal("local join returned before the running callback tail ended")
 	case <-time.After(50 * time.Millisecond):
 	}

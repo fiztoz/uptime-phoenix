@@ -296,7 +296,7 @@ func TestProbeBinaryStageHelperWaitsForRealEOF(t *testing.T) {
 		}
 		if !writerJoined {
 			select {
-			case <-writerDone:
+			case _ = <-writerDone:
 			case <-time.After(time.Second):
 				t.Error("writer cleanup not joined")
 			}
@@ -502,7 +502,7 @@ func TestProbeBinaryStageHelperGuardActiveReadAndCallbackTail(t *testing.T) {
 			t.Fatal("raw close not entered")
 		}
 		select {
-		case <-done:
+		case _ = <-done:
 			t.Fatal("guard close returned before active read joined")
 		case <-time.After(50 * time.Millisecond):
 		}
@@ -535,13 +535,13 @@ func TestProbeBinaryStageHelperGuardActiveReadAndCallbackTail(t *testing.T) {
 		go func() { done <- guard.Close() }()
 		select {
 		case <-stopEntered:
-		case <-done:
+		case _ = <-done:
 			t.Fatal("guard close returned before callback tail joined")
 		case <-time.After(time.Second):
 			t.Fatal("callback stop not reached")
 		}
 		select {
-		case <-done:
+		case _ = <-done:
 			t.Fatal("guard close returned before callback tail joined")
 		case <-time.After(50 * time.Millisecond):
 		}

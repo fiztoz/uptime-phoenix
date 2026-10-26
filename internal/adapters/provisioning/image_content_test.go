@@ -398,7 +398,7 @@ func TestProbeImageContentAdapterClosesCancellationJoin(t *testing.T) {
 		t.Fatal("cancellation did not close layer")
 	}
 	select {
-	case <-done:
+	case _ = <-done:
 		t.Fatal("returned before owned closer joined")
 	default:
 	}

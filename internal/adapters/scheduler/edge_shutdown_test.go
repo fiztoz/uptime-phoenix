@@ -186,7 +186,7 @@ func TestEdgeSchedulerAndProviderQuiescenceCommitInflightWork(t *testing.T) {
 	close(stopStalled)
 	cancelStalled()
 	select {
-	case <-stalledDone:
+	case _ = <-stalledDone:
 	case <-time.After(time.Second):
 		t.Fatal("supported HTTP check ignored cancellation")
 	}

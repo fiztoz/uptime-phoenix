@@ -327,7 +327,7 @@ func newSSHStageConfiguredFixture(t *testing.T, forced string, configure func(*s
 			return f
 		}
 		select {
-		case <-f.done:
+		case _ = <-f.done:
 			// Put completion back for the exactly-once cleanup join.
 			f.done <- errors.New("sshd exited before readiness")
 			t.Fatal("actual OpenSSH daemon exited before readiness")
@@ -345,11 +345,11 @@ func (f *sshStageFixture) stop(t *testing.T) {
 		sshSandboxGuard(t)
 		_ = f.cmd.Process.Signal(syscall.SIGTERM)
 		select {
-		case <-f.done:
+		case _ = <-f.done:
 		case <-time.After(3 * time.Second):
 			_ = f.cmd.Process.Kill()
 			select {
-			case <-f.done:
+			case _ = <-f.done:
 			case <-time.After(3 * time.Second):
 				t.Error("fixture daemon did not join")
 				return
