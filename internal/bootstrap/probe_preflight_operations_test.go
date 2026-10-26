@@ -6,6 +6,7 @@ import (
 )
 
 func TestM8PreflightConfigDefaultAndDependency(t *testing.T) {
+	t.Setenv("JWT_SECRET", testJWTSecret)
 	t.Setenv("PROBE_SSH_PREFLIGHT_ENABLED", "false")
 	t.Setenv("PROBES_ENABLED", "false")
 	t.Setenv("PROBES_AGGREGATE_PAGING_ENABLED", "false")

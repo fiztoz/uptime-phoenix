@@ -21,6 +21,9 @@ tmp_dir = "tmp"
 
 [run]
   args_bin = []
+  # JWT_SECRET is deliberately not set here: the server refuses a published
+  # key. `make dev` / `make dev-backend` pass a per-checkout random key from
+  # .secrets/dev_jwt_secret; running air directly needs JWT_SECRET exported.
   env = [
     "DB_ENGINE=sqlite",
     "DB_DSN=file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)",

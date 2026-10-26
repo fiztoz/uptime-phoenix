@@ -5,6 +5,7 @@ import (
 )
 
 func TestProbeKeyConfigValidation(t *testing.T) {
+	t.Setenv("JWT_SECRET", testJWTSecret)
 	// Clean environment
 	t.Setenv("PROBE_HUB_ID", "")
 	t.Setenv("PROBE_SECRET_KEY_FILE", "")

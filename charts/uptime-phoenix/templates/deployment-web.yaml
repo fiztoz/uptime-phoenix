@@ -24,19 +24,33 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      securityContext:
+        {{- toYaml .Values.web.podSecurityContext | nindent 8 }}
       containers:
         - name: uptime-phoenix-web
           image: {{ include "phoenix.webImage" . | quote }}
           imagePullPolicy: {{ .Values.web.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.web.containerSecurityContext | nindent 12 }}
           ports:
             - name: http
-              containerPort: 80
+              containerPort: {{ .Values.web.containerPort }}
               protocol: TCP
           volumeMounts:
             - name: nginx-config
               mountPath: /etc/nginx/conf.d/default.conf
               subPath: default.conf
               readOnly: true
+            # Writable paths on the read-only root. nginx-unprivileged keeps its
+            # pid and temp files in /tmp; the stock nginx image (the published
+            # uptime-phoenix-web <= 0.5.1) uses /run and /var/cache/nginx, so
+            # mounting all three runs either image as uid 101.
+            - name: tmp
+              mountPath: /tmp
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /run
           resources:
             {{- toYaml .Values.web.resources | nindent 12 }}
           livenessProbe:
@@ -52,6 +66,12 @@ spec:
             initialDelaySeconds: 3
             periodSeconds: 5
       volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: nginx-cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
         - name: nginx-config
           configMap:
             name: {{ include "phoenix.fullname" . }}-nginx

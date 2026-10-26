@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -52,8 +53,20 @@ func main() {
 	}
 	cfg, err := bootstrap.LoadConfig()
 	if err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, "Invalid hub environment configuration")
+		_, _ = fmt.Fprintln(os.Stderr, hubConfigErrorMessage(err))
 		os.Exit(2)
 	}
 	os.Exit(bootstrap.RunProbeAdmin(ctx, cfg, os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// hubConfigErrorMessage is the stderr line for a LoadConfig failure. Other
+// config errors may quote environment values, so they stay generic; a
+// JWT_SECRET error never echoes the key, so it is shown in full because the
+// operator otherwise cannot tell that this hub-wide setting is what to fix.
+func hubConfigErrorMessage(err error) string {
+	if errors.Is(err, bootstrap.ErrInvalidJWTSecret) {
+		return "Invalid hub environment configuration: " + err.Error() +
+			" (phoenix-probe-admin loads the hub config, so it needs the same JWT_SECRET as the API)"
+	}
+	return "Invalid hub environment configuration"
 }

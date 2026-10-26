@@ -1,5 +1,7 @@
 package services
 
+import "github.com/fiztoz/uptime-phoenix/internal/core/domain"
+
 // Config API constants (F5 Sprint 14).
 const (
 	// ConfigAPIVersion is the only accepted document version.
@@ -7,7 +9,7 @@ const (
 	// ConfigKind is the document kind.
 	ConfigKind = "Config"
 	// ConfigSecretRedacted is written on export and treated as "preserve" on apply.
-	ConfigSecretRedacted = "__REDACTED__"
+	ConfigSecretRedacted = domain.SecretConfigPlaceholder
 )
 
 // ConfigDocument is the versioned declarative config shape (YAML or JSON).

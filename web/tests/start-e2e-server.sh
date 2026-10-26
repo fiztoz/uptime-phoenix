@@ -38,7 +38,7 @@ chmod 600 "$probe_key"
 
 DB_ENGINE=sqlite \
 	DB_DSN="file:$e2e_tmp_dir/uptime-phoenix.db?cache=shared" \
-	JWT_SECRET=e2e_secret \
+	JWT_SECRET="$(head -c 48 /dev/urandom | base64 | tr -d '\n')" \
 	BOOTSTRAP_USERNAME=admin \
 	BOOTSTRAP_PASSWORD='ChangeMe123!' \
 	PUBLIC_URL='http://127.0.0.1:3100' \

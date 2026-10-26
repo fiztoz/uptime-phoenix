@@ -179,7 +179,12 @@ type MonitorView struct {
 // toMonitorView projects a domain.Monitor to the public DTO. tags may be nil —
 // it is normalized to an empty slice so the JSON is [] rather than null.
 // groupsByID resolves EffectiveOwner when inherit_group_owner is set.
-func toMonitorView(m *domain.Monitor, tags []services.MonitorTagDetail, groupsByID map[int64]*domain.MonitorGroup) *MonitorView {
+//
+// Credential config values are write-only (issue #89): they come back as
+// domain.SecretConfigPlaceholder for every caller. revealPushToken keeps
+// push_token readable for a caller who may edit the monitor, because its
+// owner needs it to configure the pushing client.
+func toMonitorView(m *domain.Monitor, tags []services.MonitorTagDetail, groupsByID map[int64]*domain.MonitorGroup, revealPushToken bool) *MonitorView {
 	if m == nil {
 		return nil
 	}
@@ -197,7 +202,7 @@ func toMonitorView(m *domain.Monitor, tags []services.MonitorTagDetail, groupsBy
 		RetryInterval:       m.RetryInterval,
 		MaxRetries:          m.MaxRetries,
 		Timeout:             m.Timeout,
-		Config:              m.Config,
+		Config:              redactMonitorConfig(m.Config, revealPushToken),
 		AcceptedStatusCodes: m.AcceptedStatusCodes,
 		UpsideDown:          m.UpsideDown,
 		TLSIgnore:           m.TLSIgnore,
@@ -210,6 +215,29 @@ func toMonitorView(m *domain.Monitor, tags []services.MonitorTagDetail, groupsBy
 		CreatedAt:           m.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:           m.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
+}
+
+func redactMonitorConfig(cfg map[string]any, revealPushToken bool) map[string]any {
+	if revealPushToken {
+		return domain.RedactSecretConfig(cfg, "push_token")
+	}
+	return domain.RedactSecretConfig(cfg)
+}
+
+// monitorEditor reports which monitors the caller may edit, for deciding
+// what a response may reveal. Any lookup failure fails closed (reveal less).
+func (h *MonitorHandlers) monitorEditor(c echo.Context) func(*domain.Monitor) bool {
+	deny := func(*domain.Monitor) bool { return false }
+	userID, ok := userIDFromContext(c)
+	if !ok || h.access == nil {
+		return deny
+	}
+	pred, err := h.access.MonitorEditPredicate(c.Request().Context(), userID)
+	if err != nil {
+		slog.Warn("monitor view: edit lookup failed; masking push tokens", "error", err)
+		return deny
+	}
+	return pred
 }
 
 func toMonitorTagViews(tags []services.MonitorTagDetail) []MonitorTagView {
@@ -313,6 +341,13 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 		req.Config = make(map[string]any)
 	}
 
+	// A placeholder has no stored value behind it on create; refuse it rather
+	// than persist the marker as a credential (update refuses one it cannot
+	// match: unresolvedPlaceholderMessage).
+	if domain.ConfigHasSecretPlaceholder(req.Config) {
+		return badRequest(c, "invalid config: "+domain.SecretConfigPlaceholder+" is a masked value; send the real secret")
+	}
+
 	// Validate the monitor config against the checker.
 	if err := validateMonitorConfig(req.Type, req.Config); err != nil {
 		return badRequest(c, "invalid config: "+err.Error())
@@ -389,7 +424,7 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 	h.grantCreatorAccess(c, userID, monitor.ID)
 
 	// A monitor has no tags the instant it is created, so skip the lookup.
-	return c.JSON(http.StatusCreated, toMonitorView(monitor, nil, h.groupsByID(c)))
+	return c.JSON(http.StatusCreated, toMonitorView(monitor, nil, h.groupsByID(c), true))
 }
 
 // initialAssignments resolves the optional explicit desired set of a create.
@@ -494,9 +529,10 @@ func (h *MonitorHandlers) List(c echo.Context) error {
 	}
 
 	groupsByID := h.groupsByID(c)
+	canEdit := h.monitorEditor(c)
 	views := make([]*MonitorView, len(monitors))
 	for i, m := range monitors {
-		views[i] = toMonitorView(m, tagsByMonitor[m.ID], groupsByID)
+		views[i] = toMonitorView(m, tagsByMonitor[m.ID], groupsByID, canEdit(m))
 	}
 	return c.JSON(http.StatusOK, views)
 }
@@ -518,7 +554,7 @@ func (h *MonitorHandlers) GetByID(c echo.Context) error {
 		return mapMonitorError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, toMonitorView(monitor, h.monitorTags(c, id), h.groupsByID(c)))
+	return c.JSON(http.StatusOK, toMonitorView(monitor, h.monitorTags(c, id), h.groupsByID(c), h.monitorEditor(c)(monitor)))
 }
 
 // Update handles PUT /api/monitors/:id. Admins, or the user who created this
@@ -546,8 +582,13 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 		return badRequest(c, "invalid request body")
 	}
 
-	// Validate the config if a new one is provided.
+	// Validate the config if a new one is provided. Masked values the client
+	// sent back unchanged are first swapped for the stored secrets.
 	if req.Config != nil {
+		req.Config = domain.RestoreSecretConfig(existing.Config, req.Config)
+		if domain.ConfigHasSecretPlaceholder(req.Config) {
+			return badRequest(c, unresolvedPlaceholderMessage)
+		}
 		if err := validateMonitorConfig(existing.Type, req.Config); err != nil {
 			return badRequest(c, "invalid config: "+err.Error())
 		}
@@ -628,7 +669,7 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 		return mapMonitorError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, toMonitorView(existing, h.monitorTags(c, id), h.groupsByID(c)))
+	return c.JSON(http.StatusOK, toMonitorView(existing, h.monitorTags(c, id), h.groupsByID(c), true))
 }
 
 // Delete handles DELETE /api/monitors/:id. Admins, or the user who created this
@@ -710,7 +751,7 @@ func (h *MonitorHandlers) Clone(c echo.Context) error {
 		return mapMonitorError(c, err)
 	}
 	h.grantCreatorAccess(c, userID, cloned.ID)
-	return c.JSON(http.StatusCreated, toMonitorView(cloned, nil, h.groupsByID(c)))
+	return c.JSON(http.StatusCreated, toMonitorView(cloned, nil, h.groupsByID(c), true))
 }
 
 // groupsByID loads every monitor group once for EffectiveOwner resolution.
@@ -744,3 +785,9 @@ func mapMonitorError(c echo.Context, err error) error {
 		return c.JSON(http.StatusInternalServerError, errorBody("internal error"))
 	}
 }
+
+// unresolvedPlaceholderMessage answers an update whose masked value could not
+// be matched to a stored secret (a list entry added or removed next to a
+// masked one): guessing would hand one entry's secret to another.
+const unresolvedPlaceholderMessage = "invalid config: a " + domain.SecretConfigPlaceholder +
+	" masked value could not be matched to a stored secret; re-enter that secret"

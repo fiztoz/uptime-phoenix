@@ -391,7 +391,7 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `LOG_LEVEL` | `info` | Application log level. |
 | `DB_ENGINE` | `sqlite` | `sqlite` or `mariadb`. Split mode requires MariaDB. |
 | `DB_DSN` | `file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)` | Engine-specific DSN. MariaDB migrations require `multiStatements=true`; use `parseTime=true&loc=UTC`. |
-| `JWT_SECRET` | `change-me-in-production` | Session-signing secret. Replace with a stable secret before first production start. |
+| `JWT_SECRET` | — | Session-signing secret, **required, no default** (≥32 bytes; the server refuses to start without it). Generate with `openssl rand -base64 48`. Keep it stable across restarts. |
 | `JWT_EXPIRE_HOURS` | `24` | Session JWT lifetime in hours. Must be `> 0`; non-positive values refuse to boot (they would mint an already-expired token). |
 | `TOTP_ISSUER` | `Phoenix` | Issuer label shown in authenticator apps. |
 | `PRODUCTION` | `false` | Selects secure production defaults, including deny-by-default CORS when no allow-list is supplied. |
@@ -561,3 +561,43 @@ serves and whether its image digest changed.
 credentials, and `DB_ENGINE`/`DB_DSN`; for MariaDB, confirm the database exists and the DSN
 uses `parseTime=true&loc=UTC&multiStatements=true`. Then inspect startup logs for the exact
 migration filename and statement. Do not start workers until the API is ready.
+
+### A pod exits with `invalid JWT_SECRET`
+
+Every Phoenix binary (all-in-one, `api`, `worker`, `phoenix-probe-admin`) loads the same
+configuration and refuses to start without a `JWT_SECRET` of at least 32 bytes that is not a
+published placeholder. In split mode the worker needs the **same** key as the API: the chart
+mounts it into both from `secret.existingSecret` (or the chart-managed Secret), and both
+compose files read the same `${JWT_SECRET}`. Generate one with `openssl rand -base64 48`.
+Local `make run` / `make dev` / `make dev-split*` use a per-checkout key in
+`.secrets/dev_jwt_secret`.
+
+### Sign-in lockout ("too many failed attempts")
+
+Password and TOTP failures are throttled in the API process (`internal/core/services/login_throttle.go`):
+
+| Budget | Locks after | Lockout |
+|---|---|---|
+| One client IP against one account | 5 consecutive failures | 30 s, doubling per further failure, max 15 min |
+| One account across all client IPs | 50 failures | same schedule, for every client |
+| One 2FA ticket | 5 codes | ticket spent; sign in with the password again |
+
+Failures older than one hour stop counting; a successful sign-in resets that client's count
+and the account's. The per-IP route limiter in front of `/api/auth/*` is separate (10 sign-in
+requests per minute per IP, shared through Redis when `REDIS_URL` is set).
+
+The strict budget follows the client IP, so someone guessing from elsewhere does not lock the
+owner out of their own address. A distributed guesser can still trip the account-wide budget,
+which then refuses the real owner too. To unlock an account immediately:
+
+1. **Admin action (preferred).** Another admin sets the user's password, or re-activates the
+   account, through `PUT /api/users/:id` (Settings, Users). Either clears every lockout on
+   that account in the API pod that handles the request.
+2. **Restart.** Counters are in memory per API process, so restarting the API pods
+   (`kubectl rollout restart deployment/<release>-api`, or the all-in-one Deployment) clears
+   all of them. With several API replicas, a lockout only exists on the replica that counted
+   it, so step 1 may need repeating, or use the restart.
+
+If the sole admin is locked by the account-wide budget and no other admin exists, use the
+restart, then sign in from a trusted network; check the `auth: repeated login failures` warnings
+(`username`, `client_ip`) to find the source and block it upstream.
