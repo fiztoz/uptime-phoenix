@@ -36,6 +36,7 @@ helm upgrade uptime-phoenix ./charts/uptime-phoenix
 | `worker.image.tag` | string | `""` (`image.tag` → `.Chart.AppVersion`) | Worker image tag. Empty falls back to `image.tag`, then the chart's `appVersion` |
 | `worker.image.pullPolicy` | string | `""` (`image.pullPolicy`) | Worker pull policy. Empty falls back to `image.pullPolicy` |
 | `web.image.tag` | string | `""` (`.Chart.AppVersion`) | Split-web image tag. Empty uses the chart's `appVersion` |
+| `outbound.allowedCIDRs` | list | `[]` | `OUTBOUND_ALLOWED_CIDRS`: internal CIDRs/IPs that monitors and notifications owned by **non-admin** users may reach. Admin-owned ones need no entry; link-local and cloud metadata stay blocked for everyone. See docs/RUNBOOK.md "Outbound guard" |
 | `database.engine` | string | `sqlite` | `sqlite` (default, zero-dep) or `mariadb` |
 | `database.pool.maxOpenConns` | int | `10` | MariaDB max open connections **per process** (`DB_MAX_OPEN_CONNS`; ignored for SQLite) |
 | `database.pool.maxIdleConns` | int | `2` | MariaDB idle connections kept in the pool (`DB_MAX_IDLE_CONNS`) |

@@ -8,6 +8,7 @@ import (
 
 	"github.com/miekg/dns"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
@@ -115,8 +116,13 @@ func (checker DNSChecker) Check(ctx context.Context, c map[string]any) (ports.Ch
 	msg.RecursionDesired = true
 
 	// --- Create client with timeout on dialer ---
+	// The dial to resolve_server is guarded by the owner's outbound policy, so
+	// a restricted owner cannot query an internal resolver (and read back the
+	// internal records it serves) unless it is allowlisted.
+	timeout := time.Duration(timeoutSec * float64(time.Second))
 	client := &dns.Client{
-		Timeout: time.Duration(timeoutSec * float64(time.Second)),
+		Timeout: timeout,
+		Dialer:  netguard.ForContext(ctx).Dialer(timeout),
 	}
 
 	// --- Execute query ---

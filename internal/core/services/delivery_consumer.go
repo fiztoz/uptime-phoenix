@@ -66,6 +66,13 @@ type DeliveryOutboxConsumer struct {
 	journal       ports.SourceProviderAttemptJournal
 	cfg           DeliveryConsumerConfig
 	now           func() time.Time
+	outboundTrust OutboundTrustResolver // optional: unset means restricted
+}
+
+// SetOutboundTrustResolver decides each delivery's outbound reach from the
+// notification's owner. Mirrors NotificationService.SetOutboundTrustResolver.
+func (c *DeliveryOutboxConsumer) SetOutboundTrustResolver(r OutboundTrustResolver) {
+	c.outboundTrust = r
 }
 
 // NewDeliveryOutboxConsumer creates a new outbox delivery consumer.
@@ -580,7 +587,7 @@ func (c *DeliveryOutboxConsumer) executeSendAndFinish(
 			return err
 		}
 	}
-	sendErr := sender.Send(sendCtx, notif.Config, alertContext)
+	sendErr := sender.Send(notificationSendContext(sendCtx, c.outboundTrust, notif), notif.Config, alertContext)
 	cancel()
 	if err := finishProviderAttempt(ctx, c.journal, providerAttemptID, sendErr); err != nil {
 		return err

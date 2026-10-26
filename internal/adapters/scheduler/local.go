@@ -27,6 +27,7 @@ type LocalScheduler struct {
 	stopCh         chan struct{}
 	lastCheck      sync.Map // monitorID int64 -> time.Time
 	proxyResolver  *proxyResolver
+	outboundTrust  services.OutboundTrustResolver
 	slots          *checkSlots
 }
 
@@ -59,6 +60,13 @@ func NewLocalScheduler(
 // race on the first few ticks; run.go calls it immediately after construction.
 func (s *LocalScheduler) SetProxyRepo(repo ports.ProxyRepository) {
 	s.proxyResolver.setRepo(repo)
+}
+
+// SetOutboundTrustResolver decides each check's outbound reach from its
+// monitor's owner (services.AccessService). Must be called before Run; when
+// unset, every check gets the restricted tier.
+func (s *LocalScheduler) SetOutboundTrustResolver(r services.OutboundTrustResolver) {
+	s.outboundTrust = r
 }
 
 // SetAssignmentRepo scopes hub execution to monitors the local probe may run.
@@ -98,6 +106,9 @@ type scheduledCheck struct {
 	Generation     int64
 	ConfigRevision int64
 	CheckConfig    map[string]any
+	// OutboundTrust is the owner's outbound reach, attached to the check's
+	// context for the network guard (see ownerTrust).
+	OutboundTrust domain.OutboundTrust
 	// LeaseFence pins the check to the worker lease instance that authorized
 	// it (sharded scheduling only). Nil for ordinary local scheduling, which
 	// runs without worker authority.
@@ -117,7 +128,7 @@ func (s *LocalScheduler) tick(ctx context.Context) {
 		return
 	}
 
-	checks, err := captureScheduledChecks(ctx, runnable, s.activation, s.proxyResolver)
+	checks, err := captureScheduledChecks(ctx, runnable, s.activation, s.proxyResolver, s.outboundTrust)
 	if err != nil {
 		s.logger.Error("scheduler: capture applied settings failed", "error", err)
 		return
@@ -216,6 +227,7 @@ func (s *LocalScheduler) runCheck(ctx context.Context, check scheduledCheck) {
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	checkCtx = domain.WithOutboundTrust(checkCtx, check.OutboundTrust)
 
 	// Look up the checker for this monitor type.
 	checker, ok := s.checkerFn(m.Type)

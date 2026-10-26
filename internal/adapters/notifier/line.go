@@ -96,7 +96,7 @@ func (LineSender) Send(ctx context.Context, config map[string]any, alert domain.
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+channelToken)
-		return http.DefaultClient.Do(req)
+		return notifierHTTPClient(req.Context()).Do(req)
 	}
 
 	resp, err := retryWithBackoff(ctx, doReq)

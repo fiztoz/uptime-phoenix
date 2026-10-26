@@ -111,7 +111,7 @@ func (WebhookSender) Send(ctx context.Context, config map[string]any, alert doma
 			req.Header.Set(k, v)
 		}
 		// basic auth support via headers already
-		return http.DefaultClient.Do(req)
+		return notifierHTTPClient(req.Context()).Do(req)
 	}
 
 	resp, err := retryWithBackoff(ctx, doReq)

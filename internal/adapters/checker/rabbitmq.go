@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
+
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 
@@ -167,7 +169,7 @@ func (RabbitMQChecker) Check(ctx context.Context, config map[string]any) (ports.
 	defer cancel()
 
 	start := time.Now()
-	dialer := &net.Dialer{}
+	dialer := netguard.ForContext(ctx)
 	conn, err := amqp.DialConfig(amqpURL, amqp.Config{
 		Locale:    "en_US",
 		Heartbeat: 10 * time.Second,

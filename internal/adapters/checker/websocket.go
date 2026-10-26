@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
+
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 
@@ -60,6 +62,7 @@ func (WebSocketChecker) Check(ctx context.Context, config map[string]any) (ports
 	start := time.Now()
 	ws, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
 		HTTPHeader: headers,
+		HTTPClient: netguard.ForContext(ctx).Client(0),
 	})
 	latencyMs := time.Since(start).Milliseconds()
 

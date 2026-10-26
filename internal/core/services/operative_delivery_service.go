@@ -20,6 +20,14 @@ type OperativeDeliveryService struct {
 	owner      string
 	enabled    bool
 	sender     func(string) (ports.NotificationSender, bool)
+	// outboundTrust is optional: unset means restricted.
+	outboundTrust OutboundTrustResolver
+}
+
+// SetOutboundTrustResolver decides each delivery's outbound reach from the
+// notification's owner. Mirrors NotificationService.SetOutboundTrustResolver.
+func (s *OperativeDeliveryService) SetOutboundTrustResolver(r OutboundTrustResolver) {
+	s.outboundTrust = r
 }
 
 // NewOperativeDeliveryService constructs the full opt-in runtime.
@@ -97,7 +105,7 @@ func (s *OperativeDeliveryService) ProcessNext(ctx context.Context) (bool, error
 		}
 		return true, err
 	}
-	sendErr := sender.Send(sendCtx, grant.Notification.Config, alert)
+	sendErr := sender.Send(notificationSendContext(sendCtx, s.outboundTrust, grant.Notification), grant.Notification.Config, alert)
 	cancel()
 	if err := finishProviderAttempt(ctx, s.journal, grant.AttemptID, sendErr); err != nil {
 		return true, err

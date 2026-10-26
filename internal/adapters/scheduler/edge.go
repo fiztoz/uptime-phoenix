@@ -183,6 +183,11 @@ func (s *EdgeScheduler) execute(ctx context.Context, config *domain.EdgeResolved
 				timeout = 30 * time.Second
 			}
 			checkCtx, cancel := context.WithTimeout(ctx, timeout)
+			// A remote probe is deployed by the operator into the network it
+			// monitors and has no view of monitor ownership, so its checks
+			// get the always-blocked floor only (cmd/probe also calls
+			// netguard.TrustAllOwners for its deliveries).
+			checkCtx = domain.WithOutboundTrust(checkCtx, domain.OutboundTrustProbe)
 			var checkErr error
 			result, checkErr = provider.Check(checkCtx, settings)
 			cancel()

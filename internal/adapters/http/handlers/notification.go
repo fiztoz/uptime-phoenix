@@ -465,9 +465,12 @@ func (h *NotificationHandlers) ListAssignments(c echo.Context) error {
 }
 
 // Update handles PUT /api/notifications/:id. Requires can_manage_notifications;
-// the notification's creator is irrelevant (see the type doc).
+// the notification's creator is irrelevant (see the type doc), except that
+// only an admin may change the config of an admin-created notification
+// (requireNotificationRetarget).
 func (h *NotificationHandlers) Update(c echo.Context) error {
-	if _, err := h.requireManageNotifications(c); err != nil {
+	actorID, err := h.requireManageNotifications(c)
+	if err != nil {
 		return err
 	}
 
@@ -484,6 +487,16 @@ func (h *NotificationHandlers) Update(c echo.Context) error {
 	var req UpdateNotificationRequest
 	if err := c.Bind(&req); err != nil {
 		return badRequest(c, "invalid request body")
+	}
+	// Masked values sent back unchanged keep the stored secret; a new value
+	// replaces it. The retarget check compares the restored config, so a
+	// config returned with its secret placeholders is not a destination change.
+	var restored map[string]any
+	if req.Config != nil {
+		restored = domain.RestoreSecretConfig(existing.Config, req.Config)
+	}
+	if err := h.requireNotificationRetarget(c, actorID, existing, restored); err != nil {
+		return err
 	}
 
 	if req.Name != "" {
@@ -502,9 +515,7 @@ func (h *NotificationHandlers) Update(c echo.Context) error {
 	// null template_id means "use the provider default layout".
 	existing.TemplateID = req.TemplateID
 	if req.Config != nil {
-		// Masked values sent back unchanged keep the stored secret; a new
-		// value replaces it.
-		existing.Config = domain.RestoreSecretConfig(existing.Config, req.Config)
+		existing.Config = restored
 		if domain.ConfigHasSecretPlaceholder(existing.Config) {
 			return badRequest(c, unresolvedPlaceholderMessage)
 		}

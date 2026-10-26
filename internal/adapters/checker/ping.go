@@ -3,10 +3,12 @@ package checker
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"time"
 
 	probing "github.com/prometheus-community/pro-bing"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
@@ -55,6 +57,16 @@ func (PingChecker) Check(ctx context.Context, config map[string]any) (ports.Chec
 			Status:  domain.StatusDown,
 			Message: fmt.Sprintf("failed to create pinger: %v", err),
 		}, nil
+	}
+
+	// NewPinger resolved the host; refuse the resolved address before any
+	// packet is sent when the owner's outbound policy does not allow it.
+	addr, ok := netip.AddrFromSlice(pinger.IPAddr().IP)
+	if !ok {
+		return ports.CheckResult{Status: domain.StatusDown, Message: "ping: could not resolve a target address"}, nil
+	}
+	if err := netguard.ForContext(ctx).Check(addr); err != nil {
+		return ports.CheckResult{Status: domain.StatusDown, Message: fmt.Sprintf("ping refused: %v", err)}, nil
 	}
 
 	pinger.Count = count

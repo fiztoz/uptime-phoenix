@@ -2,14 +2,20 @@ package checker
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net"
+	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 
+	"github.com/coder/websocket"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/google/uuid"
 )
@@ -65,6 +71,48 @@ func mqttBrokerURL(config map[string]any) string {
 	return fmt.Sprintf("tcp://%s:%d", host, port)
 }
 
+// mqttOpenConnection dials the broker through the owner's outbound policy.
+// It replaces paho's built-in dialer, which ignores a custom dialer for
+// websocket brokers and follows proxy environment variables, so every broker
+// transport (tcp, tls, ws, wss, unix) is guarded the same way. Unix sockets
+// are refused for restricted owners by the policy's dial hook.
+func mqttOpenConnection(ctx context.Context, policy *netguard.Policy) mqtt.OpenConnectionFunc {
+	return func(uri *url.URL, options mqtt.ClientOptions) (net.Conn, error) {
+		dialer := policy.Dialer(options.ConnectTimeout)
+		switch strings.ToLower(uri.Scheme) {
+		case "mqtt", "tcp":
+			return dialer.DialContext(ctx, "tcp", uri.Host)
+		case "ssl", "tls", "mqtts", "mqtt+ssl", "tcps":
+			tlsDialer := tls.Dialer{NetDialer: dialer, Config: options.TLSConfig}
+			return tlsDialer.DialContext(ctx, "tcp", uri.Host)
+		case "ws", "wss":
+			transport := policy.Transport()
+			if options.TLSConfig != nil {
+				transport.TLSClientConfig = options.TLSConfig.Clone()
+			}
+			dialURI := *uri // credentials go in the MQTT CONNECT, not the URL
+			dialURI.User = nil
+			conn, _, err := websocket.Dial(ctx, dialURI.String(), &websocket.DialOptions{
+				HTTPClient:   &http.Client{Transport: transport},
+				HTTPHeader:   options.HTTPHeaders,
+				Subprotocols: []string{"mqtt"},
+			})
+			if err != nil {
+				return nil, err
+			}
+			return websocket.NetConn(ctx, conn, websocket.MessageBinary), nil
+		case "unix":
+			path := uri.Host
+			if path == "" {
+				path = uri.Path
+			}
+			return dialer.DialContext(ctx, "unix", path)
+		default:
+			return nil, fmt.Errorf("unknown MQTT broker protocol %q", uri.Scheme)
+		}
+	}
+}
+
 // Validate checks that the required config fields are present and valid.
 func (MQTTChecker) Validate(config map[string]any) error {
 	if mqttBrokerURL(config) == "" {
@@ -118,7 +166,8 @@ func (MQTTChecker) Check(ctx context.Context, config map[string]any) (ports.Chec
 		SetClientID(clientID).
 		SetAutoReconnect(false).
 		SetConnectTimeout(time.Duration(timeout * float64(time.Second))).
-		SetCleanSession(true)
+		SetCleanSession(true).
+		SetCustomOpenConnectionFn(mqttOpenConnection(ctx, netguard.ForContext(ctx)))
 
 	if username != "" {
 		opts.SetUsername(username)

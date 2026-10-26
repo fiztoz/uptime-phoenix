@@ -90,16 +90,18 @@ func TestNotificationSecrets_MaskedForEveryRole(t *testing.T) {
 }
 
 func TestNotificationSecrets_PutPlaceholderKeepsAndNewValueReplaces(t *testing.T) {
+	// The admin who created the notification edits it: a non-admin may not
+	// change an admin-created notification's config at all (#88).
 	h := newNotifHTTPHarness(t)
 	ctx := context.Background()
 	id := seedSecretNotification(t, h)
 	path := "/api/notifications/" + floatToIntStr(float64(id))
 
 	var view map[string]any
-	_ = json.Unmarshal(h.do(t, http.MethodGet, path, h.tokenB, nil).Body.Bytes(), &view)
+	_ = json.Unmarshal(h.do(t, http.MethodGet, path, h.tokenA, nil).Body.Bytes(), &view)
 	cfg := view["config"].(map[string]any)
 	cfg["method"] = "PUT"
-	if rec := h.do(t, http.MethodPut, path, h.tokenB, map[string]any{"config": cfg}); rec.Code != http.StatusOK {
+	if rec := h.do(t, http.MethodPut, path, h.tokenA, map[string]any{"config": cfg}); rec.Code != http.StatusOK {
 		t.Fatalf("PUT masked = %d (%s)", rec.Code, rec.Body.String())
 	}
 	stored, err := h.svc.GetByID(ctx, id)
@@ -114,7 +116,7 @@ func TestNotificationSecrets_PutPlaceholderKeepsAndNewValueReplaces(t *testing.T
 	}
 
 	cfg["url"] = "https://hooks.example/rotated"
-	if rec := h.do(t, http.MethodPut, path, h.tokenB, map[string]any{"config": cfg}); rec.Code != http.StatusOK {
+	if rec := h.do(t, http.MethodPut, path, h.tokenA, map[string]any{"config": cfg}); rec.Code != http.StatusOK {
 		t.Fatalf("PUT new = %d (%s)", rec.Code, rec.Body.String())
 	}
 	stored, _ = h.svc.GetByID(ctx, id)

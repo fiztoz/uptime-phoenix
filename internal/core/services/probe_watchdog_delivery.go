@@ -20,6 +20,15 @@ type ProbeWatchdogDeliveryService struct {
 	authority  func(context.Context) (domain.ProbeWatchdogAuthority, error)
 	sender     func(string) (ports.NotificationSender, bool)
 	now        func() time.Time
+	// outboundTrust is optional. On the hub it is AccessService; on a probe it
+	// is unset and cmd/probe's netguard.TrustAllOwners applies the floor only.
+	outboundTrust OutboundTrustResolver
+}
+
+// SetOutboundTrustResolver decides each delivery's outbound reach from the
+// notification's owner. Mirrors NotificationService.SetOutboundTrustResolver.
+func (s *ProbeWatchdogDeliveryService) SetOutboundTrustResolver(r OutboundTrustResolver) {
+	s.outboundTrust = r
 }
 
 // NewProbeWatchdogDeliveryService wires both source adapters to one send policy.
@@ -74,7 +83,7 @@ func (s *ProbeWatchdogDeliveryService) Process(ctx context.Context, item domain.
 	if err := sendCtx.Err(); err != nil {
 		return err
 	}
-	err = provider.Send(sendCtx, channel.Notification.Config, alert)
+	err = provider.Send(notificationSendContext(sendCtx, s.outboundTrust, channel.Notification), channel.Notification.Config, alert)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}

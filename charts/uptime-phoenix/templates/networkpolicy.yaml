@@ -33,8 +33,26 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Monitor checks (HTTP/HTTPS)
-    - ports:
+    # Monitor checks (HTTP/HTTPS). In-cluster destinations stay reachable
+    # through the namespaceSelector peer (CNIs differ on whether an ipBlock
+    # matches Pod and Service IPs). Cloud metadata endpoints are excluded from
+    # the ipBlock peers as defence in depth: the app refuses them for every
+    # monitor and notification regardless of owner or OUTBOUND_ALLOWED_CIDRS
+    # (#88).
+    - to:
+        - namespaceSelector: {}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16
+              - 168.63.129.16/32
+              - 100.100.100.200/32
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fd00:ec2::254/128
+              - fe80::/10
+      ports:
         - protocol: TCP
           port: 80
         - protocol: TCP

@@ -644,6 +644,11 @@ values files keep working.
 Shared Phoenix application env (security, observability, rate limits).
 */}}
 {{- define "phoenix.envAppConfig" -}}
+- name: OUTBOUND_ALLOWED_CIDRS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "phoenix.fullname" . }}
+      key: outbound-allowed-cidrs
 - name: DB_MAX_OPEN_CONNS
   valueFrom:
     configMapKeyRef:

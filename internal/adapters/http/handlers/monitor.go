@@ -336,6 +336,14 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 	if !allowed {
 		return c.JSON(http.StatusForbidden, errorBody("monitor creation is limited to an allowed group"))
 	}
+	if err := requireMonitorTypeAccess(c, h.access, userID, req.Type); err != nil {
+		return err
+	}
+	if err := requireMonitorOutboundSettings(c, h.access, monitorOutboundChange{
+		ActorID: userID, OwnerID: userID, Config: req.Config, AssignsProxy: req.ProxyID != nil,
+	}); err != nil {
+		return err
+	}
 
 	if req.Config == nil {
 		req.Config = make(map[string]any)
@@ -585,6 +593,13 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 	// Validate the config if a new one is provided. Masked values the client
 	// sent back unchanged are first swapped for the stored secrets.
 	if req.Config != nil {
+		userID, ok := userIDFromContext(c)
+		if !ok {
+			return unauthenticated(c)
+		}
+		if err := requireMonitorTypeAccess(c, h.access, userID, existing.Type); err != nil {
+			return err
+		}
 		req.Config = domain.RestoreSecretConfig(existing.Config, req.Config)
 		if domain.ConfigHasSecretPlaceholder(req.Config) {
 			return badRequest(c, unresolvedPlaceholderMessage)
@@ -592,6 +607,18 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 		if err := validateMonitorConfig(existing.Type, req.Config); err != nil {
 			return badRequest(c, "invalid config: "+err.Error())
 		}
+	}
+
+	// Outbound-sensitive options (#88): see requireMonitorOutboundSettings.
+	actorID, ok := userIDFromContext(c)
+	if !ok {
+		return unauthenticated(c)
+	}
+	if err := requireMonitorOutboundSettings(c, h.access, monitorOutboundChange{
+		ActorID: actorID, OwnerID: existing.UserID, Config: req.Config,
+		AssignsProxy: req.ProxyID.set && req.ProxyID.value != nil && !sameOptionalID(existing.ProxyID, req.ProxyID.value),
+	}); err != nil {
+		return err
 	}
 
 	// Apply only the fields the client sent. Omitted keys keep the stored
@@ -736,6 +763,15 @@ func (h *MonitorHandlers) Clone(c echo.Context) error {
 	if !allowed {
 		return c.JSON(http.StatusForbidden, errorBody("monitor creation is limited to an allowed group"))
 	}
+	if err := requireMonitorTypeAccess(c, h.access, userID, source.Type); err != nil {
+		return err
+	}
+	// The clone belongs to the caller, so it must satisfy the caller's limits.
+	if err := requireMonitorOutboundSettings(c, h.access, monitorOutboundChange{
+		ActorID: userID, OwnerID: userID, Config: source.Config, AssignsProxy: source.ProxyID != nil,
+	}); err != nil {
+		return err
+	}
 
 	isAdmin, err := h.access.IsAdmin(c.Request().Context(), userID)
 	if err != nil {
@@ -752,6 +788,25 @@ func (h *MonitorHandlers) Clone(c echo.Context) error {
 	}
 	h.grantCreatorAccess(c, userID, cloned.ID)
 	return c.JSON(http.StatusCreated, toMonitorView(cloned, nil, h.groupsByID(c), true))
+}
+
+// requireMonitorTypeAccess writes a 403 and returns a non-nil error when the
+// user may not create, clone or reconfigure a monitor of this type.
+func requireMonitorTypeAccess(c echo.Context, access *services.AccessService, userID int64, monitorType string) error {
+	if access == nil {
+		_ = c.JSON(http.StatusForbidden, errorBody("access control unavailable"))
+		return errAccessDenied
+	}
+	ok, err := access.CanUseMonitorType(c.Request().Context(), userID, monitorType)
+	if err != nil {
+		_ = mapMonitorError(c, err)
+		return errAccessDenied
+	}
+	if !ok {
+		_ = c.JSON(http.StatusForbidden, errorBody(monitorType+" monitors are limited to admins"))
+		return errAccessDenied
+	}
+	return nil
 }
 
 // groupsByID loads every monitor group once for EffectiveOwner resolution.
