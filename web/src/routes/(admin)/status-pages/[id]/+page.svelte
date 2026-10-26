@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { page } from '$app/stores';
-	import { realtime } from '$lib/stores/ws.svelte.js';
+	import { page } from '$app/state';
+	import { realtime } from '#lib/stores/ws.svelte.js';
 	import {
 		statusPagesApi,
 		type StatusPage,
@@ -10,17 +10,17 @@
 		type StatusPageMonitorLink,
 		type StatusPageSubscriber,
 		type SubscriptionChannel,
-	} from '$lib/api/statuspages';
-	import { monitorsApi } from '$lib/api/monitors';
-	import { notificationsApi, type Notification } from '$lib/api/notifications';
-	import type { Monitor } from '$lib/stores/ws.svelte.js';
-	import StatusPageForm from '$lib/components/StatusPageForm.svelte';
-	import MonitorPicker from '$lib/components/MonitorPicker.svelte';
-	import StatusPill from '$lib/components/StatusPill.svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import Skeleton from '$lib/components/Skeleton.svelte';
-	import MarkdownPreview from '$lib/components/MarkdownPreview.svelte';
-	import { confirmAction } from '$lib/stores/confirm.svelte';
+	} from '#lib/api/statuspages.js';
+	import { monitorsApi } from '#lib/api/monitors.js';
+	import { notificationsApi, type Notification } from '#lib/api/notifications.js';
+	import type { Monitor } from '#lib/stores/ws.svelte.js';
+	import StatusPageForm from '#lib/components/StatusPageForm.svelte';
+	import MonitorPicker from '#lib/components/MonitorPicker.svelte';
+	import StatusPill from '#lib/components/StatusPill.svelte';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import Skeleton from '#lib/components/Skeleton.svelte';
+	import MarkdownPreview from '#lib/components/MarkdownPreview.svelte';
+	import { confirmAction } from '#lib/stores/confirm.svelte.js';
 	import { toast } from 'svelte-sonner';
 	import {
 		ArrowLeft,
@@ -31,9 +31,9 @@
 		AlertTriangle,
 	} from '@lucide/svelte';
 	import { goto } from '$app/navigation';
-	import Select from '$lib/components/Select.svelte';
+	import Select from '#lib/components/Select.svelte';
 
-	let statusPageId = $derived(Number($page.params.id));
+	let statusPageId = $derived(Number(page.params.id));
 	let statusPage = $state<StatusPage | null>(null);
 	// Raw status_page_monitors link rows (monitor_id + display_order only —
 	// see StatusPageMonitorLink). Joined against `allMonitors` below to get

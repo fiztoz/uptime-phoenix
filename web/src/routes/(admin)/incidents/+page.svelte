@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { AlertTriangle, History, Radio, Trash2 } from "@lucide/svelte";
-  import { incidentsApi, type Incident } from "$lib/api/incidents";
-  import { auth } from "$lib/stores/auth.svelte";
-  import { confirmAction } from "$lib/stores/confirm.svelte";
+  import { incidentsApi, type Incident } from "#lib/api/incidents.js";
+  import { auth } from "#lib/stores/auth.svelte.js";
+  import { confirmAction } from "#lib/stores/confirm.svelte.js";
   import { toast } from "svelte-sonner";
-  import Skeleton from "$lib/components/Skeleton.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import * as m from "$lib/paraglide/messages.js";
+  import Skeleton from "#lib/components/Skeleton.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import * as m from "#lib/paraglide/messages.js";
 
   type IncidentView = "active" | "history";
 

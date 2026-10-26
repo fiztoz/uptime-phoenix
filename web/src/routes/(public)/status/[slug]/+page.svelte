@@ -1,25 +1,25 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { page } from '$app/stores';
-	import { replaceState } from '$app/navigation';
-	import BrandMark from '$lib/components/BrandMark.svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import Skeleton from '$lib/components/Skeleton.svelte';
-	import StatusPageFooter from '$lib/components/status-page/StatusPageFooter.svelte';
-	import StatusPageHealth from '$lib/components/status-page/StatusPageHealth.svelte';
-	import StatusPageIncidents from '$lib/components/status-page/StatusPageIncidents.svelte';
-	import StatusPageMonitorList from '$lib/components/status-page/StatusPageMonitorList.svelte';
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
+	import BrandMark from '#lib/components/BrandMark.svelte';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import Skeleton from '#lib/components/Skeleton.svelte';
+	import StatusPageFooter from '#lib/components/status-page/StatusPageFooter.svelte';
+	import StatusPageHealth from '#lib/components/status-page/StatusPageHealth.svelte';
+	import StatusPageIncidents from '#lib/components/status-page/StatusPageIncidents.svelte';
+	import StatusPageMonitorList from '#lib/components/status-page/StatusPageMonitorList.svelte';
 	import {
 		statusPagesApi,
 		type PublicStatusResponse,
-	} from '$lib/api/statuspages';
-	import { computeOverall } from '$lib/status-page-health';
-	import { customStatusPageIcon } from '$lib/status-page-icon';
-	import { publicTheme } from '$lib/stores/publicTheme.svelte.ts';
+	} from '#lib/api/statuspages.js';
+	import { computeOverall } from '#lib/status-page-health.js';
+	import { customStatusPageIcon } from '#lib/status-page-icon.js';
+	import { publicTheme } from '#lib/stores/publicTheme.svelte.js';
 	import { AlertTriangle, CalendarDays, LockKeyhole, Moon, Sun, Mail, Rss } from '@lucide/svelte';
 
-	let slug = $derived($page.params.slug);
-	let historyURL = $derived(`${$page.url.pathname.replace(/\/$/, '')}/history`);
+	let slug = $derived(page.params.slug);
+	let historyURL = $derived(`${page.url.pathname.replace(/\/$/, '')}/history`);
 	let data = $state<PublicStatusResponse | null>(null);
 	let customIcon = $derived(customStatusPageIcon(data?.status_page?.icon));
 	let loading = $state(true);
@@ -71,7 +71,7 @@
 
 	// Consume confirm/unsubscribe query tokens once per navigation.
 	$effect(() => {
-		const url = $page.url;
+		const url = page.url;
 		if (tokenHandled) return;
 		const confirm = url.searchParams.get('confirm');
 		const unsub = url.searchParams.get('unsubscribe');
@@ -80,10 +80,10 @@
 		const kind = confirm ? 'confirm' : 'unsubscribe';
 		const token = confirm ?? unsub ?? '';
 		// Strip token from the visible URL/history before the network call.
-		const clean = new URL(url);
+		const clean = new URL(url.href); // page.url is readonly in Kit 3
 		clean.searchParams.delete('confirm');
 		clean.searchParams.delete('unsubscribe');
-		replaceState(clean.pathname + clean.search + clean.hash, {});
+		void goto(clean.pathname + clean.search + clean.hash, { shallow: true, replace: true, state: {} });
 		void runTokenAction(kind as 'confirm' | 'unsubscribe', token);
 	});
 
@@ -264,7 +264,7 @@
 		content={data?.status_page?.description || 'Live service status'}
 	/>
 	<meta property="og:type" content="website" />
-	<meta property="og:url" content={$page.url.href} />
+	<meta property="og:url" content={page.url.href} />
 	<meta name="twitter:card" content="summary" />
 	{#if data?.status_page?.favicon}
 		<link rel="icon" href={data.status_page.favicon} />

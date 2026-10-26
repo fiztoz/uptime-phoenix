@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
   import { getLayerCakeContext } from "layercake";
-  import { linearLine } from "$lib/utils/smooth.js";
+  import { linearLine } from "#lib/utils/smooth.js";
 
   interface Props {
     /** Accessor key (or function) for the lower bound. Default: min */

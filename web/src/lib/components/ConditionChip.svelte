@@ -10,8 +10,8 @@
   import {
     displayedConditionState,
     type MonitorCondition,
-  } from "$lib/api/conditions";
-  import * as m from "$lib/paraglide/messages.js";
+  } from "#lib/api/conditions.js";
+  import * as m from "#lib/paraglide/messages.js";
 
   interface Props {
     condition: MonitorCondition;

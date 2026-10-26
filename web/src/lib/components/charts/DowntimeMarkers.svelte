@@ -5,7 +5,7 @@
 <script lang="ts">
   import { getLayerCakeContext } from "layercake";
   import type { ScaleTime } from "d3-scale";
-  import type { DowntimeInterval } from "$lib/utils/chart.js";
+  import type { DowntimeInterval } from "#lib/utils/chart.js";
 
   interface Props {
     intervals: DowntimeInterval[];

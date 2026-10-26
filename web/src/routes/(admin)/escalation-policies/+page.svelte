@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { escalationApi, type EscalationPolicy } from '$lib/api/escalation';
-	import EscalationPolicyForm from '$lib/components/EscalationPolicyForm.svelte';
-	import EscalationPolicyAssignments from '$lib/components/EscalationPolicyAssignments.svelte';
-	import Skeleton from '$lib/components/Skeleton.svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import { auth } from '$lib/stores/auth.svelte.ts';
+	import { escalationApi, type EscalationPolicy } from '#lib/api/escalation.js';
+	import EscalationPolicyForm from '#lib/components/EscalationPolicyForm.svelte';
+	import EscalationPolicyAssignments from '#lib/components/EscalationPolicyAssignments.svelte';
+	import Skeleton from '#lib/components/Skeleton.svelte';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import { auth } from '#lib/stores/auth.svelte.js';
 	import { CheckCircle, Edit2, ListOrdered, Plus, Trash2, XCircle } from '@lucide/svelte';
-	import { confirmAction } from '$lib/stores/confirm.svelte';
+	import { confirmAction } from '#lib/stores/confirm.svelte.js';
 	import { toast } from 'svelte-sonner';
-	import * as m from '$lib/paraglide/messages.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	let policies = $state<EscalationPolicy[]>([]);
 	let loading = $state(true);

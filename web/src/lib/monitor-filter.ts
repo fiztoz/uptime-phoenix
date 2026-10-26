@@ -9,7 +9,7 @@
  * has a faithful port in $lib/api/monitorGroups.ts — use `resolveGroupStatuses`
  * for the status pill and this module for the counts.
  */
-import type { MonitorGroupView } from "$lib/api/monitorGroups";
+import type { MonitorGroupView } from "#lib/api/monitorGroups.js";
 
 /** Monitor status union, mirroring Monitor["status"] in $lib/stores/ws.svelte.ts. */
 export type MonitorStatus =

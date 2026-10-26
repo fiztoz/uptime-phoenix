@@ -7,9 +7,9 @@
 	 * User scripts: /docs/rabbitmq-monitor/*
 	 */
 	import { X, Download, ExternalLink, AlertTriangle } from '@lucide/svelte';
-	import { modalFocus } from '$lib/actions/modalFocus';
-	import MarkdownPreview from '$lib/components/MarkdownPreview.svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import { modalFocus } from '#lib/actions/modalFocus.js';
+	import MarkdownPreview from '#lib/components/MarkdownPreview.svelte';
+	import * as m from '#lib/paraglide/messages.js';
 
 	interface Props {
 		open?: boolean;

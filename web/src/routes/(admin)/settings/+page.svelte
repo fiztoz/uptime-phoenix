@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { auth } from "$lib/stores/auth.svelte.ts";
-  import { themeStore } from "$lib/stores/theme.svelte.ts";
+  import { auth } from "#lib/stores/auth.svelte.js";
+  import { themeStore } from "#lib/stores/theme.svelte.js";
   import { toast } from "svelte-sonner";
   import {
     Shield,
@@ -21,33 +21,33 @@
     ChevronDown,
     SlidersHorizontal,
   } from "@lucide/svelte";
-  import UserPermissionEditor from "$lib/components/settings/UserPermissionEditor.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import Skeleton from "$lib/components/Skeleton.svelte";
-  import { confirmAction } from "$lib/stores/confirm.svelte";
-  import { tagsApi, type Tag as TagType } from "$lib/api/tags";
-  import { apiKeysApi, type ApiKey, type ApiKeyScope } from "$lib/api/apikeys";
+  import UserPermissionEditor from "#lib/components/settings/UserPermissionEditor.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import Skeleton from "#lib/components/Skeleton.svelte";
+  import { confirmAction } from "#lib/stores/confirm.svelte.js";
+  import { tagsApi, type Tag as TagType } from "#lib/api/tags.js";
+  import { apiKeysApi, type ApiKey, type ApiKeyScope } from "#lib/api/apikeys.js";
   import {
     webauthnApi,
     isWebAuthnSupported,
     type Passkey,
-  } from "$lib/api/webauthn";
+  } from "#lib/api/webauthn.js";
   import {
     usersApi,
     type GroupGrant,
     type User as UserAccount,
     type UserPermissions,
-  } from "$lib/api/users";
-  import { monitorsApi, type MonitorWithGroup } from "$lib/api/monitors";
+  } from "#lib/api/users.js";
+  import { monitorsApi, type MonitorWithGroup } from "#lib/api/monitors.js";
   import {
     monitorGroupsApi,
     type MonitorGroupView,
-  } from "$lib/api/monitorGroups";
-  import type { Monitor } from "$lib/stores/ws.svelte.js";
-  import { proxiesApi, type Proxy, type ProxyProtocol } from "$lib/api/proxies";
-  import Select from "$lib/components/Select.svelte";
-  import ColorPicker from "$lib/components/ColorPicker.svelte";
-  import DateTimePicker from "$lib/components/DateTimePicker.svelte";
+  } from "#lib/api/monitorGroups.js";
+  import type { Monitor } from "#lib/stores/ws.svelte.js";
+  import { proxiesApi, type Proxy, type ProxyProtocol } from "#lib/api/proxies.js";
+  import Select from "#lib/components/Select.svelte";
+  import ColorPicker from "#lib/components/ColorPicker.svelte";
+  import DateTimePicker from "#lib/components/DateTimePicker.svelte";
 
   let show2FASetup = $state(false);
   let qrUrl = $state("");

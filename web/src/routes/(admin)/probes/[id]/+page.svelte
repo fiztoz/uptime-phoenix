@@ -1,23 +1,23 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { realtime } from "$lib/stores/ws.svelte.js";
-  import { page } from "$app/stores";
+  import { realtime } from "#lib/stores/ws.svelte.js";
+  import { page } from "$app/state";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { ArrowLeft } from "@lucide/svelte";
-  import { auth } from "$lib/stores/auth.svelte.js";
+  import { auth } from "#lib/stores/auth.svelte.js";
   import {
     probesApi,
     errorCode,
     errorMessage,
     type ProbeDetailView,
     type ProbeOperationView,
-  } from "$lib/api/probes";
-  import { probeWriteErrorMessage } from "$lib/probe-errors";
-  import { probeEventMatches } from "$lib/probe-detail-events";
-  import ProbeStatus from "$lib/components/ProbeStatus.svelte";
-  import ProbeOperation from "$lib/components/ProbeOperation.svelte";
-  import * as m from "$lib/paraglide/messages.js";
+  } from "#lib/api/probes.js";
+  import { probeWriteErrorMessage } from "#lib/probe-errors.js";
+  import { probeEventMatches } from "#lib/probe-detail-events.js";
+  import ProbeStatus from "#lib/components/ProbeStatus.svelte";
+  import ProbeOperation from "#lib/components/ProbeOperation.svelte";
+  import * as m from "#lib/paraglide/messages.js";
   let probe = $state<ProbeDetailView | null>(null);
   let loading = $state(true);
   let busy = $state(false);
@@ -55,7 +55,7 @@
       return;
     }
     try {
-      const next = await probesApi.detail($page.params.id ?? "");
+      const next = await probesApi.detail(page.params.id ?? "");
       probe = next;
       if (restoreForm) {
         formRevision = next.revision;
@@ -152,7 +152,7 @@
       if (!probe) return;
       if (destructive === "delete") {
         await probesApi.remove(probe.id);
-        await goto(resolve("/probes"));
+        await goto(resolve("probes"));
       } else {
         const result = await probesApi.revoke(probe.id, reason);
         receipt = result;
@@ -184,12 +184,12 @@
     // sends `id`, probe.config.status sends `probe_id`. A shared probe_id-only
     // check ignored every status event (GitHub #61).
     const offStatus = realtime.on("probe.status", (payload) => {
-      if (probeEventMatches("probe.status", payload, $page.params.id ?? ""))
+      if (probeEventMatches("probe.status", payload, page.params.id ?? ""))
         schedule();
     });
     const offConfig = realtime.on("probe.config.status", (payload) => {
       if (
-        probeEventMatches("probe.config.status", payload, $page.params.id ?? "")
+        probeEventMatches("probe.config.status", payload, page.params.id ?? "")
       )
         schedule();
     });
@@ -207,7 +207,7 @@
 >
 <div class="space-y-6">
   <a
-    href={resolve("/probes")}
+    href={resolve("probes")}
     class="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
     ><ArrowLeft class="h-4 w-4" aria-hidden="true" />{m.probes_back()}</a
   >

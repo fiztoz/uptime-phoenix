@@ -1,5 +1,5 @@
-import * as m from "$lib/paraglide/messages.js";
-import { errorCode, errorMessage } from "$lib/api/probes";
+import * as m from "#lib/paraglide/messages.js";
+import { errorCode, errorMessage } from "#lib/api/probes.js";
 
 /**
  * Maps a failed probe or regional-assignment write to a localized,

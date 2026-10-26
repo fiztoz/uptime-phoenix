@@ -3,7 +3,7 @@
  * Used by the template editor and the notification detail page so both
  * surfaces show the same sample alert.
  */
-import { escapeEmailHTML } from "$lib/utils/email-preview";
+import { escapeEmailHTML } from "#lib/utils/email-preview.js";
 
 export type PreviewScope = "monitor" | "group";
 export type PreviewStatus = "UP" | "DOWN" | "PENDING" | "MAINTENANCE";

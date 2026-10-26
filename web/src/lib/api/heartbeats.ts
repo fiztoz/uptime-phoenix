@@ -1,10 +1,10 @@
 import { api } from "./client";
-import type { Heartbeat } from "$lib/monitor-types";
+import type { Heartbeat } from "#lib/monitor-types.js";
 
 // Canonical Status/Heartbeat live in monitor-types.ts (single source of truth,
 // matches the REST API's heartbeatView JSON). Re-exported here so existing
-// `import type { Heartbeat } from "$lib/api/heartbeats.js"` call sites keep working.
-export type { Status } from "$lib/monitor-types";
+// `import type { Heartbeat } from "#lib/api/heartbeats.js"` call sites keep working.
+export type { Status } from "#lib/monitor-types.js";
 export type { Heartbeat };
 
 export interface HeartbeatListOptions {

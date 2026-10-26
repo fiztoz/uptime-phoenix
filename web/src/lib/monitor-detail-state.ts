@@ -2,8 +2,8 @@
  * Pure helpers for monitor detail display state — API fallback, status derivation,
  * and post-clear live heartbeat acceptance. Unit-tested in isolation.
  */
-import type { Monitor } from "$lib/stores/ws.svelte.ts";
-import type { Status } from "$lib/monitor-types";
+import type { Monitor } from "#lib/stores/ws.svelte.js";
+import type { Status } from "#lib/monitor-types.js";
 
 export type MonitorStatus = Monitor["status"];
 

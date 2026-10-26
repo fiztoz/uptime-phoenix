@@ -1,18 +1,18 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import { page } from "$app/stores";
-  import BrandMark from "$lib/components/BrandMark.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import Skeleton from "$lib/components/Skeleton.svelte";
-  import StatusPageFooter from "$lib/components/status-page/StatusPageFooter.svelte";
-  import StatusPageUptimeHistory from "$lib/components/status-page/StatusPageUptimeHistory.svelte";
+  import { page } from "$app/state";
+  import BrandMark from "#lib/components/BrandMark.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import Skeleton from "#lib/components/Skeleton.svelte";
+  import StatusPageFooter from "#lib/components/status-page/StatusPageFooter.svelte";
+  import StatusPageUptimeHistory from "#lib/components/status-page/StatusPageUptimeHistory.svelte";
   import {
     statusPagesApi,
     type PublicStatusResponse,
-  } from "$lib/api/statuspages";
-  import { computeOverall } from "$lib/status-page-health";
-  import { customStatusPageIcon } from "$lib/status-page-icon";
-  import { publicTheme } from "$lib/stores/publicTheme.svelte.ts";
+  } from "#lib/api/statuspages.js";
+  import { computeOverall } from "#lib/status-page-health.js";
+  import { customStatusPageIcon } from "#lib/status-page-icon.js";
+  import { publicTheme } from "#lib/stores/publicTheme.svelte.js";
   import {
     AlertTriangle,
     ArrowLeft,
@@ -21,9 +21,9 @@
     Sun,
   } from "@lucide/svelte";
 
-  let slug = $derived($page.params.slug);
+  let slug = $derived(page.params.slug);
   let statusURL = $derived(
-    $page.url.pathname.replace(/\/history\/?$/, "") || "/",
+    page.url.pathname.replace(/\/history\/?$/, "") || "/",
   );
   let data = $state<PublicStatusResponse | null>(null);
   let customIcon = $derived(customStatusPageIcon(data?.status_page?.icon));

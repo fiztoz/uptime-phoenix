@@ -5,14 +5,14 @@
     buildMonitorUpdateBody,
     type MonitorDraftValues,
     type MonitorWithGroup,
-  } from "$lib/api/monitors";
+  } from "#lib/api/monitors.js";
   import {
     monitorGroupsApi,
     buildGroupOptions,
     type MonitorGroupView,
-  } from "$lib/api/monitorGroups";
-  import { proxiesApi, type Proxy } from "$lib/api/proxies";
-  import { escalationApi, type EscalationPolicy } from "$lib/api/escalation";
+  } from "#lib/api/monitorGroups.js";
+  import { proxiesApi, type Proxy } from "#lib/api/proxies.js";
+  import { escalationApi, type EscalationPolicy } from "#lib/api/escalation.js";
   import {
     buildMonitorTypeSelectGroups,
     migrateLegacyGrpcConfig,
@@ -22,21 +22,21 @@
     stringifyHeaders,
     type ConfigField,
     type MonitorTypeGroupId,
-  } from "$lib/monitor-types";
-  import { realtime, type Monitor } from "$lib/stores/ws.svelte.js";
-  import { auth } from "$lib/stores/auth.svelte.js";
+  } from "#lib/monitor-types.js";
+  import { realtime, type Monitor } from "#lib/stores/ws.svelte.js";
+  import { auth } from "#lib/stores/auth.svelte.js";
   import { toast } from "svelte-sonner";
   import { AlertTriangle, BookOpen, Braces, Download, X } from "@lucide/svelte";
-  import Select from "$lib/components/Select.svelte";
-  import ProbeAssignments from "$lib/components/ProbeAssignments.svelte";
-  import DockerSetupGuide from "$lib/components/DockerSetupGuide.svelte";
-  import MqttSetupGuide from "$lib/components/MqttSetupGuide.svelte";
-  import DatabaseSetupGuide from "$lib/components/DatabaseSetupGuide.svelte";
-  import RabbitmqSetupGuide from "$lib/components/RabbitmqSetupGuide.svelte";
-  import S3SetupGuide from "$lib/components/S3SetupGuide.svelte";
-  import { modalFocus } from "$lib/actions/modalFocus";
+  import Select from "#lib/components/Select.svelte";
+  import ProbeAssignments from "#lib/components/ProbeAssignments.svelte";
+  import DockerSetupGuide from "#lib/components/DockerSetupGuide.svelte";
+  import MqttSetupGuide from "#lib/components/MqttSetupGuide.svelte";
+  import DatabaseSetupGuide from "#lib/components/DatabaseSetupGuide.svelte";
+  import RabbitmqSetupGuide from "#lib/components/RabbitmqSetupGuide.svelte";
+  import S3SetupGuide from "#lib/components/S3SetupGuide.svelte";
+  import { modalFocus } from "#lib/actions/modalFocus.js";
   import { untrack } from "svelte";
-  import * as m from "$lib/paraglide/messages.js";
+  import * as m from "#lib/paraglide/messages.js";
 
   /** Static guide paths (web/static/docs/*.md). */
   const DOCKER_GUIDE_PATH = "/docs/docker-remote-setup.md";

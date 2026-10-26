@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import { extensionsApi, type Extension } from '$lib/api/extensions';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import { extensionsApi, type Extension } from '#lib/api/extensions.js';
 	import { Puzzle } from '@lucide/svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	let extensions = $state<Extension[]>([]);
 	let loading = $state(true);
 
-	let extensionId = $derived($page.params.id ?? '');
+	let extensionId = $derived(page.params.id ?? '');
 	let extension = $derived(extensions.find((ext) => ext.id === extensionId) ?? null);
 	// Launch through the server-side redirect endpoint: it enforces the
 	// view_extensions capability at load time and hands over any extension
