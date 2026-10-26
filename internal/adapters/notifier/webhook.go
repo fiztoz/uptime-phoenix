@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"text/template"
 	"time"
 
@@ -24,7 +25,41 @@ func (WebhookSender) Validate(config map[string]any) error {
 	if v, ok := config["url"].(string); !ok || v == "" {
 		return fmt.Errorf("url is required")
 	}
+	if _, err := webhookHeaders(config["headers"]); err != nil {
+		return err
+	}
 	return nil
+}
+
+// webhookHeaders reads the extra request headers. The API accepts a JSON
+// object; the UI's "Extra Headers (JSON)" textarea saves the same object as a
+// JSON string, which used to be ignored silently, so both forms are read.
+func webhookHeaders(raw any) (map[string]string, error) {
+	headers := map[string]string{}
+	var obj map[string]any
+	switch h := raw.(type) {
+	case nil:
+		return headers, nil
+	case map[string]any:
+		obj = h
+	case string:
+		if strings.TrimSpace(h) == "" {
+			return headers, nil
+		}
+		if err := json.Unmarshal([]byte(h), &obj); err != nil {
+			return nil, fmt.Errorf("headers must be a JSON object of header names to string values: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("headers must be a JSON object of header names to string values")
+	}
+	for k, v := range obj {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("header %q must be a string", k)
+		}
+		headers[k] = s
+	}
+	return headers, nil
 }
 
 func (WebhookSender) Send(ctx context.Context, config map[string]any, alert domain.AlertContext) error {
@@ -33,13 +68,9 @@ func (WebhookSender) Send(ctx context.Context, config map[string]any, alert doma
 	if m, ok := config["method"].(string); ok && m != "" {
 		method = m
 	}
-	headers := map[string]string{}
-	if h, ok := config["headers"].(map[string]any); ok {
-		for k, v := range h {
-			if s, ok := v.(string); ok {
-				headers[k] = s
-			}
-		}
+	headers, err := webhookHeaders(config["headers"])
+	if err != nil {
+		return fmt.Errorf("webhook: %w", err)
 	}
 
 	var payload []byte

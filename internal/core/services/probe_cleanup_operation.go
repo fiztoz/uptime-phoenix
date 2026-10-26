@@ -109,7 +109,7 @@ func (s *ProbeCleanupOperationService) Submit(ctx context.Context, request Probe
 	if err != nil {
 		return nil, err
 	}
-	if install == nil || install.Identity.Mode != domain.ProbeInstallSystemd || !domain.ProbeInstallCleanupEligible(install.State) {
+	if install == nil || (install.Identity.Mode != domain.ProbeInstallSystemd && install.Identity.Mode != domain.ProbeInstallDocker) || !domain.ProbeInstallCleanupEligible(install.State) {
 		return nil, domain.ErrProbeCleanupIneligible
 	}
 	session, clientFingerprint, err := s.sessions.NewCleanupSession(admitCtx, request.PrivateKey, install.Identity.HostKeyFingerprint)

@@ -36,9 +36,9 @@ type ProbeCleanupIdentity struct {
 	RequestedBy          int64
 }
 
-// Valid requires a root systemd install identity and the requesting actor.
+// Valid requires a root systemd or Docker install identity and the requesting actor.
 func (c ProbeCleanupIdentity) Valid() bool {
-	return ValidProbeOperationID(c.CleanupID) && c.Install.Valid() && c.Install.Mode == ProbeInstallSystemd &&
+	return ValidProbeOperationID(c.CleanupID) && c.Install.Valid() && (c.Install.Mode == ProbeInstallSystemd || c.Install.Mode == ProbeInstallDocker) &&
 		c.Install.Host.User == "root" && ValidSSHKeyFingerprint(c.ClientKeyFingerprint) && c.RequestedBy > 0
 }
 

@@ -19,10 +19,14 @@ spec:
             component: partition
         spec:
           restartPolicy: OnFailure
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
           containers:
             - name: partition
               image: {{ .Values.cronJobs.partition.image | quote }}
               imagePullPolicy: IfNotPresent
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
               env:
                 - name: DB_HOST
                   value: {{ include "phoenix.mariadbHost" . | quote }}

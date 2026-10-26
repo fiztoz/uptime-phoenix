@@ -460,6 +460,7 @@ type notifHTTPHarness struct {
 	tokenA  string // admin
 	tokenB  string // can_manage_notifications
 	tokenC  string // no capability
+	tokenD  string // can_view_all_monitors only
 	userBID int64
 
 	svc        *services.NotificationService
@@ -516,6 +517,16 @@ func newNotifHTTPHarness(t *testing.T) *notifHTTPHarness {
 	tokenC, err := authSvc.Login(ctx, "notif-user-c", "password123")
 	if err != nil {
 		t.Fatalf("login user C: %v", err)
+	}
+
+	// User D: install-wide read (can_view_all_monitors), no write.
+	if _, err := authSvc.CreateUser(ctx, "notif-user-d", "password123", true, false, "UTC",
+		services.UserCapabilities{CanViewAllMonitors: true}); err != nil {
+		t.Fatalf("create user D: %v", err)
+	}
+	tokenD, err := authSvc.Login(ctx, "notif-user-d", "password123")
+	if err != nil {
+		t.Fatalf("login user D: %v", err)
 	}
 
 	monitorRepo := newFakeMonitorRepo()
@@ -616,6 +627,7 @@ func newNotifHTTPHarness(t *testing.T) *notifHTTPHarness {
 		tokenA:     tokenA,
 		tokenB:     tokenB,
 		tokenC:     tokenC,
+		tokenD:     tokenD,
 		userBID:    userB.ID,
 		svc:        notifSvc,
 		repo:       repo,
@@ -728,9 +740,11 @@ func TestNotificationHandlers_Create_CapabilityHolderSucceeds(t *testing.T) {
 	if uid, ok := view["user_id"].(float64); !ok || int64(uid) != h.userBID {
 		t.Errorf("user_id = %v; want %d (capability holder's id)", view["user_id"], h.userBID)
 	}
+	// The delivery URL is write-only (#89): the response masks it, the store
+	// keeps it (checked below).
 	cfg, ok := view["config"].(map[string]any)
-	if !ok || cfg["url"] != "https://hooks.example/pager" {
-		t.Errorf("config = %v; want url=https://hooks.example/pager", view["config"])
+	if !ok || cfg["url"] != domain.SecretConfigPlaceholder {
+		t.Errorf("config = %v; want url masked as %s", view["config"], domain.SecretConfigPlaceholder)
 	}
 
 	// Effect: the row is in the store, not just echoed.
@@ -744,6 +758,9 @@ func TestNotificationHandlers_Create_CapabilityHolderSucceeds(t *testing.T) {
 	}
 	if stored.UserID != h.userBID {
 		t.Errorf("stored.UserID = %d; want %d", stored.UserID, h.userBID)
+	}
+	if stored.Config["url"] != "https://hooks.example/pager" {
+		t.Errorf("stored url = %v; want https://hooks.example/pager", stored.Config["url"])
 	}
 }
 

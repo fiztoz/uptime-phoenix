@@ -38,6 +38,7 @@ zero-dependency pod to a split API + worker deployment with Redis fan-out.
 Requires Docker with the Compose plugin:
 
 ```bash
+echo "JWT_SECRET=$(openssl rand -base64 48)" >> .env   # once; required
 docker compose up
 ```
 
@@ -49,11 +50,14 @@ The first run builds the image, starts MariaDB, and boots Uptime Phoenix. Then o
 | Username | `admin` |
 | Password | `ChangeMe123!` |
 
-Override the defaults (`MARIADB_PASSWORD`, `JWT_SECRET`, `BOOTSTRAP_USERNAME`,
-`BOOTSTRAP_PASSWORD`, ...) via a `.env` file next to `docker-compose.yml`.
+`JWT_SECRET` has no default: set it before the first start, for example
+`echo "JWT_SECRET=$(openssl rand -base64 48)" >> .env`. Compose and the server refuse
+to start without it. Override the other defaults (`MARIADB_PASSWORD`,
+`BOOTSTRAP_USERNAME`, `BOOTSTRAP_PASSWORD`, ...) in the same `.env` file next to
+`docker-compose.yml`.
 
 > **Do not expose these defaults to the internet.** Compose ships with well-known
-> bootstrap credentials and a weak JWT secret for local convenience. For any shared or
+> bootstrap credentials for local convenience. For any shared or
 > public deployment, set strong unique values for `JWT_SECRET`, `BOOTSTRAP_PASSWORD`,
 > and database passwords, set `PRODUCTION=true`, and do not publish MariaDB (`3306`)
 > beyond localhost.

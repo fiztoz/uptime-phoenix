@@ -99,7 +99,7 @@ PORT=3000 \
 | `DB_DSN` | `file:phoenix.db?...` | Database connection string |
 | `BOOTSTRAP_USERNAME` | _(empty)_ | First-run admin username |
 | `BOOTSTRAP_PASSWORD` | _(empty)_ | First-run admin password |
-| `JWT_SECRET` | `change-me-in-production` | JWT signing key |
+| `JWT_SECRET` | — | JWT signing key, **required, no default** (≥32 bytes; the server refuses to start without it). Generate with `openssl rand -base64 48`. `make dev-split` generates one into `.secrets/dev_jwt_secret`. |
 | `MODE` | `all` | `all`, `api`, or `worker` |
 | `REDIS_URL` | _(empty)_ | Opt-in Redis EventBus |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |

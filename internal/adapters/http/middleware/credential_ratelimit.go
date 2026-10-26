@@ -19,6 +19,16 @@ type CredentialRateLimitConfig struct {
 	MaxAttempts int
 	Window      time.Duration
 	RedisURL    string
+	// Scope namespaces the counters so two limiters (status-page access codes
+	// and sign-in, say) never share a budget. Empty keeps the original keys.
+	Scope string
+	// Message is the 429 error text. Empty keeps the access-code wording.
+	Message string
+	// RefundSuccess gives an attempt back when the handler answers below 400,
+	// so only failed attempts spend the budget. Sign-in uses it: many people
+	// behind one NAT, or one test suite, can log in often, while guessing
+	// still runs out of attempts.
+	RefundSuccess bool
 }
 
 // DefaultCredentialRateLimitConfig allows five attempts per IP and protected
@@ -41,6 +51,13 @@ func CredentialRateLimit(cfg CredentialRateLimitConfig) echo.MiddlewareFunc {
 	if cfg.Window <= 0 {
 		cfg.Window = defaults.Window
 	}
+	if cfg.Message == "" {
+		cfg.Message = "too many access-code attempts"
+	}
+	scope := ""
+	if cfg.Scope != "" {
+		scope = cfg.Scope + ":"
+	}
 
 	local := &credentialMemoryLimiter{
 		entries:     make(map[string]credentialAttemptWindow),
@@ -56,23 +73,31 @@ func CredentialRateLimit(cfg CredentialRateLimitConfig) echo.MiddlewareFunc {
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			key := c.RealIP() + ":" + c.Param("slug")
+			key := scope + c.RealIP() + ":" + c.Param("slug")
 			allowed := false
+			refund := func() { local.refund(key, time.Now().UTC()) }
 			if shared != nil {
+				redisKey := shared.windowKey(key, time.Now().UTC())
 				var err error
-				allowed, err = shared.allow(c.Request().Context(), key)
+				allowed, err = shared.allow(c.Request().Context(), redisKey)
 				if err != nil {
 					allowed = local.allow(key, time.Now().UTC())
+				} else {
+					refund = func() { shared.refund(context.WithoutCancel(c.Request().Context()), redisKey) }
 				}
 			} else {
 				allowed = local.allow(key, time.Now().UTC())
 			}
 			if !allowed {
 				return c.JSON(http.StatusTooManyRequests, map[string]string{
-					"error": "too many access-code attempts",
+					"error": cfg.Message,
 				})
 			}
-			return next(c)
+			err := next(c)
+			if cfg.RefundSuccess && err == nil && c.Response().Committed && c.Response().Status < http.StatusBadRequest {
+				refund()
+			}
+			return err
 		}
 	}
 }
@@ -116,6 +141,18 @@ func (m *credentialMemoryLimiter) allow(key string, now time.Time) bool {
 	return true
 }
 
+// refund returns one attempt to key's current window.
+func (m *credentialMemoryLimiter) refund(key string, now time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry, ok := m.entries[key]
+	if !ok || !now.Before(entry.resetAt) || entry.count == 0 {
+		return
+	}
+	entry.count--
+	m.entries[key] = entry
+}
+
 type credentialRedisLimiter struct {
 	client      *redis.Client
 	maxAttempts int64
@@ -134,14 +171,17 @@ func newCredentialRedisLimiter(cfg CredentialRateLimitConfig) (*credentialRedisL
 	}, nil
 }
 
-func (r *credentialRedisLimiter) allow(ctx context.Context, key string) (bool, error) {
+// windowKey is the Redis counter for key in the fixed window containing now.
+func (r *credentialRedisLimiter) windowKey(key string, now time.Time) string {
 	windowSeconds := int64(r.window / time.Second)
 	if windowSeconds < 1 {
 		windowSeconds = 1
 	}
-	windowID := time.Now().UTC().Unix() / windowSeconds
-	redisKey := "phoenix:credential-limit:" + key + ":" + strconv.FormatInt(windowID, 10)
+	windowID := now.Unix() / windowSeconds
+	return "phoenix:credential-limit:" + key + ":" + strconv.FormatInt(windowID, 10)
+}
 
+func (r *credentialRedisLimiter) allow(ctx context.Context, redisKey string) (bool, error) {
 	pipe := r.client.Pipeline()
 	count := pipe.Incr(ctx, redisKey)
 	pipe.Expire(ctx, redisKey, r.window+time.Second)
@@ -153,4 +193,22 @@ func (r *credentialRedisLimiter) allow(ctx context.Context, key string) (bool, e
 		return false, err
 	}
 	return value <= r.maxAttempts, nil
+}
+
+// credentialRefundScript decrements a window counter only while it still
+// exists and is positive. A plain DECR on a key whose window already expired
+// would create it at -1 with no TTL: a permanent key that also hands the
+// next window one extra attempt.
+var credentialRefundScript = redis.NewScript(`
+local v = redis.call('GET', KEYS[1])
+if v and tonumber(v) > 0 then
+	return redis.call('DECR', KEYS[1])
+end
+return 0
+`)
+
+// refund gives back the attempt allow counted. A failed refund only leaves
+// the window one attempt tighter, so the error is dropped.
+func (r *credentialRedisLimiter) refund(ctx context.Context, redisKey string) {
+	_ = credentialRefundScript.Run(ctx, r.client, []string{redisKey}).Err()
 }

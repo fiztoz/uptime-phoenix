@@ -3,7 +3,6 @@ package ws
 import (
 	"context"
 	"encoding/json"
-	"net/url"
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -348,8 +347,8 @@ func toMonitorView(m *domain.Monitor, status string) MonitorView {
 		EffectiveOwner:    m.Owner, // hub may overwrite when groups are available
 		Type:              m.Type,
 		Status:            wireStatus,
-		Target:            m.Target(),
-		Config:            cfg,
+		Target:            m.Target(), // credential-free display form (domain.MonitorDisplayTarget)
+		Config:            domain.RedactSecretConfig(cfg),
 		Active:            m.Active,
 		Interval:          m.Interval,
 		Timeout:           m.Timeout,
@@ -404,10 +403,14 @@ func monitorMapToView(m map[string]any, status string) MonitorView {
 	if v.Timeout == 0 {
 		v.Timeout = extractFloat64(m, "Timeout")
 	}
-	if cfg, ok := m["config"].(map[string]any); ok {
-		v.Config = cfg
-	} else if cfg, ok := m["Config"].(map[string]any); ok {
-		v.Config = cfg
+	// Broadcasts reach viewers: credential config values are write-only, and
+	// the target is the credential-free display form of the raw config.
+	rawCfg, ok := m["config"].(map[string]any)
+	if !ok {
+		rawCfg, _ = m["Config"].(map[string]any)
+	}
+	if rawCfg != nil {
+		v.Config = domain.RedactSecretConfig(rawCfg)
 	} else {
 		v.Config = map[string]any{}
 	}
@@ -420,7 +423,7 @@ func monitorMapToView(m map[string]any, status string) MonitorView {
 	if v.Weight == 0 {
 		v.Weight = int(extractInt64(m, "Weight"))
 	}
-	v.Target = monitorTarget(v.Type, v.Config)
+	v.Target = monitorTarget(v.Type, rawCfg)
 	if !v.Active {
 		v.Status = "paused"
 	}
@@ -546,40 +549,11 @@ func statusToWire(s domain.Status) string {
 	}
 }
 
+// monitorTarget is the credential-free display target for a monitor that
+// arrived as a generic map. It must be given the RAW config: the display
+// form parses connection strings, which the redacted config has replaced.
 func monitorTarget(monitorType string, cfg map[string]any) string {
-	if monitorType == "s3" {
-		return domain.S3DisplayTarget(cfg)
-	}
-	keys := map[string][]string{
-		"http":      {"url"},
-		"websocket": {"url"},
-		"tcp":       {"hostname", "host"},
-		"ping":      {"hostname", "host"},
-		"dns":       {"hostname", "host"},
-		"grpc":      {"hostname"},
-		"mqtt":      {"broker", "url", "hostname", "host"},
-		"rabbitmq":  {"url", "connection_string", "dsn", "hostname", "host"},
-		"snmp":      {"hostname", "host"},
-		"database":  {"connectionString", "hostname"},
-	}
-	for _, key := range keys[monitorType] {
-		if v, ok := cfg[key].(string); ok && v != "" {
-			return safeMonitorTarget(monitorType, v)
-		}
-	}
-	return ""
-}
-
-func safeMonitorTarget(monitorType, target string) string {
-	if monitorType != "rabbitmq" {
-		return target
-	}
-	u, err := url.Parse(target)
-	if err != nil || u.User == nil {
-		return target
-	}
-	u.User = nil
-	return u.String()
+	return domain.MonitorDisplayTarget(monitorType, cfg)
 }
 
 func formatTime(t time.Time) string {

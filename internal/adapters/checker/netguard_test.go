@@ -159,6 +159,11 @@ func TestCheckers_AdminOwnerReachesPrivateTarget(t *testing.T) {
 	if res.Status != domain.StatusUp {
 		t.Fatalf("admin-owned tcp: status %s (%s); want UP", res.Status, res.Message)
 	}
+	// The handshake completes in the kernel before the listener goroutine
+	// runs Accept, so wait briefly for the accept to be counted.
+	for deadline := time.Now().Add(2 * time.Second); accepts.Load() == 0 && time.Now().Before(deadline); {
+		time.Sleep(5 * time.Millisecond)
+	}
 	if n := accepts.Load(); n == 0 {
 		t.Fatal("admin-owned tcp check never connected")
 	}

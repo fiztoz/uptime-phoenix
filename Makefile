@@ -21,7 +21,14 @@ export PATH := $(GO_BIN):$(PATH)
 # Defaults — override via .env or: make dev-split MARIADB_PASSWORD=secret
 MARIADB_PASSWORD ?= change_me_app
 MARIADB_ROOT_PASSWORD ?= change_me_root
-JWT_SECRET ?= change_me_jwt
+# JWT_SECRET has no published default: dev targets read a per-checkout random
+# key from .secrets/dev_jwt_secret (gitignored), generated on first use.
+JWT_SECRET ?= $(shell mkdir -p .secrets && test -s .secrets/dev_jwt_secret || openssl rand -base64 48 > .secrets/dev_jwt_secret; cat .secrets/dev_jwt_secret)
+# DEPS_COMPOSE runs docker compose on the deps file with that key in the
+# environment: its worker service requires JWT_SECRET, and compose
+# interpolates the whole file even for `up mariadb redis`, `ps` or `down`.
+# Recipe lines using it (or JWT_SECRET) start with @ so the key is not echoed.
+DEPS_COMPOSE = JWT_SECRET='$(JWT_SECRET)' docker compose -f $(COMPOSE_DEPS)
 BOOTSTRAP_USERNAME ?= admin
 BOOTSTRAP_PASSWORD ?= ChangeMe123!
 LOG_LEVEL ?= debug
@@ -45,12 +52,13 @@ dev: ensure-air ## Run Go backend + frontend dev server (hot-reload, backend :30
 	@test -d web/node_modules || (cd web && bun install --frozen-lockfile)
 	@trap 'kill 0' INT TERM; \
 		(cd web && bun run dev) & \
-		env WS_ALLOWED_ORIGINS='localhost:5173' '$(AIR)' -c .air.toml; \
+		env WS_ALLOWED_ORIGINS='localhost:5173' JWT_SECRET='$(JWT_SECRET)' '$(AIR)' -c .air.toml; \
 		wait
 
 .PHONY: dev-backend
 dev-backend: ensure-air ## Run only the Go backend with hot-reload
-	env WS_ALLOWED_ORIGINS='localhost:5173' '$(AIR)' -c .air.toml
+	@echo "Starting Phoenix backend with hot-reload (:3000, dev JWT_SECRET from .secrets/)..."
+	@env WS_ALLOWED_ORIGINS='localhost:5173' JWT_SECRET='$(JWT_SECRET)' '$(AIR)' -c .air.toml
 
 .PHONY: dev-frontend
 dev-frontend: ## Run only the frontend dev server
@@ -62,7 +70,8 @@ dev-frontend: ## Run only the frontend dev server
 
 .PHONY: dev-split-up
 dev-split-up: ## Start Docker MariaDB + Redis (published ports)
-	docker compose -f $(COMPOSE_DEPS) up -d mariadb redis
+	@echo "docker compose -f $(COMPOSE_DEPS) up -d mariadb redis"
+	@$(DEPS_COMPOSE) up -d mariadb redis
 	@$(MAKE) dev-split-wait
 
 .PHONY: dev-split-wait
@@ -71,8 +80,8 @@ dev-split-wait: ## Wait until Docker MariaDB and Redis are healthy
 	@timeout=90; \
 	while [ $$timeout -gt 0 ]; do \
 		mariadb_ok=0; redis_ok=0; \
-		docker compose -f $(COMPOSE_DEPS) ps mariadb 2>/dev/null | grep -q "(healthy)" && mariadb_ok=1; \
-		docker compose -f $(COMPOSE_DEPS) ps redis 2>/dev/null | grep -q "(healthy)" && redis_ok=1; \
+		$(DEPS_COMPOSE) ps mariadb 2>/dev/null | grep -q "(healthy)" && mariadb_ok=1; \
+		$(DEPS_COMPOSE) ps redis 2>/dev/null | grep -q "(healthy)" && redis_ok=1; \
 		if [ $$mariadb_ok -eq 1 ] && [ $$redis_ok -eq 1 ]; then \
 			echo "MariaDB (:3306) and Redis (:6379) are healthy."; \
 			exit 0; \
@@ -85,19 +94,23 @@ dev-split-wait: ## Wait until Docker MariaDB and Redis are healthy
 
 .PHONY: dev-split-worker
 dev-split-worker: ## Start Docker worker (start local API first on a fresh DB)
-	docker compose -f $(COMPOSE_DEPS) up -d --build uptime-phoenix-worker
+	@echo "docker compose -f $(COMPOSE_DEPS) up -d --build uptime-phoenix-worker"
+	@$(DEPS_COMPOSE) up -d --build uptime-phoenix-worker
 
 .PHONY: dev-split-down
 dev-split-down: ## Stop Docker deps (keeps MariaDB volume)
-	docker compose -f $(COMPOSE_DEPS) down
+	@echo "docker compose -f $(COMPOSE_DEPS) down"
+	@$(DEPS_COMPOSE) down
 
 .PHONY: dev-split-down-v
 dev-split-down-v: ## Stop Docker deps and delete MariaDB volume
-	docker compose -f $(COMPOSE_DEPS) down -v
+	@echo "docker compose -f $(COMPOSE_DEPS) down -v"
+	@$(DEPS_COMPOSE) down -v
 
 .PHONY: dev-split-api
 dev-split-api: ensure-air ## Run local API :3000 against Docker MariaDB + Redis (hot-reload)
-	env \
+	@echo "Starting local API (:3000) against Docker MariaDB + Redis (dev JWT_SECRET from .secrets/)..."
+	@env \
 		DB_ENGINE=mariadb \
 		DB_DSN='$(DEV_SPLIT_DB_DSN)' \
 		REDIS_URL='redis://127.0.0.1:6379/0' \
@@ -122,7 +135,7 @@ dev-split: ensure-air dev-split-up ## Docker deps + local API :3000 + frontend :
 		( \
 			until curl -sf http://localhost:3000/api/health/ready >/dev/null 2>&1; do sleep 2; done; \
 			echo "API ready — starting Docker worker..."; \
-			docker compose -f $(COMPOSE_DEPS) up -d --build uptime-phoenix-worker \
+			$(DEPS_COMPOSE) up -d --build uptime-phoenix-worker \
 		) & \
 		(cd web && bun run dev) & \
 		env \
@@ -161,7 +174,8 @@ run: build ## Build + run locally (SQLite default, zero external deps, embedded 
 	@echo "Starting Phoenix (MODE=all, SQLite, login admin / ChangeMe123!)..."
 	@echo "Open http://localhost:3000"
 	@mkdir -p bin
-	DB_ENGINE=sqlite DB_DSN='file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)' BOOTSTRAP_USERNAME=admin BOOTSTRAP_PASSWORD=ChangeMe123! MODE=all LOG_LEVEL=info PORT=3000 ./bin/$(APP_NAME)
+	@echo "(dev JWT_SECRET from .secrets/dev_jwt_secret; set JWT_SECRET to override)"
+	@JWT_SECRET='$(JWT_SECRET)' DB_ENGINE=sqlite DB_DSN='file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)' BOOTSTRAP_USERNAME=admin BOOTSTRAP_PASSWORD=ChangeMe123! MODE=all LOG_LEVEL=info PORT=3000 ./bin/$(APP_NAME)
 
 # ── Test ──────────────────────────────────────────────────────────────────────
 
@@ -350,6 +364,38 @@ helm-validate: ## Assert the MariaDB topology renders its workload and the guard
 	@if helm template uptime-phoenix charts/uptime-phoenix --set database.engine=mariadb --set mariadb.enabled=true \
 		--set mariadb.persistence.enabled=false >/dev/null 2>&1; then \
 		echo "EXPECTED FAILURE: mariadb.persistence.enabled=false without mariadb.allowEphemeralData"; exit 1; fi
+	@echo "==> every workload runs non-root with RuntimeDefault seccomp and no added capabilities (#91)"
+	@helm template uptime-phoenix charts/uptime-phoenix | python3 -B scripts/helm-security-context-check.py
+	@helm template uptime-phoenix charts/uptime-phoenix --set mode=split --set web.split=true \
+		--set database.engine=mariadb --set mariadb.enabled=true --set valkey.enabled=true \
+		--set networkPolicy.enabled=true --set cloudflareTunnel.enabled=true --set cloudflareTunnel.token=ci \
+		| python3 -B scripts/helm-security-context-check.py
+	@helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-internal-mariadb.yaml \
+		--set cronJobs.backup.enabled=true --set cronJobs.partition.enabled=true --set cronJobs.rollup.enabled=true \
+		--set dbMigration.enabled=true --set dbMigration.source.host=src.example --set dbMigration.source.existingSecret=src \
+		| python3 -B scripts/helm-security-context-check.py
+	@helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-production-split.yaml \
+		--set mariadbExternal.password=ci | python3 -B scripts/helm-security-context-check.py
+	@echo "==> every Phoenix server Deployment (all, api, worker) reads the same JWT_SECRET"
+	@helm template uptime-phoenix charts/uptime-phoenix | python3 -B scripts/helm-jwt-secret-check.py --expect 1
+	@helm template uptime-phoenix charts/uptime-phoenix --set mode=split --set database.engine=mariadb \
+		--set mariadb.enabled=true --set valkey.enabled=true | python3 -B scripts/helm-jwt-secret-check.py --expect 2
+	@helm template uptime-phoenix charts/uptime-phoenix -f charts/uptime-phoenix/values-production-split.yaml \
+		--set mariadbExternal.password=ci --set secret.existingSecret=phoenix-jwt --set secret.existingSecretKey=signing-key \
+		| python3 -B scripts/helm-jwt-secret-check.py --expect 2
+	@echo "==> NetworkPolicy opens in-release ports (3000/8080) only toward this release's pods"
+	@helm template uptime-phoenix charts/uptime-phoenix --set mode=split --set web.split=true \
+		--set networkPolicy.enabled=true --set cloudflareTunnel.enabled=true --set cloudflareTunnel.token=ci \
+		| python3 -B scripts/helm-networkpolicy-check.py
+	@helm template uptime-phoenix charts/uptime-phoenix --set networkPolicy.enabled=true \
+		| python3 -B scripts/helm-networkpolicy-check.py
+	@echo "==> the read-only web pod keeps nginx's writable paths (stock and unprivileged images)"
+	@for p in /tmp /run /var/cache/nginx; do \
+		helm template uptime-phoenix charts/uptime-phoenix --set web.split=true --show-only templates/deployment-web.yaml \
+			| grep -q "mountPath: $$p$$" || { echo "MISSING web mount: $$p"; exit 1; }; done
+	@echo "==> a supplied secret.jwt shorter than 32 bytes must fail the render"
+	@if helm template uptime-phoenix charts/uptime-phoenix --set secret.jwt=change_me_jwt >/dev/null 2>&1; then \
+		echo "EXPECTED FAILURE: secret.jwt shorter than 32 bytes"; exit 1; fi
 	@echo "==> helm-validate OK"
 
 .PHONY: helm-template-mariadb

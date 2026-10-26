@@ -226,3 +226,10 @@ independent tag query found 0 security groups, key pairs, volumes and network
 interfaces. Private evidence stays under `tmp/m8-aws-run/` and
 `tmp/m8-aws-b6ffc9ac26ab/` (gitignored). Not covered: race-enabled MariaDB,
 enrollment/`probe init` as a product step, and helper/key-file provenance.
+
+## Docker kinds (migration 089)
+
+Migration 089 widens `probe_host_action_admissions.kind` with `image_cache` and
+`container` for Docker installs. Docker identities use frame v2 (`PHXACT2` +
+`PHXDKR1`), and `image_cache` streams a payload after its grant. See
+[Docker install](M8_DOCKER_INSTALL.md).

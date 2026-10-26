@@ -834,3 +834,348 @@ func TestRunAuthorizedProbeHostActionHelperAppliesDataDirectoryUnitFileAndServic
 		t.Fatalf("the conflicting attempt must only probe is-enabled: %v", got)
 	}
 }
+
+// ---- Docker identity lifecycle ----------------------------------------------
+
+const (
+	hactDockerConfigID  = "sha256:" + "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	hactDockerStateFmt  = `{{.Name}}|{{.State.Status}}|{{index .Config.Labels "io.uptime-phoenix.operation"}}`
+	hactDockerInitProbe = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	hactDockerInitSID   = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	hactDockerInitToken = "phx_probe_enroll_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+)
+
+type hactDockerContainer struct{ status, label string }
+
+// hactDocker is a stateful fake of the docker CLI for the lifecycle test. On
+// `load` it reads the staged archive exactly as docker would, so the test can
+// prove what the helper staged.
+type hactDocker struct {
+	mu           sync.Mutex
+	calls        [][]string
+	images       map[string]string
+	containers   map[string]*hactDockerContainer
+	loadedPath   string
+	loadedBytes  []byte
+	loadedMode   os.FileMode
+	loadedErr    error
+	initStdout   string
+	factoryCalls atomic.Int32
+}
+
+func newHactDocker() *hactDocker {
+	return &hactDocker{
+		images: map[string]string{}, containers: map[string]*hactDockerContainer{},
+		initStdout: `{"probe_id":"` + hactDockerInitProbe + `","stream_id":"` + hactDockerInitSID + `","certificate_fingerprint":"` +
+			strings.Repeat("c0", 32) + `","last_created_seq":"0","config_revision":"0","enrollment_token":"` + hactDockerInitToken + `"}` + "\n",
+	}
+}
+
+func (d *hactDocker) factory() (provisioning.ProbeDocker, error) {
+	d.factoryCalls.Add(1)
+	return d, nil
+}
+
+func (d *hactDocker) recorded() [][]string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.calls)
+}
+
+func (d *hactDocker) Run(_ context.Context, args ...string) (string, int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.calls = append(d.calls, slices.Clone(args))
+	switch args[0] {
+	case "load":
+		d.loadedPath = args[2]
+		d.loadedBytes, d.loadedErr = os.ReadFile(args[2])
+		if info, err := os.Stat(args[2]); err == nil {
+			d.loadedMode = info.Mode()
+		}
+		d.images[hactDockerConfigID] = hactDockerConfigID
+		return "Loaded image ID\n", 0, nil
+	case "image":
+		if id, ok := d.images[args[4]]; ok {
+			return id + "\n", 0, nil
+		}
+		return "", 1, nil
+	case "tag":
+		if id, ok := d.images[args[1]]; ok {
+			d.images[args[2]] = id
+			return "", 0, nil
+		}
+		return "", 1, nil
+	case "create":
+		name, label := "", ""
+		for i, a := range args {
+			switch a {
+			case "--name":
+				name = args[i+1]
+			case "--label":
+				_, label, _ = strings.Cut(args[i+1], "=")
+			}
+		}
+		d.containers[name] = &hactDockerContainer{status: "created", label: label}
+		return "cid\n", 0, nil
+	case "start":
+		if c, ok := d.containers[args[1]]; ok {
+			c.status = "running"
+			return "", 0, nil
+		}
+		return "", 1, nil
+	case "rm":
+		delete(d.containers, args[len(args)-1])
+		return "", 0, nil
+	case "run":
+		return d.initStdout, 0, nil
+	case "container":
+		switch {
+		case args[1] == "inspect" && args[3] == hactDockerStateFmt:
+			if c, ok := d.containers[args[4]]; ok {
+				return "/" + args[4] + "|" + c.status + "|" + c.label + "\n", 0, nil
+			}
+			return "", 1, nil
+		case args[1] == "inspect" && args[3] == "{{.State.Running}}":
+			if c, ok := d.containers[args[4]]; ok && c.status == "running" {
+				return "true\n", 0, nil
+			}
+			return "false\n", 0, nil
+		case args[1] == "ls":
+			name := strings.TrimSuffix(strings.TrimPrefix(args[5], "name=^/"), "$")
+			if _, ok := d.containers[name]; ok {
+				return "cid\n", 0, nil
+			}
+			return "", 0, nil
+		}
+	}
+	return "", 2, nil
+}
+
+// TestDockerHostActionLifecycleThroughTheAuthorizedHelper runs the whole Docker
+// install, activation and cleanup through the production helper and dispatcher:
+// one helper process, challenge and grant per action, the real staging file
+// beneath a stand-in /var/lib and a stateful fake docker. It asserts effects
+// (staged bytes docker read, containers, the data tree, the receipt), not just
+// exit codes.
+func TestDockerHostActionLifecycleThroughTheAuthorizedHelper(t *testing.T) {
+	archive := hactArchive()
+	docker := newHactDocker()
+	varLib := t.TempDir()
+	dir, err := os.Open(varLib)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = dir.Close() })
+	withVarLib := func(fn func(*os.File) error) error {
+		parent, err := os.Open(varLib)
+		if err != nil {
+			return domain.ErrProbeBinaryStageWriteUnavailable
+		}
+		defer func() { _ = parent.Close() }()
+		return fn(parent)
+	}
+	apply := func(ctx context.Context, intent domain.ProbeHostActionIntent, staged string) ([]byte, error) {
+		return applyProbeDockerHostAction(ctx, intent, staged, docker.factory, withVarLib)
+	}
+	base := hactDockerIntent(t, domain.ProbeHostActionImageCache, archive)
+	name := "uptime-phoenix-probe-" + base.Identity.OperationID
+	tag := domain.ProbeDockerImageTag(base.Identity)
+
+	step := func(kind string) (*hactImageRun, domain.ProbeHostActionIntent) {
+		t.Helper()
+		intent := hactDockerIntent(t, kind, archive)
+		r := newHactImageRun(t, "lifecycle/"+kind)
+		r.stageRoot, r.stageDir = varLib, dir
+		r.applyFn = apply
+		action, grant := hactImageStream(t, r, intent)
+		stream := hactJoin(action, grant)
+		if kind == domain.ProbeHostActionImageCache {
+			stream = hactJoin(stream, hactPayloadFrame(intent.Payload.Size, archive))
+		}
+		code := r.run(t.Context(), stream, 0)
+		if code != 0 || r.stderr.Len() != 0 {
+			t.Fatalf("%s: code=%d stderr=%q", kind, code, r.stderr.String())
+		}
+		return r, intent
+	}
+	wantReceipt := func(r *hactImageRun, intent domain.ProbeHostActionIntent) {
+		t.Helper()
+		want := append(r.challengeLine(), hactWantReceipt(intent)...)
+		if got := r.out.Bytes(); !bytes.Equal(got, want) {
+			t.Fatalf("%s: stdout %q, want the challenge and the standard receipt", intent.Kind, got)
+		}
+	}
+
+	// 1. image_cache: docker read exactly the archive from the staging file,
+	// the file is gone afterwards, and the tag resolves to the verified id.
+	r, intent := step(domain.ProbeHostActionImageCache)
+	wantReceipt(r, intent)
+	wantStaged := filepath.Join(varLib, hactStageDirName, intent.Identity.OperationID+"-"+intent.AttemptID+".tar")
+	if docker.loadedPath != wantStaged || docker.loadedErr != nil || !bytes.Equal(docker.loadedBytes, archive) || docker.loadedMode.Perm() != 0o600 {
+		t.Fatalf("docker load read %q (%v, mode %v, %d bytes), want the exact archive from %q", docker.loadedPath, docker.loadedErr, docker.loadedMode, len(docker.loadedBytes), wantStaged)
+	}
+	r.wantStageEmpty()
+	if docker.images[tag] != hactDockerConfigID {
+		t.Fatalf("tag %q resolves to %q", tag, docker.images[tag])
+	}
+	want := [][]string{
+		{"load", "--input", wantStaged},
+		{"image", "inspect", "--format", "{{.Id}}", hactDockerConfigID},
+		{"tag", hactDockerConfigID, tag},
+		{"image", "inspect", "--format", "{{.Id}}", tag},
+	}
+	if got := docker.recorded(); !slices.EqualFunc(got, want, slices.Equal[[]string]) {
+		t.Fatalf("image_cache docker calls %q, want %q", got, want)
+	}
+
+	// 2. data_directory is the shared applier: it never needs docker.
+	before := docker.factoryCalls.Load()
+	r, intent = step(domain.ProbeHostActionDataDirectory)
+	wantReceipt(r, intent)
+	if docker.factoryCalls.Load() != before {
+		t.Fatal("data_directory resolved the docker runner")
+	}
+	if info, err := os.Lstat(filepath.Join(varLib, name)); err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("data directory %v %v", info, err)
+	}
+
+	// 3. container: exactly the signed create arguments, created not started.
+	docker.mu.Lock()
+	docker.calls = nil
+	docker.mu.Unlock()
+	r, intent = step(domain.ProbeHostActionContainer)
+	wantReceipt(r, intent)
+	calls := docker.recorded()
+	if len(calls) != 5 || !slices.Equal(calls[3], domain.ProbeDockerCreateArgs(intent.Identity)) {
+		t.Fatalf("container docker calls %q", calls)
+	}
+	if c := docker.containers[name]; c == nil || c.status != "created" || c.label != intent.Identity.OperationID {
+		t.Fatalf("container %+v", c)
+	}
+
+	// 4. probe_init: the one-time enrollment token appears only in the receipt.
+	docker.mu.Lock()
+	docker.calls = nil
+	docker.mu.Unlock()
+	r, intent = step(domain.ProbeActivationProbeInit)
+	result, ok := provisioning.ParseProbeInitReceipt(r.out.Bytes()[len(r.challengeLine()):], intent)
+	if !ok || result.EnrollmentToken != hactDockerInitToken || result.Facts.ProbeID != hactDockerInitProbe {
+		t.Fatalf("probe_init receipt %q", r.out.Bytes())
+	}
+	if calls := docker.recorded(); len(calls) != 2 || !slices.Equal(calls[1], domain.ProbeDockerInitArgs(intent.Identity)) {
+		t.Fatalf("probe_init docker calls %q", calls)
+	}
+
+	// 5. service_start: the container is running afterwards. The fake init run
+	// writes nothing, so plant the identity file a real run leaves behind: the
+	// cleanup below must remove a non-empty data tree.
+	r, intent = step(domain.ProbeActivationServiceStart)
+	wantReceipt(r, intent)
+	if c := docker.containers[name]; c == nil || c.status != "running" {
+		t.Fatalf("container after service_start: %+v", c)
+	}
+	if err := os.WriteFile(filepath.Join(varLib, name, "identity.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 6. cleanup: container and data tree gone, image tag and staging dir kept.
+	r, intent = step(domain.ProbeHostActionCleanup)
+	wantReceipt(r, intent)
+	if len(docker.containers) != 0 {
+		t.Fatalf("containers remain: %v", docker.containers)
+	}
+	if _, err := os.Lstat(filepath.Join(varLib, name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("data directory remains: %v", err)
+	}
+	if docker.images[tag] != hactDockerConfigID {
+		t.Fatal("cleanup removed the shared image")
+	}
+	for _, c := range docker.recorded() {
+		if c[0] == "rmi" || (c[0] == "image" && c[1] != "inspect") {
+			t.Fatalf("cleanup ran %q against the shared image", c)
+		}
+	}
+	entries, err := os.ReadDir(varLib)
+	if err != nil || len(entries) != 1 || entries[0].Name() != hactStageDirName {
+		t.Fatalf("host holds %v, want only the (empty) staging directory", entries)
+	}
+	r.wantStageEmpty()
+}
+
+func TestApplyProbeDockerHostActionRouting(t *testing.T) {
+	archive := hactArchive()
+	varLib := t.TempDir()
+	withVarLib := func(fn func(*os.File) error) error {
+		parent, err := os.Open(varLib)
+		if err != nil {
+			return domain.ErrProbeBinaryStageWriteUnavailable
+		}
+		defer func() { _ = parent.Close() }()
+		return fn(parent)
+	}
+	input := domain.ErrProbeBinaryStageWriteInput
+	t.Run("staged path only for image_cache", func(t *testing.T) {
+		for kind, staged := range map[string]string{
+			domain.ProbeHostActionImageCache:    "",
+			domain.ProbeHostActionDataDirectory: "/var/lib/x.tar",
+			domain.ProbeHostActionContainer:     "/var/lib/x.tar",
+			domain.ProbeActivationProbeInit:     "/var/lib/x.tar",
+			domain.ProbeActivationServiceStart:  "/var/lib/x.tar",
+			domain.ProbeHostActionCleanup:       "/var/lib/x.tar",
+		} {
+			docker := newHactDocker()
+			_, err := applyProbeDockerHostAction(t.Context(), hactDockerIntent(t, kind, archive), staged, docker.factory, withVarLib)
+			if !errors.Is(err, input) || len(docker.recorded()) != 0 || docker.factoryCalls.Load() != 0 {
+				t.Errorf("%s with staged %q: err=%v calls=%v", kind, staged, err, docker.recorded())
+			}
+		}
+	})
+	t.Run("systemd identities never reach a docker applier", func(t *testing.T) {
+		docker := newHactDocker()
+		for _, kind := range []string{domain.ProbeHostActionDataDirectory, domain.ProbeHostActionService, domain.ProbeActivationProbeInit, domain.ProbeActivationServiceStart, domain.ProbeHostActionCleanup} {
+			_, err := applyProbeDockerHostAction(t.Context(), hactIntent(t, kind), "", docker.factory, withVarLib)
+			if !errors.Is(err, input) {
+				t.Errorf("%s: %v", kind, err)
+			}
+		}
+		if len(docker.recorded()) != 0 || docker.factoryCalls.Load() != 0 {
+			t.Fatal("docker was resolved or run")
+		}
+		entries, _ := os.ReadDir(varLib)
+		if len(entries) != 0 {
+			t.Fatalf("host changed: %v", entries)
+		}
+	})
+	t.Run("an unusable docker runner is Unavailable, but data_directory needs none", func(t *testing.T) {
+		broken := func() (provisioning.ProbeDocker, error) { return nil, errors.New("no docker CLI") }
+		for _, kind := range []string{domain.ProbeHostActionContainer, domain.ProbeActivationProbeInit, domain.ProbeActivationServiceStart, domain.ProbeHostActionCleanup} {
+			_, err := applyProbeDockerHostAction(t.Context(), hactDockerIntent(t, kind, archive), "", broken, withVarLib)
+			if !errors.Is(err, domain.ErrProbeBinaryStageWriteUnavailable) {
+				t.Errorf("%s: %v", kind, err)
+			}
+		}
+		var typedNil *hactDocker
+		_, err := applyProbeDockerHostAction(t.Context(), hactDockerIntent(t, domain.ProbeHostActionImageCache, archive), "/var/lib/x.tar",
+			func() (provisioning.ProbeDocker, error) { return typedNil, nil }, withVarLib)
+		if !errors.Is(err, domain.ErrProbeBinaryStageWriteUnavailable) {
+			t.Errorf("typed nil runner: %v", err)
+		}
+		if _, err := applyProbeDockerHostAction(t.Context(), hactDockerIntent(t, domain.ProbeHostActionDataDirectory, archive), "", broken, withVarLib); err != nil {
+			t.Errorf("data_directory: %v", err)
+		}
+	})
+	t.Run("an unavailable /var/lib is a definite refusal", func(t *testing.T) {
+		down := func(func(*os.File) error) error { return domain.ErrProbeBinaryStageWriteUnavailable }
+		docker := newHactDocker()
+		for _, kind := range []string{domain.ProbeHostActionDataDirectory, domain.ProbeActivationProbeInit, domain.ProbeHostActionCleanup} {
+			receipt, err := applyProbeDockerHostAction(t.Context(), hactDockerIntent(t, kind, archive), "", docker.factory, down)
+			if !errors.Is(err, domain.ErrProbeBinaryStageWriteUnavailable) || receipt != nil {
+				t.Errorf("%s: receipt=%q err=%v", kind, receipt, err)
+			}
+		}
+		if len(docker.recorded()) != 0 {
+			t.Fatalf("docker ran without /var/lib: %q", docker.recorded())
+		}
+	})
+}

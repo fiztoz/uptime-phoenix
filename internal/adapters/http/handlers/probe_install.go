@@ -68,20 +68,29 @@ func NewProbeInstallHandlers(svc probeInstallRunner, enabled bool) *ProbeInstall
 // are deliberately absent. Status is the journal state; resources_ready means
 // every systemd resource applied, never that a probe is installed or running.
 type ProbeInstallView struct {
-	OperationID string                     `json:"operation_id"`
-	Kind        string                     `json:"kind"`
-	Mode        string                     `json:"mode"`
-	Status      string                     `json:"status"`
-	CreatedAt   time.Time                  `json:"created_at"`
-	UpdatedAt   time.Time                  `json:"updated_at"`
-	DeadlineAt  time.Time                  `json:"deadline_at"`
-	Binary      ProbeInstallBinaryView     `json:"binary"`
-	Resources   []ProbeInstallResourceView `json:"resources"`
+	OperationID string    `json:"operation_id"`
+	Kind        string    `json:"kind"`
+	Mode        string    `json:"mode"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	DeadlineAt  time.Time `json:"deadline_at"`
+	// Binary is the systemd pin and Image the Docker pin; the other is null.
+	Binary    *ProbeInstallBinaryView    `json:"binary"`
+	Image     *ProbeInstallImageView     `json:"image"`
+	Resources []ProbeInstallResourceView `json:"resources"`
 	// FailedPhase is the first resource kind whose action did not apply
 	// (not_started or unknown), set only for a failed, canceled or
 	// interrupted install; null otherwise.
 	FailedPhase *string                `json:"failed_phase"`
 	Error       *ProbeInstallErrorView `json:"error"`
+}
+
+// ProbeInstallImageView names the Docker image pin without digests or sizes.
+type ProbeInstallImageView struct {
+	Repository   string `json:"repository"`
+	Version      string `json:"version"`
+	Architecture string `json:"architecture"`
 }
 
 // ProbeInstallBinaryView names the operator pin without its digest or size.
@@ -144,6 +153,8 @@ var probeInstallResourceKinds = map[string]struct{}{
 	"artifact_directory": {},
 	"unit_file":          {},
 	"service":            {},
+	"image_cache":        {},
+	"container":          {},
 }
 
 // Submit handles POST /api/probe-installs. A persisted nonterminal receipt
@@ -176,13 +187,24 @@ func (h *ProbeInstallHandlers) Submit(c echo.Context) error {
 		},
 		HostKeyFingerprint: request.HostKeyFingerprint,
 		PrivateKey:         privateKey,
-		Binary: domain.ProbeBinaryPin{
+		Mode:               request.Mode,
+		RequestedBy:        userID,
+	}
+	if request.Mode == domain.ProbeInstallDocker {
+		submission.Image = domain.ProbeImagePin{
+			Repository:   request.ImageRepository,
+			Version:      request.ImageVersion,
+			Architecture: request.ImageArchitecture,
+			IndexSHA256:  request.ImageIndexSHA256,
+			IndexSize:    request.ImageIndexSize,
+		}
+	} else {
+		submission.Binary = domain.ProbeBinaryPin{
 			Version:      request.BinaryVersion,
 			Architecture: request.BinaryArchitecture,
 			SHA256:       request.BinarySHA256,
 			Size:         request.BinarySize,
-		},
-		RequestedBy: userID,
+		}
 	}
 	// Malformed identity, destination, trust, key or pin input refuses here,
 	// before any service call, mirroring the invariants the service re-checks.
@@ -295,65 +317,74 @@ type probeInstallSubmitRequest struct {
 	SSHUser            string
 	HostKeyFingerprint string
 	PrivateKey         string
+	Mode               string
 	BinaryVersion      string
 	BinaryArchitecture string
 	BinarySHA256       string
 	BinarySize         int64
+	ImageRepository    string
+	ImageVersion       string
+	ImageArchitecture  string
+	ImageIndexSHA256   string
+	ImageIndexSize     int64
 }
 
 var errInvalidInstallBody = errors.New("invalid install submission body")
 
-// probeInstallStringFields lists the required string members; binary_size is
-// the single required integer member.
-var probeInstallStringFields = map[string]struct{}{
-	"operation_id":         {},
-	"ssh_address":          {},
-	"ssh_user":             {},
-	"host_key_fingerprint": {},
-	"private_key":          {},
-	"binary_version":       {},
-	"binary_architecture":  {},
-	"binary_sha256":        {},
+// probeInstallCommonFields are the string members of every submission.
+var probeInstallCommonFields = []string{"operation_id", "ssh_address", "ssh_user", "host_key_fingerprint", "private_key"}
+
+// probeInstallModeFields are each mode's pin members: strings, then the one
+// integer size member.
+var probeInstallModeFields = map[string]struct {
+	strings []string
+	size    string
+}{
+	"systemd": {strings: []string{"binary_version", "binary_architecture", "binary_sha256"}, size: "binary_size"},
+	"docker":  {strings: []string{"image_repository", "image_version", "image_architecture", "image_index_sha256"}, size: "image_index_size"},
 }
 
-const (
-	probeInstallSizeField = "binary_size"
-	// probeInstallMemberCount is the nine required members.
-	probeInstallMemberCount = 9
-)
+// probeInstallModeField optionally selects the mode; absent means systemd.
+const probeInstallModeField = "mode"
 
-// decodeProbeInstallSubmission accepts exactly one JSON object with exactly the
-// nine required members and nothing else. Unknown keys (including case
-// variants), duplicate keys, mistyped or null values, missing members, a
-// binary_size that is not a plain non-negative base-10 integer literal (sign,
-// fraction and exponent forms refuse) and any trailing JSON all refuse. Input
-// validity beyond shape is enforced by domain.ProbeInstallSubmission.Valid and
-// re-checked by the service before any dispatch.
+// decodeProbeInstallSubmission accepts exactly one JSON object with exactly
+// the common members, an optional mode ("systemd" or "docker"; absent means
+// systemd) and exactly that mode's pin members, and nothing else. Unknown keys
+// (including case variants), duplicate keys, mistyped or null values,
+// missing members, members of the other mode, a size that is not a plain
+// non-negative base-10 integer literal (sign, fraction and exponent forms
+// refuse) and any trailing JSON all refuse. Input validity beyond shape is
+// enforced by domain.ProbeInstallSubmission.Valid and re-checked by the
+// service before any dispatch.
 func decodeProbeInstallSubmission(raw []byte) (probeInstallSubmitRequest, error) {
+	integerFields := map[string]bool{}
+	stringFields := map[string]bool{probeInstallModeField: true}
+	for _, k := range probeInstallCommonFields {
+		stringFields[k] = true
+	}
+	for _, m := range probeInstallModeFields {
+		for _, k := range m.strings {
+			stringFields[k] = true
+		}
+		integerFields[m.size] = true
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	token, err := decoder.Token()
 	if err != nil || token != json.Delim('{') {
 		return probeInstallSubmitRequest{}, errInvalidInstallBody
 	}
-	values := make(map[string]string, len(probeInstallStringFields))
-	seen := make(map[string]bool, probeInstallMemberCount)
-	var size int64
+	values := make(map[string]string, len(stringFields))
+	sizes := make(map[string]int64, 1)
+	seen := make(map[string]bool, len(stringFields)+len(integerFields))
 	for decoder.More() {
 		keyToken, err := decoder.Token()
 		if err != nil {
 			return probeInstallSubmitRequest{}, errInvalidInstallBody
 		}
 		key, ok := keyToken.(string)
-		if !ok {
-			return probeInstallSubmitRequest{}, errInvalidInstallBody
-		}
-		_, isString := probeInstallStringFields[key]
-		if !isString && key != probeInstallSizeField {
-			// Unknown keys and every case variant of a known key refuse here.
-			return probeInstallSubmitRequest{}, errInvalidInstallBody
-		}
-		if seen[key] {
+		if !ok || (!stringFields[key] && !integerFields[key]) || seen[key] {
+			// Unknown keys, every case variant of a known key and duplicates refuse here.
 			return probeInstallSubmitRequest{}, errInvalidInstallBody
 		}
 		seen[key] = true
@@ -361,7 +392,7 @@ func decodeProbeInstallSubmission(raw []byte) (probeInstallSubmitRequest, error)
 		if err != nil {
 			return probeInstallSubmitRequest{}, errInvalidInstallBody
 		}
-		if isString {
+		if stringFields[key] {
 			value, ok := valueToken.(string)
 			if !ok {
 				// Rejects null, numbers, booleans, objects and arrays.
@@ -379,7 +410,7 @@ func decodeProbeInstallSubmission(raw []byte) (probeInstallSubmitRequest, error)
 		if !ok {
 			return probeInstallSubmitRequest{}, errInvalidInstallBody
 		}
-		size = parsed
+		sizes[key] = parsed
 	}
 	if token, err := decoder.Token(); err != nil || token != json.Delim('}') {
 		return probeInstallSubmitRequest{}, errInvalidInstallBody
@@ -388,26 +419,56 @@ func decodeProbeInstallSubmission(raw []byte) (probeInstallSubmitRequest, error)
 		// Trailing JSON (or trailing garbage) refuses.
 		return probeInstallSubmitRequest{}, errInvalidInstallBody
 	}
-	if len(seen) != probeInstallMemberCount {
-		// The allowlist plus the duplicate check make nine seen keys exactly
-		// the nine required members.
+	mode := "systemd"
+	want := len(probeInstallCommonFields)
+	if seen[probeInstallModeField] {
+		mode = values[probeInstallModeField]
+		want++
+	}
+	fields, ok := probeInstallModeFields[mode]
+	if !ok {
 		return probeInstallSubmitRequest{}, errInvalidInstallBody
 	}
-	return probeInstallSubmitRequest{
+	for _, k := range fields.strings {
+		if !seen[k] {
+			return probeInstallSubmitRequest{}, errInvalidInstallBody
+		}
+	}
+	if !seen[fields.size] {
+		return probeInstallSubmitRequest{}, errInvalidInstallBody
+	}
+	for _, k := range probeInstallCommonFields {
+		if !seen[k] {
+			return probeInstallSubmitRequest{}, errInvalidInstallBody
+		}
+	}
+	if len(seen) != want+len(fields.strings)+1 {
+		// The other mode's members (or anything else) make the count exceed.
+		return probeInstallSubmitRequest{}, errInvalidInstallBody
+	}
+	request := probeInstallSubmitRequest{
 		OperationID:        values["operation_id"],
 		SSHAddress:         values["ssh_address"],
 		SSHUser:            values["ssh_user"],
 		HostKeyFingerprint: values["host_key_fingerprint"],
 		PrivateKey:         values["private_key"],
-		BinaryVersion:      values["binary_version"],
-		BinaryArchitecture: values["binary_architecture"],
-		BinarySHA256:       values["binary_sha256"],
-		BinarySize:         size,
-	}, nil
+	}
+	if mode == "docker" {
+		request.Mode = "docker"
+		request.ImageRepository = values["image_repository"]
+		request.ImageVersion = values["image_version"]
+		request.ImageArchitecture = values["image_architecture"]
+		request.ImageIndexSHA256 = values["image_index_sha256"]
+		request.ImageIndexSize = sizes["image_index_size"]
+		return request, nil
+	}
+	request.BinaryVersion = values["binary_version"]
+	request.BinaryArchitecture = values["binary_architecture"]
+	request.BinarySHA256 = values["binary_sha256"]
+	request.BinarySize = sizes["binary_size"]
+	return request, nil
 }
 
-// parseProbeInstallInteger accepts only a plain base-10 digit run that fits in
-// int64: no sign, fraction, exponent or leading zero. Zero itself parses and
 // is refused later by the pin invariants.
 func parseProbeInstallInteger(literal string) (int64, bool) {
 	if literal == "" || len(literal) > 19 || (len(literal) > 1 && literal[0] == '0') {
@@ -434,8 +495,7 @@ func toProbeInstallView(operation *domain.ProbeInstallOperation, wantOperationID
 	if operation == nil || !operation.Valid() || operation.Identity.OperationID != wantOperationID {
 		return view, errors.New("invalid install receipt")
 	}
-	if operation.Identity.Mode != domain.ProbeInstallSystemd {
-		// The Docker path is not part of this surface.
+	if operation.Identity.Mode != domain.ProbeInstallSystemd && operation.Identity.Mode != domain.ProbeInstallDocker {
 		return view, errors.New("unsupported install receipt mode")
 	}
 	switch operation.State {
@@ -479,11 +539,13 @@ func toProbeInstallView(operation *domain.ProbeInstallOperation, wantOperationID
 		CreatedAt:   operation.CreatedAt.UTC(),
 		UpdatedAt:   operation.UpdatedAt.UTC(),
 		DeadlineAt:  operation.DeadlineAt.UTC(),
-		Binary: ProbeInstallBinaryView{
-			Version:      operation.Identity.Binary.Version,
-			Architecture: operation.Identity.Binary.Architecture,
-		},
-		Resources: resources,
+		Resources:   resources,
+	}
+	if operation.Identity.Mode == domain.ProbeInstallDocker {
+		pin := operation.Identity.Image.Pin
+		view.Image = &ProbeInstallImageView{Repository: pin.Repository, Version: pin.Version, Architecture: pin.Architecture}
+	} else {
+		view.Binary = &ProbeInstallBinaryView{Version: operation.Identity.Binary.Version, Architecture: operation.Identity.Binary.Architecture}
 	}
 	switch operation.State {
 	case domain.ProbeInstallFailed, domain.ProbeInstallCanceled, domain.ProbeInstallInterrupted:
@@ -571,6 +633,7 @@ var probeInstallPreflightMessages = map[string]string{
 	domain.ProbeInstallPreflightArchitecture: "the pinned binary architecture does not match the host",
 	domain.ProbeInstallPreflightRoot:         "the host helper is not running as root",
 	domain.ProbeInstallPreflightSystemd:      "the host is not running systemd",
+	domain.ProbeInstallPreflightDocker:       "the host has no docker CLI and daemon socket",
 	domain.ProbeInstallPreflightAuthority:    "the host has no trusted stage-authority key",
 	domain.ProbeInstallPreflightExisting:     "the host already has an Uptime Phoenix probe install; clean it up first",
 }

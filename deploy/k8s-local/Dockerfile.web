@@ -4,8 +4,9 @@
 #
 #   docker buildx build --build-context webdist=web/dist \
 #     -f deploy/k8s-local/Dockerfile.web -t uptime-phoenix-web:local --load .
-FROM nginx:1.27-alpine
+FROM nginxinc/nginx-unprivileged:1.31-alpine
 COPY --from=webdist . /usr/share/nginx/html
 # Runtime nginx config is overridden by the Helm ConfigMap in K8s.
 COPY deploy/split/nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+USER 101
+EXPOSE 8080

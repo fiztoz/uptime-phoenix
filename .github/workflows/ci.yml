@@ -343,6 +343,28 @@ jobs:
               .
           done
 
+      - name: Smoke-test web image as non-root on a read-only root (#91)
+        run: |
+          set -euo pipefail
+          # nginx resolves the api upstream at startup; point it at loopback.
+          docker run -d --name web-smoke \
+            --read-only --tmpfs /tmp \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --add-host uptime-phoenix-api:127.0.0.1 \
+            -p 18080:8080 uptime-phoenix-web:ci
+          trap 'docker logs web-smoke || true; docker rm -f web-smoke >/dev/null 2>&1 || true' EXIT
+          uid="$(docker exec web-smoke id -u)"
+          test "$uid" != "0" || { echo "web image runs as root"; exit 1; }
+          for i in $(seq 1 15); do
+            if curl -fsS -o /dev/null http://127.0.0.1:18080/; then
+              echo "web serves / as uid $uid"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "web image did not serve / on 8080"
+          exit 1
+
       - name: Build probe image (no push)
         run: |
           docker buildx build \

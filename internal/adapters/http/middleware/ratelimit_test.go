@@ -100,3 +100,53 @@ func TestCredentialRateLimitScopesAttemptsBySlug(t *testing.T) {
 		}
 	}
 }
+
+func TestCredentialRateLimitRefundSuccessSpendsOnlyFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		refund bool
+	}{{"refund", true}, {"no refund", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			e.POST("/login", func(c echo.Context) error {
+				if c.QueryParam("ok") == "1" {
+					return c.NoContent(http.StatusOK)
+				}
+				return c.NoContent(http.StatusUnauthorized)
+			}, CredentialRateLimit(CredentialRateLimitConfig{MaxAttempts: 3, Window: time.Minute, RefundSuccess: tc.refund}))
+			post := func(query string) int {
+				req := httptest.NewRequest(http.MethodPost, "/login"+query, nil)
+				req.RemoteAddr = "198.51.100.20:1234"
+				rec := httptest.NewRecorder()
+				e.ServeHTTP(rec, req)
+				return rec.Code
+			}
+
+			// Ten successful sign-ins: free with refunds, capped without.
+			throttled := 0
+			for i := 0; i < 10; i++ {
+				if post("?ok=1") == http.StatusTooManyRequests {
+					throttled++
+				}
+			}
+			if tc.refund && throttled != 0 {
+				t.Fatalf("successful sign-ins throttled %d times; want 0", throttled)
+			}
+			if !tc.refund {
+				if throttled != 7 {
+					t.Fatalf("throttled %d of 10 without refunds; want 7", throttled)
+				}
+				return
+			}
+			// Failures still spend the budget.
+			for i := 0; i < 3; i++ {
+				if code := post(""); code != http.StatusUnauthorized {
+					t.Fatalf("failure %d = %d; want 401", i+1, code)
+				}
+			}
+			if code := post("?ok=1"); code != http.StatusTooManyRequests {
+				t.Fatalf("after budget of failures = %d; want 429", code)
+			}
+		})
+	}
+}

@@ -586,7 +586,10 @@ func TestProbeInstallViewShape(t *testing.T) {
 				t.Fatal(err)
 			}
 			installSameKeys(t, "view", installKeys(view),
-				"operation_id", "kind", "status", "mode", "created_at", "updated_at", "deadline_at", "binary", "resources", "failed_phase", "error")
+				"operation_id", "kind", "status", "mode", "created_at", "updated_at", "deadline_at", "binary", "image", "resources", "failed_phase", "error")
+			if string(view["image"]) != "null" {
+				t.Fatalf("systemd receipt rendered an image: %s", view["image"])
+			}
 
 			var binary map[string]json.RawMessage
 			if err := json.Unmarshal(view["binary"], &binary); err != nil {
@@ -722,25 +725,6 @@ func TestProbeInstallCorruptReceipts(t *testing.T) {
 		f(op)
 		return op
 	}
-	// A fully valid Docker receipt: the journal accepts it, but this surface
-	// only describes the systemd path and must not render a binary-less view.
-	dockerMode := mutate(domain.ProbeInstallQueued, func(op *domain.ProbeInstallOperation) {
-		op.Identity.Mode = domain.ProbeInstallDocker
-		op.Identity.Binary = domain.ProbeBinaryPin{}
-		op.Identity.Image = domain.ProbeImageSelection{
-			Pin:            domain.ProbeImagePin{Repository: "ghcr.io/example/probe", Version: "1.2.3", Architecture: "arm64", IndexSHA256: strings.Repeat("a", 64), IndexSize: 100},
-			ManifestSHA256: strings.Repeat("b", 64),
-			ConfigSHA256:   strings.Repeat("c", 64),
-			LayerCount:     1,
-		}
-		op.Resources = nil
-		for _, spec := range op.Identity.Resources() {
-			op.Resources = append(op.Resources, domain.ProbeInstallResource{Spec: spec, State: domain.ProbeInstallResourcePlanned})
-		}
-	})
-	if !dockerMode.Valid() {
-		t.Fatal("docker fixture receipt is not domain.Valid")
-	}
 	for name, op := range map[string]*domain.ProbeInstallOperation{
 		"nil receipt":        nil,
 		"unknown error code": mutate(domain.ProbeInstallFailed, func(op *domain.ProbeInstallOperation) { op.ErrorCode = "mystery-code" }),
@@ -773,7 +757,6 @@ func TestProbeInstallCorruptReceipts(t *testing.T) {
 				op.Resources[i].Spec = op.Identity.Resources()[i]
 			}
 		}),
-		"docker mode": dockerMode,
 	} {
 		for _, route := range []struct {
 			name   string
@@ -1105,7 +1088,7 @@ func TestProbeInstallPreflightMessagesCoverEveryCode(t *testing.T) {
 		domain.ProbeInstallPreflightTrust, domain.ProbeInstallPreflightDestination, domain.ProbeInstallPreflightAuth,
 		domain.ProbeInstallPreflightUnreachable, domain.ProbeInstallPreflightHelper, domain.ProbeInstallPreflightOS,
 		domain.ProbeInstallPreflightArchitecture, domain.ProbeInstallPreflightRoot, domain.ProbeInstallPreflightSystemd,
-		domain.ProbeInstallPreflightAuthority, domain.ProbeInstallPreflightExisting,
+		domain.ProbeInstallPreflightAuthority, domain.ProbeInstallPreflightExisting, domain.ProbeInstallPreflightDocker,
 	}
 	if len(probeInstallPreflightMessages) != len(codes) {
 		t.Fatalf("messages=%d codes=%d", len(probeInstallPreflightMessages), len(codes))
@@ -1148,5 +1131,101 @@ func probeWantFailedPhase(t *testing.T, raw json.RawMessage, state string, steps
 	}
 	if string(raw) != want {
 		t.Fatalf("failed_phase = %s, want %s (state %s)", raw, want, state)
+	}
+}
+
+// installDockerReceipt is a valid queued Docker install receipt.
+func installDockerReceipt(t *testing.T) *domain.ProbeInstallOperation {
+	t.Helper()
+	op := installReceipt(domain.ProbeInstallQueued)
+	op.Identity.Mode = domain.ProbeInstallDocker
+	op.Identity.Binary = domain.ProbeBinaryPin{}
+	op.Identity.Image = domain.ProbeImageSelection{
+		Pin:            domain.ProbeImagePin{Repository: "ghcr.io/example/probe", Version: "1.2.3", Architecture: "arm64", IndexSHA256: strings.Repeat("a", 64), IndexSize: 100},
+		ManifestSHA256: strings.Repeat("b", 64),
+		ConfigSHA256:   strings.Repeat("c", 64),
+		LayerCount:     1,
+	}
+	op.Resources = nil
+	for _, spec := range op.Identity.Resources() {
+		op.Resources = append(op.Resources, domain.ProbeInstallResource{Spec: spec, State: domain.ProbeInstallResourcePlanned})
+	}
+	if !op.Valid() {
+		t.Fatal("docker fixture receipt is not domain.Valid")
+	}
+	return op
+}
+
+// TestProbeInstallDockerReceiptView renders a Docker receipt with its image
+// pin (no digests) and a null binary, and never the image reference.
+func TestProbeInstallDockerReceiptView(t *testing.T) {
+	op := installDockerReceipt(t)
+	h := NewProbeInstallHandlers(&installFake{op: op}, true)
+	rec := installServe(t, http.MethodGet, installPath+"/"+installOpID, installOpID, "", h.Observe)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d (%s)", rec.Code, rec.Body.String())
+	}
+	var view map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	if string(view["mode"]) != `"docker"` || string(view["binary"]) != "null" ||
+		string(view["image"]) != `{"repository":"ghcr.io/example/probe","version":"1.2.3","architecture":"arm64"}` {
+		t.Fatalf("docker view %s", rec.Body.String())
+	}
+	var resources []map[string]json.RawMessage
+	if err := json.Unmarshal(view["resources"], &resources); err != nil || len(resources) != 3 ||
+		string(resources[0]["kind"]) != `"image_cache"` || string(resources[2]["kind"]) != `"container"` {
+		t.Fatalf("docker resources %s", view["resources"])
+	}
+	for _, leak := range []string{strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64)} {
+		if strings.Contains(rec.Body.String(), leak) {
+			t.Fatalf("view leaked a digest: %s", rec.Body.String())
+		}
+	}
+}
+
+// TestProbeInstallDockerSubmissionDecoding binds the Docker members exactly
+// and refuses mixed or incomplete shapes.
+func TestProbeInstallDockerSubmissionDecoding(t *testing.T) {
+	base := map[string]any{
+		"operation_id": installOpID, "ssh_address": "edge.example:22", "ssh_user": "root",
+		"host_key_fingerprint": "SHA256:" + strings.Repeat("A", 43), "private_key": "k",
+		"mode": "docker", "image_repository": "ghcr.io/example/probe", "image_version": "1.2.3",
+		"image_architecture": "arm64", "image_index_sha256": strings.Repeat("a", 64), "image_index_size": 100,
+	}
+	encode := func(edit func(map[string]any)) []byte {
+		m := map[string]any{}
+		for k, v := range base {
+			m[k] = v
+		}
+		if edit != nil {
+			edit(m)
+		}
+		raw, _ := json.Marshal(m)
+		return raw
+	}
+	got, err := decodeProbeInstallSubmission(encode(nil))
+	if err != nil || got.Mode != "docker" || got.ImageRepository != "ghcr.io/example/probe" || got.ImageIndexSize != 100 || got.BinaryVersion != "" {
+		t.Fatalf("docker decode %+v %v", got, err)
+	}
+	for name, edit := range map[string]func(map[string]any){
+		"missing image member": func(m map[string]any) { delete(m, "image_index_sha256") },
+		"binary member mixed":  func(m map[string]any) { m["binary_version"] = "1.2.3" },
+		"unknown mode":         func(m map[string]any) { m["mode"] = "podman" },
+		"mode not a string":    func(m map[string]any) { m["mode"] = 1 },
+		"size as string":       func(m map[string]any) { m["image_index_size"] = "100" },
+		"systemd with image": func(m map[string]any) {
+			m["mode"] = "systemd"
+		},
+	} {
+		if _, err := decodeProbeInstallSubmission(encode(edit)); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	// Explicit systemd mode with the binary members is the systemd shape.
+	sys, err := decodeProbeInstallSubmission([]byte(`{"operation_id":"` + installOpID + `","ssh_address":"edge.example:22","ssh_user":"root","host_key_fingerprint":"x","private_key":"k","mode":"systemd","binary_version":"1.2.3","binary_architecture":"arm64","binary_sha256":"` + strings.Repeat("a", 64) + `","binary_size":10}`))
+	if err != nil || sys.Mode != "" || sys.BinarySize != 10 {
+		t.Fatalf("explicit systemd %+v %v", sys, err)
 	}
 }

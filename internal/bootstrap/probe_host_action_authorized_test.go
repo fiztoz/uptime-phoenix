@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -996,7 +997,7 @@ func hactRefusalCases(t *testing.T, h *hactHarness) []hactRefusal {
 		{"kind length 255", hactJoin(hactRawAction("PHXACT1\n", 255, I.Kind, header), G), input, 9, nil},
 		{"kind length longer than the kind", hactJoin(hactRawAction("PHXACT1\n", byte(kindLen+1), I.Kind, header), G), input, -1, nil},
 		{"kind length shorter than the kind", hactJoin(hactRawAction("PHXACT1\n", byte(kindLen-1), I.Kind, header), G), input, -1, nil},
-		{"wrong action magic version", hactJoin(hactRawAction("PHXACT2\n", byte(kindLen), I.Kind, header), G), input, 9, nil},
+		{"wrong action magic version", hactJoin(hactRawAction("PHXACT3\n", byte(kindLen), I.Kind, header), G), input, 9, nil},
 		{"action magic with CR terminator", hactJoin(hactRawAction("PHXACT1\r", byte(kindLen), I.Kind, header), G), input, 9, nil},
 		{"lowercase action magic", hactJoin(hactRawAction("phxact1\n", byte(kindLen), I.Kind, header), G), input, 9, nil},
 		{"plain stage header instead of an action frame", hactJoin(header, G), input, 9, nil},
@@ -1154,7 +1155,7 @@ func TestReadAuthorizedProbeHostActionReturnsExactIntentAndZeroOnEveryRefusal(t 
 			"data+eof":    iotest.DataErrReader,
 		} {
 			inner := bytes.NewReader(hactJoin(h.action, h.grant))
-			got, err := readAuthorizedProbeHostAction(context.Background(), wrap(inner), h.keys.pub, h.nonce, trusted)
+			got, err := readAuthorizedProbeHostAction(context.Background(), wrap(inner), h.keys.pub, h.nonce, trusted, nil)
 			if err != nil || got != h.intent || inner.Len() != 0 {
 				t.Fatalf("%s/%s: intent=%+v err=%v remaining=%d", kind, name, got, err, inner.Len())
 			}
@@ -1175,7 +1176,7 @@ func TestReadAuthorizedProbeHostActionReturnsExactIntentAndZeroOnEveryRefusal(t 
 			"no host keys":  {h.keys.pub, h.nonce, nil, domain.ErrProbeBinaryStageWriteUnauthorized},
 			"empty host fp": {h.keys.pub, h.nonce, []string{""}, domain.ErrProbeBinaryStageWriteUnauthorized},
 		} {
-			got, err := readAuthorizedProbeHostAction(context.Background(), bytes.NewReader(hactJoin(h.action, h.grant)), tc.key, tc.nonce, tc.finger)
+			got, err := readAuthorizedProbeHostAction(context.Background(), bytes.NewReader(hactJoin(h.action, h.grant)), tc.key, tc.nonce, tc.finger, nil)
 			if err != tc.want || got != zero {
 				t.Fatalf("%s/%s: intent=%+v err=%v, want zero and %v", kind, name, got, err, tc.want)
 			}
@@ -1188,7 +1189,7 @@ func TestReadAuthorizedProbeHostActionReturnsExactIntentAndZeroOnEveryRefusal(t 
 				fingerprints = tc.hostKeys
 			}
 			inner := bytes.NewReader(tc.stream)
-			got, err := readAuthorizedProbeHostAction(context.Background(), inner, h.keys.pub, h.nonce, fingerprints)
+			got, err := readAuthorizedProbeHostAction(context.Background(), inner, h.keys.pub, h.nonce, fingerprints, nil)
 			if err != tc.want || got != zero {
 				t.Fatalf("%s/%s: intent=%+v err=%v, want zero and %v", kind, tc.name, got, err, tc.want)
 			}
@@ -1201,7 +1202,7 @@ func TestReadAuthorizedProbeHostActionReturnsExactIntentAndZeroOnEveryRefusal(t 
 		canceled, cancel := context.WithCancel(context.Background())
 		cancel()
 		inner := bytes.NewReader(hactJoin(h.action, h.grant))
-		if got, err := readAuthorizedProbeHostAction(canceled, inner, h.keys.pub, h.nonce, trusted); err != context.Canceled || got != zero || inner.Len() != h.wholeStreamLen() {
+		if got, err := readAuthorizedProbeHostAction(canceled, inner, h.keys.pub, h.nonce, trusted, nil); err != context.Canceled || got != zero || inner.Len() != h.wholeStreamLen() {
 			t.Fatalf("%s: canceled ctx intent=%+v err=%v remaining=%d", kind, got, err, inner.Len())
 		}
 		// Cancellation landing during the last grant byte withholds the intent.
@@ -1214,7 +1215,7 @@ func TestReadAuthorizedProbeHostActionReturnsExactIntentAndZeroOnEveryRefusal(t 
 			}
 			return n, err
 		})
-		if got, err := readAuthorizedProbeHostAction(live, cancelOnEOF, h.keys.pub, h.nonce, trusted); err != context.Canceled || got != zero {
+		if got, err := readAuthorizedProbeHostAction(live, cancelOnEOF, h.keys.pub, h.nonce, trusted, nil); err != context.Canceled || got != zero {
 			t.Fatalf("%s: cancel after a valid grant intent=%+v err=%v, want zero and context.Canceled", kind, got, err)
 		}
 	}
@@ -1491,5 +1492,629 @@ func TestRunAuthorizedProbeHostActionHelperPublicEntryRefusesWithoutHostAuthorit
 	if code != 1 || out.Len() != 0 || stderr.String() != domain.ErrProbeBinaryStageWriteUnavailable.Error()+"\n" ||
 		input.closes.Load() != 1 || input.reads.Load() != 0 {
 		t.Fatalf("code=%d out=%q err=%q closes=%d reads=%d", code, out.String(), stderr.String(), input.closes.Load(), input.reads.Load())
+	}
+}
+
+// ---- Docker image_cache payload ---------------------------------------------
+//
+// These tests drive runAuthorizedProbeHostActionHelperStaged with a real
+// provisioning staging file beneath t.TempDir(), a recording apply and stdin
+// that counts every byte consumed. They prove the payload protocol: the
+// payload is read only after the grant verified, is staged and checked for
+// exact size, SHA-256 and EOF before apply, and the staged file never outlives
+// the helper.
+
+const hactStageDirName = provisioning.ProbeImageStageDirName
+
+// hactArchive is a deterministic archive larger than one read chunk.
+func hactArchive() []byte {
+	return bytes.Repeat([]byte("phoenix-image-archive-bytes/"), 5400) // ~151 KB
+}
+
+// hactDockerIntent derives a valid root Docker host-action intent that pins
+// the same host key as every other fixture here. image_cache carries the
+// payload descriptor of archive.
+func hactDockerIntent(t *testing.T, kind string, archive []byte) domain.ProbeHostActionIntent {
+	t.Helper()
+	base := authzRootIntent()
+	id := base.Identity
+	id.Mode, id.Binary = domain.ProbeInstallDocker, domain.ProbeBinaryPin{}
+	id.Image = domain.ProbeImageSelection{
+		Pin:            domain.ProbeImagePin{Repository: "ghcr.io/example/probe", Version: "1.2.3", Architecture: "amd64", IndexSHA256: strings.Repeat("a", 64), IndexSize: 512},
+		ManifestSHA256: strings.Repeat("b", 64), ConfigSHA256: strings.Repeat("d", 64), LayerCount: 2,
+	}
+	intent := domain.ProbeHostActionIntent{Identity: id, OwnerID: base.OwnerID, AttemptID: base.AttemptID, Kind: kind}
+	if kind == domain.ProbeHostActionImageCache {
+		sum := sha256.Sum256(archive)
+		intent.Payload = domain.ProbeHostActionPayload{SHA256: hex.EncodeToString(sum[:]), Size: int64(len(archive)), LayoutIndexSHA256: strings.Repeat("f", 64)}
+	}
+	if !intent.Valid() || intent.MarkerSHA256() == "" {
+		t.Fatalf("fixture %q Docker intent is not a valid root host action", kind)
+	}
+	return intent
+}
+
+func hactDockerFrames(t *testing.T, k authzKeys, intent domain.ProbeHostActionIntent, nonce [32]byte) (action, grant []byte) {
+	t.Helper()
+	action, err := provisioning.EncodeProbeHostActionFrame(intent)
+	if err != nil || !bytes.HasPrefix(action, []byte("PHXACT2\n")) {
+		t.Fatalf("docker action frame: %v", err)
+	}
+	return action, hactGrantFrame(t, k, intent, nonce)
+}
+
+func hactPayloadFrame(size int64, archive []byte) []byte {
+	return append(provisioning.EncodeProbeImagePayloadPrefix(size), archive...)
+}
+
+// chunkReader returns at most n bytes per Read.
+type hactChunkReader struct {
+	r io.Reader
+	n int
+}
+
+func (c hactChunkReader) Read(p []byte) (int, error) {
+	if len(p) > c.n {
+		p = p[:c.n]
+	}
+	return c.r.Read(p)
+}
+
+type hactImageApply struct {
+	intent      domain.ProbeHostActionIntent
+	staged      string
+	content     []byte
+	contentErr  error
+	mode        os.FileMode
+	inputClosed bool
+	ctxErr      error
+	deadlineIn  time.Duration
+}
+
+// hactImageRun is one helper invocation with a real staging directory.
+type hactImageRun struct {
+	t          *testing.T
+	keys       authzKeys
+	nonce      [32]byte
+	stageRoot  string
+	stageDir   *os.File
+	stdin      *hactStdin
+	out        *hactOut
+	stderr     bytes.Buffer
+	stageCalls atomic.Int32
+	stageFn    func(ctx context.Context, intent domain.ProbeHostActionIntent, real probeImageStager) (probeStagedArchive, error)
+	applyFn    func(ctx context.Context, intent domain.ProbeHostActionIntent, staged string) ([]byte, error)
+	hostKeys   []string
+
+	mu      sync.Mutex
+	applies []hactImageApply
+}
+
+func newHactImageRun(t *testing.T, label string) *hactImageRun {
+	t.Helper()
+	root := t.TempDir()
+	dir, err := os.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = dir.Close() })
+	return &hactImageRun{t: t, keys: authzNewKeys(t, "trusted"), nonce: authzNonce("image/" + label), stageRoot: root, stageDir: dir, out: &hactOut{}}
+}
+
+func (r *hactImageRun) challengeLine() []byte {
+	return provisioning.EncodeProbeBinaryStageChallengeLine(r.keys.id, r.nonce)
+}
+
+// realStager stages beneath the run's temp directory exactly as production
+// stages beneath /var/lib.
+func (r *hactImageRun) realStager(ctx context.Context, intent domain.ProbeHostActionIntent) (probeStagedArchive, error) {
+	file, err := provisioning.OpenProbeImageStageFile(ctx, r.stageDir, r.stageRoot, intent)
+	if err != nil {
+		return nil, err
+	}
+	return file, nil
+}
+
+func (r *hactImageRun) stager() probeImageStager {
+	return func(ctx context.Context, intent domain.ProbeHostActionIntent) (probeStagedArchive, error) {
+		r.stageCalls.Add(1)
+		if r.stageFn != nil {
+			return r.stageFn(ctx, intent, r.realStager)
+		}
+		return r.realStager(ctx, intent)
+	}
+}
+
+func (r *hactImageRun) apply() probeHostActionApply {
+	return func(ctx context.Context, intent domain.ProbeHostActionIntent, staged string) ([]byte, error) {
+		call := hactImageApply{intent: intent, staged: staged, inputClosed: r.stdin.closed.Load(), ctxErr: ctx.Err()}
+		if dl, ok := ctx.Deadline(); ok {
+			call.deadlineIn = time.Until(dl)
+		}
+		if staged != "" {
+			call.content, call.contentErr = os.ReadFile(staged)
+			if info, err := os.Stat(staged); err == nil {
+				call.mode = info.Mode()
+			}
+		}
+		r.mu.Lock()
+		r.applies = append(r.applies, call)
+		r.mu.Unlock()
+		if r.applyFn != nil {
+			return r.applyFn(ctx, intent, staged)
+		}
+		return nil, nil
+	}
+}
+
+func (r *hactImageRun) applyCalls() []hactImageApply {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]hactImageApply(nil), r.applies...)
+}
+
+// run feeds stream as stdin (read in chunk-byte pieces when chunk > 0).
+func (r *hactImageRun) run(ctx context.Context, stream []byte, chunk int) int {
+	var reader io.Reader = bytes.NewReader(stream)
+	if chunk > 0 {
+		reader = hactChunkReader{r: reader, n: chunk}
+	}
+	return r.runReader(ctx, reader)
+}
+
+func (r *hactImageRun) runReader(ctx context.Context, reader io.Reader) int {
+	r.stdin = &hactStdin{r: reader}
+	hostKeys := r.hostKeys
+	return runAuthorizedProbeHostActionHelperStaged(ctx, nil, r.stdin, r.out, &r.stderr,
+		func(context.Context) ([32]byte, error) { return r.keys.pub, nil },
+		func(context.Context) ([]string, error) {
+			if hostKeys != nil {
+				return hostKeys, nil
+			}
+			return []string{authzRootIntent().Identity.HostKeyFingerprint}, nil
+		},
+		bytes.NewReader(append(append([]byte(nil), r.nonce[:]...), r.nonce[:]...)), r.apply(), r.stager())
+}
+
+func (r *hactImageRun) stageEntries() []string {
+	r.t.Helper()
+	entries, err := os.ReadDir(filepath.Join(r.stageRoot, hactStageDirName))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+func (r *hactImageRun) wantStageEmpty() {
+	r.t.Helper()
+	if names := r.stageEntries(); len(names) != 0 {
+		r.t.Fatalf("staged file(s) survived the helper: %v", names)
+	}
+}
+
+// wantRefused asserts a pre-apply refusal: exit 1, the one sanitized stderr
+// line, stdout holding only the challenge, apply never run, no staged file,
+// the exact number of stdin bytes consumed and a single close.
+func (r *hactImageRun) wantRefused(code int, want error, consumed int, stageCalls int32) {
+	r.t.Helper()
+	if code != 1 || r.stderr.String() != want.Error()+"\n" {
+		r.t.Fatalf("code=%d stderr=%q, want exit 1 with %q", code, r.stderr.String(), want.Error())
+	}
+	if got := r.out.Bytes(); !bytes.Equal(got, r.challengeLine()) {
+		r.t.Fatalf("stdout %q, want only the challenge line", got)
+	}
+	if n := len(r.applyCalls()); n != 0 {
+		r.t.Fatalf("apply ran %d times for a refused payload", n)
+	}
+	if got := r.stageCalls.Load(); got != stageCalls {
+		r.t.Fatalf("stager ran %d times, want %d", got, stageCalls)
+	}
+	if got := r.stdin.consumed.Load(); got != int64(consumed) {
+		r.t.Fatalf("helper consumed %d stdin bytes, want exactly %d", got, consumed)
+	}
+	if r.stdin.closes.Load() != 1 {
+		r.t.Fatalf("stdin closed %d times, want 1", r.stdin.closes.Load())
+	}
+	r.wantStageEmpty()
+}
+
+func hactImageStream(t *testing.T, r *hactImageRun, intent domain.ProbeHostActionIntent) (action, grant []byte) {
+	t.Helper()
+	return hactDockerFrames(t, r.keys, intent, r.nonce)
+}
+
+func TestRunAuthorizedProbeHostActionHelperStagesExactImagePayloadThenApplies(t *testing.T) {
+	archive := hactArchive()
+	intent := hactDockerIntent(t, domain.ProbeHostActionImageCache, archive)
+	for name, chunk := range map[string]int{"whole writes": 0, "fragmented reads": 777, "tiny reads": 61} {
+		t.Run(name, func(t *testing.T) {
+			r := newHactImageRun(t, name)
+			action, grant := hactImageStream(t, r, intent)
+			payload := hactPayloadFrame(intent.Payload.Size, archive)
+			code := r.run(t.Context(), hactJoin(action, grant, payload), chunk)
+			if code != 0 || r.stderr.Len() != 0 {
+				t.Fatalf("code=%d stderr=%q", code, r.stderr.String())
+			}
+			calls := r.applyCalls()
+			if len(calls) != 1 || calls[0].intent != intent {
+				t.Fatalf("apply calls %+v, want exactly one with the decoded intent", calls)
+			}
+			c := calls[0]
+			wantName := intent.Identity.OperationID + "-" + intent.AttemptID + ".tar"
+			if c.staged != filepath.Join(r.stageRoot, hactStageDirName, wantName) {
+				t.Fatalf("staged path %q", c.staged)
+			}
+			if c.contentErr != nil || !bytes.Equal(c.content, archive) {
+				t.Fatalf("apply saw %d staged bytes (%v), want the exact archive", len(c.content), c.contentErr)
+			}
+			if c.mode.Perm() != 0o600 || !c.mode.IsRegular() {
+				t.Fatalf("staged file mode %v, want a regular 0600 file", c.mode)
+			}
+			if !c.inputClosed || c.ctxErr != nil {
+				t.Fatalf("apply ran with stdin closed=%v ctxErr=%v", c.inputClosed, c.ctxErr)
+			}
+			// image_cache gets the long budget, longer than the standard one.
+			if c.deadlineIn <= probeBinaryStageHelperTimeout || c.deadlineIn > probeHostActionImageCacheTimeout {
+				t.Fatalf("image_cache apply deadline in %v, want within (%v, %v]", c.deadlineIn, probeBinaryStageHelperTimeout, probeHostActionImageCacheTimeout)
+			}
+			r.wantStageEmpty()
+			dinfo, err := os.Stat(filepath.Join(r.stageRoot, hactStageDirName))
+			if err != nil || dinfo.Mode().Perm() != 0o700 {
+				t.Fatalf("stage directory %v %v", dinfo, err)
+			}
+			want := append(r.challengeLine(), hactWantReceipt(intent)...)
+			if got := r.out.Bytes(); !bytes.Equal(got, want) {
+				t.Fatalf("stdout %q, want challenge then receipt", got)
+			}
+			if got, want := r.stdin.consumed.Load(), int64(len(action)+len(grant)+len(payload)); got != want || r.stdin.closes.Load() != 1 {
+				t.Fatalf("stdin consumed=%d want=%d closes=%d", got, want, r.stdin.closes.Load())
+			}
+			if r.stageCalls.Load() != 1 {
+				t.Fatalf("stager ran %d times", r.stageCalls.Load())
+			}
+		})
+	}
+}
+
+func TestRunAuthorizedProbeHostActionHelperRefusesABadImagePayloadWithoutApplying(t *testing.T) {
+	archive := hactArchive()
+	intent := hactDockerIntent(t, domain.ProbeHostActionImageCache, archive)
+	size := intent.Payload.Size
+	flipped := append([]byte(nil), archive...)
+	flipped[len(flipped)/2] ^= 0xff
+	badMagic := append([]byte("PHXIMG2\n"), hactPayloadFrame(size, archive)[8:]...)
+	input := domain.ErrProbeBinaryStageWriteInput
+
+	cases := []struct {
+		name       string
+		payload    []byte
+		consumed   func(frames int) int // stdin bytes the helper must have consumed
+		stageCalls int32
+		want       error
+	}{
+		{"prefix declares one byte more", hactPayloadFrame(size+1, archive), func(f int) int { return f + 16 }, 0, input},
+		{"prefix declares one byte less", hactPayloadFrame(size-1, archive), func(f int) int { return f + 16 }, 0, input},
+		{"prefix declares zero", append(provisioning.EncodeProbeImagePayloadPrefix(1)[:8], make([]byte, 8)...), func(f int) int { return f + 16 }, 0, input},
+		{"prefix with the wrong magic", badMagic, func(f int) int { return f + 16 }, 0, input},
+		{"no payload at all", nil, func(f int) int { return f }, 0, input},
+		{"truncated prefix", hactPayloadFrame(size, archive)[:9], func(f int) int { return f + 9 }, 0, input},
+		{"short payload by one byte", hactPayloadFrame(size, archive[:len(archive)-1]), func(f int) int { return f + 16 + len(archive) - 1 }, 1, input},
+		{"short payload, only the first chunk", hactPayloadFrame(size, archive[:1000]), func(f int) int { return f + 16 + 1000 }, 1, input},
+		{"digest mismatch", hactPayloadFrame(size, flipped), func(f int) int { return f + 16 + len(archive) }, 1, input},
+		{"trailing byte after the payload", append(hactPayloadFrame(size, archive), 'x'), func(f int) int { return f + 16 + len(archive) + 1 }, 1, input},
+		{"trailing second frame after the payload", append(hactPayloadFrame(size, archive), hactPayloadFrame(size, archive)...), func(f int) int { return f + 16 + len(archive) + 1 }, 1, input},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newHactImageRun(t, tc.name)
+			action, grant := hactImageStream(t, r, intent)
+			code := r.run(t.Context(), hactJoin(action, grant, tc.payload), 0)
+			r.wantRefused(code, tc.want, tc.consumed(len(action)+len(grant)), tc.stageCalls)
+		})
+	}
+}
+
+func TestRunAuthorizedProbeHostActionHelperPayloadForAnyOtherKindIsRefused(t *testing.T) {
+	archive := hactArchive()
+	kinds := map[string]func(*testing.T) domain.ProbeHostActionIntent{
+		"data_directory": func(t *testing.T) domain.ProbeHostActionIntent {
+			return hactIntent(t, domain.ProbeHostActionDataDirectory)
+		},
+		"unit_file": func(t *testing.T) domain.ProbeHostActionIntent { return hactIntent(t, domain.ProbeHostActionUnitFile) },
+		"service":   func(t *testing.T) domain.ProbeHostActionIntent { return hactIntent(t, domain.ProbeHostActionService) },
+		"docker data_directory": func(t *testing.T) domain.ProbeHostActionIntent {
+			return hactDockerIntent(t, domain.ProbeHostActionDataDirectory, archive)
+		},
+		"docker container": func(t *testing.T) domain.ProbeHostActionIntent {
+			return hactDockerIntent(t, domain.ProbeHostActionContainer, archive)
+		},
+		"docker probe_init": func(t *testing.T) domain.ProbeHostActionIntent {
+			return hactDockerIntent(t, domain.ProbeActivationProbeInit, archive)
+		},
+		"docker service_start": func(t *testing.T) domain.ProbeHostActionIntent {
+			return hactDockerIntent(t, domain.ProbeActivationServiceStart, archive)
+		},
+		"docker cleanup": func(t *testing.T) domain.ProbeHostActionIntent {
+			return hactDockerIntent(t, domain.ProbeHostActionCleanup, archive)
+		},
+	}
+	for name, build := range kinds {
+		t.Run(name, func(t *testing.T) {
+			intent := build(t)
+			r := newHactImageRun(t, name)
+			action, err := provisioning.EncodeProbeHostActionFrame(intent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			grant := hactGrantFrame(t, r.keys, intent, r.nonce)
+			payload := hactPayloadFrame(int64(len(archive)), archive)
+			code := r.run(t.Context(), hactJoin(action, grant, payload), 0)
+			// Real EOF is required right after the grant: the first payload
+			// byte is the refusal, and nothing is staged or applied.
+			r.wantRefused(code, domain.ErrProbeBinaryStageWriteInput, len(action)+len(grant)+1, 0)
+		})
+	}
+}
+
+func TestRunAuthorizedProbeHostActionHelperNeverReadsThePayloadForAnUnauthorizedGrant(t *testing.T) {
+	archive := hactArchive()
+	intent := hactDockerIntent(t, domain.ProbeHostActionImageCache, archive)
+	payload := hactPayloadFrame(intent.Payload.Size, archive)
+	other := authzNewKeys(t, "untrusted")
+	t.Run("grant signed by another key", func(t *testing.T) {
+		r := newHactImageRun(t, "other-key")
+		action, _ := hactImageStream(t, r, intent)
+		grant := hactGrantFrame(t, other, intent, r.nonce)
+		code := r.run(t.Context(), hactJoin(action, grant, payload), 0)
+		r.wantRefused(code, domain.ErrProbeBinaryStageWriteUnauthorized, len(action)+len(grant), 0)
+	})
+	t.Run("grant for another nonce (replay)", func(t *testing.T) {
+		r := newHactImageRun(t, "replay")
+		action, _ := hactImageStream(t, r, intent)
+		grant := hactGrantFrame(t, r.keys, intent, authzNonce("some other helper process"))
+		code := r.run(t.Context(), hactJoin(action, grant, payload), 0)
+		r.wantRefused(code, domain.ErrProbeBinaryStageWriteUnauthorized, len(action)+len(grant), 0)
+	})
+	t.Run("grant for a different payload", func(t *testing.T) {
+		r := newHactImageRun(t, "other-payload")
+		action, _ := hactImageStream(t, r, intent)
+		otherIntent := intent
+		otherIntent.Payload.LayoutIndexSHA256 = strings.Repeat("e", 64)
+		grant := hactGrantFrame(t, r.keys, otherIntent, r.nonce)
+		code := r.run(t.Context(), hactJoin(action, grant, payload), 0)
+		r.wantRefused(code, domain.ErrProbeBinaryStageWriteUnauthorized, len(action)+len(grant), 0)
+	})
+	t.Run("malformed grant frame", func(t *testing.T) {
+		r := newHactImageRun(t, "malformed")
+		action, grant := hactImageStream(t, r, intent)
+		bad := append([]byte(nil), grant...)
+		bad[0] ^= 0xff
+		code := r.run(t.Context(), hactJoin(action, bad, payload), 0)
+		r.wantRefused(code, domain.ErrProbeBinaryStageWriteUnauthorized, len(action)+len(grant), 0)
+	})
+	t.Run("host key that is not this host's", func(t *testing.T) {
+		r := newHactImageRun(t, "host")
+		r.hostKeys = []string{hactOtherFingerprint}
+		action, grant := hactImageStream(t, r, intent)
+		code := r.run(t.Context(), hactJoin(action, grant, payload), 0)
+		// The host binding is checked before the grant frame is even read.
+		r.wantRefused(code, domain.ErrProbeBinaryStageWriteUnauthorized, len(action), 0)
+	})
+	t.Run("no grant at all", func(t *testing.T) {
+		r := newHactImageRun(t, "no-grant")
+		action, _ := hactImageStream(t, r, intent)
+		code := r.run(t.Context(), action, 0)
+		r.wantRefused(code, domain.ErrProbeBinaryStageWriteInput, len(action), 0)
+	})
+}
+
+func TestRunAuthorizedProbeHostActionHelperRemovesTheStagedFileOnEveryApplyOutcome(t *testing.T) {
+	archive := hactArchive()
+	intent := hactDockerIntent(t, domain.ProbeHostActionImageCache, archive)
+	for name, tc := range map[string]struct {
+		apply func(context.Context, domain.ProbeHostActionIntent, string) ([]byte, error)
+		want  error // nil: success
+	}{
+		"applied": {nil, nil},
+		"definite conflict": {func(context.Context, domain.ProbeHostActionIntent, string) ([]byte, error) {
+			return nil, domain.ErrProbeBinaryStageWriteConflict
+		}, domain.ErrProbeBinaryStageWriteConflict},
+		"definite input": {func(context.Context, domain.ProbeHostActionIntent, string) ([]byte, error) {
+			return nil, domain.ErrProbeBinaryStageWriteInput
+		}, domain.ErrProbeBinaryStageWriteInput},
+		"definite unavail": {func(context.Context, domain.ProbeHostActionIntent, string) ([]byte, error) {
+			return nil, domain.ErrProbeBinaryStageWriteUnavailable
+		}, domain.ErrProbeBinaryStageWriteUnavailable},
+		"unknown": {func(context.Context, domain.ProbeHostActionIntent, string) ([]byte, error) {
+			return nil, domain.ErrProbeBinaryStageWriteUnknown
+		}, domain.ErrProbeBinaryStageWriteUnknown},
+		"unclassified error": {func(context.Context, domain.ProbeHostActionIntent, string) ([]byte, error) {
+			return nil, errors.New("boom")
+		}, domain.ErrProbeBinaryStageWriteUnknown},
+		"unknown joined wins": {func(context.Context, domain.ProbeHostActionIntent, string) ([]byte, error) {
+			return nil, errors.Join(domain.ErrProbeBinaryStageWriteConflict, domain.ErrProbeBinaryStageWriteUnknown)
+		}, domain.ErrProbeBinaryStageWriteUnknown},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newHactImageRun(t, name)
+			r.applyFn = tc.apply
+			action, grant := hactImageStream(t, r, intent)
+			code := r.run(t.Context(), hactJoin(action, grant, hactPayloadFrame(intent.Payload.Size, archive)), 0)
+			if len(r.applyCalls()) != 1 || r.applyCalls()[0].contentErr != nil || !bytes.Equal(r.applyCalls()[0].content, archive) {
+				t.Fatal("apply must run once over the exact staged archive")
+			}
+			r.wantStageEmpty()
+			if tc.want == nil {
+				if code != 0 || r.stderr.Len() != 0 {
+					t.Fatalf("code=%d stderr=%q", code, r.stderr.String())
+				}
+				return
+			}
+			if code != 1 || r.stderr.String() != tc.want.Error()+"\n" {
+				t.Fatalf("code=%d stderr=%q, want exit 1 with %q", code, r.stderr.String(), tc.want.Error())
+			}
+			if got := r.out.Bytes(); !bytes.Equal(got, r.challengeLine()) {
+				t.Fatalf("a receipt was written for a failed action: %q", got)
+			}
+		})
+	}
+}
+
+// brokenRemove deletes the staged file but reports that it could not.
+type hactBrokenRemove struct{ probeStagedArchive }
+
+func (b hactBrokenRemove) Remove() error {
+	_ = b.probeStagedArchive.Remove()
+	return errors.New("unlink failed")
+}
+
+func TestRunAuthorizedProbeHostActionHelperWithholdsTheReceiptWhenTheStagedFileCannotBeRemoved(t *testing.T) {
+	archive := hactArchive()
+	intent := hactDockerIntent(t, domain.ProbeHostActionImageCache, archive)
+	r := newHactImageRun(t, "broken-remove")
+	r.stageFn = func(ctx context.Context, in domain.ProbeHostActionIntent, real probeImageStager) (probeStagedArchive, error) {
+		staged, err := real(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		return hactBrokenRemove{staged}, nil
+	}
+	action, grant := hactImageStream(t, r, intent)
+	code := r.run(t.Context(), hactJoin(action, grant, hactPayloadFrame(intent.Payload.Size, archive)), 0)
+	if code != 1 || r.stderr.String() != domain.ErrProbeBinaryStageWriteUnknown.Error()+"\n" {
+		t.Fatalf("code=%d stderr=%q, want Unknown", code, r.stderr.String())
+	}
+	if got := r.out.Bytes(); !bytes.Equal(got, r.challengeLine()) {
+		t.Fatalf("a receipt was written although the archive was not removed: %q", got)
+	}
+}
+
+func TestRunAuthorizedProbeHostActionHelperStagerFailureRefusesAfterOnlyThePayloadPrefix(t *testing.T) {
+	archive := hactArchive()
+	intent := hactDockerIntent(t, domain.ProbeHostActionImageCache, archive)
+	for name, tc := range map[string]struct {
+		stage func(context.Context, domain.ProbeHostActionIntent, probeImageStager) (probeStagedArchive, error)
+		want  error
+	}{
+		"unavailable": {func(context.Context, domain.ProbeHostActionIntent, probeImageStager) (probeStagedArchive, error) {
+			return nil, domain.ErrProbeBinaryStageWriteUnavailable
+		}, domain.ErrProbeBinaryStageWriteUnavailable},
+		"conflict": {func(context.Context, domain.ProbeHostActionIntent, probeImageStager) (probeStagedArchive, error) {
+			return nil, domain.ErrProbeBinaryStageWriteConflict
+		}, domain.ErrProbeBinaryStageWriteConflict},
+		"nil archive without an error": {func(context.Context, domain.ProbeHostActionIntent, probeImageStager) (probeStagedArchive, error) {
+			return nil, nil
+		}, domain.ErrProbeBinaryStageWriteUnavailable},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newHactImageRun(t, name)
+			r.stageFn = tc.stage
+			action, grant := hactImageStream(t, r, intent)
+			code := r.run(t.Context(), hactJoin(action, grant, hactPayloadFrame(intent.Payload.Size, archive)), 0)
+			r.wantRefused(code, tc.want, len(action)+len(grant)+16, 1)
+		})
+	}
+}
+
+// failingStaged accepts n bytes and then fails, like a full disk.
+type hactFailingStaged struct {
+	probeStagedArchive
+	left int
+}
+
+func (f *hactFailingStaged) Write(p []byte) (int, error) {
+	if len(p) > f.left {
+		return 0, errors.New("no space left on device")
+	}
+	f.left -= len(p)
+	return f.probeStagedArchive.Write(p)
+}
+
+func TestRunAuthorizedProbeHostActionHelperStageWriteFailureIsRefusedAndCleanedUp(t *testing.T) {
+	archive := hactArchive()
+	intent := hactDockerIntent(t, domain.ProbeHostActionImageCache, archive)
+	r := newHactImageRun(t, "disk-full")
+	r.stageFn = func(ctx context.Context, in domain.ProbeHostActionIntent, real probeImageStager) (probeStagedArchive, error) {
+		staged, err := real(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		return &hactFailingStaged{probeStagedArchive: staged, left: 70000}, nil
+	}
+	action, grant := hactImageStream(t, r, intent)
+	code := r.run(t.Context(), hactJoin(action, grant, hactPayloadFrame(intent.Payload.Size, archive)), 0)
+	if code != 1 || r.stderr.String() != domain.ErrProbeBinaryStageWriteUnavailable.Error()+"\n" {
+		t.Fatalf("code=%d stderr=%q", code, r.stderr.String())
+	}
+	if len(r.applyCalls()) != 0 {
+		t.Fatal("apply ran after a failed stage write")
+	}
+	r.wantStageEmpty()
+}
+
+func TestRunAuthorizedProbeHostActionHelperCanceledMidPayloadStagesNothingThatSurvives(t *testing.T) {
+	archive := hactArchive()
+	intent := hactDockerIntent(t, domain.ProbeHostActionImageCache, archive)
+	r := newHactImageRun(t, "canceled")
+	action, grant := hactImageStream(t, r, intent)
+	stream := hactJoin(action, grant, hactPayloadFrame(intent.Payload.Size, archive))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	// Cancel once the helper has consumed part of the payload.
+	reader := &hactCancelAfter{r: hactChunkReader{r: bytes.NewReader(stream), n: 4096}, after: len(action) + len(grant) + 16 + 20000, cancel: cancel}
+	code := r.runReader(ctx, reader)
+	if code != 1 || len(r.applyCalls()) != 0 {
+		t.Fatalf("code=%d applies=%d stderr=%q", code, len(r.applyCalls()), r.stderr.String())
+	}
+	if got := r.stderr.String(); got != context.Canceled.Error()+"\n" {
+		t.Fatalf("stderr %q, want the canceled sentinel", got)
+	}
+	r.wantStageEmpty()
+	if got := r.out.Bytes(); !bytes.Equal(got, r.challengeLine()) {
+		t.Fatalf("stdout %q", got)
+	}
+}
+
+type hactCancelAfter struct {
+	r      io.Reader
+	after  int
+	read   int
+	cancel context.CancelFunc
+}
+
+func (c *hactCancelAfter) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.read += n
+	if c.read >= c.after {
+		c.cancel()
+	}
+	return n, err
+}
+
+func TestRunAuthorizedProbeHostActionHelperNilStagerIsRefusedBeforeAnyIO(t *testing.T) {
+	h := newHactHarness(t, domain.ProbeHostActionDataDirectory)
+	a := h.args()
+	code := runAuthorizedProbeHostActionHelperStaged(a.ctx, nil, a.input, a.out, a.stderr, a.loadKey, a.hostKeys, a.entropy, probeHostActionWithoutReceipt(a.apply), nil)
+	if code != 1 || h.stderr.String() != domain.ErrProbeBinaryStageWriteInput.Error()+"\n" || h.out.Len() != 0 || h.stdin.closes.Load() != 1 {
+		t.Fatalf("code=%d stderr=%q out=%q closes=%d", code, h.stderr.String(), h.out.Bytes(), h.stdin.closes.Load())
+	}
+	h.wantCalls(0, 0)
+}
+
+func TestProbeHostActionUsageNamesEveryKind(t *testing.T) {
+	for _, kind := range []string{
+		domain.ProbeHostActionImageCache, domain.ProbeHostActionDataDirectory, domain.ProbeHostActionUnitFile, domain.ProbeHostActionService,
+		domain.ProbeHostActionContainer, domain.ProbeActivationProbeInit, domain.ProbeActivationServiceStart, domain.ProbeHostActionCleanup,
+	} {
+		if !strings.Contains(probeHostActionAuthorizedUsage, kind) {
+			t.Errorf("usage does not name %q", kind)
+		}
 	}
 }

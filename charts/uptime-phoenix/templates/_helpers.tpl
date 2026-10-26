@@ -254,6 +254,9 @@ Stored in the main Secret under jwt-secret key.
 */}}
 {{- define "phoenix.jwtSecret" -}}
 {{- if .Values.secret.jwt }}
+{{- if lt (len .Values.secret.jwt) 32 }}
+{{- fail "secret.jwt must be at least 32 bytes; generate one with: openssl rand -base64 48" }}
+{{- end }}
 {{- .Values.secret.jwt }}
 {{- else }}
 {{- $secretName := include "phoenix.fullname" . }}

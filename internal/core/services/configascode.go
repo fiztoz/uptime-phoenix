@@ -13,21 +13,6 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
-// secretConfigKeys are notification/proxy config map keys treated as secrets.
-var secretConfigKeys = map[string]struct{}{
-	"token": {}, "password": {}, "webhook_url": {}, "webhookurl": {},
-	"bot_token": {}, "bottoken": {}, "api_key": {}, "apikey": {},
-	"secret": {}, "auth_password": {}, "authpassword": {},
-	"client_secret": {}, "clientsecret": {}, "access_token": {},
-	"accesstoken": {}, "private_key": {}, "privatekey": {},
-	"smtp_password": {}, "smtppassword": {}, "app_secret": {},
-	"appsecret": {}, "channel_secret": {}, "channelsecret": {},
-	"secret_key": {}, "secretkey": {}, "session_token": {}, "sessiontoken": {},
-	// push_token authorizes heartbeats (and keys push HMAC signatures): it is
-	// redacted on export and preserved on redacted/empty apply like any secret.
-	"push_token": {}, "pushtoken": {},
-}
-
 var configKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
 
 // probeConfigKeyPattern mirrors the registration store's stable probe key
@@ -1980,9 +1965,10 @@ func redactConfigMap(in map[string]any) map[string]any {
 	return out
 }
 
+// isSecretKey defers to the domain list so exports, apply and API views
+// agree on which config values are write-only.
 func isSecretKey(k string) bool {
-	_, ok := secretConfigKeys[strings.ToLower(strings.ReplaceAll(k, "-", "_"))]
-	return ok
+	return domain.IsSecretConfigKey(k)
 }
 
 func stripRedacted(in map[string]any) map[string]any {

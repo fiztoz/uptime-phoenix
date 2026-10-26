@@ -61,13 +61,12 @@ control of monitoring and outbound reach from the Uptime Phoenix process network
 Local/dev convenience defaults must be changed before any exposure beyond localhost:
 
 - Bootstrap user/password (documented as `admin` / `ChangeMe123!`)
-- `JWT_SECRET` placeholder (`change-me-in-production` / compose `change_me_jwt`)
 - Compose publishing MariaDB on host port `3306` with weak passwords
 - `PRODUCTION=false` (dev CORS behaviour)
 
 Recommended minimum for any shared deployment:
 
-1. Strong unique `JWT_SECRET`, `BOOTSTRAP_PASSWORD`, and DB passwords
+1. Strong unique `BOOTSTRAP_PASSWORD` and DB passwords (`JWT_SECRET` is mandatory: the server refuses to start without a ≥32-byte value that is not a published placeholder)
 2. `PRODUCTION=true`
 3. Do not publish database ports publicly
 4. TLS termination (Ingress, reverse proxy, or Cloudflare Tunnel)

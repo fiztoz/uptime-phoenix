@@ -271,6 +271,21 @@ func (f *opInstallFactory) NewInstallSession(ctx context.Context, privateKey []b
 	return session, fingerprint, nil
 }
 
+// NewDockerInstallSession mirrors NewInstallSession for an image pin and
+// reports a fixed verified selection for it.
+func (f *opInstallFactory) NewDockerInstallSession(ctx context.Context, privateKey []byte, hostFingerprint string, pin domain.ProbeImagePin) (ports.ProbeInstallSession, string, domain.ProbeImageSelection, error) {
+	session, fingerprint, err := f.NewInstallSession(ctx, privateKey, hostFingerprint, domain.ProbeBinaryPin{})
+	if err != nil || session == nil {
+		return session, fingerprint, domain.ProbeImageSelection{}, err
+	}
+	return session, fingerprint, opInstallImageSelection(pin), nil
+}
+
+// opInstallImageSelection is the fake verified selection for an image pin.
+func opInstallImageSelection(pin domain.ProbeImagePin) domain.ProbeImageSelection {
+	return domain.ProbeImageSelection{Pin: pin, ManifestSHA256: strings.Repeat("cd", 32), ConfigSHA256: strings.Repeat("ef", 32), LayerCount: 2}
+}
+
 func (f *opInstallFactory) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -2547,4 +2562,39 @@ func TestProbeInstallOperationServiceLookupFailureSkipsPreflight(t *testing.T) {
 	}
 	env.assertNothingDispatched(t)
 	env.assertSessionClosedOnce(t, 0)
+}
+
+// A Docker submission builds a Docker identity from the session's verified
+// selection and preflights it like any other install.
+func TestProbeInstallOperationServiceDockerSubmissionRecordsTheVerifiedSelection(t *testing.T) {
+	env := opInstallEnvFor(t, t.Context(), 1)
+	env.factory.mu.Lock()
+	env.factory.preflightHook = func(context.Context, domain.ProbeSSHHost) (domain.ProbeInstallHostReport, error) {
+		report := opInstallQualifyingReport()
+		report.Systemd, report.DockerCLI = false, true
+		return report, nil
+	}
+	env.factory.mu.Unlock()
+	request := opInstallSubmission(opInstallID, 7)
+	request.Mode, request.Binary = domain.ProbeInstallDocker, domain.ProbeBinaryPin{}
+	request.Image = domain.ProbeImagePin{Repository: "ghcr.io/example/probe", Version: "1.2.3", Architecture: "amd64", IndexSHA256: strings.Repeat("a", 64), IndexSize: 512}
+	if !request.Valid() {
+		t.Fatal("docker submission fixture invalid")
+	}
+	operation, err := env.svc.Submit(t.Context(), request)
+	if err != nil || operation == nil {
+		t.Fatalf("submit: %+v %v", operation, err)
+	}
+	identity := operation.Identity
+	if identity.Mode != domain.ProbeInstallDocker || identity.Binary != (domain.ProbeBinaryPin{}) ||
+		identity.Image != opInstallImageSelection(request.Image) || !identity.Valid() {
+		t.Fatalf("identity %+v", identity)
+	}
+	if kinds := []string{identity.Resources()[0].Kind, identity.Resources()[2].Kind}; kinds[0] != domain.ProbeHostActionImageCache || kinds[1] != domain.ProbeHostActionContainer {
+		t.Fatalf("docker layout %v", kinds)
+	}
+	if env.events.count("preflight") != 1 {
+		t.Fatalf("docker submission not preflighted: %v", env.events.snapshot())
+	}
+	opInstallAwait(t, env.runnerAt(t, 0).done, "the run to finish")
 }

@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """M8 real-host acceptance matrix through the local hub's REST API.
 
-Usage: m8_aws_matrix.py <run_dir> <run_id> <arm64_ip> <amd64_ip>
+Usage: m8_aws_matrix.py <run_dir> <run_id> <arm64_ip> <amd64_ip> [systemd|docker|docker-preflight]
+
+docker runs the Docker-path cases; it needs <run_dir>/image_pin.json
+({"repository","version","index_sha256","index_size"}) and the OCI layout
+under <run_dir>/artifacts/. docker-preflight runs only the "no Docker on
+the host" refusal and must run before Docker is installed.
 
 <run_dir> is a private operator directory holding the hub's admin.password,
 the staging_key and unauthorized_key, hub.db and artifacts/ with the pinned
@@ -146,6 +151,68 @@ def host_resources(host, op):
     return int(count), active, int(listeners)
 
 
+def image_pin(arch):
+    pin = json.load(open(os.path.join(R, "image_pin.json")))
+    return {"image_repository": pin["repository"], "image_version": pin["version"], "image_architecture": arch,
+            "image_index_sha256": pin["index_sha256"], "image_index_size": pin["index_size"]}
+
+
+def docker_body(host, op, arch=None, key_file="staging_key"):
+    body = {"operation_id": op, "ssh_address": f"{host.ip}:22", "ssh_user": "root",
+            "host_key_fingerprint": host.fingerprint("ED25519"),
+            "private_key": open(os.path.join(R, key_file)).read(), "mode": "docker"}
+    body.update(image_pin(arch or host.arch))
+    return body
+
+
+def docker_resources(host, op):
+    """Data dir present, container state (or "absent"), listeners on 8443 and whether the image tag exists."""
+    base = f"uptime-phoenix-probe-{op}"
+    _, out = host.sudo(
+        f"d=0; test -e /var/lib/{base} && d=1; "
+        f"c=$(docker container inspect --format '{{{{.State.Status}}}}' {base} 2>/dev/null || echo absent); "
+        f"i=$(docker image ls --quiet uptime-phoenix-probe | wc -l); "
+        f"l=$(ss -ltnH 'sport = :8443' | wc -l); echo $d $c $l $i")
+    data, state, listeners, images = out.split()
+    return int(data), state, int(listeners), int(images)
+
+
+def docker_install_ready(token, host, op):
+    status, view = call("POST", "/api/probe-installs", token, docker_body(host, op))
+    if status != 202:
+        raise RuntimeError(f"docker install {op}: {status} {view}")
+    return poll(f"/api/probe-installs/{op}", token, {"resources_ready", "failed", "canceled", "interrupted"}, 900)
+
+
+def main_docker(token, arm, amd, preflight_only):
+    new = lambda: str(uuid.uuid4())  # noqa: E731
+    if preflight_only:
+        status, view = call("POST", "/api/probe-installs", token, docker_body(amd, new()))
+        record("docker_unavailable", amd, status == 422 and view.get("code") == "host_docker_unavailable",
+               http=status, code=view.get("code"))
+        return
+    status, view = call("POST", "/api/probe-installs", token, docker_body(amd, new(), arch="arm64"))
+    record("docker_wrong_architecture", amd, status == 422 and view.get("code") == "host_architecture_mismatch",
+           http=status, code=view.get("code"))
+    for host in (amd, arm):
+        op = new()
+        view = docker_install_ready(token, host, op)
+        act = activate(token, host, op) if view["status"] == "resources_ready" else {}
+        state = docker_resources(host, op)
+        record("docker_clean_install_and_activate", host, view["status"] == "resources_ready" and act.get("status") == "active"
+               and state[0] == 1 and state[1] == "running" and state[2] >= 1 and state[3] >= 1,
+               install=view["status"], failed_phase=view.get("failed_phase"), activation=act.get("status"),
+               probe_id=act.get("probe_id"), host_state=list(state))
+        if host is amd:
+            status, refusal = call("POST", "/api/probe-installs", token, docker_body(host, new()))
+            record("docker_existing_install", host, status == 422 and refusal.get("code") == "host_existing_install",
+                   http=status, code=refusal.get("code"))
+        cv = cleanup(token, host, op)
+        state = docker_resources(host, op)
+        record("docker_cleanup_active_probe", host, cv["status"] == "cleaned" and state[0] == 0 and state[1] == "absent"
+               and state[2] == 0 and state[3] >= 1, cleanup=cv["status"], host_state=list(state))
+
+
 def main():
     global R
     R, run_id, arm_ip, amd_ip = os.path.abspath(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
@@ -156,6 +223,7 @@ def main():
         raise SystemExit(f"login failed {code}")
     token = login["token"]
     new = lambda: str(uuid.uuid4())  # noqa: E731
+    mode = sys.argv[5] if len(sys.argv) > 5 else "systemd"
 
     # Leftovers of an aborted earlier attempt are removed first, by the product.
     leftovers = subprocess.run(["sqlite3", os.path.join(R, "hub.db"),
@@ -168,6 +236,12 @@ def main():
         host = amd if address.startswith(amd.ip) else arm
         cv = cleanup(token, host, op)
         print(json.dumps({"pre_cleanup": op, "host": host.arch, "status": cv["status"]}), flush=True)
+
+    if mode in ("docker", "docker-preflight"):
+        main_docker(token, arm, amd, mode == "docker-preflight")
+        failed = [r for r in RESULTS if r["result"] != "pass"]
+        print(json.dumps({"cases": len(RESULTS), "failed": len(failed)}))
+        raise SystemExit(1 if failed else 0)
 
     # --- Preflight refusals: nothing is created anywhere. ---
     expect_refusal("bad_host_key", token, amd, install_body(amd, new(), fingerprint=arm.fingerprint("ED25519")), "host_trust_failed")
