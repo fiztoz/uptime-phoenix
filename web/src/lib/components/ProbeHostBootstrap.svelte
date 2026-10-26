@@ -3,8 +3,8 @@
     probesApi,
     errorMessage,
     type ProbeHostBootstrapView,
-  } from "$lib/api/probes";
-  import * as m from "$lib/paraglide/messages.js";
+  } from "#lib/api/probes.js";
+  import * as m from "#lib/paraglide/messages.js";
 
   let { onclose }: { onclose: () => void } = $props();
 
