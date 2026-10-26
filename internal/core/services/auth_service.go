@@ -4,8 +4,10 @@ package services
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -53,6 +55,12 @@ var (
 	ErrUserNotFound = &AuthServiceError{Code: "user_not_found", Message: "user not found"}
 	// ErrUserExists is returned by Register when the username is taken.
 	ErrUserExists = &AuthServiceError{Code: "user_exists", Message: "username already taken"}
+	// ErrRegistrationClosed is returned by Register once the install has a
+	// user, including when a concurrent request created the first one.
+	ErrRegistrationClosed = &AuthServiceError{Code: "registration_closed", Message: "registration is disabled"}
+	// ErrInvalidSetupToken is returned by RegisterWithSetupToken when the
+	// one-time setup token is missing or wrong.
+	ErrInvalidSetupToken = &AuthServiceError{Code: "invalid_setup_token", Message: "invalid setup token"}
 	// ErrUserInactive is returned by Login for accounts that were disabled.
 	ErrUserInactive = &AuthServiceError{Code: "user_inactive", Message: "user is inactive"}
 	// ErrTOTPRequired is returned by Login when the user has 2FA enabled
@@ -123,10 +131,30 @@ type AuthService struct {
 	// throttle holds per-account login backoff and per-ticket 2FA attempt
 	// counts (issue #90).
 	throttle *loginThrottle
+
+	// setupToken gates first-user self-registration. Empty disables it.
+	setupToken string
 }
 
 // AuthServiceOption is a functional option for NewAuthService.
 type AuthServiceOption func(*AuthService)
+
+// WithFirstUserSetupToken enables first-user self-registration for callers
+// that present token (see FirstUserSetupToken). Without it, the first user
+// can only come from BOOTSTRAP_USERNAME/BOOTSTRAP_PASSWORD.
+func WithFirstUserSetupToken(token string) AuthServiceOption {
+	return func(s *AuthService) { s.setupToken = token }
+}
+
+// FirstUserSetupToken derives the one-time setup token from the session
+// signing secret. Every replica sharing JWT_SECRET derives the same token, so
+// the operator can copy it from any instance's log, and nobody without the
+// secret or the logs can claim a fresh install.
+func FirstUserSetupToken(signingSecret string) string {
+	mac := hmac.New(sha256.New, []byte(signingSecret))
+	mac.Write([]byte("uptime-phoenix first-user setup v1"))
+	return hex.EncodeToString(mac.Sum(nil))[:32]
+}
 
 // WithClock injects a clock for tests. Production callers should leave
 // this unset and use the real wall clock via ports.Clock implementations
@@ -415,10 +443,38 @@ func (s *AuthService) VerifyToken(ctx context.Context, token string) (int64, err
 // entry points share one validation/creation path. The bootstrap user is
 // always created as an admin — there is no other way to reach the
 // admin-only user management endpoints on a fresh install.
+//
+// The insert is conditional on the install still having no users, so
+// concurrent first registrations (on any replica) create exactly one admin;
+// the rest get ErrRegistrationClosed.
 func (s *AuthService) Register(ctx context.Context, username, password string) (*domain.User, error) {
 	// The bootstrap user is an admin, and admins implicitly hold every capability
 	// (see AccessService), so the explicit flags stay false here.
-	return s.CreateUser(ctx, username, password, true, true, "UTC", UserCapabilities{})
+	u, err := s.newUser(username, password, true, true, "UTC", UserCapabilities{})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.users.CreateFirst(ctx, u); err != nil {
+		if errors.Is(err, ports.ErrConflict) {
+			return nil, ErrRegistrationClosed
+		}
+		// A losing SQLite writer can fail with "busy" rather than a conflict;
+		// report it as closed once the winner is visible.
+		if n, countErr := s.users.Count(ctx); countErr == nil && n > 0 {
+			return nil, ErrRegistrationClosed
+		}
+		return nil, fmt.Errorf("auth service: register: %w", err)
+	}
+	return u, nil
+}
+
+// RegisterWithSetupToken is the self-service first-user path: it requires the
+// one-time setup token configured with WithFirstUserSetupToken.
+func (s *AuthService) RegisterWithSetupToken(ctx context.Context, setupToken, username, password string) (*domain.User, error) {
+	if s.setupToken == "" || subtle.ConstantTimeCompare([]byte(strings.TrimSpace(setupToken)), []byte(s.setupToken)) != 1 {
+		return nil, ErrInvalidSetupToken
+	}
+	return s.Register(ctx, username, password)
 }
 
 // UserCapabilities carries the optional account-level powers a NON-admin user
@@ -479,6 +535,21 @@ type CapabilityUpdate struct {
 // characters; an empty timezone defaults to "UTC". Returns ErrUserExists
 // if the username is already taken.
 func (s *AuthService) CreateUser(ctx context.Context, username, password string, active, isAdmin bool, timezone string, caps UserCapabilities) (*domain.User, error) {
+	u, err := s.newUser(username, password, active, isAdmin, timezone, caps)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.users.Create(ctx, u); err != nil {
+		if errors.Is(err, ports.ErrConflict) {
+			return nil, fmt.Errorf("%w", ErrUserExists)
+		}
+		return nil, fmt.Errorf("auth service: create user: create: %w", err)
+	}
+	return u, nil
+}
+
+// newUser validates the fields and hashes the password.
+func (s *AuthService) newUser(username, password string, active, isAdmin bool, timezone string, caps UserCapabilities) (*domain.User, error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return nil, fmt.Errorf("auth service: create user: %w: username is required", domain.ErrValidation)
@@ -507,12 +578,6 @@ func (s *AuthService) CreateUser(ctx context.Context, username, password string,
 		CanCreateGroups:           caps.CanCreateGroups,
 		CanEditGroupMetadata:      caps.CanEditGroupMetadata,
 		Timezone:                  timezone,
-	}
-	if err := s.users.Create(ctx, u); err != nil {
-		if errors.Is(err, ports.ErrConflict) {
-			return nil, fmt.Errorf("%w", ErrUserExists)
-		}
-		return nil, fmt.Errorf("auth service: create user: create: %w", err)
 	}
 	return u, nil
 }

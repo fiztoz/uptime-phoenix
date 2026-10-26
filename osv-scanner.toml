@@ -1,0 +1,23 @@
+# osv-scanner exceptions. Each entry needs a reason and an expiry; CI fails
+# again once ignoreUntil passes, so the exception gets re-reviewed.
+# Scan: osv-scanner scan source --config osv-scanner.toml --lockfile go.mod --lockfile web/bun.lock
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2027-01-31
+reason = "x/crypto/openpgp is unmaintained and has no fixed release. We never import openpgp (govulncheck reports it unreachable)."
+
+[[IgnoredVulns]]
+id = "GHSA-27mw-82g8-phjj"
+ignoreUntil = 2027-01-31
+reason = "Fixed only in SvelteKit 3. The web UI is adapter-static, and its prerendered pages make no fetches that carry an untrusted cache-control header at build time. Remove this when we migrate to SvelteKit 3."
+
+[[IgnoredVulns]]
+id = "GHSA-pfhg-q3qv-9q6r"
+ignoreUntil = 2027-01-31
+reason = "Fixed only in SvelteKit 3. The app does not use use:enhance or $app/forms. Remove this when we migrate to SvelteKit 3."
+
+[[IgnoredVulns]]
+id = "GHSA-pxg6-pf52-xh8x"
+ignoreUntil = 2027-01-31
+reason = "cookie@0.6.0 is pinned by @sveltejs/kit 2 and runs only in the server runtime, which adapter-static does not ship. Remove this when we migrate to SvelteKit 3."

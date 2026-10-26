@@ -13,11 +13,7 @@ import { api } from "./client.js";
 
 /** Regional statuses: lowercase, UNKNOWN stays visible. */
 export type RegionalStatus =
-  | "up"
-  | "down"
-  | "pending"
-  | "maintenance"
-  | "unknown";
+  "up" | "down" | "pending" | "maintenance" | "unknown";
 
 export interface MonitorProbeBindingView {
   kind: string;

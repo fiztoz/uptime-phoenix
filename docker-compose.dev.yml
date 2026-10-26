@@ -1,0 +1,13 @@
+# Local development overrides for docker-compose.yml. Not for shared hosts.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Relaxes the CSP and CORS defaults, turns on debug logging, and seeds a
+# well-known admin login so a fresh database is usable right away.
+services:
+  uptime-phoenix:
+    environment:
+      PRODUCTION: "false"
+      LOG_LEVEL: debug
+      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-admin}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-ChangeMe123!}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -59,6 +60,58 @@ func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
 	m.CreatedAt = now
 	m.UpdatedAt = now
 	_, err := r.db.NewInsert().Model(m).Exec(ctx)
+	if err != nil {
+		return translateError(err)
+	}
+	u.ID = m.ID
+	u.CreatedAt = m.CreatedAt
+	u.UpdatedAt = m.UpdatedAt
+	return nil
+}
+
+// firstUserClaimKey is a settings row whose unique key elects the single
+// first user across concurrent requests and replicas. Counting users alone
+// is not enough: two transactions can both see an empty table.
+const firstUserClaimKey = "auth.first_user_claimed"
+
+// CreateFirst inserts u only while no user exists. The claim row and the user
+// commit together, so a failed insert leaves registration open.
+func (r *UserRepo) CreateFirst(ctx context.Context, u *domain.User) error {
+	m := repository.UserModelFromDomain(u)
+	now := time.Now().UTC()
+	m.CreatedAt = now
+	m.UpdatedAt = now
+	// The claim row is a lock, not a once-only marker: it is created if
+	// missing and locked, and only then are users counted. An install whose
+	// users were all removed can therefore create its first admin again,
+	// while concurrent first sign-ups still elect exactly one winner.
+	// settings.value is a JSON column on MariaDB, so store a JSON string.
+	value, err := json.Marshal(u.Username)
+	if err != nil {
+		return err
+	}
+	claim := &repository.SettingModel{Key: firstUserClaimKey, Value: string(value)}
+	err = r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		claimInsert := tx.NewInsert().Model(claim).On("CONFLICT DO NOTHING")
+		if _, err := claimInsert.Exec(ctx); err != nil {
+			return err
+		}
+		// Writing the claim row takes SQLite's write lock, which serializes
+		// concurrent first sign-ups before the count.
+		if _, err := tx.NewUpdate().Model((*repository.SettingModel)(nil)).Set("value = ?", string(value)).
+			Where("setting_key = ?", firstUserClaimKey).Exec(ctx); err != nil {
+			return err
+		}
+		count, err := tx.NewSelect().Model((*repository.UserModel)(nil)).Count(ctx)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			return ports.ErrConflict
+		}
+		_, err = tx.NewInsert().Model(m).Exec(ctx)
+		return err
+	})
 	if err != nil {
 		return translateError(err)
 	}

@@ -36,14 +36,19 @@ services:
     environment:
       DB_ENGINE: mariadb
       DB_DSN: "phoenix:${MARIADB_PASSWORD:-change_me_app}@tcp(mariadb:3306)/phoenix?parseTime=true&loc=UTC&multiStatements=true"
-      LOG_LEVEL: debug
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Strict CSP and deny-by-default CORS. Local development overrides this
+      # with docker-compose.dev.yml.
+      PRODUCTION: ${PRODUCTION:-true}
       JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET to a random value of at least 32 bytes (openssl rand -base64 48)}"
       JWT_EXPIRE_HOURS: "168"
       TOTP_ISSUER: Phoenix
       HOST: "0.0.0.0"
       PORT: "3000"
-      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-admin}
-      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-ChangeMe123!}
+      # No default admin password: leave both unset to create the first admin
+      # in the web UI with the one-time setup_token printed in the server log.
+      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
     depends_on:
       mariadb:
         condition: service_healthy

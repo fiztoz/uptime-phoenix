@@ -85,9 +85,13 @@ function createAuthStore() {
     throw new Error("Unexpected passkey login response");
   }
 
-  async function register(username: string, password: string): Promise<void> {
+  async function register(
+    username: string,
+    password: string,
+    setupToken: string,
+  ): Promise<void> {
     try {
-      const res = await authApi.register(username, password);
+      const res = await authApi.register(username, password, setupToken);
       jwt = res.token;
       user = normalizeUser(res.user);
       toast.success("Account created");

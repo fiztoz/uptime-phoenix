@@ -571,7 +571,9 @@ oidc:
 # ── Bootstrap user (first launch only) ───────────────────────────────────────
 # When enabled, the first user is created automatically on startup.
 # The password is stored in a Kubernetes Secret — never in values.yaml directly.
-# After first login, remove these values and delete the secret for security.
+# After first login, set bootstrap.enabled: false and delete the secret. The
+# chart refuses to render bootstrap.enabled: true without a password or
+# existingSecret.
 bootstrap:
   enabled: false
   username: admin
@@ -704,7 +706,9 @@ dbMigration:
 
 # ── HTTP hardening / observability (ConfigMap → env) ──────────────────────────
 security:
-  production: false
+  # Strict Content-Security-Policy and deny-by-default CORS. Set false only
+  # for local development against the Vite dev server.
+  production: true
   corsAllowOrigins: ""
   rateLimitRPS: 50
   rateLimitBurst: 100
