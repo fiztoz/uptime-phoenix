@@ -226,8 +226,8 @@ func TestProbeHostBootstrapServiceBusyAndClose(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	select {
-	case <-closed:
-		t.Fatal("Close returned while a bootstrap was in flight")
+	case err := <-closed:
+		t.Fatalf("Close returned (%v) while a bootstrap was in flight", err)
 	case <-time.After(20 * time.Millisecond):
 	}
 	close(fake.block)
