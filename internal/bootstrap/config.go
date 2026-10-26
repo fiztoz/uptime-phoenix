@@ -8,6 +8,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
@@ -183,6 +184,10 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.ProbesAggregatePagingEnabled && !cfg.ProbesEnabled {
 		return Config{}, fmt.Errorf("PROBES_AGGREGATE_PAGING_ENABLED requires PROBES_ENABLED")
+	}
+	// Fail fast on a typo instead of silently blocking every internal target.
+	if err := netguard.Validate(); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
 )
 
 // TestMain fails a misspelled MariaDB matrix configuration instead of allowing
@@ -13,5 +15,7 @@ func TestMain(m *testing.M) {
 		_, _ = fmt.Fprintln(os.Stderr, "MARIADB_TEST_DSN is unsupported; set TEST_MARIADB_DSN to run the MariaDB contracts")
 		os.Exit(2)
 	}
+	// Real-check tests dial loopback fixtures, as OUTBOUND_ALLOWED_CIDRS would allow.
+	netguard.AllowLoopbackForTests()
 	os.Exit(m.Run())
 }

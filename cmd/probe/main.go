@@ -19,6 +19,7 @@ import (
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/auth"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/notifier"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/probe"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/edge"
@@ -57,6 +58,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = io.WriteString(stderr, "Invalid probe environment configuration\n")
 		return 2
 	}
+	// A probe is deployed by the operator into the network it monitors, and
+	// the hub decides who may assign checks to it, so every check and
+	// delivery here gets the always-blocked floor only (link-local, cloud
+	// metadata, multicast, unspecified). This is set in code, not from the
+	// environment: the SSH installer cannot pass OUTBOUND_ALLOWED_CIDRS.
+	netguard.TrustAllOwners()
 	var resetPlanFile string
 	flags := flag.NewFlagSet("probe", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)

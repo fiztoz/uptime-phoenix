@@ -267,6 +267,10 @@ func Run(cfg Config) error {
 	// route would 404 even for monitors the caller owns.
 	healthSvc.SetAccess(accessSvc)
 	accessSvc.SetEventBus(bus)
+	// Outbound reach (#88): monitor checks and notification deliveries reach
+	// what their owner may reach. AccessService decides; netguard enforces.
+	accessSvc.SetNotificationRepository(repos.notification)
+	notificationSvc.SetOutboundTrustResolver(accessSvc)
 	authSvc.SetUserChangeHook(accessSvc.InvalidateUser)
 	regionalSvc := services.NewMonitorRegionalService(healthSvc, repos.probeRegistry)
 	regionalSvc.SetDiagnostics(repos.probeDiagnostics)
@@ -450,6 +454,7 @@ func Run(cfg Config) error {
 		deliveryConsumer.SetMaintenanceChecker(maintenanceSvc)
 		deliveryConsumer.SetCronEvaluator(cronEval)
 		deliveryConsumer.SetTagReader(tagSvc)
+		deliveryConsumer.SetOutboundTrustResolver(accessSvc)
 		localAuthority := repo.NewOperativeDeliveryStore(db, probe.DeliveryCutoverCodec{}, commandProtector, nil, encoder)
 		deliveryConsumer.SetProviderAuthority(localAuthority, localAuthority)
 		for _, t := range []string{
@@ -530,6 +535,7 @@ func Run(cfg Config) error {
 		if err != nil {
 			return err
 		}
+		operative.SetOutboundTrustResolver(accessSvc)
 		operativeDone := make(chan struct{})
 		go func() {
 			defer close(operativeDone)
@@ -584,6 +590,7 @@ func Run(cfg Config) error {
 			if err != nil {
 				return nil, err
 			}
+			delivery.SetOutboundTrustResolver(accessSvc)
 			runtime.SetDelivery(delivery, owner.ProbeID)
 			return runtime, nil
 		}); err != nil {
@@ -633,6 +640,7 @@ func Run(cfg Config) error {
 				},
 			)
 			sharded.SetProxyRepo(repos.proxy)
+			sharded.SetOutboundTrustResolver(accessSvc)
 			sharded.SetAssignmentRepo(repos.probeAssignments)
 			// Only sharded workers attest: they are the ones enumerable through
 			// monitors.worker_id. A local-mode worker holds no lease, so it has no
@@ -660,6 +668,7 @@ func Run(cfg Config) error {
 				slog.Default(),
 			)
 			local.SetProxyRepo(repos.proxy)
+			local.SetOutboundTrustResolver(accessSvc)
 			local.SetAssignmentRepo(repos.probeAssignments)
 			if cfg.ProbeSecretKeyFile != "" {
 				local.SetActivationRepo(repos.probeActivation)
@@ -675,6 +684,7 @@ func Run(cfg Config) error {
 			}
 		}()
 		log.Info("scheduler started", "mode", cfg.Mode, "sharded", cfg.WorkerID != "")
+		go auditRestrictedMonitorTargets(schedCtx, repos.monitor, accessSvc, log)
 
 		// Start aggregate rollup goroutines.
 		go func() {

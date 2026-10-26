@@ -13,6 +13,33 @@ at the bottom.
 
 ### Security
 
+- Monitors and notifications now reach only what their **owner** may reach
+  (#88). Those owned by an admin are refused only the always-blocked floor:
+  link-local (`169.254.0.0/16`, `fe80::/10`, including `169.254.169.254`),
+  cloud metadata (`fd00:ec2::254`, `100.100.100.200`, Azure `168.63.129.16`),
+  multicast and unspecified addresses, which nothing can allowlist. Those owned
+  by a non-admin (or by a deleted user) are also refused loopback, RFC 1918,
+  CGNAT and IPv6 ULA destinations unless an operator lists them in
+  `OUTBOUND_ALLOWED_CIDRS` (Helm `outbound.allowedCIDRs`). Remote probes apply
+  the floor only. The check runs on the resolved address at dial time, so
+  redirects, DNS rebinding and IPv4-mapped/NAT64 forms are covered for HTTP(S),
+  S3, WebSocket, TCP, gRPC, RabbitMQ, MQTT, DNS (the resolver dial), SNMP and
+  ping checks, and for every HTTP and SMTP notifier. Through `HTTP(S)_PROXY` or
+  a monitor proxy, the target is resolved and checked before the request is
+  handed to the proxy. **Upgrade:** admin-only installs need no change; a
+  startup warning counts non-admin-owned monitors whose targets are now
+  refused. See RUNBOOK "Outbound guard".
+- Admin-only now (#88): `docker` and `database` monitors (the database drivers'
+  dialers are not guarded), assigning a monitor `proxy_id`,
+  `save_body_on_error`/`save_body_on_success` (only on admin-owned monitors),
+  and changing the destination of a notification an admin created. The monitor
+  form hides these options from non-admins.
+- For non-admin-owned monitors, JSON-assertion failures and OAuth2 token
+  errors no longer echo response content; admin-owned monitors keep the
+  truncated actual value (#88).
+- The chart NetworkPolicy keeps in-cluster HTTP(S) targets reachable (a
+  `namespaceSelector` peer) and excludes the metadata addresses from its
+  `ipBlock` egress peers (#88).
 - **Breaking:** `JWT_SECRET` is now required and must be at least 32 bytes;
   the published default secrets were removed from compose files, the Helm
   chart and docs (#87). This applies to **every** binary that loads the hub

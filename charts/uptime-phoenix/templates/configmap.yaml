@@ -16,6 +16,7 @@ data:
   jwt-expire-hours: {{ .Values.config.jwtExpireHours | quote }}
   totp-issuer: {{ .Values.config.totpIssuer | quote }}
   public-url: {{ .Values.config.publicUrl | default "" | quote }}
+  outbound-allowed-cidrs: {{ join "," ((.Values.outbound).allowedCIDRs | default list) | quote }}
   production: {{ .Values.security.production | quote }}
   cors-allow-origins: {{ .Values.security.corsAllowOrigins | quote }}
   rate-limit-rps: {{ .Values.security.rateLimitRPS | quote }}

@@ -15,7 +15,8 @@ import (
 	"time"
 
 	"github.com/tidwall/gjson"
-	"golang.org/x/net/proxy"
+
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -296,21 +297,23 @@ func jsonAssertionOperator(config map[string]any) string {
 // buildHTTPClient builds the *http.Client used for a single check: redirect
 // policy from follow_redirects, transport routed through the monitor's
 // configured proxy (if any — see buildProxyTransport), and TLS verification
-// skipping from tls_ignore.
-func buildHTTPClient(config map[string]any) (*http.Client, error) {
+// skipping from tls_ignore. Every transport is guarded by the outbound policy
+// of the monitor's owner (netguard.ForContext).
+func buildHTTPClient(ctx context.Context, config map[string]any) (*http.Client, error) {
+	policy := netguard.ForContext(ctx)
 	client := &http.Client{}
 	if follow, ok := config["follow_redirects"].(bool); ok && !follow {
 		client.CheckRedirect = func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		}
 	}
-	transport, err := buildProxyTransport(config)
+	transport, err := buildProxyTransport(policy, config)
 	if err != nil {
 		return nil, err
 	}
 	if ignore, ok := config["tls_ignore"].(bool); ok && ignore {
 		if transport == nil {
-			transport = &http.Transport{}
+			transport = policy.Transport()
 		}
 		// Operator opt-in per monitor (Monitor.TLSIgnore / config tls_ignore).
 		// Verification is skipped only when the operator explicitly enables it
@@ -318,9 +321,10 @@ func buildHTTPClient(config map[string]any) (*http.Client, error) {
 		// peer certs remain available for tls_days_remaining / tls_issuer.
 		transport.TLSClientConfig = operatorTLSIgnoreConfig()
 	}
-	if transport != nil {
-		client.Transport = transport
+	if transport == nil {
+		transport = policy.SharedTransport()
 	}
+	client.Transport = transport
 	return client, nil
 }
 
@@ -330,13 +334,12 @@ func buildHTTPClient(config map[string]any) (*http.Client, error) {
 // a proxy itself) and returns an *http.Transport routed through it.
 // Returns (nil, nil) when no proxy is configured for this check.
 //
-// http/https proxies use the stdlib http.ProxyURL. socks5 uses
-// golang.org/x/net/proxy, which was already a transitive dependency of this
-// module before this feature (see go.mod) — using it directly here doesn't
-// add anything new. socks4 is rejected: x/net/proxy has no SOCKS4 dialer,
-// and ProxyService already refuses to store a socks4 proxy for the same
-// reason, so reaching that branch here would indicate a data inconsistency.
-func buildProxyTransport(config map[string]any) (*http.Transport, error) {
+// http, https and socks5 proxies all use net/http's native proxy support, so
+// the target is checked against the owner's policy before it is handed to the
+// proxy (see netguard's proxyGuard). socks4 is rejected: ProxyService already
+// refuses to store a socks4 proxy, so reaching that branch here would indicate
+// a data inconsistency.
+func buildProxyTransport(policy *netguard.Policy, config map[string]any) (*http.Transport, error) {
 	raw, ok := config["_proxy"].(map[string]any)
 	if !ok || raw == nil {
 		return nil, nil
@@ -359,23 +362,7 @@ func buildProxyTransport(config map[string]any) (*http.Transport, error) {
 		Host:   net.JoinHostPort(host, strconv.Itoa(port)),
 		User:   userInfo,
 	}
-
-	switch protocol {
-	case "http", "https":
-		return &http.Transport{Proxy: http.ProxyURL(proxyURL)}, nil
-	case "socks5":
-		dialer, err := proxy.FromURL(proxyURL, proxy.Direct)
-		if err != nil {
-			return nil, fmt.Errorf("configure socks5 proxy: %w", err)
-		}
-		return &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				return dialer.Dial(network, addr)
-			},
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported proxy protocol %q", protocol)
-	}
+	return policy.ProxyTransport(proxyURL)
 }
 
 // intFromAny converts the numeric types that may end up in a config map
@@ -472,13 +459,26 @@ func (HTTPChecker) Check(ctx context.Context, config map[string]any) (ports.Chec
 	// Set follow_redirects=false in config to inspect the first response only.
 	// Routed through the monitor's configured proxy, if any.
 	start := time.Now()
-	client, err := buildHTTPClient(config)
+	client, err := buildHTTPClient(ctx, config)
 	if err != nil {
 		return ports.CheckResult{
 			Status:  domain.StatusDown,
 			Message: fmt.Sprintf("proxy configuration error: %s", err.Error()),
 		}, nil
 	}
+	// Response content is echoed into heartbeat messages only for admin-owned
+	// monitors: those messages are visible to everyone who can view the
+	// monitor, so for a restricted owner they would turn a check into a read
+	// primitive against whatever it can reach, including OUTBOUND_ALLOWED_CIDRS
+	// ranges (#88).
+	//
+	//   - revealValues (JSON assertion values, OAuth2 error bodies) needs the
+	//     hub's explicit admin-owner decision; a remote probe cannot see the
+	//     owner, so it does not reveal them.
+	//   - revealBody (save_body_on_*) also holds on a probe: the API accepts
+	//     save_body_* only on admin-owned monitors.
+	revealValues := revealsResponseValues(ctx)
+	revealBody := netguard.ForContext(ctx).Trusted()
 
 	// Auth is applied after headers so method-based Authorization wins over a
 	// stale Authorization header the operator left in the free-form headers field.
@@ -536,7 +536,9 @@ func (HTTPChecker) Check(ctx context.Context, config map[string]any) (ports.Chec
 			Message:   message,
 			Metadata:  metadata,
 		}
-		attachSavedResponseBody(config, status, bodyStr, &result)
+		if revealBody {
+			attachSavedResponseBody(config, status, bodyStr, &result)
+		}
 		return result
 	}
 
@@ -583,7 +585,7 @@ func (HTTPChecker) Check(ctx context.Context, config map[string]any) (ports.Chec
 	// path-only monitors backward compatible; imported expected_value configs
 	// implicitly use equality.
 	if jsonQuery, ok := config["json_query"].(string); ok && jsonQuery != "" {
-		if message := evaluateJSONAssertion(bodyStr, jsonQuery, config); message != "" {
+		if message := evaluateJSONAssertion(bodyStr, jsonQuery, config, revealValues); message != "" {
 			return finish(domain.StatusDown, message), nil
 		}
 	}
@@ -592,8 +594,10 @@ func (HTTPChecker) Check(ctx context.Context, config map[string]any) (ports.Chec
 }
 
 // evaluateJSONAssertion returns an empty message when the assertion passes and
-// an actionable heartbeat message when it fails.
-func evaluateJSONAssertion(body, jsonQuery string, config map[string]any) string {
+// an actionable heartbeat message when it fails. revealActual adds the
+// (truncated) response value to the message; Check sets it only for
+// admin-owned monitors.
+func evaluateJSONAssertion(body, jsonQuery string, config map[string]any, revealActual bool) string {
 	if err := validateJSONAssertion(config); err != nil {
 		return fmt.Sprintf("invalid JSON assertion: %s", err)
 	}
@@ -623,24 +627,31 @@ func evaluateJSONAssertion(body, jsonQuery string, config map[string]any) string
 		return fmt.Sprintf("JSON path %q returned an empty value", jsonQuery)
 	}
 
+	// For restricted owners, failure messages name the query and the
+	// operator's expected value but never the response value (see revealValues
+	// in Check).
 	expected, _ := config["expected_value"].(string)
 	actual := jsonAssertionValue(result)
+	got := ""
+	if revealActual {
+		got = fmt.Sprintf(" (got %q)", compactJSONAssertionValue(actual))
+	}
 	switch operator {
 	case jsonOperatorEquals:
 		if actual != expected {
-			return fmt.Sprintf("JSON path %q returned %q; expected %q", jsonQuery, compactJSONAssertionValue(actual), expected)
+			return fmt.Sprintf("JSON path %q did not equal %q%s", jsonQuery, expected, got)
 		}
 	case jsonOperatorNotEquals:
 		if actual == expected {
-			return fmt.Sprintf("JSON path %q returned the disallowed value %q", jsonQuery, compactJSONAssertionValue(actual))
+			return fmt.Sprintf("JSON path %q returned the disallowed value %q", jsonQuery, expected)
 		}
 	case jsonOperatorContains:
 		if !strings.Contains(actual, expected) {
-			return fmt.Sprintf("JSON path %q returned %q; expected it to contain %q", jsonQuery, compactJSONAssertionValue(actual), expected)
+			return fmt.Sprintf("JSON path %q did not contain %q%s", jsonQuery, expected, got)
 		}
 	case jsonOperatorNotContains:
 		if strings.Contains(actual, expected) {
-			return fmt.Sprintf("JSON path %q returned a value containing disallowed text %q", jsonQuery, expected)
+			return fmt.Sprintf("JSON path %q returned a value containing disallowed text %q%s", jsonQuery, expected, got)
 		}
 	}
 	return ""
@@ -666,13 +677,14 @@ func jsonAssertionHasValue(result gjson.Result) bool {
 	}
 }
 
-func jsonAssertionValue(result gjson.Result) string {
-	if result.Type == gjson.Null && result.Raw == "null" {
-		return "null"
-	}
-	return result.String()
+// revealsResponseValues reports whether response values may be echoed into a
+// check message: only when the hub attached an admin owner's trust.
+func revealsResponseValues(ctx context.Context) bool {
+	return domain.OutboundTrustFrom(ctx) == domain.OutboundTrustAdmin
 }
 
+// compactJSONAssertionValue truncates a response value for a heartbeat
+// message.
 func compactJSONAssertionValue(value string) string {
 	const maxRunes = 160
 	runes := []rune(value)
@@ -680,6 +692,13 @@ func compactJSONAssertionValue(value string) string {
 		return value
 	}
 	return string(runes[:maxRunes]) + "…"
+}
+
+func jsonAssertionValue(result gjson.Result) string {
+	if result.Type == gjson.Null && result.Raw == "null" {
+		return "null"
+	}
+	return result.String()
 }
 
 // applyHTTPAuth mutates req with the configured auth method.
@@ -750,7 +769,7 @@ func fetchOAuth2ClientCredentialsToken(ctx context.Context, client *http.Client,
 	tokenReq.SetBasicAuth(clientID, clientSecret)
 
 	if client == nil {
-		client = http.DefaultClient
+		client = netguard.ForContext(ctx).Client(30 * time.Second)
 	}
 	resp, err := client.Do(tokenReq)
 	if err != nil {
@@ -763,6 +782,11 @@ func fetchOAuth2ClientCredentialsToken(ctx context.Context, client *http.Client,
 		return "", fmt.Errorf("read oauth2 token response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// The response body is echoed only for admin-owned monitors (see
+		// revealValues in Check).
+		if !revealsResponseValues(ctx) {
+			return "", fmt.Errorf("oauth2 token endpoint returned %d", resp.StatusCode)
+		}
 		snippet := strings.TrimSpace(string(raw))
 		if len(snippet) > 200 {
 			snippet = snippet[:200] + "…"
@@ -779,7 +803,9 @@ func fetchOAuth2ClientCredentialsToken(ctx context.Context, client *http.Client,
 
 // attachSavedResponseBody appends a truncated response body to Message (and
 // Metadata["response_body"]) when the operator opted in via save_body_on_error
-// or save_body_on_success. The truncated Message is what notifications surface
+// or save_body_on_success. Check calls it only for admin-owned monitors, and
+// the API refuses save_body_* on a monitor whose owner is not an admin. The
+// truncated Message is what notifications surface
 // via AlertContext.CheckOutput (wired from heartbeat Msg).
 func attachSavedResponseBody(config map[string]any, status domain.Status, body string, result *ports.CheckResult) {
 	if result == nil || body == "" {

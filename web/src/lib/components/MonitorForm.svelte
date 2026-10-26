@@ -322,9 +322,13 @@
     return field.showWhen.values.includes(current);
   }
 
+  // Admin-only options and types (#88): every UI gate is is_admin, and the
+  // API enforces the same rules (403).
+  const isAdmin = $derived(auth.user?.is_admin === true);
+
   let visibleFields = $derived(
-    (monitorTypeConfig[selectedType]?.fields || []).filter((f) =>
-      isFieldVisible(f),
+    (monitorTypeConfig[selectedType]?.fields || []).filter(
+      (f) => isFieldVisible(f) && (isAdmin || !f.adminOnly),
     ),
   );
 
@@ -476,6 +480,13 @@
       // accepted_statuscodes is a top-level backend field, not part of config.
       const config: Record<string, unknown> = { ...formData.config };
       delete config.accepted_statuscodes;
+      if (!isAdmin) {
+        // Hidden admin-only options must not be re-sent (a legacy value would
+        // make the API refuse the whole save).
+        for (const field of cfg?.fields || []) {
+          if (field.adminOnly) delete config[field.key];
+        }
+      }
       if (selectedType === "database") {
         const maxGb = Number(config.storage_max_gb);
         if (!Number.isFinite(maxGb) || maxGb <= 0) {
@@ -623,18 +634,21 @@
 
   /** Localized section headings for the type picker (General / Passive / …). */
   const typeSelectGroups = $derived(
-    buildMonitorTypeSelectGroups((id: MonitorTypeGroupId) => {
-      switch (id) {
-        case "general":
-          return m.monitor_type_group_general();
-        case "passive":
-          return m.monitor_type_group_passive();
-        case "infrastructure":
-          return m.monitor_type_group_infrastructure();
-        case "protocol":
-          return m.monitor_type_group_protocol();
-      }
-    }),
+    buildMonitorTypeSelectGroups(
+      (id: MonitorTypeGroupId) => {
+        switch (id) {
+          case "general":
+            return m.monitor_type_group_general();
+          case "passive":
+            return m.monitor_type_group_passive();
+          case "infrastructure":
+            return m.monitor_type_group_infrastructure();
+          case "protocol":
+            return m.monitor_type_group_protocol();
+        }
+      },
+      { isAdmin, keepType: editingMonitor?.type },
+    ),
   );
 
   // Shared, token-consistent class strings.
@@ -1346,29 +1360,33 @@
               </p>
             </div>
 
-            <div>
-              <label class="text-sm font-medium" for="monitor-proxy"
-                >{m.monitor_form_proxy_label()}</label
-              >
-              <div class="mt-1">
-                <Select
-                  id="monitor-proxy"
-                  options={[
-                    { value: "", label: m.option_none() },
-                    ...proxies.map((p) => ({
-                      value: String(p.id),
-                      label: `${p.protocol}://${p.host}:${p.port}${p.is_default ? m.monitor_form_proxy_default() : ""}`,
-                    })),
-                  ]}
-                  value={selectedProxyId}
-                  onValueChange={(v) => (selectedProxyId = v)}
-                  class="w-full"
-                />
+            <!-- Assigning a proxy is admin-only (#88). A non-admin's save
+                 keeps the stored proxy_id unchanged, which the API allows. -->
+            {#if isAdmin}
+              <div>
+                <label class="text-sm font-medium" for="monitor-proxy"
+                  >{m.monitor_form_proxy_label()}</label
+                >
+                <div class="mt-1">
+                  <Select
+                    id="monitor-proxy"
+                    options={[
+                      { value: "", label: m.option_none() },
+                      ...proxies.map((p) => ({
+                        value: String(p.id),
+                        label: `${p.protocol}://${p.host}:${p.port}${p.is_default ? m.monitor_form_proxy_default() : ""}`,
+                      })),
+                    ]}
+                    value={selectedProxyId}
+                    onValueChange={(v) => (selectedProxyId = v)}
+                    class="w-full"
+                  />
+                </div>
+                <p class="mt-1 text-xs text-muted-foreground">
+                  {m.monitor_form_proxy_help()}
+                </p>
               </div>
-              <p class="mt-1 text-xs text-muted-foreground">
-                {m.monitor_form_proxy_help()}
-              </p>
-            </div>
+            {/if}
 
             <div>
               <label class="text-sm font-medium" for="monitor-escalation"

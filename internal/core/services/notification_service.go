@@ -32,6 +32,14 @@ type NotificationService struct {
 	appliedReader    ports.LocalAppliedConfigReader    // optional: applied configuration snapshot lookup
 	bus              ports.EventBus                    // optional: event bus for mutation events
 	senders          map[string]ports.NotificationSender
+	outboundTrust    OutboundTrustResolver // optional: unset means restricted
+}
+
+// SetOutboundTrustResolver decides each delivery's outbound reach from the
+// notification's owner (AccessService). When unset, every delivery gets the
+// restricted tier.
+func (s *NotificationService) SetOutboundTrustResolver(r OutboundTrustResolver) {
+	s.outboundTrust = r
 }
 
 // SetAppliedConfigReader wires applied configuration snapshot lookup.
@@ -272,7 +280,7 @@ func (s *NotificationService) Dispatch(ctx context.Context, monitor *domain.Moni
 				"type", n.Type, "notification_id", n.ID, "monitor_id", monitor.ID, "error", err)
 			continue
 		}
-		if err := sender.Send(ctx, n.Config, notificationAlert); err != nil {
+		if err := sender.Send(notificationSendContext(ctx, s.outboundTrust, n), n.Config, notificationAlert); err != nil {
 			slog.Error("notification service: send failed",
 				"type", n.Type, "notification_id", n.ID, "monitor_id", monitor.ID, "error", err)
 		}
@@ -310,7 +318,7 @@ func (s *NotificationService) DispatchTracked(ctx context.Context, monitor *doma
 			errs = append(errs, fmt.Errorf("notification %d template: %w", n.ID, templateErr))
 			continue
 		}
-		if sendErr := sender.Send(ctx, n.Config, notificationAlert); sendErr != nil {
+		if sendErr := sender.Send(notificationSendContext(ctx, s.outboundTrust, n), n.Config, notificationAlert); sendErr != nil {
 			errs = append(errs, fmt.Errorf("notification %d: %w", n.ID, sendErr))
 			continue
 		}
@@ -385,7 +393,7 @@ func (s *NotificationService) DispatchToNotificationIDs(ctx context.Context, not
 			errs = append(errs, fmt.Errorf("notification %d template: %w", id, err))
 			continue
 		}
-		if err := sender.Send(ctx, n.Config, notificationAlert); err != nil {
+		if err := sender.Send(notificationSendContext(ctx, s.outboundTrust, n), n.Config, notificationAlert); err != nil {
 			slog.Error("notification service: escalation send failed",
 				"type", n.Type, "notification_id", n.ID, "monitor_id", alert.MonitorID, "error", err)
 			errs = append(errs, fmt.Errorf("notification %d: %w", id, err))
@@ -457,7 +465,7 @@ func (s *NotificationService) NotifyGroup(ctx context.Context, group *domain.Mon
 				"type", n.Type, "notification_id", n.ID, "group_id", group.ID, "error", err)
 			continue
 		}
-		if err := sender.Send(ctx, n.Config, notificationAlert); err != nil {
+		if err := sender.Send(notificationSendContext(ctx, s.outboundTrust, n), n.Config, notificationAlert); err != nil {
 			slog.Error("notification service: group send failed",
 				"type", n.Type, "notification_id", n.ID, "group_id", group.ID, "error", err)
 		}
@@ -512,7 +520,7 @@ func (s *NotificationService) SendTest(ctx context.Context, n *domain.Notificati
 	if err != nil {
 		return fmt.Errorf("notification service: resolve test template: %w", err)
 	}
-	return sender.Send(ctx, n.Config, notificationAlert)
+	return sender.Send(notificationSendContext(ctx, s.outboundTrust, n), n.Config, notificationAlert)
 }
 
 func (s *NotificationService) validateTemplateAssignment(ctx context.Context, n *domain.Notification) error {

@@ -3,8 +3,9 @@ package checker
 import (
 	"context"
 	"fmt"
-	"net"
 	"time"
+
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -61,8 +62,7 @@ func (TCPChecker) Check(ctx context.Context, config map[string]any) (ports.Check
 	defer cancel()
 
 	start := time.Now()
-	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	conn, err := netguard.ForContext(ctx).DialContext(ctx, "tcp", addr)
 	latencyMs := time.Since(start).Milliseconds()
 
 	if err != nil {

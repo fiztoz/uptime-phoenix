@@ -6,6 +6,7 @@ import (
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
+	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
 // runnableMonitor couples an eligible monitor with its active local assignment generation.
@@ -42,7 +43,7 @@ func filterLocalRunnable(ctx context.Context, assignments ports.MonitorProbeAssi
 	return out, nil
 }
 
-func captureScheduledChecks(ctx context.Context, runnable []runnableMonitor, activation ports.ProbeConfigActivationRepository, proxies *proxyResolver) ([]scheduledCheck, error) {
+func captureScheduledChecks(ctx context.Context, runnable []runnableMonitor, activation ports.ProbeConfigActivationRepository, proxies *proxyResolver, trust services.OutboundTrustResolver) ([]scheduledCheck, error) {
 	var applied *domain.LocalProbeConfigDefinition
 	if activation != nil {
 		reader, ok := activation.(ports.LocalAppliedConfigReader)
@@ -56,6 +57,7 @@ func captureScheduledChecks(ctx context.Context, runnable []runnableMonitor, act
 		}
 	}
 	checks := make([]scheduledCheck, 0, len(runnable))
+	owners := newOwnerTrust(trust)
 	for _, r := range runnable {
 		m, gen, revision := r.Monitor, r.Generation, int64(0)
 		var proxyConfig map[string]any
@@ -84,7 +86,10 @@ func captureScheduledChecks(ctx context.Context, runnable []runnableMonitor, act
 		}
 		config := checkConfigForMonitor(m)
 		config["_proxy"] = proxyConfig
-		checks = append(checks, scheduledCheck{Monitor: m, Generation: gen, ConfigRevision: revision, CheckConfig: config})
+		// Ownership comes from the live row (r.Monitor), not the applied
+		// snapshot: it is what CanEditMonitor and the API gates use.
+		checks = append(checks, scheduledCheck{Monitor: m, Generation: gen, ConfigRevision: revision, CheckConfig: config,
+			OutboundTrust: owners.of(ctx, r.Monitor)})
 	}
 	return checks, nil
 }

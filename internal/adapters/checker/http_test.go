@@ -336,6 +336,7 @@ func TestHTTPChecker_Check_JSONAssertions(t *testing.T) {
 		config     map[string]any
 		wantStatus string
 		wantMsg    string
+		rejectMsg  string
 	}{
 		{
 			name: "kubernetes ready string equals True",
@@ -425,7 +426,9 @@ func TestHTTPChecker_Check_JSONAssertions(t *testing.T) {
 				"expected_value": "False",
 			},
 			wantStatus: "DOWN",
-			wantMsg:    `expected "False"`,
+			wantMsg:    `did not equal "False"`,
+			// The response value must not be echoed back (#88).
+			rejectMsg: "True",
 		},
 		{
 			name: "existing path fails not exists",
@@ -463,6 +466,9 @@ func TestHTTPChecker_Check_JSONAssertions(t *testing.T) {
 			}
 			if tt.wantMsg != "" && !strings.Contains(result.Message, tt.wantMsg) {
 				t.Errorf("Check() message = %q, want it to contain %q", result.Message, tt.wantMsg)
+			}
+			if tt.rejectMsg != "" && strings.Contains(result.Message, tt.rejectMsg) {
+				t.Errorf("Check() message = %q, must not contain response value %q", result.Message, tt.rejectMsg)
 			}
 		})
 	}
@@ -531,7 +537,7 @@ func TestEvaluateJSONAssertion_HasValue(t *testing.T) {
 			message := evaluateJSONAssertion(tt.body, tt.path, map[string]any{
 				"json_query":    tt.path,
 				"json_operator": "has_value",
-			})
+			}, false)
 			if tt.fail && message == "" {
 				t.Fatal("evaluateJSONAssertion() passed, want failure")
 			}
@@ -776,6 +782,8 @@ func TestHTTPChecker_Check_OAuth2ClientCredentials(t *testing.T) {
 	}
 }
 
+// save_body_on_* applies to admin-owned monitors only; restricted owners are
+// covered in netguard_test.go.
 func TestHTTPChecker_Check_SaveBodyOnError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -784,7 +792,7 @@ func TestHTTPChecker_Check_SaveBodyOnError(t *testing.T) {
 	defer srv.Close()
 
 	c := HTTPChecker{}
-	result, err := c.Check(context.Background(), map[string]any{
+	result, err := c.Check(adminCtx(), map[string]any{
 		"url":                srv.URL,
 		"timeout":            5.0,
 		"save_body_on_error": true,
@@ -837,7 +845,7 @@ func TestHTTPChecker_Check_SaveBodyOnSuccess(t *testing.T) {
 	defer srv.Close()
 
 	c := HTTPChecker{}
-	result, err := c.Check(context.Background(), map[string]any{
+	result, err := c.Check(adminCtx(), map[string]any{
 		"url":                  srv.URL,
 		"timeout":              5.0,
 		"save_body_on_success": true,

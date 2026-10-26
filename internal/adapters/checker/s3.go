@@ -137,7 +137,7 @@ func (S3Checker) Check(ctx context.Context, config map[string]any) (ports.CheckR
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec*float64(time.Second)))
 	defer cancel()
 
-	client, err := buildS3HTTPClient(config)
+	client, err := buildS3HTTPClient(ctx, config)
 	if err != nil {
 		return ports.CheckResult{Status: domain.StatusDown, Message: fmt.Sprintf("http client: %s", err.Error())}, nil
 	}
@@ -166,8 +166,8 @@ func (S3Checker) Check(ctx context.Context, config map[string]any) (ports.CheckR
 	return result, nil
 }
 
-func buildS3HTTPClient(config map[string]any) (*http.Client, error) {
-	client, err := buildHTTPClient(config)
+func buildS3HTTPClient(ctx context.Context, config map[string]any) (*http.Client, error) {
+	client, err := buildHTTPClient(ctx, config)
 	if err != nil {
 		return nil, err
 	}

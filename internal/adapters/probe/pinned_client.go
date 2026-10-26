@@ -17,13 +17,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/netguard"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
 var (
-	cgnatPrefix       = netip.MustParsePrefix("100.64.0.0/10")
-	cloudMetadataIPv6 = netip.MustParseAddr("fd00:ec2::254")
-	cloudMetadataAli  = netip.MustParseAddr("100.100.100.200")
+	cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
 
 	specialNonPublicPrefixes = []netip.Prefix{
 		netip.MustParsePrefix("0.0.0.0/8"),
@@ -47,25 +46,12 @@ type EndpointPolicy struct {
 
 // ValidateDestination verifies whether an address is allowed by the endpoint policy.
 // Unspecified, multicast, link-local, and cloud metadata destinations are always forbidden,
-// even if an allowed CIDR is supplied.
+// even if an allowed CIDR is supplied: this is the same floor netguard applies to every
+// monitor check and notification (netguard.CheckFloor).
 func ValidateDestination(addr netip.Addr, policy EndpointPolicy) error {
 	addr = addr.Unmap()
-	if !addr.IsValid() {
-		return errors.New("invalid IP address")
-	}
-
-	// Always forbidden categories
-	if addr.IsUnspecified() {
-		return errors.New("unspecified IP address destination is forbidden")
-	}
-	if addr.IsMulticast() {
-		return errors.New("multicast IP address destination is forbidden")
-	}
-	if addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() {
-		return errors.New("link-local IP address destination is forbidden")
-	}
-	if addr == cloudMetadataIPv6 || addr == cloudMetadataAli {
-		return errors.New("cloud metadata destination is forbidden")
+	if err := netguard.CheckFloor(addr); err != nil {
+		return err
 	}
 
 	// If explicit CIDRs configured, address must match at least one

@@ -31,7 +31,23 @@ export interface ConfigField {
   max?: number;
   /** Step increment for type "number" inputs. */
   step?: number;
+  /**
+   * Shown only to admins. The API refuses the option for monitors whose owner
+   * is not an admin (#88); see ADMIN_ONLY_MONITOR_TYPES for whole types.
+   */
+  adminOnly?: boolean;
 }
+
+/**
+ * Monitor types only admins may create or reconfigure (#88). Mirrors
+ * adminOnlyMonitorTypes in internal/core/services/access_service.go: docker
+ * reaches a Docker daemon, and database checks dial through engine drivers
+ * the outbound guard does not cover.
+ */
+export const ADMIN_ONLY_MONITOR_TYPES: readonly string[] = [
+  "docker",
+  "database",
+];
 
 /** High-level category for the create-monitor type picker (Kuma-style groups). */
 export type MonitorTypeGroupId =
@@ -349,6 +365,7 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         default: false,
         help: "Appends a truncated response body when the check is DOWN (alerts + history).",
         section: "diagnostics",
+        adminOnly: true,
       },
       {
         key: "save_body_on_success",
@@ -357,6 +374,7 @@ export const monitorTypeConfig: Record<string, MonitorTypeMeta> = {
         default: false,
         help: "Appends a truncated response body when the check is UP (recovery alerts + history).",
         section: "diagnostics",
+        adminOnly: true,
       },
     ],
   },
@@ -893,17 +911,24 @@ export const monitorTypes: string[] = MONITOR_TYPE_GROUPS.flatMap((g) => [
 
 /**
  * Build Select-friendly groups with labels + optional short descriptions.
- * Pass `groupLabel` to localize section headings.
+ * Pass `groupLabel` to localize section headings. Pass `isAdmin: false` to
+ * leave out ADMIN_ONLY_MONITOR_TYPES (except `keepType`, the type of a monitor
+ * being edited), and drop groups left empty.
  */
 export function buildMonitorTypeSelectGroups(
   groupLabel?: (id: MonitorTypeGroupId) => string,
+  access: { isAdmin: boolean; keepType?: string } = { isAdmin: true },
 ): {
   label: string;
   options: { value: string; label: string; description?: string }[];
 }[] {
+  const allowed = (type: string) =>
+    access.isAdmin ||
+    type === access.keepType ||
+    !ADMIN_ONLY_MONITOR_TYPES.includes(type);
   return MONITOR_TYPE_GROUPS.map((group) => ({
     label: groupLabel?.(group.id) ?? group.label,
-    options: group.types.map((type) => {
+    options: group.types.filter(allowed).map((type) => {
       const meta = monitorTypeConfig[type];
       return {
         value: type,
@@ -911,7 +936,7 @@ export function buildMonitorTypeSelectGroups(
         description: meta?.description,
       };
     }),
-  }));
+  })).filter((group) => group.options.length > 0);
 }
 
 /** Add an explicit secure scheme to a bare HTTP monitor target. */
