@@ -177,6 +177,9 @@ at the bottom.
 - Replay acquires observation-assignment and history-commit locks in a fixed
   order, removing MariaDB deadlocks (#77, #78).
 - Status-page recovery filters before reading health (#79).
+- `phoenix-probe-admin help` (and usage errors) no longer require
+  `JWT_SECRET`; only the subcommands that open the hub database load its
+  config. The release artifact check runs `help` on the built binary.
 
 ### Changed
 

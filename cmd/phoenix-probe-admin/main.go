@@ -51,6 +51,10 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "verify-image-content" {
 		os.Exit(bootstrap.RunProbeImageContentVerification(ctx, os.Args[2:], os.Stdout, os.Stderr))
 	}
+	// Help and usage errors need no hub config, so they work without JWT_SECRET.
+	if !bootstrap.ProbeAdminNeedsConfig(os.Args[1:]) {
+		os.Exit(bootstrap.RunProbeAdmin(ctx, bootstrap.Config{}, os.Args[1:], os.Stdout, os.Stderr))
+	}
 	cfg, err := bootstrap.LoadConfig()
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, hubConfigErrorMessage(err))
