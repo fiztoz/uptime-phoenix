@@ -825,14 +825,15 @@ func Run(cfg Config) error {
 		defer func() { _ = installOperations.Close(context.Background()) }()
 	}
 	httpOpts := httppkg.RouterOptions{
-		RegionalMonitors: regionalHandlers,
-		ProbeFleet:       handlers.NewProbeFleetHandlers(fleetSvc, cfg.ProbesEnabled),
-		ProbeAdmin:       handlers.NewProbeAdminHandlers(adminSvc, fleetSvc, cfg.ProbesEnabled),
-		ProbePreflights:  handlers.NewProbePreflightHandlers(preflightOperations, cfg.ProbeSSHPreflightEnabled && cfg.Mode != "worker"),
-		ProbeInstalls:    handlers.NewProbeInstallHandlers(installOperations.service(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
-		ProbeActivations: handlers.NewProbeActivationHandlers(installOperations.activationService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
-		ProbeCleanups:    handlers.NewProbeCleanupHandlers(installOperations.cleanupService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
-		Production:       cfg.Production,
+		RegionalMonitors:    regionalHandlers,
+		ProbeFleet:          handlers.NewProbeFleetHandlers(fleetSvc, cfg.ProbesEnabled),
+		ProbeAdmin:          handlers.NewProbeAdminHandlers(adminSvc, fleetSvc, cfg.ProbesEnabled),
+		ProbePreflights:     handlers.NewProbePreflightHandlers(preflightOperations, cfg.ProbeSSHPreflightEnabled && cfg.Mode != "worker"),
+		ProbeInstalls:       handlers.NewProbeInstallHandlers(installOperations.service(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
+		ProbeActivations:    handlers.NewProbeActivationHandlers(installOperations.activationService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
+		ProbeCleanups:       handlers.NewProbeCleanupHandlers(installOperations.cleanupService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
+		ProbeHostBootstraps: handlers.NewProbeHostBootstrapHandlers(installOperations.bootstrapService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
+		Production:          cfg.Production,
 		RateLimit: middleware.RateLimitConfig{
 			RequestsPerSecond: cfg.RateLimitRPS,
 			Burst:             cfg.RateLimitBurst,

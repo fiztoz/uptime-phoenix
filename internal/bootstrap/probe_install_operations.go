@@ -39,6 +39,18 @@ type probeInstallOperations struct {
 	activation *services.ProbeActivationOperationService
 	cleanup    *services.ProbeCleanupOperationService
 	factory    *provisioning.SSHProbeInstallSessionFactory
+	// bootstrap is the one-time SSH-password host preparation; bootstrapper
+	// holds its own artifact directory handle.
+	bootstrap    *services.ProbeHostBootstrapService
+	bootstrapper *provisioning.SSHProbeHostBootstrapper
+}
+
+// bootstrapService returns the handler-facing host bootstrap service, or nil.
+func (o *probeInstallOperations) bootstrapService() *services.ProbeHostBootstrapService {
+	if o == nil {
+		return nil
+	}
+	return o.bootstrap
 }
 
 // service returns the handler-facing service, or a typed nil when disabled.
@@ -71,14 +83,17 @@ func (o *probeInstallOperations) Close(ctx context.Context) error {
 	if o == nil {
 		return nil
 	}
-	var cleanupErr, activationErr error
+	var bootstrapErr, cleanupErr, activationErr error
+	if o.bootstrap != nil {
+		bootstrapErr = errors.Join(o.bootstrap.Close(ctx), o.bootstrapper.Close())
+	}
 	if o.cleanup != nil {
 		cleanupErr = o.cleanup.Close(ctx)
 	}
 	if o.activation != nil {
 		activationErr = o.activation.Close(ctx)
 	}
-	return errors.Join(cleanupErr, activationErr, o.svc.Close(ctx), o.factory.Close())
+	return errors.Join(bootstrapErr, cleanupErr, activationErr, o.svc.Close(ctx), o.factory.Close())
 }
 
 // newProbeInstallOperations is API-local like preflight: workers never run
@@ -142,7 +157,22 @@ func newProbeInstallOperations(ctx context.Context, cfg Config, db *bun.DB, admi
 		_ = factory.Close()
 		return nil, err
 	}
-	return &probeInstallOperations{svc: svc, activation: activation, cleanup: cleanup, factory: factory}, nil
+	ops := &probeInstallOperations{svc: svc, activation: activation, cleanup: cleanup, factory: factory}
+	// The host bootstrap installs the same stage-authority PUBLIC key the
+	// signer above signs with, so a bootstrapped host trusts this hub.
+	bootstrapper, err := provisioning.NewSSHProbeHostBootstrapper(cfg.ProbeInstallArtifactDir, policy, signer.PublicKey())
+	if err != nil {
+		_ = ops.Close(ctx)
+		return nil, err
+	}
+	bootstrap, err := services.NewProbeHostBootstrapService(bootstrapper, probeInstallCapacity)
+	if err != nil {
+		_ = bootstrapper.Close()
+		_ = ops.Close(ctx)
+		return nil, err
+	}
+	ops.bootstrap, ops.bootstrapper = bootstrap, bootstrapper
+	return ops, nil
 }
 
 // newProbeCleanupOperations composes cleanup: its own one-shot admission

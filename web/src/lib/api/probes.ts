@@ -89,6 +89,36 @@ export interface ProbeRegistrationInput {
   endpoint: string;
   tls_fingerprint: string;
 }
+/**
+ * One-time SSH-password host preparation (POST /api/probe-host-bootstraps).
+ * The password and private key are sent once and never stored or returned.
+ */
+export interface ProbeHostBootstrapInput {
+  /** host:port */
+  ssh_address: string;
+  ssh_user: string;
+  /** Login password; also fed to `sudo -S` when ssh_user is not root. */
+  ssh_password: string;
+  /** Pinned OpenSSH SHA256:… fingerprint of the host key. */
+  host_key_fingerprint: string;
+  /** Deployment key; its public half becomes the restricted root entry. */
+  private_key: string;
+  helper_version: string;
+  helper_architecture: "amd64" | "arm64";
+  helper_sha256: string;
+  helper_size: number;
+}
+export interface ProbeHostBootstrapView {
+  kind: "ssh_probe_host_bootstrap";
+  status: "verified";
+  helper: {
+    version: string;
+    architecture: string;
+    state: "installed" | "unchanged";
+  };
+  stage_authority: "installed" | "unchanged";
+  authorized_key: "added" | "unchanged";
+}
 export interface ProbePage {
   items: ProbeView[];
   next_cursor: string | null;
@@ -151,6 +181,11 @@ export const probesApi = {
   },
   operation(id: string): Promise<ProbeOperationView> {
     return api.get(`/probe-operations/${encodeURIComponent(id)}`);
+  },
+  bootstrapHost(
+    input: ProbeHostBootstrapInput,
+  ): Promise<ProbeHostBootstrapView> {
+    return api.post("/probe-host-bootstraps", input);
   },
 };
 
