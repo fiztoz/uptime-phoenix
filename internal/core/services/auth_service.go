@@ -226,59 +226,87 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (str
 	if username == "" || password == "" {
 		return "", fmt.Errorf("%w", ErrInvalidCredentials)
 	}
-	if err := s.checkLoginBackoff(username); err != nil {
+	user, att, err := s.beginLoginAttempt(ctx, username, "login")
+	if err != nil {
 		return "", err
 	}
-	user, err := s.users.GetByUsername(ctx, username)
-	if err != nil {
-		// Map "not found" to a generic invalid-credentials response so the
-		// endpoint does not leak which usernames exist.
-		if errors.Is(err, domain.ErrNotFound) || errors.Is(err, ports.ErrNotFound) || isNotFound(err) {
-			s.recordLoginFailure(username, "unknown user")
-			return "", fmt.Errorf("%w", ErrInvalidCredentials)
-		}
-		return "", fmt.Errorf("auth service: login: %w", err)
-	}
+	defer s.throttle.release(att) // no-op once the attempt is settled below
 	if !user.Active {
 		return "", fmt.Errorf("%w", ErrUserInactive)
 	}
 	if err := s.auth.VerifyPassword(user.PasswordHash, password); err != nil {
-		s.recordLoginFailure(username, "bad password")
+		s.recordLoginFailure(ctx, att, user.Username, "bad password")
 		return "", fmt.Errorf("%w", ErrInvalidCredentials)
 	}
 	if user.TOTPEnabled {
 		return "", fmt.Errorf("%w", ErrTOTPRequired)
 	}
-	token, err := s.auth.Login(ctx, username, password)
+	token, err := s.auth.Login(ctx, user.Username, password)
 	if err == nil {
-		s.throttle.succeed(username)
+		s.throttle.succeed(att)
 	}
 	return token, err
 }
 
-// checkLoginBackoff refuses an attempt while the account is locked out. It
-// runs before any password check, for known and unknown usernames alike, so
-// a lockout reveals neither whether the account exists nor the password.
-func (s *AuthService) checkLoginBackoff(username string) error {
-	if wait, locked := s.throttle.locked(username, s.clock.Now()); locked {
-		slog.Warn("auth: login refused during backoff", "username", username, "retry_after", wait.Round(time.Second))
-		return fmt.Errorf("%w", ErrTooManyAttempts)
+// beginLoginAttempt looks up the account username names and reserves one
+// attempt against it before any password is checked. Known users are
+// throttled by their stored ID, so every spelling the database collation
+// maps to the same row (case, accents, full-width letters, trailing spaces
+// on MariaDB) shares one budget; unknown names are throttled by their
+// normalized text, so a lockout reveals nothing about which names exist.
+// The returned attempt must be settled with recordLoginFailure,
+// throttle.succeed or throttle.release.
+func (s *AuthService) beginLoginAttempt(ctx context.Context, username, op string) (*domain.User, *loginAttempt, error) {
+	user, err := s.users.GetByUsername(ctx, username)
+	if err != nil && !isNotFound(err) {
+		return nil, nil, fmt.Errorf("auth service: %s: %w", op, err)
 	}
-	return nil
+	account := unknownAccountKey(username)
+	if user != nil && err == nil {
+		account = userAccountKey(user.ID)
+	} else {
+		user = nil
+	}
+	att, err := s.reserveLoginAttempt(ctx, account, username)
+	if err != nil {
+		return nil, nil, err
+	}
+	if user == nil {
+		s.recordLoginFailure(ctx, att, username, "unknown user")
+		return nil, nil, fmt.Errorf("%w", ErrInvalidCredentials)
+	}
+	return user, att, nil
 }
 
-// recordLoginFailure counts a failed password or TOTP attempt against the
-// account and logs it for audit. The username is logged; the password and
-// code never are.
-func (s *AuthService) recordLoginFailure(username, reason string) {
-	n := s.throttle.fail(username, s.clock.Now())
-	attrs := []any{"username", username, "reason", reason, "consecutive_failures", n}
-	if n >= LoginFailuresBeforeBackoff {
-		slog.Warn("auth: repeated login failures; account in backoff",
-			append(attrs, "backoff", loginBackoff(n))...)
-		return
+// reserveLoginAttempt claims one attempt for account from the caller's IP,
+// or refuses with ErrTooManyAttempts while either backoff applies.
+func (s *AuthService) reserveLoginAttempt(ctx context.Context, account, username string) (*loginAttempt, error) {
+	ip := loginClientIP(ctx)
+	att, wait, ok := s.throttle.reserve(account, ip, s.clock.Now())
+	if !ok {
+		slog.Warn("auth: login refused during backoff", "username", username, "client_ip", ip, "retry_after", wait.Round(time.Second))
+		return nil, fmt.Errorf("%w", ErrTooManyAttempts)
 	}
-	slog.Info("auth: login failed", attrs...)
+	return att, nil
+}
+
+// recordLoginFailure settles att as a failed password or TOTP attempt and
+// logs it for audit. The username and client IP are logged; the password
+// and code never are.
+func (s *AuthService) recordLoginFailure(ctx context.Context, att *loginAttempt, username, reason string) {
+	pairN, accountN := s.throttle.fail(att, s.clock.Now())
+	attrs := []any{"username", username, "client_ip", loginClientIP(ctx), "reason", reason,
+		"consecutive_failures", pairN, "account_failures", accountN}
+	switch {
+	case accountN >= LoginAccountFailuresBeforeBackoff:
+		slog.Warn("auth: repeated login failures from many clients; account in backoff for every client",
+			append(attrs, "backoff", loginBackoff(accountN, LoginAccountFailuresBeforeBackoff))...)
+	case pairN >= LoginFailuresBeforeBackoff:
+		slog.Warn("auth: repeated login failures; account in backoff for this client",
+			append(attrs, "backoff", loginBackoff(pairN, LoginFailuresBeforeBackoff))...)
+	default:
+		slog.Info("auth: login failed", attrs...)
+	}
 }
 
 // LoginWith2FA authenticates a user with username + password + TOTP token
@@ -288,33 +316,27 @@ func (s *AuthService) LoginWith2FA(ctx context.Context, username, password, totp
 	if username == "" || password == "" || totpToken == "" {
 		return "", fmt.Errorf("%w", ErrInvalidCredentials)
 	}
-	if err := s.checkLoginBackoff(username); err != nil {
+	user, att, err := s.beginLoginAttempt(ctx, username, "login with 2fa")
+	if err != nil {
 		return "", err
 	}
-	user, err := s.users.GetByUsername(ctx, username)
-	if err != nil {
-		if isNotFound(err) {
-			s.recordLoginFailure(username, "unknown user")
-			return "", fmt.Errorf("%w", ErrInvalidCredentials)
-		}
-		return "", fmt.Errorf("auth service: login with 2fa: %w", err)
-	}
+	defer s.throttle.release(att)
 	if !user.Active {
 		return "", fmt.Errorf("%w", ErrUserInactive)
 	}
 	if err := s.auth.VerifyPassword(user.PasswordHash, password); err != nil {
-		s.recordLoginFailure(username, "bad password")
+		s.recordLoginFailure(ctx, att, user.Username, "bad password")
 		return "", fmt.Errorf("%w", ErrInvalidCredentials)
 	}
 	// Mirror Login's behavior: if 2FA is not required, return the token
 	// directly. This makes the call safe to use for both modes.
 	if user.TOTPEnabled && !s.twoFactor.VerifyToken(user.TOTPSecret, totpToken) {
-		s.recordLoginFailure(username, "bad totp")
+		s.recordLoginFailure(ctx, att, user.Username, "bad totp")
 		return "", fmt.Errorf("%w", ErrTOTPInvalid)
 	}
-	token, err := s.auth.Login(ctx, username, password)
+	token, err := s.auth.Login(ctx, user.Username, password)
 	if err == nil {
-		s.throttle.succeed(username)
+		s.throttle.succeed(att)
 	}
 	return token, err
 }
@@ -327,22 +349,18 @@ func (s *AuthService) LoginWith2FA(ctx context.Context, username, password, totp
 // If 2FA is not enabled, this method returns an empty ticket and a nil
 // error so the caller can fall through to a regular login.
 func (s *AuthService) Begin2FALogin(ctx context.Context, username, password string) (string, *domain.User, error) {
-	if err := s.checkLoginBackoff(username); err != nil {
+	user, att, err := s.beginLoginAttempt(ctx, username, "begin 2fa")
+	if err != nil {
 		return "", nil, err
 	}
-	user, err := s.users.GetByUsername(ctx, username)
-	if err != nil {
-		if isNotFound(err) {
-			s.recordLoginFailure(username, "unknown user")
-			return "", nil, fmt.Errorf("%w", ErrInvalidCredentials)
-		}
-		return "", nil, fmt.Errorf("auth service: begin 2fa: %w", err)
-	}
+	// The password is only half of a 2FA sign-in, and a password-only
+	// sign-in completes in Login: neither clears the failure history here.
+	defer s.throttle.release(att)
 	if !user.Active {
 		return "", nil, fmt.Errorf("%w", ErrUserInactive)
 	}
 	if verifyErr := s.auth.VerifyPassword(user.PasswordHash, password); verifyErr != nil {
-		s.recordLoginFailure(username, "bad password")
+		s.recordLoginFailure(ctx, att, user.Username, "bad password")
 		return "", nil, fmt.Errorf("%w", ErrInvalidCredentials)
 	}
 	if !user.TOTPEnabled {
@@ -367,27 +385,30 @@ func (s *AuthService) Complete2FALogin(ctx context.Context, ticket, totpToken st
 		return "", nil, fmt.Errorf("auth service: verify 2fa ticket: %w", err)
 	}
 	now := s.clock.Now()
-	if s.throttle.ticketSpent(ticket, now) {
-		slog.Warn("auth: 2fa ticket refused after attempt cap", "user_id", userID)
+	// Count the attempt on the ticket before checking the code, so parallel
+	// guesses on one ticket cannot exceed the cap.
+	if !s.throttle.reserveTicket(ticket, now) {
+		slog.Warn("auth: 2fa ticket refused after attempt cap", "user_id", userID, "client_ip", loginClientIP(ctx))
 		return "", nil, fmt.Errorf("%w", ErrTooManyAttempts)
 	}
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return "", nil, fmt.Errorf("auth service: complete 2fa: %w", err)
 	}
-	if err := s.checkLoginBackoff(user.Username); err != nil {
+	att, err := s.reserveLoginAttempt(ctx, userAccountKey(user.ID), user.Username)
+	if err != nil {
 		return "", nil, err
 	}
+	defer s.throttle.release(att)
 	if !user.TOTPEnabled {
 		return "", nil, fmt.Errorf("%w", ErrTOTPNotEnabled)
 	}
 	if !s.twoFactor.VerifyToken(user.TOTPSecret, totpToken) {
-		s.throttle.ticketFail(ticket, now)
-		s.recordLoginFailure(user.Username, "bad totp")
+		s.recordLoginFailure(ctx, att, user.Username, "bad totp")
 		return "", nil, fmt.Errorf("%w", ErrTOTPInvalid)
 	}
 	s.throttle.spendTicket(ticket, now)
-	s.throttle.succeed(user.Username)
+	s.throttle.succeed(att)
 	// Ticket + valid TOTP code is the credential at this point. Mint a
 	// session token directly via the Authenticator so the password is
 	// not required a second time.
@@ -658,6 +679,11 @@ func (s *AuthService) UpdateUser(ctx context.Context, id int64, username *string
 			return nil, fmt.Errorf("%w", ErrUserExists)
 		}
 		return nil, fmt.Errorf("auth service: update user: save: %w", err)
+	}
+	if password != nil || (active != nil && *active) {
+		// An admin setting the password or (re)activating the account is the
+		// unlock path for a sign-in lockout (docs/RUNBOOK.md).
+		s.throttle.clearAccount(user.ID)
 	}
 	s.userChanged(user.ID)
 	return user, nil

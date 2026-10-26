@@ -49,33 +49,16 @@ type Monitor struct {
 	UpdatedAt        time.Time
 }
 
-// Target returns the primary connection target string for this monitor,
-// derived from its Type and Config. The result is what gets displayed in
-// notification messages, status-page cards, and the monitor list.
+// Target returns the display target for this monitor, derived from its Type
+// and Config. It is what notification messages, WebSocket monitor cards and
+// alert contexts show, so it never carries credentials: see
+// MonitorDisplayTarget. Checkers read their connection details from Config,
+// never from Target.
 func (m *Monitor) Target() string {
 	if m == nil {
 		return ""
 	}
-	if m.Type == "s3" {
-		return S3DisplayTarget(m.Config)
-	}
-	keys := map[string][]string{
-		"http":      {"url"},
-		"websocket": {"url"},
-		"tcp":       {"hostname", "host"},
-		"ping":      {"hostname", "host"},
-		"dns":       {"hostname", "host"},
-		"grpc":      {"hostname"},
-		"mqtt":      {"broker", "url", "hostname", "host"},
-		"snmp":      {"hostname", "host"},
-		"database":  {"connection_string", "dsn", "connectionString", "hostname"},
-	}
-	for _, key := range keys[m.Type] {
-		if v, ok := m.Config[key].(string); ok && v != "" {
-			return v
-		}
-	}
-	return ""
+	return MonitorDisplayTarget(m.Type, m.Config)
 }
 
 // S3DisplayTarget returns endpoint/bucket for cards and notifications.

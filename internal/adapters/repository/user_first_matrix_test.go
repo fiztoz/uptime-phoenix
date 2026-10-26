@@ -53,6 +53,22 @@ func TestUserCreateFirstElectsOneWinner(t *testing.T) {
 			if !errors.Is(err, ports.ErrConflict) {
 				t.Fatalf("CreateFirst after the first user: err = %v; want ErrConflict", err)
 			}
+
+			// The claim row is a lock, not a once-only marker: once every
+			// user is removed, a first admin can be created again.
+			all, err := users.List(ctx)
+			if err != nil || len(all) != 1 {
+				t.Fatalf("list users: %v %v", all, err)
+			}
+			if err := users.Delete(ctx, all[0].ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := users.CreateFirst(ctx, &domain.User{Username: "recovered", PasswordHash: "x", Active: true, IsAdmin: true, Timezone: "UTC"}); err != nil {
+				t.Fatalf("CreateFirst after all users were removed: %v", err)
+			}
+			if count, err := users.Count(ctx); err != nil || count != 1 {
+				t.Fatalf("users=%d err=%v; want 1", count, err)
+			}
 		})
 	}
 }

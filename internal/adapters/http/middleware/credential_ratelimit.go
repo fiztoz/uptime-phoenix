@@ -195,8 +195,20 @@ func (r *credentialRedisLimiter) allow(ctx context.Context, redisKey string) (bo
 	return value <= r.maxAttempts, nil
 }
 
+// credentialRefundScript decrements a window counter only while it still
+// exists and is positive. A plain DECR on a key whose window already expired
+// would create it at -1 with no TTL: a permanent key that also hands the
+// next window one extra attempt.
+var credentialRefundScript = redis.NewScript(`
+local v = redis.call('GET', KEYS[1])
+if v and tonumber(v) > 0 then
+	return redis.call('DECR', KEYS[1])
+end
+return 0
+`)
+
 // refund gives back the attempt allow counted. A failed refund only leaves
 // the window one attempt tighter, so the error is dropped.
 func (r *credentialRedisLimiter) refund(ctx context.Context, redisKey string) {
-	_ = r.client.Decr(ctx, redisKey).Err()
+	_ = credentialRefundScript.Run(ctx, r.client, []string{redisKey}).Err()
 }

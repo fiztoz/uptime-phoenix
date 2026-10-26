@@ -49,18 +49,49 @@ spec:
         - protocol: TCP
           port: {{ include "phoenix.eventBusPort" . }}
     {{- end }}
-    {{- if .Values.cloudflareTunnel.enabled }}
-    # cloudflared dials phoenix-api/web in-cluster and egresses to Cloudflare's
-    # edge over 443 (already allowed by the HTTP/HTTPS rule above). Policies
-    # match the pod port, so web is its containerPort, not the Service port.
-    - ports:
+    {{- if or .Values.cloudflareTunnel.enabled .Values.web.split }}
+    # In-release traffic only: cloudflared dials the API and web pods, and the
+    # split web tier proxies /api and /ws to the API. Scoped with `to:` to this
+    # release's pods so it does not open 3000/8080 to every destination.
+    # cloudflared's own egress to Cloudflare's edge is 443 (the HTTP/HTTPS rule
+    # above). Policies match the pod port, so web is its containerPort, not the
+    # Service port.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "phoenix.selectorLabels" . | nindent 14 }}
+      ports:
         - protocol: TCP
           port: 3000
-        - protocol: TCP
-          port: 80
         {{- if .Values.web.split }}
         - protocol: TCP
           port: {{ .Values.web.containerPort }}
         {{- end }}
     {{- end }}
+{{- if .Values.cloudflareTunnel.enabled }}
+---
+# cloudflared reaches Cloudflare's edge on 7844 (QUIC over UDP, or http2 over
+# TCP), not 443. Policies are additive, so this one opens 7844 for the
+# cloudflared pods alone instead of for every Phoenix pod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "phoenix.fullname" . }}-cloudflared
+  labels:
+    {{- include "phoenix.labels" . | nindent 4 }}
+    component: cloudflared
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "phoenix.selectorLabels" . | nindent 6 }}
+      component: cloudflared
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 7844
+        - protocol: TCP
+          port: 7844
+{{- end }}
 {{- end }}

@@ -6,6 +6,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -226,7 +227,7 @@ func (h *AuthHandlers) Register(c echo.Context) error {
 	// after Register, and re-reading the hash would let a timing
 	// attacker distinguish "registered then logged in" from
 	// "registered and not logged in".
-	sessionToken, loginErr := h.svc.Login(c.Request().Context(), user.Username, req.Password)
+	sessionToken, loginErr := h.svc.Login(loginContext(c), user.Username, req.Password)
 	if loginErr != nil {
 		// Registration succeeded but auto-login failed. Still respond
 		// 201 so the client knows the account exists, but force them
@@ -254,7 +255,7 @@ func (h *AuthHandlers) Login(c echo.Context) error {
 		return badRequest(c, "username and password are required")
 	}
 
-	ticket, user, err := h.svc.Begin2FALogin(c.Request().Context(), req.Username, req.Password)
+	ticket, user, err := h.svc.Begin2FALogin(loginContext(c), req.Username, req.Password)
 	if err != nil {
 		return mapAuthError(c, err)
 	}
@@ -267,7 +268,7 @@ func (h *AuthHandlers) Login(c echo.Context) error {
 		})
 	}
 	// No 2FA: issue a session token directly.
-	token, err := h.svc.Login(c.Request().Context(), req.Username, req.Password)
+	token, err := h.svc.Login(loginContext(c), req.Username, req.Password)
 	if err != nil {
 		return mapAuthError(c, err)
 	}
@@ -287,7 +288,7 @@ func (h *AuthHandlers) Verify2FA(c echo.Context) error {
 	if req.Ticket == "" || req.Token == "" {
 		return badRequest(c, "ticket and token are required")
 	}
-	token, user, err := h.svc.Complete2FALogin(c.Request().Context(), req.Ticket, req.Token)
+	token, user, err := h.svc.Complete2FALogin(loginContext(c), req.Ticket, req.Token)
 	if err != nil {
 		return mapAuthError(c, err)
 	}
@@ -362,7 +363,7 @@ func (h *AuthHandlers) Disable2FA(c echo.Context) error {
 	// branch happens exactly when the password check passed but
 	// TOTP is still required. This avoids forcing the user to
 	// re-enter a TOTP code just to disable 2FA.
-	if _, loginErr := h.svc.Login(c.Request().Context(), user.Username, req.Password); loginErr != nil {
+	if _, loginErr := h.svc.Login(loginContext(c), user.Username, req.Password); loginErr != nil {
 		switch {
 		case errors.Is(loginErr, services.ErrInvalidCredentials):
 			return c.JSON(http.StatusUnauthorized, errorBody("invalid password"))
@@ -656,6 +657,13 @@ func mapAuthError(c echo.Context, err error) error {
 	default:
 		return c.JSON(http.StatusInternalServerError, errorBody("internal error"))
 	}
+}
+
+// loginContext is the request context carrying the client IP, which the
+// auth service's per-(account, IP) sign-in backoff keys on. RealIP honors
+// the router's IPExtractor, the same source the per-IP limiter uses.
+func loginContext(c echo.Context) context.Context {
+	return services.WithLoginClientIP(c.Request().Context(), c.RealIP())
 }
 
 func badRequest(c echo.Context, msg string) error {

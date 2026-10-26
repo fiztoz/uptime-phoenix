@@ -71,22 +71,34 @@ func (r *UserRepo) CreateFirst(ctx context.Context, u *domain.User) error {
 	now := time.Now().UTC()
 	m.CreatedAt = now
 	m.UpdatedAt = now
-	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		count, err := tx.NewSelect().Model((*repository.UserModel)(nil)).Count(ctx)
+	// The claim row is a lock, not a once-only marker: it is created if
+	// missing and locked, and only then are users counted. An install whose
+	// users were all removed can therefore create its first admin again,
+	// while concurrent first sign-ups still elect exactly one winner.
+	// settings.value is a JSON column on MariaDB, so store a JSON string.
+	value, err := json.Marshal(u.Username)
+	if err != nil {
+		return err
+	}
+	claim := &repository.SettingModel{Key: firstUserClaimKey, Value: string(value)}
+	err = r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		claimInsert := tx.NewInsert().Model(claim).Ignore()
+		if _, err := claimInsert.Exec(ctx); err != nil {
+			return err
+		}
+		// FOR UPDATE serializes concurrent first sign-ups on the claim row;
+		// the locking count then reads the latest committed users, not the
+		// transaction's REPEATABLE READ snapshot.
+		var locked repository.SettingModel
+		if err := tx.NewSelect().Model(&locked).Where("setting_key = ?", firstUserClaimKey).For("UPDATE").Scan(ctx); err != nil {
+			return err
+		}
+		count, err := tx.NewSelect().Model((*repository.UserModel)(nil)).For("UPDATE").Count(ctx)
 		if err != nil {
 			return err
 		}
 		if count > 0 {
 			return ports.ErrConflict
-		}
-		// settings.value is a JSON column on MariaDB, so store a JSON string.
-		value, err := json.Marshal(u.Username)
-		if err != nil {
-			return err
-		}
-		claim := &repository.SettingModel{Key: firstUserClaimKey, Value: string(value)}
-		if _, err := tx.NewInsert().Model(claim).Exec(ctx); err != nil {
-			return err
 		}
 		_, err = tx.NewInsert().Model(m).Exec(ctx)
 		return err

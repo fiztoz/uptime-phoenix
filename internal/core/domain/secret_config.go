@@ -1,7 +1,9 @@
 package domain
 
 import (
+	"encoding/json"
 	"net/url"
+	"reflect"
 	"strings"
 )
 
@@ -25,9 +27,11 @@ var secretConfigKeys = map[string]struct{}{
 	// Keys read by checkers and notifiers that the export list did not cover.
 	"auth_token": {}, "auth_bearer_token": {}, "oauth2_client_secret": {},
 	"basic_auth_pass": {}, "basic_auth_password": {},
-	"connection_string": {}, "dsn": {}, "community": {},
+	"connection_string": {}, "connectionstring": {}, "dsn": {}, "community": {},
 	"app_token": {}, "channel_access_token": {}, "device_key": {},
 	"access_key": {}, "routing_key": {}, "integration_key": {},
+	// Push monitor signature key (handlers/push.go verifies X-Signature with it).
+	"hmac_secret": {}, "hmacsecret": {},
 }
 
 // IsSecretConfigKey reports whether a config key holds a credential.
@@ -89,7 +93,7 @@ func redactValue(key string, v any, secret bool) any {
 		if t == "" {
 			return t
 		}
-		if secret {
+		if secret || (normalizeConfigKey(key) == "headers" && headersStringHasSecret(t)) {
 			return SecretConfigPlaceholder
 		}
 		return RedactURLPassword(t)
@@ -104,6 +108,27 @@ func redactValue(key string, v any, secret bool) any {
 	default:
 		return v
 	}
+}
+
+// headersStringHasSecret reports whether a "headers" value saved as a JSON
+// string (the notification form's textarea does this) carries a credential
+// header. Such a string is masked as a whole: its parts cannot be restored
+// individually. Text that is not a JSON object cannot be inspected, so it is
+// treated as secret.
+func headersStringHasSecret(s string) bool {
+	var hdrs map[string]any
+	if err := json.Unmarshal([]byte(s), &hdrs); err != nil {
+		return true
+	}
+	for name, v := range hdrs {
+		if isSecretHeader(name) {
+			return true
+		}
+		if str, ok := v.(string); ok && RedactURLPassword(str) != str {
+			return true
+		}
+	}
+	return false
 }
 
 // RedactURLPassword masks the password in a URL's userinfo
@@ -138,6 +163,14 @@ func parseURLWithPassword(s string) (*url.URL, bool) {
 // placeholder with nothing stored behind it is dropped, so the marker is
 // never persisted. Every other incoming value, including a new secret,
 // wins.
+//
+// Inside a list, an element carrying a placeholder is restored from the one
+// stored element whose masked form it equals, or else from the same index
+// when the list kept its length. When neither identifies the stored element
+// (an element was added or removed and the masked forms are ambiguous) the
+// placeholder is left in place rather than guessed: restoring by index would
+// hand one entry's secret to another. Callers must refuse a result for
+// which ConfigHasSecretPlaceholder is true.
 func RestoreSecretConfig(stored, incoming map[string]any) map[string]any {
 	if incoming == nil {
 		return nil
@@ -149,7 +182,7 @@ func restoreMap(stored, incoming map[string]any) map[string]any {
 	out := make(map[string]any, len(incoming))
 	for k, v := range incoming {
 		prev, had := stored[k]
-		restored, keep := restoreValue(prev, had, v)
+		restored, keep := restoreValue(k, prev, had, v)
 		if keep {
 			out[k] = restored
 		}
@@ -157,7 +190,45 @@ func restoreMap(stored, incoming map[string]any) map[string]any {
 	return out
 }
 
-func restoreValue(prev any, had bool, v any) (any, bool) {
+// restoreList restores the placeholders in a list value. See
+// RestoreSecretConfig for the matching rules.
+func restoreList(key string, prev []any, incoming []any) []any {
+	out := make([]any, 0, len(incoming))
+	for i, e := range incoming {
+		if !valueHasPlaceholder(e) {
+			out = append(out, e)
+			continue
+		}
+		pe, found := uniqueMaskedMatch(key, prev, e)
+		if !found && len(prev) == len(incoming) {
+			pe, found = prev[i], true
+		}
+		if !found {
+			out = append(out, e) // unresolvable: the caller refuses it
+			continue
+		}
+		if r, keep := restoreValue(key, pe, true, e); keep {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// uniqueMaskedMatch returns the single stored element whose masked form is
+// exactly the incoming element.
+func uniqueMaskedMatch(key string, prev []any, e any) (any, bool) {
+	var match any
+	n := 0
+	for _, pe := range prev {
+		if reflect.DeepEqual(redactValue(key, pe, IsSecretConfigKey(key)), e) {
+			match = pe
+			n++
+		}
+	}
+	return match, n == 1
+}
+
+func restoreValue(key string, prev any, had bool, v any) (any, bool) {
 	switch t := v.(type) {
 	case string:
 		if t == SecretConfigPlaceholder {
@@ -182,18 +253,7 @@ func restoreValue(prev any, had bool, v any) (any, bool) {
 		return restoreMap(pm, t), true
 	case []any:
 		pl, _ := prev.([]any)
-		out := make([]any, 0, len(t))
-		for i, e := range t {
-			var pe any
-			has := i < len(pl)
-			if has {
-				pe = pl[i]
-			}
-			if r, keep := restoreValue(pe, has, e); keep {
-				out = append(out, r)
-			}
-		}
-		return out, true
+		return restoreList(key, pl, t), true
 	default:
 		return v, true
 	}

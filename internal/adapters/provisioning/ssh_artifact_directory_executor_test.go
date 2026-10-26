@@ -595,9 +595,16 @@ func TestSSHArtifactDirectoryExecutorHelperRefusalBeforeStdinIsNotStarted(t *tes
 				if n := h.auth.calls.Load(); n != 1 {
 					t.Fatalf("unknown without exactly one grant (%d authorizer calls)", n)
 				}
-			} else {
-				adExecRequireOutcome(t, got, adExecNotStarted)
+				// The payload was streamed into the already-closed channel:
+				// the source may have been read, but the exited helper never
+				// received a byte.
+				h.helper.waitIdle(t, h.f)
+				if got := h.f.stdinBytes(); len(got) != 0 {
+					t.Fatalf("server received %d stdin bytes, want 0", len(got))
+				}
+				return
 			}
+			adExecRequireOutcome(t, got, adExecNotStarted)
 			h.requireNoStageInput(t, 1)
 		})
 	}

@@ -505,6 +505,9 @@ func (h *NotificationHandlers) Update(c echo.Context) error {
 		// Masked values sent back unchanged keep the stored secret; a new
 		// value replaces it.
 		existing.Config = domain.RestoreSecretConfig(existing.Config, req.Config)
+		if domain.ConfigHasSecretPlaceholder(existing.Config) {
+			return badRequest(c, unresolvedPlaceholderMessage)
+		}
 	}
 
 	if err := h.svc.Update(c.Request().Context(), existing); err != nil {
