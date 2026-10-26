@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { CheckCircle2, XCircle, Loader2 } from '@lucide/svelte';
-	import { alertsApi, type Alert } from '$lib/api/alerts';
-	import BrandMark from '$lib/components/BrandMark.svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import { alertsApi, type Alert } from '#lib/api/alerts.js';
+	import BrandMark from '#lib/components/BrandMark.svelte';
+	import * as m from '#lib/paraglide/messages.js';
 
 	type AckPhase = 'loading' | 'ok' | 'error';
 	let phase = $state<AckPhase>('loading');
@@ -12,7 +12,7 @@
 	let errorMsg = $state('');
 
 	onMount(async () => {
-		const token = $page.params.token ?? '';
+		const token = page.params.token ?? '';
 		if (!token) {
 			phase = 'error';
 			errorMsg = m.alerts_ack_link_invalid();

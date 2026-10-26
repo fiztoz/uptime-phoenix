@@ -15,15 +15,15 @@
 		escalationApi,
 		type EscalationPolicy,
 		type EscalationPolicyInput,
-	} from '$lib/api/escalation';
-	import { notificationsApi, type Notification } from '$lib/api/notifications';
+	} from '#lib/api/escalation.js';
+	import { notificationsApi, type Notification } from '#lib/api/notifications.js';
 	import EmptyState from './EmptyState.svelte';
 	import Skeleton from './Skeleton.svelte';
 	import { toast } from 'svelte-sonner';
 	import { onMount, untrack } from 'svelte';
 	import { AlertCircle, ArrowDown, ArrowUp, BellOff, Plus, Trash2, X } from '@lucide/svelte';
-	import { modalFocus } from '$lib/actions/modalFocus';
-	import * as m from '$lib/paraglide/messages.js';
+	import { modalFocus } from '#lib/actions/modalFocus.js';
+	import * as m from '#lib/paraglide/messages.js';
 	import { resolve } from '$app/paths';
 
 	interface Props {
@@ -275,7 +275,7 @@
 								title={m.monitor_group_form_no_providers_title()}
 								description={m.monitor_group_form_no_providers_description()}
 							/>
-							<a href={resolve('/notifications')} class="mt-2 inline-block text-sm text-primary underline underline-offset-2">{m.escalation_form_setup_providers()}</a>
+							<a href={resolve('notifications')} class="mt-2 inline-block text-sm text-primary underline underline-offset-2">{m.escalation_form_setup_providers()}</a>
 						</div>
 					{:else}
 						<div class="mt-3 space-y-3">

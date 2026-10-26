@@ -30,8 +30,8 @@
  *     may change a monitor is ownership (`monitor.user_id`), which is not a
  *     grant and is not editable from this screen.
  */
-import type { MonitorGroupView } from "$lib/api/monitorGroups";
-import type { GroupGrant, UserPermissions } from "$lib/api/users";
+import type { MonitorGroupView } from "#lib/api/monitorGroups.js";
+import type { GroupGrant, UserPermissions } from "#lib/api/users.js";
 
 /** The slice of a monitor this module needs. `Monitor` from the WS store does
  * not declare `group_id`, but the wire always sends it — see MonitorWithGroup. */

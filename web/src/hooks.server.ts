@@ -1,4 +1,4 @@
-import type { Handle } from "@sveltejs/kit";
+import type { Handle } from "@sveltejs/kit/hooks";
 
 const API_BASE = process.env.PHOENIX_API_URL || "http://localhost:3000";
 const SITE_NAME = "Phoenix";

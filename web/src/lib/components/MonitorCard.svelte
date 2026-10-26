@@ -1,19 +1,19 @@
 <script lang="ts">
-	import type { Monitor, Heartbeat } from '$lib/stores/ws.svelte.js';
-	import type { Heartbeat as HistoryHeartbeat } from '$lib/api/heartbeats';
+	import type { Monitor, Heartbeat } from '#lib/stores/ws.svelte.js';
+	import type { Heartbeat as HistoryHeartbeat } from '#lib/api/heartbeats.js';
 	import StatusPill from './StatusPill.svelte';
 	import Sparkline from './charts/Sparkline.svelte';
-	import { sparklinePoints } from '$lib/utils/chart.js';
+	import { sparklinePoints } from '#lib/utils/chart.js';
 	import { ArrowUpRight } from '@lucide/svelte';
-	import type { MonitorCondition } from '$lib/api/conditions';
+	import type { MonitorCondition } from '#lib/api/conditions.js';
 	import ConditionChip from './ConditionChip.svelte';
 	import MonitorCardSignals from './MonitorCardSignals.svelte';
 	import {
 		cardUsesSignals,
 		type DashboardCardBody,
-	} from '$lib/dashboard-card';
-	import { whenVisible } from '$lib/actions/whenVisible';
-	import * as m from '$lib/paraglide/messages.js';
+	} from '#lib/dashboard-card.js';
+	import { whenVisible } from '#lib/actions/whenVisible.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	interface Props {
 		monitor: Monitor;

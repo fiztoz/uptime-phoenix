@@ -5,9 +5,9 @@
 	 *
 	 * Call it through `confirmAction()`; see $lib/stores/confirm.svelte.ts.
 	 */
-	import { confirmController } from '$lib/stores/confirm.svelte';
+	import { confirmController } from '#lib/stores/confirm.svelte.js';
 	import { AlertTriangle, HelpCircle } from '@lucide/svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	const pending = $derived(confirmController.current);
 	const destructive = $derived(pending?.destructive ?? false);

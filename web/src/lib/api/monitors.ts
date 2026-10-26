@@ -2,7 +2,7 @@
  * Monitor CRUD API wrappers.
  */
 import { api } from "./client";
-import type { Monitor } from "$lib/stores/ws.svelte.ts";
+import type { Monitor } from "#lib/stores/ws.svelte.js";
 
 export interface CreateMonitorInput {
   name: string;
@@ -163,7 +163,7 @@ export type MonitorWithGroup = Monitor & {
  * with the `Monitor` wire type it belongs to; re-exported here so callers that
  * already import from this module do not need a second import.
  */
-export type { MonitorTagView } from "$lib/stores/ws.svelte.ts";
+export type { MonitorTagView } from "#lib/stores/ws.svelte.js";
 
 /** Shared field set of the create/update bodies (backend ignores `type` on PUT). */
 function baseBody(v: MonitorDraftValues) {

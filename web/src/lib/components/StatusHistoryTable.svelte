@@ -4,8 +4,8 @@
 -->
 <script lang="ts">
   import { timeFormat } from "d3-time-format";
-  import type { Heartbeat } from "$lib/api/heartbeats.js";
-  import { confirmAction } from "$lib/stores/confirm.svelte";
+  import type { Heartbeat } from "#lib/api/heartbeats.js";
+  import { confirmAction } from "#lib/stores/confirm.svelte.js";
   import { Trash2 } from "@lucide/svelte";
 
   interface Props {

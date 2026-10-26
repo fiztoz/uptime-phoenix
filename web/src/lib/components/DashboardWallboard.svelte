@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { Heartbeat as HistoryHeartbeat } from '$lib/api/heartbeats.js';
-	import type { MonitorCondition } from '$lib/api/conditions';
-	import type { DashboardCardBody } from '$lib/dashboard-card';
-	import type { Heartbeat as LiveHeartbeat, Monitor } from '$lib/stores/ws.svelte.js';
+	import type { Heartbeat as HistoryHeartbeat } from '#lib/api/heartbeats.js';
+	import type { MonitorCondition } from '#lib/api/conditions.js';
+	import type { DashboardCardBody } from '#lib/dashboard-card.js';
+	import type { Heartbeat as LiveHeartbeat, Monitor } from '#lib/stores/ws.svelte.js';
 	import {
 		WALLBOARD_CARD_DEFAULT_PX,
 		WALLBOARD_CARD_MAX_PX,
@@ -20,11 +20,11 @@
 		wallboardStatFontPx,
 		writeWallboardCardPx,
 		writeWallboardStatsPx,
-	} from '$lib/wallboard-split';
+	} from '#lib/wallboard-split.js';
 	import BrandMark from './BrandMark.svelte';
 	import WallboardMonitorCard from './WallboardMonitorCard.svelte';
 	import { Grip, LayoutGrid, Maximize2, Minimize2, SearchX } from '@lucide/svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	interface Props {
 		monitors: Monitor[];

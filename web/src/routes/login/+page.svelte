@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { auth } from '$lib/stores/auth.svelte.ts';
-	import { authApi } from '$lib/api/auth';
+	import { auth } from '#lib/stores/auth.svelte.js';
+	import { authApi } from '#lib/api/auth.js';
 	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import BrandMark from '$lib/components/BrandMark.svelte';
-	import Wordmark from '$lib/components/Wordmark.svelte';
-	import * as m from '$lib/paraglide/messages.js';
-	import { isWebAuthnSupported } from '$lib/api/webauthn';
+	import BrandMark from '#lib/components/BrandMark.svelte';
+	import Wordmark from '#lib/components/Wordmark.svelte';
+	import * as m from '#lib/paraglide/messages.js';
+	import { isWebAuthnSupported } from '#lib/api/webauthn.js';
 	import { KeyRound, Building2 } from '@lucide/svelte';
 
 	let username = $state('');
@@ -37,14 +37,14 @@
 		const hash = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : '';
 		const hashParams = new URLSearchParams(hash);
 		const oidcToken = hashParams.get('oidc_token');
-		const oidcErr = $page.url.searchParams.get('oidc_error');
+		const oidcErr = page.url.searchParams.get('oidc_error');
 		if (oidcToken) {
 			loading = true;
 			try {
 				await auth.completeOIDC(oidcToken);
 				// Strip token from the address bar before navigating.
 				history.replaceState(null, '', '/login');
-				goto('/dashboard', { replaceState: true });
+				goto('/dashboard', { replace: true });
 				return;
 			} catch (e: any) {
 				error = e?.message || m.login_sso_error();
@@ -58,7 +58,7 @@
 		}
 
 		if (auth.isAuthenticated) {
-			goto('/dashboard', { replaceState: true });
+			goto('/dashboard', { replace: true });
 			return;
 		}
 		try {
@@ -88,7 +88,7 @@
 				requires2FA = true;
 				ticket = res.ticket || '';
 			} else {
-				goto('/dashboard', { replaceState: true });
+				goto('/dashboard', { replace: true });
 			}
 		} catch (e: any) {
 			error = e?.message || 'Login failed';
@@ -106,7 +106,7 @@
 		error = '';
 		try {
 			await auth.verify2FA(ticket, otp);
-			goto('/dashboard', { replaceState: true });
+			goto('/dashboard', { replace: true });
 		} catch (e: any) {
 			error = e?.message || 'Verification failed';
 		} finally {
@@ -123,7 +123,7 @@
 		error = '';
 		try {
 			await auth.passkeyLogin(username);
-			goto('/dashboard', { replaceState: true });
+			goto('/dashboard', { replace: true });
 		} catch (e: any) {
 			error = e?.message || 'Passkey sign-in failed';
 		} finally {
@@ -144,7 +144,7 @@
 		error = '';
 		try {
 			await auth.register(username, password, setupToken.trim());
-			goto('/dashboard', { replaceState: true });
+			goto('/dashboard', { replace: true });
 		} catch (e: any) {
 			error = e?.message || 'Registration failed';
 		} finally {

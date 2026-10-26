@@ -1,5 +1,5 @@
 <script lang="ts">
-  import * as m from "$lib/paraglide/messages.js";
+  import * as m from "#lib/paraglide/messages.js";
   let { status }: { status: string | null | undefined } = $props();
   const labels = $derived<Record<string, string>>({
     firing: m.probes_status_firing(),

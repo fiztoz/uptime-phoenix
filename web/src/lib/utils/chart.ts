@@ -1,4 +1,4 @@
-import type { Heartbeat } from "$lib/api/heartbeats.js";
+import type { Heartbeat } from "#lib/api/heartbeats.js";
 
 export interface ChartBucket {
   time: Date;

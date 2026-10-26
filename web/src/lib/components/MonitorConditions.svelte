@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { MonitorCondition } from "$lib/api/conditions";
+  import type { MonitorCondition } from "#lib/api/conditions.js";
   import ConditionChip from "./ConditionChip.svelte";
   import { Database, Clock3 } from "@lucide/svelte";
-  import * as m from "$lib/paraglide/messages.js";
+  import * as m from "#lib/paraglide/messages.js";
 
   interface Props {
     conditions: MonitorCondition[];

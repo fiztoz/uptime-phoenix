@@ -1,4 +1,4 @@
-import type { Heartbeat, Status } from "$lib/monitor-types";
+import type { Heartbeat, Status } from "#lib/monitor-types.js";
 
 /** Choose an unambiguous measured source; multiple regions keep overall policy. */
 export function defaultCheckProbe(

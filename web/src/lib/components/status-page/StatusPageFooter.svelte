@@ -1,7 +1,7 @@
 <script lang="ts">
-	import BrandMark from '$lib/components/BrandMark.svelte';
-	import type { StatusPageDashboardStyle } from '$lib/api/statuspages';
-	import { footerCopy, type OverallLevel } from '$lib/status-page-health';
+	import BrandMark from '#lib/components/BrandMark.svelte';
+	import type { StatusPageDashboardStyle } from '#lib/api/statuspages.js';
+	import { footerCopy, type OverallLevel } from '#lib/status-page-health.js';
 
 	interface Props {
 		footerText?: string;

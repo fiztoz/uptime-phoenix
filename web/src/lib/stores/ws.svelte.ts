@@ -2,33 +2,33 @@
  * Runes-based WebSocket store — single source of real-time state.
  *
  * Usage:
- *   import { realtime } from '$lib/stores/ws.svelte.js';
+ *   import { realtime } from '#lib/stores/ws.svelte.js';
  *   realtime.connect();
  *   $effect(() => { console.log(realtime.status); });
  */
-import { dashboardInsights } from "$lib/api/insights";
-import { monitorGroupsCatalog } from "$lib/api/monitorGroups";
-import type { Status } from "$lib/monitor-types";
+import { dashboardInsights } from "#lib/api/insights.js";
+import { monitorGroupsCatalog } from "#lib/api/monitorGroups.js";
+import type { Status } from "#lib/monitor-types.js";
 import {
   createProjectionInvalidator,
   decideProjectionVersion,
-} from "$lib/projection-version";
+} from "#lib/projection-version.js";
 import {
   clearMonitorSnapshotCache,
   readMonitorSnapshotCache,
   writeMonitorSnapshotCache,
-} from "$lib/monitor-snapshot-cache";
-import { isWsAuthFailure } from "$lib/ws-auth-close";
+} from "#lib/monitor-snapshot-cache.js";
+import { isWsAuthFailure } from "#lib/ws-auth-close.js";
 import {
   applyConditionSnapshotToMap,
   conditionKey,
   type ConditionKind,
   type ConditionState,
   type MonitorCondition,
-} from "$lib/api/conditions";
+} from "#lib/api/conditions.js";
 
 // Canonical Status lives in monitor-types.ts (single source of truth). Re-exported
-// here so existing `import type { Status } from "$lib/stores/ws.svelte.js"` (if any)
+// here so existing `import type { Status } from "#lib/stores/ws.svelte.js"` (if any)
 // and local usages keep working.
 export type { Status };
 
@@ -533,7 +533,7 @@ function createWsStore() {
           down: s.down ?? 0,
           pending: s.pending ?? 0,
         };
-        void import("$lib/utils/favicon.svelte.ts").then(
+        void import("#lib/utils/favicon.svelte.js").then(
           ({ updateFaviconBadge }) => updateFaviconBadge(stats.down),
         );
         break;
@@ -601,7 +601,7 @@ function createWsStore() {
 
   async function hydrateMonitorsFromRest(): Promise<void> {
     if (snapshotIsFromWs()) return;
-    const { monitorsApi } = await import("$lib/api/monitors");
+    const { monitorsApi } = await import("#lib/api/monitors.js");
     for (let attempt = 0; attempt < 3; attempt++) {
       if (snapshotIsFromWs()) return;
       try {

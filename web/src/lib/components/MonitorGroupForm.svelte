@@ -6,24 +6,24 @@
 		type MonitorGroupView,
 		type CreateMonitorGroupInput,
 		type GroupCondition,
-	} from '$lib/api/monitorGroups';
-	import { notificationsApi, type Notification } from '$lib/api/notifications';
-	import { escalationApi, type EscalationPolicy } from '$lib/api/escalation';
+	} from '#lib/api/monitorGroups.js';
+	import { notificationsApi, type Notification } from '#lib/api/notifications.js';
+	import { escalationApi, type EscalationPolicy } from '#lib/api/escalation.js';
 	import {
 		applySyncToBaseline,
 		diffNotificationLinks,
 		hasLinkChanges,
 		initialGroupNotificationSelection,
 		syncGroupNotifications,
-	} from '$lib/group-notifications';
+	} from '#lib/group-notifications.js';
 	import EmptyState from './EmptyState.svelte';
 	import Skeleton from './Skeleton.svelte';
 	import { toast } from 'svelte-sonner';
 	import { onMount, untrack } from 'svelte';
 	import { AlertCircle, BellOff, X } from '@lucide/svelte';
-	import Select from '$lib/components/Select.svelte';
-	import { modalFocus } from '$lib/actions/modalFocus';
-	import * as m from '$lib/paraglide/messages.js';
+	import Select from '#lib/components/Select.svelte';
+	import { modalFocus } from '#lib/actions/modalFocus.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	interface Props {
 		/** Pass an existing group to edit it; omit/null to create a new one. */

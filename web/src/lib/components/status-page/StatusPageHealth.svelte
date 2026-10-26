@@ -4,7 +4,7 @@
 		BANNER_TOKENS,
 		bannerCopy,
 		type OverallLevel,
-	} from '$lib/status-page-health';
+	} from '#lib/status-page-health.js';
 
 	interface Props {
 		level: OverallLevel;

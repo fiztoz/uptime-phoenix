@@ -1,10 +1,10 @@
 <script lang="ts">
-	import type { MonitorGroupView } from '$lib/api/monitorGroups';
-	import { rollupStatusToPillStatus, type RollupStatus } from '$lib/api/monitorGroups';
-	import type { GroupSummary } from '$lib/monitor-filter';
+	import type { MonitorGroupView } from '#lib/api/monitorGroups.js';
+	import { rollupStatusToPillStatus, type RollupStatus } from '#lib/api/monitorGroups.js';
+	import type { GroupSummary } from '#lib/monitor-filter.js';
 	import StatusPill from './StatusPill.svelte';
 	import { Folder, Layers, ArrowUpRight } from '@lucide/svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	interface Props {
 		group: MonitorGroupView;

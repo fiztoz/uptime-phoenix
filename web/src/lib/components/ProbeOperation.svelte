@@ -4,9 +4,9 @@
     probesApi,
     errorMessage,
     type ProbeOperationView,
-  } from "$lib/api/probes";
+  } from "#lib/api/probes.js";
   import ProbeStatus from "./ProbeStatus.svelte";
-  import * as m from "$lib/paraglide/messages.js";
+  import * as m from "#lib/paraglide/messages.js";
   let {
     receipt,
     onUpdate,

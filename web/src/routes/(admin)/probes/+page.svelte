@@ -1,21 +1,21 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { realtime } from "$lib/stores/ws.svelte.js";
+  import { realtime } from "#lib/stores/ws.svelte.js";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
   import { KeyRound, Network, Plus } from "@lucide/svelte";
-  import { auth } from "$lib/stores/auth.svelte.js";
+  import { auth } from "#lib/stores/auth.svelte.js";
   import {
     probesApi,
     errorCode,
     errorMessage,
     type ProbeView,
-  } from "$lib/api/probes";
-  import { probeEventMatches } from "$lib/probe-detail-events";
-  import ProbeStatus from "$lib/components/ProbeStatus.svelte";
-  import ProbeHostBootstrap from "$lib/components/ProbeHostBootstrap.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import * as m from "$lib/paraglide/messages.js";
+  } from "#lib/api/probes.js";
+  import { probeEventMatches } from "#lib/probe-detail-events.js";
+  import ProbeStatus from "#lib/components/ProbeStatus.svelte";
+  import ProbeHostBootstrap from "#lib/components/ProbeHostBootstrap.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import * as m from "#lib/paraglide/messages.js";
   let items = $state<ProbeView[]>([]);
   let cursor = $state<string | null>(null);
   let loading = $state(true);
@@ -73,7 +73,7 @@
     error = "";
     try {
       const created = await probesApi.create(registration);
-      await goto(resolve(`/probes/${encodeURIComponent(created.id)}`));
+      await goto(resolve(`probes/${encodeURIComponent(created.id)}`));
     } catch (e) {
       error = errorMessage(e, m.probes_save_failed());
     } finally {
@@ -272,7 +272,7 @@
     {:else}<div class="space-y-3">
         {#each filtered as probe (probe.id)}
           <a
-            href={resolve(`/probes/${encodeURIComponent(probe.id)}`)}
+            href={resolve(`probes/${encodeURIComponent(probe.id)}`)}
             class="block rounded-xl border border-border bg-card p-5 transition-colors hover:border-primary/30"
             data-testid="probe-row"
           >

@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
-	import { createKeyedPool } from '$lib/async-pool';
-	import { realtime } from '$lib/stores/ws.svelte.js';
-	import { heartbeatsApi, type Heartbeat } from '$lib/api/heartbeats.js';
-	import type { MonitorWithGroup } from '$lib/api/monitors';
+	import { createKeyedPool } from '#lib/async-pool.js';
+	import { realtime } from '#lib/stores/ws.svelte.js';
+	import { heartbeatsApi, type Heartbeat } from '#lib/api/heartbeats.js';
+	import type { MonitorWithGroup } from '#lib/api/monitors.js';
 	import {
 		monitorGroupsApi,
 		monitorGroupsCatalog,
@@ -15,15 +15,15 @@
 		buildGroupOptions,
 		sortMonitors,
 		type MonitorGroupView,
-	} from '$lib/api/monitorGroups';
-	import { tagsApi, tagsCatalog, type Tag } from '$lib/api/tags';
-	import { dashboardInsights, type InsightsRow } from '$lib/api/insights';
+	} from '#lib/api/monitorGroups.js';
+	import { tagsApi, tagsCatalog, type Tag } from '#lib/api/tags.js';
+	import { dashboardInsights, type InsightsRow } from '#lib/api/insights.js';
 	import {
 		conditionsApi,
 		conditionDrivesDashboardAttention,
 		conditionNeedsAttention,
 		type MonitorCondition,
-	} from '$lib/api/conditions';
+	} from '#lib/api/conditions.js';
 	import {
 		EMPTY_CRITERIA,
 		collectTypes,
@@ -39,21 +39,21 @@
 		type FilterCriteria,
 		type MonitorStatus,
 		type NormalizedTag,
-	} from '$lib/monitor-filter';
+	} from '#lib/monitor-filter.js';
 	import {
 		parseDashboardCardBody,
 		readDashboardCardBody,
 		writeDashboardCardBody,
 		type DashboardCardBody,
-	} from '$lib/dashboard-card';
-	import MonitorCard from '$lib/components/MonitorCard.svelte';
-	import DashboardWallboard from '$lib/components/DashboardWallboard.svelte';
-	import GroupCard from '$lib/components/GroupCard.svelte';
-	import DashboardFilters from '$lib/components/DashboardFilters.svelte';
-	import StatusPill from '$lib/components/StatusPill.svelte';
-	import ConditionChip from '$lib/components/ConditionChip.svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import Skeleton from '$lib/components/Skeleton.svelte';
+	} from '#lib/dashboard-card.js';
+	import MonitorCard from '#lib/components/MonitorCard.svelte';
+	import DashboardWallboard from '#lib/components/DashboardWallboard.svelte';
+	import GroupCard from '#lib/components/GroupCard.svelte';
+	import DashboardFilters from '#lib/components/DashboardFilters.svelte';
+	import StatusPill from '#lib/components/StatusPill.svelte';
+	import ConditionChip from '#lib/components/ConditionChip.svelte';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import Skeleton from '#lib/components/Skeleton.svelte';
 	import {
 		Activity,
 		AlertTriangle,
@@ -65,7 +65,7 @@
 		ChevronDown,
 		SearchX,
 	} from '@lucide/svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	// --- Monitor groups (folders) -----------------------------------------
 	let groups = $state<MonitorGroupView[]>(monitorGroupsCatalog.peek() ?? []);
@@ -193,22 +193,22 @@
 	// view survives a refresh and can be shared. We mirror it into local state
 	// so typing re-renders instantly rather than waiting on the navigation, and
 	// push each change back into the URL with replaceState (no history spam).
-	let criteria = $state<FilterCriteria>(criteriaFromParams($page.url.searchParams));
+	let criteria = $state<FilterCriteria>(criteriaFromParams(new URLSearchParams(page.url.search)));
 
 	/**
 	 * The query string we last pushed ourselves. Plain `let`, NOT $state — the
 	 * sync effect below must not take a reactive dependency on it.
 	 *
 	 * goto() is async, so between a keystroke and the URL actually changing, our
-	 * local `criteria` is ahead of `$page.url`. Without this marker the effect
+	 * local `criteria` is ahead of `page.url`. Without this marker the effect
 	 * would read that gap as an external navigation and clobber the keystroke.
 	 * Comparing against what we pushed lets us ignore our own echo and react
 	 * only to genuinely external URL changes (back/forward, a pasted link).
 	 */
-	let selfPushed = $page.url.search;
+	let selfPushed = page.url.search;
 
 	$effect(() => {
-		const search = $page.url.search;
+		const search = page.url.search;
 		if (search === selfPushed) return; // our own replaceState echoing back
 		selfPushed = search;
 		criteria = criteriaFromParams(new URLSearchParams(search));
@@ -216,13 +216,12 @@
 
 	function applyCriteria(next: FilterCriteria) {
 		criteria = next; // filter instantly; don't wait on the navigation
-		const url = $page.url;
-		const search = criteriaToSearchString(url.searchParams, next);
+		const url = page.url;
+		const search = criteriaToSearchString(new URLSearchParams(url.search), next);
 		selfPushed = search;
 		goto(`${url.pathname}${search}`, {
-			replaceState: true,
-			keepFocus: true,
-			noScroll: true,
+			replace: true,
+			reset: false, // keep focus + scroll (Kit 2: keepFocus/noScroll)
 		});
 	}
 

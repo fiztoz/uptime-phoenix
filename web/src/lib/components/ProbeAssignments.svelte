@@ -5,15 +5,15 @@
     errorCode,
     errorMessage,
     type ProbeView,
-  } from "$lib/api/probes";
+  } from "#lib/api/probes.js";
   import {
     regionalApi,
     type MonitorProbeAssignmentsView,
-  } from "$lib/api/regional";
-  import type { MonitorInitialAssignments } from "$lib/api/monitors";
-  import { probeWriteErrorMessage } from "$lib/probe-errors";
+  } from "#lib/api/regional.js";
+  import type { MonitorInitialAssignments } from "#lib/api/monitors.js";
+  import { probeWriteErrorMessage } from "#lib/probe-errors.js";
   import ProbeStatus from "./ProbeStatus.svelte";
-  import * as m from "$lib/paraglide/messages.js";
+  import * as m from "#lib/paraglide/messages.js";
   let {
     monitorId,
     monitorType,

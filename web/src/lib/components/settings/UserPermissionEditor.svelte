@@ -23,9 +23,9 @@
 	 * State lives in the parent page (which owns the API calls); this component is
 	 * presentation plus callbacks.
 	 */
-	import MonitorPicker from '$lib/components/MonitorPicker.svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import Skeleton from '$lib/components/Skeleton.svelte';
+	import MonitorPicker from '#lib/components/MonitorPicker.svelte';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import Skeleton from '#lib/components/Skeleton.svelte';
 	import {
 		AlertCircle,
 		Bell,
@@ -39,11 +39,11 @@
 		ShieldCheck,
 		X,
 	} from '@lucide/svelte';
-	import type { Monitor } from '$lib/stores/ws.svelte.js';
-	import type { MonitorWithGroup } from '$lib/api/monitors';
-	import type { MonitorGroupView } from '$lib/api/monitorGroups';
-	import type { User as UserAccount, UserPermissions } from '$lib/api/users';
-	import { grantSummary, groupOptions, permissionsEqual } from '$lib/user-permissions';
+	import type { Monitor } from '#lib/stores/ws.svelte.js';
+	import type { MonitorWithGroup } from '#lib/api/monitors.js';
+	import type { MonitorGroupView } from '#lib/api/monitorGroups.js';
+	import type { User as UserAccount, UserPermissions } from '#lib/api/users.js';
+	import { grantSummary, groupOptions, permissionsEqual } from '#lib/user-permissions.js';
 
 	interface Props {
 		user: UserAccount;

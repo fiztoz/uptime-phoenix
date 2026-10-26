@@ -2,8 +2,8 @@
   import {
     buildEmailPreviewDocument,
     resolveEmailPreviewSubject,
-  } from "$lib/utils/email-preview";
-  import * as m from "$lib/paraglide/messages.js";
+  } from "#lib/utils/email-preview.js";
+  import * as m from "#lib/paraglide/messages.js";
 
   type EmailPreviewView = "desktop" | "mobile" | "plain";
 

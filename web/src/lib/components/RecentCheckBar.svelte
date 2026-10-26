@@ -5,8 +5,8 @@
 -->
 <script lang="ts">
   import { timeFormat } from "d3-time-format";
-  import type { Heartbeat } from "$lib/api/heartbeats.js";
-  import * as m from "$lib/paraglide/messages.js";
+  import type { Heartbeat } from "#lib/api/heartbeats.js";
+  import * as m from "#lib/paraglide/messages.js";
 
   interface Props {
     heartbeats: Heartbeat[];
