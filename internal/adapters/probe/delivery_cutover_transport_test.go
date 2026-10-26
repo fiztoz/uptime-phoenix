@@ -209,7 +209,7 @@ func TestDeliveryCutoverTransportDeliversCommandsAndReceipts(t *testing.T) {
 		t.Fatalf("executor authority is not the accepted session: %+v", authority)
 	}
 	cancel()
-	<-done
+	_ = <-done
 }
 
 // TestDeliveryCutoverTransportDrainKeepsResumeDeliverable proves the
@@ -239,5 +239,5 @@ func TestDeliveryCutoverTransportDrainKeepsResumeDeliverable(t *testing.T) {
 	case <-time.After(250 * time.Millisecond):
 	}
 	cancel()
-	<-done
+	_ = <-done
 }

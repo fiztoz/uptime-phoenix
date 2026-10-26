@@ -235,7 +235,7 @@ func (f *certificateRuntimeFixture) stop() {
 		f.httpServer = nil
 	}
 	if f.serveDone != nil {
-		<-f.serveDone
+		_ = <-f.serveDone
 		f.serveDone = nil
 	}
 	if f.client != nil {

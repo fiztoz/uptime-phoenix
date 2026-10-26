@@ -316,7 +316,7 @@ func TestProbeImageSnapshotCancellationAndRevocation(t *testing.T) {
 		cancel()
 		<-blocked.closing
 		select {
-		case <-done:
+		case _ = <-done:
 			t.Fatal("preparation returned before source Close joined")
 		default:
 		}

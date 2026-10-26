@@ -183,7 +183,7 @@ func TestSSHBinaryStageAuthorization(t *testing.T) {
 			_ = listener.Close()
 			if !joined {
 				select {
-				case <-done:
+				case _ = <-done:
 				case <-time.After(6 * time.Second):
 					t.Error("namespace echo handler did not join")
 				}

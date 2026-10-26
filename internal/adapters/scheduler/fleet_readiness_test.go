@@ -133,13 +133,13 @@ func TestShardedSchedulerRunAttestsBeforeInitialClaim(t *testing.T) {
 		}
 		if time.Now().After(deadline) {
 			cancel()
-			<-done
+			_ = <-done
 			t.Fatalf("scheduler did not attest and claim within 5s: %v", events)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	cancel()
-	<-done
+	_ = <-done
 
 	events := log.snapshot()
 	if events[0] != "declare" || events[1] != "claim" {

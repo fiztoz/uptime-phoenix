@@ -144,7 +144,7 @@ func TestReplayAcceptanceDuplicateACKDoesNotResendCurrent(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 	cancel()
-	<-done
+	_ = <-done
 }
 
 func TestReplayAcceptanceACKRemainsResponsiveDuringRetryDelay(t *testing.T) {
@@ -169,7 +169,7 @@ func TestReplayAcceptanceACKRemainsResponsiveDuringRetryDelay(t *testing.T) {
 		}
 	case <-time.After(200 * time.Millisecond):
 		cancel()
-		<-done
+		_ = <-done
 		t.Fatal("durable ACK blocked behind retry sleep")
 	}
 }

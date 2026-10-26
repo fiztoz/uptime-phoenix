@@ -940,7 +940,7 @@ func drainDiagnosticResults(channels ...<-chan error) bool {
 		remaining := pending[:0]
 		for _, ch := range pending {
 			select {
-			case <-ch:
+			case _ = <-ch:
 			default:
 				remaining = append(remaining, ch)
 			}

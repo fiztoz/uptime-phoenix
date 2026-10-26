@@ -47,7 +47,7 @@ func TestSMTPSenderCancellationBeforeGreeting(t *testing.T) {
 		}
 	case <-time.After(300 * time.Millisecond):
 		_ = conn.Close()
-		<-done
+		_ = <-done
 		t.Fatal("SMTP blocked waiting for greeting after cancellation")
 	}
 }
