@@ -3,7 +3,7 @@
   import { realtime } from "$lib/stores/ws.svelte.js";
   import { goto } from "$app/navigation";
   import { resolve } from "$app/paths";
-  import { Network, Plus } from "@lucide/svelte";
+  import { KeyRound, Network, Plus } from "@lucide/svelte";
   import { auth } from "$lib/stores/auth.svelte.js";
   import {
     probesApi,
@@ -13,6 +13,7 @@
   } from "$lib/api/probes";
   import { probeEventMatches } from "$lib/probe-detail-events";
   import ProbeStatus from "$lib/components/ProbeStatus.svelte";
+  import ProbeHostBootstrap from "$lib/components/ProbeHostBootstrap.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import * as m from "$lib/paraglide/messages.js";
   let items = $state<ProbeView[]>([]);
@@ -21,6 +22,7 @@
   let error = $state("");
   let saving = $state(false);
   let creating = $state(false);
+  let bootstrapping = $state(false);
   let search = $state("");
   let registration = $state({
     probe_id: "",
@@ -128,12 +130,19 @@
         {m.probes_description()}
       </p>
     </div>
-    {#if auth.user?.is_admin}<button
-        class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        onclick={() => (creating = !creating)}
-        aria-expanded={creating}
-        ><Plus class="h-4 w-4" />{m.probes_add()}</button
-      >{/if}
+    {#if auth.user?.is_admin}<div class="flex flex-wrap gap-3">
+        <button
+          class="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm hover:bg-accent"
+          onclick={() => (bootstrapping = !bootstrapping)}
+          aria-expanded={bootstrapping}
+          ><KeyRound class="h-4 w-4" />{m.probes_bootstrap_open()}</button
+        ><button
+          class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          onclick={() => (creating = !creating)}
+          aria-expanded={creating}
+          ><Plus class="h-4 w-4" />{m.probes_add()}</button
+        >
+      </div>{/if}
   </div>
   {#if !auth.user?.is_admin}<p
       role="alert"
@@ -142,6 +151,9 @@
       {m.probes_admin_only()}
     </p>
   {:else}
+    {#if bootstrapping}<ProbeHostBootstrap
+        onclose={() => (bootstrapping = false)}
+      />{/if}
     {#if creating}<form
         onsubmit={create}
         class="space-y-4 rounded-xl border border-border bg-card p-5"
