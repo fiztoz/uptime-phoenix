@@ -184,11 +184,14 @@ The probe container privilege model is untouched: root + `--cap-drop ALL
 | Executed | Result |
 |---|---|
 | `go test -race -count=1 ./internal/adapters/provisioning -run TestSSHHostBootstrap` (Darwin/arm64: BSD userland, `/bin/sh`) | 8 tests / 16 subtests passed |
-| Same, Linux/arm64 container `golang:1.26-bookworm` (dash, GNU coreutils/findutils), non-root uid 1000 | passed |
+| Same, Linux/arm64 container `golang:1.26-bookworm` (dash, GNU coreutils/findutils), non-root uid 1000 | passed (before the Go 1.27.3 merge; the scripts did not change) |
 | `go test -race ./internal/core/services -run TestProbeHostBootstrap` | passed (fake port) |
 | `go test -race ./internal/adapters/http/handlers -run TestProbeHostBootstrap` | passed |
 | `go test -race ./internal/bootstrap -run TestProbeHostBootstrapAPI` (real router, auth, rate limit, composition, service, adapter → loopback SSH) | passed |
-| `go test -tags m8bootstrap -race ./internal/adapters/provisioning -run '^TestM8HostBootstrapOpenSSH$'` against a disposable `debian:bookworm` container: OpenSSH 9.2p1, sudo 1.9.13p3, non-root sudoer with a `/bin/sh` login, production layout, real `phoenix-probe-admin` linux/arm64 | passed: first run installed/installed/added + verified via real forced `authorized-dispatch install-preflight`; rerun unchanged; wrong password, foreign authority and wrong pin refused |
+| `go test -tags m8bootstrap -race ./internal/adapters/provisioning -run '^TestM8HostBootstrapOpenSSH$'` against a disposable `debian:bookworm` container: OpenSSH 9.2p1, sudo 1.9.13p3, non-root sudoer with a `/bin/sh` login, production layout, real `phoenix-probe-admin` linux/arm64 | passed (before and after the Go 1.27.3 merge): first run installed/installed/added + verified via real forced `authorized-dispatch install-preflight`; rerun unchanged; wrong password, foreign authority and wrong pin refused |
+| Full `go test -race -count=1 -timeout 3600s ./...` (Go 1.27.3, Darwin/arm64, no DSN) | 10,772 passes, 0 failures, 828 skips (822 repository tests without `TEST_MARIADB_DSN`, the rest pre-existing optional skips) |
+| `golangci-lint` v2.15.0 (`GOOS=linux`, as CI) | 0 issues |
+| `web`: `bun run check` / `lint` / `test` / `build` | 0 errors / clean / 328 pass / ok |
 
 The adapter fixture is a loopback Go SSH server. Password sessions run the real
 scripts with the local `/bin/sh` against a private prefix. A PATH shim supplies Linux
