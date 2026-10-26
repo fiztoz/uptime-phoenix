@@ -184,7 +184,7 @@ func TestCommandRuntimeExactBytesReceiptLossAndRestart(t *testing.T) {
 				t.Fatal("failure failed to close session")
 			}
 			select {
-			case <-done:
+			case _ = <-done:
 			case <-time.After(time.Second):
 				t.Fatal("command sender did not join")
 			}

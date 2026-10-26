@@ -68,7 +68,7 @@ func TestDeliveryPreparationTransportGates(t *testing.T) {
 				cancel()
 				if !joined {
 					select {
-					case <-done:
+					case _ = <-done:
 					case <-time.After(3 * time.Second):
 						t.Error("transport did not join")
 					}
@@ -77,7 +77,7 @@ func TestDeliveryPreparationTransportGates(t *testing.T) {
 			h.awaitReceipt(done)
 			select {
 			case <-report.called:
-			case <-done:
+			case _ = <-done:
 				joined = true
 				t.Fatal("session ended before regional report")
 			case <-ctx.Done():
@@ -107,7 +107,7 @@ func TestDeliveryPreparationTransportGates(t *testing.T) {
 			}
 			cancel()
 			select {
-			case <-done:
+			case _ = <-done:
 				joined = true
 			case <-time.After(3 * time.Second):
 				t.Fatal("transport did not join")

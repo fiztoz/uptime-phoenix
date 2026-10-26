@@ -38,6 +38,10 @@ linters:
       checks:
         - all
         - "-QF*"
+        # errcheck (>= 1.30) reports an error received from a channel and
+        # dropped (`<-done`); the explicit discard it asks for (`_ = <-done`)
+        # is exactly what S1005 calls redundant. Keep the errcheck rule.
+        - "-S1005"
   exclusions:
     paths:
       - web

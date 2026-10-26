@@ -388,7 +388,7 @@ func testStandbyExpiry(t *testing.T, s standbyFixture) {
 	case <-e.entered:
 	case <-time.After(3 * time.Second):
 		close(e.release)
-		<-done
+		_ = <-done
 		t.Fatal("evaluation not entered")
 	}
 	time.Sleep(1200 * time.Millisecond)

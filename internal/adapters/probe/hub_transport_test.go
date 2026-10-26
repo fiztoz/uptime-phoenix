@@ -139,7 +139,7 @@ func TestHubTransportRealEnrollmentRuntimeAndConfig(t *testing.T) {
 	}
 	cancel()
 	select {
-	case <-done:
+	case _ = <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("transport did not join after cancellation")
 	}

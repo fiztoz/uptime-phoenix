@@ -654,7 +654,7 @@ func TestProbeImageArchiveCancellationJoinsSources(t *testing.T) {
 		t.Fatal("cancel did not close source")
 	}
 	select {
-	case <-done:
+	case _ = <-done:
 		t.Fatal("pack returned before source closure joined")
 	case <-time.After(30 * time.Millisecond):
 	}
