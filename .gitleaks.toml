@@ -1,0 +1,23 @@
+# gitleaks configuration: the default rules plus an allowlist of known
+# non-secrets. Keep each entry narrow and give its reason.
+# Used by the pre-commit hook (.pre-commit-config.yaml) and `make secrets-scan`.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Recorded evidence and test fixtures with synthetic or redacted values"
+paths = [
+  # Multi-region evidence records: hashes, fingerprints and redacted credential IDs, not live secrets.
+  '''^docs/multi-region/[^/]+_EVIDENCE\.json$''',
+  # Probe protocol fixtures with synthetic tokens, used to assert that tokens are rejected or redacted.
+  '''^internal/adapters/probe/testdata/''',
+  # Synthetic values in tests and an acceptance script.
+  '''^internal/adapters/repository/probe_installation_test\.go$''',
+  '''^internal/adapters/http/handlers/ws_test\.go$''',
+  '''^scripts/test_m8_aws_acceptance\.py$''',
+  # A UI mock with a truncated placeholder key.
+  '''^research/distributed-agent-worker-az-architecture\.md$''',
+  # A migration comment that mentions "key fingerprints".
+  '''^internal/adapters/repository/(sqlite|mariadb)/migrations/084_probe_install_journal\.up\.sql$''',
+]

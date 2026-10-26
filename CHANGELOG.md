@@ -81,6 +81,38 @@ at the bottom.
   must use 8080. Every chart workload, including the backup, partition,
   rollup and migrate jobs, runs non-root under `seccompProfile:
   RuntimeDefault` (#91).
+- **Breaking:** creating the first admin from the web UI now needs the one-time
+  setup token that the server logs at startup while it has no users and no
+  `BOOTSTRAP_USERNAME`/`BOOTSTRAP_PASSWORD`. The token is derived from
+  `JWT_SECRET`, so every replica logs the same one; `JWT_SECRET` (now required, #87) keeps it
+  unguessable.
+  First-user creation is now atomic across replicas: concurrent sign-ups on
+  an empty install create exactly one admin (#92).
+- **Breaking:** `docker-compose.yml`, `docker-compose.split.yml` and the Helm
+  chart now default to `PRODUCTION=true`, `LOG_LEVEL=info` and no bootstrap
+  admin password. Production mode serves a strict Content-Security-Policy:
+  `script-src` allows only the SPA's own files and the SHA-256 hashes of its
+  inline bootstrap script, computed from the embedded build at startup. Use
+  `docker-compose.dev.yml` for the old relaxed local defaults. The chart now
+  refuses `bootstrap.enabled` without a password or existing Secret. The
+  binary's own default stays `PRODUCTION=false` (#92). Upgrade notes:
+  Helm releases that kept `bootstrap.enabled: true` after removing the
+  password must set `bootstrap.enabled: false` (the chart now fails to render
+  otherwise); production mode also turns CORS to deny-by-default, so browser
+  code on another origin that calls the API must be listed in
+  `CORS_ALLOW_ORIGINS` (same-origin UI, the split nginx proxy and badge
+  images are unaffected).
+- CI pins every action to a commit SHA, its token is read-only by default,
+  and only the docker job gets `actions: write` (for the build cache).
+  `make action-pins` and CI fail on any tag-only `uses:` (#92).
+- Dependencies: echo 4.16.1, dompurify 3.4.17 and a refreshed `web/bun.lock`.
+  CI runs osv-scanner over `go.mod` and `web/bun.lock`. The advisories that
+  can't be fixed yet are recorded, with reasons and an expiry date, in
+  `osv-scanner.toml` (#92).
+- Dependabot version PRs wait out a 7-day cooldown (14 days for Go and npm
+  majors). A gitleaks pre-commit hook (`.pre-commit-config.yaml`,
+  allowlist in `.gitleaks.toml`) and `make secrets-scan` catch committed
+  secrets (#92).
 - The chart NetworkPolicy no longer opens 3000/80/8080 egress to every
   destination for the tunnel: in-release traffic is scoped to this
   release's pods, and cloudflared alone may reach Cloudflare's edge on 7844.

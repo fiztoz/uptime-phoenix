@@ -42,13 +42,17 @@ echo "JWT_SECRET=$(openssl rand -base64 48)" >> .env   # once; required
 docker compose up
 ```
 
-The first run builds the image, starts MariaDB, and boots Uptime Phoenix. Then open
-**http://localhost:3000** and log in with the default bootstrap credentials:
+The first run builds the image, starts MariaDB, and boots Uptime Phoenix in production
+mode (strict Content-Security-Policy, deny-by-default CORS). Compose seeds no admin
+account. Find the one-time setup token in the log:
 
-| Field | Value |
-|---|---|
-| Username | `admin` |
-| Password | `ChangeMe123!` |
+```bash
+docker compose logs uptime-phoenix | grep setup_token
+```
+
+Then open **http://localhost:3000**, choose **Register**, and create the first admin
+with that token. The token stops working once an admin exists. To seed the admin
+instead, set `BOOTSTRAP_USERNAME` and `BOOTSTRAP_PASSWORD` in `.env`.
 
 `JWT_SECRET` has no default: set it before the first start, for example
 `echo "JWT_SECRET=$(openssl rand -base64 48)" >> .env`. Compose and the server refuse
@@ -56,11 +60,16 @@ to start without it. Override the other defaults (`MARIADB_PASSWORD`,
 `BOOTSTRAP_USERNAME`, `BOOTSTRAP_PASSWORD`, ...) in the same `.env` file next to
 `docker-compose.yml`.
 
-> **Do not expose these defaults to the internet.** Compose ships with well-known
-> bootstrap credentials for local convenience. For any shared or
-> public deployment, set strong unique values for `JWT_SECRET`, `BOOTSTRAP_PASSWORD`,
-> and database passwords, set `PRODUCTION=true`, and do not publish MariaDB (`3306`)
-> beyond localhost.
+For local development, `docker-compose.dev.yml` switches back to the relaxed dev
+CSP, debug logging, and the well-known `admin` / `ChangeMe123!` login:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+```
+
+> **Do not expose the dev override to the internet.** For any shared or public
+> deployment, use strong unique values for `JWT_SECRET` and the database passwords,
+> and do not publish MariaDB (`3306`) beyond localhost.
 
 Without Docker (Go 1.25+ and Bun required — SQLite, embedded UI, zero external
 dependencies):
@@ -115,7 +124,8 @@ docker compose up
 
 ```bash
 docker compose -f docker-compose.split.yml up --build
-# open http://localhost:8080   (login: admin / ChangeMe123!)
+# open http://localhost:8080 and register the first admin with the setup_token
+# from: docker compose -f docker-compose.split.yml logs uptime-phoenix-api
 ```
 
 **Helm, single pod** (zero external dependencies — SQLite on a PVC, embedded UI,

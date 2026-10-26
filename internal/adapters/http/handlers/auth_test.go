@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -50,7 +52,8 @@ func newHarness(t *testing.T) *testHarness {
 		t.Fatalf("NewWebAuthnProvider: %v", err)
 	}
 	svc := services.NewAuthService(userRepo, apiKeyRepo, authenticator, totp,
-		services.WithWebAuthn(webAuthnProvider, webAuthnRepo))
+		services.WithWebAuthn(webAuthnProvider, webAuthnRepo),
+		services.WithFirstUserSetupToken(testSetupToken))
 
 	e := echo.New()
 	e.HideBanner = true
@@ -106,13 +109,17 @@ func (h *testHarness) do(t *testing.T, method, path string, body any, token stri
 	return rec
 }
 
+// testSetupToken is the first-user setup token the harness configures.
+const testSetupToken = "test-setup-token"
+
 // --- tests --------------------------------------------------------------
 
 func TestAuthHandlers_Register_Success(t *testing.T) {
 	h := newHarness(t)
 	rec := h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
-		"username": "alice",
-		"password": "supersecret",
+		"setup_token": testSetupToken,
+		"username":    "alice",
+		"password":    "supersecret",
 	}, "")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d (%s); want 201; body=%s", rec.Code, http.StatusText(rec.Code), rec.Body.String())
@@ -135,8 +142,9 @@ func TestAuthHandlers_Register_Success(t *testing.T) {
 func TestAuthHandlers_Register_ShortPassword(t *testing.T) {
 	h := newHarness(t)
 	rec := h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
-		"username": "alice",
-		"password": "short",
+		"setup_token": testSetupToken,
+		"username":    "alice",
+		"password":    "short",
 	}, "")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d; want 400", rec.Code)
@@ -151,13 +159,14 @@ func TestAuthHandlers_Register_ShortPassword(t *testing.T) {
 // admin-only POST /api/users (see user_test.go).
 func TestAuthHandlers_Register_DisabledAfterFirstUser(t *testing.T) {
 	h := newHarness(t)
-	body := map[string]string{"username": "alice", "password": "supersecret"}
+	body := map[string]string{"username": "alice", "password": "supersecret", "setup_token": testSetupToken}
 	first := h.do(t, http.MethodPost, "/api/auth/register", body, "")
 	if first.Code != http.StatusCreated {
 		t.Fatalf("first register status = %d; want 201", first.Code)
 	}
 	rec := h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
-		"username": "bob", "password": "supersecret",
+		"setup_token": testSetupToken,
+		"username":    "bob", "password": "supersecret",
 	}, "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d; want 403 Forbidden", rec.Code)
@@ -174,8 +183,9 @@ func TestAuthHandlers_Register_DisabledAfterFirstUser(t *testing.T) {
 func TestAuthHandlers_Login_InvalidCredentials(t *testing.T) {
 	h := newHarness(t)
 	_ = h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
-		"username": "alice",
-		"password": "supersecret",
+		"setup_token": testSetupToken,
+		"username":    "alice",
+		"password":    "supersecret",
 	}, "")
 	rec := h.do(t, http.MethodPost, "/api/auth/login", map[string]string{
 		"username": "alice",
@@ -216,8 +226,9 @@ func TestAuthHandlers_Login_LockedAccountReturns429(t *testing.T) {
 func TestAuthHandlers_Login_Success(t *testing.T) {
 	h := newHarness(t)
 	_ = h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
-		"username": "alice",
-		"password": "supersecret",
+		"setup_token": testSetupToken,
+		"username":    "alice",
+		"password":    "supersecret",
 	}, "")
 	rec := h.do(t, http.MethodPost, "/api/auth/login", map[string]string{
 		"username": "alice",
@@ -248,8 +259,9 @@ func TestAuthHandlers_Login_Success(t *testing.T) {
 func TestAuthHandlers_Login_Requires2FA(t *testing.T) {
 	h := newHarness(t)
 	register := h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
-		"username": "alice",
-		"password": "supersecret",
+		"setup_token": testSetupToken,
+		"username":    "alice",
+		"password":    "supersecret",
 	}, "")
 	if register.Code != http.StatusCreated {
 		t.Fatalf("register status = %d; want 201; body=%s", register.Code, register.Body.String())
@@ -331,8 +343,9 @@ func TestAuthHandlers_Me_Unauthorized(t *testing.T) {
 func TestAuthHandlers_Me_Authorized(t *testing.T) {
 	h := newHarness(t)
 	reg := h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
-		"username": "alice",
-		"password": "supersecret",
+		"setup_token": testSetupToken,
+		"username":    "alice",
+		"password":    "supersecret",
 	}, "")
 	var resp handlers.LoginResponse
 	if err := json.Unmarshal(reg.Body.Bytes(), &resp); err != nil {
@@ -364,8 +377,9 @@ func TestAuthHandlers_Register_BadJSON(t *testing.T) {
 func (h *testHarness) registerAndLogin(t *testing.T) string {
 	t.Helper()
 	rec := h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
-		"username": "alice",
-		"password": "supersecret",
+		"setup_token": testSetupToken,
+		"username":    "alice",
+		"password":    "supersecret",
 	}, "")
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("register status = %d; body=%s", rec.Code, rec.Body.String())
@@ -478,3 +492,61 @@ var _ ports.TwoFactor = (*auth.TOTPProvider)(nil)
 var _ ports.Authenticator = (*auth.JWTAuthenticator)(nil)
 var _ ports.WebAuthnAuthenticator = (*auth.WebAuthnProvider)(nil)
 var _ ports.WebAuthnCredentialRepository = (*memory.WebAuthnCredentialRepo)(nil)
+
+// #92: a fresh install must not hand admin to whoever reaches it first.
+func TestAuthHandlers_Register_RequiresSetupToken(t *testing.T) {
+	h := newHarness(t)
+	for name, token := range map[string]string{"missing": "", "wrong": "not-the-token"} {
+		rec := h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
+			"username": "mallory", "password": "supersecret", "setup_token": token,
+		}, "")
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s token: status = %d; want 403; body=%s", name, rec.Code, rec.Body.String())
+		}
+	}
+	// Nothing was created, so the real token still works.
+	rec := h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
+		"username": "alice", "password": "supersecret", "setup_token": testSetupToken,
+	}, "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("valid token: status = %d; want 201; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// #92: concurrent first registrations with different usernames create
+// exactly one admin; the losers get 403.
+func TestAuthHandlers_Register_ConcurrentCreatesOneAdmin(t *testing.T) {
+	h := newHarness(t)
+	const n = 16
+	codes := make(chan int, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec := h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
+				"username": fmt.Sprintf("admin%d", i), "password": "supersecret", "setup_token": testSetupToken,
+			}, "")
+			codes <- rec.Code
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	created := 0
+	for code := range codes {
+		switch code {
+		case http.StatusCreated:
+			created++
+		case http.StatusForbidden:
+		default:
+			t.Errorf("unexpected status %d", code)
+		}
+	}
+	users, err := h.users.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created != 1 || len(users) != 1 {
+		t.Fatalf("created=%d users=%d; want exactly one admin", created, len(users))
+	}
+}

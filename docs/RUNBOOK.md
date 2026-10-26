@@ -395,13 +395,13 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `JWT_EXPIRE_HOURS` | `24` | Session JWT lifetime in hours. Must be `> 0`; non-positive values refuse to boot (they would mint an already-expired token). |
 | `OUTBOUND_ALLOWED_CIDRS` | empty | Comma-separated CIDRs or IPs that monitors and notifications owned by **non-admin** users may reach although they are internal (loopback, RFC 1918, CGNAT, IPv6 ULA). Admin-owned monitors and notifications do not need it. The always-blocked floor (link-local, cloud metadata, multicast, unspecified) cannot be allowlisted. Write IPv4 ranges as IPv4 (`::ffff:10.0.0.0/104` is converted to `10.0.0.0/8`). Helm: `outbound.allowedCIDRs`. An invalid value refuses to boot. See [Outbound guard](#outbound-guard-for-monitors-and-notifications-88). |
 | `TOTP_ISSUER` | `Phoenix` | Issuer label shown in authenticator apps. |
-| `PRODUCTION` | `false` | Selects secure production defaults, including deny-by-default CORS when no allow-list is supplied. |
+| `PRODUCTION` | `false` (compose and chart: `true`) | Selects secure production defaults: a strict Content-Security-Policy (no inline scripts except the hashed SPA bootstrap, no `eval`) and deny-by-default CORS when no allow-list is supplied. Set `false` only for local development. |
 | `REDIS_URL` | empty | Optional Redis URL. Required and shared across processes in split mode. |
 | `WEBAUTHN_RP_ID` | `localhost` | Passkey relying-party ID; use the registrable production hostname. |
 | `WEBAUTHN_RP_NAME` | `Phoenix` | Passkey relying-party display name. |
 | `WEBAUTHN_RP_ORIGINS` | `http://localhost:3000,http://localhost:5173` | Comma-separated exact browser origins, including scheme. |
 | `BOOTSTRAP_USERNAME` | empty | Creates the first user only when paired with `BOOTSTRAP_PASSWORD`; do not use as an ongoing user-sync mechanism. |
-| `BOOTSTRAP_PASSWORD` | empty | First-user bootstrap password; minimum eight characters. Supply via a secret and remove from runtime configuration after bootstrap. |
+| `BOOTSTRAP_PASSWORD` | empty | First-user bootstrap password; minimum eight characters. Supply via a secret and remove from runtime configuration after bootstrap. Without bootstrap credentials, an empty install logs a one-time `setup_token` (derived from `JWT_SECRET`) that the web UI requires to create the first admin. |
 | `MODE` | `all` | `all`, `api`, or `worker` for `cmd/app`; role-specific binaries override it. |
 | `CORS_ALLOW_ORIGINS` | empty | Comma-separated full origins. Empty + `PRODUCTION=false` allows `*`; empty + `PRODUCTION=true` emits no CORS grant. Same-origin requests are unaffected. |
 | `WS_ALLOWED_ORIGINS` | empty | Extra WebSocket origin **host patterns without schemes**, comma-separated, in addition to secure same-origin access; for example `status.example.com,localhost:5173`. |

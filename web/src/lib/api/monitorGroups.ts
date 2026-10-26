@@ -12,10 +12,7 @@ import type { Notification } from "./notifications";
 
 /** Matches internal/core/domain/monitor_group.go GroupCondition. */
 export type GroupCondition =
-  | "worst_of_children"
-  | "all_down"
-  | "threshold"
-  | "ignore";
+  "worst_of_children" | "all_down" | "threshold" | "ignore";
 
 /**
  * Options for the condition picker, in the same order as Go's
@@ -397,12 +394,7 @@ export function resolveGroupStatuses(
  */
 export function monitorToRollupStatus(
   monitorStatus:
-    | "up"
-    | "down"
-    | "pending"
-    | "maintenance"
-    | "unknown"
-    | "paused",
+    "up" | "down" | "pending" | "maintenance" | "unknown" | "paused",
   heartbeatStatus?: "up" | "down" | "pending" | "maintenance" | "unknown",
 ): RollupStatus {
   const s =

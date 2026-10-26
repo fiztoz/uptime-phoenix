@@ -2,6 +2,10 @@
 # Security alerts/updates are enabled at the repository level; this file only
 # schedules version PRs so the dependency graph does not rot silently.
 #
+# Cooldown holds version PRs until a release is a week old (two for Go and npm majors), so
+# a compromised or quickly yanked release is less likely to reach us. Security
+# updates are not delayed.
+#
 # Review each PR: run `make gate-fast` (or wait for CI) before merging.
 
 version: 2
@@ -12,6 +16,9 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
     open-pull-requests-limit: 3
     labels:
       - dependencies
@@ -30,6 +37,9 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
     open-pull-requests-limit: 3
     labels:
       - dependencies
@@ -64,6 +74,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     labels:
       - dependencies
@@ -80,6 +92,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 2
     labels:
       - dependencies

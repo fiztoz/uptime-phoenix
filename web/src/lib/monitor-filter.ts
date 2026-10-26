@@ -13,12 +13,7 @@ import type { MonitorGroupView } from "$lib/api/monitorGroups";
 
 /** Monitor status union, mirroring Monitor["status"] in $lib/stores/ws.svelte.ts. */
 export type MonitorStatus =
-  | "up"
-  | "down"
-  | "pending"
-  | "unknown"
-  | "maintenance"
-  | "paused";
+  "up" | "down" | "pending" | "unknown" | "maintenance" | "paused";
 
 export const STATUS_FILTERS: readonly MonitorStatus[] = [
   "up",

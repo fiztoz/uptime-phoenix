@@ -39,8 +39,9 @@ func TestAPIKeyHandlers_CreateListDelete_Ownership(t *testing.T) {
 	h := newHarness(t)
 
 	reg := h.do(t, http.MethodPost, "/api/auth/register", map[string]string{
-		"username": "apikey_user",
-		"password": "supersecret",
+		"setup_token": testSetupToken,
+		"username":    "apikey_user",
+		"password":    "supersecret",
 	}, "")
 	if reg.Code != http.StatusCreated {
 		t.Fatalf("register status = %d; want 201; body=%s", reg.Code, reg.Body.String())

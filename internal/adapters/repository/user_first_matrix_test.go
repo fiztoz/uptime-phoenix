@@ -1,0 +1,74 @@
+package repository_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"testing"
+
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
+	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
+)
+
+// TestUserCreateFirstElectsOneWinner covers #92: replicas racing to create
+// the first admin must end with exactly one user on every engine.
+func TestUserCreateFirstElectsOneWinner(t *testing.T) {
+	for name, factory := range map[string]repositoryFactory{"sqlite": sqliteFactory, "mariadb": mariadbFactory} {
+		t.Run(name, func(t *testing.T) {
+			users := factory(t).users
+			ctx := context.Background()
+
+			const n = 8
+			errs := make(chan error, n)
+			var wg sync.WaitGroup
+			for i := range n {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					errs <- users.CreateFirst(ctx, &domain.User{
+						Username: fmt.Sprintf("first%d", i), PasswordHash: "x", Active: true, IsAdmin: true, Timezone: "UTC",
+					})
+				}()
+			}
+			wg.Wait()
+			close(errs)
+			wins := 0
+			var losses []error
+			for err := range errs {
+				if err == nil {
+					wins++
+				} else {
+					losses = append(losses, err)
+				}
+			}
+			count, err := users.Count(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if wins != 1 || count != 1 {
+				t.Fatalf("wins=%d users=%d; want exactly one (losers: %v)", wins, count, losses)
+			}
+			err = users.CreateFirst(ctx, &domain.User{Username: "late", PasswordHash: "x", Timezone: "UTC"})
+			if !errors.Is(err, ports.ErrConflict) {
+				t.Fatalf("CreateFirst after the first user: err = %v; want ErrConflict", err)
+			}
+
+			// The claim row is a lock, not a once-only marker: once every
+			// user is removed, a first admin can be created again.
+			all, err := users.List(ctx)
+			if err != nil || len(all) != 1 {
+				t.Fatalf("list users: %v %v", all, err)
+			}
+			if err := users.Delete(ctx, all[0].ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := users.CreateFirst(ctx, &domain.User{Username: "recovered", PasswordHash: "x", Active: true, IsAdmin: true, Timezone: "UTC"}); err != nil {
+				t.Fatalf("CreateFirst after all users were removed: %v", err)
+			}
+			if count, err := users.Count(ctx); err != nil || count != 1 {
+				t.Fatalf("users=%d err=%v; want 1", count, err)
+			}
+		})
+	}
+}

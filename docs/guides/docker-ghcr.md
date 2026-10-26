@@ -70,8 +70,10 @@ services:
       - "3000:3000"
     environment:
       JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET to a random value of at least 32 bytes (openssl rand -base64 48)}"
-      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-admin}
-      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-ChangeMe123!}
+      # Leave unset to register the first admin with the setup_token from the log.
+      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
+      PRODUCTION: "true"
       DB_ENGINE: sqlite
       DB_DSN: file:/data/phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)
       HOST: "0.0.0.0"
@@ -226,7 +228,8 @@ Prefer **version tags** (`0.3.5`) over `latest` for reproducible deploys.
 
 | File | Purpose |
 |---|---|
-| `docker-compose.yml` | Local build + MariaDB (dev) |
+| `docker-compose.yml` | Local build + MariaDB (production defaults) |
+| `docker-compose.dev.yml` | Dev override: relaxed CSP, debug logs, `admin` / `ChangeMe123!` |
 | `docker-compose.split.yml` | Local split build (api/worker/web + MariaDB + Redis) |
 
 Those **build from source**. This guide uses **prebuilt GHCR images** for operators

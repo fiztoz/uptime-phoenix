@@ -12,6 +12,7 @@
 
 	let username = $state('');
 	let password = $state('');
+	let setupToken = $state('');
 	let otp = $state('');
 	let requires2FA = $state(false);
 	let ticket = $state('');
@@ -135,10 +136,14 @@
 			error = 'Password must be at least 8 characters';
 			return;
 		}
+		if (!setupToken.trim()) {
+			error = 'Enter the setup token from the server log';
+			return;
+		}
 		loading = true;
 		error = '';
 		try {
-			await auth.register(username, password);
+			await auth.register(username, password, setupToken.trim());
 			goto('/dashboard', { replaceState: true });
 		} catch (e: any) {
 			error = e?.message || 'Registration failed';
@@ -309,10 +314,24 @@
 							placeholder="••••••••"
 						/>
 					</div>
+					<div>
+						<label for="reg-setup-token" class="text-sm font-medium">Setup token</label>
+						<input
+							id="reg-setup-token"
+							type="text"
+							autocomplete="off"
+							bind:value={setupToken}
+							class="{inputClass} mt-1 font-mono"
+							placeholder="from the server log"
+						/>
+						<p class="mt-1 text-xs text-muted-foreground">
+							The server logs a one-time setup token at startup until the first user exists.
+						</p>
+					</div>
 					<button
 						type="button"
 						onclick={handleFirstUser}
-						disabled={loading || !username || password.length < 8}
+						disabled={loading || !username || password.length < 8 || !setupToken.trim()}
 						class="w-full rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
 					>
 						{loading ? 'Creating account…' : 'Create account'}

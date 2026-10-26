@@ -45,6 +45,8 @@ const ContextUserIDKey = "userID"
 type RegisterRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// SetupToken is the one-time token the server logs while it has no users.
+	SetupToken string `json:"setup_token"`
 }
 
 // LoginRequest is the body of POST /api/auth/login.
@@ -215,7 +217,7 @@ func (h *AuthHandlers) Register(c echo.Context) error {
 	if strings.TrimSpace(req.Username) == "" || req.Password == "" {
 		return badRequest(c, "username and password are required")
 	}
-	user, err := h.svc.Register(c.Request().Context(), req.Username, req.Password)
+	user, err := h.svc.RegisterWithSetupToken(c.Request().Context(), req.SetupToken, req.Username, req.Password)
 	if err != nil {
 		return mapAuthError(c, err)
 	}
@@ -610,6 +612,10 @@ func mapAuthError(c echo.Context, err error) error {
 		return c.JSON(http.StatusNotFound, errorBody("user not found"))
 	case errors.Is(err, services.ErrUserExists):
 		return c.JSON(http.StatusConflict, errorBody("username already taken"))
+	case errors.Is(err, services.ErrRegistrationClosed):
+		return c.JSON(http.StatusForbidden, errorBody("registration is disabled"))
+	case errors.Is(err, services.ErrInvalidSetupToken):
+		return c.JSON(http.StatusForbidden, errorBody("invalid setup token; copy it from the server log"))
 	case errors.Is(err, services.ErrLastUser):
 		return c.JSON(http.StatusConflict, errorBody("cannot delete the last user"))
 	case errors.Is(err, services.ErrDeleteSelf):

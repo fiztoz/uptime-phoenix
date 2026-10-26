@@ -237,7 +237,8 @@ when you want hard-coded roles without relying on `MODE`.
 
 1. Download the right **os/arch** asset and verify **SHA256SUMS**.
 2. Set a strong **`JWT_SECRET`**.
-3. Set **`BOOTSTRAP_*`** only for first run (or create the first user via UI bootstrap).
+3. Set **`BOOTSTRAP_*`** only for first run, or create the first user in the UI with the one-time
+   setup token that the server logs (`setup_token=...`) while it has no users.
 4. All-in-one: SQLite path must be writable.
 5. Split: shared MariaDB + Redis; API up before worker.
 6. Put a reverse proxy / TLS in front for production (`PUBLIC_URL` should match).

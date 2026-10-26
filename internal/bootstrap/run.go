@@ -138,6 +138,8 @@ func Run(cfg Config) error {
 		authOpts = append(authOpts, oidcOpt)
 	}
 
+	setupToken := services.FirstUserSetupToken(cfg.JWTSecret)
+	authOpts = append(authOpts, services.WithFirstUserSetupToken(setupToken))
 	authSvc := services.NewAuthService(repos.user, repos.apiKey, jwtAuth, totpProvider, authOpts...)
 	log.Info("auth service initialized")
 
@@ -146,6 +148,11 @@ func Run(cfg Config) error {
 			log.Error("bootstrap user failed", "error", err)
 			return err
 		}
+	} else if n, err := repos.user.Count(context.Background()); err == nil && n == 0 {
+		// Without the token, the first visitor to a fresh public instance
+		// would become admin (#92).
+		log.Warn("no users yet: create the first admin in the web UI with this one-time setup token, or set BOOTSTRAP_USERNAME and BOOTSTRAP_PASSWORD",
+			"setup_token", setupToken)
 	}
 
 	_ = checkeradapter.Get
@@ -1248,7 +1255,7 @@ func bootstrapUser(ctx context.Context, authSvc *services.AuthService, userRepo 
 		// commits the first registration. The unique username constraint elects
 		// one winner; the losing replica should continue booting once it sees that
 		// winner rather than treating the expected race as a fatal startup error.
-		if errors.Is(err, services.ErrUserExists) {
+		if errors.Is(err, services.ErrUserExists) || errors.Is(err, services.ErrRegistrationClosed) {
 			slog.Info("bootstrap user was created by another instance", "username", username)
 			return nil
 		}

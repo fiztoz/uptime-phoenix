@@ -3,13 +3,7 @@
  * Used by MonitorForm to render conditional inputs.
  */
 export type FieldType =
-  | "text"
-  | "number"
-  | "select"
-  | "textarea"
-  | "json"
-  | "checkbox"
-  | "password";
+  "text" | "number" | "select" | "textarea" | "json" | "checkbox" | "password";
 
 export interface ConfigField {
   key: string;
@@ -57,10 +51,7 @@ export const ADMIN_ONLY_MONITOR_TYPES: readonly string[] = [
 
 /** High-level category for the create-monitor type picker (Kuma-style groups). */
 export type MonitorTypeGroupId =
-  | "general"
-  | "passive"
-  | "infrastructure"
-  | "protocol";
+  "general" | "passive" | "infrastructure" | "protocol";
 
 export interface MonitorTypeMeta {
   label: string;

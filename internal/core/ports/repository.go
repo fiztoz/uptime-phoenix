@@ -364,6 +364,10 @@ type WebAuthnCredentialRepository interface {
 // UserRepository defines persistence operations for users.
 type UserRepository interface {
 	Create(ctx context.Context, u *domain.User) error
+	// CreateFirst inserts u only while the install has no users. Concurrent
+	// callers, on any number of replicas, elect exactly one winner; every
+	// other caller gets ErrConflict and nothing is written.
+	CreateFirst(ctx context.Context, u *domain.User) error
 	GetByID(ctx context.Context, id int64) (*domain.User, error)
 	GetByUsername(ctx context.Context, username string) (*domain.User, error)
 	Update(ctx context.Context, u *domain.User) error

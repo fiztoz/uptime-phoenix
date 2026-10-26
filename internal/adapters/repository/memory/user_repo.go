@@ -46,7 +46,12 @@ func (r *UserRepo) Create(_ context.Context, u *domain.User) error {
 	if _, exists := r.byName[u.Username]; exists {
 		return ports.ErrConflict
 	}
+	r.insertLocked(u)
+	return nil
+}
 
+// insertLocked stores u; the caller holds r.mu.
+func (r *UserRepo) insertLocked(u *domain.User) {
 	id := r.nextID.Add(1)
 	clone := *u
 	clone.ID = id
@@ -60,6 +65,16 @@ func (r *UserRepo) Create(_ context.Context, u *domain.User) error {
 	u.ID = id
 	u.CreatedAt = clone.CreatedAt
 	u.UpdatedAt = clone.UpdatedAt
+}
+
+// CreateFirst inserts u only when the repository is empty.
+func (r *UserRepo) CreateFirst(_ context.Context, u *domain.User) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.users) > 0 {
+		return ports.ErrConflict
+	}
+	r.insertLocked(u)
 	return nil
 }
 

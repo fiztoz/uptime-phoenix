@@ -33,10 +33,7 @@ import {
 export type { Status };
 
 export type WsStatus =
-  | "connecting"
-  | "connected"
-  | "disconnected"
-  | "reconnecting";
+  "connecting" | "connected" | "disconnected" | "reconnecting";
 
 export interface Monitor {
   id: number;

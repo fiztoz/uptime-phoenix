@@ -60,9 +60,11 @@ services:
       TOTP_ISSUER: Phoenix
       HOST: "0.0.0.0"
       PORT: "3000"
-      LOG_LEVEL: ${LOG_LEVEL:-debug}
-      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-admin}
-      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-ChangeMe123!}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PRODUCTION: ${PRODUCTION:-true}
+      # No default admin password; see docker-compose.yml.
+      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
       # Browser WS upgrades arrive via the web tier (:8080); override for real domains.
       WS_ALLOWED_ORIGINS: ${WS_ALLOWED_ORIGINS:-localhost:8080}
     depends_on:
@@ -102,7 +104,7 @@ services:
       # Same key as uptime-phoenix-api: the worker refuses to boot without a
       # strong JWT_SECRET.
       JWT_SECRET: "${JWT_SECRET:?set JWT_SECRET to a random value of at least 32 bytes (openssl rand -base64 48)}"
-      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       api-ready-gate:
         condition: service_completed_successfully

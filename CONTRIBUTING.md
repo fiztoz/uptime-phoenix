@@ -108,6 +108,11 @@ See `AGENTS.md` for the approved notification provider list.
 
 ## Before You Push
 
+Install the secret-scanning hook once with `pipx install pre-commit && pre-commit install`. It runs
+gitleaks on every commit. Known non-secrets (evidence records, test fixtures) are allowlisted in
+`.gitleaks.toml`; keep new entries narrow and give each a reason. Run `make secrets-scan` to scan
+the whole history.
+
 - [ ] `golangci-lint run` — zero warnings
 - [ ] `go test ./...` — all pass
 - [ ] `cd web && bun run lint` — passes (if frontend touched)

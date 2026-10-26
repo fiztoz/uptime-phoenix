@@ -120,7 +120,13 @@ func NewRouter(
 	// Global middleware order: CORS → request ID → security headers → rate limit.
 	e.Use(middleware.CORS(corsCfg))
 	e.Use(middleware.RequestID())
-	e.Use(middleware.SecurityHeaders(middleware.SecurityHeadersConfig{Production: opts.Production}))
+	headersCfg := middleware.SecurityHeadersConfig{Production: opts.Production}
+	if distFS, err := fs.Sub(webAssets, "web/dist"); err == nil {
+		// The embedded FS is fixed at build time; a read error here would
+		// also break SPA serving below, so no hashes is the honest outcome.
+		headersCfg.ScriptHashes, _ = middleware.InlineScriptHashes(distFS)
+	}
+	e.Use(middleware.SecurityHeaders(headersCfg))
 	e.Use(middleware.RateLimit(opts.RateLimit))
 
 	// Health check endpoints (no auth).

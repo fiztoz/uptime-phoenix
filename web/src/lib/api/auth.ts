@@ -48,11 +48,17 @@ export interface OIDCStatus {
 }
 
 export const authApi = {
+  /** Creates the first admin; setupToken is the one the server logs on an empty install. */
   async register(
     username: string,
     password: string,
+    setupToken: string,
   ): Promise<RegisterResponse> {
-    return api.post<RegisterResponse>("/auth/register", { username, password });
+    return api.post<RegisterResponse>("/auth/register", {
+      username,
+      password,
+      setup_token: setupToken,
+    });
   },
 
   async login(username: string, password: string): Promise<LoginResponse> {
