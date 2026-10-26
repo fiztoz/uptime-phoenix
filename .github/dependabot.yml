@@ -2,7 +2,7 @@
 # Security alerts/updates are enabled at the repository level; this file only
 # schedules version PRs so the dependency graph does not rot silently.
 #
-# Cooldown holds version PRs until a release is a week old (two for Go and npm majors), so
+# Cooldown holds version PRs until a release is a week old (two for Go and frontend majors), so
 # a compromised or quickly yanked release is less likely to reach us. Security
 # updates are not delayed.
 #
@@ -31,8 +31,9 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 
-  # Frontend (Bun uses package.json / bun.lock; Dependabot treats it as npm)
-  - package-ecosystem: npm
+  # Frontend (web/package.json + web/bun.lock). Must be the `bun` ecosystem:
+  # npm_and_yarn cannot update bun.lock and fails every run.
+  - package-ecosystem: bun
     directory: /web
     schedule:
       interval: weekly
