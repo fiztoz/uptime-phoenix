@@ -1,14 +1,14 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { realtime } from "$lib/stores/ws.svelte.js";
+  import { realtime } from "#lib/stores/ws.svelte.js";
   import {
     regionalApi,
     type MonitorHealthView,
     type RegionalHeartbeat,
-  } from "$lib/api/regional";
-  import { errorCode, errorMessage } from "$lib/api/probes";
+  } from "#lib/api/regional.js";
+  import { errorCode, errorMessage } from "#lib/api/probes.js";
   import ProbeStatus from "./ProbeStatus.svelte";
-  import * as m from "$lib/paraglide/messages.js";
+  import * as m from "#lib/paraglide/messages.js";
   let {
     monitorId,
     onSelect,

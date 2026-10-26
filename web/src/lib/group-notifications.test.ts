@@ -8,7 +8,7 @@ import {
   syncGroupNotifications,
   type NotificationLinkOps,
 } from "./group-notifications";
-import type { Notification } from "$lib/api/notifications";
+import type { Notification } from "#lib/api/notifications.js";
 
 function provider(id: number, over: Partial<Notification> = {}): Notification {
   return {

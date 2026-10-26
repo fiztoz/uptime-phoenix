@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Monitor } from "$lib/stores/ws.svelte.js";
+  import type { Monitor } from "#lib/stores/ws.svelte.js";
 
   interface Props {
     status: Monitor["status"];

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { backupApi, type BackupDocument, type ImportSummary } from '$lib/api/backup';
+	import { backupApi, type BackupDocument, type ImportSummary } from '#lib/api/backup.js';
 	import { Download, Upload, AlertTriangle, CheckCircle2, FileJson } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import * as m from '$lib/paraglide/messages.js';
-	import { inspectBackupDocument, BackupReviewError, type BackupCollection } from '$lib/backup-review';
+	import * as m from '#lib/paraglide/messages.js';
+	import { inspectBackupDocument, BackupReviewError, type BackupCollection } from '#lib/backup-review.js';
 
 	let exporting = $state(false);
 	let importing = $state(false);

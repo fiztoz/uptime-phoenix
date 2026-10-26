@@ -3,18 +3,18 @@
     notificationsApi,
     type CreateNotificationInput,
     type Notification,
-  } from "$lib/api/notifications";
+  } from "#lib/api/notifications.js";
   import {
     notificationTypeConfig,
     notificationTypes,
-  } from "$lib/notification-types";
+  } from "#lib/notification-types.js";
   import { toast } from "svelte-sonner";
   import { Plus, Trash2, X } from "@lucide/svelte";
-  import Select from "$lib/components/Select.svelte";
-  import { modalFocus } from "$lib/actions/modalFocus";
+  import Select from "#lib/components/Select.svelte";
+  import { modalFocus } from "#lib/actions/modalFocus.js";
   import { untrack } from "svelte";
-  import type { NotificationTemplate } from "$lib/api/notification-templates";
-  import * as m from "$lib/paraglide/messages.js";
+  import type { NotificationTemplate } from "#lib/api/notification-templates.js";
+  import * as m from "#lib/paraglide/messages.js";
 
   interface Props {
     notification?: Notification;

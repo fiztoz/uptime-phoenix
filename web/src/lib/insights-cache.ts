@@ -11,7 +11,7 @@
  * cannot read the previous user's reliability data, and they expire after a
  * TTL so an ancient cache is discarded rather than painted.
  */
-import type { InsightsRow } from "$lib/api/insights";
+import type { InsightsRow } from "#lib/api/insights.js";
 
 export const INSIGHTS_CACHE_KEY = "phoenix:insights-cache";
 

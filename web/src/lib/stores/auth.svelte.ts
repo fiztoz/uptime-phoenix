@@ -3,13 +3,13 @@
  * Single source for authentication state.
  */
 import { goto } from "$app/navigation";
-import { authApi, normalizeUser, type User } from "$lib/api/auth";
-import { api } from "$lib/api/client";
-import { monitorGroupsCatalog } from "$lib/api/monitorGroups";
-import { tagsCatalog } from "$lib/api/tags";
-import { dashboardInsights } from "$lib/api/insights";
-import { clearMonitorSnapshotCache } from "$lib/monitor-snapshot-cache";
-import { webauthnApi } from "$lib/api/webauthn";
+import { authApi, normalizeUser, type User } from "#lib/api/auth.js";
+import { api } from "#lib/api/client.js";
+import { monitorGroupsCatalog } from "#lib/api/monitorGroups.js";
+import { tagsCatalog } from "#lib/api/tags.js";
+import { dashboardInsights } from "#lib/api/insights.js";
+import { clearMonitorSnapshotCache } from "#lib/monitor-snapshot-cache.js";
+import { webauthnApi } from "#lib/api/webauthn.js";
 import { toast } from "svelte-sonner";
 
 function createAuthStore() {
@@ -119,7 +119,7 @@ function createAuthStore() {
     tagsCatalog.clear();
     dashboardInsights.clear();
     toast.info("Logged out");
-    goto("/login", { replaceState: true });
+    goto("/login", { replace: true });
   }
 
   async function loadUser(): Promise<void> {

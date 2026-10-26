@@ -9,15 +9,15 @@
     Search,
     Server,
   } from "@lucide/svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import Skeleton from "$lib/components/Skeleton.svelte";
-  import SortIndicator from "$lib/components/SortIndicator.svelte";
-  import { insightsApi, type InsightsMetric, type InsightsPeriod, type InsightsRow } from "$lib/api/insights";
-  import { readInsightsCache, writeInsightsCache } from "$lib/insights-cache";
-  import { tokenFingerprint } from "$lib/monitor-snapshot-cache";
-  import { monitorGroupsApi, type MonitorGroupView } from "$lib/api/monitorGroups";
-  import { MONITOR_TYPE_GROUPS, monitorTypeConfig } from "$lib/monitor-types";
-  import * as m from "$lib/paraglide/messages.js";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import Skeleton from "#lib/components/Skeleton.svelte";
+  import SortIndicator from "#lib/components/SortIndicator.svelte";
+  import { insightsApi, type InsightsMetric, type InsightsPeriod, type InsightsRow } from "#lib/api/insights.js";
+  import { readInsightsCache, writeInsightsCache } from "#lib/insights-cache.js";
+  import { tokenFingerprint } from "#lib/monitor-snapshot-cache.js";
+  import { monitorGroupsApi, type MonitorGroupView } from "#lib/api/monitorGroups.js";
+  import { MONITOR_TYPE_GROUPS, monitorTypeConfig } from "#lib/monitor-types.js";
+  import * as m from "#lib/paraglide/messages.js";
 
   type SortKey =
     | "monitor_name"

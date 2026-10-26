@@ -1,13 +1,13 @@
 <script lang="ts">
-	import MaintenanceForm from '$lib/components/MaintenanceForm.svelte';
-	import { maintenanceApi, type MaintenanceWindow } from '$lib/api/maintenance';
-	import { auth } from '$lib/stores/auth.svelte.ts';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import Skeleton from '$lib/components/Skeleton.svelte';
+	import MaintenanceForm from '#lib/components/MaintenanceForm.svelte';
+	import { maintenanceApi, type MaintenanceWindow } from '#lib/api/maintenance.js';
+	import { auth } from '#lib/stores/auth.svelte.js';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import Skeleton from '#lib/components/Skeleton.svelte';
 	import { Plus, Edit2, Trash2, CalendarClock, AlertTriangle } from '@lucide/svelte';
-	import { confirmAction } from '$lib/stores/confirm.svelte';
+	import { confirmAction } from '#lib/stores/confirm.svelte.js';
 	import { toast } from 'svelte-sonner';
-	import * as m from '$lib/paraglide/messages.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	let windows = $state<MaintenanceWindow[]>([]);
 	let loading = $state(true);

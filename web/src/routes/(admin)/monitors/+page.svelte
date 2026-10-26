@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { realtime } from '$lib/stores/ws.svelte.js';
-	import StatusPill from '$lib/components/StatusPill.svelte';
-	import MonitorForm from '$lib/components/MonitorForm.svelte';
-	import MonitorGroupForm from '$lib/components/MonitorGroupForm.svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import Skeleton from '$lib/components/Skeleton.svelte';
-	import { monitorsApi, type MonitorWithGroup } from '$lib/api/monitors';
+	import { realtime } from '#lib/stores/ws.svelte.js';
+	import StatusPill from '#lib/components/StatusPill.svelte';
+	import MonitorForm from '#lib/components/MonitorForm.svelte';
+	import MonitorGroupForm from '#lib/components/MonitorGroupForm.svelte';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import Skeleton from '#lib/components/Skeleton.svelte';
+	import { monitorsApi, type MonitorWithGroup } from '#lib/api/monitors.js';
 	import {
 		monitorGroupsApi,
 		monitorGroupsCatalog,
@@ -17,13 +17,13 @@
 		sortMonitors,
 		type MonitorGroupView,
 		type RollupStatus,
-	} from '$lib/api/monitorGroups';
-	import { tagsApi, tagsCatalog, type Tag } from '$lib/api/tags';
+	} from '#lib/api/monitorGroups.js';
+	import { tagsApi, tagsCatalog, type Tag } from '#lib/api/tags.js';
 	import {
 		STATUS_FILTERS,
 		monitorTags,
 		type MonitorStatus,
-	} from '$lib/monitor-filter';
+	} from '#lib/monitor-filter.js';
 	import {
 		Plus,
 		FolderPlus,
@@ -40,16 +40,16 @@
 		AlertTriangle,
 	} from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import { confirmAction } from '$lib/stores/confirm.svelte';
-	import { auth } from '$lib/stores/auth.svelte.js';
+	import { confirmAction } from '#lib/stores/confirm.svelte.js';
+	import { auth } from '#lib/stores/auth.svelte.js';
 	import {
 		canCreateGroups as userCanCreateGroups,
 		canCreateMonitors as userCanCreateMonitors,
 		canEditMonitor as userCanEditMonitor,
-	} from '$lib/permissions';
-	import MultiSelect from '$lib/components/MultiSelect.svelte';
-	import { monitorTypes as MONITOR_TYPES } from '$lib/monitor-types';
-	import * as m from '$lib/paraglide/messages.js';
+	} from '#lib/permissions.js';
+	import MultiSelect from '#lib/components/MultiSelect.svelte';
+	import { monitorTypes as MONITOR_TYPES } from '#lib/monitor-types.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	let showForm = $state(false);
 	let editingMonitor = $state<any>(null);

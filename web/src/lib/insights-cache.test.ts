@@ -7,7 +7,7 @@ import {
   readInsightsCache,
   writeInsightsCache,
 } from "./insights-cache";
-import type { InsightsRow } from "$lib/api/insights";
+import type { InsightsRow } from "#lib/api/insights.js";
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const data = { ...initial };

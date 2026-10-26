@@ -1,7 +1,7 @@
 <script lang="ts">
-	import BrandMark from '$lib/components/BrandMark.svelte';
-	import { renderMarkdownToSafeHtml } from '$lib/utils/markdown.js';
-	import type { DiscordEmbedFieldTemplate } from '$lib/api/notification-templates';
+	import BrandMark from '#lib/components/BrandMark.svelte';
+	import { renderMarkdownToSafeHtml } from '#lib/utils/markdown.js';
+	import type { DiscordEmbedFieldTemplate } from '#lib/api/notification-templates.js';
 
 	interface PreviewField extends DiscordEmbedFieldTemplate {
 		name: string;

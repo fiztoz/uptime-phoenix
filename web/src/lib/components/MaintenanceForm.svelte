@@ -4,15 +4,15 @@
 		type CreateMaintenanceInput,
 		type MaintenanceWindow,
 		type MaintenanceStrategy,
-	} from '$lib/api/maintenance';
-	import { monitorsApi } from '$lib/api/monitors';
-	import type { Monitor } from '$lib/stores/ws.svelte.ts';
+	} from '#lib/api/maintenance.js';
+	import { monitorsApi } from '#lib/api/monitors.js';
+	import type { Monitor } from '#lib/stores/ws.svelte.js';
 	import { toast } from 'svelte-sonner';
 	import { X } from '@lucide/svelte';
-	import DateTimePicker from '$lib/components/DateTimePicker.svelte';
-	import { modalFocus } from '$lib/actions/modalFocus';
+	import DateTimePicker from '#lib/components/DateTimePicker.svelte';
+	import { modalFocus } from '#lib/actions/modalFocus.js';
 	import { untrack } from 'svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	interface Props {
 		window?: MaintenanceWindow | null;

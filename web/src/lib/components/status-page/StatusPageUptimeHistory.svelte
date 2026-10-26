@@ -2,7 +2,7 @@
   import type {
     PublicStatusResponse,
     UptimeHistoryPeriod,
-  } from "$lib/api/statuspages";
+  } from "#lib/api/statuspages.js";
 
   type PublicMonitor = PublicStatusResponse["monitors"][number];
   type Granularity = "monthly" | "quarterly";

@@ -3,7 +3,7 @@
 	 * Renders Markdown as sanitized HTML with Phoenix design tokens.
 	 * For trusted static guides (not arbitrary user content from the network).
 	 */
-	import { renderMarkdownToSafeHtml } from '$lib/utils/markdown.js';
+	import { renderMarkdownToSafeHtml } from '#lib/utils/markdown.js';
 
 	interface Props {
 		/** Raw Markdown source. */

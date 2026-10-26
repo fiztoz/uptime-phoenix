@@ -23,7 +23,7 @@ import {
   type FilterCriteria,
   type FilterableMonitor,
 } from "./monitor-filter";
-import type { MonitorGroupView } from "$lib/api/monitorGroups";
+import type { MonitorGroupView } from "#lib/api/monitorGroups.js";
 
 function group(
   id: number,

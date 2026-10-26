@@ -2,17 +2,17 @@
   import { tick, untrack } from "svelte";
   import { ArrowDown, ArrowUp, Braces, Plus, Trash2, X } from "@lucide/svelte";
   import { toast } from "svelte-sonner";
-  import DiscordEmbedPreview from "$lib/components/DiscordEmbedPreview.svelte";
-  import EmailPreview from "$lib/components/EmailPreview.svelte";
-  import Select from "$lib/components/Select.svelte";
-  import { modalFocus } from "$lib/actions/modalFocus";
+  import DiscordEmbedPreview from "#lib/components/DiscordEmbedPreview.svelte";
+  import EmailPreview from "#lib/components/EmailPreview.svelte";
+  import Select from "#lib/components/Select.svelte";
+  import { modalFocus } from "#lib/actions/modalFocus.js";
   import {
     previewSampleValue,
     renderNotificationPreview,
     safePreviewURL,
     type PreviewScope,
     type PreviewStatus,
-  } from "$lib/notification-preview";
+  } from "#lib/notification-preview.js";
   import {
     notificationTemplatesApi,
     type DiscordButtonTemplate,
@@ -22,8 +22,8 @@
     type NotificationTemplate,
     type SMTPTemplateConfig,
     type TemplateProvider,
-  } from "$lib/api/notification-templates";
-  import * as m from "$lib/paraglide/messages.js";
+  } from "#lib/api/notification-templates.js";
+  import * as m from "#lib/paraglide/messages.js";
 
   interface Props {
     template?: NotificationTemplate;

@@ -9,7 +9,7 @@
 	 * a filtered, keyboard-navigable list" so it can be reused anywhere a
 	 * monitor needs picking (status pages today, maintenance windows later).
 	 */
-	import type { Monitor } from '$lib/stores/ws.svelte.js';
+	import type { Monitor } from '#lib/stores/ws.svelte.js';
 	import { Search, Loader2, AlertCircle } from '@lucide/svelte';
 
 	interface Props {

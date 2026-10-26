@@ -4,8 +4,8 @@
    * template when one is selected; otherwise approximates the provider's
    * built-in layout. This is not a live send — Test still fires a real message.
    */
-  import DiscordEmbedPreview from "$lib/components/DiscordEmbedPreview.svelte";
-  import EmailPreview from "$lib/components/EmailPreview.svelte";
+  import DiscordEmbedPreview from "#lib/components/DiscordEmbedPreview.svelte";
+  import EmailPreview from "#lib/components/EmailPreview.svelte";
   import {
     DEFAULT_DISCORD_COLORS,
     builtinStatusEmoji,
@@ -15,15 +15,15 @@
     safePreviewURL,
     type PreviewScope,
     type PreviewStatus,
-  } from "$lib/notification-preview";
-  import type { Notification } from "$lib/api/notifications";
+  } from "#lib/notification-preview.js";
+  import type { Notification } from "#lib/api/notifications.js";
   import type {
     DiscordTemplateConfig,
     NotificationTemplate,
     SMTPTemplateConfig,
-  } from "$lib/api/notification-templates";
+  } from "#lib/api/notification-templates.js";
   import { Braces } from "@lucide/svelte";
-  import * as m from "$lib/paraglide/messages.js";
+  import * as m from "#lib/paraglide/messages.js";
 
   interface Props {
     notification: Notification;

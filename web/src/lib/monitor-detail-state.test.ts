@@ -14,7 +14,7 @@ import {
   resolveDisplayedMonitor,
   shouldStopPostClearPolling,
 } from "./monitor-detail-state";
-import type { Monitor } from "$lib/stores/ws.svelte.ts";
+import type { Monitor } from "#lib/stores/ws.svelte.js";
 
 const baseMonitor: Monitor = {
   id: 1,

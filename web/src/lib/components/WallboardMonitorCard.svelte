@@ -1,18 +1,18 @@
 <script lang="ts">
-  import type { Heartbeat, Monitor } from "$lib/stores/ws.svelte.js";
-  import type { Heartbeat as HistoryHeartbeat } from "$lib/api/heartbeats";
-  import type { MonitorCondition } from "$lib/api/conditions";
-  import { cardUsesSignals, type DashboardCardBody } from "$lib/dashboard-card";
+  import type { Heartbeat, Monitor } from "#lib/stores/ws.svelte.js";
+  import type { Heartbeat as HistoryHeartbeat } from "#lib/api/heartbeats.js";
+  import type { MonitorCondition } from "#lib/api/conditions.js";
+  import { cardUsesSignals, type DashboardCardBody } from "#lib/dashboard-card.js";
   import {
     WALLBOARD_CARD_DEFAULT_PX,
     wallboardCardScale,
-  } from "$lib/wallboard-split";
-  import { sparklinePoints } from "$lib/utils/chart.js";
+  } from "#lib/wallboard-split.js";
+  import { sparklinePoints } from "#lib/utils/chart.js";
   import Sparkline from "./charts/Sparkline.svelte";
   import StatusPill from "./StatusPill.svelte";
   import MonitorCardSignals from "./MonitorCardSignals.svelte";
-  import { whenVisible } from "$lib/actions/whenVisible";
-  import * as m from "$lib/paraglide/messages.js";
+  import { whenVisible } from "#lib/actions/whenVisible.js";
+  import * as m from "#lib/paraglide/messages.js";
   import { resolve } from "$app/paths";
 
   interface Props {
@@ -114,7 +114,7 @@
         <div class="grid h-full place-items-center text-[11px] text-faint">
           {#if overallHistory}
             <a
-              href={resolve(`/monitors/${monitor.id}`)}
+              href={resolve(`monitors/${monitor.id}`)}
               class="px-2 text-center underline underline-offset-2"
               >{m.monitor_card_regional_history()}</a
             >

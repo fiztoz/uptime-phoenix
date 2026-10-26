@@ -1,17 +1,17 @@
 <script lang="ts">
-	import { realtime } from '$lib/stores/ws.svelte.js';
-	import { auth } from '$lib/stores/auth.svelte.ts';
-	import { themeStore } from '$lib/stores/theme.svelte.ts';
-	import { page } from '$app/stores';
+	import { realtime } from '#lib/stores/ws.svelte.js';
+	import { auth } from '#lib/stores/auth.svelte.js';
+	import { themeStore } from '#lib/stores/theme.svelte.js';
+	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import type { Component, Snippet } from 'svelte';
-	import { updateFaviconBadge } from '$lib/utils/favicon-badge.js';
-	import { healthApi } from '$lib/api/health';
-	import { extensionsApi, type Extension } from '$lib/api/extensions';
-	import BrandMark from '$lib/components/BrandMark.svelte';
-	import Wordmark from '$lib/components/Wordmark.svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import { updateFaviconBadge } from '#lib/utils/favicon-badge.js';
+	import { healthApi } from '#lib/api/health.js';
+	import { extensionsApi, type Extension } from '#lib/api/extensions.js';
+	import BrandMark from '#lib/components/BrandMark.svelte';
+	import Wordmark from '#lib/components/Wordmark.svelte';
+	import * as m from '#lib/paraglide/messages.js';
 
 	let { children }: { children: Snippet } = $props();
 	import {
@@ -60,7 +60,7 @@
 		await auth.loadUser();
 		authChecked = true;
 		if (!auth.isAuthenticated) {
-			goto('/login', { replaceState: true });
+			goto('/login', { replace: true });
 			return;
 		}
 		healthApi
@@ -87,7 +87,7 @@
 
 	$effect(() => {
 		if (authChecked && !auth.isAuthenticated) {
-			goto('/login', { replaceState: true });
+			goto('/login', { replace: true });
 		}
 	});
 
@@ -157,9 +157,9 @@
 	}
 
 	// Active nav + current page title.
-	let matchedNav = $derived(longestNavMatch($page.url.pathname, navItems));
+	let matchedNav = $derived(longestNavMatch(page.url.pathname, navItems));
 	let activeItem = $derived(matchedNav ?? navItems[0]);
-	let isExtensionRoute = $derived($page.url.pathname.startsWith('/extensions/'));
+	let isExtensionRoute = $derived(page.url.pathname.startsWith('/extensions/'));
 
 	// Global health summary for the top bar.
 	let monitors = $derived(realtime.monitors);

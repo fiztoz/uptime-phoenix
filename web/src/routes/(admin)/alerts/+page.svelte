@@ -5,12 +5,12 @@
     type Alert,
     type AlertListParams,
     type AlertStatus,
-  } from "$lib/api/alerts";
-  import { realtime } from "$lib/stores/ws.svelte.js";
+  } from "#lib/api/alerts.js";
+  import { realtime } from "#lib/stores/ws.svelte.js";
   import { toast } from "svelte-sonner";
-  import Skeleton from "$lib/components/Skeleton.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import * as m from "$lib/paraglide/messages.js";
+  import Skeleton from "#lib/components/Skeleton.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import * as m from "#lib/paraglide/messages.js";
 
   /** Server-side status scope for GET /api/alerts. */
   type StatusFilter = "open" | AlertStatus | "all";

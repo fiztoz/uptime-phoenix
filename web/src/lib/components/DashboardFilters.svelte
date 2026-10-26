@@ -9,12 +9,12 @@
 		type FilterCriteria,
 		type MonitorStatus,
 		type NormalizedTag,
-	} from '$lib/monitor-filter';
-	import type { DashboardCardBody } from '$lib/dashboard-card';
+	} from '#lib/monitor-filter.js';
+	import type { DashboardCardBody } from '#lib/dashboard-card.js';
 	import { ChevronLeft, ChevronRight, RotateCcw, Search, X } from '@lucide/svelte';
-	import Select from '$lib/components/Select.svelte';
-	import MultiSelect from '$lib/components/MultiSelect.svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import Select from '#lib/components/Select.svelte';
+	import MultiSelect from '#lib/components/MultiSelect.svelte';
+	import * as m from '#lib/paraglide/messages.js';
 
 	interface Props {
 		criteria: FilterCriteria;

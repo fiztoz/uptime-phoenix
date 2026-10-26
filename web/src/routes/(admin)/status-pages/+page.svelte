@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { statusPagesApi, type StatusPage } from '$lib/api/statuspages';
-	import StatusPageForm from '$lib/components/StatusPageForm.svelte';
-	import EmptyState from '$lib/components/EmptyState.svelte';
-	import Skeleton from '$lib/components/Skeleton.svelte';
-	import { confirmAction } from '$lib/stores/confirm.svelte';
+	import { statusPagesApi, type StatusPage } from '#lib/api/statuspages.js';
+	import StatusPageForm from '#lib/components/StatusPageForm.svelte';
+	import EmptyState from '#lib/components/EmptyState.svelte';
+	import Skeleton from '#lib/components/Skeleton.svelte';
+	import { confirmAction } from '#lib/stores/confirm.svelte.js';
 	import { toast } from 'svelte-sonner';
 	import { Plus, Edit2, Trash2, ExternalLink, Eye, AlertTriangle } from '@lucide/svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	let statusPages = $state<StatusPage[]>([]);
 	let showForm = $state(false);

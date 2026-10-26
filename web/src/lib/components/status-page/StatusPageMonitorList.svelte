@@ -1,12 +1,12 @@
 <script lang="ts">
-	import * as m from '$lib/paraglide/messages.js';
-	import ResponseTimeChart from '$lib/components/ResponseTimeChart.svelte';
-	import StatusPill from '$lib/components/StatusPill.svelte';
-	import UptimeBar from '$lib/components/UptimeBar.svelte';
+	import * as m from '#lib/paraglide/messages.js';
+	import ResponseTimeChart from '#lib/components/ResponseTimeChart.svelte';
+	import StatusPill from '#lib/components/StatusPill.svelte';
+	import UptimeBar from '#lib/components/UptimeBar.svelte';
 	import type {
 		PublicStatusResponse,
 		StatusPageDashboardStyle,
-	} from '$lib/api/statuspages';
+	} from '#lib/api/statuspages.js';
 
 	type PublicMonitor = PublicStatusResponse['monitors'][number];
 

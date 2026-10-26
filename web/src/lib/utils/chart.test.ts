@@ -9,7 +9,7 @@ import {
   latestChartTime,
   sparklinePoints,
 } from "./chart";
-import type { Heartbeat } from "$lib/api/heartbeats.js";
+import type { Heartbeat } from "#lib/api/heartbeats.js";
 
 function heartbeat(
   id: number,

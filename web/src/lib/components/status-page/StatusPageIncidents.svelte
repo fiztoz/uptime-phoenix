@@ -5,9 +5,9 @@
 		CheckCircle,
 		Info,
 	} from '@lucide/svelte';
-	import type { Incident } from '$lib/api/statuspages';
-	import MarkdownPreview from '$lib/components/MarkdownPreview.svelte';
-	import { severityOf, type IncidentStyle } from '$lib/status-page-health';
+	import type { Incident } from '#lib/api/statuspages.js';
+	import MarkdownPreview from '#lib/components/MarkdownPreview.svelte';
+	import { severityOf, type IncidentStyle } from '#lib/status-page-health.js';
 
 	interface Props {
 		incidents: Incident[];

@@ -12,7 +12,7 @@
 		advanceChartWindowEnd,
 		chartTimeDomain,
 		type DowntimeInterval,
-	} from '$lib/utils/chart.js';
+	} from '#lib/utils/chart.js';
 	import Line from './charts/Line.svelte';
 	import Area from './charts/Area.svelte';
 	import RangeBars from './charts/RangeBars.svelte';
@@ -26,8 +26,8 @@
 		type TooltipPoint,
 	} from './charts/ChartTooltip.svelte';
 	import PlotClip from './charts/PlotClip.svelte';
-	import Select from '$lib/components/Select.svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import Select from '#lib/components/Select.svelte';
+	import * as m from '#lib/paraglide/messages.js';
 
 	export interface ChartBucket {
 		time: string;

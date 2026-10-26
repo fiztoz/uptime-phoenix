@@ -1,19 +1,19 @@
 <script lang="ts">
-  import { page } from "$app/stores";
+  import { page } from "$app/state";
   import { goto } from "$app/navigation";
-  import { notificationsApi, type Notification } from "$lib/api/notifications";
+  import { notificationsApi, type Notification } from "#lib/api/notifications.js";
   import {
     notificationTemplatesApi,
     type NotificationTemplate,
-  } from "$lib/api/notification-templates";
-  import { notificationTypeConfig } from "$lib/notification-types";
-  import NotificationForm from "$lib/components/NotificationForm.svelte";
-  import NotificationAssignments from "$lib/components/NotificationAssignments.svelte";
-  import NotificationPreview from "$lib/components/NotificationPreview.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import Skeleton from "$lib/components/Skeleton.svelte";
-  import { auth } from "$lib/stores/auth.svelte.ts";
-  import { confirmAction } from "$lib/stores/confirm.svelte";
+  } from "#lib/api/notification-templates.js";
+  import { notificationTypeConfig } from "#lib/notification-types.js";
+  import NotificationForm from "#lib/components/NotificationForm.svelte";
+  import NotificationAssignments from "#lib/components/NotificationAssignments.svelte";
+  import NotificationPreview from "#lib/components/NotificationPreview.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import Skeleton from "#lib/components/Skeleton.svelte";
+  import { auth } from "#lib/stores/auth.svelte.js";
+  import { confirmAction } from "#lib/stores/confirm.svelte.js";
   import { toast } from "svelte-sonner";
   import {
     ArrowLeft,
@@ -25,9 +25,9 @@
     Trash2,
     XCircle,
   } from "@lucide/svelte";
-  import * as m from "$lib/paraglide/messages.js";
+  import * as m from "#lib/paraglide/messages.js";
 
-  let notificationId = $derived(Number($page.params.id));
+  let notificationId = $derived(Number(page.params.id));
   let notification = $state<Notification | null>(null);
   let templates = $state<NotificationTemplate[]>([]);
   let loading = $state(true);

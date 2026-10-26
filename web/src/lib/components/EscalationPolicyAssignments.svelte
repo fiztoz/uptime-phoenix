@@ -8,14 +8,14 @@
 		escalationApi,
 		type EscalationEntityRef,
 		type EscalationPolicyAssignments,
-	} from '$lib/api/escalation';
-	import { monitorsApi } from '$lib/api/monitors';
-	import { monitorGroupsApi, type MonitorGroupView } from '$lib/api/monitorGroups';
-	import type { Monitor } from '$lib/stores/ws.svelte.ts';
-	import Select from '$lib/components/Select.svelte';
+	} from '#lib/api/escalation.js';
+	import { monitorsApi } from '#lib/api/monitors.js';
+	import { monitorGroupsApi, type MonitorGroupView } from '#lib/api/monitorGroups.js';
+	import type { Monitor } from '#lib/stores/ws.svelte.js';
+	import Select from '#lib/components/Select.svelte';
 	import { ChevronDown, ChevronRight, Folder, Link2Off, Loader2 } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
-	import * as m from '$lib/paraglide/messages.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	interface Props {
 		policyId: number;

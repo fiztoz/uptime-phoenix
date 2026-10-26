@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
   import { getLayerCakeContext } from "layercake";
-  import { linearLine, smoothLine } from "$lib/utils/smooth.js";
+  import { linearLine, smoothLine } from "#lib/utils/smooth.js";
 
   interface Props {
     fill?: string;

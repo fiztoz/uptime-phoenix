@@ -17,7 +17,7 @@
  * Framework-free and unit-tested in isolation (group-notifications.test.ts),
  * same pattern as monitor-filter.ts / monitor-detail-state.ts.
  */
-import type { Notification } from "$lib/api/notifications";
+import type { Notification } from "#lib/api/notifications.js";
 
 /** The exact set of calls needed to move the server from `baseline` to `selected`. */
 export interface NotificationLinkDiff {

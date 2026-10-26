@@ -1,39 +1,39 @@
 <script lang="ts">
-  import { page } from "$app/stores";
+  import { page } from "$app/state";
   import {
     realtime,
     type Heartbeat as WsHeartbeat,
-  } from "$lib/stores/ws.svelte.js";
-  import { heartbeatsApi, type Heartbeat } from "$lib/api/heartbeats.js";
+  } from "#lib/stores/ws.svelte.js";
+  import { heartbeatsApi, type Heartbeat } from "#lib/api/heartbeats.js";
   import {
     regionalApi,
     type MonitorProbeAssignmentView,
-  } from "$lib/api/regional.js";
-  import { statsApi, type MonitorStats } from "$lib/api/stats.js";
+  } from "#lib/api/regional.js";
+  import { statsApi, type MonitorStats } from "#lib/api/stats.js";
   import {
     defaultCheckProbe,
     mergeRecentChecks,
     regionalCheckEvent,
-  } from "$lib/recent-checks";
-  import { conditionsApi, type MonitorCondition } from "$lib/api/conditions";
+  } from "#lib/recent-checks.js";
+  import { conditionsApi, type MonitorCondition } from "#lib/api/conditions.js";
   import {
     notificationsApi,
     type MonitorNotification,
-  } from "$lib/api/notifications";
-  import { tagsApi, type MonitorTag, type Tag } from "$lib/api/tags";
-  import StatusPill from "$lib/components/StatusPill.svelte";
-  import MetricCard from "$lib/components/MetricCard.svelte";
+  } from "#lib/api/notifications.js";
+  import { tagsApi, type MonitorTag, type Tag } from "#lib/api/tags.js";
+  import StatusPill from "#lib/components/StatusPill.svelte";
+  import MetricCard from "#lib/components/MetricCard.svelte";
   import ResponseTimeChart, {
     type ChartPayload,
-  } from "$lib/components/ResponseTimeChart.svelte";
-  import StatusHistoryTable from "$lib/components/StatusHistoryTable.svelte";
-  import RecentCheckBar from "$lib/components/RecentCheckBar.svelte";
-  import MonitorConditions from "$lib/components/MonitorConditions.svelte";
-  import MonitorForm from "$lib/components/MonitorForm.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import Skeleton from "$lib/components/Skeleton.svelte";
-  import { monitorsApi } from "$lib/api/monitors";
-  import type { Monitor } from "$lib/stores/ws.svelte.ts";
+  } from "#lib/components/ResponseTimeChart.svelte";
+  import StatusHistoryTable from "#lib/components/StatusHistoryTable.svelte";
+  import RecentCheckBar from "#lib/components/RecentCheckBar.svelte";
+  import MonitorConditions from "#lib/components/MonitorConditions.svelte";
+  import MonitorForm from "#lib/components/MonitorForm.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import Skeleton from "#lib/components/Skeleton.svelte";
+  import { monitorsApi } from "#lib/api/monitors.js";
+  import type { Monitor } from "#lib/stores/ws.svelte.js";
   import {
     acceptLiveHeartbeat,
     deriveStatusHint,
@@ -44,8 +44,8 @@
     monitorFromApi,
     shouldStopPostClearPolling,
     heartbeatsAfterClear,
-  } from "$lib/monitor-detail-state";
-  import { confirmAction } from "$lib/stores/confirm.svelte";
+  } from "#lib/monitor-detail-state.js";
+  import { confirmAction } from "#lib/stores/confirm.svelte.js";
   import { toast } from "svelte-sonner";
   import {
     ArrowLeft,
@@ -63,21 +63,21 @@
     AlertTriangle,
   } from "@lucide/svelte";
   import { goto } from "$app/navigation";
-  import RegionalAlerts from "$lib/components/RegionalAlerts.svelte";
-  import RegionalHealth from "$lib/components/RegionalHealth.svelte";
-  import ProbeAssignments from "$lib/components/ProbeAssignments.svelte";
+  import RegionalAlerts from "#lib/components/RegionalAlerts.svelte";
+  import RegionalHealth from "#lib/components/RegionalHealth.svelte";
+  import ProbeAssignments from "#lib/components/ProbeAssignments.svelte";
   import { untrack } from "svelte";
-  import * as m from "$lib/paraglide/messages.js";
-  import Select from "$lib/components/Select.svelte";
-  import { auth } from "$lib/stores/auth.svelte.ts";
+  import * as m from "#lib/paraglide/messages.js";
+  import Select from "#lib/components/Select.svelte";
+  import { auth } from "#lib/stores/auth.svelte.js";
   import {
     canCreateMonitors as userCanCreateMonitors,
     canEditMonitor as userCanEditMonitor,
     canManageNotifications as userCanManageNotifications,
     isAdmin as userIsAdmin,
-  } from "$lib/permissions";
+  } from "#lib/permissions.js";
 
-  let monitorId = $derived(Number($page.params.id));
+  let monitorId = $derived(Number(page.params.id));
   let fetchedMonitor = $state<Monitor | null>(null);
   let monitor = $derived.by(() => {
     const latestTimeline = timelineHeartbeats[timelineHeartbeats.length - 1];
@@ -906,7 +906,7 @@
   );
 
   // --- Status badge (embeddable shields.io-style SVGs, public endpoints) ---
-  const badgeOrigin = $derived($page.url.origin);
+  const badgeOrigin = $derived(page.url.origin);
   const statusBadgeUrl = $derived(
     `${badgeOrigin}/api/badge/${monitorId}/status.svg`,
   );

@@ -12,18 +12,18 @@
     type NotificationAssignments,
     type NotificationGroupAssignment,
     type NotificationMonitorAssignment,
-  } from "$lib/api/notifications";
-  import { monitorsApi } from "$lib/api/monitors";
+  } from "#lib/api/notifications.js";
+  import { monitorsApi } from "#lib/api/monitors.js";
   import {
     monitorGroupsApi,
     type MonitorGroupView,
-  } from "$lib/api/monitorGroups";
-  import type { Monitor } from "$lib/stores/ws.svelte.ts";
-  import MonitorPicker from "$lib/components/MonitorPicker.svelte";
-  import Select from "$lib/components/Select.svelte";
+  } from "#lib/api/monitorGroups.js";
+  import type { Monitor } from "#lib/stores/ws.svelte.js";
+  import MonitorPicker from "#lib/components/MonitorPicker.svelte";
+  import Select from "#lib/components/Select.svelte";
   import { Folder, Link2Off, Loader2 } from "@lucide/svelte";
   import { toast } from "svelte-sonner";
-  import * as m from "$lib/paraglide/messages.js";
+  import * as m from "#lib/paraglide/messages.js";
 
   interface Props {
     notificationId: number;

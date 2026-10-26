@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { statusPagesApi, type CreateStatusPageInput, type StatusPage } from '$lib/api/statuspages';
+	import { statusPagesApi, type CreateStatusPageInput, type StatusPage } from '#lib/api/statuspages.js';
 	import { toast } from 'svelte-sonner';
 	import { X } from '@lucide/svelte';
-	import Select from '$lib/components/Select.svelte';
-	import { modalFocus } from '$lib/actions/modalFocus';
+	import Select from '#lib/components/Select.svelte';
+	import { modalFocus } from '#lib/actions/modalFocus.js';
 	import { untrack } from 'svelte';
-	import * as m from '$lib/paraglide/messages.js';
+	import * as m from '#lib/paraglide/messages.js';
 
 	interface Props {
 		statusPage?: StatusPage;

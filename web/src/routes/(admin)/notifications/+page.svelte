@@ -1,15 +1,15 @@
 <script lang="ts">
-  import { notificationsApi, type Notification } from "$lib/api/notifications";
-  import { notificationTypeConfig } from "$lib/notification-types";
-  import NotificationForm from "$lib/components/NotificationForm.svelte";
-  import NotificationTemplateForm from "$lib/components/NotificationTemplateForm.svelte";
+  import { notificationsApi, type Notification } from "#lib/api/notifications.js";
+  import { notificationTypeConfig } from "#lib/notification-types.js";
+  import NotificationForm from "#lib/components/NotificationForm.svelte";
+  import NotificationTemplateForm from "#lib/components/NotificationTemplateForm.svelte";
   import {
     notificationTemplatesApi,
     type NotificationTemplate,
-  } from "$lib/api/notification-templates";
-  import Skeleton from "$lib/components/Skeleton.svelte";
-  import EmptyState from "$lib/components/EmptyState.svelte";
-  import { auth } from "$lib/stores/auth.svelte.ts";
+  } from "#lib/api/notification-templates.js";
+  import Skeleton from "#lib/components/Skeleton.svelte";
+  import EmptyState from "#lib/components/EmptyState.svelte";
+  import { auth } from "#lib/stores/auth.svelte.js";
   import {
     Plus,
     Edit2,
@@ -21,10 +21,10 @@
     Braces,
     FileText,
   } from "@lucide/svelte";
-  import { confirmAction } from "$lib/stores/confirm.svelte";
+  import { confirmAction } from "#lib/stores/confirm.svelte.js";
   import { toast } from "svelte-sonner";
   import { goto } from "$app/navigation";
-  import * as m from "$lib/paraglide/messages.js";
+  import * as m from "#lib/paraglide/messages.js";
 
   let notifications = $state<Notification[]>([]);
   let templates = $state<NotificationTemplate[]>([]);
