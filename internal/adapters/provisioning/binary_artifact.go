@@ -18,11 +18,28 @@ import (
 
 // ProbeBinaryPreparer verifies a private copy of a local release binary.
 // BaseDir is a trusted local staging parent, never an HTTP input or source path.
-type ProbeBinaryPreparer struct{ baseDir string }
+// command is the Go main package the build info must name.
+type ProbeBinaryPreparer struct {
+	baseDir string
+	command string
+}
+
+// Go main packages of the two release binaries a preparer can verify.
+const (
+	probeBinaryCommand = "github.com/fiztoz/uptime-phoenix/cmd/probe"
+	probeHelperCommand = "github.com/fiztoz/uptime-phoenix/cmd/phoenix-probe-admin"
+	probeReleaseModule = "github.com/fiztoz/uptime-phoenix"
+)
 
 // NewProbeBinaryPreparer selects a staging parent; empty uses the OS temp dir.
 func NewProbeBinaryPreparer(baseDir string) *ProbeBinaryPreparer {
-	return &ProbeBinaryPreparer{baseDir: baseDir}
+	return &ProbeBinaryPreparer{baseDir: baseDir, command: probeBinaryCommand}
+}
+
+// NewProbeHelperBinaryPreparer verifies the phoenix-probe-admin helper release
+// instead of the probe: same pin, size, digest and static Linux ELF rules.
+func NewProbeHelperBinaryPreparer(baseDir string) *ProbeBinaryPreparer {
+	return &ProbeBinaryPreparer{baseDir: baseDir, command: probeHelperCommand}
 }
 
 var _ ports.ProbeBinaryPreparer = (*ProbeBinaryPreparer)(nil)
@@ -82,7 +99,11 @@ func (p *ProbeBinaryPreparer) PrepareBinary(ctx context.Context, pin domain.Prob
 	if hex.EncodeToString(hash.Sum(nil)) != pin.SHA256 {
 		return nil, domain.ErrProbeArtifactDigest
 	}
-	if !validProbeBinary(ctx, file, pin) {
+	command := p.command
+	if command == "" {
+		command = probeBinaryCommand
+	}
+	if !validReleaseBinary(ctx, file, pin, command) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -132,6 +153,12 @@ func (r artifactContextReaderAt) ReadAt(p []byte, offset int64) (int, error) {
 }
 
 func validProbeBinary(ctx context.Context, input io.ReaderAt, pin domain.ProbeBinaryPin) bool {
+	return validReleaseBinary(ctx, input, pin, probeBinaryCommand)
+}
+
+// validReleaseBinary checks a static CGO-free Linux ELF of the pinned
+// architecture whose Go build info names command in this module.
+func validReleaseBinary(ctx context.Context, input io.ReaderAt, pin domain.ProbeBinaryPin, command string) bool {
 	r := artifactContextReaderAt{ctx: ctx, input: input}
 	f, err := elf.NewFile(r)
 	if err != nil {
@@ -153,7 +180,7 @@ func validProbeBinary(ctx context.Context, input io.ReaderAt, pin domain.ProbeBi
 		}
 	}
 	info, err := buildinfo.Read(r)
-	if err != nil || info.Path != "github.com/fiztoz/uptime-phoenix/cmd/probe" || info.Main.Path != "github.com/fiztoz/uptime-phoenix" {
+	if err != nil || info.Path != command || info.Main.Path != probeReleaseModule {
 		return false
 	}
 	settings := make(map[string]string, len(info.Settings))
