@@ -49,9 +49,13 @@ type RouterOptions struct {
 	ProbeActivations *handlers.ProbeActivationHandlers
 	// ProbeCleanups removes an install operation's host resources.
 	ProbeCleanups *handlers.ProbeCleanupHandlers
-	Production    bool
-	RateLimit     middleware.RateLimitConfig
-	CORS          middleware.CORSConfig
+	// ProbeHostBootstraps is the one-time SSH-password host preparation for
+	// the restricted-key installer. Nil keeps the authenticated route
+	// registered with typed unavailability.
+	ProbeHostBootstraps *handlers.ProbeHostBootstrapHandlers
+	Production          bool
+	RateLimit           middleware.RateLimitConfig
+	CORS                middleware.CORSConfig
 }
 
 // NewRouter creates and configures the Echo router with all routes and
@@ -276,6 +280,21 @@ func NewRouter(
 		}
 		installGroup.POST("/:operation_id/cleanup", cleanups.Submit)
 		installGroup.GET("/:operation_id/cleanup", cleanups.Latest)
+
+		// One-time password host bootstrap. It carries a remote SSH/sudo
+		// password, so on top of admin-only it gets the tight credential
+		// budget: the hub must not become a password-guessing proxy.
+		bootstraps := opts.ProbeHostBootstraps
+		if bootstraps == nil {
+			bootstraps = handlers.NewProbeHostBootstrapHandlers(nil, false)
+		}
+		bootstrapLimit := middleware.DefaultCredentialRateLimitConfig()
+		bootstrapLimit.RedisURL = opts.RateLimit.RedisURL
+		bootstrapLimit.Scope = "probe-host-bootstrap"
+		bootstrapLimit.Message = "too many host bootstrap attempts; try again later"
+		e.POST("/api/probe-host-bootstraps", bootstraps.Submit,
+			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"), requireAdmin,
+			middleware.CredentialRateLimit(bootstrapLimit))
 	}
 
 	// Reliability read model. The handler applies monitor visibility before it
