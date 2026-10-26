@@ -64,6 +64,42 @@ func TestProbeAdminNamesJWTSecretWhenItIsTheConfigProblem(t *testing.T) {
 	}
 }
 
+// Help must work on a machine with no hub config: the release gate runs
+// `phoenix-probe-admin help` on the built artifact, and operators run it to
+// read usage before configuring anything.
+func TestProbeAdminHelpNeedsNoHubConfig(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		args []string
+		exit int
+	}{{[]string{"help"}, 0}, {[]string{"--help"}, 0}, {nil, 2}, {[]string{"no-such-command"}, 2}} {
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		cmd := exec.CommandContext(ctx, executable, append([]string{"-test.run=^TestProbeAdminHelperProcess$", "--"}, tc.args...)...)
+		cmd.Env = append(os.Environ(), "PHOENIX_PROBE_ADMIN_TEST_PROCESS=1", "JWT_SECRET=")
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		runErr := cmd.Run()
+		cancel()
+		code := 0
+		var exitErr *exec.ExitError
+		if errors.As(runErr, &exitErr) {
+			code = exitErr.ExitCode()
+		} else if runErr != nil {
+			t.Fatalf("%v: %v", tc.args, runErr)
+		}
+		if code != tc.exit {
+			t.Fatalf("%v: exit %d, want %d; stderr=%s", tc.args, code, tc.exit, stderr.String())
+		}
+		usage := stdout.String() + stderr.String()
+		if strings.Contains(usage, "JWT_SECRET is required") || !strings.Contains(usage, "register") {
+			t.Fatalf("%v: want usage without a config error; stdout=%q stderr=%q", tc.args, stdout.String(), stderr.String())
+		}
+	}
+}
+
 func TestHubConfigErrorMessageStaysGenericForOtherErrors(t *testing.T) {
 	t.Parallel()
 	if got := hubConfigErrorMessage(errors.New(`DB_DSN "user:pw@tcp(x)/db" invalid`)); got != "Invalid hub environment configuration" {

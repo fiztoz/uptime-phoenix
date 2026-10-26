@@ -60,6 +60,16 @@ Fleet UI remains a later milestone.
 Bindings file is a JSON array of probe_id, binding_key and kind; omission preserves retained bindings, [] clears them. Remote Docker assignments require a binding. Verify keys against the operator-owned probe resource file; live hello inventory is checked before activation.
 `
 
+// probeAdminCommands are the RunProbeAdmin subcommands that use the hub config.
+var probeAdminCommands = []string{"register", "enroll", "assign", "prepare", "watchdog", "status", "ack", "command-status", "rotate-credential", "rotation-status", "rotate-certificate", "certificate-rotation-status", "prepare-reset", "activate-reset", "reset-status"}
+
+// ProbeAdminNeedsConfig reports whether RunProbeAdmin will use its Config for
+// args. Help, no arguments and unknown commands only print usage, so the caller
+// can skip LoadConfig (and its JWT_SECRET requirement) for them.
+func ProbeAdminNeedsConfig(args []string) bool {
+	return len(args) > 0 && slices.Contains(probeAdminCommands, args[0])
+}
+
 // RunProbeAdmin is the explicit local-operator composition root for the M2
 // engineering flow. It exposes no HTTP endpoint and never prints configuration
 // plaintext or credentials. Database access is the operator's authority.
@@ -68,7 +78,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		_, _ = io.WriteString(out, probeAdminUsage)
 		return 0
 	}
-	if len(args) == 0 || !slices.Contains([]string{"register", "enroll", "assign", "prepare", "watchdog", "status", "ack", "command-status", "rotate-credential", "rotation-status", "rotate-certificate", "certificate-rotation-status", "prepare-reset", "activate-reset", "reset-status"}, args[0]) {
+	if !ProbeAdminNeedsConfig(args) {
 		_, _ = io.WriteString(stderr, probeAdminUsage)
 		return 2
 	}
