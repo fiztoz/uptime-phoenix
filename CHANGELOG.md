@@ -11,6 +11,45 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-10-28
+
+### Fixed
+
+- **arm64 images now contain arm64 binaries (#108).** The `linux/arm64`
+  variants of the published 0.5.1 and 0.6.0 images (`uptime-phoenix`,
+  `uptime-phoenix-api`, `uptime-phoenix-worker`, and `uptime-phoenix-probe` in
+  0.5.1) contained x86-64 binaries, so containers on Graviton/ARM hosts exited
+  with `exec /uptime-phoenix: exec format error`. The Go builder stages of
+  `Dockerfile` and `Dockerfile.split` gave the BuildKit platform args defaults
+  (`ARG TARGETARCH=amd64`), which replaced the value derived from `--platform`.
+  They are now bare `ARG TARGETOS` / `ARG TARGETARCH`. amd64 images are
+  unchanged.
+
+### Changed
+
+- **Release-time ELF architecture verification (#108).** After each image push
+  and before cosign signs it, the release workflow extracts the binary from
+  every platform of the pushed digest and fails if its ELF machine does not
+  match the platform. The release dry-run and CI now build exactly like
+  publish (`--platform` only, no `TARGET*` build-arg overrides), CI builds and
+  checks every Go image for amd64 and arm64, and `make release-image-gate`
+  rejects platform ARG defaults statically.
+
+### Security
+
+- **go-jose bumped to v4.1.6 (#110).** `github.com/go-jose/go-jose/v4`
+  v4.1.4 → v4.1.6 (GHSA-mgcc-cww5-fp2q); indirect via `coreos/go-oidc/v3`
+  for OIDC login. govulncheck reported it unreachable.
+- **osv-scanner exceptions refreshed (#110).** Added a dated ignore (until
+  2026-12-15) for GHSA-gcqx-w48m-w2h4 in deepmerge 4.3.1, which has no fix and
+  is used only at build time by `@sveltejs/vite-plugin-svelte`, not shipped.
+  Removed three ignores that no longer match anything.
+
+### Upgrade notes
+
+- No schema migrations and no configuration changes. On arm64 hosts, replace
+  0.5.1/0.6.0 images with 0.6.1; amd64 deployments can upgrade at leisure.
+
 ## [0.6.0] — 2026-10-26
 
 ### Added
