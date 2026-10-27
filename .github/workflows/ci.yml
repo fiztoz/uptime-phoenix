@@ -314,6 +314,9 @@ jobs:
           bun run build
           test -f dist/index.html
 
+      - name: Set up QEMU
+        # The arm64 arch proof below runs the non-Go stages of each Dockerfile for linux/arm64.
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build all-in-one image (no push)
@@ -327,8 +330,6 @@ jobs:
           build-args: |
             USE_PREBUILT_WEB=1
             VERSION=ci
-            TARGETOS=linux
-            TARGETARCH=amd64
           cache-from: type=gha,scope=uptime-phoenix-aio
           cache-to: type=gha,mode=max,scope=uptime-phoenix-aio
 
@@ -340,8 +341,6 @@ jobs:
               --target "$target" \
               --build-arg USE_PREBUILT_WEB=1 \
               --build-arg VERSION=ci \
-              --build-arg TARGETOS=linux \
-              --build-arg TARGETARCH=amd64 \
               -t "uptime-phoenix-${target}:ci" \
               --load \
               -f Dockerfile.split \
@@ -379,6 +378,40 @@ jobs:
             --load \
             -f Dockerfile.probe \
             .
+
+      - name: Prove every Go binary matches its platform (amd64 + arm64, no push)
+        # v0.5.1/v0.6.0 shipped x86-64 binaries in their linux/arm64 images because
+        # an `ARG TARGETARCH=amd64` default overrode --platform. Build exactly like
+        # the release (--platform only, no TARGET* build-args), export the final
+        # filesystems, and check each binary's ELF e_machine.
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/arch-proof"
+          rm -rf "$out"
+          build() { # NAME DOCKERFILE [TARGET]
+            local name="$1" file="$2" target="${3:-}"
+            docker buildx build \
+              --platform linux/amd64,linux/arm64 \
+              ${target:+--target "$target"} \
+              --build-arg USE_PREBUILT_WEB=1 \
+              --build-arg VERSION=ci \
+              --output "type=local,dest=$out/$name" \
+              -f "$file" \
+              .
+          }
+          check() { # NAME BINARY
+            for arch in amd64 arm64; do
+              python3 scripts/release/check-elf-arch.py "$out/$1/linux_${arch}/$2" "$arch"
+            done
+          }
+          build aio Dockerfile
+          check aio uptime-phoenix
+          build api Dockerfile.split api
+          check api uptime-phoenix-api
+          build worker Dockerfile.split worker
+          check worker uptime-phoenix-worker
+          build probe Dockerfile.probe
+          check probe uptime-phoenix-probe
 
   actionlint:
     name: actionlint

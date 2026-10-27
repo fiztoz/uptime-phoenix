@@ -250,23 +250,7 @@ prove_image_binary() {
     echo "ERROR: Python 3 is required to verify image binary architectures" >&2
     exit 1
   fi
-  elf_proof="$(python3 - "$proof" "$arch" <<'PY'
-import pathlib, struct, sys
-path = pathlib.Path(sys.argv[1])
-arch = sys.argv[2]
-header = path.read_bytes()[:20]
-if len(header) < 20 or header[:4] != b"\x7fELF":
-    raise SystemExit(f"{path}: extracted file is not an ELF executable")
-if header[4] != 2 or header[5] not in (1, 2):
-    raise SystemExit(f"{path}: expected an ELF64 binary")
-endian = "<" if header[5] == 1 else ">"
-machine = struct.unpack(endian + "H", header[18:20])[0]
-expected = {"amd64": 62, "arm64": 183}.get(arch)
-if expected is None or machine != expected:
-    raise SystemExit(f"{path}: ELF machine {machine} does not match linux/{arch}")
-print(f"{path}: ELF64 machine={machine} linux/{arch}")
-PY
-  )" || {
+  elf_proof="$(python3 scripts/release/check-elf-arch.py "$proof" "$arch")" || {
     echo "ERROR: extracted binary architecture proof failed for ${tag}" >&2
     exit 1
   }
@@ -294,8 +278,6 @@ if want_stage images && [[ "${SKIP_DOCKER:-0}" != "1" ]]; then
       if ! docker buildx build \
         --platform "linux/${arch}" \
         --build-arg "VERSION=${VERSION}" \
-        --build-arg "TARGETOS=linux" \
-        --build-arg "TARGETARCH=${arch}" \
         --build-arg "USE_PREBUILT_WEB=1" \
         -t "$tag" \
         --load \
@@ -318,7 +300,7 @@ if want_stage images && [[ "${SKIP_DOCKER:-0}" != "1" ]]; then
       probe_tag="uptime-phoenix-probe:${VERSION}-linux-${arch}"
       echo "    buildx build probe linux/${arch} -> ${probe_tag}"
       if ! docker buildx build --platform "linux/${arch}" \
-        --build-arg "VERSION=${VERSION}" --build-arg "TARGETOS=linux" --build-arg "TARGETARCH=${arch}" \
+        --build-arg "VERSION=${VERSION}" \
         -t "$probe_tag" --load -f Dockerfile.probe .; then
         echo "ERROR: probe linux/${arch} image build failed" >&2
         exit 1
@@ -332,8 +314,6 @@ if want_stage images && [[ "${SKIP_DOCKER:-0}" != "1" ]]; then
           --platform "linux/${arch}" \
           --target "$target" \
           --build-arg "VERSION=${VERSION}" \
-          --build-arg "TARGETOS=linux" \
-          --build-arg "TARGETARCH=${arch}" \
           --build-arg "USE_PREBUILT_WEB=1" \
           -t "$tag" \
           --load \

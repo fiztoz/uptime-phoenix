@@ -28,9 +28,14 @@ FROM web-builder-${USE_PREBUILT_WEB} AS web-builder
 # compilation; GOOS/GOARCH below still produce the requested target binary.
 FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS go-builder
 
-# Multi-arch: buildx sets TARGETOS/TARGETARCH; never hardcode amd64.
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+# Multi-arch: inherit BuildKit's automatic TARGETOS/TARGETARCH. Never give
+# them defaults here: a default replaces the --platform value, so every
+# platform would get the same (amd64) binary. BuildKit (docker build since
+# Docker 23, and buildx) always sets them; if they are ever empty, GOOS=/GOARCH=
+# fall back to the Go toolchain's native target, which is still correct.
+# Guarded by scripts/release/check-dockerfile-arch-args.sh.
+ARG TARGETOS
+ARG TARGETARCH
 ARG VERSION=dev
 
 RUN apk add --no-cache git
@@ -55,8 +60,6 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOMAXPROCS=2 \
 # zones from the database embedded by time/tzdata in cmd/app and cmd/worker.
 FROM gcr.io/distroless/static-debian12:nonroot
 ARG VERSION=dev
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
 LABEL org.opencontainers.image.title="Uptime Phoenix" \
       org.opencontainers.image.description="Self-hosted K8s-native monitoring" \
       org.opencontainers.image.source="https://github.com/fiztoz/uptime-phoenix" \

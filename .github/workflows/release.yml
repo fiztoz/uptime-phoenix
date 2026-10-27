@@ -643,6 +643,10 @@ jobs:
             .
           digest="$(jq -r '."containerimage.digest"' /tmp/aio-meta.json)"
           echo "Pushed ${IMAGE}@${digest}"
+          # Fail before signing if any platform carries a foreign binary (v0.5.1/v0.6.0
+          # shipped x86-64 in linux/arm64). Every pushed tag must resolve to the signed digest.
+          tag_args=(); for ((i = 1; i < ${#tags[@]}; i += 2)); do tag_args+=(--tag "${tags[i]}"); done
+          ./scripts/release/verify-image-arch.sh "${IMAGE}@${digest}" /uptime-phoenix "${tag_args[@]}" linux/amd64 linux/arm64
           cosign sign --yes "${IMAGE}@${digest}"
 
   publish_split:
@@ -725,6 +729,12 @@ jobs:
             -f Dockerfile.split \
             .
           digest="$(jq -r '."containerimage.digest"' "/tmp/split-${TARGET}-meta.json")"
+          if [[ "${TARGET}" != web ]]; then
+            # Fail before signing if any platform carries a foreign binary (v0.5.1/v0.6.0
+            # shipped x86-64 in linux/arm64). Every pushed tag must resolve to the signed digest.
+            tag_args=(); for ((i = 1; i < ${#tags[@]}; i += 2)); do tag_args+=(--tag "${tags[i]}"); done
+            ./scripts/release/verify-image-arch.sh "${IMAGE}@${digest}" "/uptime-phoenix-${TARGET}" "${tag_args[@]}" linux/amd64 linux/arm64
+          fi
           echo "==> cosign sign ${IMAGE}@${digest}"
           cosign sign --yes "${IMAGE}@${digest}"
 
@@ -784,6 +794,10 @@ jobs:
             -f Dockerfile.probe \
             .
           digest="$(jq -r '."containerimage.digest"' /tmp/probe-meta.json)"
+          # Fail before signing if any platform carries a foreign binary (v0.5.1/v0.6.0
+          # shipped x86-64 in linux/arm64). Every pushed tag must resolve to the signed digest.
+          tag_args=(); for ((i = 1; i < ${#tags[@]}; i += 2)); do tag_args+=(--tag "${tags[i]}"); done
+          ./scripts/release/verify-image-arch.sh "${IMAGE}@${digest}" /uptime-phoenix-probe "${tag_args[@]}" linux/amd64 linux/arm64
           cosign sign --yes "${IMAGE}@${digest}"
 
   publish_chart:
