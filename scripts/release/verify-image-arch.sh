@@ -32,30 +32,45 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/phoenix-image-arch.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
 docker buildx imagetools inspect --raw "$ref" > "${work}/index.json"
-python3 - "${work}/index.json" "${platforms[@]}" <<'PY'
+# Resolve each platform to its own manifest digest. Pulling the index digest
+# once per platform fails on Docker's classic image store ("cannot overwrite
+# digest", v0.6.1 release): the second platform cannot be stored under the
+# same index reference. A per-platform digest names exactly one image.
+python3 - "${work}/index.json" "${work}/platform-digests" "${platforms[@]}" <<'PY'
 import json, sys
 index = json.load(open(sys.argv[1]))
-have = {f"{m['platform']['os']}/{m['platform']['architecture']}"
-        for m in index.get("manifests", [])
-        if m.get("platform", {}).get("os") not in (None, "unknown")}
-missing = [p for p in sys.argv[2:] if p not in have]
+digests = {}
+for m in index.get("manifests", []):
+    plat = m.get("platform", {})
+    if plat.get("os") in (None, "unknown") or plat.get("variant") not in (None, "v8"):
+        continue
+    key = f"{plat['os']}/{plat['architecture']}"
+    if key in digests:
+        raise SystemExit(f"image index has more than one {key} manifest")
+    digests[key] = m["digest"]
+missing = [p for p in sys.argv[3:] if p not in digests]
 if missing:
-    raise SystemExit(f"image index is missing platforms {missing}; has {sorted(have)}")
-print("index platforms:", " ".join(sorted(have)))
+    raise SystemExit(f"image index is missing platforms {missing}; has {sorted(digests)}")
+with open(sys.argv[2], "w") as out:
+    for p in sys.argv[3:]:
+        out.write(f"{p} {digests[p]}\n")
+print("index platforms:", " ".join(sorted(digests)))
 PY
 
-for platform in "${platforms[@]}"; do
+repo="${ref%@*}"
+while read -r platform platform_digest <&3; do
   arch="${platform#*/}"
   out="${work}/bin-${arch}"
-  cid="$(docker create --pull=always --platform "$platform" "$ref")"
+  platform_ref="${repo}@${platform_digest}"
+  cid="$(docker create --pull=always --platform "$platform" "$platform_ref")"
   if ! docker cp "${cid}:${binary_path}" "$out" >/dev/null; then
     docker rm "$cid" >/dev/null 2>&1 || true
-    echo "ERROR: could not extract ${binary_path} from ${ref} (${platform})" >&2
+    echo "ERROR: could not extract ${binary_path} from ${platform_ref} (${platform})" >&2
     exit 1
   fi
   docker rm "$cid" >/dev/null
   if ! proof="$(python3 "${here}/check-elf-arch.py" "$out" "$arch")"; then
-    echo "ERROR: ${ref} (${platform}) ${binary_path} has the wrong architecture" >&2
+    echo "ERROR: ${ref} (${platform}, ${platform_digest}) ${binary_path} has the wrong architecture" >&2
     file -b "$out" >&2 2>/dev/null || true
     exit 1
   fi
@@ -63,7 +78,7 @@ for platform in "${platforms[@]}"; do
   if command -v file >/dev/null 2>&1; then
     file -b "$out"
   fi
-done
+done 3< "${work}/platform-digests"
 
 digest="${ref##*@}"
 for tag in "${tags[@]}"; do
