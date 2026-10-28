@@ -374,7 +374,9 @@ platforms that actually produce a binary are checksummed.
 A green `docker buildx build --platform linux/arm64` is not enough if the
 Dockerfile hardcodes `GOARCH=amd64` (historical bug). The dry-run:
 
-1. Builds with `--build-arg TARGETARCH=arm64` / `GOARCH=${TARGETARCH}`.
+1. Builds each platform with `--platform linux/<arch>` only. The Go builder
+   stages declare bare `ARG TARGETOS` / `ARG TARGETARCH`, so BuildKit derives
+   `GOARCH=${TARGETARCH}`; no `TARGET*` build-args are passed.
 2. `docker create` + `docker cp` extracts `/uptime-phoenix`.
 3. `file` must report `ARM aarch64` / `arm64` for the arm64 image and
    `x86-64` for the amd64 image.
