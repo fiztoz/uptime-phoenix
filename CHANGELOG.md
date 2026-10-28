@@ -11,6 +11,38 @@ at the bottom.
 
 ## [Unreleased]
 
+## [0.6.2] — 2026-10-28
+
+Use 0.6.2 rather than 0.6.1. v0.6.2 is the first signed release whose arm64
+images contain arm64 binaries.
+
+### Fixed
+
+- **Release arch check pulled platforms by the index digest (#111).**
+  `scripts/release/verify-image-arch.sh` created a container for each platform
+  from the image index digest with `--platform`. On Docker's classic image
+  store, which GitHub runners use, the second platform failed with
+  `cannot overwrite digest`. Each platform is now checked by its own manifest
+  digest from the index, and a regression test that models the classic store
+  runs in `make release-image-gate`.
+
+### Known issues
+
+- **v0.6.1 was published unsigned and has no GitHub Release.** Because of the
+  release-check bug above, the v0.6.1 publish jobs stopped after pushing. The
+  `uptime-phoenix`, `uptime-phoenix-api`, `uptime-phoenix-worker` and
+  `uptime-phoenix-probe` 0.6.1 images have no cosign signature (only
+  `uptime-phoenix-web` was signed), and no GitHub Release or binaries were
+  created. The 0.6.1 images and chart do contain the correct architecture, but
+  they cannot be verified with cosign. The v0.6.1 tag and images are left in
+  place.
+
+### Upgrade notes
+
+- No schema migrations and no configuration changes compared with 0.6.1. The
+  application is the same as 0.6.1. Deploy 0.6.2 (images and chart) instead of
+  0.6.1, and replace any 0.5.1/0.6.0 images on arm64 hosts with 0.6.2.
+
 ## [0.6.1] — 2026-10-28
 
 ### Fixed
