@@ -11,6 +11,13 @@ at the bottom.
 
 ## [Unreleased]
 
+### Fixed
+
+- `alert_delivery: aggregate` or `both` is now refused with 400
+  (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off,
+  on assignment writes, monitor create and config-as-code. Previously it was
+  stored and reported but never paged (#119). Stored values are kept.
+
 ## [0.6.2] — 2026-10-28
 
 Use 0.6.2 rather than 0.6.1. v0.6.2 is the first signed release whose arm64

@@ -306,6 +306,7 @@ func TestProbeAssignmentServiceReplace(t *testing.T) {
 		next.AlertDelivery = domain.AlertDeliveryBoth
 		writer := &fakeAssignmentWriter{result: &next}
 		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{set: previous}, assignmentTestProbes(), fakeMonitorLookup{monitor: monitor}, assignmentTestCaps(), awareFleetGate())
+		svc.SetAggregatePagingEnabled(true)
 		result, err := svc.Replace(t.Context(), 7, ProbeAssignmentRequest{ExpectedRevision: 4, ProbeIDs: []string{domain.LocalProbeID}, HealthPolicy: domain.HealthPolicyAnyDown, AlertDelivery: "both"})
 		if err != nil || writer.delivery != domain.AlertDeliveryBoth || len(result.PendingProbes) != 1 || !result.PendingProbes[domain.LocalProbeID] {
 			t.Fatalf("mode change pending: delivery=%s pending=%v err=%v", writer.delivery, result.PendingProbes, err)

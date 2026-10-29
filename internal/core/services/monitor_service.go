@@ -25,6 +25,7 @@ type MonitorService struct {
 	monitorNotifRepo  ports.MonitorNotificationRepository    // optional: for is_default auto-link
 	conditionRepo     ports.MonitorConditionRepository       // optional: removes disabled auxiliary conditions
 	assignWriter      ports.ProbeAssignmentWriter            // optional: atomic create-with-assignments
+	aggregatePaging   bool                                   // PROBES_AGGREGATE_PAGING_ENABLED; off refuses new aggregate/both (#119)
 	assignReader      ports.MonitorProbeAssignmentRepository // optional: clone honors the source set
 	probeRegistry     ports.ProbeRegistryRepository          // optional: validates explicit members
 	probeCapabilities ports.ProbeAssignmentCapabilities      // optional: validates remote executability

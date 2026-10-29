@@ -43,6 +43,15 @@ type ConfigService struct {
 	probeAssignments ports.MonitorProbeAssignmentRepository
 	fleetGate        FleetActivationGate
 	password         ports.PasswordHasher // for status-page access codes
+	// aggregatePaging mirrors PROBES_AGGREGATE_PAGING_ENABLED. While false, a
+	// document that moves a set into aggregate or both is refused (#119).
+	aggregatePaging bool
+}
+
+// SetAggregatePagingEnabled lets documents declare aggregate and both. Only
+// the composition root calls it, with the hub's aggregate paging flag.
+func (s *ConfigService) SetAggregatePagingEnabled(enabled bool) {
+	s.aggregatePaging = enabled
 }
 
 // NewConfigService wires repositories for config-as-code.
@@ -936,6 +945,9 @@ func (s *ConfigService) buildPlan(ctx context.Context, userID int64, doc *Config
 		}
 		delivery, err := DesiredAlertDelivery(string(requested), current)
 		if err != nil {
+			return err
+		}
+		if err := requireAggregatePaging(delivery, current, s.aggregatePaging); err != nil {
 			return err
 		}
 		if probeAssignmentSetEqual(current, ids, policy, delivery, bindings) {
@@ -1877,6 +1889,9 @@ func (s *ConfigService) syncProbeAssignments(ctx context.Context, doc *ConfigDoc
 		}
 		delivery, err := DesiredAlertDelivery(string(requested), current)
 		if err != nil {
+			return err
+		}
+		if err := requireAggregatePaging(delivery, current, s.aggregatePaging); err != nil {
 			return err
 		}
 		if current != nil && probeAssignmentSetEqual(current, ids, policy, delivery, bindings) {
