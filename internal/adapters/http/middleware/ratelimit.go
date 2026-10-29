@@ -60,7 +60,7 @@ func RateLimit(cfg RateLimitConfig) echo.MiddlewareFunc {
 			if !strings.HasPrefix(p, "/api/") {
 				return next(c)
 			}
-			if p == "/api/health/live" || p == "/api/health/ready" {
+			if p == "/api/health" || p == "/api/health/live" || p == "/api/health/ready" {
 				return next(c)
 			}
 
