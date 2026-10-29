@@ -1617,7 +1617,11 @@ export const realtime = createWsStore(`${location.protocol === 'https:' ? 'wss' 
    A later admin UI for Keycloak/OIDC **group** grants (DB-persisted, DB-first
    over env unless an init/env flag says otherwise) is queued after v0.5 / v0.6
    — see `docs/ROADMAP.md` Backlog. Do not implement before then.
-5. **JWT verification:** Echo middleware validates JWT on every `/api/*` and `/ws` request
+5. **JWT verification:** Protected HTTP middleware and WebSocket admission call
+   `AuthService.VerifyToken`, which verifies the JWT and loads its current user.
+   Missing or inactive accounts are rejected even if the token has not expired;
+   principal-storage failures fail closed. Account changes affect subsequent
+   authenticated requests/admissions, not already-open WebSocket connections.
 6. **API keys:** `GET /metrics` and external API access use API keys (hashed in DB, shown once at creation)
 
 ### Libraries

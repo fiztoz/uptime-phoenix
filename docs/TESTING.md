@@ -112,6 +112,29 @@ for disposable database setup.
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
 
+### v0.6.2 high-severity regressions (#113, #114, #115, #134)
+
+The account-state tests use the same issued token after deactivation/deletion,
+including Bearer, session-cookie, optional-auth and WebSocket admission paths.
+SMTP tests cover decoded/native recipient arrays, malformed lists and actual SMTP
+recipients. The local snapshot tests include the credential representation created
+by `MonitorService`, not just the separate `PushToken` field.
+
+```sh
+go test -race -count=1 ./internal/core/services ./internal/adapters/http/middleware ./internal/adapters/ws ./internal/adapters/notifier ./internal/adapters/probe -run 'AuthSessionRevocation|SessionPrincipalRevocation|RevokedSession|SMTPRecipientValidation|SMTPSender_Send_MultipleRecipients|LocalConfigPushCredential|LocalConfigSMTPRecipientArray|LocalDeliveryChannelComparison|DeliveryConfigReadFailure'
+
+# Destructive repository fixtures: use ONLY an owned disposable MariaDB database.
+: "${TEST_MARIADB_DSN:?Set an owned disposable MariaDB test database}"
+go test -race -count=1 -timeout=900s -json ./internal/adapters/repository -run '^TestLocal(DeliverySurvivesConfigChurn|DeliveryConfigFinalFence|ConfigRefreshWithPushAndSMTP)$'
+```
+
+Require all **32 scenario leaves** (16 SQLite, 16 MariaDB), with no engine skips.
+They exercise source creation, capture/refresh, persisted heartbeats, original
+queued identity, harmless changes, recovery, pause/unlink, channel rotation and
+restore, damaged retained ciphertext, decoder refusal and final DB authorization.
+These local regressions do not establish remote-edge compatibility, termination
+of already-open WebSockets, or aggregate-delivery runtime acceptance.
+
 ### M8 Docker install (migration 089)
 
 See [Docker install](multi-region/M8_DOCKER_INSTALL.md).

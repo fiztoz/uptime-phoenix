@@ -44,6 +44,14 @@ type LocalProbeConfigEncoder interface {
 	EncodeLocal(definition domain.LocalProbeConfigDefinition) ([]byte, error)
 }
 
+// LocalProbeConfigChannelComparer compares a queued notification and its
+// referenced template with a current definition, excluding document-wide versions.
+// The caller must authenticate the retained bytes and enforce current authority.
+// Implementations must not expose confidential settings in errors.
+type LocalProbeConfigChannelComparer interface {
+	SameLocalDeliveryChannel(previous []byte, current domain.LocalProbeConfigDefinition, notificationID int64) (bool, error)
+}
+
 // LocalProbeConfigValidator checks complete local snapshots against installed
 // extension validators without checks, sends, persistence or activation. It must
 // validate disabled dependencies too and never include confidential data in errors.

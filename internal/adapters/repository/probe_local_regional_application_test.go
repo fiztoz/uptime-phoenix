@@ -306,17 +306,48 @@ func testLocalRegionalBeforeSend(t *testing.T, engine string) {
 	p := newReviewPipeline(t, engine, true)
 	p.record(t, domain.StatusDown)
 	assertTableCount(t, p.f, "probe_delivery_intents", 1)
-	if _, err := p.f.db.ExecContext(t.Context(), "UPDATE probe_local_regional_applications SET generation = 2"); err != nil {
+	var deliveryID string
+	if err := p.f.db.NewSelect().Table("probe_delivery_intents").Column("delivery_id").Scan(t.Context(), &deliveryID); err != nil {
+		t.Fatal(err)
+	}
+	original, err := p.outbox.GetDeliveryIntent(t.Context(), domain.LocalProbeID, deliveryID)
+	if err != nil || original == nil {
+		t.Fatal("read original intent", err)
+	}
+	var generation int64
+	if err := p.f.db.NewSelect().Table("probe_local_regional_applications").Column("generation").Scan(t.Context(), &generation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.f.db.ExecContext(t.Context(), "UPDATE probe_local_regional_applications SET generation = ?", generation+1); err != nil {
 		t.Fatal(err)
 	}
 	p.send(t)
 	if len(p.sender.alerts) != 0 {
 		t.Fatal("pre-send execution read bypassed present corrupt application")
 	}
-	var status string
-	if err := p.f.db.NewSelect().Table("probe_delivery_intents").Column("status").Scan(t.Context(), &status); err != nil || status != domain.DeliveryStatusSuperseded {
-		t.Fatal("corrupt configuration refusal did not persist queued-work outcome", err)
+	queued, err := p.outbox.GetDeliveryIntent(t.Context(), domain.LocalProbeID, deliveryID)
+	if err != nil || queued == nil || queued.Status != domain.DeliveryStatusLeased || queued.LeaseToken == "" {
+		t.Fatal("unreadable application discarded queued work instead of retaining its claim", err)
 	}
+	if queued.NotificationVersion != original.NotificationVersion || queued.ConfigRevision != original.ConfigRevision {
+		t.Fatal("refusal rewrote original replay identity")
+	}
+	// Simulate repair of the persisted application evidence, not a consumer-side
+	// repair. The same still-owned claim may retry; refusal must not lose the alert.
+	if _, err := p.f.db.ExecContext(t.Context(), "UPDATE probe_local_regional_applications SET generation = ?", generation); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.consumer.ProcessOne(t.Context(), *queued); err != nil {
+		t.Fatal("retry after application repair", err)
+	}
+	stored, err := p.outbox.GetDeliveryIntent(t.Context(), domain.LocalProbeID, deliveryID)
+	if err != nil || stored == nil || stored.Status != domain.DeliveryStatusSent || len(p.sender.alerts) != 1 {
+		t.Fatal("repaired application did not send the retained intent exactly once in this test", err)
+	}
+	if stored.NotificationVersion != original.NotificationVersion || stored.ConfigRevision != original.ConfigRevision {
+		t.Fatal("successful retry rewrote original replay identity")
+	}
+	assertTableCount(t, p.f, "probe_delivery_intents", 1)
 }
 
 func testLocalRegionalEscalation(t *testing.T, engine string) {

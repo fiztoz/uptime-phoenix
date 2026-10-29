@@ -28,11 +28,14 @@ func init() { Register(SMTPSender{}) }
 func (SMTPSender) Type() string { return "smtp" }
 
 func (SMTPSender) Validate(config map[string]any) error {
-	required := []string{"host", "from", "to"}
+	required := []string{"host", "from"}
 	for _, k := range required {
 		if v, ok := config[k].(string); !ok || v == "" {
 			return fmt.Errorf("%s is required", k)
 		}
+	}
+	if _, err := smtpRecipients(config["to"]); err != nil {
+		return err
 	}
 	if _, ok := config["port"].(float64); !ok {
 		if _, ok2 := config["port"].(int); !ok2 {
@@ -60,21 +63,9 @@ func (SMTPSender) Send(ctx context.Context, config map[string]any, alert domain.
 	username, _ := config["username"].(string)
 	password, _ := config["password"].(string)
 	from, _ := config["from"].(string)
-	toIface := config["to"]
-	var toAddrs []string
-	switch v := toIface.(type) {
-	case string:
-		toAddrs = []string{v}
-	case []any:
-		for _, t := range v {
-			if s, ok := t.(string); ok {
-				toAddrs = append(toAddrs, s)
-			}
-		}
-	case []string:
-		toAddrs = v
-	default:
-		return fmt.Errorf("to must be string or array of strings")
+	toAddrs, err := smtpRecipients(config["to"])
+	if err != nil {
+		return err
 	}
 	useTLS := true
 	if tls, ok := config["tls"].(bool); ok {
@@ -154,6 +145,41 @@ func (SMTPSender) Send(ctx context.Context, config map[string]any, alert domain.
 		return fmt.Errorf("smtp: sending email: %w", err)
 	}
 	return nil
+}
+
+// smtpRecipients is shared by validation and sending so decoded JSON arrays
+// and native string slices have the same semantics, without dropping bad entries.
+func smtpRecipients(value any) ([]string, error) {
+	invalid := func() ([]string, error) {
+		return nil, errors.New("to must be a nonempty string or array of nonempty strings")
+	}
+	var recipients []string
+	switch v := value.(type) {
+	case string:
+		recipients = []string{v}
+	case []string:
+		recipients = append([]string(nil), v...)
+	case []any:
+		for _, item := range v {
+			address, ok := item.(string)
+			if !ok {
+				return invalid()
+			}
+			recipients = append(recipients, address)
+		}
+	default:
+		return invalid()
+	}
+	if len(recipients) == 0 {
+		return invalid()
+	}
+	for i, address := range recipients {
+		recipients[i] = strings.TrimSpace(address)
+		if recipients[i] == "" {
+			return invalid()
+		}
+	}
+	return recipients, nil
 }
 
 type smtpTransportConfig struct {

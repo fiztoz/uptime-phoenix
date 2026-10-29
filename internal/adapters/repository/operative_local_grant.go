@@ -43,8 +43,15 @@ func (r *OperativeDeliveryStore) grantLocalAttemptTx(ctx context.Context, tx bun
 		row.LeaseUntil == nil || !now.Add(budget).Before(row.LeaseUntil.UTC()) {
 		return nil, fmt.Errorf("local claim lease fence: %w", ports.ErrConflict)
 	}
-	if row.ConfigRevision != config.Revision || row.StreamID != domain.LocalStreamID {
+	if row.StreamID != domain.LocalStreamID || row.NotificationVersion != row.ConfigRevision {
 		return nil, fmt.Errorf("local claim document binding: %w", ports.ErrConflict)
+	}
+	unchanged, err := localDeliveryChannelMatchesTx(ctx, tx, r.encoder, r.configProtector, definition, row.NotificationID, row.NotificationVersion)
+	if err != nil {
+		return nil, err
+	}
+	if !unchanged {
+		return nil, fmt.Errorf("local claim channel rotated: %w", ports.ErrConflict)
 	}
 	set, err := readProbeAssignments(ctx, tx, row.MonitorID)
 	if err != nil {
@@ -104,6 +111,9 @@ func (r *OperativeDeliveryStore) grantLocalAttemptTx(ctx context.Context, tx bun
 	for _, assignment := range definition.Assignments {
 		if assignment.Monitor == nil || assignment.Monitor.ID != row.MonitorID {
 			continue
+		}
+		if !assignment.Monitor.Active {
+			return nil, fmt.Errorf("local claim monitor inactive: %w", ports.ErrConflict)
 		}
 		for _, link := range assignment.NotificationLinks {
 			if row.EscalationStep == 0 && link.NotificationID == row.NotificationID {

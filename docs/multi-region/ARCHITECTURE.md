@@ -195,6 +195,22 @@ Do not publish source identities without their durable incident record.
 
 Persist incident changes and delivery intents with check state before attempting I/O. Delivery intents have stable IDs, channel identity/version, incident identity, event kind, attempt count, next attempt time, and outcome. Retry transient errors with bounded exponential backoff; permanent provider validation failures become visible failed delivery records. Secret rotation is versioned so queued intents do not leak or resurrect removed credentials.
 
+Local availability intents retain their original document revision as immutable
+replay identity; that revision is **not** a channel-specific rotation counter.
+Before sending across a local configuration refresh, the consumer authenticates
+the channel and referenced template in every retained applied revision from the
+intent's origin through the current graph, ignoring document-wide version fields.
+Unrelated monitor/dependency edits therefore do not discard queued alerts, while
+channel rotation, disable/restore, template changes or missing historical evidence
+fail closed. Source drift before refresh remains retryable. Final local provider
+authorization repeats the comparison inside its existing configuration-authority
+transaction and still checks current claims, generation, monitor activity, channel
+links, incident lifecycle and source gates. It sends only current authenticated
+settings and does not rewrite the intent's original identity. The encoder/comparer
+and configuration protector are explicit adapter dependencies; without them,
+cross-revision work remains ineligible. This compatibility path is local-only;
+it does not change the remote edge channel-version protocol.
+
 V1 availability beats and notification intents are separate queues. Provider unavailability cannot block recording checks or telemetry replication. After a process crash following provider acceptance but before local acknowledgement, a duplicate external notification is possible unless that provider supports a usable idempotency key. Do not claim exactly-once external delivery.
 
 When an old DOWN notification remains queued after its incident has resolved, replace unsent obsolete availability/resend intents with one delayed incident summary containing outage and recovery times. Never send an old DOWN followed by a misleading current recovery storm. Certificate and capacity notifications similarly re-evaluate whether the condition still warrants delivery.

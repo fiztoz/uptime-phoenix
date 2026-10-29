@@ -419,11 +419,28 @@ func (s *AuthService) Complete2FALogin(ctx context.Context, ticket, totpToken st
 	return token, user, nil
 }
 
-// VerifyToken is a thin pass-through to the underlying Authenticator. It
-// exists on the service so HTTP handlers and middleware have a single
-// dependency surface to inject.
+// VerifyToken validates a session JWT and checks that its principal still exists
+// and is active. Account deactivation/deletion takes effect on the next request,
+// without waiting for a previously issued token to expire.
 func (s *AuthService) VerifyToken(ctx context.Context, token string) (int64, error) {
-	return s.auth.VerifyToken(ctx, token)
+	id, err := s.auth.VerifyToken(ctx, token)
+	if err != nil {
+		return 0, err
+	}
+	if s.users == nil {
+		return 0, domain.ErrInternal
+	}
+	user, err := s.users.GetByID(ctx, id)
+	if errors.Is(err, ports.ErrNotFound) {
+		return 0, ErrInvalidCredentials
+	}
+	if err != nil {
+		return 0, fmt.Errorf("auth service: verify session principal: %w", err)
+	}
+	if user == nil || user.ID != id || !user.Active {
+		return 0, ErrInvalidCredentials
+	}
+	return id, nil
 }
 
 // Register creates a new user with the supplied credentials.

@@ -3,6 +3,7 @@ package probe
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -166,7 +167,14 @@ func encodeLocalAssignment(a domain.ProbeConfigAssignment) (ConfigAssignment, er
 	if m == nil || !configInt32(m.Interval) || !configInt32(m.RetryInterval) || !configInt32(m.MaxRetries) || !configInt32(m.ResendInterval) {
 		return out, domain.ErrValidation
 	}
-	config, err := encodeConfigObject(m.Config, MaxConfigObjectBytes)
+	settings := m.Config
+	if m.Type == "push" {
+		// Inbound credentials remain hub-owned. Monitor creation also places
+		// the token in Config, not only PushToken; never export either copy.
+		settings = maps.Clone(settings)
+		delete(settings, "push_token")
+	}
+	config, err := encodeConfigObject(settings, MaxConfigObjectBytes)
 	if err != nil {
 		return out, err
 	}

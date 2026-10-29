@@ -53,11 +53,12 @@ const (
 // OperativeDeliveryStore implements the hub-side operative cutover, local
 // delivery authorization, aggregate delivery and source provider journal ports.
 type OperativeDeliveryStore struct {
-	db        *bun.DB
-	codec     ports.DeliveryCutoverCodec
-	protector ports.ProbeCommandProtector
-	sync      *RemoteProbeConfigSyncStore
-	encoder   ports.LocalProbeConfigEncoder
+	db              *bun.DB
+	codec           ports.DeliveryCutoverCodec
+	protector       ports.ProbeCommandProtector
+	sync            *RemoteProbeConfigSyncStore
+	encoder         ports.LocalProbeConfigEncoder
+	configProtector ports.ProbeConfigProtector
 }
 
 var (
@@ -77,8 +78,14 @@ var (
 // document/receipt verification (never mutable-source reconstruction); encoder
 // is the local config encoder used to re-prove the exact whole-source graph.
 // The sync store must be fully constructed (decoder + config protector set).
-func NewOperativeDeliveryStore(db *bun.DB, codec ports.DeliveryCutoverCodec, protector ports.ProbeCommandProtector, sync *RemoteProbeConfigSyncStore, encoder ports.LocalProbeConfigEncoder) *OperativeDeliveryStore {
-	return &OperativeDeliveryStore{db: db, codec: codec, protector: protector, sync: sync, encoder: encoder}
+// The optional config protector authenticates older applied local channel
+// versions. Without it, cross-revision local delivery grants fail closed.
+func NewOperativeDeliveryStore(db *bun.DB, codec ports.DeliveryCutoverCodec, protector ports.ProbeCommandProtector, sync *RemoteProbeConfigSyncStore, encoder ports.LocalProbeConfigEncoder, configProtector ...ports.ProbeConfigProtector) *OperativeDeliveryStore {
+	r := &OperativeDeliveryStore{db: db, codec: codec, protector: protector, sync: sync, encoder: encoder}
+	if len(configProtector) == 1 {
+		r.configProtector = configProtector[0]
+	}
+	return r
 }
 
 type operativeStateModel struct {

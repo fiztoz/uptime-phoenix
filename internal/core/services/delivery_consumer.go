@@ -288,23 +288,29 @@ func (c *DeliveryOutboxConsumer) ReconcileBeforeSend(
 		} else if err != nil {
 			return ReconciliationDecision{}, nil, nil, err
 		}
-		if active == nil || active.Revision != delivery.NotificationVersion {
-			// Channel version is no longer applicable. Do not send using rotated/stale credentials.
+		if active == nil {
 			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "channel_version_rotated"}, nil, nil, nil
 		}
-		reader, ok := c.activations.(ports.LocalAppliedConfigReader)
-		if !ok {
-			return ReconciliationDecision{}, nil, nil, domain.ErrValidation
-		}
-		applied, err = reader.ReadAppliedLocal(ctx)
-		if errors.Is(err, ports.ErrConflict) || errors.Is(err, ports.ErrNotFound) {
-			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "configuration_changed"}, nil, nil, nil
+		if reader, ok := c.activations.(ports.LocalDeliveryConfigReader); ok {
+			applied, err = reader.ReadAppliedLocalDelivery(ctx, delivery.NotificationID, delivery.NotificationVersion)
+		} else {
+			// Older adapters cannot authenticate an earlier channel. Fail closed.
+			if active.Revision != delivery.NotificationVersion {
+				return ReconciliationDecision{Action: ReconcileSupersede, Reason: "channel_version_rotated"}, nil, nil, nil
+			}
+			reader, ok := c.activations.(ports.LocalAppliedConfigReader)
+			if !ok {
+				return ReconciliationDecision{}, nil, nil, domain.ErrValidation
+			}
+			applied, err = reader.ReadAppliedLocal(ctx)
 		}
 		if err != nil {
+			// Source edits may precede refresh. Never turn that transient conflict
+			// into a permanent lost alert; the claim can be retried after activation.
 			return ReconciliationDecision{}, nil, nil, err
 		}
-		if applied.Revision != delivery.NotificationVersion {
-			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "configuration_changed"}, nil, nil, nil
+		if applied == nil {
+			return ReconciliationDecision{Action: ReconcileSupersede, Reason: "channel_version_rotated"}, nil, nil, nil
 		}
 	}
 
@@ -449,6 +455,9 @@ func (c *DeliveryOutboxConsumer) ReconcileBeforeSend(
 	if applied != nil {
 		for _, a := range applied.Assignments {
 			if a.Monitor.ID == delivery.MonitorID && a.Generation == delivery.AssignmentGeneration {
+				if !a.Monitor.Active {
+					return ReconciliationDecision{Action: ReconcileSupersede, Reason: "monitor_disabled"}, notif, nil, nil
+				}
 				monitor = a.Monitor
 				break
 			}

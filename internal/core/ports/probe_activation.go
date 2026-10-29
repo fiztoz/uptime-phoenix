@@ -41,3 +41,12 @@ type ProbeConfigActivationRepository interface {
 type LocalAppliedConfigReader interface {
 	ReadAppliedLocal(ctx context.Context) (*domain.LocalProbeConfigDefinition, error)
 }
+
+// LocalDeliveryConfigReader captures the current authenticated graph if the
+// queued channel and its template still match the exact previously applied
+// revision. A nil definition means the channel is no longer eligible. Source
+// drift and unavailable storage return errors so work is retried, not discarded.
+// This read is observational; final provider authorization must repeat the check.
+type LocalDeliveryConfigReader interface {
+	ReadAppliedLocalDelivery(ctx context.Context, notificationID, revision int64) (*domain.LocalProbeConfigDefinition, error)
+}

@@ -14,6 +14,8 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/eventbus"
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/memory"
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
@@ -104,7 +106,12 @@ func TestHandleWebSocket_MissingJWTClosesUnauthorized(t *testing.T) {
 
 func TestHandleWebSocket_ValidJWTDoesNotCloseUnauthorized(t *testing.T) {
 	h := newAuthCloseHub(t)
-	authSvc := services.NewAuthService(nil, nil, closeAuthn{userID: 1}, nil)
+	users := memory.NewUserRepo()
+	user := &domain.User{Username: "active-session-user", Active: true}
+	if err := users.Create(t.Context(), user); err != nil {
+		t.Fatal(err)
+	}
+	authSvc := services.NewAuthService(users, nil, closeAuthn{userID: user.ID}, nil)
 	srv := serveHandleWebSocket(t, h, authSvc, "good-token")
 	t.Cleanup(srv.Close)
 
