@@ -50,6 +50,9 @@ func newEdgeHTTPHandler(identity *RuntimeIdentity, enrollment *services.EdgeEnro
 		return nil, errors.New("edge server requires identity, authentication, runtime and health dependencies")
 	}
 	e := echo.New()
+	// Pinned TLS sockets are direct connections, not forwarding proxies.
+	// Explicit extraction avoids Echo v4's client-controlled header fallback.
+	e.IPExtractor = echo.ExtractIPDirect()
 	e.HideBanner, e.HidePort = true, true
 	e.HTTPErrorHandler = func(err error, c echo.Context) {
 		if c.Response().Committed {

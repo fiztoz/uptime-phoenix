@@ -112,6 +112,56 @@ for disposable database setup.
 **Do NOT report a task complete until all applicable gates pass.** CI covers PR/main;
 you still own the local gate for work-in-progress and offline verification.
 
+### Echo v4 client-IP security
+
+The workarounds for [GHSA-246p-cpwv-v3jq](https://github.com/labstack/echo/security/advisories/GHSA-246p-cpwv-v3jq)
+and [GHSA-99jh-6h7p-pp36](https://github.com/labstack/echo/security/advisories/GHSA-99jh-6h7p-pp36)
+are application configuration, **not a patched Echo dependency**. Upstream retains
+the v4 defaults. The two specific OSV exceptions were owner-approved on
+2026-10-29 and expire 2026-11-28; all other findings remain blocking. Before
+expiry, reassess upstream releases and the application trust boundary; do not
+silently renew or broaden them. CI's ordinary backend tests execute these
+regressions before the OSV step:
+
+```bash
+go test -race -count=1 ./internal/adapters/http ./internal/adapters/probe ./internal/bootstrap \
+  -run '^(TestEcho|TestEdgeHTTPIPExtractorSecurity|TestTrustedProxy)'
+osv-scanner scan source --config osv-scanner.toml --lockfile go.mod --lockfile web/bun.lock
+```
+
+- Real hub sign-in attempts cannot obtain fresh budgets by rotating XFF or
+  X-Real-IP, including direct private/loopback/link-local/IPv6 clients.
+- Explicitly configured proxies retain separate client budgets. A private client
+  is not confused with a trusted proxy, and spoofed leftmost prefixes are ignored.
+- The actual Echo proxy middleware is mounted **only in a regression fixture**
+  against a loopback upstream: the configured extractor replaces spoofed
+  X-Real-IP. Deliberately unset extractors reproduce both vulnerable behaviors,
+  proving the tests distinguish the workaround from the unsafe default.
+- The probe constructor uses direct extraction; all forwarding headers are ignored.
+- An AST-based inventory refuses additional/moved production `echo.New`
+  references until they receive security review and behavioral coverage.
+- Startup rejects malformed or catch-all proxy CIDRs before opening the DB or
+  initializing telemetry. Programmatic router options fail closed too.
+
+**Operator upgrade action:** the hub no longer implicitly trusts private,
+loopback or link-local networks. With no allow-list, all users behind one Ingress
+share its socket-IP rate-limit bucket. Set `TRUSTED_PROXY_CIDRS` explicitly to
+actual proxies; the proxy must overwrite XFF or append the actual client IP.
+For example, with Helm's existing `extraEnv` (replace documentation-only values
+with your actual proxy addresses):
+
+```yaml
+extraEnv:
+  - name: TRUSTED_PROXY_CIDRS
+    value: "192.0.2.10/32,2001:db8::10/128"
+```
+
+Prefer exact proxy addresses or an isolated proxy-only subnet. Do not trust the
+whole private/client/workload network. No manifest/deployment change is automatic.
+The root cause missed by earlier tests was Echo's implicit private-network trust:
+public-peer-only cases passed while private clients could still rotate XFF.
+The added direct/private/proxied cases exercise that boundary explicitly.
+
 ### v0.6.2 high-severity regressions (#113, #114, #115, #134)
 
 The account-state tests use the same issued token after deactivation/deletion,

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/echo/v4"
+
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/auth"
 	httppkg "github.com/fiztoz/uptime-phoenix/internal/adapters/http"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/http/handlers"
@@ -19,6 +21,11 @@ import (
 // malformed; the point is the limiter in front of it.
 func authRateLimitRouter(t *testing.T) http.Handler {
 	t.Helper()
+	return authRateLimitRouterWithOptions(t, httppkg.RouterOptions{})
+}
+
+func authRateLimitRouterWithOptions(t *testing.T, opts httppkg.RouterOptions) *echo.Echo {
+	t.Helper()
 	users := memory.NewUserRepo()
 	jwt := auth.NewJWTAuthenticator(strings.Repeat("auth-ratelimit-test-key-", 2), 1, users)
 	authSvc := services.NewAuthService(users, nil, jwt, nil)
@@ -28,7 +35,7 @@ func authRateLimitRouter(t *testing.T) http.Handler {
 		nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil,
-		authSvc, nil, nil, nil, embed.FS{}, httppkg.RouterOptions{}, nil, "")
+		authSvc, nil, nil, nil, embed.FS{}, opts, nil, "")
 }
 
 func postFrom(h http.Handler, path, ip string) int {

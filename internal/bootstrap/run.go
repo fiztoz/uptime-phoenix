@@ -43,6 +43,10 @@ import (
 
 // Run starts Phoenix with the given configuration and blocks until shutdown.
 func Run(cfg Config) error {
+	trustedProxyCIDRs, err := parseTrustedProxyCIDRs(cfg.TrustedProxyCIDRs)
+	if err != nil {
+		return err
+	}
 	if err := validateProbePreflightConfig(cfg); err != nil {
 		return err
 	}
@@ -834,6 +838,7 @@ func Run(cfg Config) error {
 		ProbeCleanups:       handlers.NewProbeCleanupHandlers(installOperations.cleanupService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
 		ProbeHostBootstraps: handlers.NewProbeHostBootstrapHandlers(installOperations.bootstrapService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
 		Production:          cfg.Production,
+		TrustedProxyCIDRs:   trustedProxyCIDRs,
 		RateLimit: middleware.RateLimitConfig{
 			RequestsPerSecond: cfg.RateLimitRPS,
 			Burst:             cfg.RateLimitBurst,

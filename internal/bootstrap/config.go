@@ -72,6 +72,10 @@ type Config struct {
 	RateLimitRPS   float64 `env:"RATE_LIMIT_RPS" envDefault:"50"`
 	RateLimitBurst int     `env:"RATE_LIMIT_BURST" envDefault:"100"`
 
+	// TrustedProxyCIDRs is a comma-separated, explicit proxy-only allow-list.
+	// Empty ignores forwarding headers; never trust private networks implicitly.
+	TrustedProxyCIDRs string `env:"TRUSTED_PROXY_CIDRS" envDefault:""`
+
 	// OpenTelemetry (optional).
 	OTELEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT" envDefault:""`
 	OTELService  string `env:"OTEL_SERVICE_NAME" envDefault:"phoenix"`
@@ -168,6 +172,9 @@ func LoadConfig() (Config, error) {
 		return Config{}, err
 	}
 	if err := validatePublicURL(cfg.PublicURL); err != nil {
+		return Config{}, err
+	}
+	if _, err := parseTrustedProxyCIDRs(cfg.TrustedProxyCIDRs); err != nil {
 		return Config{}, err
 	}
 	if cfg.ProbeHubID != "" && !domain.ValidHubID(cfg.ProbeHubID) {

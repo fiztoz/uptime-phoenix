@@ -2,6 +2,19 @@
 # again once ignoreUntil passes, so the exception gets re-reviewed.
 # Scan: osv-scanner scan source --config osv-scanner.toml --lockfile go.mod --lockfile web/bun.lock
 
+# Owner-approved 2026-10-29, 30-day application-workaround exceptions, not an
+# upstream dependency fix. See docs/TESTING.md "Echo v4 client-IP security".
+# Remove/reassess on any new Echo constructor, proxy trust change or fixed v4.
+[[IgnoredVulns]]
+id = "GHSA-246p-cpwv-v3jq"
+ignoreUntil = 2026-11-28
+reason = "Echo v4 retains an insecure nil-IPExtractor default. Both Phoenix constructors explicitly configure extraction: hub trusts only TRUSTED_PROXY_CIDRS (none by default), edge uses socket IP. TestEchoCredentialIPWorkaround proves real sign-in throttling against rotating headers; legacy controls reproduce bypass. TestEchoConstructorSecurityInventory guards constructor scope. No fixed v4 release; reassess before expiry."
+
+[[IgnoredVulns]]
+id = "GHSA-99jh-6h7p-pp36"
+ignoreUntil = 2026-11-28
+reason = "Phoenix does not install Echo reverse-proxy middleware in production, and both constructors configure IPExtractor explicitly. TestEchoProxyIPWorkaround mounts the actual middleware against a loopback upstream and proves spoofed X-Real-IP is replaced, with vulnerable legacy controls. TestEdgeHTTPIPExtractorSecurity and TestEchoConstructorSecurityInventory guard the other constructor and scope. No fixed v4 release; reassess before expiry."
+
 [[IgnoredVulns]]
 id = "GO-2026-5932"
 ignoreUntil = 2027-01-31
