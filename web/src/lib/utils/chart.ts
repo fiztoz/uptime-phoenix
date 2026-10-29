@@ -195,3 +195,17 @@ export function bucketMsForRange(hours: number): number {
   if (hours <= 24) return 15 * 60_000;
   return 60 * 60_000;
 }
+
+/**
+ * Size of the plot-area clip rect. LayerCake reports width/height as the
+ * container size minus padding, which goes negative while the container is
+ * still being laid out (e.g. 6 px wide - 64 px padding = -58). SVG rejects
+ * negative rect sizes, so clamp to zero.
+ */
+export function plotClipSize(
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  const clamp = (n: number) => (Number.isFinite(n) ? Math.max(0, n) : 0);
+  return { width: clamp(width), height: clamp(height) };
+}
