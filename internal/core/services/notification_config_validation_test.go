@@ -17,7 +17,9 @@ func (v validatingSender) Validate(cfg map[string]any) error {
 	}
 	return nil
 }
-func (v validatingSender) Send(context.Context, map[string]any, domain.AlertContext) error { return nil }
+func (v validatingSender) Send(context.Context, map[string]any, domain.AlertContext) error {
+	return nil
+}
 
 // TestNotificationConfigIsValidatedBeforeSave pins the notifier part of #118:
 // Create/Update persisted any type string and any config, so a typo'd type or
