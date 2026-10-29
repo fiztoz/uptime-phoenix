@@ -99,8 +99,30 @@ func (s *NotificationService) RegisterSender(sender ports.NotificationSender) {
 	s.senders[sender.Type()] = sender
 }
 
+// validateProviderConfig rejects a notification whose type has no registered
+// sender, or whose config that sender's Validate refuses (GitHub #118).
+// Before this, both were saved and only failed when an alert fired. A service
+// with no senders registered (unit-test wiring) skips the check; production
+// registers every provider at startup (bootstrap/run.go).
+func (s *NotificationService) validateProviderConfig(n *domain.Notification) error {
+	if len(s.senders) == 0 {
+		return nil
+	}
+	sender, ok := s.senders[n.Type]
+	if !ok {
+		return fmt.Errorf("%w: unknown notification type %q", domain.ErrValidation, n.Type)
+	}
+	if err := sender.Validate(n.Config); err != nil {
+		return fmt.Errorf("%w: invalid %s config: %v", domain.ErrValidation, n.Type, err)
+	}
+	return nil
+}
+
 // Create creates a new notification configuration.
 func (s *NotificationService) Create(ctx context.Context, n *domain.Notification) error {
+	if err := s.validateProviderConfig(n); err != nil {
+		return err
+	}
 	if err := s.validateTemplateAssignment(ctx, n); err != nil {
 		return err
 	}
@@ -152,6 +174,9 @@ func (s *NotificationService) ListForMonitors(ctx context.Context, monitorIDs []
 
 // Update updates a notification configuration.
 func (s *NotificationService) Update(ctx context.Context, n *domain.Notification) error {
+	if err := s.validateProviderConfig(n); err != nil {
+		return err
+	}
 	if err := s.validateTemplateAssignment(ctx, n); err != nil {
 		return err
 	}

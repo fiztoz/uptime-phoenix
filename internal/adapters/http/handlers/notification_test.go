@@ -428,6 +428,16 @@ func (s *notifHSender) Send(_ context.Context, config map[string]any, alert doma
 	return nil
 }
 
+// notifHNamedSender registers a further provider type so the service's
+// registered-type check (#118) accepts it; it never sends.
+type notifHNamedSender struct{ typ string }
+
+func (s notifHNamedSender) Type() string                    { return s.typ }
+func (s notifHNamedSender) Validate(_ map[string]any) error { return nil }
+func (s notifHNamedSender) Send(context.Context, map[string]any, domain.AlertContext) error {
+	return nil
+}
+
 func (s *notifHSender) callCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -580,6 +590,7 @@ func newNotifHTTPHarness(t *testing.T) *notifHTTPHarness {
 	notifSvc.SetGroupNotificationRepo(groupLinks)
 	notifSvc.SetAssignmentLookups(monitorRepo, groupRepo)
 	notifSvc.RegisterSender(sender)
+	notifSvc.RegisterSender(notifHNamedSender{typ: "discord"})
 
 	accessSvc := services.NewAccessService(userRepo, permRepo, groupRepo, monitorRepo)
 
