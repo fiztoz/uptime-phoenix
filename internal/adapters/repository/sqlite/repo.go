@@ -1505,9 +1505,15 @@ func NewMonitorNotificationRepo(db *bun.DB) *MonitorNotificationRepo {
 	return &MonitorNotificationRepo{db: db}
 }
 
+// Attach links a notification to a monitor, idempotently (GitHub #130).
+// Re-attaching an existing link keeps the row and its include_target
+// (SetIncludeTarget changes that); foreign-key violations stay loud.
 func (r *MonitorNotificationRepo) Attach(ctx context.Context, monitorID, notificationID int64, includeTarget bool) error {
-	m := &repository.MonitorNotificationModel{MonitorID: monitorID, NotificationID: notificationID, IncludeTarget: includeTarget}
-	_, err := r.db.NewInsert().Model(m).Exec(ctx)
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO monitor_notification (monitor_id, notification_id, include_target) VALUES (?, ?, ?)
+		 ON CONFLICT (monitor_id, notification_id) DO NOTHING`,
+		monitorID, notificationID, includeTarget,
+	)
 	return translateError(err)
 }
 
