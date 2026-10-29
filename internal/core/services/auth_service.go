@@ -69,6 +69,9 @@ var (
 	ErrTOTPRequired = &AuthServiceError{Code: "totp_required", Message: "TOTP token required"}
 	// ErrTOTPInvalid is returned when the supplied TOTP token does not validate.
 	ErrTOTPInvalid = &AuthServiceError{Code: "totp_invalid", Message: "invalid TOTP token"}
+	// ErrTicketInvalid is returned when a 2FA challenge ticket is malformed,
+	// wrongly signed, expired, or not a ticket (GitHub #122).
+	ErrTicketInvalid = &AuthServiceError{Code: "ticket_invalid", Message: "2FA ticket is invalid or expired"}
 	// ErrTOTPNotEnabled is returned by EnableTOTP when 2FA is already off
 	// and by DisableTOTP when 2FA is already off.
 	ErrTOTPNotEnabled = &AuthServiceError{Code: "totp_not_enabled", Message: "TOTP is not enabled"}
@@ -382,7 +385,9 @@ func (s *AuthService) Complete2FALogin(ctx context.Context, ticket, totpToken st
 	}
 	userID, err := s.auth.VerifyPending2FATicket(ctx, ticket)
 	if err != nil {
-		return "", nil, fmt.Errorf("auth service: verify 2fa ticket: %w", err)
+		// Ticket verification is pure token checking (parse, signature,
+		// expiry, purpose), so every failure is the client's.
+		return "", nil, fmt.Errorf("auth service: verify 2fa ticket: %w: %w", ErrTicketInvalid, err)
 	}
 	now := s.clock.Now()
 	// Count the attempt on the ticket before checking the code, so parallel
