@@ -3,7 +3,9 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -232,6 +234,22 @@ type SPCNAMEView struct {
 	Domain       string `json:"domain"`
 }
 
+// statusPageSlugPattern matches the web form's check: the slug is the public
+// URL path segment, so only lowercase letters, digits and hyphens.
+var statusPageSlugPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+// normalizeStatusPageSlug trims and lowercases a slug, as the service does on
+// create, and rejects anything that is not URL-safe (GitHub #124). Backup
+// restore and config-as-code do not pass through here, so older slugs still
+// import.
+func normalizeStatusPageSlug(raw string) (string, error) {
+	slug := strings.ToLower(strings.TrimSpace(raw))
+	if !statusPageSlugPattern.MatchString(slug) {
+		return "", fmt.Errorf("slug %q may contain only lowercase letters, digits and hyphens", raw)
+	}
+	return slug, nil
+}
+
 // Create handles POST /api/status-pages.
 func (h *StatusPageHandlers) Create(c echo.Context) error {
 	var req CreateSPRequest
@@ -241,6 +259,11 @@ func (h *StatusPageHandlers) Create(c echo.Context) error {
 	if req.Slug == "" {
 		return badRequest(c, "slug is required")
 	}
+	slug, err := normalizeStatusPageSlug(req.Slug)
+	if err != nil {
+		return badRequest(c, err.Error())
+	}
+	req.Slug = slug
 	if req.Title == "" {
 		return badRequest(c, "title is required")
 	}
@@ -393,7 +416,11 @@ func (h *StatusPageHandlers) Update(c echo.Context) error {
 	}
 
 	if req.Slug != "" {
-		existing.Slug = req.Slug
+		slug, err := normalizeStatusPageSlug(req.Slug)
+		if err != nil {
+			return badRequest(c, err.Error())
+		}
+		existing.Slug = slug
 	}
 	if req.Title != "" {
 		existing.Title = req.Title
