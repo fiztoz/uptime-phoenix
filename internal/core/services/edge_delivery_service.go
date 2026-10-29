@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -20,11 +21,19 @@ type EdgeDeliveryService struct {
 	cron     ports.CronEvaluator
 	sender   func(string) (ports.NotificationSender, bool)
 	now      func() time.Time
+	logger   *slog.Logger
 }
 
 // NewEdgeDeliveryService wires immutable config reads and actual provider lookup.
 func NewEdgeDeliveryService(outbox ports.EdgeDeliveryRepository, configs ports.EdgeConfigReader, checks ports.EdgeCheckRepository, cron ports.CronEvaluator, sender func(string) (ports.NotificationSender, bool)) *EdgeDeliveryService {
-	return &EdgeDeliveryService{outbox: outbox, configs: configs, checks: checks, cron: cron, sender: sender, now: time.Now}
+	return &EdgeDeliveryService{outbox: outbox, configs: configs, checks: checks, cron: cron, sender: sender, now: time.Now, logger: slog.Default()}
+}
+
+// SetLogger replaces the delivery outcome logger (slog.Default by default).
+func (s *EdgeDeliveryService) SetLogger(logger *slog.Logger) {
+	if logger != nil {
+		s.logger = logger
+	}
 }
 
 // SetWatchdog attaches probe-scoped delivery reconciliation before Run.
@@ -112,7 +121,11 @@ func (s *EdgeDeliveryService) process(ctx context.Context, item domain.QueuedDel
 	}
 	claim := domain.DeliveryClaim{DeliveryID: item.DeliveryID, ProbeID: item.ProbeID, Attempt: item.Attempt, LeaseToken: item.LeaseToken}
 	finish := func(status, code string, retry time.Time) error {
-		return s.outbox.FinishDelivery(ctx, claim, domain.DeliveryResult{Status: status, ErrorCode: code, At: s.now().UTC(), RetryAt: retry})
+		if err := s.outbox.FinishDelivery(ctx, claim, domain.DeliveryResult{Status: status, ErrorCode: code, At: s.now().UTC(), RetryAt: retry}); err != nil {
+			return err
+		}
+		s.logOutcome(ctx, item, status, code)
+		return nil
 	}
 	config, err := s.configs.Load(ctx)
 	if err != nil {
@@ -206,6 +219,28 @@ func (s *EdgeDeliveryService) process(ctx context.Context, item domain.QueuedDel
 		return finish(domain.DeliveryStatusRetrying, code, s.now().UTC().Add(CalculateBackoff(item.Attempt)))
 	}
 	return finish(domain.DeliveryStatusFailed, code, time.Time{})
+}
+
+// logOutcome records one finished regional delivery attempt (#125). It logs
+// ids and the classified error code only: the raw provider error can carry
+// URLs or credentials from the channel config.
+func (s *EdgeDeliveryService) logOutcome(ctx context.Context, item domain.QueuedDelivery, status, code string) {
+	level := slog.LevelInfo
+	if status == domain.DeliveryStatusFailed || status == domain.DeliveryStatusRetrying {
+		level = slog.LevelWarn
+	}
+	attrs := []slog.Attr{
+		slog.String("delivery_id", item.DeliveryID),
+		slog.String("probe_id", item.ProbeID),
+		slog.Int64("monitor_id", item.MonitorID),
+		slog.Int64("notification_id", item.NotificationID),
+		slog.Int64("attempt", item.Attempt),
+		slog.String("status", status),
+	}
+	if code != "" {
+		attrs = append(attrs, slog.String("error_code", code))
+	}
+	s.logger.LogAttrs(ctx, level, "regional alert delivery finished", attrs...)
 }
 
 func escalationStepAuthorized(config *domain.EdgeResolvedConfig, assignment *domain.EdgeResolvedAssignment, item domain.QueuedDelivery) bool {
