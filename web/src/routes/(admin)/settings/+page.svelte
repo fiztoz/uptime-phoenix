@@ -1,5 +1,6 @@
 <script lang="ts">
   import { auth } from "#lib/stores/auth.svelte.js";
+  import { qrImageSrc } from "#lib/totp-qr.js";
   import { themeStore } from "#lib/stores/theme.svelte.js";
   import { toast } from "svelte-sonner";
   import {
@@ -50,7 +51,7 @@
   import DateTimePicker from "#lib/components/DateTimePicker.svelte";
 
   let show2FASetup = $state(false);
-  let qrUrl = $state("");
+  let qrImage = $state("");
   let secret = $state("");
   let otpCode = $state("");
   let disablePassword = $state("");
@@ -148,7 +149,7 @@
     try {
       loading = true;
       const res = await auth.setup2FA();
-      qrUrl = res.qr_url;
+      qrImage = qrImageSrc(res.qr_image);
       secret = res.secret;
       show2FASetup = true;
       otpCode = "";
@@ -168,7 +169,7 @@
       loading = true;
       await auth.enable2FA(otpCode);
       show2FASetup = false;
-      qrUrl = "";
+      qrImage = "";
       secret = "";
       otpCode = "";
     } catch (e: any) {
@@ -205,7 +206,7 @@
 
   function cancel2FASetup() {
     show2FASetup = false;
-    qrUrl = "";
+    qrImage = "";
     secret = "";
     otpCode = "";
   }
@@ -924,10 +925,10 @@
           Use Google Authenticator, Authy or similar.
         </p>
 
-        {#if qrUrl}
+        {#if qrImage}
           <div class="my-4 flex justify-center">
             <img
-              src={qrUrl}
+              src={qrImage}
               alt="2FA QR Code"
               class="h-40 w-40 max-w-full rounded-lg border border-border bg-white p-2 sm:h-48 sm:w-48"
             />

@@ -99,10 +99,13 @@ type Verify2FARequest struct {
 
 // Setup2FAResponse is the body of POST /api/auth/setup-2fa. The secret
 // is returned so the user can manually paste it into an authenticator
-// app that cannot scan a QR code.
+// app that cannot scan a QR code. QRImage is the QR code as a
+// data:image/png URL for the UI to show; QRURL is the raw otpauth://
+// provisioning URL, which browsers cannot load as an image.
 type Setup2FAResponse struct {
-	Secret string `json:"secret"`
-	QRURL  string `json:"qr_url"`
+	Secret  string `json:"secret"`
+	QRURL   string `json:"qr_url"`
+	QRImage string `json:"qr_image"`
 }
 
 // Enable2FARequest is the body of POST /api/auth/enable-2fa.
@@ -311,9 +314,14 @@ func (h *AuthHandlers) Setup2FA(c echo.Context) error {
 	if err != nil {
 		return mapAuthError(c, err)
 	}
+	qrImage, err := qrPNGDataURL(qrURL)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, errorBody("could not render 2FA QR code"))
+	}
 	return c.JSON(http.StatusOK, Setup2FAResponse{
-		Secret: secret,
-		QRURL:  qrURL,
+		Secret:  secret,
+		QRURL:   qrURL,
+		QRImage: qrImage,
 	})
 }
 
