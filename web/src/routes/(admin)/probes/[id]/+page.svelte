@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { probeBacklog } from "#lib/probe-backlog.js";
   import { onMount, untrack } from "svelte";
   import { realtime } from "#lib/stores/ws.svelte.js";
   import { page } from "$app/state";
@@ -47,6 +48,7 @@
         )
       : null,
   );
+  const backlog = $derived(probe ? probeBacklog(probe) : null);
   const showTime = (value: string | null | undefined) =>
     value ? new Date(value).toLocaleString() : m.probes_unreported();
   async function load(restoreForm = true) {
@@ -352,7 +354,7 @@
           <ProbeStatus status={probe.diagnostics.config.sync_status} />
         </div>
         <dl class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {#each [[m.probes_endpoint(), probe.endpoint], [m.probes_tls(), probe.tls_fingerprint], [m.probes_desired_revision(), probe.diagnostics.config.desired?.revision], [m.probes_applied_revision(), probe.diagnostics.config.applied?.revision], [m.probes_certificate_expiry(), showTime(probe.certificate_expires_at)], [m.probes_credential_version(), probe.credential_version], [m.probes_agent_version(), probe.agent_version], [m.probes_protocol_version(), probe.protocol_version?.toString()], [m.probes_queue_bytes(), probe.queue_bytes?.toLocaleString()], [m.probes_oldest_queued(), showTime(probe.oldest_queued_at)], [m.probes_last_seen(), showTime(probe.last_seen_at)], [m.probes_capabilities(), probe.capabilities.join(", ") || null], [m.probes_connection_lease(), showTime(probe.diagnostics.connection?.lease_until)], [m.probes_runtime_lease(), showTime(probe.diagnostics.runtime?.lease_until)]] as [label, value] (label)}<div
+          {#each [[m.probes_endpoint(), probe.endpoint], [m.probes_tls(), probe.tls_fingerprint], [m.probes_desired_revision(), probe.diagnostics.config.desired?.revision], [m.probes_applied_revision(), probe.diagnostics.config.applied?.revision], [m.probes_certificate_expiry(), showTime(probe.certificate_expires_at)], [m.probes_credential_version(), probe.credential_version], [m.probes_agent_version(), probe.agent_version], [m.probes_protocol_version(), probe.protocol_version?.toString()], [m.probes_queue_bytes(), backlog?.state === "not_tracked" ? m.probes_not_tracked() : backlog?.bytes?.toLocaleString()], [m.probes_oldest_queued(), backlog?.state === "not_tracked" ? m.probes_not_tracked() : showTime(backlog?.oldestQueuedAt)], [m.probes_last_seen(), showTime(probe.last_seen_at)], [m.probes_capabilities(), probe.capabilities.join(", ") || null], [m.probes_connection_lease(), showTime(probe.diagnostics.connection?.lease_until)], [m.probes_runtime_lease(), showTime(probe.diagnostics.runtime?.lease_until)]] as [label, value] (label)}<div
             >
               <dt class="text-xs text-muted-foreground">{label}</dt>
               <dd class="mt-1 break-all font-mono text-xs">
