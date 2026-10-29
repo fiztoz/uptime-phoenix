@@ -11,6 +11,10 @@ at the bottom.
 
 ## [Unreleased]
 
+### Added
+
+- `GET`/`PUT /api/probes/:probe_id/watchdog` (admin) reads and replaces a probe's offline-alert watchdog settings, so probes enrolled through the API/UI can turn on probe-down alerts without `phoenix-probe-admin` (#120). Watchdog stays off by default.
+
 ## [0.6.2] — 2026-10-28
 
 Use 0.6.2 rather than 0.6.1. v0.6.2 is the first signed release whose arm64
