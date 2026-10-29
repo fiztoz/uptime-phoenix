@@ -5,7 +5,8 @@
  * request logs the URL, secret included, to the console (#121).
  */
 export function qrImageSrc(qrImage: string | null | undefined): string {
-  return typeof qrImage === "string" && qrImage.startsWith("data:image/png;base64,")
+  return typeof qrImage === "string" &&
+    qrImage.startsWith("data:image/png;base64,")
     ? qrImage
     : "";
 }

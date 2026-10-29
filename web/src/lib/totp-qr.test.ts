@@ -9,7 +9,9 @@ describe("qrImageSrc", () => {
   });
 
   test("refuses the otpauth provisioning URL", () => {
-    expect(qrImageSrc("otpauth://totp/Phoenix:alice?secret=ABC&issuer=Phoenix")).toBe("");
+    expect(
+      qrImageSrc("otpauth://totp/Phoenix:alice?secret=ABC&issuer=Phoenix"),
+    ).toBe("");
   });
 
   test("refuses a missing value from an older hub", () => {
