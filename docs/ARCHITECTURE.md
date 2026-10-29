@@ -1617,8 +1617,40 @@ export const realtime = createWsStore(`${location.protocol === 'https:' ? 'wss' 
    A later admin UI for Keycloak/OIDC **group** grants (DB-persisted, DB-first
    over env unless an init/env flag says otherwise) is queued after v0.5 / v0.6
    — see `docs/ROADMAP.md` Backlog. Do not implement before then.
-5. **JWT verification:** Echo middleware validates JWT on every `/api/*` and `/ws` request
+5. **JWT verification:** Protected HTTP middleware and WebSocket admission call
+   `AuthService.VerifyToken`, which verifies the JWT and loads its current user.
+   Missing or inactive accounts are rejected even if the token has not expired;
+   principal-storage failures fail closed. Account changes affect subsequent
+   authenticated requests/admissions, not already-open WebSocket connections.
 6. **API keys:** `GET /metrics` and external API access use API keys (hashed in DB, shown once at creation)
+
+### Client-IP trust and Echo v4 security
+
+Every production Echo constructor explicitly sets `IPExtractor`; the legacy nil
+fallback trusts caller-supplied forwarding headers. The hub defaults to the socket
+peer, including private, loopback and link-local peers. To retain per-client rate
+limits behind an Ingress, set `TRUSTED_PROXY_CIDRS` to a comma-separated allow-list
+of **only the actual forwarding proxies** (IPv4/IPv6 CIDRs). The hub scans
+`X-Forwarded-For` right-to-left and stops at the nearest non-proxy address; it never
+uses `X-Real-IP` as client authority. A proxy must overwrite the incoming XFF or
+append its actual client address. Private networks are not implicitly trusted.
+Invalid, empty-list elements, IPv4-mapped IPv6 prefixes and catch-all `/0` entries
+fail startup before external I/O. Empty/unset configuration trusts no proxy.
+
+**Upgrade action:** previous hub releases implicitly trusted all private,
+loopback and link-local addresses. Ingress operators must explicitly configure
+this allow-list before deploying the change, otherwise clients share the proxy's
+rate-limit bucket. Prefer exact `/32` or `/128` proxy addresses, or a dedicated
+proxy-only subnet with network isolation; never allow an entire client/workload
+network merely because it uses RFC1918 addresses. The direct, pinned-TLS probe
+server always uses the socket peer and ignores forwarding headers.
+
+Echo v4 intentionally retains its insecure defaults; the application implements
+the documented workarounds for **GHSA-246p-cpwv-v3jq** and
+**GHSA-99jh-6h7p-pp36**, not an upstream dependency patch. Two owner-approved OSV
+exceptions expire **2026-11-28**. Behavioral regressions and a constructor
+inventory guard their scope; see [the testing guide](TESTING.md#echo-v4-client-ip-security).
+No reverse-proxy middleware is installed by the production application.
 
 ### Libraries
 

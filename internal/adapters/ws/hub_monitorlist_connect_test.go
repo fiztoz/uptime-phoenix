@@ -83,7 +83,7 @@ func TestHandleWebSocket_MonitorListSurvivesHeartbeatFloodDuringSlowList(t *test
 		t.Fatal("hub never subscribed to the event bus")
 	}
 
-	authSvc := services.NewAuthService(nil, nil, closeAuthn{userID: admin.ID}, nil)
+	authSvc := services.NewAuthService(users, nil, closeAuthn{userID: admin.ID}, nil)
 	srv := serveHandleWebSocket(t, h, authSvc, "good-token")
 	t.Cleanup(srv.Close)
 

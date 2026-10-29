@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"mime"
 	"net/http"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"time"
@@ -53,9 +54,13 @@ type RouterOptions struct {
 	// the restricted-key installer. Nil keeps the authenticated route
 	// registered with typed unavailability.
 	ProbeHostBootstraps *handlers.ProbeHostBootstrapHandlers
-	Production          bool
-	RateLimit           middleware.RateLimitConfig
-	CORS                middleware.CORSConfig
+	// TrustedProxyCIDRs is an explicit allow-list of forwarding proxies.
+	// Empty trusts only the socket peer. Invalid or catch-all prefixes fail
+	// closed to direct extraction; bootstrap rejects them before startup.
+	TrustedProxyCIDRs []netip.Prefix
+	Production        bool
+	RateLimit         middleware.RateLimitConfig
+	CORS              middleware.CORSConfig
 }
 
 // NewRouter creates and configures the Echo router with all routes and
@@ -108,10 +113,9 @@ func NewRouter(
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
-	// Trust only the nearest untrusted hop in X-Forwarded-For. Echo's legacy
-	// fallback accepts the client-controlled leftmost value, which would let a
-	// caller rotate spoofed IPs around credential and API rate limits.
-	e.IPExtractor = echo.ExtractIPFromXFFHeader()
+	// Never inherit Echo v4's insecure legacy IP/header defaults. Forwarded
+	// addresses are authoritative only through explicitly allowed proxies.
+	e.IPExtractor = clientIPExtractor(opts.TrustedProxyCIDRs)
 
 	corsCfg := opts.CORS
 	// A zero-value config falls back to the permissive dev default, but an

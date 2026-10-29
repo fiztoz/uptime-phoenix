@@ -40,13 +40,20 @@ type probeConfigAppliedReceiptModel struct {
 
 // ProbeActivationStore manages active configuration pointers and applied receipts.
 type ProbeActivationStore struct {
-	db      *bun.DB
-	encoder ports.LocalProbeConfigEncoder
+	db        *bun.DB
+	encoder   ports.LocalProbeConfigEncoder
+	protector ports.ProbeConfigProtector
 }
 
 // NewProbeActivationStore constructs a store instance for MariaDB or SQLite.
-func NewProbeActivationStore(db *bun.DB, encoder ports.LocalProbeConfigEncoder) *ProbeActivationStore {
-	return &ProbeActivationStore{db: db, encoder: encoder}
+// The optional protector enables authenticated queued-channel comparisons across
+// revisions. Without it, older revisions remain ineligible (fail closed).
+func NewProbeActivationStore(db *bun.DB, encoder ports.LocalProbeConfigEncoder, protector ...ports.ProbeConfigProtector) *ProbeActivationStore {
+	r := &ProbeActivationStore{db: db, encoder: encoder}
+	if len(protector) == 1 {
+		r.protector = protector[0]
+	}
+	return r
 }
 
 var _ ports.ProbeConfigActivationRepository = (*ProbeActivationStore)(nil)

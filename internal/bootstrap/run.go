@@ -43,6 +43,10 @@ import (
 
 // Run starts Phoenix with the given configuration and blocks until shutdown.
 func Run(cfg Config) error {
+	trustedProxyCIDRs, err := parseTrustedProxyCIDRs(cfg.TrustedProxyCIDRs)
+	if err != nil {
+		return err
+	}
 	if err := validateProbePreflightConfig(cfg); err != nil {
 		return err
 	}
@@ -445,7 +449,7 @@ func Run(cfg Config) error {
 			consumerCfg,
 		)
 		deliveryConsumer.SetAssignmentRepository(repos.probeAssignments)
-		deliveryConsumer.SetActivationRepository(repos.probeActivation)
+		deliveryConsumer.SetActivationRepository(repo.NewProbeActivationStore(db, encoder, protector))
 		deliveryConsumer.SetIncidentRepository(repos.probeIncident)
 		deliveryConsumer.SetMonitorNotificationRepository(repos.monitorNotif)
 		deliveryConsumer.SetMonitorRepository(repos.monitor)
@@ -455,7 +459,7 @@ func Run(cfg Config) error {
 		deliveryConsumer.SetCronEvaluator(cronEval)
 		deliveryConsumer.SetTagReader(tagSvc)
 		deliveryConsumer.SetOutboundTrustResolver(accessSvc)
-		localAuthority := repo.NewOperativeDeliveryStore(db, probe.DeliveryCutoverCodec{}, commandProtector, nil, encoder)
+		localAuthority := repo.NewOperativeDeliveryStore(db, probe.DeliveryCutoverCodec{}, commandProtector, nil, encoder, protector)
 		deliveryConsumer.SetProviderAuthority(localAuthority, localAuthority)
 		for _, t := range []string{
 			"telegram", "discord", "slack", "smtp", "webhook",
@@ -834,6 +838,7 @@ func Run(cfg Config) error {
 		ProbeCleanups:       handlers.NewProbeCleanupHandlers(installOperations.cleanupService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
 		ProbeHostBootstraps: handlers.NewProbeHostBootstrapHandlers(installOperations.bootstrapService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
 		Production:          cfg.Production,
+		TrustedProxyCIDRs:   trustedProxyCIDRs,
 		RateLimit: middleware.RateLimitConfig{
 			RequestsPerSecond: cfg.RateLimitRPS,
 			Burst:             cfg.RateLimitBurst,
