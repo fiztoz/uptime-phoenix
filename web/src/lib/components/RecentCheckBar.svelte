@@ -6,6 +6,7 @@
 <script lang="ts">
   import { timeFormat } from "d3-time-format";
   import type { Heartbeat } from "#lib/api/heartbeats.js";
+  import { uniqueKeys } from "#lib/utils/chart.js";
   import * as m from "#lib/paraglide/messages.js";
 
   interface Props {
@@ -31,6 +32,7 @@
   let tooltipX = $state(0);
 
   const segments = $derived(isHovering ? frozenSegments : liveSegments);
+  const segmentKeys = $derived(uniqueKeys(segments, (hb) => `${hb.id}-${hb.time}`));
 
   function color(status: Heartbeat["status"]): string {
     if (status === "up") return "bg-success";
@@ -118,7 +120,7 @@
         onmouseenter={handleBarEnter}
         onmouseleave={handleBarLeave}
       >
-        {#each segments as hb, index (hb.id + hb.time)}
+        {#each segments as hb, index (segmentKeys[index])}
           <button
             type="button"
             class="h-full min-w-0 flex-1 rounded-[2px] {color(
