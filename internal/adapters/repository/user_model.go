@@ -12,24 +12,28 @@ import (
 type UserModel struct {
 	bun.BaseModel `bun:"table:users"`
 
-	ID                        int64     `bun:"id,pk,autoincrement"`
-	Username                  string    `bun:"username,notnull"`
-	AuthHash                  string    `bun:"password_hash,notnull"` // bcrypt hash from auth adapter
-	Active                    bool      `bun:"active,notnull,default:true"`
-	IsAdmin                   bool      `bun:"is_admin,notnull,default:false"`
-	CanManageNotifications    bool      `bun:"can_manage_notifications,notnull,default:false"`
-	CanManageMaintenance      bool      `bun:"can_manage_maintenance,notnull,default:false"`
-	CanViewExtensions         bool      `bun:"can_view_extensions,notnull,default:false"`
-	CanViewAllMonitors        bool      `bun:"can_view_all_monitors,notnull,default:false"`
-	CanCreateMonitors         bool      `bun:"can_create_monitors,notnull,default:false"`
-	CanCreateTopLevelMonitors bool      `bun:"can_create_top_level_monitors,notnull,default:false"`
-	CanCreateGroups           bool      `bun:"can_create_groups,notnull,default:false"`
-	CanEditGroupMetadata      bool      `bun:"can_edit_group_metadata,notnull,default:false"`
-	Timezone                  string    `bun:"timezone,default:'UTC'"`
-	TOTPSeed                  string    `bun:"totp_secret"` // encrypted TOTP seed
-	TOTPOn                    bool      `bun:"totp_enabled,notnull,default:false"`
-	CreatedAt                 time.Time `bun:"created_at,notnull"`
-	UpdatedAt                 time.Time `bun:"updated_at,notnull"`
+	ID                        int64  `bun:"id,pk,autoincrement"`
+	Username                  string `bun:"username,notnull"`
+	AuthHash                  string `bun:"password_hash,notnull"` // bcrypt hash from auth adapter
+	Active                    bool   `bun:"active,notnull,default:true"`
+	IsAdmin                   bool   `bun:"is_admin,notnull,default:false"`
+	CanManageNotifications    bool   `bun:"can_manage_notifications,notnull,default:false"`
+	CanManageMaintenance      bool   `bun:"can_manage_maintenance,notnull,default:false"`
+	CanViewExtensions         bool   `bun:"can_view_extensions,notnull,default:false"`
+	CanViewAllMonitors        bool   `bun:"can_view_all_monitors,notnull,default:false"`
+	CanCreateMonitors         bool   `bun:"can_create_monitors,notnull,default:false"`
+	CanCreateTopLevelMonitors bool   `bun:"can_create_top_level_monitors,notnull,default:false"`
+	CanCreateGroups           bool   `bun:"can_create_groups,notnull,default:false"`
+	CanEditGroupMetadata      bool   `bun:"can_edit_group_metadata,notnull,default:false"`
+	Timezone                  string `bun:"timezone,default:'UTC'"`
+	TOTPSeed                  string `bun:"totp_secret"` // encrypted TOTP seed
+	TOTPOn                    bool   `bun:"totp_enabled,notnull,default:false"`
+	// TOTPGeneration is read for replay fencing. UserModelFromDomain never
+	// sets it (inserts take the column default) and Update excludes it, so
+	// only the TOTP statements in user_totp.go change it (migration 090).
+	TOTPGeneration int64     `bun:"totp_generation,notnull,default:0"`
+	CreatedAt      time.Time `bun:"created_at,notnull"`
+	UpdatedAt      time.Time `bun:"updated_at,notnull"`
 }
 
 // ToDomain converts a UserModel to a domain.User.
@@ -51,6 +55,7 @@ func (m *UserModel) ToDomain() *domain.User {
 		Timezone:                  m.Timezone,
 		TOTPSecret:                m.TOTPSeed,
 		TOTPEnabled:               m.TOTPOn,
+		TOTPGeneration:            m.TOTPGeneration,
 		CreatedAt:                 m.CreatedAt,
 		UpdatedAt:                 m.UpdatedAt,
 	}

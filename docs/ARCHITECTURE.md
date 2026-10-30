@@ -1624,6 +1624,39 @@ export const realtime = createWsStore(`${location.protocol === 'https:' ? 'wss' 
    authenticated requests/admissions, not already-open WebSocket connections.
 6. **API keys:** `GET /metrics` and external API access use API keys (hashed in DB, shown once at creation)
 
+### TOTP replay protection (#123)
+
+A TOTP code authorizes at most one action. `TwoFactor.MatchToken` checks the code
+against the previous, current and next 30-second step (`TOTPSkewSteps = 1`) at the
+service clock and returns the step that matched (the latest, if several do). The
+service then consumes that step in the database with one compare-and-update
+(`users.totp_last_step`, migration `090`):
+
+- The update succeeds only while the account is active, the credential is in the
+  expected state (pending for `EnableTOTP`, enabled for `Complete2FALogin` and
+  `LoginWith2FA`), its `totp_generation` still equals the one the service read, and
+  the stored step is **lower** than the matched step. Steps only move forward, so a
+  code is refused once it, or any later code, has been used. Two hubs sharing the
+  database, or one hub before and after a restart, see the same state.
+- A session is issued (or 2FA enabled) only after the update wins. A storage error
+  returns `ErrTOTPUnavailable` (HTTP 503) and issues nothing; a wrong, reused or
+  superseded code returns `ErrTOTPInvalid` (HTTP 401). Neither the secret nor the
+  code is logged.
+- `SetupTOTP` and `DisableTOTP` replace the credential in one statement that bumps
+  `totp_generation` and resets `totp_last_step`, so a request that read the old
+  credential cannot consume a step for the new one. `DisableTOTP` keeps its existing
+  password-authenticated policy; it does not ask for a TOTP code.
+- Generic `UserRepository.Update` never writes `totp_secret`, `totp_enabled` or
+  `totp_generation`, and no model writes `totp_last_step`, so profile/admin updates
+  from a stale snapshot cannot turn 2FA off or reset replay state. Replay state is
+  not part of any user view or the configuration backup.
+
+**Restore semantics:** the configuration backup does not contain users, so a JSON
+restore never touches TOTP state. A database-level restore rewinds `totp_last_step`
+to the snapshot. A code consumed after the snapshot can be accepted once more only
+while it is still inside the ±1-step window (about 90 seconds after it was shown),
+so the exposure ends within that window after the restore.
+
 ### Client-IP trust and Echo v4 security
 
 Every production Echo constructor explicitly sets `IPExtractor`; the legacy nil

@@ -69,6 +69,12 @@ var (
 	ErrTOTPRequired = &AuthServiceError{Code: "totp_required", Message: "TOTP token required"}
 	// ErrTOTPInvalid is returned when the supplied TOTP token does not validate.
 	ErrTOTPInvalid = &AuthServiceError{Code: "totp_invalid", Message: "invalid TOTP token"}
+	// ErrTOTPUnavailable is returned when a TOTP code could not be checked
+	// against the stored replay state (a storage failure). The request fails
+	// closed: no session is issued and 2FA is not enabled. It is distinct
+	// from ErrTOTPInvalid so clients and operators can tell an outage from a
+	// wrong or reused code.
+	ErrTOTPUnavailable = &AuthServiceError{Code: "totp_unavailable", Message: "TOTP verification is temporarily unavailable"}
 	// ErrTicketInvalid is returned when a 2FA challenge ticket is malformed,
 	// wrongly signed, expired, or not a ticket (GitHub #122).
 	ErrTicketInvalid = &AuthServiceError{Code: "ticket_invalid", Message: "2FA ticket is invalid or expired"}
@@ -333,9 +339,13 @@ func (s *AuthService) LoginWith2FA(ctx context.Context, username, password, totp
 	}
 	// Mirror Login's behavior: if 2FA is not required, return the token
 	// directly. This makes the call safe to use for both modes.
-	if user.TOTPEnabled && !s.twoFactor.VerifyToken(user.TOTPSecret, totpToken) {
-		s.recordLoginFailure(ctx, att, user.Username, "bad totp")
-		return "", fmt.Errorf("%w", ErrTOTPInvalid)
+	if user.TOTPEnabled {
+		if err := s.consumeTOTP(ctx, user, totpToken, false); err != nil {
+			if errors.Is(err, ErrTOTPInvalid) {
+				s.recordLoginFailure(ctx, att, user.Username, "bad totp")
+			}
+			return "", err
+		}
 	}
 	token, err := s.auth.Login(ctx, user.Username, password)
 	if err == nil {
@@ -408,9 +418,11 @@ func (s *AuthService) Complete2FALogin(ctx context.Context, ticket, totpToken st
 	if !user.TOTPEnabled {
 		return "", nil, fmt.Errorf("%w", ErrTOTPNotEnabled)
 	}
-	if !s.twoFactor.VerifyToken(user.TOTPSecret, totpToken) {
-		s.recordLoginFailure(ctx, att, user.Username, "bad totp")
-		return "", nil, fmt.Errorf("%w", ErrTOTPInvalid)
+	if err := s.consumeTOTP(ctx, user, totpToken, false); err != nil {
+		if errors.Is(err, ErrTOTPInvalid) {
+			s.recordLoginFailure(ctx, att, user.Username, "bad totp")
+		}
+		return "", nil, err
 	}
 	s.throttle.spendTicket(ticket, now)
 	s.throttle.succeed(att)
@@ -422,6 +434,33 @@ func (s *AuthService) Complete2FALogin(ctx context.Context, ticket, totpToken st
 		return "", nil, fmt.Errorf("auth service: issue session: %w", err)
 	}
 	return token, user, nil
+}
+
+// consumeTOTP checks token against user's stored TOTP credential at the
+// service clock and atomically consumes the matched time step for that
+// credential generation (confirm=true also enables a pending credential).
+// It returns ErrTOTPInvalid for a wrong, replayed or superseded code and
+// ErrTOTPUnavailable when replay state cannot be read or written. Neither the
+// secret nor the code is ever logged.
+func (s *AuthService) consumeTOTP(ctx context.Context, user *domain.User, token string, confirm bool) error {
+	step, ok := s.twoFactor.MatchToken(user.TOTPSecret, token, s.clock.Now())
+	if !ok {
+		return fmt.Errorf("%w", ErrTOTPInvalid)
+	}
+	consume := s.users.ConsumeTOTPStep
+	if confirm {
+		consume = s.users.ConfirmTOTPCredential
+	}
+	won, err := consume(ctx, user.ID, user.TOTPGeneration, step)
+	if err != nil {
+		slog.Error("auth: totp replay state unavailable; refusing code", "user_id", user.ID, "error", err)
+		return fmt.Errorf("%w: %w", ErrTOTPUnavailable, err)
+	}
+	if !won {
+		slog.Info("auth: totp code refused as reused or superseded", "user_id", user.ID)
+		return fmt.Errorf("%w", ErrTOTPInvalid)
+	}
+	return nil
 }
 
 // VerifyToken validates a session JWT and checks that its principal still exists
@@ -800,9 +839,10 @@ func (s *AuthService) SetupTOTP(ctx context.Context, userID int64) (secret, qrUR
 	if err != nil {
 		return "", "", fmt.Errorf("auth service: setup totp: %w", err)
 	}
-	user.TOTPSecret = secret
-	user.TOTPEnabled = false
-	if err := s.users.Update(ctx, user); err != nil {
+	// One statement stores the secret, starts a new credential generation
+	// and resets replay state, so no code checked against an older secret
+	// (or older snapshot) can be consumed for this one.
+	if err := s.users.ReplaceTOTPCredential(ctx, user.ID, secret); err != nil {
 		return "", "", fmt.Errorf("auth service: setup totp: save: %w", err)
 	}
 	s.userChanged(user.ID)
@@ -823,12 +863,10 @@ func (s *AuthService) EnableTOTP(ctx context.Context, userID int64, token string
 	if user.TOTPSecret == "" {
 		return fmt.Errorf("auth service: enable totp: %w: setup must be called first", domain.ErrValidation)
 	}
-	if !s.twoFactor.VerifyToken(user.TOTPSecret, token) {
-		return fmt.Errorf("%w", ErrTOTPInvalid)
-	}
-	user.TOTPEnabled = true
-	if err := s.users.Update(ctx, user); err != nil {
-		return fmt.Errorf("auth service: enable totp: save: %w", err)
+	// Confirmation consumes the code's step and enables 2FA in one
+	// statement, so the setup code cannot also complete a sign-in.
+	if err := s.consumeTOTP(ctx, user, token, true); err != nil {
+		return err
 	}
 	s.userChanged(user.ID)
 	return nil
@@ -846,9 +884,7 @@ func (s *AuthService) DisableTOTP(ctx context.Context, userID int64) error {
 	if !user.TOTPEnabled && user.TOTPSecret == "" {
 		return fmt.Errorf("%w", ErrTOTPNotEnabled)
 	}
-	user.TOTPSecret = ""
-	user.TOTPEnabled = false
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.ReplaceTOTPCredential(ctx, user.ID, ""); err != nil {
 		return fmt.Errorf("auth service: disable totp: save: %w", err)
 	}
 	s.userChanged(user.ID)

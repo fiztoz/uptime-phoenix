@@ -185,6 +185,26 @@ restore, damaged retained ciphertext, decoder refusal and final DB authorization
 These local regressions do not establish remote-edge compatibility, termination
 of already-open WebSockets, or aggregate-delivery runtime acceptance.
 
+### TOTP replay protection (#123, migration 090)
+
+The service tests pin reuse across tickets, `LoginWith2FA`, the enrolment code,
+older steps after a newer one, rotation during a ticket, stale profile updates,
+deactivation, storage failure (no session; the step stays usable) and re-enrolment.
+The repository contract runs two or more independent connection pools (separate
+hubs, or one hub before and after a restart) against one real database.
+
+```sh
+go test -race -count=1 ./internal/adapters/auth ./internal/core/services ./internal/adapters/http/handlers -run 'TOTP|2FA'
+
+# Destructive repository fixtures: use ONLY an owned disposable MariaDB database.
+: "${TEST_MARIADB_DSN:?Set an owned disposable MariaDB test database}"
+go test -race -count=1 -json ./internal/adapters/repository -run '^TestTOTPReplayContract$'
+```
+
+Require all **18 scenario leaves** (9 SQLite, 9 MariaDB), with no engine skips.
+The 9 MariaDB leaves are in `REQUIRED` in `scripts/m6_dual_engine_gate.py`, so the
+`mariadb-contract` CI job fails if any of them is skipped or missing.
+
 ### M8 Docker install (migration 089)
 
 See [Docker install](multi-region/M8_DOCKER_INSTALL.md).

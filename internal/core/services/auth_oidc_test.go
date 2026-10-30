@@ -134,7 +134,7 @@ type stubTwoFactor struct{}
 func (s *stubTwoFactor) GenerateSecret(string, string) (string, string, error) {
 	return "secret", "otpauth://x", nil
 }
-func (s *stubTwoFactor) VerifyToken(string, string) bool { return true }
+func (s *stubTwoFactor) MatchToken(string, string, time.Time) (int64, bool) { return 1, true }
 
 func TestOIDCState_RoundTripAndExpiry(t *testing.T) {
 	oidc := &fakeOIDC{enabled: true}

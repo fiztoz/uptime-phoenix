@@ -290,14 +290,14 @@ func TestAuthHandlers_Login_Requires2FA(t *testing.T) {
 	if err := h.svc.EnableTOTP(context.Background(), 1, "000000"); err == nil {
 		t.Fatalf("EnableTOTP with stale code should fail")
 	}
-	// Forcibly enable 2FA by toggling the user record.
+	// Forcibly confirm the pending credential through the repository (a
+	// generic Update never writes TOTP state, #123).
 	user, err := h.users.GetByID(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
-	user.TOTPEnabled = true
-	if err := h.users.Update(context.Background(), user); err != nil {
-		t.Fatalf("Update: %v", err)
+	if ok, err := h.users.ConfirmTOTPCredential(context.Background(), 1, user.TOTPGeneration, 1); err != nil || !ok {
+		t.Fatalf("ConfirmTOTPCredential = %v, %v; want true, nil", ok, err)
 	}
 
 	// Now login should require 2FA.

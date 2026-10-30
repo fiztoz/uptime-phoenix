@@ -87,6 +87,8 @@ var mariadbTailHeals = []struct{ migration, table, column string }{
 	// from the shared monitors table while a sibling fixture starts.
 	{"075_monitor_lease_epoch", "monitors", "lease_epoch"},
 	{"076_assignment_alert_delivery", "monitor_probe_assignment_sets", "alert_delivery"},
+	// TestTOTPReplayContract cycles 090's down/up on the shared users table.
+	{"090_totp_replay_state", "users", "totp_last_step"},
 }
 
 // healMariaDBTail re-applies idempotent tail migrations after RunMigrations.
