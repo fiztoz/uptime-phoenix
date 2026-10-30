@@ -287,7 +287,7 @@ func regionalWriteError(c echo.Context, err error) error {
 	case errors.Is(err, services.ErrInvalidPolicy):
 		return regionalError(c, http.StatusBadRequest, "invalid_health_policy", "health_policy must be any_down or all_down")
 	case errors.Is(err, services.ErrAggregatePagingDisabled):
-		return regionalError(c, http.StatusBadRequest, "aggregate_paging_disabled", "aggregate paging is disabled on this hub, so alert_delivery must be regional")
+		return regionalError(c, http.StatusBadRequest, "aggregate_paging_disabled", "aggregate paging is disabled on this hub (PROBES_AGGREGATE_PAGING_ENABLED is off), so alert_delivery must be regional")
 	case errors.Is(err, services.ErrInvalidDelivery):
 		return regionalError(c, http.StatusBadRequest, "invalid_alert_delivery", "alert_delivery must be regional, aggregate, or both")
 	case errors.Is(err, services.ErrInvalidBindings):

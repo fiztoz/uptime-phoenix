@@ -925,6 +925,7 @@ func (s *ConfigService) buildPlan(ctx context.Context, userID int64, doc *Config
 		}
 		ck, err := s.keys.GetByKey(ctx, domain.ConfigResourceMonitor, m.Key)
 		if isNotFound(err) {
+			s.planNewSetDelivery(plan, m)
 			add("probe_assignment", m.Key, ConfigActionCreate)
 			continue
 		}
@@ -933,6 +934,7 @@ func (s *ConfigService) buildPlan(ctx context.Context, userID int64, doc *Config
 		}
 		current, err := s.probeAssignments.GetByMonitorID(ctx, ck.ResourceID)
 		if isNotFound(err) {
+			s.planNewSetDelivery(plan, m)
 			add("probe_assignment", m.Key, ConfigActionCreate)
 			continue
 		}
@@ -947,8 +949,11 @@ func (s *ConfigService) buildPlan(ctx context.Context, userID int64, doc *Config
 		if err != nil {
 			return err
 		}
+		// Refused in the plan, so Apply writes nothing at all (#119).
 		if err := requireAggregatePaging(delivery, current, s.aggregatePaging); err != nil {
-			return err
+			plan.Errors = append(plan.Errors, fmt.Sprintf("monitor %s: %v", m.Key, err))
+			plan.Valid = false
+			continue
 		}
 		if probeAssignmentSetEqual(current, ids, policy, delivery, bindings) {
 			add("probe_assignment", m.Key, ConfigActionUnchanged)
@@ -1836,6 +1841,22 @@ func (s *ConfigService) resolveDocumentSet(ctx context.Context, m ConfigMonitor)
 	return ids, bindings, policy, domain.AlertDelivery(m.AlertDelivery), nil
 }
 
+// planNewSetDelivery refuses, as a plan error, a document that declares a new
+// set (a new monitor, or a monitor without a stored set) in aggregate or both
+// while aggregate paging is off. A plan error makes Apply write nothing, so the
+// monitor is not created without its set (#119). An unsupported mode string is
+// reported by resolveDocumentSet instead.
+func (s *ConfigService) planNewSetDelivery(plan *ConfigPlan, m ConfigMonitor) {
+	delivery, err := DesiredAlertDelivery(m.AlertDelivery, nil)
+	if err != nil {
+		return
+	}
+	if err := requireAggregatePaging(delivery, nil, s.aggregatePaging); err != nil {
+		plan.Errors = append(plan.Errors, fmt.Sprintf("monitor %s: %v", m.Key, err))
+		plan.Valid = false
+	}
+}
+
 // syncProbeAssignments commits every declared monitor set as one complete
 // desired set. Sets are managed only for monitors that declare one; members
 // must be enabled at commit time (the plan refuses disabled members) and no
@@ -1891,8 +1912,9 @@ func (s *ConfigService) syncProbeAssignments(ctx context.Context, doc *ConfigDoc
 		if err != nil {
 			return err
 		}
+		// Defense in depth: the plan already refused this before any write.
 		if err := requireAggregatePaging(delivery, current, s.aggregatePaging); err != nil {
-			return err
+			return fmt.Errorf("monitor %s: %w", m.Key, err)
 		}
 		if current != nil && probeAssignmentSetEqual(current, ids, policy, delivery, bindings) {
 			continue

@@ -24,7 +24,7 @@ var (
 	// aggregate paging is off on this hub: the mode would be stored but never
 	// page, and regional alerts would continue (#119). It wraps
 	// ErrInvalidDelivery so every existing 400 mapping still applies.
-	ErrAggregatePagingDisabled = fmt.Errorf("aggregate paging is disabled on this hub, so alert_delivery must be regional: %w", ErrInvalidDelivery)
+	ErrAggregatePagingDisabled = fmt.Errorf("aggregate paging is disabled on this hub (PROBES_AGGREGATE_PAGING_ENABLED is off), so alert_delivery must be regional: %w", ErrInvalidDelivery)
 	ErrInvalidBindings         = errors.New("invalid resource bindings")
 	ErrRemoteCloneForbidden    = errors.New("cloning a remote monitor requires admin")
 )
@@ -49,10 +49,6 @@ type InitialAssignments struct {
 	HealthPolicy  domain.HealthPolicy
 	AlertDelivery string
 	Bindings      *[]domain.ProbeAssignmentBinding
-	// cloneSource is the stored set a Clone copies. Its mode is existing
-	// configuration, so a legacy aggregate or both value carries over instead
-	// of being refused as a new request while aggregate paging is off.
-	cloneSource *domain.MonitorProbeAssignments
 }
 
 // DesiredAlertDelivery resolves an operator or document request. An empty
@@ -79,8 +75,11 @@ func DesiredAlertDelivery(requested string, previous *domain.MonitorProbeAssignm
 }
 
 // requireAggregatePaging refuses a move into aggregate or both unless aggregate
-// paging is enabled. A stored mode resubmitted unchanged is allowed, because
-// clients echo the current mode; it stays desired-only and never pages.
+// paging is enabled. previous is the stored set of an existing monitor, or nil
+// for any new monitor (create, clone, config create). Only that stored mode,
+// resubmitted unchanged or omitted, is allowed: clients echo the current mode,
+// and it stays desired-only and never pages. It is never permission for a
+// different mode, and a clone or create never inherits it.
 func requireAggregatePaging(mode domain.AlertDelivery, previous *domain.MonitorProbeAssignments, enabled bool) error {
 	if enabled || mode == domain.AlertDeliveryRegional {
 		return nil
@@ -357,7 +356,9 @@ func (s *MonitorService) CreateWithAssignments(ctx context.Context, m *domain.Mo
 	if err != nil {
 		return err
 	}
-	if err := requireAggregatePaging(delivery, initial.cloneSource, s.aggregatePaging); err != nil {
+	// A new monitor has no stored mode, so a create (including a clone) is
+	// always a new request for its mode.
+	if err := requireAggregatePaging(delivery, nil, s.aggregatePaging); err != nil {
 		return err
 	}
 	if err := ValidateDesiredAssignments(ctx, m, nil, initial.ProbeIDs, initial.HealthPolicy, initial.Bindings, string(delivery), s.probeRegistry, s.probeCapabilities); err != nil {
@@ -482,7 +483,11 @@ func (s *MonitorService) Clone(ctx context.Context, id, userID int64, isAdmin bo
 				bindings = append(bindings, domain.ProbeAssignmentBinding{ProbeID: member.ProbeID, ProbeResourceBinding: *member.ResourceBinding})
 			}
 		}
-		if err := s.CreateWithAssignments(ctx, &clone, InitialAssignments{ProbeIDs: members, HealthPolicy: source.HealthPolicy, AlertDelivery: string(source.AlertDelivery), Bindings: &bindings, cloneSource: source}); err != nil {
+		// A clone is a new monitor, so the source's mode is a new request. While
+		// aggregate paging is off, a source in aggregate or both is refused
+		// with ErrAggregatePagingDisabled before anything is written; it is
+		// neither copied nor silently made regional (#119).
+		if err := s.CreateWithAssignments(ctx, &clone, InitialAssignments{ProbeIDs: members, HealthPolicy: source.HealthPolicy, AlertDelivery: string(source.AlertDelivery), Bindings: &bindings}); err != nil {
 			return nil, fmt.Errorf("monitor service: clone: %w", err)
 		}
 		return &clone, nil

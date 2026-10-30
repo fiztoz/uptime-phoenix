@@ -14,9 +14,14 @@ at the bottom.
 ### Fixed
 
 - `alert_delivery: aggregate` or `both` is now refused with 400
-  (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off,
-  on assignment writes, monitor create and config-as-code. Previously it was
-  stored and reported but never paged (#119). Stored values are kept.
+  (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.
+  Previously it was stored and reported but never paged (#119). The gate covers
+  assignment replace, monitor clone, and config-as-code plan and apply: plan
+  reports the monitor as invalid and apply writes nothing. A clone is a new
+  monitor, so cloning a source whose stored mode is aggregate or both is refused
+  until the source is set to regional or the flag is on. An existing stored mode
+  is kept: edits that omit or echo it still work, and moving it to regional is
+  always allowed. With the flag on, both modes are accepted everywhere.
 
 ## [0.6.2] — 2026-10-28
 
