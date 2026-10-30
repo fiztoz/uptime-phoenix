@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
   import { getLayerCakeContext } from "layercake";
+  import { uniqueKeys } from "#lib/utils/chart.js";
 
   interface Props {
     y0?: string;
@@ -23,10 +24,17 @@
     strokeWidth = 3,
     opacity = 0.24,
   }: Props = $props();
+
+  const keys = $derived(
+    uniqueKeys(
+      k.data as Record<string, unknown>[],
+      (point) => `${k.xGet(point)}-${point[y0]}-${point[y1]}`,
+    ),
+  );
 </script>
 
 <g class="range-bars" pointer-events="none">
-  {#each k.data as point (`${k.xGet(point)}-${point[y0]}-${point[y1]}`)}
+  {#each k.data as point, i (keys[i])}
     <line
       x1={k.xGet(point)}
       x2={k.xGet(point)}
