@@ -54,13 +54,19 @@ type probeDiagSessionModel struct {
 	Generation    int64  `bun:"generation"`
 	LeaseUntil    int64  `bun:"lease_until"`
 	Connected     bool   `bun:"connected"`
+	LastContactAt *int64 `bun:"last_contact_at"`
 }
 
 func (m probeDiagSessionModel) facts() *domain.ProbeSessionFacts {
-	return &domain.ProbeSessionFacts{
+	facts := &domain.ProbeSessionFacts{
 		OwnerID: m.OwnerID, Generation: m.Generation,
 		LeaseUntil: diagnosticLeaseTime(m.LeaseUntil), Connected: m.Connected,
 	}
+	if m.LastContactAt != nil && *m.LastContactAt > 0 {
+		at := time.Unix(*m.LastContactAt, 0).UTC()
+		facts.LastContactAt = &at
+	}
+	return facts
 }
 
 // probeDiagRuntimeModel reads runtime (execution) lease evidence.

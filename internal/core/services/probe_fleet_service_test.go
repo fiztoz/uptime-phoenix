@@ -171,15 +171,53 @@ func TestProbeDiagnosticsSummaryBoundaries(t *testing.T) {
 		}
 	})
 
-	t.Run("LastSeenIsSourceEvidence", func(t *testing.T) {
+	t.Run("LastSeenIsHubObservedContact", func(t *testing.T) {
 		empty := ProbeDiagnosticsSummary(at, domain.ProbeDiagnostics{Registration: fleetBaseProbe()})
 		if empty.LastSeenAt != nil {
 			t.Fatalf("invented last seen: %+v", empty)
 		}
-		withWatchdog := base
-		withWatchdog.Watchdog = &domain.ProbeWatchdogFacts{Status: "healthy", UpdatedAt: at.Add(-2 * time.Minute)}
-		if got := ProbeDiagnosticsSummary(at, withWatchdog); got.LastSeenAt == nil || !got.LastSeenAt.Equal(base.Applied.AppliedAt) {
-			t.Fatalf("last seen must be the latest source report: %+v", got.LastSeenAt)
+		// Neither the hub-advanced watchdog checkpoint nor the probe-clocked
+		// receipt is contact: without a recorded contact there is no last seen.
+		noContact := base
+		noContact.Watchdog = &domain.ProbeWatchdogFacts{Status: "healthy", UpdatedAt: at.Add(-2 * time.Second)}
+		if got := ProbeDiagnosticsSummary(at, noContact); got.LastSeenAt != nil {
+			t.Fatalf("watchdog or receipt reported as contact: %v", got.LastSeenAt)
+		}
+		contact := at.Add(-90 * time.Second)
+		withContact := noContact
+		session := *base.Session
+		session.LastContactAt = &contact
+		withContact.Session = &session
+		got := ProbeDiagnosticsSummary(at, withContact)
+		if got.LastSeenAt == nil || !got.LastSeenAt.Equal(contact) || got.LastSeenAt.Location() != time.UTC {
+			t.Fatalf("last seen must be the recorded contact: %v", got.LastSeenAt)
+		}
+		// Disconnected: last seen freezes at the recorded contact even while
+		// the watchdog row keeps advancing; connection status reports it.
+		disconnected := withContact
+		closed := session
+		closed.Connected = false
+		disconnected.Session = &closed
+		disconnected.Watchdog = &domain.ProbeWatchdogFacts{Status: "healthy", UpdatedAt: at}
+		got = ProbeDiagnosticsSummary(at, disconnected)
+		if got.ConnectionStatus != ProbeConnectionDisconnected || got.LastSeenAt == nil || !got.LastSeenAt.Equal(contact) {
+			t.Fatalf("disconnected probe: status %q last seen %v", got.ConnectionStatus, got.LastSeenAt)
+		}
+		// Execution stays independent of connection (unchanged contract).
+		if got.ExecutionStatus != ProbeExecutionReady {
+			t.Fatalf("execution derived from connection: %q", got.ExecutionStatus)
+		}
+		// A revoked probe keeps its recorded contact.
+		revoked := withContact
+		revoked.Registration.RevokedAt = &at
+		if got := ProbeDiagnosticsSummary(at, revoked); got.LastSeenAt == nil || !got.LastSeenAt.Equal(contact) {
+			t.Fatalf("revoked probe lost contact: %v", got.LastSeenAt)
+		}
+		// The local row is the hub itself and keeps its own evidence.
+		local := noContact
+		local.Registration.ID, local.Registration.Kind = domain.LocalProbeID, domain.ProbeKindLocal
+		if got := ProbeDiagnosticsSummary(at, local); got.LastSeenAt == nil || !got.LastSeenAt.Equal(noContact.Watchdog.UpdatedAt) {
+			t.Fatalf("local last seen: %v", got.LastSeenAt)
 		}
 	})
 }

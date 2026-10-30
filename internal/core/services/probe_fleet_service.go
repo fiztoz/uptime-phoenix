@@ -66,8 +66,13 @@ type ProbeDiagnosticSummary struct {
 //     counters alone never prove application, and the hash binds the embedded
 //     assignment generations), rejected for conflicting receipt evidence at the
 //     newest revision, otherwise pending;
-//   - last_seen is the latest source-reported time (watchdog checkpoint or
-//     application receipt), never a hub-side guess.
+//   - last_seen for a remote probe is the persisted hub-observed last contact:
+//     the hub DB clock at which the owning hub last accepted an authenticated
+//     health frame from the probe, fenced to the live session. It freezes
+//     while the probe is disconnected and is nil until the first contact. The
+//     watchdog checkpoint is not contact (hub-side timers advance it) and the
+//     applied-config receipt carries the probe's clock. The local row is the
+//     hub itself and keeps its watchdog/receipt evidence (#133).
 func ProbeDiagnosticsSummary(at time.Time, d domain.ProbeDiagnostics) ProbeDiagnosticSummary {
 	at = at.UTC()
 	var summary ProbeDiagnosticSummary
@@ -95,6 +100,7 @@ func ProbeDiagnosticsSummary(at time.Time, d domain.ProbeDiagnostics) ProbeDiagn
 		return summary
 	}
 
+	summary.LastSeenAt = probeLastContactAt(d)
 	switch {
 	case d.Enrollment == nil:
 		summary.EnrollmentState = ProbeEnrollmentUnconfigured
@@ -172,6 +178,16 @@ func probeLastSeenAt(d domain.ProbeDiagnostics) *time.Time {
 		return nil
 	}
 	last = last.UTC()
+	return &last
+}
+
+// probeLastContactAt reports a remote probe's persisted hub-observed contact.
+// Nil means no contact has been recorded since the column was introduced.
+func probeLastContactAt(d domain.ProbeDiagnostics) *time.Time {
+	if d.Session == nil || d.Session.LastContactAt == nil || d.Session.LastContactAt.IsZero() {
+		return nil
+	}
+	last := d.Session.LastContactAt.UTC()
 	return &last
 }
 

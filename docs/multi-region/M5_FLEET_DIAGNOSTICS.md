@@ -69,8 +69,17 @@ lease authority for a write.
   The local row is the hub scheduler and is `ready` while enabled.
 - **`enrollment_state`** — `unconfigured`/`pending`/`active` from the stored
   connection state; null for `local` (no enrollment workflow).
-- **`last_seen_at`** — the latest source-reported time (watchdog checkpoint or
-  application receipt). Never a hub-side guess.
+- **`last_seen_at`** — for a remote probe, the last time the hub accepted an
+  authenticated health frame from it (`probe_sessions.last_contact_at`, #133).
+  It is stamped from the hub database clock at whole-second precision, only by
+  the owner of the live session generation, and only ever moves forward. Lease
+  renewal, configuration refresh and watchdog checkpoints never write it.
+  Disconnect and release keep it, so a `disconnected` probe shows when the hub
+  last heard from it, and it survives restarts. It is null until the first
+  contact after migration 091 (no backfill). The local row keeps the latest
+  scheduler evidence (watchdog checkpoint or application receipt). A probe can
+  be `disconnected` while `execution_status` is still `ready`: offline execution
+  continues under the runtime lease, and this field does not claim otherwise.
 - Target availability is deliberately absent: it belongs to monitor health.
 
 A lease exactly at its deadline is expired (`After`, not `>=`). Pause is not a
