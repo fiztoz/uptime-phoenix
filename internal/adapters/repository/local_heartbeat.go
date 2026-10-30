@@ -8,6 +8,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
 
@@ -181,6 +182,13 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		}
 		return commitLifecycleAndDeliveriesTx(ctx, tx, observation, &commit)
 	})
+	if localCommitTransient(err) {
+		// The engine aborted the transaction and RunInTx rolled it back, so
+		// nothing (not even the sequence) was consumed. Report contention so
+		// HeartbeatService re-reads state and retries instead of the scheduler
+		// dropping the heartbeat (#116).
+		return nil, fmt.Errorf("local heartbeat commit: %w: %w", ports.ErrStaleLocalState, err)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -218,4 +226,12 @@ func advanceExplicitLocalSequence(ctx context.Context, tx bun.Tx, obs domain.Reg
 		return err
 	}
 	return nil
+}
+
+// localCommitTransient reports MariaDB deadlock (1213) and lock-wait timeout
+// (1205) failures. Both abort the attempt without changing any state, so a
+// fresh re-evaluation and retry is safe.
+func localCommitTransient(err error) bool {
+	var engineErr *mysql.MySQLError
+	return errors.As(err, &engineErr) && (engineErr.Number == 1213 || engineErr.Number == 1205)
 }
