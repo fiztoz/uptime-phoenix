@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
   import { getLayerCakeContext } from "layercake";
+  import { uniqueKeys } from "#lib/utils/chart.js";
 
   interface Props {
     fill?: string;
@@ -18,9 +19,13 @@
   const k = getLayerCakeContext();
 
   let { fill = "var(--color-success)", r = 3 }: Props = $props();
+
+  const keys = $derived(
+    uniqueKeys(k.data as unknown[], (d) => `${k.xGet(d)}-${k.yGet(d)}`),
+  );
 </script>
 
-{#each k.data as d (`${k.xGet(d)}-${k.yGet(d)}`)}
+{#each k.data as d, i (keys[i])}
   <circle
     cx={k.xGet(d)}
     cy={k.yGet(d)}

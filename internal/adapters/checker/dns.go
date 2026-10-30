@@ -49,7 +49,13 @@ func (DNSChecker) Validate(c map[string]any) error {
 		return fmt.Errorf("hostname is required")
 	}
 
-	// Validate resolve_type if provided.
+	// Validate resolve_type if provided. A non-string value used to be
+	// ignored and silently fall back to "A" (GitHub #118).
+	if raw, present := c["resolve_type"]; present && raw != nil {
+		if _, isString := raw.(string); !isString {
+			return fmt.Errorf("resolve_type must be a string record type, supported: A, AAAA, CNAME, MX, TXT, NS, SRV, SOA, PTR, CAA")
+		}
+	}
 	if rt, ok := c["resolve_type"].(string); ok && rt != "" {
 		if _, ok := dnsTypeFromString(rt); !ok {
 			return fmt.Errorf("unsupported resolve_type %q, supported: A, AAAA, CNAME, MX, TXT, NS, SRV, SOA, PTR, CAA", rt)

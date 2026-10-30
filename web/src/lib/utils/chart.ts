@@ -195,3 +195,44 @@ export function bucketMsForRange(hours: number): number {
   if (hours <= 24) return 15 * 60_000;
   return 60 * 60_000;
 }
+
+/**
+ * Keys for a keyed `{#each}` that stay unique when the natural key repeats.
+ * Prefer the natural key, then `#1`, `#2`, ...; skip all already-used keys,
+ * including natural keys that look like a generated suffix.
+ * Chart intervals are serialised to the second (RFC 3339), so a down/up/down
+ * flip inside one second yields two intervals with the same start, and keying
+ * by start crashed the monitor page with each_key_duplicate (GitHub #131).
+ */
+export function uniqueKeys<T>(
+  items: readonly T[],
+  key: (item: T) => string | number,
+): string[] {
+  const seen = new Map<string, number>();
+  const used = new Set<string>();
+  return items.map((item) => {
+    const base = String(key(item));
+    let n = seen.get(base) ?? 0;
+    let candidate = n === 0 ? base : `${base}#${n}`;
+    while (used.has(candidate)) {
+      candidate = `${base}#${++n}`;
+    }
+    seen.set(base, n + 1);
+    used.add(candidate);
+    return candidate;
+  });
+}
+
+/**
+ * Size of the plot-area clip rect. LayerCake reports width/height as the
+ * container size minus padding, which goes negative while the container is
+ * still being laid out (e.g. 6 px wide - 64 px padding = -58). SVG rejects
+ * negative rect sizes, so clamp to zero.
+ */
+export function plotClipSize(
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  const clamp = (n: number) => (Number.isFinite(n) ? Math.max(0, n) : 0);
+  return { width: clamp(width), height: clamp(height) };
+}

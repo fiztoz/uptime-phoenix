@@ -24,6 +24,21 @@ func TestRateLimit_allowsHealthBypass(t *testing.T) {
 	}
 }
 
+// GitHub #127: the bare /api/health alias is a probe path too.
+func TestRateLimit_allowsBareHealthAlias(t *testing.T) {
+	e := echo.New()
+	e.Use(RateLimit(RateLimitConfig{RequestsPerSecond: 0.001, Burst: 1}))
+	e.GET("/api/health", func(c echo.Context) error { return c.NoContent(http.StatusOK) })
+
+	for i := 0; i < 5; i++ {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("health check %d: got %d", i, rec.Code)
+		}
+	}
+}
+
 func TestRateLimit_allowsStaticAssets(t *testing.T) {
 	e := echo.New()
 	e.Use(RateLimit(RateLimitConfig{RequestsPerSecond: 0.001, Burst: 1}))

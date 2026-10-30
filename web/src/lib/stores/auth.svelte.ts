@@ -3,7 +3,12 @@
  * Single source for authentication state.
  */
 import { goto } from "$app/navigation";
-import { authApi, normalizeUser, type User } from "#lib/api/auth.js";
+import {
+  authApi,
+  normalizeUser,
+  type Setup2FAResponse,
+  type User,
+} from "#lib/api/auth.js";
 import { api } from "#lib/api/client.js";
 import { monitorGroupsCatalog } from "#lib/api/monitorGroups.js";
 import { tagsCatalog } from "#lib/api/tags.js";
@@ -145,7 +150,7 @@ function createAuthStore() {
     }
   }
 
-  async function setup2FA(): Promise<{ secret: string; qr_url: string }> {
+  async function setup2FA(): Promise<Setup2FAResponse> {
     return authApi.setup2FA();
   }
 

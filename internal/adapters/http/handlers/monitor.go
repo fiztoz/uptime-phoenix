@@ -4,9 +4,11 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 
@@ -277,6 +279,45 @@ func validateMonitorConfig(monitorType string, config map[string]any) error {
 	return chk.Validate(config)
 }
 
+// defaultMonitorTimeout is the timeout used when a create omits one: 30 s, or
+// 80% of a shorter interval so the default never violates
+// validateMonitorTiming (GitHub #118).
+func defaultMonitorTimeout(interval int) float64 {
+	return min(30, float64(interval)*0.8)
+}
+
+// validateMonitorTiming requires the check timeout to be below the interval;
+// otherwise checks overlap and a slow target is never reported in time
+// (GitHub #118).
+func validateMonitorTiming(interval int, timeout float64) error {
+	if timeout >= float64(interval) {
+		return fmt.Errorf("timeout (%gs) must be less than interval (%ds)", timeout, interval)
+	}
+	return nil
+}
+
+// validateAcceptedStatusCodes accepts the patterns the HTTP checker matches
+// (isStatusCodeAccepted): an exact code "301" or a range "200-299", with codes
+// in 100-599 and low <= high. Anything else could never match (GitHub #118).
+func validateAcceptedStatusCodes(codes []string) error {
+	parse := func(s string) (int, bool) {
+		n, err := strconv.Atoi(s)
+		return n, err == nil && n >= 100 && n <= 599
+	}
+	for _, rule := range codes {
+		low, high, isRange := strings.Cut(rule, "-")
+		lo, ok := parse(low)
+		hi := lo
+		if ok && isRange {
+			hi, ok = parse(high)
+		}
+		if !ok || lo > hi {
+			return fmt.Errorf("invalid accepted_statuscodes entry %q: use a code like \"301\" or a range like \"200-299\" within 100-599", rule)
+		}
+	}
+	return nil
+}
+
 // --- Handlers -----------------------------------------------------------
 
 // grantCreatorAccess gives the creator a view grant on the monitor they just
@@ -365,7 +406,13 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 		req.Interval = 60
 	}
 	if req.Timeout <= 0 {
-		req.Timeout = 30
+		req.Timeout = defaultMonitorTimeout(req.Interval)
+	}
+	if err := validateMonitorTiming(req.Interval, req.Timeout); err != nil {
+		return badRequest(c, err.Error())
+	}
+	if err := validateAcceptedStatusCodes(req.AcceptedStatusCodes); err != nil {
+		return badRequest(c, err.Error())
 	}
 
 	active := true
@@ -655,7 +702,18 @@ func (h *MonitorHandlers) Update(c echo.Context) error {
 		existing.Config = req.Config
 	}
 	if req.AcceptedStatusCodes != nil {
+		if err := validateAcceptedStatusCodes(req.AcceptedStatusCodes); err != nil {
+			return badRequest(c, err.Error())
+		}
 		existing.AcceptedStatusCodes = req.AcceptedStatusCodes
+	}
+	// Only a request that changes the timing re-checks it, so pausing or
+	// renaming a legacy monitor whose stored timeout is not below its interval
+	// keeps working.
+	if req.Interval > 0 || req.Timeout > 0 {
+		if err := validateMonitorTiming(existing.Interval, existing.Timeout); err != nil {
+			return badRequest(c, err.Error())
+		}
 	}
 	if req.UpsideDown != nil {
 		existing.UpsideDown = *req.UpsideDown

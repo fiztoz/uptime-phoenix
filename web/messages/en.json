@@ -148,7 +148,7 @@
   "dashboard_hint_no_incidents": "No incidents",
   "dashboard_avg_response": "Avg response",
   "dashboard_hint_uptime_pct": "{pct}% uptime",
-  "dashboard_banner_monitor_needs_attention": "monitor need attention",
+  "dashboard_banner_monitor_needs_attention": "monitor needs attention",
   "dashboard_banner_monitors_need_attention": "monitors need attention",
   "dashboard_banner_investigate": "Investigate the affected services below.",
   "dashboard_banner_healthy_view": "Every monitor in this view is reporting healthy.",

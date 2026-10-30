@@ -686,12 +686,6 @@ func (f *actRunnerFake) stateNow() string {
 	return f.op.state
 }
 
-func (f *actRunnerFake) observeCount() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.counts.observe
-}
-
 func (f *actRunnerFake) beginCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1222,22 +1216,26 @@ func TestProbeActivationRunnerActiveIsNotRevokedByTheWatcher(t *testing.T) {
 	fx := actRunnerSetup(t)
 	fx.runner.pollInterval = time.Millisecond
 
-	// Active is terminal, so the watcher reads it as an end state and signals.
-	// That signal must never turn a completed, recorded activation into an
-	// error: hold the last record's acknowledgement until the watcher has
-	// really observed the active state.
+	// Hold the final acknowledgement until the watcher has observed active
+	// and canceled the action context. Unlike a post-commit counter snapshot,
+	// Done also records a signal that arrived before this hook began waiting.
+	// The caller is Background, and Run cannot join/cancel until this hook
+	// returns, so only the watcher can cancel the captured context here.
+	var actionCtx context.Context
+	fx.exec.apply = func(ctx context.Context, _ domain.ProbeActivation, kind string) (domain.ProbeInstallResourceOutcome, domain.ProbeActivationFacts, error) {
+		actionCtx = ctx
+		return actRunnerApplied(kind)
+	}
 	observedActive := false
 	fx.fake.onCommit["record"] = func(context.Context) {
 		if fx.fake.stateNow() != domain.ProbeActivationActive {
 			return
 		}
-		before := fx.fake.observeCount()
-		deadline := time.Now().Add(2 * time.Second)
-		for fx.fake.observeCount() <= before && time.Now().Before(deadline) {
-			time.Sleep(time.Millisecond)
+		select {
+		case <-actionCtx.Done():
+			observedActive = true
+		case <-time.After(2 * time.Second):
 		}
-		observedActive = fx.fake.observeCount() > before
-		time.Sleep(20 * time.Millisecond)
 	}
 
 	activation, err := fx.run()

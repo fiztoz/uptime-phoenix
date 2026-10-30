@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -60,6 +61,35 @@ func normalizeAndValidateWindow(mw *domain.MaintenanceWindow) error {
 	}
 	if _, err := time.LoadLocation(tz); err != nil {
 		return fmt.Errorf("%w: invalid timezone %q", domain.ErrValidation, mw.Timezone)
+	}
+	return validateWindowShape(mw)
+}
+
+// validateWindowShape rejects windows IsActive could never match (GitHub
+// #118): an unknown strategy, a single window whose end is not after its
+// start, or a cron window without an expression or a positive duration. An
+// empty strategy means "single", the column default.
+func validateWindowShape(mw *domain.MaintenanceWindow) error {
+	if mw.Strategy == "" {
+		mw.Strategy = "single"
+	}
+	switch mw.Strategy {
+	case "single":
+		if mw.StartDate.IsZero() || mw.EndDate.IsZero() {
+			return fmt.Errorf("%w: single maintenance windows need start_date and end_date", domain.ErrValidation)
+		}
+		if !mw.EndDate.After(mw.StartDate) {
+			return fmt.Errorf("%w: end_date must be after start_date", domain.ErrValidation)
+		}
+	case "cron":
+		if strings.TrimSpace(mw.CronExpr) == "" {
+			return fmt.Errorf("%w: cron maintenance windows need cron_expr", domain.ErrValidation)
+		}
+		if mw.Duration <= 0 {
+			return fmt.Errorf("%w: cron maintenance windows need a positive duration (minutes)", domain.ErrValidation)
+		}
+	default:
+		return fmt.Errorf("%w: unknown maintenance strategy %q (want single or cron)", domain.ErrValidation, mw.Strategy)
 	}
 	return nil
 }

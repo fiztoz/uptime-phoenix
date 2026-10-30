@@ -344,7 +344,7 @@ func TestMaintenanceHandlers_Create_SetsUserIDFromContext(t *testing.T) {
 func TestMaintenanceHandlers_Create_Unauthenticated(t *testing.T) {
 	h := newMaintenanceHarness(t)
 
-	body := map[string]any{"title": "No Auth", "strategy": "single"}
+	body := map[string]any{"title": "No Auth", "strategy": "single", "start_date": "2030-01-01T00:00:00Z", "end_date": "2030-01-02T00:00:00Z"}
 	rec := h.do(t, http.MethodPost, "/api/maintenance", "", body)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("POST /api/maintenance (no token) returned %d; want 401", rec.Code)
@@ -359,7 +359,7 @@ func TestMaintenanceHandlers_List_CapabilityHolderSeesEveryWindow(t *testing.T) 
 	h := newMaintenanceHarness(t)
 
 	for _, title := range []string{"A-1", "A-2"} {
-		body := map[string]any{"title": title, "strategy": "single"}
+		body := map[string]any{"title": title, "strategy": "single", "start_date": "2030-01-01T00:00:00Z", "end_date": "2030-01-02T00:00:00Z"}
 		rec := h.do(t, http.MethodPost, "/api/maintenance", h.tokenA, body)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("create %s: %d (%s)", title, rec.Code, rec.Body.String())
@@ -389,13 +389,13 @@ func TestMaintenanceHandlers_List_ReadOnlyUserSeesOnlyWindowsOnVisibleMonitors(t
 	// Admin creates one window over monitor A (invisible to C) and one over
 	// monitor B (visible to C).
 	hidden := h.do(t, http.MethodPost, "/api/maintenance", h.tokenA, map[string]any{
-		"title": "covers-A", "strategy": "single", "monitor_ids": []int64{h.monitorAID},
+		"title": "covers-A", "strategy": "single", "start_date": "2030-01-01T00:00:00Z", "end_date": "2030-01-02T00:00:00Z", "monitor_ids": []int64{h.monitorAID},
 	})
 	if hidden.Code != http.StatusCreated {
 		t.Fatalf("create covers-A: %d (%s)", hidden.Code, hidden.Body.String())
 	}
 	shown := h.do(t, http.MethodPost, "/api/maintenance", h.tokenA, map[string]any{
-		"title": "covers-B", "strategy": "single", "monitor_ids": []int64{h.monitorBID},
+		"title": "covers-B", "strategy": "single", "start_date": "2030-01-01T00:00:00Z", "end_date": "2030-01-02T00:00:00Z", "monitor_ids": []int64{h.monitorBID},
 	})
 	if shown.Code != http.StatusCreated {
 		t.Fatalf("create covers-B: %d (%s)", shown.Code, shown.Body.String())
@@ -424,7 +424,7 @@ func TestMaintenanceHandlers_Get_HiddenFromUserWithoutAccess(t *testing.T) {
 	h := newMaintenanceHarness(t)
 
 	createRec := h.do(t, http.MethodPost, "/api/maintenance", h.tokenA, map[string]any{
-		"title": "A-Private", "strategy": "single", "monitor_ids": []int64{h.monitorAID},
+		"title": "A-Private", "strategy": "single", "start_date": "2030-01-01T00:00:00Z", "end_date": "2030-01-02T00:00:00Z", "monitor_ids": []int64{h.monitorAID},
 	})
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create: %d (%s)", createRec.Code, createRec.Body.String())
@@ -462,7 +462,7 @@ func TestMaintenanceHandlers_Delete_RequiresCapability(t *testing.T) {
 	h := newMaintenanceHarness(t)
 
 	createRec := h.do(t, http.MethodPost, "/api/maintenance", h.tokenA, map[string]any{
-		"title": "A-ToKeep", "strategy": "single", "monitor_ids": []int64{h.monitorBID},
+		"title": "A-ToKeep", "strategy": "single", "start_date": "2030-01-01T00:00:00Z", "end_date": "2030-01-02T00:00:00Z", "monitor_ids": []int64{h.monitorBID},
 	})
 	var created map[string]any
 	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {

@@ -41,6 +41,8 @@ export interface RegisterResponse {
 export interface Setup2FAResponse {
   secret: string;
   qr_url: string;
+  /** QR code as a data:image/png URL; render this, not qr_url (#121). */
+  qr_image: string;
 }
 
 export interface OIDCStatus {

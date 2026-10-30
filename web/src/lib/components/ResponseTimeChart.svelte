@@ -12,6 +12,7 @@
 		advanceChartWindowEnd,
 		chartTimeDomain,
 		type DowntimeInterval,
+		uniqueKeys,
 	} from '#lib/utils/chart.js';
 	import Line from './charts/Line.svelte';
 	import Area from './charts/Area.svelte';
@@ -180,6 +181,9 @@
 		for (const iv of unknownIntervals) push('unknown', iv);
 		return bands;
 	});
+
+	// Bands from same-second intervals share kind+left (#131).
+	const intervalBandKeys = $derived(uniqueKeys(intervalBands, (band) => `${band.kind}:${band.left}`));
 </script>
 
 <section class="overflow-hidden rounded-xl border border-border bg-card" aria-busy={loading}>
@@ -241,7 +245,7 @@
 	{#if latencyUnavailable}
 		<div class="mx-2 my-3 sm:mx-4" data-testid="overall-intervals">
 			<div class="relative h-16 w-full overflow-hidden rounded-lg border border-border bg-muted/30">
-				{#each intervalBands as band (band.kind + band.left)}
+				{#each intervalBands as band, i (intervalBandKeys[i])}
 					<div
 						class="absolute top-0 h-full"
 						class:bg-danger={band.kind === 'down'}
