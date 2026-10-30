@@ -140,6 +140,9 @@ func NewRouter(
 	// Health check endpoints (no auth).
 	e.GET("/api/health/live", healthHandlers.Live)
 	e.GET("/api/health/ready", healthHandlers.Ready)
+	// Bare /api/health is what operators and external checkers try first;
+	// alias it to readiness (GitHub #127).
+	e.GET("/api/health", healthHandlers.Ready)
 
 	// Public auth endpoints (no auth required).
 	authGroup := e.Group("/api/auth")

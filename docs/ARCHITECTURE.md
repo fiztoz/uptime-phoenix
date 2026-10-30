@@ -2044,6 +2044,7 @@ Exposed via `prometheus/client_golang`, behind API-key Basic Auth:
 |---|---|---|
 | `GET /api/health/live` | Process is alive | livenessProbe |
 | `GET /api/health/ready` | DB connected + can serve | readinessProbe |
+| `GET /api/health` | Alias of `/api/health/ready` for external uptime checkers | — |
 
 ### Tracing (Phase 3)
 
