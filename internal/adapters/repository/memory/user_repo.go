@@ -26,14 +26,17 @@ type UserRepo struct {
 	mu     sync.RWMutex
 	users  map[int64]*domain.User
 	byName map[string]int64
-	nextID atomic.Int64
+	// totpLastStep mirrors users.totp_last_step (migration 090).
+	totpLastStep map[int64]int64
+	nextID       atomic.Int64
 }
 
 // NewUserRepo returns an empty in-memory user repository.
 func NewUserRepo() *UserRepo {
 	return &UserRepo{
-		users:  make(map[int64]*domain.User),
-		byName: make(map[string]int64),
+		users:        make(map[int64]*domain.User),
+		byName:       make(map[string]int64),
+		totpLastStep: make(map[int64]int64),
 	}
 }
 
@@ -121,8 +124,51 @@ func (r *UserRepo) Update(_ context.Context, u *domain.User) error {
 	}
 	clone := *u
 	clone.UpdatedAt = time.Now().UTC()
+	// TOTP credential state is written only by the TOTP methods below.
+	clone.TOTPSecret = existing.TOTPSecret
+	clone.TOTPEnabled = existing.TOTPEnabled
+	clone.TOTPGeneration = existing.TOTPGeneration
 	r.users[u.ID] = &clone
 	return nil
+}
+
+// ReplaceTOTPCredential implements ports.UserRepository.
+func (r *UserRepo) ReplaceTOTPCredential(_ context.Context, userID int64, secret string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, ok := r.users[userID]
+	if !ok {
+		return ports.ErrNotFound
+	}
+	u.TOTPSecret = secret
+	u.TOTPEnabled = false
+	u.TOTPGeneration++
+	u.UpdatedAt = time.Now().UTC()
+	r.totpLastStep[userID] = 0
+	return nil
+}
+
+// ConsumeTOTPStep implements ports.UserRepository.
+func (r *UserRepo) ConsumeTOTPStep(_ context.Context, userID, generation, step int64) (bool, error) {
+	return r.consumeTOTPStep(userID, generation, step, true), nil
+}
+
+// ConfirmTOTPCredential implements ports.UserRepository.
+func (r *UserRepo) ConfirmTOTPCredential(_ context.Context, userID, generation, step int64) (bool, error) {
+	return r.consumeTOTPStep(userID, generation, step, false), nil
+}
+
+func (r *UserRepo) consumeTOTPStep(userID, generation, step int64, enabled bool) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, ok := r.users[userID]
+	if !ok || step <= 0 || !u.Active || u.TOTPEnabled != enabled || u.TOTPGeneration != generation ||
+		u.TOTPSecret == "" || r.totpLastStep[userID] >= step {
+		return false
+	}
+	r.totpLastStep[userID] = step
+	u.TOTPEnabled = true
+	return true
 }
 
 // Delete removes the user and its secondary index entry.
@@ -135,6 +181,7 @@ func (r *UserRepo) Delete(_ context.Context, id int64) error {
 	}
 	delete(r.byName, u.Username)
 	delete(r.users, id)
+	delete(r.totpLastStep, id)
 	return nil
 }
 

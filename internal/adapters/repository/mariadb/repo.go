@@ -128,11 +128,28 @@ func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.
 	return m.ToDomain(), nil
 }
 
+// Update writes the user's profile, permissions and password. It never
+// writes TOTP credential state; see ReplaceTOTPCredential.
 func (r *UserRepo) Update(ctx context.Context, u *domain.User) error {
 	m := repository.UserModelFromDomain(u)
 	m.UpdatedAt = time.Now().UTC()
-	_, err := r.db.NewUpdate().Model(m).WherePK().Exec(ctx)
+	_, err := r.db.NewUpdate().Model(m).ExcludeColumn(repository.UserUpdateExcludedColumns()...).WherePK().Exec(ctx)
 	return translateError(err)
+}
+
+// ReplaceTOTPCredential implements ports.UserRepository.
+func (r *UserRepo) ReplaceTOTPCredential(ctx context.Context, userID int64, secret string) error {
+	return translateError(repository.ReplaceUserTOTPCredential(ctx, r.db, userID, secret))
+}
+
+// ConsumeTOTPStep implements ports.UserRepository.
+func (r *UserRepo) ConsumeTOTPStep(ctx context.Context, userID, generation, step int64) (bool, error) {
+	return repository.ConsumeUserTOTPStep(ctx, r.db, userID, generation, step)
+}
+
+// ConfirmTOTPCredential implements ports.UserRepository.
+func (r *UserRepo) ConfirmTOTPCredential(ctx context.Context, userID, generation, step int64) (bool, error) {
+	return repository.ConfirmUserTOTPCredential(ctx, r.db, userID, generation, step)
 }
 
 func (r *UserRepo) Delete(ctx context.Context, id int64) error {

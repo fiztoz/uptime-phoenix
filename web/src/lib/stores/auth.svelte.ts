@@ -163,8 +163,8 @@ function createAuthStore() {
     toast.success("2FA enabled");
   }
 
-  async function disable2FA(password: string): Promise<void> {
-    await authApi.disable2FA(password);
+  async function disable2FA(password: string, token: string): Promise<void> {
+    await authApi.disable2FA(password, token);
     if (user) {
       user.two_factor_enabled = false;
       user.totp_enabled = false;

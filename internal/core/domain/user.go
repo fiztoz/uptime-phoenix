@@ -54,6 +54,12 @@ type User struct {
 	Timezone             string
 	TOTPSecret           string
 	TOTPEnabled          bool
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	// TOTPGeneration identifies the stored TOTP credential. Every secret
+	// replacement or removal starts a new generation, so a code verified
+	// against a stale snapshot can never be consumed for a newer secret.
+	// It is read-only outside UserRepository's TOTP methods and is never
+	// exposed through user views or exports.
+	TOTPGeneration int64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }

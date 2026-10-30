@@ -185,6 +185,31 @@ restore, damaged retained ciphertext, decoder refusal and final DB authorization
 These local regressions do not establish remote-edge compatibility, termination
 of already-open WebSockets, or aggregate-delivery runtime acceptance.
 
+### TOTP replay protection (#123, migration 090)
+
+The service tests pin reuse across tickets, `LoginWith2FA`, the enrolment code,
+older steps after a newer one, rotation during a ticket, stale profile updates,
+deactivation, storage failure (no session; the step stays usable), re-enrolment,
+and disabling 2FA: a missing, wrong or already-consumed code is refused and a fresh
+one is required (`TestDisableTOTP_RequiresAFreshCodeAndConsumesIt`). The handler test
+`TestAuthHandlers_Disable2FA_RequiresAFreshCode` drives `/api/auth/disable-2fa` with
+real TOTP codes: no code (400), wrong code, the enrolment code and a wrong password
+(401, 2FA stays on), then password plus a fresh code (200).
+The repository contract runs two or more independent connection pools (separate
+hubs, or one hub before and after a restart) against one real database.
+
+```sh
+go test -race -count=1 ./internal/adapters/auth ./internal/core/services ./internal/adapters/http/handlers -run 'TOTP|2FA'
+
+# Destructive repository fixtures: use ONLY an owned disposable MariaDB database.
+: "${TEST_MARIADB_DSN:?Set an owned disposable MariaDB test database}"
+go test -race -count=1 -json ./internal/adapters/repository -run '^TestTOTPReplayContract$'
+```
+
+Require all **18 scenario leaves** (9 SQLite, 9 MariaDB), with no engine skips.
+The 9 MariaDB leaves are in `REQUIRED` in `scripts/m6_dual_engine_gate.py`, so the
+`mariadb-contract` CI job fails if any of them is skipped or missing.
+
 ### M8 Docker install (migration 089)
 
 See [Docker install](multi-region/M8_DOCKER_INSTALL.md).
@@ -1779,7 +1804,7 @@ When automated tests aren't sufficient, verify these flows manually.
 ### 9.7 Settings
 - [ ] Update user profile
 - [ ] Change password
-- [ ] Enable/disable 2FA
+- [ ] Enable/disable 2FA (disable asks for the password and a current code)
 - [ ] App settings persist
 
 ### 9.8 Maintenance Windows
