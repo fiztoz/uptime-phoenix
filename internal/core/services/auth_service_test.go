@@ -409,7 +409,7 @@ func TestAuthService_DisableTOTP(t *testing.T) {
 	auth.seedHash("alice", "bcrypt$supersecret")
 
 	// Disable on a fresh account: returns ErrTOTPNotEnabled.
-	if err := svc.DisableTOTP(ctx, 1); !errors.Is(err, ErrTOTPNotEnabled) {
+	if err := svc.DisableTOTP(ctx, 1, ""); !errors.Is(err, ErrTOTPNotEnabled) {
 		t.Errorf("DisableTOTP(no secret) = %v; want ErrTOTPNotEnabled", err)
 	}
 
@@ -421,7 +421,9 @@ func TestAuthService_DisableTOTP(t *testing.T) {
 	if err := svc.EnableTOTP(ctx, 1, "123456"); err != nil {
 		t.Fatalf("EnableTOTP: %v", err)
 	}
-	if err := svc.DisableTOTP(ctx, 1); err != nil {
+	// Disabling needs a code from a later step than the enrolment one.
+	totp.SetValidCode("222222")
+	if err := svc.DisableTOTP(ctx, 1, "222222"); err != nil {
 		t.Fatalf("DisableTOTP: %v", err)
 	}
 	u, _ := svc.GetUser(ctx, 1)

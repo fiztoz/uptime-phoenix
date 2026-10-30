@@ -11,6 +11,19 @@ at the bottom.
 
 ## [Unreleased]
 
+### Security
+
+- **TOTP codes are single-use, and turning 2FA off needs a current code
+  (#123).** Each accepted code's time step is consumed atomically in the
+  database (migration `090`), so a code that completed a sign-in, confirmed
+  enrolment or disabled 2FA is refused if it is presented again, across
+  tickets, hubs and restarts. `POST /api/auth/disable-2fa` now requires a
+  current authenticator code in `token` as well as `password`; a missing code
+  returns 400 and a wrong or already-used code returns 401, leaving 2FA on. The
+  password is checked first, so a wrong password does not burn the code. The
+  settings page asks for the code next to the password. API clients that
+  disable 2FA must send the new field.
+
 ## [0.6.2] — 2026-10-28
 
 Use 0.6.2 rather than 0.6.1. v0.6.2 is the first signed release whose arm64

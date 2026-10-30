@@ -104,7 +104,7 @@ export const authApi = {
     return api.post("/auth/enable-2fa", { token: otpToken });
   },
 
-  async disable2FA(password: string): Promise<void> {
-    return api.post("/auth/disable-2fa", { password });
+  async disable2FA(password: string, token: string): Promise<void> {
+    return api.post("/auth/disable-2fa", { password, token });
   },
 };

@@ -180,7 +180,8 @@ func TestDisableTOTP_ReEnrolmentStartsFreshReplayState(t *testing.T) {
 	if _, err := complete2FA(t, svc, "123456"); err != nil {
 		t.Fatalf("login: %v", err)
 	}
-	if err := svc.DisableTOTP(ctx, 1); err != nil {
+	totp.SetValidCode("777777")
+	if err := svc.DisableTOTP(ctx, 1, "777777"); err != nil {
 		t.Fatalf("DisableTOTP: %v", err)
 	}
 	if _, _, err := svc.SetupTOTP(ctx, 1); err != nil {
@@ -190,5 +191,46 @@ func TestDisableTOTP_ReEnrolmentStartsFreshReplayState(t *testing.T) {
 	totp.SetValidCode("654321")
 	if err := svc.EnableTOTP(ctx, 1, "654321"); err != nil {
 		t.Fatalf("EnableTOTP on the new credential: %v", err)
+	}
+}
+
+// TestDisableTOTP_RequiresAFreshCodeAndConsumesIt pins #123: disabling 2FA
+// needs a current code, consumed through the same replay-protected path as a
+// login, so a code already used to sign in (or none at all) cannot turn 2FA
+// off.
+func TestDisableTOTP_RequiresAFreshCodeAndConsumesIt(t *testing.T) {
+	svc, totp, _ := newTOTPReplayService(t)
+	ctx := context.Background()
+	if _, err := complete2FA(t, svc, "123456"); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	for _, code := range []string{"", "000000", "123456", "654321"} {
+		if err := svc.DisableTOTP(ctx, 1, code); !errors.Is(err, ErrTOTPInvalid) {
+			t.Errorf("DisableTOTP(%q) = %v; want ErrTOTPInvalid", code, err)
+		}
+	}
+	if u, _ := svc.GetUser(ctx, 1); !u.TOTPEnabled || u.TOTPSecret == "" {
+		t.Fatalf("2FA was disabled by a missing, wrong or consumed code")
+	}
+	totp.SetValidCode("222222")
+	if err := svc.DisableTOTP(ctx, 1, "222222"); err != nil {
+		t.Fatalf("DisableTOTP with a fresh code: %v", err)
+	}
+	if u, _ := svc.GetUser(ctx, 1); u.TOTPEnabled || u.TOTPSecret != "" {
+		t.Fatalf("DisableTOTP did not clear the credential")
+	}
+}
+
+func TestDisableTOTP_PendingCredentialClearsWithoutACode(t *testing.T) {
+	svc, _, _ := newThrottleTestService(t)
+	ctx := context.Background()
+	if _, _, err := svc.SetupTOTP(ctx, 1); err != nil {
+		t.Fatalf("SetupTOTP: %v", err)
+	}
+	if err := svc.DisableTOTP(ctx, 1, ""); err != nil {
+		t.Fatalf("DisableTOTP(pending) = %v; want nil", err)
+	}
+	if u, _ := svc.GetUser(ctx, 1); u.TOTPEnabled || u.TOTPSecret != "" {
+		t.Fatalf("pending credential not cleared")
 	}
 }

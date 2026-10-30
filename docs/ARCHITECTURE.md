@@ -1633,8 +1633,8 @@ service then consumes that step in the database with one compare-and-update
 (`users.totp_last_step`, migration `090`):
 
 - The update succeeds only while the account is active, the credential is in the
-  expected state (pending for `EnableTOTP`, enabled for `Complete2FALogin` and
-  `LoginWith2FA`), its `totp_generation` still equals the one the service read, and
+  expected state (pending for `EnableTOTP`, enabled for `Complete2FALogin`,
+  `LoginWith2FA` and `DisableTOTP`), its `totp_generation` still equals the one the service read, and
   the stored step is **lower** than the matched step. Steps only move forward, so a
   code is refused once it, or any later code, has been used. Two hubs sharing the
   database, or one hub before and after a restart, see the same state.
@@ -1644,8 +1644,16 @@ service then consumes that step in the database with one compare-and-update
   code is logged.
 - `SetupTOTP` and `DisableTOTP` replace the credential in one statement that bumps
   `totp_generation` and resets `totp_last_step`, so a request that read the old
-  credential cannot consume a step for the new one. `DisableTOTP` keeps its existing
-  password-authenticated policy; it does not ask for a TOTP code.
+  credential cannot consume a step for the new one.
+- Disabling 2FA (`POST /api/auth/disable-2fa`) needs the current password **and**
+  a current code. The handler checks the password first (a wrong password never
+  burns the code), then `DisableTOTP` consumes the code through the same
+  conditional update as a login (enabled credential, same generation, higher
+  step) before it replaces the credential. A code already used for a login,
+  enrolment or an earlier disable is refused with 401; a missing code is 400.
+  Concurrent disables with one code have a single winner. A pending (never
+  confirmed) credential protects nothing and is cleared by the service without
+  a code.
 - Generic `UserRepository.Update` never writes `totp_secret`, `totp_enabled` or
   `totp_generation`, and no model writes `totp_last_step`, so profile/admin updates
   from a stale snapshot cannot turn 2FA off or reset replay state. Replay state is

@@ -873,16 +873,25 @@ func (s *AuthService) EnableTOTP(ctx context.Context, userID int64, token string
 }
 
 // DisableTOTP clears the stored TOTP secret and sets TOTPEnabled=false.
-// It does not require a TOTP token — disable is a recovery path, so a
-// compromised account would need to use the regular password-reset flow
-// instead.
-func (s *AuthService) DisableTOTP(ctx context.Context, userID int64) error {
+// When 2FA is enabled the caller must present a current TOTP token, which is
+// matched and atomically consumed exactly like a login code (#123): a code
+// that was already used for a login, an enrolment or an earlier disable is
+// refused with ErrTOTPInvalid, and of two concurrent requests with the same
+// code only one can win. A pending (set up but never confirmed) credential
+// protects nothing yet, so it is cleared without a token. The caller is
+// responsible for checking the account password first.
+func (s *AuthService) DisableTOTP(ctx context.Context, userID int64, token string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("auth service: disable totp: %w", err)
 	}
 	if !user.TOTPEnabled && user.TOTPSecret == "" {
 		return fmt.Errorf("%w", ErrTOTPNotEnabled)
+	}
+	if user.TOTPEnabled {
+		if err := s.consumeTOTP(ctx, user, token, false); err != nil {
+			return err
+		}
 	}
 	if err := s.users.ReplaceTOTPCredential(ctx, user.ID, ""); err != nil {
 		return fmt.Errorf("auth service: disable totp: save: %w", err)

@@ -55,6 +55,7 @@
   let secret = $state("");
   let otpCode = $state("");
   let disablePassword = $state("");
+  let disableCode = $state("");
   let loading = $state(false);
 
   // Tags
@@ -180,8 +181,8 @@
   }
 
   async function disable2FA() {
-    if (!disablePassword) {
-      toast.error("Enter your password");
+    if (!disablePassword || !disableCode) {
+      toast.error("Enter your password and a current authenticator code");
       return;
     }
     const ok = await confirmAction({
@@ -195,8 +196,9 @@
 
     try {
       loading = true;
-      await auth.disable2FA(disablePassword);
+      await auth.disable2FA(disablePassword, disableCode);
       disablePassword = "";
+      disableCode = "";
     } catch (e: any) {
       toast.error(e?.message || "Disable failed");
     } finally {
@@ -984,11 +986,22 @@
             type="password"
             bind:value={disablePassword}
             placeholder="Current password"
+            aria-label="Current password"
             class="{inputClass} flex-1 sm:w-48"
+          />
+          <input
+            type="text"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            bind:value={disableCode}
+            maxlength="6"
+            placeholder="123456"
+            aria-label="Authenticator code"
+            class="{inputClass} font-mono tracking-widest sm:w-32"
           />
           <button
             onclick={disable2FA}
-            disabled={loading || !disablePassword}
+            disabled={loading || !disablePassword || !disableCode}
             class="inline-flex items-center gap-2 rounded-lg border border-destructive/25 px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
             >Disable 2FA</button
           >
