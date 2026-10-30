@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -44,17 +45,22 @@ type ProbeWatchdogSettingsView struct {
 	NotificationIDs     []int64 `json:"notification_ids"`
 }
 
-// probeWatchdogSettingsRequest replaces the complete settings. Enabled and
-// expected_revision are required; omitted timings take the CLI defaults
-// (90 s lost, 30 s recover, no reminders) and omitted channels mean none.
+// probeWatchdogSettingsRequest replaces the complete settings. Every field is
+// required, so a client cannot reset timings or channels by omission, and the
+// channel list is always an explicit choice (an empty list means none). Null
+// counts as omitted.
 type probeWatchdogSettingsRequest struct {
-	ExpectedRevision    *string `json:"expected_revision"`
-	Enabled             *bool   `json:"enabled"`
-	LostAfterSeconds    *int32  `json:"lost_after_seconds"`
-	RecoverAfterSeconds *int32  `json:"recover_after_seconds"`
-	ResendInterval      *int32  `json:"resend_interval"`
-	NotificationIDs     []int64 `json:"notification_ids"`
+	ExpectedRevision    *string  `json:"expected_revision"`
+	Enabled             *bool    `json:"enabled"`
+	LostAfterSeconds    *int32   `json:"lost_after_seconds"`
+	RecoverAfterSeconds *int32   `json:"recover_after_seconds"`
+	ResendInterval      *int32   `json:"resend_interval"`
+	NotificationIDs     *[]int64 `json:"notification_ids"`
 }
+
+// probeWatchdogMaxBodyBytes bounds a settings document. The domain allows at
+// most 1000 channel IDs, which fits well inside it.
+const probeWatchdogMaxBodyBytes = 64 << 10
 
 func toProbeWatchdogSettingsView(s domain.ProbeWatchdogSettings) ProbeWatchdogSettingsView {
 	ids := append([]int64{}, s.NotificationIDs...)
@@ -71,12 +77,15 @@ func (h *ProbeWatchdogHandlers) prepare(c echo.Context) bool {
 		_ = fleetError(c, http.StatusUnauthorized, "unauthenticated", "authentication required")
 		return false
 	}
-	if !h.enabled {
-		_ = fleetError(c, http.StatusServiceUnavailable, "probes_disabled", "multi-region probes are disabled")
-		return false
-	}
+	// A hub without the store (including the router fallback) has not wired
+	// this endpoint. That says nothing about whether probes are enabled, so
+	// it answers 501 before the feature check.
 	if h.store == nil {
 		_ = fleetError(c, http.StatusNotImplemented, "watchdog_unavailable", "probe watchdog settings are not available on this hub")
+		return false
+	}
+	if !h.enabled {
+		_ = fleetError(c, http.StatusServiceUnavailable, "probes_disabled", "multi-region probes are disabled")
 		return false
 	}
 	return true
@@ -94,56 +103,77 @@ func (h *ProbeWatchdogHandlers) Get(c echo.Context) error {
 	return c.JSON(http.StatusOK, toProbeWatchdogSettingsView(s))
 }
 
-// Replace handles PUT /api/probes/:probe_id/watchdog. Saving settings is not
-// an applied-config receipt; the watchdog diagnostics on the probe detail
-// view report when they take effect.
+// Replace handles PUT /api/probes/:probe_id/watchdog. It saves the desired
+// settings only. Saving is not an applied-config receipt: the probe config
+// pipeline prepares a new revision from the saved settings, and the watchdog
+// diagnostics on the probe detail view report when the probe applies it.
 func (h *ProbeWatchdogHandlers) Replace(c echo.Context) error {
 	if !h.prepare(c) {
 		return nil
 	}
 	invalid := func() error {
 		return fleetError(c, http.StatusBadRequest, "invalid_watchdog_settings",
-			"watchdog settings need explicit enabled and expected_revision, positive lost/recover seconds, a non-negative resend interval and unique notification IDs")
+			"watchdog settings need one JSON object with expected_revision, enabled, lost_after_seconds, recover_after_seconds, resend_interval and notification_ids; positive lost/recover seconds, a non-negative resend interval, and unique existing notification IDs")
 	}
-	raw, err := readProbeAdminBody(c)
+	raw, err := io.ReadAll(io.LimitReader(c.Request().Body, probeWatchdogMaxBodyBytes+1))
 	if err != nil {
 		return invalid()
 	}
-	var req probeWatchdogSettingsRequest
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil || req.Enabled == nil || req.ExpectedRevision == nil {
+	if len(raw) > probeWatchdogMaxBodyBytes {
+		return fleetError(c, http.StatusRequestEntityTooLarge, "watchdog_settings_too_large", "request body exceeds the watchdog settings limit")
+	}
+	desired, expected, ok := decodeProbeWatchdogSettings(raw)
+	if !ok {
 		return invalid()
 	}
-	expected, err := strconv.ParseInt(*req.ExpectedRevision, 10, 64)
-	if err != nil || expected < 0 {
-		return invalid()
-	}
-	desired := domain.DefaultProbeWatchdogSettings()
-	desired.Enabled = *req.Enabled
-	if req.LostAfterSeconds != nil {
-		desired.LostAfterSeconds = *req.LostAfterSeconds
-	}
-	if req.RecoverAfterSeconds != nil {
-		desired.RecoverAfterSeconds = *req.RecoverAfterSeconds
-	}
-	if req.ResendInterval != nil {
-		desired.ResendInterval = *req.ResendInterval
-	}
-	if req.NotificationIDs != nil {
-		desired.NotificationIDs = append([]int64{}, req.NotificationIDs...)
-	}
-	if domain.ValidateProbeWatchdogSettings(desired) != nil {
-		return invalid()
-	}
-	saved, err := h.store.Replace(c.Request().Context(), c.Param("probe_id"), expected, desired)
+	probeID := c.Param("probe_id")
+	saved, err := h.store.Replace(c.Request().Context(), probeID, expected, desired)
 	if err != nil {
 		if errors.Is(err, domain.ErrValidation) {
 			return invalid()
 		}
+		if errors.Is(err, ports.ErrConflict) || errors.Is(err, domain.ErrConflict) {
+			// The store also answers conflict for a disabled probe. Tell the
+			// caller which one it was, so a disabled probe is not reported as
+			// a stale revision.
+			if current, getErr := h.store.Get(c.Request().Context(), probeID); getErr == nil && current.Revision == expected {
+				return fleetError(c, http.StatusConflict, "probe_disabled", "the probe is disabled; enable it before changing its watchdog settings")
+			}
+		}
 		return probeWatchdogError(c, err)
 	}
 	return c.JSON(http.StatusOK, toProbeWatchdogSettingsView(saved))
+}
+
+// decodeProbeWatchdogSettings accepts exactly one JSON object with every
+// field present and non-null, no unknown fields, and nothing after it.
+func decodeProbeWatchdogSettings(raw []byte) (domain.ProbeWatchdogSettings, int64, bool) {
+	var req probeWatchdogSettingsRequest
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		return domain.ProbeWatchdogSettings{}, 0, false
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return domain.ProbeWatchdogSettings{}, 0, false
+	}
+	if req.ExpectedRevision == nil || req.Enabled == nil || req.LostAfterSeconds == nil ||
+		req.RecoverAfterSeconds == nil || req.ResendInterval == nil || req.NotificationIDs == nil {
+		return domain.ProbeWatchdogSettings{}, 0, false
+	}
+	expected, err := strconv.ParseInt(*req.ExpectedRevision, 10, 64)
+	if err != nil || expected < 0 || strconv.FormatInt(expected, 10) != *req.ExpectedRevision {
+		return domain.ProbeWatchdogSettings{}, 0, false
+	}
+	desired := domain.ProbeWatchdogSettings{
+		Enabled: *req.Enabled, LostAfterSeconds: *req.LostAfterSeconds,
+		RecoverAfterSeconds: *req.RecoverAfterSeconds, ResendInterval: *req.ResendInterval,
+		NotificationIDs: append([]int64{}, (*req.NotificationIDs)...),
+	}
+	if domain.ValidateProbeWatchdogSettings(desired) != nil {
+		return domain.ProbeWatchdogSettings{}, 0, false
+	}
+	return desired, expected, true
 }
 
 func probeWatchdogError(c echo.Context, err error) error {

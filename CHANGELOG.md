@@ -13,7 +13,14 @@ at the bottom.
 
 ### Added
 
-- `GET`/`PUT /api/probes/:probe_id/watchdog` (admin) reads and replaces a probe's offline-alert watchdog settings, so probes enrolled through the API/UI can turn on probe-down alerts without `phoenix-probe-admin` (#120). Watchdog stays off by default.
+- `GET`/`PUT /api/probes/:probe_id/watchdog` (admin session or admin
+  write-scope API key) reads and replaces a probe's offline-alert watchdog
+  settings, so probes enrolled through the API or UI can turn on probe-down
+  alerts without `phoenix-probe-admin` (#120). The watchdog stays off until an
+  explicit PUT; every field, including `notification_ids`, is required, and
+  enrollment never picks channels. A save is the desired setting only, not an
+  applied receipt. Stale revisions and disabled probes answer 409, an unwired
+  hub answers 501, and `PROBES_ENABLED=false` answers 503.
 
 ## [0.6.2] — 2026-10-28
 

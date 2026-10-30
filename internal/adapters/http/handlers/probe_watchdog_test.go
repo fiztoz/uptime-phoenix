@@ -105,15 +105,6 @@ func TestProbeWatchdogSettingsOverHTTP(t *testing.T) {
 		}
 	})
 
-	t.Run("put defaults timings like the CLI", func(t *testing.T) {
-		store := &watchdogStoreFake{saved: domain.DefaultProbeWatchdogSettings()}
-		rec := watchdogDo(watchdogRouter(store, true), http.MethodPut, "/api/probes/p1/watchdog",
-			`{"expected_revision":"0","enabled":true,"notification_ids":[3]}`)
-		if rec.Code != http.StatusOK || store.saved.LostAfterSeconds != 90 || store.saved.RecoverAfterSeconds != 30 || store.saved.ResendInterval != 0 {
-			t.Fatalf("status %d saved %+v; want 90/30/0 defaults", rec.Code, store.saved)
-		}
-	})
-
 	for _, tc := range []struct {
 		name, body string
 		store      *watchdogStoreFake
@@ -122,22 +113,38 @@ func TestProbeWatchdogSettingsOverHTTP(t *testing.T) {
 		status     int
 		code       string
 	}{
-		{"enabled must be explicit", `{"expected_revision":"0","notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
-		{"revision must be explicit", `{"enabled":true}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
-		{"duplicate channels", `{"expected_revision":"0","enabled":true,"notification_ids":[3,3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
-		{"non-positive timing", `{"expected_revision":"0","enabled":true,"lost_after_seconds":0}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
-		{"unknown field", `{"expected_revision":"0","enabled":true,"bogus":1}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
-		{"stale revision", `{"expected_revision":"5","enabled":true}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 409, "watchdog_revision_conflict"},
-		{"unknown channel or disabled probe", `{"expected_revision":"0","enabled":true,"notification_ids":[99]}`, &watchdogStoreFake{err: domain.ErrValidation}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
-		{"probes disabled", `{"expected_revision":"0","enabled":true}`, &watchdogStoreFake{}, false, "/api/probes/p1/watchdog", 503, "probes_disabled"},
-		{"no store wired", `{"expected_revision":"0","enabled":true}`, nil, true, "/api/probes/p1/watchdog", 501, "watchdog_unavailable"},
+		{"enabled must be explicit", `{"expected_revision":"0","lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"enabled null is omitted", `{"expected_revision":"0","enabled":null,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"revision must be explicit", `{"enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"revision must be canonical decimal", `{"expected_revision":"00","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"lost seconds must be explicit", `{"expected_revision":"0","enabled":true,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"recover seconds must be explicit", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"resend interval must be explicit", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"channels must be explicit", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"channels null is omitted", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":null}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"duplicate channels", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3,3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"non-positive timing", `{"expected_revision":"0","enabled":true,"lost_after_seconds":0,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"negative resend", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":-1,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"unknown field", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3],"bogus":1}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"trailing JSON value", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}` + `{}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"trailing garbage", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}` + `x`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"truncated JSON", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`[:40], &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"not an object", `[]`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"oversized body", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}` + strings.Repeat(" ", 64<<10), &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 413, "watchdog_settings_too_large"},
+		{"stale revision", strings.Replace(`{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, `"0"`, `"5"`, 1), &watchdogStoreFake{saved: domain.DefaultProbeWatchdogSettings()}, true, "/api/probes/p1/watchdog", 409, "watchdog_revision_conflict"},
+		{"disabled probe", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{saved: domain.DefaultProbeWatchdogSettings(), err: ports.ErrConflict}, true, "/api/probes/p1/watchdog", 409, "probe_disabled"},
+		{"unknown channel", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{err: domain.ErrValidation}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"unknown probe", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{err: ports.ErrNotFound}, true, "/api/probes/p1/watchdog", 404, "probe_not_found"},
+		{"probes disabled", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, false, "/api/probes/p1/watchdog", 503, "probes_disabled"},
+		{"no store wired", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, nil, true, "/api/probes/p1/watchdog", 501, "watchdog_unavailable"},
+		{"no store wired is not reported as probes disabled", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, nil, false, "/api/probes/p1/watchdog", 501, "watchdog_unavailable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := watchdogDo(watchdogRouter(tc.store, tc.enabled), http.MethodPut, tc.path, tc.body)
 			if rec.Code != tc.status || !strings.Contains(rec.Body.String(), `"`+tc.code+`"`) {
 				t.Fatalf("status %d body %s; want %d %s", rec.Code, rec.Body, tc.status, tc.code)
 			}
-			if tc.status == 400 && tc.store != nil && tc.store.err == nil && tc.store.calls != 0 {
+			if (tc.status == 400 || tc.status == 413) && tc.store != nil && tc.store.err == nil && tc.store.calls != 0 {
 				t.Fatalf("invalid body reached the store")
 			}
 		})
