@@ -1500,9 +1500,17 @@ func NewMonitorNotificationRepo(db *bun.DB) *MonitorNotificationRepo {
 	return &MonitorNotificationRepo{db: db}
 }
 
+// Attach links a notification to a monitor, idempotently (GitHub #130).
+// Default channels are auto-attached to new monitors, so re-attaching an
+// existing link is routine. ON DUPLICATE KEY UPDATE id = id keeps the
+// existing row (and its include_target; SetIncludeTarget changes that) while
+// leaving foreign-key violations loud, like GroupNotificationRepo.Attach.
 func (r *MonitorNotificationRepo) Attach(ctx context.Context, monitorID, notificationID int64, includeTarget bool) error {
-	m := &repository.MonitorNotificationModel{MonitorID: monitorID, NotificationID: notificationID, IncludeTarget: includeTarget}
-	_, err := r.db.NewInsert().Model(m).Exec(ctx)
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO monitor_notification (monitor_id, notification_id, include_target) VALUES (?, ?, ?)
+		 ON DUPLICATE KEY UPDATE id = id`,
+		monitorID, notificationID, includeTarget,
+	)
 	return translateError(err)
 }
 

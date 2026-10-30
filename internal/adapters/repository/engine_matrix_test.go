@@ -509,6 +509,34 @@ func runRepositoryContract(t *testing.T, factory repositoryFactory) {
 		}
 	})
 
+	// GitHub #130: default channels are auto-attached to new monitors, so a
+	// script that then attaches its channels re-attaches existing links. That
+	// must succeed and keep the existing per-link flag (SetIncludeTarget is
+	// the way to change it), like GroupNotificationRepo.Attach.
+	t.Run("MonitorNotificationReattachIsIdempotent", func(t *testing.T) {
+		repos := factory(t)
+		ctx := context.Background()
+		user := createUser(t, ctx, repos, "reattach-user")
+		monitor := createMonitor(t, ctx, repos, user.ID, "Reattach")
+		n := &domain.Notification{UserID: user.ID, Name: "Default", Type: "webhook", Active: true, Config: map[string]any{"url": "https://example.test/default"}}
+		if err := repos.notifications.Create(ctx, n); err != nil {
+			t.Fatalf("Create notification: %v", err)
+		}
+		if err := repos.monitorNotifications.Attach(ctx, monitor.ID, n.ID, false); err != nil {
+			t.Fatalf("first Attach: %v", err)
+		}
+		if err := repos.monitorNotifications.Attach(ctx, monitor.ID, n.ID, true); err != nil {
+			t.Fatalf("re-Attach of an existing link = %v; want nil", err)
+		}
+		links, err := repos.monitorNotifications.ListByMonitor(ctx, monitor.ID)
+		if err != nil {
+			t.Fatalf("ListByMonitor: %v", err)
+		}
+		if len(links) != 1 || links[0].NotificationID != n.ID || links[0].IncludeTarget {
+			t.Fatalf("links = %+v; want the one original link with include_target=false", links)
+		}
+	})
+
 	t.Run("TestMariaDBRegression_ReorderMonitorsObservableOrder", func(t *testing.T) {
 		repos := factory(t)
 		ctx := context.Background()
