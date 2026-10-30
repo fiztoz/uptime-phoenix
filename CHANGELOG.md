@@ -11,6 +11,20 @@ at the bottom.
 
 ## [Unreleased]
 
+### Added
+
+- `GET`/`PUT /api/probes/:probe_id/watchdog` (admin session or admin
+  write-scope API key) reads and replaces a probe's offline-alert watchdog
+  settings, so probes enrolled through the API or UI can turn on probe-down
+  alerts without `phoenix-probe-admin` (#120). The watchdog stays off until an
+  explicit PUT; `expected_revision`, `enabled` and `notification_ids` are
+  required, omitted timings take the same defaults as `phoenix-probe-admin
+  watchdog` (90 s lost, 30 s recover, no resend, from one shared source), and
+  enrollment never picks channels. Unknown fields and explicit nulls are
+  rejected. A save is the desired setting only, not an
+  applied receipt. Stale revisions and disabled probes answer 409, an unwired
+  hub answers 501, and `PROBES_ENABLED=false` answers 503.
+
 ## [0.6.2] — 2026-10-28
 
 Use 0.6.2 rather than 0.6.1. v0.6.2 is the first signed release whose arm64

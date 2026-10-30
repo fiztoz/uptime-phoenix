@@ -212,6 +212,31 @@ revision zero when saving untouched defaults. A stale revision fails. Enabled
 registration is required for writes; disabled registrations retain readable
 settings. Registration also accepts `--location` alongside `--name`.
 
+Admins can do the same over HTTP (#120) with an admin session or an admin
+write-scope API key. `GET /api/probes/:probe_id/watchdog` returns the saved
+settings, and `PUT` replaces them:
+
+```json
+{"expected_revision": "0", "enabled": true, "lost_after_seconds": 90,
+ "recover_after_seconds": 30, "resend_interval": 5, "notification_ids": [12, 34]}
+```
+
+`expected_revision`, `enabled` and `notification_ids` are required
+(`notification_ids` may be `[]` for none), so a request cannot clear channels
+by leaving a field out. The timing fields are optional and, like the CLI flags,
+default to `lost_after_seconds` 90, `recover_after_seconds` 30 and
+`resend_interval` 0; both read these from one shared source
+(`domain.DefaultProbeWatchdogSettings`). Omitting a timing therefore sets that
+default rather than keeping the saved value; an explicit `null` is rejected. Enrollment never turns the
+watchdog on and never picks channels. The body must be one JSON object of at
+most 64 KiB with no unknown fields and nothing after it (400, or 413 when too
+large). A stale revision answers 409 `watchdog_revision_conflict`; a disabled
+registration answers 409 `probe_disabled`. A hub that has not wired the
+endpoint answers 501 `watchdog_unavailable`; `PROBES_ENABLED=false` answers 503
+`probes_disabled`. A 200 means the settings are saved, not applied: the probe
+config pipeline prepares a new revision from them, and the probe detail
+watchdog diagnostics report when the probe applies it.
+
 Channel deletion removes its saved reference and changes the next complete
 snapshot without requiring a settings edit. Disabled channels and watchdog-only
 templates remain in the complete dependency graph, even with zero assigned

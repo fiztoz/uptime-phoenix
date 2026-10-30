@@ -183,6 +183,11 @@ REQUIRED |= {
 } | {"TestM8PreflightAPI/mariadb", "TestM8PreflightClockAfterAuthorityLock/mariadb"}
 
 
+# The probe watchdog settings API (#120) must hold its auth, validation,
+# revision and no-receipt contract on real MariaDB through the production router.
+REQUIRED |= {"TestProbeWatchdogSettingsAPIContract/mariadb"}
+
+
 INSTALL_JOURNAL_REQUIRED = {
     f"TestM8InstallJournalStore/mariadb/{case}"
     for case in (

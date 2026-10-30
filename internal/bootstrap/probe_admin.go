@@ -105,9 +105,10 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	f.StringVar(&location, "location", "", "display location")
 	f.StringVar(&channelIDs, "notifications", "", "complete watchdog channel set")
 	f.BoolVar(&enabled, "enabled", false, "enable connection watchdog")
-	f.Int64Var(&lostSeconds, "lost-after-seconds", 90, "application health loss interval")
-	f.Int64Var(&recoverSeconds, "recover-after-seconds", 30, "stable recovery interval")
-	f.Int64Var(&resendMinutes, "resend-interval", 0, "reminder interval in minutes")
+	watchdogDefaults := domain.DefaultProbeWatchdogSettings() // shared with the settings API
+	f.Int64Var(&lostSeconds, "lost-after-seconds", int64(watchdogDefaults.LostAfterSeconds), "application health loss interval")
+	f.Int64Var(&recoverSeconds, "recover-after-seconds", int64(watchdogDefaults.RecoverAfterSeconds), "stable recovery interval")
+	f.Int64Var(&resendMinutes, "resend-interval", int64(watchdogDefaults.ResendInterval), "reminder interval in minutes")
 	f.StringVar(&endpoint, "endpoint", "", "pinned runtime endpoint")
 	f.StringVar(&pin, "fingerprint", "", "verified local certificate fingerprint")
 	f.StringVar(&tokenFile, "token-file", "", "private enrollment token file")

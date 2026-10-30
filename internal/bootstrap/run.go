@@ -832,6 +832,7 @@ func Run(cfg Config) error {
 		RegionalMonitors:    regionalHandlers,
 		ProbeFleet:          handlers.NewProbeFleetHandlers(fleetSvc, cfg.ProbesEnabled),
 		ProbeAdmin:          handlers.NewProbeAdminHandlers(adminSvc, fleetSvc, cfg.ProbesEnabled),
+		ProbeWatchdog:       handlers.NewProbeWatchdogHandlers(repo.NewProbeWatchdogSettingsStore(db), cfg.ProbesEnabled),
 		ProbePreflights:     handlers.NewProbePreflightHandlers(preflightOperations, cfg.ProbeSSHPreflightEnabled && cfg.Mode != "worker"),
 		ProbeInstalls:       handlers.NewProbeInstallHandlers(installOperations.service(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
 		ProbeActivations:    handlers.NewProbeActivationHandlers(installOperations.activationService(), cfg.ProbeSSHInstallEnabled && cfg.Mode != "worker"),
