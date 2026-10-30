@@ -17,7 +17,7 @@ type NotificationModel struct {
 	UserID        int64     `bun:"user_id"`
 	Name          string    `bun:"name,notnull"`
 	Type          string    `bun:"type,notnull"`
-	Active        bool      `bun:"active,notnull,default:true"`
+	Active        bool      `bun:"active,notnull"` // No bun default: a zero value would become DEFAULT (true) and drop an explicit false (#135).
 	IsDefault     bool      `bun:"is_default,notnull,default:false"`
 	IncludeAckURL bool      `bun:"include_ack_url,notnull"`
 	TemplateID    *int64    `bun:"template_id"`
@@ -117,7 +117,7 @@ type StatusPageModel struct {
 	Icon                 string    `bun:"icon"`
 	Favicon              string    `bun:"favicon"`
 	Theme                string    `bun:"theme,notnull,default:'light'"`
-	Published            bool      `bun:"published,notnull,default:true"`
+	Published            bool      `bun:"published,notnull"` // No bun default: a zero value would become DEFAULT (true) and publish an unpublished page (#117).
 	CustomDomain         string    `bun:"custom_domain"`
 	PageAccessCredential string    `bun:"password_hash"` // optional access credential for protected pages
 	FooterText           string    `bun:"footer_text"`
