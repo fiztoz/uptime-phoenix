@@ -20,8 +20,13 @@ var (
 	ErrInvalidProbeIDs       = errors.New("invalid probe member set")
 	ErrInvalidPolicy         = errors.New("invalid health policy")
 	ErrInvalidDelivery       = errors.New("invalid alert delivery")
-	ErrInvalidBindings       = errors.New("invalid resource bindings")
-	ErrRemoteCloneForbidden  = errors.New("cloning a remote monitor requires admin")
+	// ErrAggregatePagingDisabled refuses a move into aggregate or both while
+	// aggregate paging is off on this hub: the mode would be stored but never
+	// page, and regional alerts would continue (#119). It wraps
+	// ErrInvalidDelivery so every existing 400 mapping still applies.
+	ErrAggregatePagingDisabled = fmt.Errorf("aggregate paging is disabled on this hub (PROBES_AGGREGATE_PAGING_ENABLED is off), so alert_delivery must be regional: %w", ErrInvalidDelivery)
+	ErrInvalidBindings         = errors.New("invalid resource bindings")
+	ErrRemoteCloneForbidden    = errors.New("cloning a remote monitor requires admin")
 )
 
 // ProbeAssignmentRequest is one complete desired-set replacement: membership,
@@ -69,6 +74,26 @@ func DesiredAlertDelivery(requested string, previous *domain.MonitorProbeAssignm
 	return mode, nil
 }
 
+// requireAggregatePaging refuses a move into aggregate or both unless aggregate
+// paging is enabled. previous is the stored set of an existing monitor, or nil
+// for any new monitor (create, clone, config create). Only that stored mode,
+// resubmitted unchanged or omitted, is allowed: clients echo the current mode,
+// and it stays desired-only and never pages. It is never permission for a
+// different mode, and a clone or create never inherits it.
+func requireAggregatePaging(mode domain.AlertDelivery, previous *domain.MonitorProbeAssignments, enabled bool) error {
+	if enabled || mode == domain.AlertDeliveryRegional {
+		return nil
+	}
+	stored := domain.AlertDelivery("")
+	if previous != nil {
+		stored = previous.AlertDelivery
+	}
+	if current, ok := domain.CanonicalAlertDelivery(stored); ok && current == mode {
+		return nil
+	}
+	return fmt.Errorf("alert delivery %q: %w", mode, ErrAggregatePagingDisabled)
+}
+
 func alertDeliveryChanged(previous, next domain.AlertDelivery) bool {
 	left, leftOK := domain.CanonicalAlertDelivery(previous)
 	right, rightOK := domain.CanonicalAlertDelivery(next)
@@ -98,6 +123,15 @@ type ProbeAssignmentService struct {
 	monitors     ports.MonitorRepository
 	capabilities ports.ProbeAssignmentCapabilities
 	fleet        FleetActivationGate
+	// aggregatePaging mirrors PROBES_AGGREGATE_PAGING_ENABLED. While false,
+	// new aggregate or both requests are refused (#119).
+	aggregatePaging bool
+}
+
+// SetAggregatePagingEnabled lets Replace accept aggregate and both. Only the
+// composition root calls it, with the hub's aggregate paging flag.
+func (s *ProbeAssignmentService) SetAggregatePagingEnabled(enabled bool) {
+	s.aggregatePaging = enabled
 }
 
 // NewProbeAssignmentService binds the assignment write dependencies. fleet is
@@ -143,6 +177,9 @@ func (s *ProbeAssignmentService) Replace(ctx context.Context, monitorID int64, r
 	}
 	delivery, err := DesiredAlertDelivery(req.AlertDelivery, previous)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireAggregatePaging(delivery, previous, s.aggregatePaging); err != nil {
 		return nil, err
 	}
 	if err := ValidateDesiredAssignments(ctx, monitor, previous, req.ProbeIDs, req.HealthPolicy, req.Bindings, string(delivery), s.registry, s.capabilities); err != nil {
@@ -301,6 +338,12 @@ func sameResourceBinding(a, b *domain.ProbeResourceBinding) bool {
 	return *a == *b
 }
 
+// SetAggregatePagingEnabled lets monitor creation accept aggregate and both.
+// Only the composition root calls it, with the hub's aggregate paging flag.
+func (s *MonitorService) SetAggregatePagingEnabled(enabled bool) {
+	s.aggregatePaging = enabled
+}
+
 // CreateWithAssignments creates a monitor together with its explicit initial
 // desired set atomically. Omitting the set keeps today's local default. A
 // non-admin caller must never reach this path with remote members: the handler
@@ -311,6 +354,11 @@ func (s *MonitorService) CreateWithAssignments(ctx context.Context, m *domain.Mo
 	}
 	delivery, err := DesiredAlertDelivery(initial.AlertDelivery, nil)
 	if err != nil {
+		return err
+	}
+	// A new monitor has no stored mode, so a create (including a clone) is
+	// always a new request for its mode.
+	if err := requireAggregatePaging(delivery, nil, s.aggregatePaging); err != nil {
 		return err
 	}
 	if err := ValidateDesiredAssignments(ctx, m, nil, initial.ProbeIDs, initial.HealthPolicy, initial.Bindings, string(delivery), s.probeRegistry, s.probeCapabilities); err != nil {
@@ -435,6 +483,10 @@ func (s *MonitorService) Clone(ctx context.Context, id, userID int64, isAdmin bo
 				bindings = append(bindings, domain.ProbeAssignmentBinding{ProbeID: member.ProbeID, ProbeResourceBinding: *member.ResourceBinding})
 			}
 		}
+		// A clone is a new monitor, so the source's mode is a new request. While
+		// aggregate paging is off, a source in aggregate or both is refused
+		// with ErrAggregatePagingDisabled before anything is written; it is
+		// neither copied nor silently made regional (#119).
 		if err := s.CreateWithAssignments(ctx, &clone, InitialAssignments{ProbeIDs: members, HealthPolicy: source.HealthPolicy, AlertDelivery: string(source.AlertDelivery), Bindings: &bindings}); err != nil {
 			return nil, fmt.Errorf("monitor service: clone: %w", err)
 		}

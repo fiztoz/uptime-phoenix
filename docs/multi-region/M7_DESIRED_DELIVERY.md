@@ -31,6 +31,17 @@ the live mode when the field is absent. Clone copies the source mode with the
 rest of the desired set. The admin assignment command preserves the current
 mode when it rewrites membership.
 
+While `PROBES_AGGREGATE_PAGING_ENABLED` is off, the hub refuses any new request
+for `aggregate` or `both` with 400 `aggregate_paging_disabled` (#119). A new
+request is an assignment replace that changes the mode, a config-as-code create
+or change, or a clone: a clone is a new monitor, so cloning a source whose
+stored mode is aggregate or both is refused rather than silently changed or
+silently kept. Config plan marks the monitor invalid, and apply writes nothing.
+A stored legacy mode is never rewritten: edits that omit or echo it succeed, and
+an explicit move to `regional` is always accepted. `POST /api/monitors` has no
+mode field and always stores regional. With the flag on, both modes are
+accepted on every path.
+
 The assignment UI round-trips the stored mode and shows that aggregate paging
 is not active. It does not offer a selector. Selecting the mode in the UI
 remains blocked until capability negotiation, applied receipts, and

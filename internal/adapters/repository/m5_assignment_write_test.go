@@ -95,6 +95,10 @@ func TestM5AssignmentWrites(t *testing.T) {
 			monitorSvc := services.NewMonitorService(repos.monitors, eventbus.NewMemoryBus())
 			monitorSvc.SetAssignmentProvisioning(writer, r.f.registry, caps, m5AwareFleetGate())
 			monitorSvc.SetAssignmentReader(r.f.assignments)
+			// This fixture covers storing a desired aggregate mode, so it runs
+			// with aggregate paging enabled (#119 refuses it otherwise).
+			assignmentSvc.SetAggregatePagingEnabled(true)
+			monitorSvc.SetAggregatePagingEnabled(true)
 			jwt := auth.NewJWTAuthenticator(strings.Repeat("m5-assignment-test-key-", 4), 1, repos.users)
 			authSvc := services.NewAuthService(repos.users, nil, jwt, nil)
 			viewerToken, err := jwt.IssueSession(ctx, creator)

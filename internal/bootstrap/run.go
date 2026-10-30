@@ -174,6 +174,7 @@ func Run(cfg Config) error {
 	fleetGate := services.NewFleetActivationGate(repos.hubWorkerReadiness, fleetLeaseLookback(cfg))
 	monitorSvc.SetAssignmentProvisioning(repos.probeAssignWriter, repos.probeRegistry, checkeradapter.CapabilityInspector{}, fleetGate)
 	monitorSvc.SetAssignmentReader(repos.probeAssignments)
+	monitorSvc.SetAggregatePagingEnabled(cfg.ProbesAggregatePagingEnabled)
 	monitorSvc.SetProxyRepo(repos.proxy)
 	// Without this the service rejects every monitor that carries a GroupID, so
 	// filing a monitor into a group would fail at runtime while the tests (which
@@ -340,6 +341,7 @@ func Run(cfg Config) error {
 	)
 	configSvc.SetProbeRegistry(repos.probeRegistry)
 	configSvc.SetProbeAssignments(repos.probeAssignments)
+	configSvc.SetAggregatePagingEnabled(cfg.ProbesAggregatePagingEnabled)
 	configSvc.SetFleetActivationGate(fleetGate)
 
 	// Wire automatic alerting: the dispatcher turns confirmed status transitions
@@ -768,7 +770,9 @@ func Run(cfg Config) error {
 	if cfg.ProbesEnabled {
 		regionalHandlers.SetBrowserPublisher(browserPublisher)
 	}
-	regionalHandlers.SetAssignments(services.NewProbeAssignmentService(repos.probeAssignWriter, repos.probeAssignments, repos.probeRegistry, repos.monitor, checkeradapter.CapabilityInspector{}, fleetGate))
+	assignmentSvc := services.NewProbeAssignmentService(repos.probeAssignWriter, repos.probeAssignments, repos.probeRegistry, repos.monitor, checkeradapter.CapabilityInspector{}, fleetGate)
+	assignmentSvc.SetAggregatePagingEnabled(cfg.ProbesAggregatePagingEnabled)
+	regionalHandlers.SetAssignments(assignmentSvc)
 	var adminSvc *services.ProbeAdminService
 	if cfg.ProbesEnabled {
 		// Durable administrative operations wrap the same connector/rotation/

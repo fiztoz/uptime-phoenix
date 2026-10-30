@@ -306,6 +306,7 @@ func TestProbeAssignmentServiceReplace(t *testing.T) {
 		next.AlertDelivery = domain.AlertDeliveryBoth
 		writer := &fakeAssignmentWriter{result: &next}
 		svc := NewProbeAssignmentService(writer, fakeAssignmentRepo{set: previous}, assignmentTestProbes(), fakeMonitorLookup{monitor: monitor}, assignmentTestCaps(), awareFleetGate())
+		svc.SetAggregatePagingEnabled(true)
 		result, err := svc.Replace(t.Context(), 7, ProbeAssignmentRequest{ExpectedRevision: 4, ProbeIDs: []string{domain.LocalProbeID}, HealthPolicy: domain.HealthPolicyAnyDown, AlertDelivery: "both"})
 		if err != nil || writer.delivery != domain.AlertDeliveryBoth || len(result.PendingProbes) != 1 || !result.PendingProbes[domain.LocalProbeID] {
 			t.Fatalf("mode change pending: delivery=%s pending=%v err=%v", writer.delivery, result.PendingProbes, err)
@@ -355,6 +356,13 @@ func TestMonitorServiceCloneAuthority(t *testing.T) {
 	if _, err := svc.Clone(t.Context(), src.ID, 1, false); !errors.Is(err, ErrRemoteCloneForbidden) || writer.created {
 		t.Fatalf("non-admin remote clone: %v created=%v", err, writer.created)
 	}
+	// A clone is a new request for the source's mode (#119): with aggregate
+	// paging off, an aggregate source is refused before any write rather than
+	// copied or downgraded.
+	if _, err := svc.Clone(t.Context(), src.ID, 1, true); !errors.Is(err, ErrAggregatePagingDisabled) || writer.created || len(repo.byID) != 1 {
+		t.Fatalf("aggregate clone with paging off: %v created=%v monitors=%d", err, writer.created, len(repo.byID))
+	}
+	svc.SetAggregatePagingEnabled(true)
 	cloned, err := svc.Clone(t.Context(), src.ID, 1, true)
 	if err != nil || !writer.created {
 		t.Fatalf("admin remote clone: %v", err)
