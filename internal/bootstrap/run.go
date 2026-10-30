@@ -573,6 +573,7 @@ func Run(cfg Config) error {
 		replay.SetBrowserPublisher(browserPublisher)
 		replay.SetStatusPageRecovery(healthSvc, statusPageSvc)
 		connector.SetReplayIngest(replay)
+		connector.SetContactRecorder(connections)
 		connector.SetCredentialRotation(commandStore)
 		connector.SetCertificateRotation(commandStore)
 		connector.SetStreamReset(repo.NewProbeStreamResetStore(db, protector, credentialProtector, probe.StreamResetCodec{}))

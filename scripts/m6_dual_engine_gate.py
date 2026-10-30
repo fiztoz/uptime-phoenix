@@ -183,6 +183,9 @@ REQUIRED |= {
 } | {"TestM8PreflightAPI/mariadb", "TestM8PreflightClockAfterAuthorityLock/mariadb"}
 
 
+# #133: remote last seen is persisted, fenced, hub-observed contact.
+REQUIRED |= {"TestProbeLastContactContract/mariadb"}
+
 INSTALL_JOURNAL_REQUIRED = {
     f"TestM8InstallJournalStore/mariadb/{case}"
     for case in (

@@ -11,6 +11,15 @@ at the bottom.
 
 ## [Unreleased]
 
+### Fixed
+
+- **probes:** a remote probe's `last_seen_at` is now the persisted time the hub
+  last accepted an authenticated health frame from it (migration 091,
+  `probe_sessions.last_contact_at`). It is fenced to the live session
+  generation, never moves backward, freezes on disconnect, and survives
+  restarts, so a `Disconnected` probe shows when the hub last heard from it
+  instead of an inferred source time. Execution status is unchanged (#133).
+
 ## [0.6.2] — 2026-10-28
 
 Use 0.6.2 rather than 0.6.1. v0.6.2 is the first signed release whose arm64
