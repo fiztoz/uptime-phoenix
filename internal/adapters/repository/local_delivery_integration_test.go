@@ -1036,6 +1036,7 @@ func testLocalDeliveryChannelEditMustRefreshWithoutManualTrigger(t *testing.T, e
 	}
 	n.Config = map[string]any{"url": "https://edited-channel.example.com/hook"}
 	svc := services.NewNotificationService(p.repos.NotificationRepo, p.repos.MonitorNotificationRepo)
+	svc.RegisterSender(p.sender)
 	if err := svc.Update(ctx, n); err != nil {
 		t.Fatal(err)
 	}
