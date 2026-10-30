@@ -987,6 +987,7 @@
   "probes_last_seen": "Last seen",
   "probes_unreported": "Unreported",
   "probes_not_tracked": "Not tracked by the hub yet",
+  "probes_queue_empty": "Nothing queued",
   "probes_back": "Back to probes",
   "probes_save": "Save changes",
   "probes_saving": "Saving…",
