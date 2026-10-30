@@ -25,11 +25,11 @@ func (v validatingSender) Send(context.Context, map[string]any, domain.AlertCont
 // Create/Update persisted any type string and any config, so a typo'd type or
 // a webhook with no URL was saved and only failed at alert time.
 func TestNotificationConfigIsValidatedBeforeSave(t *testing.T) {
-	newSvc := func() (*NotificationService, *fakeNotifRepo) {
+	newSvc := func() *NotificationService {
 		repo := newFakeNotifRepo()
 		svc := NewNotificationService(repo, newFakeMonitorNotifLinkRepo())
 		svc.RegisterSender(validatingSender{typ: "webhook"})
-		return svc, repo
+		return svc
 	}
 	ctx := context.Background()
 	for _, tc := range []struct {
@@ -40,7 +40,7 @@ func TestNotificationConfigIsValidatedBeforeSave(t *testing.T) {
 		{"provider rejects config", domain.Notification{UserID: 1, Name: "x", Type: "webhook", Config: map[string]any{}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			svc, _ := newSvc()
+			svc := newSvc()
 			n := tc.n
 			if err := svc.Create(ctx, &n); !errors.Is(err, domain.ErrValidation) {
 				t.Fatalf("Create = %v; want ErrValidation", err)
@@ -53,7 +53,7 @@ func TestNotificationConfigIsValidatedBeforeSave(t *testing.T) {
 		})
 	}
 	t.Run("valid config saves", func(t *testing.T) {
-		svc, _ := newSvc()
+		svc := newSvc()
 		n := domain.Notification{UserID: 1, Name: "ok", Type: "webhook", Config: map[string]any{"url": "https://example.test"}}
 		if err := svc.Create(ctx, &n); err != nil {
 			t.Fatalf("Create valid = %v", err)
