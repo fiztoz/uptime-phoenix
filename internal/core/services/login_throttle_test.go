@@ -113,7 +113,7 @@ func enableTOTPForAlice(t *testing.T, svc *AuthService, totp *fakeTOTP) {
 	if _, _, err := svc.SetupTOTP(ctx, 1); err != nil {
 		t.Fatalf("SetupTOTP: %v", err)
 	}
-	// Enrol with a code of its own: the confirmation consumes its time
+	// Enroll with a code of its own: the confirmation consumes its time
 	// step (#123), so callers sign in with the later code "123456".
 	totp.SetValidCode("654321")
 	if err := svc.EnableTOTP(ctx, 1, "654321"); err != nil {
