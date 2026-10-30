@@ -221,9 +221,13 @@ settings, and `PUT` replaces them:
  "recover_after_seconds": 30, "resend_interval": 5, "notification_ids": [12, 34]}
 ```
 
-Unlike the CLI, the API has no defaults: every field is required, and
-`notification_ids` must be given (use `[]` for none), so a request cannot clear
-channels or reset timings by leaving a field out. Enrollment never turns the
+`expected_revision`, `enabled` and `notification_ids` are required
+(`notification_ids` may be `[]` for none), so a request cannot clear channels
+by leaving a field out. The timing fields are optional and, like the CLI flags,
+default to `lost_after_seconds` 90, `recover_after_seconds` 30 and
+`resend_interval` 0; both read these from one shared source
+(`domain.DefaultProbeWatchdogSettings`). Omitting a timing therefore sets that
+default rather than keeping the saved value; an explicit `null` is rejected. Enrollment never turns the
 watchdog on and never picks channels. The body must be one JSON object of at
 most 64 KiB with no unknown fields and nothing after it (400, or 413 when too
 large). A stale revision answers 409 `watchdog_revision_conflict`; a disabled

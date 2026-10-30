@@ -45,17 +45,20 @@ type ProbeWatchdogSettingsView struct {
 	NotificationIDs     []int64 `json:"notification_ids"`
 }
 
-// probeWatchdogSettingsRequest replaces the complete settings. Every field is
-// required, so a client cannot reset timings or channels by omission, and the
-// channel list is always an explicit choice (an empty list means none). Null
-// counts as omitted.
+// probeWatchdogSettingsRequest replaces the complete settings.
+// expected_revision, enabled and notification_ids are required, so a client
+// cannot reset channels by omission and the channel list is always an explicit
+// choice (an empty list means none). The timing fields are optional: an
+// omitted timing takes the same default as phoenix-probe-admin watchdog, from
+// domain.DefaultProbeWatchdogSettings. An explicit null is rejected for every
+// field.
 type probeWatchdogSettingsRequest struct {
-	ExpectedRevision    *string  `json:"expected_revision"`
-	Enabled             *bool    `json:"enabled"`
-	LostAfterSeconds    *int32   `json:"lost_after_seconds"`
-	RecoverAfterSeconds *int32   `json:"recover_after_seconds"`
-	ResendInterval      *int32   `json:"resend_interval"`
-	NotificationIDs     *[]int64 `json:"notification_ids"`
+	ExpectedRevision    *string         `json:"expected_revision"`
+	Enabled             *bool           `json:"enabled"`
+	LostAfterSeconds    json.RawMessage `json:"lost_after_seconds"`
+	RecoverAfterSeconds json.RawMessage `json:"recover_after_seconds"`
+	ResendInterval      json.RawMessage `json:"resend_interval"`
+	NotificationIDs     *[]int64        `json:"notification_ids"`
 }
 
 // probeWatchdogMaxBodyBytes bounds a settings document. The domain allows at
@@ -113,7 +116,7 @@ func (h *ProbeWatchdogHandlers) Replace(c echo.Context) error {
 	}
 	invalid := func() error {
 		return fleetError(c, http.StatusBadRequest, "invalid_watchdog_settings",
-			"watchdog settings need one JSON object with expected_revision, enabled, lost_after_seconds, recover_after_seconds, resend_interval and notification_ids; positive lost/recover seconds, a non-negative resend interval, and unique existing notification IDs")
+			"watchdog settings need one JSON object with expected_revision, enabled and notification_ids, and optionally lost_after_seconds, recover_after_seconds and resend_interval (defaults 90, 30 and 0); positive lost/recover seconds, a non-negative resend interval, and unique existing notification IDs")
 	}
 	raw, err := io.ReadAll(io.LimitReader(c.Request().Body, probeWatchdogMaxBodyBytes+1))
 	if err != nil {
@@ -145,8 +148,10 @@ func (h *ProbeWatchdogHandlers) Replace(c echo.Context) error {
 	return c.JSON(http.StatusOK, toProbeWatchdogSettingsView(saved))
 }
 
-// decodeProbeWatchdogSettings accepts exactly one JSON object with every
-// field present and non-null, no unknown fields, and nothing after it.
+// decodeProbeWatchdogSettings accepts exactly one JSON object with no unknown
+// fields and nothing after it. expected_revision, enabled and notification_ids
+// must be present and non-null; an omitted timing field keeps the shared
+// default and a present one must be a JSON integer.
 func decodeProbeWatchdogSettings(raw []byte) (domain.ProbeWatchdogSettings, int64, bool) {
 	var req probeWatchdogSettingsRequest
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -157,18 +162,30 @@ func decodeProbeWatchdogSettings(raw []byte) (domain.ProbeWatchdogSettings, int6
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return domain.ProbeWatchdogSettings{}, 0, false
 	}
-	if req.ExpectedRevision == nil || req.Enabled == nil || req.LostAfterSeconds == nil ||
-		req.RecoverAfterSeconds == nil || req.ResendInterval == nil || req.NotificationIDs == nil {
+	if req.ExpectedRevision == nil || req.Enabled == nil || req.NotificationIDs == nil {
 		return domain.ProbeWatchdogSettings{}, 0, false
 	}
 	expected, err := strconv.ParseInt(*req.ExpectedRevision, 10, 64)
 	if err != nil || expected < 0 || strconv.FormatInt(expected, 10) != *req.ExpectedRevision {
 		return domain.ProbeWatchdogSettings{}, 0, false
 	}
-	desired := domain.ProbeWatchdogSettings{
-		Enabled: *req.Enabled, LostAfterSeconds: *req.LostAfterSeconds,
-		RecoverAfterSeconds: *req.RecoverAfterSeconds, ResendInterval: *req.ResendInterval,
-		NotificationIDs: append([]int64{}, (*req.NotificationIDs)...),
+	desired := domain.DefaultProbeWatchdogSettings()
+	desired.Enabled = *req.Enabled
+	desired.NotificationIDs = append([]int64{}, (*req.NotificationIDs)...)
+	for _, timing := range []struct {
+		raw json.RawMessage
+		dst *int32
+	}{
+		{req.LostAfterSeconds, &desired.LostAfterSeconds},
+		{req.RecoverAfterSeconds, &desired.RecoverAfterSeconds},
+		{req.ResendInterval, &desired.ResendInterval},
+	} {
+		if timing.raw == nil {
+			continue // omitted: keep the shared default
+		}
+		if bytes.Equal(timing.raw, []byte("null")) || json.Unmarshal(timing.raw, timing.dst) != nil {
+			return domain.ProbeWatchdogSettings{}, 0, false
+		}
 	}
 	if domain.ValidateProbeWatchdogSettings(desired) != nil {
 		return domain.ProbeWatchdogSettings{}, 0, false

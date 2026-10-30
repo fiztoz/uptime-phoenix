@@ -105,6 +105,34 @@ func TestProbeWatchdogSettingsOverHTTP(t *testing.T) {
 		}
 	})
 
+	t.Run("omitted timings take the phoenix-probe-admin defaults", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, body            string
+			lost, recover, resend int32
+		}{
+			{"all omitted", `{"expected_revision":"0","enabled":true,"notification_ids":[3]}`, 90, 30, 0},
+			{"only lost given", `{"expected_revision":"0","enabled":true,"notification_ids":[3],"lost_after_seconds":120}`, 120, 30, 0},
+			{"only resend given", `{"expected_revision":"0","enabled":false,"notification_ids":[],"resend_interval":15}`, 90, 30, 15},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				store := &watchdogStoreFake{saved: domain.DefaultProbeWatchdogSettings()}
+				rec := watchdogDo(watchdogRouter(store, true), http.MethodPut, "/api/probes/p1/watchdog", tc.body)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("PUT status = %d; body=%s", rec.Code, rec.Body)
+				}
+				got := store.saved
+				if got.LostAfterSeconds != tc.lost || got.RecoverAfterSeconds != tc.recover || got.ResendInterval != tc.resend {
+					t.Fatalf("saved timings = %d/%d/%d; want %d/%d/%d", got.LostAfterSeconds, got.RecoverAfterSeconds, got.ResendInterval, tc.lost, tc.recover, tc.resend)
+				}
+			})
+		}
+		// The defaults come from the one shared source the CLI flags use.
+		d := domain.DefaultProbeWatchdogSettings()
+		if d.LostAfterSeconds != 90 || d.RecoverAfterSeconds != 30 || d.ResendInterval != 0 {
+			t.Fatalf("shared defaults = %d/%d/%d; want 90/30/0", d.LostAfterSeconds, d.RecoverAfterSeconds, d.ResendInterval)
+		}
+	})
+
 	for _, tc := range []struct {
 		name, body string
 		store      *watchdogStoreFake
@@ -117,9 +145,12 @@ func TestProbeWatchdogSettingsOverHTTP(t *testing.T) {
 		{"enabled null is omitted", `{"expected_revision":"0","enabled":null,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
 		{"revision must be explicit", `{"enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
 		{"revision must be canonical decimal", `{"expected_revision":"00","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
-		{"lost seconds must be explicit", `{"expected_revision":"0","enabled":true,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
-		{"recover seconds must be explicit", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
-		{"resend interval must be explicit", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"lost seconds null is rejected", `{"expected_revision":"0","enabled":true,"lost_after_seconds":null,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"recover seconds null is rejected", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":null,"resend_interval":0,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"resend interval null is rejected", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":null,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"timing must be an integer", `{"expected_revision":"0","enabled":true,"lost_after_seconds":"90","notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"timing must not be fractional", `{"expected_revision":"0","enabled":true,"recover_after_seconds":30.5,"notification_ids":[3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
+		{"unknown field with omitted timings", `{"expected_revision":"0","enabled":true,"notification_ids":[3],"lost_after":90}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
 		{"channels must be explicit", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
 		{"channels null is omitted", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":null}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},
 		{"duplicate channels", `{"expected_revision":"0","enabled":true,"lost_after_seconds":90,"recover_after_seconds":30,"resend_interval":0,"notification_ids":[3,3]}`, &watchdogStoreFake{}, true, "/api/probes/p1/watchdog", 400, "invalid_watchdog_settings"},

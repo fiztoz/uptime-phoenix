@@ -18,7 +18,7 @@ administrative operations**. Revocation, deletion and browser work remain.
 | `POST /api/probes/:probe_id/rotate-credential` | Wraps `ProbeCredentialRotationService.Issue` under the operation identity; 202 receipt |
 | `POST /api/probes/:probe_id/reset-stream` | Wraps `PrepareStreamReset` under the caller-supplied identity; 202 receipt |
 | `GET /api/probes/:probe_id/watchdog` | Saved offline-alert watchdog settings with a decimal-string `revision`; revision `"0"`, disabled, no channels until the first save (#120) |
-| `PUT /api/probes/:probe_id/watchdog` | Replaces the complete settings through `ProbeWatchdogSettingsStore.Replace`; every field required; 409 on a stale revision or a disabled probe; saving is not an applied receipt |
+| `PUT /api/probes/:probe_id/watchdog` | Replaces the complete settings through `ProbeWatchdogSettingsStore.Replace`; `expected_revision`, `enabled` and `notification_ids` required; omitted timings take the CLI defaults (90 s lost, 30 s recover, 0 resend); 409 on a stale revision or a disabled probe; saving is not an applied receipt |
 | `GET /api/probe-operations/:operation_id` | Admin operation state, phase and redacted errors |
 
 All routes run `SessionOrAPIKey(authSvc, apiKeyRepo, "write")` then

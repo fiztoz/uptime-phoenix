@@ -199,7 +199,8 @@ func TestProbeWatchdogSettingsAPIContract(t *testing.T) {
 				{"unknown field", path, valid[:len(valid)-1] + `,"applied":true}`, 400, "invalid_watchdog_settings"},
 				{"omitted enabled", path, strings.Replace(valid, `"enabled":true,`, ``, 1), 400, "invalid_watchdog_settings"},
 				{"omitted channels", path, `{"enabled":true,"expected_revision":"0","lost_after_seconds":120,"recover_after_seconds":45,"resend_interval":15}`, 400, "invalid_watchdog_settings"},
-				{"omitted timing", path, `{"enabled":true,"expected_revision":"0","notification_ids":[]}`, 400, "invalid_watchdog_settings"},
+				{"null timing", path, `{"enabled":true,"expected_revision":"0","notification_ids":[],"lost_after_seconds":null}`, 400, "invalid_watchdog_settings"},
+				{"unknown field with omitted timings", path, `{"enabled":true,"expected_revision":"0","notification_ids":[],"lost_after":90}`, 400, "invalid_watchdog_settings"},
 				{"numeric revision", path, strings.Replace(valid, `"expected_revision":"0"`, `"expected_revision":0`, 1), 400, "invalid_watchdog_settings"},
 				{"duplicate channels", path, body("0", true, 120, 45, 15, h.channel, h.channel), 400, "invalid_watchdog_settings"},
 				{"unknown channel", path, body("0", true, 120, 45, 15, h.channel, 987654321), 400, "invalid_watchdog_settings"},
@@ -261,13 +262,28 @@ func TestProbeWatchdogSettingsAPIContract(t *testing.T) {
 				t.Fatalf("applied graph after receipt: %+v %v", loaded.Watchdog, err)
 			}
 
+			// OmittedTimings: timing fields may be left out; they take the
+			// phoenix-probe-admin defaults from the shared domain source.
+			defaults := domain.DefaultProbeWatchdogSettings()
+			rec = do(live, "PUT", path, adminWrite, fmt.Sprintf(`{"expected_revision":"1","enabled":true,"notification_ids":[%d]}`, h.channel))
+			expect(rec, 200, "", "omitted timings")
+			var omitted handlers.ProbeWatchdogSettingsView
+			if err := json.Unmarshal(rec.Body.Bytes(), &omitted); err != nil || omitted.Revision != "2" || omitted.LostAfterSeconds != 90 ||
+				omitted.RecoverAfterSeconds != 30 || omitted.ResendInterval != 0 {
+				t.Fatalf("omitted timings: %+v %v; want revision 2 with 90/30/0", omitted, err)
+			}
+			if got := observe().settings; got.Revision != 2 || got.LostAfterSeconds != defaults.LostAfterSeconds ||
+				got.RecoverAfterSeconds != defaults.RecoverAfterSeconds || got.ResendInterval != defaults.ResendInterval {
+				t.Fatalf("omitted timings persisted: %+v; want the shared defaults", got)
+			}
+
 			// DisabledProbe: a disabled registration refuses the write with a
 			// distinct 409 and changes nothing.
 			if _, err := f.db.NewUpdate().Table("probes").Set("enabled = ?", false).Where("id = ?", h.authority.ProbeID).Exec(ctx); err != nil {
 				t.Fatal(err)
 			}
 			before := observe()
-			expect(do(live, "PUT", path, adminWrite, body("1", false, 120, 45, 15)), 409, "probe_disabled", "disabled probe")
+			expect(do(live, "PUT", path, adminWrite, body("2", false, 120, 45, 15)), 409, "probe_disabled", "disabled probe")
 			unchanged(before, "disabled probe")
 		})
 	}

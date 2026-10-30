@@ -17,8 +17,11 @@ at the bottom.
   write-scope API key) reads and replaces a probe's offline-alert watchdog
   settings, so probes enrolled through the API or UI can turn on probe-down
   alerts without `phoenix-probe-admin` (#120). The watchdog stays off until an
-  explicit PUT; every field, including `notification_ids`, is required, and
-  enrollment never picks channels. A save is the desired setting only, not an
+  explicit PUT; `expected_revision`, `enabled` and `notification_ids` are
+  required, omitted timings take the same defaults as `phoenix-probe-admin
+  watchdog` (90 s lost, 30 s recover, no resend, from one shared source), and
+  enrollment never picks channels. Unknown fields and explicit nulls are
+  rejected. A save is the desired setting only, not an
   applied receipt. Stale revisions and disabled probes answer 409, an unwired
   hub answers 501, and `PROBES_ENABLED=false` answers 503.
 
