@@ -198,7 +198,8 @@ export function bucketMsForRange(hours: number): number {
 
 /**
  * Keys for a keyed `{#each}` that stay unique when the natural key repeats.
- * The first item with a given key keeps it; later ones get `#1`, `#2`, ...
+ * Prefer the natural key, then `#1`, `#2`, ...; skip all already-used keys,
+ * including natural keys that look like a generated suffix.
  * Chart intervals are serialised to the second (RFC 3339), so a down/up/down
  * flip inside one second yields two intervals with the same start, and keying
  * by start crashed the monitor page with each_key_duplicate (GitHub #131).
@@ -208,11 +209,17 @@ export function uniqueKeys<T>(
   key: (item: T) => string | number,
 ): string[] {
   const seen = new Map<string, number>();
+  const used = new Set<string>();
   return items.map((item) => {
     const base = String(key(item));
-    const n = seen.get(base) ?? 0;
+    let n = seen.get(base) ?? 0;
+    let candidate = n === 0 ? base : `${base}#${n}`;
+    while (used.has(candidate)) {
+      candidate = `${base}#${++n}`;
+    }
     seen.set(base, n + 1);
-    return n === 0 ? base : `${base}#${n}`;
+    used.add(candidate);
+    return candidate;
   });
 }
 

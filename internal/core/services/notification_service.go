@@ -101,13 +101,9 @@ func (s *NotificationService) RegisterSender(sender ports.NotificationSender) {
 
 // validateProviderConfig rejects a notification whose type has no registered
 // sender, or whose config that sender's Validate refuses (GitHub #118).
-// Before this, both were saved and only failed when an alert fired. A service
-// with no senders registered (unit-test wiring) skips the check; production
-// registers every provider at startup (bootstrap/run.go).
+// Before this, both were saved and only failed when an alert fired. Missing
+// provider wiring fails closed, just like an unknown provider type.
 func (s *NotificationService) validateProviderConfig(n *domain.Notification) error {
-	if len(s.senders) == 0 {
-		return nil
-	}
 	sender, ok := s.senders[n.Type]
 	if !ok {
 		return fmt.Errorf("%w: unknown notification type %q", domain.ErrValidation, n.Type)

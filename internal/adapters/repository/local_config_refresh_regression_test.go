@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/eventbus"
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/notifier"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
@@ -26,7 +27,13 @@ func TestLocalConfigRefreshWithPushAndSMTP(t *testing.T) {
 			}
 			notif := &domain.Notification{UserID: p.monitor.UserID, Name: "mail", Type: "smtp", Active: true,
 				Config: map[string]any{"host": "mail.example.test", "port": 587, "from": "ops@example.test", "to": []any{"one@example.test", "two@example.test"}}}
-			if err := services.NewNotificationService(p.repos.NotificationRepo, p.repos.MonitorNotificationRepo).Create(t.Context(), notif); err != nil {
+			notificationSvc := services.NewNotificationService(p.repos.NotificationRepo, p.repos.MonitorNotificationRepo)
+			sender, ok := notifier.Get("smtp")
+			if !ok {
+				t.Fatal("SMTP provider is not registered")
+			}
+			notificationSvc.RegisterSender(sender)
+			if err := notificationSvc.Create(t.Context(), notif); err != nil {
 				t.Fatal(err)
 			}
 			if err := p.repos.MonitorNotificationRepo.Attach(t.Context(), p.monitor.ID, notif.ID, true); err != nil {

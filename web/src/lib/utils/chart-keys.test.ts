@@ -32,8 +32,14 @@ describe("uniqueKeys", () => {
   });
 
   test("suffixed keys cannot collide with a natural key", () => {
-    const keys = uniqueKeys([5, 5, 6], (n) => n);
-    expect(new Set(keys).size).toBe(3);
+    for (const items of [
+      ["a", "a", "a#1"],
+      ["a", "a#1", "a"],
+      ["a#1", "a", "a", "a#1#1", "a"],
+    ]) {
+      const keys = uniqueKeys(items, (s) => s);
+      expect(new Set(keys).size).toBe(items.length);
+    }
   });
 
   test("empty input", () => {

@@ -30,6 +30,8 @@ func TestMonitorSemanticValidation(t *testing.T) {
 		{"out-of-range status code", base(map[string]any{"accepted_statuscodes": []string{"600"}})},
 		{"reversed status range", base(map[string]any{"accepted_statuscodes": []string{"300-200"}})},
 		{"half-open status range", base(map[string]any{"accepted_statuscodes": []string{"200-"}})},
+		{"padded exact status", base(map[string]any{"accepted_statuscodes": []string{" 200"}})},
+		{"padded status range", base(map[string]any{"accepted_statuscodes": []string{"200 - 299"}})},
 		{"dns bogus record type", map[string]any{"name": "d", "type": "dns", "interval": 60, "timeout": 30,
 			"config": map[string]any{"hostname": "example.com", "resolve_type": "BOGUS"}}},
 		{"dns non-string record type", map[string]any{"name": "d", "type": "dns", "interval": 60, "timeout": 30,
@@ -69,8 +71,10 @@ func TestMonitorSemanticValidation(t *testing.T) {
 		if rec := h.do(t, http.MethodPut, "/api/monitors/"+id, map[string]any{"interval": 20}); rec.Code != http.StatusBadRequest {
 			t.Fatalf("PUT interval 20 over timeout 30 = %d; want 400", rec.Code)
 		}
-		if rec := h.do(t, http.MethodPut, "/api/monitors/"+id, map[string]any{"accepted_statuscodes": []string{"abc"}}); rec.Code != http.StatusBadRequest {
-			t.Fatalf("PUT bad status code = %d; want 400", rec.Code)
+		for _, rule := range []string{"abc", " 200", "200 - 299"} {
+			if rec := h.do(t, http.MethodPut, "/api/monitors/"+id, map[string]any{"accepted_statuscodes": []string{rule}}); rec.Code != http.StatusBadRequest {
+				t.Fatalf("PUT status code %q = %d; want 400", rule, rec.Code)
+			}
 		}
 		if rec := h.do(t, http.MethodPut, "/api/monitors/"+id, map[string]any{"active": false}); rec.Code != http.StatusOK {
 			t.Fatalf("PUT pause = %d; want 200", rec.Code)

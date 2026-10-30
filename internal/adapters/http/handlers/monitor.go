@@ -301,7 +301,7 @@ func validateMonitorTiming(interval int, timeout float64) error {
 // in 100-599 and low <= high. Anything else could never match (GitHub #118).
 func validateAcceptedStatusCodes(codes []string) error {
 	parse := func(s string) (int, bool) {
-		n, err := strconv.Atoi(strings.TrimSpace(s))
+		n, err := strconv.Atoi(s)
 		return n, err == nil && n >= 100 && n <= 599
 	}
 	for _, rule := range codes {

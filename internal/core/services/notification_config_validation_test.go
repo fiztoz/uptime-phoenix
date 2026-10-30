@@ -40,7 +40,7 @@ func TestNotificationConfigIsValidatedBeforeSave(t *testing.T) {
 		{"provider rejects config", domain.Notification{UserID: 1, Name: "x", Type: "webhook", Config: map[string]any{}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			svc, _ := newSvc()
+			svc, repo := newSvc()
 			n := tc.n
 			if err := svc.Create(ctx, &n); !errors.Is(err, domain.ErrValidation) {
 				t.Fatalf("Create = %v; want ErrValidation", err)
@@ -50,13 +50,38 @@ func TestNotificationConfigIsValidatedBeforeSave(t *testing.T) {
 			if err := svc.Update(ctx, &n); !errors.Is(err, domain.ErrValidation) {
 				t.Fatalf("Update = %v; want ErrValidation", err)
 			}
+			if saved, err := repo.ListAll(ctx); err != nil || len(saved) != 0 {
+				t.Fatalf("invalid config persisted: count=%d error=%v", len(saved), err)
+			}
 		})
 	}
+	t.Run("empty registry fails closed", func(t *testing.T) {
+		for _, op := range []string{"create", "update"} {
+			repo := newFakeNotifRepo()
+			svc := NewNotificationService(repo, newFakeMonitorNotifLinkRepo())
+			n := domain.Notification{ID: 1, UserID: 1, Name: "x", Type: "webhook", Config: map[string]any{"url": "https://example.test"}}
+			var err error
+			if op == "create" {
+				err = svc.Create(ctx, &n)
+			} else {
+				err = svc.Update(ctx, &n)
+			}
+			if !errors.Is(err, domain.ErrValidation) {
+				t.Fatalf("%s with no registered sender = %v; want ErrValidation", op, err)
+			}
+			if saved, err := repo.ListAll(ctx); err != nil || len(saved) != 0 {
+				t.Fatalf("unconfigured service persisted a notification: count=%d error=%v", len(saved), err)
+			}
+		}
+	})
 	t.Run("valid config saves", func(t *testing.T) {
-		svc, _ := newSvc()
+		svc, repo := newSvc()
 		n := domain.Notification{UserID: 1, Name: "ok", Type: "webhook", Config: map[string]any{"url": "https://example.test"}}
 		if err := svc.Create(ctx, &n); err != nil {
 			t.Fatalf("Create valid = %v", err)
+		}
+		if saved, err := repo.GetByID(ctx, n.ID); err != nil || saved == nil || saved.Name != n.Name {
+			t.Fatalf("valid config not persisted: error=%v", err)
 		}
 	})
 }
