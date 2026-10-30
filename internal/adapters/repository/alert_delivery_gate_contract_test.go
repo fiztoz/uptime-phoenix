@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/echo/v4"
+
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/auth"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/checker"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/eventbus"
@@ -20,7 +22,6 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
-	"github.com/labstack/echo/v4"
 )
 
 // TestAlertDeliveryGateContract proves #119 end to end on both engines,
