@@ -244,7 +244,9 @@ func toProbeView(entry services.ProbeFleetEntry) ProbeView {
 	view.AppliedConfigRevision = fleetCounter(summary.AppliedConfigRevision)
 	// agent_version, protocol_version, queue_bytes and oldest_queued_at have no
 	// safe evidence source yet. They stay null; null is unreported, never an
-	// implicit healthy default.
+	// implicit healthy default. The probe does send queue_bytes in its health
+	// frame (probe.DecodeHealth), but that value is self-reported and is not
+	// persisted, so the hub does not surface it as fleet evidence (#126).
 	return view
 }
 
