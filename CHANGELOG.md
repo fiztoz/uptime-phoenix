@@ -47,6 +47,14 @@ at the bottom.
   each one until the process exited. The loop and the stats worker now exit
   when the bus closes, without logging.
 
+- **Push monitors go DOWN when pushes stop (#161).** The scheduler no longer
+  records the passive checker's "awaiting first push" PENDING every interval
+  (which also flipped UP/PENDING as important rows). It records nothing while
+  the latest push is younger than the monitor's interval, and a DOWN
+  ("push: no push received in the last Ns", retries apply) once it is older,
+  so a stopped pusher alerts and the next push recovers it to UP. A new push
+  monitor gets one interval from creation before it can go DOWN.
+
 - `alert_delivery: aggregate` or `both` is now refused with 400
   (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.
   Previously it was stored and reported but never paged (#119). The gate covers
