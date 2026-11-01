@@ -22,15 +22,18 @@ type Config struct {
 	// MariaDB pool. Ignored for SQLite (which is one connection). The idle
 	// timeout keeps returned sessions from sitting on the server until
 	// ConnMaxLifetime.
-	DBMaxOpenConns           int    `env:"DB_MAX_OPEN_CONNS" envDefault:"10"`
-	DBMaxIdleConns           int    `env:"DB_MAX_IDLE_CONNS" envDefault:"2"`
-	DBConnMaxIdleSeconds     int    `env:"DB_CONN_MAX_IDLE_SECONDS" envDefault:"30"`
-	DBConnMaxLifetimeSeconds int    `env:"DB_CONN_MAX_LIFETIME_SECONDS" envDefault:"300"`
-	JWTSecret                string `env:"JWT_SECRET"` // required; see validateJWTSecret
-	JWTExpireH               int    `env:"JWT_EXPIRE_HOURS" envDefault:"24"`
-	TOTPIssuer               string `env:"TOTP_ISSUER" envDefault:"Phoenix"`
-	Production               bool   `env:"PRODUCTION" envDefault:"false"`
-	RedisURL                 string `env:"REDIS_URL" envDefault:""`
+	DBMaxOpenConns           int `env:"DB_MAX_OPEN_CONNS" envDefault:"10"`
+	DBMaxIdleConns           int `env:"DB_MAX_IDLE_CONNS" envDefault:"2"`
+	DBConnMaxIdleSeconds     int `env:"DB_CONN_MAX_IDLE_SECONDS" envDefault:"30"`
+	DBConnMaxLifetimeSeconds int `env:"DB_CONN_MAX_LIFETIME_SECONDS" envDefault:"300"`
+	// How long startup keeps retrying an unreachable MariaDB (refused or
+	// timed-out connection) with backoff before exiting. 0 = one attempt.
+	DBConnectTimeoutSeconds int    `env:"DB_CONNECT_TIMEOUT_SECONDS" envDefault:"60"`
+	JWTSecret               string `env:"JWT_SECRET"` // required; see validateJWTSecret
+	JWTExpireH              int    `env:"JWT_EXPIRE_HOURS" envDefault:"24"`
+	TOTPIssuer              string `env:"TOTP_ISSUER" envDefault:"Phoenix"`
+	Production              bool   `env:"PRODUCTION" envDefault:"false"`
+	RedisURL                string `env:"REDIS_URL" envDefault:""`
 
 	// PublicURL is the absolute public origin (http/https) used in status-page
 	// subscription emails (confirmation / unsubscribe links). Empty disables

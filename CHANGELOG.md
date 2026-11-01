@@ -40,6 +40,13 @@ at the bottom.
 
 ### Fixed
 
+- **Startup waits for MariaDB instead of exiting (#163).** When the database is
+  not accepting connections yet (for example right after a host reboot),
+  Phoenix retries the connection with backoff (500 ms doubling to 5 s) for up
+  to `DB_CONNECT_TIMEOUT_SECONDS` (default 60; 0 = one attempt), logging a
+  warning per failed attempt. Errors the server returns, such as bad
+  credentials or an unknown database, still fail immediately.
+
 - **The WebSocket hub stops cleanly on shutdown (#165).** Closing the event
   bus closes every subscriber channel; the hub's fan-out loop kept reading
   zero-value events from them in a hot loop and logged a
