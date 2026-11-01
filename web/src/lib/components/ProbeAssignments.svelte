@@ -12,6 +12,7 @@
   } from "#lib/api/regional.js";
   import type { MonitorInitialAssignments } from "#lib/api/monitors.js";
   import { probeWriteErrorMessage } from "#lib/probe-errors.js";
+  import { alertDeliveryMessageKey } from "#lib/alert-delivery-text.js";
   import ProbeStatus from "./ProbeStatus.svelte";
   import * as m from "#lib/paraglide/messages.js";
   let {
@@ -258,7 +259,7 @@
         ></label
       >
       <p class="text-xs text-muted-foreground">
-        {m.probes_regional_delivery()}
+        {m[alertDeliveryMessageKey(baseline?.alert_delivery)]()}
       </p>
       {#if baseline?.alert_delivery_pending}
         <p class="text-xs text-muted-foreground" role="status">
