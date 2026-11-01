@@ -188,6 +188,11 @@ REQUIRED |= {
 REQUIRED |= {"TestProbeWatchdogSettingsAPIContract/mariadb"}
 
 
+# The aggregate paging gate (#119) must refuse, with no partial writes, on
+# real MariaDB through the production router and stores.
+REQUIRED |= {"TestAlertDeliveryGateContract/mariadb"}
+
+
 INSTALL_JOURNAL_REQUIRED = {
     f"TestM8InstallJournalStore/mariadb/{case}"
     for case in (

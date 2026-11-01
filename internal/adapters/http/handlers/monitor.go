@@ -463,6 +463,8 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 	if initial != nil {
 		if err := h.svc.CreateWithAssignments(c.Request().Context(), monitor, *initial); err != nil {
 			switch {
+			case errors.Is(err, services.ErrAggregatePagingDisabled):
+				return regionalWriteError(c, err)
 			case errors.Is(err, services.ErrInvalidProbeIDs), errors.Is(err, services.ErrInvalidPolicy),
 				errors.Is(err, services.ErrInvalidDelivery), errors.Is(err, services.ErrInvalidBindings):
 				return badRequest(c, err.Error())
@@ -841,6 +843,12 @@ func (h *MonitorHandlers) Clone(c echo.Context) error {
 		// execution; the caller must be an admin to reproduce remote membership.
 		if errors.Is(err, services.ErrRemoteCloneForbidden) {
 			return c.JSON(http.StatusForbidden, errorBody("cloning a monitor assigned to remote probes requires admin"))
+		}
+		// The source's mode is a new request for the clone; it is refused,
+		// not copied or downgraded, while aggregate paging is off (#119).
+		if errors.Is(err, services.ErrAggregatePagingDisabled) {
+			return regionalError(c, http.StatusBadRequest, "aggregate_paging_disabled",
+				"the source monitor's alert_delivery needs aggregate paging, which is disabled on this hub; set the source to regional or enable PROBES_AGGREGATE_PAGING_ENABLED, then clone")
 		}
 		return mapMonitorError(c, err)
 	}
