@@ -143,7 +143,8 @@ func hasConfigSpec(doc *services.ConfigDocument) bool {
 
 func mapConfigError(c echo.Context, err error) error {
 	switch {
-	case errors.Is(err, services.ErrFleetNotAssignmentAware), errors.Is(err, services.ErrFleetReadinessUnavailable):
+	case errors.Is(err, services.ErrFleetNotAssignmentAware), errors.Is(err, services.ErrFleetReadinessUnavailable),
+		errors.Is(err, services.ErrAggregatePagingDisabled):
 		return regionalWriteError(c, err)
 	case errors.Is(err, domain.ErrValidation):
 		return c.JSON(http.StatusBadRequest, errorBody(err.Error()))

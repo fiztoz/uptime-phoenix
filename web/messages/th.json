@@ -986,6 +986,8 @@
   "probes_enrollment": "การลงทะเบียน",
   "probes_last_seen": "พบล่าสุด",
   "probes_unreported": "ยังไม่มีรายงาน",
+  "probes_not_tracked": "ฮับยังไม่ได้ติดตามค่านี้",
+  "probes_queue_empty": "ไม่มีข้อมูลค้างในคิว",
   "probes_back": "กลับไปยังโพรบ",
   "probes_save": "บันทึกการเปลี่ยนแปลง",
   "probes_saving": "กำลังบันทึก…",

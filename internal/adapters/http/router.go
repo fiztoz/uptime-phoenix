@@ -39,6 +39,9 @@ type RouterOptions struct {
 	// (protocol section 7). A nil handler keeps the routes registered but
 	// unavailable; operation routes never fake a 202.
 	ProbeAdmin *handlers.ProbeAdminHandlers
+	// ProbeWatchdog reads and replaces per-probe offline-alert settings, the
+	// HTTP twin of `phoenix-probe-admin watchdog`. Nil answers a typed 501.
+	ProbeWatchdog *handlers.ProbeWatchdogHandlers
 	// ProbePreflights is optional asynchronous discovery, never installation.
 	// Nil keeps the authenticated routes registered with typed unavailability.
 	ProbePreflights *handlers.ProbePreflightHandlers
@@ -252,6 +255,12 @@ func NewRouter(
 		probeGroup.POST("/:probe_id/reset-stream", admin.ResetStream)
 		probeGroup.POST("/:probe_id/revoke", admin.Revoke)
 		probeGroup.DELETE("/:probe_id", admin.Delete)
+		watchdog := opts.ProbeWatchdog
+		if watchdog == nil {
+			watchdog = handlers.NewProbeWatchdogHandlers(nil, false)
+		}
+		probeGroup.GET("/:probe_id/watchdog", watchdog.Get)
+		probeGroup.PUT("/:probe_id/watchdog", watchdog.Replace)
 		e.GET("/api/probe-operations/:operation_id", admin.Operation,
 			middleware.SessionOrAPIKey(authSvc, apiKeyRepo, "write"), requireAdmin)
 
