@@ -170,14 +170,14 @@ This is an estimate from on-demand list prices, not billing data. The free tier 
 
 ## Follow-up candidates
 
-Bugs 1–5 are being filed separately.
+Bugs 1–5 are tracked as issues.
 
-1. **Push monitor never goes DOWN.** (issue: TBD) The checker reports `push: awaiting first push` despite
+1. **Push monitor never goes DOWN.** ([#161](https://github.com/fiztoz/uptime-phoenix/issues/161)) The checker reports `push: awaiting first push` despite
    received pushes, so push-pause faults don't alert (#9 and #19).
-2. **Heartbeats lost to MariaDB `Error 1020` on `probe_dirty_buckets` with probes disabled.** (issue: TBD)
+2. **Heartbeats lost to MariaDB `Error 1020` on `probe_dirty_buckets` with probes disabled.** ([#162](https://github.com/fiztoz/uptime-phoenix/issues/162))
    The write is not retried; 10 heartbeats were lost.
-3. **The app exits instead of retrying** (issue: TBD) when MariaDB is not yet reachable at boot.
-4. **The push endpoint returns 404 during a DB outage** (issue: TBD) (503 expected), and two 500s had no log line.
-5. **(Low)** (issue: TBD) WARN burst `ws hub: dropping event with no resolvable monitor id` on shutdown.
+3. **The app exits instead of retrying** ([#163](https://github.com/fiztoz/uptime-phoenix/issues/163)) when MariaDB is not yet reachable at boot.
+4. **The push endpoint returns 404 during a DB outage** ([#164](https://github.com/fiztoz/uptime-phoenix/issues/164)) (503 expected), and two 500s had no log line.
+5. **(Low)** ([#165](https://github.com/fiztoz/uptime-phoenix/issues/165)) WARN burst `ws hub: dropping event with no resolvable monitor id` on shutdown.
 
 Watch item (tracked here only, no issue): linear MariaDB container memory growth of about 48–75 MB/day. A longer run with a fixed `innodb_buffer_pool_size` and cache-excluded RSS would separate cache from a leak.
