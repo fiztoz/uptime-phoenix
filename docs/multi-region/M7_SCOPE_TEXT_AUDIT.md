@@ -9,10 +9,10 @@ PLAN §10 item 5 says: "Explain regional versus aggregate scope in channel confi
 | Surface | Regional delivery | Aggregate delivery | Source |
 |---|---|---|---|
 | Alert title | `<monitor> is DOWN` | `<monitor> is DOWN` (same) | `internal/adapters/notifier/alert_format.go` `alertTitle` |
-| Plain-text body | message + `Region: <probe> (<location>)` | `AGGREGATE <monitor> (<policy>): <region>: <status>, …` | `alertBody` (lines 75-83); `internal/core/services/operative_delivery_service.go:142` |
-| Webhook JSON | `delivery_scope: "regional"`, `probe{…}`, `source_alert_id` | **no `delivery_scope`, no `source_alert_id`** | `webhookEventPayload` (lines 149-152) |
+| Plain-text body | message + `Region: <probe> (<location>)` | `AGGREGATE <monitor> (<policy>): <region>: <status>, …` | `alertBody`; `aggregateAlertContext` in `internal/core/services/operative_delivery_service.go` |
+| Webhook JSON | `delivery_scope: "regional"`, `probe{…}`, `source_alert_id` | **no `delivery_scope`, no `source_alert_id`** | `webhookEventPayload` |
 | Custom templates | `{{ .alert.delivery_scope }}` available | available | template context |
-| Monitor probe panel | "Alerts are delivered per region." | Still says "Alerts are delivered per region." If the mode is saved but not active, it also says "Aggregate paging is saved as desired and is not active. Regional alerts continue." | `web/src/lib/components/ProbeAssignments.svelte:260-267`, `web/messages/en.json:1036-1037` |
+| Monitor probe panel | "Alerts are delivered per region." | Still says "Alerts are delivered per region." If the mode is saved but not active, it also says "Aggregate paging is saved as desired and is not active. Regional alerts continue." | `web/src/lib/components/ProbeAssignments.svelte`, `web/messages/en.json` |
 | Notification channel configuration | nothing about scope | nothing about scope | `web/src/routes/(admin)/notifications` |
 
 To reproduce the alert text, put a throwaway `_test.go` in `internal/adapters/notifier` that calls `alertTitle`, `alertBody` and `webhookEventPayload` with `DeliveryScope` set to `regional` and then `aggregate`. Run it with `go test -run … -v`.
