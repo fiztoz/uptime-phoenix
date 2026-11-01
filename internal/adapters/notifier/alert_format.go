@@ -58,7 +58,16 @@ func alertTitle(alert domain.AlertContext) string {
 			return fmt.Sprintf("Capacity warning: %s — %s", alert.MonitorName, label)
 		}
 	}
-	return fmt.Sprintf("%s is %s", alert.MonitorName, alert.Status)
+	return fmt.Sprintf("%s is %s%s", alert.MonitorName, alert.Status, aggregateTitleSuffix(alert))
+}
+
+// aggregateTitleSuffix marks a hub aggregate page so a receiver that keys on
+// the title can tell it apart from the per-region pages in `both` mode.
+func aggregateTitleSuffix(alert domain.AlertContext) string {
+	if alert.DeliveryScope == domain.IncidentScopeAggregate {
+		return " (aggregate)"
+	}
+	return ""
 }
 
 // alertTitleWithPrefix is like alertTitle but with a leading product prefix
@@ -67,7 +76,7 @@ func alertTitleWithPrefix(prefix string, alert domain.AlertContext) string {
 	if isAuxiliaryAlert(alert) {
 		return strings.TrimSpace(prefix) + " " + alertTitle(alert)
 	}
-	return fmt.Sprintf("%s %s is %s", prefix, alert.MonitorName, alert.Status)
+	return fmt.Sprintf("%s %s is %s%s", prefix, alert.MonitorName, alert.Status, aggregateTitleSuffix(alert))
 }
 
 // alertBody expands the human-readable body. Certificate events include
@@ -148,6 +157,8 @@ func webhookEventPayload(alert domain.AlertContext) map[string]any {
 	}
 	if isProbeConnection(alert) || alert.DeliveryScope == domain.IncidentScopeRegional && alert.ProbeID != "" {
 		body["probe"] = map[string]any{"id": alert.ProbeID, "name": alert.ProbeName, "location": alert.ProbeLocation}
+		body["delivery_scope"], body["source_alert_id"] = alert.DeliveryScope, alert.SourceAlertID
+	} else if alert.DeliveryScope == domain.IncidentScopeAggregate {
 		body["delivery_scope"], body["source_alert_id"] = alert.DeliveryScope, alert.SourceAlertID
 	}
 	if isCertificateExpiry(alert) {
