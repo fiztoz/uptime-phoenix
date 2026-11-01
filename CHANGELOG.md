@@ -46,6 +46,11 @@ at the bottom.
   `ws hub: dropping event with no resolvable monitor id type=""` warning for
   each one until the process exited. The loop and the stats worker now exit
   when the bus closes, without logging.
+- **Aggregate alerts identify their scope (#174).** Aggregate webhook bodies
+  now carry `delivery_scope: "aggregate"` and the aggregate `source_alert_id`,
+  and aggregate titles end in ` (aggregate)` (`api is DOWN (aggregate)`), so a
+  receiver in `both` mode can route and dedupe the hub page apart from the
+  per-region pages. Regional and unscoped local alerts are unchanged.
 
 - `alert_delivery: aggregate` or `both` is now refused with 400
   (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.
