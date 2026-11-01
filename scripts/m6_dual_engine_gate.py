@@ -183,6 +183,10 @@ REQUIRED |= {
 } | {"TestM8PreflightAPI/mariadb", "TestM8PreflightClockAfterAuthorityLock/mariadb"}
 
 
+# #133: remote last seen is persisted, fenced, hub-observed contact.
+REQUIRED |= {"TestProbeLastContactContract/mariadb"}
+
+
 # TOTP replay protection (#123) is enforced by the database: each scenario
 # must pass on real MariaDB, not only on SQLite or a skipped parent.
 REQUIRED |= {

@@ -135,6 +135,11 @@ type Hub struct {
 	// waits on the recompute. This is the decoupling that keeps heartbeat delivery
 	// off the database's critical path.
 	statsTrigger chan struct{}
+
+	// listenDone and statsDone are closed when listen and statsWorker return,
+	// which happens once the bus closes its subscriber channels on shutdown.
+	listenDone chan struct{}
+	statsDone  chan struct{}
 	// statsDebounce is settable so tests do not have to sleep out the production
 	// window. Zero means "use statsDebounce".
 	statsWindow time.Duration
@@ -184,6 +189,8 @@ func NewHub(
 		log:           log,
 		ready:         make(chan struct{}),
 		statsTrigger:  make(chan struct{}, 1),
+		listenDone:    make(chan struct{}),
+		statsDone:     make(chan struct{}),
 	}
 	// Prefer the batched lookup when the repository offers it. Both production
 	// adapters do (they carry compile-time assertions); the fallback exists for
@@ -257,9 +264,25 @@ func (h *Hub) listen() {
 	commandCh := h.bus.Subscribe(EventProbeCommandStatus)
 	close(h.ready)
 
+	// The bus closes every subscriber channel on shutdown. A closed channel is
+	// always ready and yields zero-value events, so without the ok checks below
+	// this loop spun at full speed after shutdown and warned about every
+	// zero-value event it "received" (#165). Any closed channel means the bus is
+	// gone: stop fan-out and let the stats worker exit too. listen is the only
+	// sender on statsTrigger, so closing it here is safe.
+	defer close(h.listenDone)
+	defer close(h.statsTrigger)
+
 	for {
+		var (
+			ev ports.Event
+			ok bool
+		)
 		select {
-		case ev := <-accessCh:
+		case ev, ok = <-accessCh:
+			if !ok {
+				return
+			}
 			if fields, ok := ev.Payload.(map[string]any); ok && h.access != nil {
 				userID := extractInt64(fields, "user_id")
 				h.access.ClearCachedPermissions(userID)
@@ -273,15 +296,27 @@ func (h *Hub) listen() {
 					}
 				}
 			}
-		case ev := <-commandCh:
+		case ev, ok = <-commandCh:
+			if !ok {
+				return
+			}
 			h.BroadcastRegional(ev)
-		case ev := <-heartbeatCh:
+		case ev, ok = <-heartbeatCh:
+			if !ok {
+				return
+			}
 			h.broadcast(ev)
-		case ev := <-statusCh:
+		case ev, ok = <-statusCh:
+			if !ok {
+				return
+			}
 			h.broadcast(ev)
 			// Badge counters are eventually consistent by design — see statsDebounce.
 			h.requestStatsUpdate()
-		case ev := <-monitorCh:
+		case ev, ok = <-monitorCh:
+			if !ok {
+				return
+			}
 			// A monitor's group can change here, which changes who can see it, so
 			// every client's cached visibility is stale as of now.
 			h.invalidateVisibility()
@@ -289,15 +324,24 @@ func (h *Hub) listen() {
 			// frontend doesn't get stuck on "pending" after creation.
 			h.broadcastMonitorUpdate(ev)
 			h.requestStatsUpdate()
-		case ev := <-monitorDelCh:
+		case ev, ok = <-monitorDelCh:
+			if !ok {
+				return
+			}
 			// The deleted monitor must drop out of every cached set, or a client
 			// keeps counting a monitor that no longer exists.
 			h.invalidateVisibility()
 			h.broadcast(ev)
 			h.requestStatsUpdate()
-		case ev := <-conditionCh:
+		case ev, ok = <-conditionCh:
+			if !ok {
+				return
+			}
 			h.broadcast(ev)
-		case ev := <-conditionDeleteCh:
+		case ev, ok = <-conditionDeleteCh:
+			if !ok {
+				return
+			}
 			h.broadcast(ev)
 		}
 	}
@@ -324,6 +368,7 @@ func (h *Hub) requestStatsUpdate() {
 // is also the only recompute whose numbers are still correct by the time they
 // reach the client.
 func (h *Hub) statsWorker() {
+	defer close(h.statsDone)
 	for range h.statsTrigger {
 		window := h.statsWindow
 		if window <= 0 {

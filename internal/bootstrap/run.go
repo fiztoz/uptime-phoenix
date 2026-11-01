@@ -575,6 +575,7 @@ func Run(cfg Config) error {
 		replay.SetBrowserPublisher(browserPublisher)
 		replay.SetStatusPageRecovery(healthSvc, statusPageSvc)
 		connector.SetReplayIngest(replay)
+		connector.SetContactRecorder(connections)
 		connector.SetCredentialRotation(commandStore)
 		connector.SetCertificateRotation(commandStore)
 		connector.SetStreamReset(repo.NewProbeStreamResetStore(db, protector, credentialProtector, probe.StreamResetCodec{}))
@@ -984,12 +985,16 @@ func splitAndTrim(csv string) []string {
 func openDB(cfg Config, log *logger.SlogLogger) (*bun.DB, error) {
 	switch cfg.DBEngine {
 	case "mariadb":
-		db, err := mariadbrepo.NewDBWithPool(cfg.DBDSN, mariadbrepo.PoolSettings{
+		retry := mariadbrepo.DefaultConnectRetry(time.Duration(cfg.DBConnectTimeoutSeconds) * time.Second)
+		retry.OnRetry = func(attempt int, wait time.Duration, err error) {
+			log.Warn("mariadb not reachable yet; retrying", "attempt", attempt, "retry_in", wait.String(), "error", err)
+		}
+		db, err := mariadbrepo.NewDBWithRetry(context.Background(), cfg.DBDSN, mariadbrepo.PoolSettings{
 			MaxOpenConns:    cfg.DBMaxOpenConns,
 			MaxIdleConns:    cfg.DBMaxIdleConns,
 			ConnMaxIdleTime: time.Duration(cfg.DBConnMaxIdleSeconds) * time.Second,
 			ConnMaxLifetime: time.Duration(cfg.DBConnMaxLifetimeSeconds) * time.Second,
-		})
+		}, retry)
 		if err != nil {
 			log.Error("failed to connect to mariadb", "error", err)
 			return nil, err

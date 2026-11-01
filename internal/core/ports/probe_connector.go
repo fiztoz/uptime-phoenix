@@ -16,3 +16,12 @@ type ProbeConnectorLeaseRepository interface {
 	ReleaseConnector(ctx context.Context, lease domain.ProbeConnectorLease) error
 	SetConnectorConnected(ctx context.Context, lease domain.ProbeConnectorLease, connected bool) error
 }
+
+// ProbeConnectorContactRecorder persists hub-observed probe contact for one
+// fenced connector session. Implementations stamp the hub database clock, refuse
+// stale or expired sessions with ErrConflict and never move the value backward.
+// Hub-side maintenance (lease renewal, configuration refresh, the watchdog) must
+// never call it: only an authenticated frame the owning hub accepted is contact.
+type ProbeConnectorContactRecorder interface {
+	RecordConnectorContact(ctx context.Context, lease domain.ProbeConnectorLease) error
+}

@@ -28,6 +28,7 @@ type ProbeConnectorService struct {
 	resets          ports.ProbeStreamResetRepository
 	certificates    ports.ProbeCertificateRotationRepository
 	watchdogFactory func(context.Context, domain.ProbeRuntimeLease) (*ProbeWatchdogRuntime, error)
+	contacts        ports.ProbeConnectorContactRecorder
 	hubID, ownerID  string
 	delay           func(int, time.Duration) time.Duration
 }
@@ -42,6 +43,13 @@ func (s *ProbeConnectorService) SetWatchdogFactory(factory func(context.Context,
 	}
 	s.watchdogFactory = factory
 	return nil
+}
+
+// SetContactRecorder enables persisted hub-observed last contact. Configure it
+// before Run. Only an authenticated health frame this session accepted is
+// recorded; renewal, configuration refresh and the watchdog never are.
+func (s *ProbeConnectorService) SetContactRecorder(contacts ports.ProbeConnectorContactRecorder) {
+	s.contacts = contacts
 }
 
 // SetConfigSync enables automatic desired-state reconciliation and durable
@@ -386,6 +394,13 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 				if err := s.resets.ConfirmStreamReset(callbackCtx, replaySession, connection.ProbeCredentialMetadata, pin); err != nil {
 					return err
 				}
+			}
+			if s.contacts != nil {
+				// The transport invokes this callback for every authenticated
+				// health frame it accepted, so this is hub-observed contact.
+				// The record is diagnostic evidence only: its failure must not
+				// end a session whose fenced authority writes just succeeded.
+				_ = s.contacts.RecordConnectorContact(callbackCtx, lease)
 			}
 			if connectedAt.IsZero() {
 				connectedAt = time.Now()

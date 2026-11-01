@@ -49,6 +49,10 @@ type ProbeSessionFacts struct {
 	Generation int64
 	LeaseUntil time.Time
 	Connected  bool
+	// LastContactAt is the hub DB clock (whole seconds) at which the owning hub
+	// last accepted an authenticated health frame from the probe. Nil when no
+	// contact has been recorded. It freezes while the probe is disconnected.
+	LastContactAt *time.Time
 }
 
 // ProbeRuntimeFacts is the runtime (execution) lease evidence: the durable
