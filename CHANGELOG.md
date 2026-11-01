@@ -11,8 +11,44 @@ at the bottom.
 
 ## [Unreleased]
 
+### Security
+
+- **TOTP codes are single-use, and turning 2FA off needs a current code
+  (#123).** Each accepted code's time step is consumed atomically in the
+  database (migration `090`), so a code that completed a sign-in, confirmed
+  enrolment or disabled 2FA is refused if it is presented again, across
+  tickets, hubs and restarts. `POST /api/auth/disable-2fa` now requires a
+  current authenticator code in `token` as well as `password`; a missing code
+  returns 400 and a wrong or already-used code returns 401, leaving 2FA on. The
+  password is checked first, so a wrong password does not burn the code. The
+  settings page asks for the code next to the password. API clients that
+  disable 2FA must send the new field.
+
+### Added
+
+- `GET`/`PUT /api/probes/:probe_id/watchdog` (admin session or admin
+  write-scope API key) reads and replaces a probe's offline-alert watchdog
+  settings, so probes enrolled through the API or UI can turn on probe-down
+  alerts without `phoenix-probe-admin` (#120). The watchdog stays off until an
+  explicit PUT; `expected_revision`, `enabled` and `notification_ids` are
+  required, omitted timings take the same defaults as `phoenix-probe-admin
+  watchdog` (90 s lost, 30 s recover, no resend, from one shared source), and
+  enrollment never picks channels. Unknown fields and explicit nulls are
+  rejected. A save is the desired setting only, not an
+  applied receipt. Stale revisions and disabled probes answer 409, an unwired
+  hub answers 501, and `PROBES_ENABLED=false` answers 503.
+
 ### Fixed
 
+- `alert_delivery: aggregate` or `both` is now refused with 400
+  (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.
+  Previously it was stored and reported but never paged (#119). The gate covers
+  assignment replace, monitor clone, and config-as-code plan and apply: plan
+  reports the monitor as invalid and apply writes nothing. A clone is a new
+  monitor, so cloning a source whose stored mode is aggregate or both is refused
+  until the source is set to regional or the flag is on. An existing stored mode
+  is kept: edits that omit or echo it still work, and moving it to regional is
+  always allowed. With the flag on, both modes are accepted everywhere.
 - **probes:** a remote probe's `last_seen_at` is now the persisted time the hub
   last accepted an authenticated health frame from it (migration 091,
   `probe_sessions.last_contact_at`). It is fenced to the live session

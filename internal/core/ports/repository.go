@@ -376,6 +376,28 @@ type UserRepository interface {
 	Count(ctx context.Context) (int64, error)
 	// List returns every user ordered by id ascending.
 	List(ctx context.Context) ([]*domain.User, error)
+
+	// TOTP credential state is never written by Update: an ordinary
+	// profile/admin update from a stale snapshot must not revert a rotated
+	// secret, re-enable 2FA or rewind replay protection. Only the three
+	// methods below change it, each as one conditional statement.
+
+	// ReplaceTOTPCredential stores secret ("" clears it) with 2FA disabled,
+	// starts a new credential generation and resets the consumed step, all
+	// atomically. It returns ErrNotFound for an unknown user.
+	ReplaceTOTPCredential(ctx context.Context, userID int64, secret string) error
+	// ConsumeTOTPStep records step as used for the user's enabled credential.
+	// It succeeds (true) only while the user is active, 2FA is enabled, the
+	// credential is still generation and step is later than every step
+	// already consumed; concurrent callers on any number of replicas elect
+	// at most one winner. A false result with nil error means the code was
+	// replayed or the credential changed. A non-nil error is a storage
+	// failure and must fail closed.
+	ConsumeTOTPStep(ctx context.Context, userID, generation, step int64) (bool, error)
+	// ConfirmTOTPCredential is ConsumeTOTPStep for setup confirmation: it
+	// requires a non-empty, not-yet-enabled credential of generation and, in
+	// the same statement, consumes step and enables 2FA.
+	ConfirmTOTPCredential(ctx context.Context, userID, generation, step int64) (bool, error)
 }
 
 // MonitorNotificationRepository defines persistence for monitor-notification links.

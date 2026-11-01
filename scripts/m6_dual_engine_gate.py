@@ -186,6 +186,30 @@ REQUIRED |= {
 # #133: remote last seen is persisted, fenced, hub-observed contact.
 REQUIRED |= {"TestProbeLastContactContract/mariadb"}
 
+
+# TOTP replay protection (#123) is enforced by the database: each scenario
+# must pass on real MariaDB, not only on SQLite or a skipped parent.
+REQUIRED |= {
+    f"TestTOTPReplayContract/mariadb/{case}"
+    for case in (
+        "ConcurrentHubsSameStepExactlyOneWins", "ConcurrentConsumeSameStepExactlyOneWins",
+        "ReuseAfterRestartRefusedNewStepWorks", "SkewWindowIsDeterministic",
+        "RotationFencesStaleGeneration", "ProfileUpdateCannotRewriteTOTPState",
+        "DeactivatedUserCannotConsume", "StorageFailureFailsClosed", "Migration090DownUp",
+    )
+}
+
+
+# The probe watchdog settings API (#120) must hold its auth, validation,
+# revision and no-receipt contract on real MariaDB through the production router.
+REQUIRED |= {"TestProbeWatchdogSettingsAPIContract/mariadb"}
+
+
+# The aggregate paging gate (#119) must refuse, with no partial writes, on
+# real MariaDB through the production router and stores.
+REQUIRED |= {"TestAlertDeliveryGateContract/mariadb"}
+
+
 INSTALL_JOURNAL_REQUIRED = {
     f"TestM8InstallJournalStore/mariadb/{case}"
     for case in (

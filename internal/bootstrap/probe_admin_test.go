@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -315,5 +316,21 @@ func TestProbeAdminAssignConsultsTheFleetGate(t *testing.T) {
 	}
 	if !strings.Contains(block, "repos.hubWorkerReadiness") {
 		t.Fatal("the assign gate is not wired to the readiness store")
+	}
+}
+
+// TestProbeAdminWatchdogUsageMatchesSharedDefaults keeps the usage text in step
+// with domain.DefaultProbeWatchdogSettings, the one source of the watchdog
+// timing defaults that the CLI flags and the settings API both use (#120).
+func TestProbeAdminWatchdogUsageMatchesSharedDefaults(t *testing.T) {
+	d := domain.DefaultProbeWatchdogSettings()
+	for _, want := range []string{
+		fmt.Sprintf("[--lost-after-seconds %d]", d.LostAfterSeconds),
+		fmt.Sprintf("[--recover-after-seconds %d]", d.RecoverAfterSeconds),
+		fmt.Sprintf("[--resend-interval %d]", d.ResendInterval),
+	} {
+		if !strings.Contains(probeAdminUsage, want) {
+			t.Errorf("usage does not show the shared default %q", want)
+		}
 	}
 }
