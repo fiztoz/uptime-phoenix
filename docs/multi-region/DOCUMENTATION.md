@@ -27,7 +27,8 @@ log paths identify local execution artifacts; they are not portable dependencies
 ## Current validation reporting scope
 
 Keep one concise [validation summary](M6_VALIDATION_REPORT_2026-10-04.md) for
-this change. New UAT/load/cloud campaign scripts, session plans, raw logs,
+this change, plus the concise
+[single-node v0.6.2 soak report](LONGRUN_SOAK_REPORT_2026-11-01.md). New UAT/load/cloud campaign scripts, session plans, raw logs,
 JSON receipts and detailed reviews remain local and are not CI dependencies.
 Core regression tests, release/Helm tooling and product/operator documentation
 remain in version control. Existing historical checkpoint files are unchanged.

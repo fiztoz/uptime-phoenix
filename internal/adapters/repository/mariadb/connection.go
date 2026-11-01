@@ -1,12 +1,11 @@
 package mariadb
 
 import (
+	"context"
 	"database/sql"
-	"fmt"
 	"time"
 
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/mysqldialect"
 
 	// Register MariaDB driver.
 	_ "github.com/go-sql-driver/mysql"
@@ -62,20 +61,8 @@ func NewDB(dsn string) (*bun.DB, error) {
 	return NewDBWithPool(dsn, DefaultPool())
 }
 
-// NewDBWithPool opens a MariaDB connection using the given pool bounds.
+// NewDBWithPool opens a MariaDB connection using the given pool bounds and a
+// single ping. Startup uses NewDBWithRetry.
 func NewDBWithPool(dsn string, pool PoolSettings) (*bun.DB, error) {
-	sqldb, err := sql.Open("mysql", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("open mariadb: %w", err)
-	}
-
-	applyPool(sqldb, pool)
-
-	db := bun.NewDB(sqldb, mysqldialect.New())
-	if err := db.Ping(); err != nil {
-		_ = sqldb.Close()
-		return nil, fmt.Errorf("ping mariadb: %w", err)
-	}
-
-	return db, nil
+	return NewDBWithRetry(context.Background(), dsn, pool, ConnectRetry{})
 }

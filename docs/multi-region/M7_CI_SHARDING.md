@@ -35,7 +35,7 @@ contract surface and including future subpackages. Backend continues to run
 all other packages, build/vet/format/lint checks and vulnerability scanning.
 
 The stable `mariadb-contract` required check executes even after matrix failure
-or cancellation, checks the matrix result and verifies all four artifacts against
+or cancellation, checks the matrix result and verifies all five artifacts against
 a freshly compiled inventory and the exact workflow commit. It refuses missing,
 extra, duplicate, stale or partial reports, zero-selection/partial parent work,
 malformed events, unexpected packages/skips, any MariaDB skip and missing exact
@@ -43,7 +43,7 @@ required real-engine leaves. Parent/package passes or aggregate engine counts
 cannot replace required leaves. Artifacts contain only names, timings and
 provenance, not raw output, settings or credentials.
 
-The exact-SHA release gate requires the four expanded `repository-race-N` job
+The exact-SHA release gate requires the five expanded `repository-race-N` job
 names as well as all existing required checks. A green aggregate cannot hide a
 missing, failed, cancelled, skipped or pending shard. No branch protection policy
 is changed and no administrative bypass is introduced.
@@ -69,6 +69,12 @@ Observed hosted-runner times (not estimates):
 Every shard stayed below the unchanged 40-minute test timeout. Four shards are
 not unlimited capacity: use the observed parent timings to increase the matrix
 or rebalance work as the suite grows, before consuming this headroom.
+
+**Increased to five shards, 2026-11-01.** By then shard 1 took about 41 minutes of job
+time on main. The round-robin partition reassigns parents whenever a test name is
+added, so PR #171's new parents moved enough slow tests into shard 1 to exceed the
+40-minute test timeout twice. A fifth shard restores headroom without raising the
+timeout.
 
 The local `make gate-full` also passed on unchanged code/tooling inputs using
 Go 1.26.9: 22 backend package rows, 324 frontend tests, 27 browser tests, build,

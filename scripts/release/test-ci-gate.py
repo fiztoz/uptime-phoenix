@@ -28,7 +28,8 @@ import tempfile
 import textwrap
 
 REQUIRED_JOBS = ["backend", "frontend", "e2e", "mariadb-contract", "helm", "docker", "actionlint",
-                 "repository-race-0", "repository-race-1", "repository-race-2", "repository-race-3"]
+                 "repository-race-0", "repository-race-1", "repository-race-2", "repository-race-3",
+                 "repository-race-4"]
 PUBLISH_JOBS = ["publish_aio", "publish_split", "publish_probe", "publish_chart", "create_release"]
 GATE_STEP = "      - name: Require successful CI for the exact release commit"
 BIND_ACTION = "uses: ./.github/actions/bind-release-ref"

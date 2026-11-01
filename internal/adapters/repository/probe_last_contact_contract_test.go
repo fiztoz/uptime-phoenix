@@ -53,7 +53,7 @@ func TestProbeLastContactContract(t *testing.T) {
 			mustConflict := func(t *testing.T, name string, lease domain.ProbeConnectorLease) {
 				t.Helper()
 				before := contact(t)
-				if err := store.RecordConnectorContact(ctx, lease); !errors.Is(err, ports.ErrConflict) {
+				if err := store.RecordConnectorContact(ctx, lease, domain.ProbeQueueReport{}); !errors.Is(err, ports.ErrConflict) {
 					t.Fatalf("%s recorded contact: %v", name, err)
 				}
 				if after := contact(t); !equalTimePtr(before, after) {
@@ -86,7 +86,7 @@ func TestProbeLastContactContract(t *testing.T) {
 
 			// Phase: accepted contact stamps the hub DB clock in whole seconds.
 			lower := time.Now().UTC().Add(-5 * time.Second).Truncate(time.Second)
-			if err := store.RecordConnectorContact(ctx, first); err != nil {
+			if err := store.RecordConnectorContact(ctx, first, domain.ProbeQueueReport{}); err != nil {
 				t.Fatal(err)
 			}
 			upper := time.Now().UTC().Add(5 * time.Second)
@@ -102,7 +102,7 @@ func TestProbeLastContactContract(t *testing.T) {
 			// Phase: never backward. A later stored value wins over a new record.
 			future := time.Now().Add(time.Hour).Unix()
 			setRaw(t, future)
-			if err := store.RecordConnectorContact(ctx, first); err != nil {
+			if err := store.RecordConnectorContact(ctx, first, domain.ProbeQueueReport{}); err != nil {
 				t.Fatal(err)
 			}
 			if got := contact(t); got == nil || got.Unix() != future {
@@ -110,7 +110,7 @@ func TestProbeLastContactContract(t *testing.T) {
 			}
 			past := time.Now().Add(-10 * time.Minute).Unix()
 			setRaw(t, past)
-			if err := store.RecordConnectorContact(ctx, first); err != nil {
+			if err := store.RecordConnectorContact(ctx, first, domain.ProbeQueueReport{}); err != nil {
 				t.Fatal(err)
 			}
 			if got := contact(t); got == nil || got.Unix() <= past {
@@ -145,7 +145,7 @@ func TestProbeLastContactContract(t *testing.T) {
 			}
 			mustConflict(t, "older generation", first)
 			mustConflict(t, "foreign owner", domain.ProbeConnectorLease{ProbeID: probeRegistryID1, OwnerID: probeRegistryID3, Generation: second.Generation})
-			if err := store.RecordConnectorContact(ctx, second); err != nil {
+			if err := store.RecordConnectorContact(ctx, second, domain.ProbeQueueReport{}); err != nil {
 				t.Fatal(err)
 			}
 			advanced := contact(t)

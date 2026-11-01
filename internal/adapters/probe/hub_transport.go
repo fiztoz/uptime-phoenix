@@ -144,13 +144,13 @@ func (t *HubTransport) Enroll(ctx context.Context, m domain.ProbeCredentialMetad
 
 // Run validates the hello against trusted registration and the current lease,
 // then supervises health/config traffic until cancellation or a protocol failure.
-func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, established func(context.Context) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
+func (t *HubTransport) Run(ctx context.Context, input domain.ProbeSessionInput, established func(context.Context, domain.ProbeQueueReport) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
 	return t.RunWithWatchdog(ctx, input, nil, established, recordApplied, ingest)
 }
 
 // RunWithWatchdog uses the current runtime's admission gate before independent
 // DB-bound callbacks. Nil admission preserves health/config/replay-only operation.
-func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSessionInput, admission ports.ProbeHealthAdmission, established func(context.Context) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
+func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSessionInput, admission ports.ProbeHealthAdmission, established func(context.Context, domain.ProbeQueueReport) error, recordApplied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
 	m := input.Connection
 	if !domain.ValidProbeCredentialMetadata(m) || !validRuntimeToken(input.Token) || input.Generation <= 0 || input.CommittedSeq < 0 || established == nil || recordApplied == nil || (t.stateIngest != nil || t.commands != nil || t.regionalApplications != nil || t.deliveryPreparations != nil) && !domain.ValidHubID(input.OwnerID) {
 		return domain.ErrValidation
@@ -471,10 +471,10 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 			return errors.New("probe rejected prepared configuration")
 		}
 		return errors.New("unsupported hub session operation")
-	}, func(frameCtx context.Context, _ HealthReceipt) error {
+	}, func(frameCtx context.Context, receipt HealthReceipt) error {
 		// This independent worker refreshes authority while replay/config work
 		// waits. The callback captures this session's exact connector lease.
-		if err := established(frameCtx); err != nil {
+		if err := established(frameCtx, probeQueueReport(receipt.Health)); err != nil {
 			return errors.New("connector authority unavailable")
 		}
 		// Lease renewal proves connector authority, not durable replay ingestion.
@@ -550,4 +550,19 @@ func sendPreparedConfig(ctx context.Context, session *Session, generation Decima
 		}
 	}
 	return send("config.commit", ConfigCommit{ConfigTransferIdentity: id, SHA256: hash})
+}
+
+// probeQueueReport carries the queue a probe stated in a validated health frame
+// (#157). Probe health validation guarantees non-negative bytes and an oldest
+// item exactly when bytes are positive; this conversion adds no trust.
+func probeQueueReport(health Health) domain.ProbeQueueReport {
+	var report domain.ProbeQueueReport
+	if health.QueueBytes != nil {
+		report.QueueBytes = *health.QueueBytes
+	}
+	if health.OldestQueuedAt != nil {
+		oldest := time.Time(*health.OldestQueuedAt).UTC()
+		report.OldestQueuedAt = &oldest
+	}
+	return report
 }

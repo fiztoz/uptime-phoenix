@@ -105,7 +105,7 @@ func TestHubCredentialRuntimeLostResultAcrossBothStoresRestart(t *testing.T) {
 		transport.SetCommands(dispatcher)
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
-		err = transport.Run(ctx, domain.ProbeSessionInput{OwnerID: owner, Connection: selected.ProbeCredentialMetadata, Token: token, Generation: lease.Generation}, func(ctx context.Context) error {
+		err = transport.Run(ctx, domain.ProbeSessionInput{OwnerID: owner, Connection: selected.ProbeCredentialMetadata, Token: token, Generation: lease.Generation}, func(ctx context.Context, _ domain.ProbeQueueReport) error {
 			if err := connections.SetConnectorConnected(ctx, lease, true); err != nil {
 				return err
 			}

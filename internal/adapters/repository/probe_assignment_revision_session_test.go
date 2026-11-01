@@ -257,7 +257,7 @@ func testAssignmentRevisionSession(t *testing.T, f probeRegistryFixture, mode do
 			}
 		}
 		go func() {
-			done <- transport.Run(sctx, input, func(callbackCtx context.Context) error {
+			done <- transport.Run(sctx, input, func(callbackCtx context.Context, _ domain.ProbeQueueReport) error {
 				if operativeLifecycle {
 					_, err := connector.RenewConnector(callbackCtx, lease)
 					return err

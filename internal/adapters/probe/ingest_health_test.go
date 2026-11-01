@@ -31,7 +31,7 @@ func TestHubTransportPeerHealthCannotMaskIngestFailure(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- s.transport.Run(ctx, s.input, func(context.Context) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, ingest)
+		done <- s.transport.Run(ctx, s.input, func(context.Context, domain.ProbeQueueReport) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, ingest)
 	}()
 	var conn *websocket.Conn
 	select {
