@@ -26,6 +26,18 @@ at the bottom.
 
 ### Added
 
+- **Probe detail shows the queue the probe reports (#157).** The hub now
+  stores the durable queue a remote probe states in each accepted health frame
+  (`queue_bytes`, `oldest_queued_at`) together with the hub time it accepted
+  that frame (migration `092`, SQLite and MariaDB), under the same fence as
+  last contact. `GET /api/probes` and `GET /api/probes/:probe_id` expose it as
+  `reported_queue_bytes`, `reported_oldest_queued_at` and `queue_reported_at`
+  (null until the probe first reports). The probe page labels it "reported by
+  probe" with the report's age; zero reads "Nothing queued" and a probe that
+  never reported still reads "Not tracked by the hub yet". `queue_bytes` and
+  `oldest_queued_at` stay null: the values are self-reported display evidence,
+  not a hub-verified backlog, and feed no status or alert.
+
 - `GET`/`PUT /api/probes/:probe_id/watchdog` (admin session or admin
   write-scope API key) reads and replaces a probe's offline-alert watchdog
   settings, so probes enrolled through the API or UI can turn on probe-down

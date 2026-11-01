@@ -40,7 +40,7 @@ func TestHubHealthConfirmsConfigImmediatelyAfterDurableReceipt(t *testing.T) {
 	established := make(chan struct{}, 2)
 	done := make(chan error, 1)
 	go func() {
-		done <- s.transport.Run(ctx, s.input, func(context.Context) error { established <- struct{}{}; return nil }, func(ctx context.Context, _ domain.ProbeActiveConfig) error {
+		done <- s.transport.Run(ctx, s.input, func(context.Context, domain.ProbeQueueReport) error { established <- struct{}{}; return nil }, func(ctx context.Context, _ domain.ProbeActiveConfig) error {
 			close(recording)
 			select {
 			case <-release:
@@ -155,7 +155,7 @@ func TestHubTransportCurrentStateReceiptRequiresCommit(t *testing.T) {
 			defer cancel()
 			done := make(chan error, 1)
 			go func() {
-				done <- s.transport.Run(ctx, s.input, func(context.Context) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, nil)
+				done <- s.transport.Run(ctx, s.input, func(context.Context, domain.ProbeQueueReport) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, nil)
 			}()
 			var conn *websocket.Conn
 			select {

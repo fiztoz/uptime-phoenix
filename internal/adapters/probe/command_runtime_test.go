@@ -161,7 +161,7 @@ func TestCommandRuntimeExactBytesReceiptLossAndRestart(t *testing.T) {
 		defer cancel()
 		done := make(chan error, 1)
 		go func() {
-			done <- transport.Run(ctx, domain.ProbeSessionInput{Connection: metadata, Token: runtimeToken, Generation: generation, OwnerID: uuid.NewString(), ConfigDocument: configBytes(t, snapshot)}, func(context.Context) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error) {
+			done <- transport.Run(ctx, domain.ProbeSessionInput{Connection: metadata, Token: runtimeToken, Generation: generation, OwnerID: uuid.NewString(), ConfigDocument: configBytes(t, snapshot)}, func(context.Context, domain.ProbeQueueReport) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error) {
 				return nil, errors.New("unexpected replay in control-only fixture")
 			})
 		}()
