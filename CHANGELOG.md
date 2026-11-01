@@ -47,6 +47,11 @@ at the bottom.
   each one until the process exited. The loop and the stats worker now exit
   when the bus closes, without logging.
 
+- **The runbook says what a hub database restore does to sessions (#177).**
+  Sessions signed with the same `JWT_SECRET` stay valid after a restore. The
+  restore section now says so and gives the rotation steps to follow after a
+  suspected compromise.
+
 - `alert_delivery: aggregate` or `both` is now refused with 400
   (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.
   Previously it was stored and reported but never paged (#119). The gate covers
