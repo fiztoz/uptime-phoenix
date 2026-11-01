@@ -65,6 +65,22 @@ at the bottom.
   `ws hub: dropping event with no resolvable monitor id type=""` warning for
   each one until the process exited. The loop and the stats worker now exit
   when the bus closes, without logging.
+- **Aggregate alerts identify their scope (#174).** Aggregate webhook bodies
+  now carry `delivery_scope: "aggregate"` and the aggregate `source_alert_id`,
+  and aggregate titles end in ` (aggregate)` (`api is DOWN (aggregate)`), so a
+  receiver in `both` mode can route and dedupe the hub page apart from the
+  per-region pages. Regional and unscoped local alerts are unchanged.
+
+- **The probe panel names the saved alert delivery mode (#175).** It always
+  said alerts are delivered per region. It now says regional, aggregate or
+  both, and the notification channel form explains delivery scope and how to
+  tell the alerts apart (`alert.delivery_scope`, the `AGGREGATE` prefix).
+
+- **The Makefile no longer offers migrate targets that cannot run (#176).**
+  `make migrate-up`, `migrate-down` and `migrate-status` called a
+  `./cmd/migrate` that does not exist. They are removed; the hub applies its
+  migrations on boot. `make m6-backend-harness-gate` now checks that every
+  `./cmd/...` package a recipe names exists.
 
 - **A crash no longer loses the first DOWN page on the default delivery path
   (#179).** With probes off, the hub sent the initial DOWN notification in

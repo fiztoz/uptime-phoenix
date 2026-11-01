@@ -465,6 +465,9 @@
               </span>
             </label>
           </div>
+          <p class="text-xs text-faint">
+            {m.notifications_delivery_scope_hint()}
+          </p>
         </div>
       </div>
 
