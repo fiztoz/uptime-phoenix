@@ -26,6 +26,18 @@ at the bottom.
 
 ### Added
 
+- **Probe detail shows the queue the probe reports (#157).** The hub now
+  stores the durable queue a remote probe states in each accepted health frame
+  (`queue_bytes`, `oldest_queued_at`) together with the hub time it accepted
+  that frame (migration `092`, SQLite and MariaDB), under the same fence as
+  last contact. `GET /api/probes` and `GET /api/probes/:probe_id` expose it as
+  `reported_queue_bytes`, `reported_oldest_queued_at` and `queue_reported_at`
+  (null until the probe first reports). The probe page labels it "reported by
+  probe" with the report's age; zero reads "Nothing queued" and a probe that
+  never reported still reads "Not tracked by the hub yet". `queue_bytes` and
+  `oldest_queued_at` stay null: the values are self-reported display evidence,
+  not a hub-verified backlog, and feed no status or alert.
+
 - `GET`/`PUT /api/probes/:probe_id/watchdog` (admin session or admin
   write-scope API key) reads and replaces a probe's offline-alert watchdog
   settings, so probes enrolled through the API or UI can turn on probe-down
@@ -40,6 +52,13 @@ at the bottom.
 
 ### Fixed
 
+- **Startup waits for MariaDB instead of exiting (#163).** When the database is
+  not accepting connections yet (for example right after a host reboot),
+  Phoenix retries the connection with backoff (500 ms doubling to 5 s) for up
+  to `DB_CONNECT_TIMEOUT_SECONDS` (default 60; 0 = one attempt), logging a
+  warning per failed attempt. Errors the server returns, such as bad
+  credentials or an unknown database, still fail immediately.
+
 - **The WebSocket hub stops cleanly on shutdown (#165).** Closing the event
   bus closes every subscriber channel; the hub's fan-out loop kept reading
   zero-value events from them in a hot loop and logged a
@@ -51,6 +70,52 @@ at the bottom.
   said alerts are delivered per region. It now says regional, aggregate or
   both, and the notification channel form explains delivery scope and how to
   tell the alerts apart (`alert.delivery_scope`, the `AGGREGATE` prefix).
+
+- **The Makefile no longer offers migrate targets that cannot run (#176).**
+  `make migrate-up`, `migrate-down` and `migrate-status` called a
+  `./cmd/migrate` that does not exist. They are removed; the hub applies its
+  migrations on boot. `make m6-backend-harness-gate` now checks that every
+  `./cmd/...` package a recipe names exists.
+
+- **The runbook says what a hub database restore does to sessions (#177).**
+  Sessions signed with the same `JWT_SECRET` stay valid after a restore. The
+  restore section now says so and gives the rotation steps to follow after a
+  suspected compromise.
+
+- **Push monitors go DOWN when pushes stop (#161).** The scheduler no longer
+  records the passive checker's "awaiting first push" PENDING every interval
+  (which also flipped UP/PENDING as important rows). It records nothing while
+  the latest push is younger than the monitor's interval, and a DOWN
+  ("push: no push received in the last Ns", retries apply) once it is older,
+  so a stopped pusher alerts and the next push recovers it to UP. A new push
+  monitor gets one interval from creation before it can go DOWN. The deadline
+  has a 2 s grace for second-precision heartbeat times and jitter, and it
+  counts from when the scheduler started watching the monitor, so a restart,
+  upgrade, or resume never turns into a DOWN by itself.
+
+- `POST /api/monitors` no longer silently drops `alert_delivery` (#158). The
+  create body now accepts it as part of the explicit initial assignment set
+  (alone it means `["local"]`/`any_down` with that mode) and validates it the
+  same way as `PUT /api/monitors/:id/probes`: an unknown value is 400
+  `invalid_alert_delivery`, `aggregate`/`both` is 400
+  `aggregate_paging_disabled` while `PROBES_AGGREGATE_PAGING_ENABLED` is off,
+  and a non-regional mode from a non-admin creator is 403. A refused create
+  writes nothing.
+
+- **Push endpoint errors are no longer silent or misreported (#164).**
+  `GET/POST /api/push/:token` returned 404 for *any* monitor lookup failure
+  (including database errors), ignored assignment read errors, and returned 500
+  with no log line when recording the heartbeat failed. A database error now
+  returns 503 and every 5xx is logged with the monitor id (never the token); an
+  unknown token is still 404, and a transient local-state conflict is 503 so the
+  pusher can retry.
+
+- **Heartbeats are no longer dropped on MariaDB Error 1020 (#162).** Every local
+  heartbeat marks its history buckets in `probe_dirty_buckets`, probes or not,
+  while the history projector rewrites the same rows. Under MariaDB's snapshot
+  isolation (default since 11.6) that surfaced as `Error 1020: Record has
+  changed since last read` and the scheduler dropped the heartbeat. The local
+  commit now treats 1020 like a deadlock and retries from a fresh read.
 
 - `alert_delivery: aggregate` or `both` is now refused with 400
   (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.

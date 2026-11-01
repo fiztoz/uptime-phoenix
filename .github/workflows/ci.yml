@@ -167,7 +167,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4]
     # Each runner owns its database. Never parallelize destructive contracts
     # inside one shared MariaDB instance.
     services:
@@ -212,7 +212,7 @@ jobs:
       - name: Complete repository parents (race, both engines)
         run: >-
           python3 -B scripts/repository_test_shards.py run
-          --index ${{ matrix.shard }} --count 4 --source-sha "${{ github.sha }}"
+          --index ${{ matrix.shard }} --count 5 --source-sha "${{ github.sha }}"
           --report "$RUNNER_TEMP/coverage/repository-shard-${{ matrix.shard }}.json"
 
       # Preserve actual-engine coverage for current AND future subpackages.
@@ -269,7 +269,7 @@ jobs:
       - name: Verify complete inventory and actual MariaDB leaves
         run: >-
           python3 -B scripts/repository_test_shards.py verify
-          --count 4 --source-sha "${{ github.sha }}"
+          --count 5 --source-sha "${{ github.sha }}"
           --reports "$RUNNER_TEMP/repository-coverage"
 
   helm:
