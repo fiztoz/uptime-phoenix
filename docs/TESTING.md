@@ -994,20 +994,20 @@ extra, duplicate or wrong-commit reports, incomplete parent execution, malformed
 Go events, unrecognized skips, any MariaDB skip and missing exact real-engine
 leaves from the strict gate. It compares reports to a freshly compiled inventory.
 Coverage artifacts contain only names, timings and commit provenance—not test
-output, settings or DSNs. Release gating requires all four expanded matrix check
+output, settings or DSNs. Release gating requires all five expanded matrix check
 names **as well as** the stable aggregate and other required checks.
 
 ```bash
 # Inspect the exhaustive plan without connecting to a database:
-python3 -B scripts/repository_test_shards.py plan --count 4
+python3 -B scripts/repository_test_shards.py plan --count 5
 # Offline parser, shard coverage and release-gate regressions:
 make m6-backend-harness-gate release-image-gate
 # Execute one shard ONLY against a disposable DB (never print its DSN):
 : "${TEST_MARIADB_DSN:?Set a dedicated disposable MariaDB test database}"
-python3 -B scripts/repository_test_shards.py run --index 0 --count 4 \
+python3 -B scripts/repository_test_shards.py run --index 0 --count 5 \
   --source-sha "$(git rev-parse HEAD)" --report tmp/repository-shard-0.json
-# After all four reports from this exact commit:
-python3 -B scripts/repository_test_shards.py verify --count 4 \
+# After all five reports from this exact commit:
+python3 -B scripts/repository_test_shards.py verify --count 5 \
   --source-sha "$(git rev-parse HEAD)" --reports tmp/repository-coverage
 ```
 

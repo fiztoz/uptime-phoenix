@@ -177,13 +177,13 @@ class RepositoryShardTest(unittest.TestCase):
 
     def test_workflow_fan_in_and_other_packages_cannot_silently_drop_coverage(self):
         ci = (shards.ROOT / ".github/workflows/ci.yml").read_text()
-        self.assertIn("shard: [0, 1, 2, 3]", ci)
+        self.assertIn("shard: [0, 1, 2, 3, 4]", ci)
         self.assertIn("fail-fast: false", ci)
         self.assertIn("needs: repository-race\n    if: always()", ci)
         self.assertIn('run: test "$MATRIX_RESULT" = success', ci)
         self.assertIn("TEST_MARIADB_DSN:", ci)
         self.assertIn("if-no-files-found: error", ci)
-        self.assertIn("--count 4 --source-sha", ci)
+        self.assertIn("--count 5 --source-sha", ci)
         self.assertIn("scripts/repository_test_shards.py verify", ci)
         self.assertIn("if: matrix.shard == 0", ci)
         self.assertIn("go list ./internal/adapters/repository/...", ci)
