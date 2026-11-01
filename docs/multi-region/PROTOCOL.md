@@ -554,7 +554,12 @@ sections `enrollment`, `connection`, `runtime`, `watchdog`, and `config`
 (`desired`, `applied`, `sync_status`), as specified by the
 [fleet diagnostics slice](M5_FLEET_DIAGNOSTICS.md). `agent_version`,
 `protocol_version`, `queue_bytes`, and `oldest_queued_at` stay null until their
-evidence sources exist; `capabilities` stays `[]` when unreported. Document
+evidence sources exist; `capabilities` stays `[]` when unreported. The probe's
+health frame does carry a self-reported `queue_bytes`, but the hub validates it
+for admission only and does not persist it, so the fleet views keep it null
+rather than presenting an unverified, possibly stale number as fleet evidence.
+The admin UI renders this null as "not tracked by the hub", distinct from an
+empty queue (`0`) (#126). Document
 digests, stream identities, key hashes and credential bytes are never disclosed
 by these read views.
 
