@@ -32,6 +32,7 @@ func (m probeSessionModel) lease() domain.ProbeConnectorLease {
 type ProbeConnectorStore struct{ db *bun.DB }
 
 var _ ports.ProbeConnectorLeaseRepository = (*ProbeConnectorStore)(nil)
+var _ ports.ProbeConnectorContactRecorder = (*ProbeConnectorStore)(nil)
 
 // NewProbeConnectorStore supports either hub SQL adapter.
 func NewProbeConnectorStore(db *bun.DB) *ProbeConnectorStore { return &ProbeConnectorStore{db: db} }
@@ -196,6 +197,27 @@ func (s *ProbeConnectorStore) SetConnectorConnected(ctx context.Context, lease d
 		}
 		row.Connected = connected
 		_, err = tx.NewUpdate().Model(&row).WherePK().Exec(ctx)
+		return err
+	})
+}
+
+// RecordConnectorContact stamps hub-observed contact with the hub DB clock for
+// the exact live session generation. A stale owner, an older generation or an
+// expired lease is refused with ports.ErrConflict, and the stored value never
+// moves backward, so neither a superseded hub nor a skewed retry can rewrite it.
+// It does not require the registration to be enabled: contact is evidence, not
+// admission. Release and acquisition leave the column untouched, so the value
+// freezes while the probe is disconnected.
+func (s *ProbeConnectorStore) RecordConnectorContact(ctx context.Context, lease domain.ProbeConnectorLease) error {
+	return s.transaction(ctx, lease.ProbeID, func(ctx context.Context, tx bun.Tx, _ bool, now int64) error {
+		row, err := readProbeSession(ctx, tx, lease.ProbeID)
+		if err != nil {
+			return err
+		}
+		if !matchesProbeSession(row, lease) || row.LeaseUntil <= now || now <= 0 {
+			return ports.ErrConflict
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE probe_sessions SET last_contact_at = ? WHERE probe_id = ? AND owner_id = ? AND generation = ? AND (last_contact_at IS NULL OR last_contact_at < ?)", now, lease.ProbeID, lease.OwnerID, lease.Generation, now)
 		return err
 	})
 }

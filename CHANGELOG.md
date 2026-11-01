@@ -49,6 +49,12 @@ at the bottom.
   until the source is set to regional or the flag is on. An existing stored mode
   is kept: edits that omit or echo it still work, and moving it to regional is
   always allowed. With the flag on, both modes are accepted everywhere.
+- **probes:** a remote probe's `last_seen_at` is now the persisted time the hub
+  last accepted an authenticated health frame from it (migration 091,
+  `probe_sessions.last_contact_at`). It is fenced to the live session
+  generation, never moves backward, freezes on disconnect, and survives
+  restarts, so a `Disconnected` probe shows when the hub last heard from it
+  instead of an inferred source time. Execution status is unchanged (#133).
 
 ## [0.6.2] — 2026-10-28
 
