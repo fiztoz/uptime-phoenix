@@ -28,6 +28,22 @@ procedure in [lifecycle/recovery contracts](multi-region/M4_LIFECYCLE_RECOVERY.m
 including re-running clear history for monitors cleared after the backup's timestamp
 and reconciling stream cursors before resuming workers.
 
+**User sessions after a hub database restore.** Session JWTs are signed with
+`JWT_SECRET` and are not stored in the database, so restoring the database does not
+end them. If the restored hub runs with the same `JWT_SECRET`, which is the usual
+case, every session issued before the restore stays valid until it expires
+(`JWT_EXPIRE_HOURS`, 24 by default). The restored database also brings back the API
+keys that existed at backup time, including any revoked after it.
+
+If the restore follows a suspected compromise or credential leak:
+
+1. Deploy a new `JWT_SECRET` (`openssl rand -base64 48`) to every hub process before
+   it serves traffic. This ends every existing session; all users sign in again.
+2. Revoke API keys again that were revoked after the backup was taken.
+
+The first-user `setup_token` is derived from `JWT_SECRET`, so rotating the secret also
+changes it. It only matters on an install with no users.
+
 ### 1.1 Acquire an admin session token
 
 The backup routes require a session JWT for an administrator. The following avoids putting
@@ -391,7 +407,7 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `LOG_LEVEL` | `info` | Application log level. |
 | `DB_ENGINE` | `sqlite` | `sqlite` or `mariadb`. Split mode requires MariaDB. |
 | `DB_DSN` | `file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)` | Engine-specific DSN. MariaDB migrations require `multiStatements=true`; use `parseTime=true&loc=UTC`. |
-| `JWT_SECRET` | — | Session-signing secret, **required, no default** (≥32 bytes; the server refuses to start without it). Generate with `openssl rand -base64 48`. Keep it stable across restarts. |
+| `JWT_SECRET` | — | Session-signing secret, **required, no default** (≥32 bytes; the server refuses to start without it). Generate with `openssl rand -base64 48`. Keep it stable across restarts. Changing it ends every session; see [user sessions after a restore](#1-configuration-backup-and-restore-drill). |
 | `JWT_EXPIRE_HOURS` | `24` | Session JWT lifetime in hours. Must be `> 0`; non-positive values refuse to boot (they would mint an already-expired token). |
 | `OUTBOUND_ALLOWED_CIDRS` | empty | Comma-separated CIDRs or IPs that monitors and notifications owned by **non-admin** users may reach although they are internal (loopback, RFC 1918, CGNAT, IPv6 ULA). Admin-owned monitors and notifications do not need it. The always-blocked floor (link-local, cloud metadata, multicast, unspecified) cannot be allowlisted. Write IPv4 ranges as IPv4 (`::ffff:10.0.0.0/104` is converted to `10.0.0.0/8`). Helm: `outbound.allowedCIDRs`. An invalid value refuses to boot. See [Outbound guard](#outbound-guard-for-monitors-and-notifications-88). |
 | `TOTP_ISSUER` | `Phoenix` | Issuer label shown in authenticator apps. |

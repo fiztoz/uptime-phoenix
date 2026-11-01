@@ -76,6 +76,11 @@ at the bottom.
   never attempted, once. A crash after the provider accepted but before the
   mark committed can still send a duplicate.
 
+- **The runbook says what a hub database restore does to sessions (#177).**
+  Sessions signed with the same `JWT_SECRET` stay valid after a restore. The
+  restore section now says so and gives the rotation steps to follow after a
+  suspected compromise.
+
 - **Push monitors go DOWN when pushes stop (#161).** The scheduler no longer
   records the passive checker's "awaiting first push" PENDING every interval
   (which also flipped UP/PENDING as important rows). It records nothing while
