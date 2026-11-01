@@ -26,6 +26,7 @@ type LocalScheduler struct {
 	logger         *slog.Logger
 	stopCh         chan struct{}
 	lastCheck      sync.Map // monitorID int64 -> time.Time
+	pushArming     pushArming
 	proxyResolver  *proxyResolver
 	outboundTrust  services.OutboundTrustResolver
 	slots          *checkSlots
@@ -113,6 +114,9 @@ type scheduledCheck struct {
 	// it (sharded scheduling only). Nil for ordinary local scheduling, which
 	// runs without worker authority.
 	LeaseFence *domain.LeaseFence
+	// PushArmedAt is when this scheduler armed a push monitor's deadline
+	// (see pushArming). Zero for other monitor types.
+	PushArmedAt time.Time
 }
 
 // tick is called every second and runs checks for monitors that are due.
@@ -134,6 +138,7 @@ func (s *LocalScheduler) tick(ctx context.Context) {
 		return
 	}
 	now := time.Now().UTC()
+	s.pushArming.observe(checks, now)
 	for _, check := range checks {
 		if !s.shouldRun(check.Monitor, now) {
 			continue
@@ -223,7 +228,7 @@ func (s *LocalScheduler) runCheck(ctx context.Context, check scheduledCheck) {
 	// Push monitors are passive: pushes are recorded by the push endpoint,
 	// and the scheduler only records a DOWN once a push is overdue (#161).
 	if m.Type == "push" {
-		result, record, err := s.heartbeatSvc.EvaluatePushDeadline(ctx, m, time.Now().UTC())
+		result, record, err := s.heartbeatSvc.EvaluatePushDeadline(ctx, m, time.Now().UTC(), check.PushArmedAt)
 		if err != nil {
 			s.logger.Error("scheduler: push deadline failed", "monitor_id", m.ID, "error", err)
 			return

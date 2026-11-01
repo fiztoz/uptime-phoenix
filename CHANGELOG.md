@@ -53,7 +53,10 @@ at the bottom.
   the latest push is younger than the monitor's interval, and a DOWN
   ("push: no push received in the last Ns", retries apply) once it is older,
   so a stopped pusher alerts and the next push recovers it to UP. A new push
-  monitor gets one interval from creation before it can go DOWN.
+  monitor gets one interval from creation before it can go DOWN. The deadline
+  has a 2 s grace for second-precision heartbeat times and jitter, and it
+  counts from when the scheduler started watching the monitor, so a restart,
+  upgrade, or resume never turns into a DOWN by itself.
 
 - `alert_delivery: aggregate` or `both` is now refused with 400
   (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.

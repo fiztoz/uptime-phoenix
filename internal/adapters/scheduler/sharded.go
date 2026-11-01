@@ -34,9 +34,10 @@ type ShardedScheduler struct {
 	leaseTTL  time.Duration
 	pollEvery time.Duration
 
-	stopCh    chan struct{}
-	lastCheck sync.Map // monitorID int64 -> time.Time
-	slots     *checkSlots
+	stopCh     chan struct{}
+	lastCheck  sync.Map // monitorID int64 -> time.Time
+	pushArming pushArming
+	slots      *checkSlots
 
 	proxyResolver *proxyResolver
 	outboundTrust services.OutboundTrustResolver
@@ -245,6 +246,7 @@ func (s *ShardedScheduler) tick(ctx context.Context) {
 		s.logger.Error("scheduler: capture applied settings failed", "error", err)
 		return
 	}
+	s.pushArming.observe(checks, now)
 	for _, check := range checks {
 		if !s.shouldRun(check.Monitor, now) {
 			continue
@@ -320,7 +322,7 @@ func (s *ShardedScheduler) runCheck(ctx context.Context, check scheduledCheck) {
 	// Push monitors are passive: pushes are recorded by the push endpoint,
 	// and the scheduler only records a DOWN once a push is overdue (#161).
 	if m.Type == "push" {
-		result, record, err := s.heartbeatSvc.EvaluatePushDeadline(ctx, m, time.Now().UTC())
+		result, record, err := s.heartbeatSvc.EvaluatePushDeadline(ctx, m, time.Now().UTC(), check.PushArmedAt)
 		if err != nil {
 			s.logger.Error("scheduler: push deadline failed", "monitor_id", m.ID, "error", err)
 			return
