@@ -40,12 +40,54 @@ at the bottom.
 
 ### Fixed
 
+- **Startup waits for MariaDB instead of exiting (#163).** When the database is
+  not accepting connections yet (for example right after a host reboot),
+  Phoenix retries the connection with backoff (500 ms doubling to 5 s) for up
+  to `DB_CONNECT_TIMEOUT_SECONDS` (default 60; 0 = one attempt), logging a
+  warning per failed attempt. Errors the server returns, such as bad
+  credentials or an unknown database, still fail immediately.
+
 - **The WebSocket hub stops cleanly on shutdown (#165).** Closing the event
   bus closes every subscriber channel; the hub's fan-out loop kept reading
   zero-value events from them in a hot loop and logged a
   `ws hub: dropping event with no resolvable monitor id type=""` warning for
   each one until the process exited. The loop and the stats worker now exit
   when the bus closes, without logging.
+
+- **Push monitors go DOWN when pushes stop (#161).** The scheduler no longer
+  records the passive checker's "awaiting first push" PENDING every interval
+  (which also flipped UP/PENDING as important rows). It records nothing while
+  the latest push is younger than the monitor's interval, and a DOWN
+  ("push: no push received in the last Ns", retries apply) once it is older,
+  so a stopped pusher alerts and the next push recovers it to UP. A new push
+  monitor gets one interval from creation before it can go DOWN. The deadline
+  has a 2 s grace for second-precision heartbeat times and jitter, and it
+  counts from when the scheduler started watching the monitor, so a restart,
+  upgrade, or resume never turns into a DOWN by itself.
+
+- `POST /api/monitors` no longer silently drops `alert_delivery` (#158). The
+  create body now accepts it as part of the explicit initial assignment set
+  (alone it means `["local"]`/`any_down` with that mode) and validates it the
+  same way as `PUT /api/monitors/:id/probes`: an unknown value is 400
+  `invalid_alert_delivery`, `aggregate`/`both` is 400
+  `aggregate_paging_disabled` while `PROBES_AGGREGATE_PAGING_ENABLED` is off,
+  and a non-regional mode from a non-admin creator is 403. A refused create
+  writes nothing.
+
+- **Push endpoint errors are no longer silent or misreported (#164).**
+  `GET/POST /api/push/:token` returned 404 for *any* monitor lookup failure
+  (including database errors), ignored assignment read errors, and returned 500
+  with no log line when recording the heartbeat failed. A database error now
+  returns 503 and every 5xx is logged with the monitor id (never the token); an
+  unknown token is still 404, and a transient local-state conflict is 503 so the
+  pusher can retry.
+
+- **Heartbeats are no longer dropped on MariaDB Error 1020 (#162).** Every local
+  heartbeat marks its history buckets in `probe_dirty_buckets`, probes or not,
+  while the history projector rewrites the same rows. Under MariaDB's snapshot
+  isolation (default since 11.6) that surfaced as `Error 1020: Record has
+  changed since last read` and the scheduler dropped the heartbeat. The local
+  commit now treats 1020 like a deadlock and retries from a fresh read.
 
 - `alert_delivery: aggregate` or `both` is now refused with 400
   (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.
