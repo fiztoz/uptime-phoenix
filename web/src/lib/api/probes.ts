@@ -18,6 +18,12 @@ export interface ProbeView {
   applied_config_revision: string;
   queue_bytes: number | null;
   oldest_queued_at: string | null;
+  /** Probe-reported durable queue from the last accepted health frame (#157). */
+  reported_queue_bytes: number | null;
+  /** Probe clock; null exactly when the reported queue is empty. */
+  reported_oldest_queued_at: string | null;
+  /** Hub clock when the owning hub accepted the report. */
+  queue_reported_at: string | null;
   revision: string;
   created_at: string;
   updated_at: string;

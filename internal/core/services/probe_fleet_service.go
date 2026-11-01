@@ -44,6 +44,11 @@ type ProbeDiagnosticSummary struct {
 	DesiredConfigRevision int64
 	AppliedConfigRevision int64
 	LastSeenAt            *time.Time
+	// ReportedQueue is the queue a remote probe last reported about itself in
+	// an accepted health frame (#157), nil until it first reports and always
+	// nil for the local row. It is display evidence only: it never feeds
+	// connection, execution or sync status.
+	ReportedQueue *domain.ProbeReportedQueue
 }
 
 // ProbeDiagnosticsSummary derives one summary from stored nonsecret evidence.
@@ -101,6 +106,7 @@ func ProbeDiagnosticsSummary(at time.Time, d domain.ProbeDiagnostics) ProbeDiagn
 	}
 
 	summary.LastSeenAt = probeLastContactAt(d)
+	summary.ReportedQueue = probeReportedQueue(d)
 	switch {
 	case d.Enrollment == nil:
 		summary.EnrollmentState = ProbeEnrollmentUnconfigured
@@ -189,6 +195,19 @@ func probeLastContactAt(d domain.ProbeDiagnostics) *time.Time {
 	}
 	last := d.Session.LastContactAt.UTC()
 	return &last
+}
+
+func probeReportedQueue(d domain.ProbeDiagnostics) *domain.ProbeReportedQueue {
+	if d.Session == nil || d.Session.ReportedQueue == nil || d.Session.ReportedQueue.ReportedAt.IsZero() {
+		return nil
+	}
+	q := *d.Session.ReportedQueue
+	q.ReportedAt = q.ReportedAt.UTC()
+	if q.OldestQueuedAt != nil {
+		oldest := q.OldestQueuedAt.UTC()
+		q.OldestQueuedAt = &oldest
+	}
+	return &q
 }
 
 // ProbeFleetEntry is one probe's administrative read model: registration

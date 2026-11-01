@@ -547,7 +547,7 @@ reuse returns 409. Availability incidents support ACK. Capacity, certificate,
 and watchdog ACK are not enabled by this endpoint. A queued command never edits
 the source incident mirror into an acknowledged state before source telemetry.
 
-`ProbeView` fields: `id`, `key`, `name`, `location`, `kind`, `enabled`, `enrollment_state`, `connection_status`, `execution_status`, `last_seen_at`, `agent_version`, `protocol_version`, `desired_config_revision`, `applied_config_revision`, `queue_bytes`, `oldest_queued_at`, `revision`, `created_at`, `updated_at`. Admin detail additionally exposes `endpoint`, `tls_fingerprint`, `certificate_expires_at`, `credential_version`, and `capabilities`; none of those grant runtime authentication. Per the frozen M0 decoder these read shapes are load-bearing: config revisions render the decimal string `"0"` when unreported, `capabilities` renders `[]`, the lifecycle statuses always carry a vocabulary value, and `protocol_version` is a nullable number. Unknown values are null.
+`ProbeView` fields: `id`, `key`, `name`, `location`, `kind`, `enabled`, `enrollment_state`, `connection_status`, `execution_status`, `last_seen_at`, `agent_version`, `protocol_version`, `desired_config_revision`, `applied_config_revision`, `queue_bytes`, `oldest_queued_at`, `reported_queue_bytes`, `reported_oldest_queued_at`, `queue_reported_at`, `revision`, `created_at`, `updated_at`. Admin detail additionally exposes `endpoint`, `tls_fingerprint`, `certificate_expires_at`, `credential_version`, and `capabilities`; none of those grant runtime authentication. Per the frozen M0 decoder these read shapes are load-bearing: config revisions render the decimal string `"0"` when unreported, `capabilities` renders `[]`, the lifecycle statuses always carry a vocabulary value, and `protocol_version` is a nullable number. Unknown values are null.
 
 Admin detail also carries a `diagnostics` object with the nonsecret evidence
 sections `enrollment`, `connection`, `runtime`, `watchdog`, and `config`
@@ -555,11 +555,17 @@ sections `enrollment`, `connection`, `runtime`, `watchdog`, and `config`
 [fleet diagnostics slice](M5_FLEET_DIAGNOSTICS.md). `agent_version`,
 `protocol_version`, `queue_bytes`, and `oldest_queued_at` stay null until their
 evidence sources exist; `capabilities` stays `[]` when unreported. The probe's
-health frame does carry a self-reported `queue_bytes`, but the hub validates it
-for admission only and does not persist it, so the fleet views keep it null
-rather than presenting an unverified, possibly stale number as fleet evidence.
-The admin UI renders this null as "not tracked by the hub", distinct from an
-empty queue (`0`) (#126). Document
+health frame carries a self-reported `queue_bytes`; `queue_bytes` and
+`oldest_queued_at` stay reserved for a hub-verified backlog and remain null
+(#126). Since #157 the hub persists what the probe reported in the last
+accepted health frame and exposes it separately, labeled as probe-reported:
+`reported_queue_bytes` (nonnegative integer), `reported_oldest_queued_at`
+(probe clock, UTC, microsecond precision; null exactly when the reported queue
+is empty) and `queue_reported_at` (hub database clock, whole seconds, when the
+owning hub accepted that frame). All three are null until the probe first
+reports. They are display evidence only and never feed readiness, sync status
+or alerting. The admin UI renders "reported by probe" with the report's age;
+`0` reads as nothing queued, and never-reported keeps "not tracked by the hub". Document
 digests, stream identities, key hashes and credential bytes are never disclosed
 by these read views.
 
