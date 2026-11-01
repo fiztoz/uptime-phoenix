@@ -47,6 +47,13 @@ at the bottom.
   each one until the process exited. The loop and the stats worker now exit
   when the bus closes, without logging.
 
+- **Heartbeats are no longer dropped on MariaDB Error 1020 (#162).** Every local
+  heartbeat marks its history buckets in `probe_dirty_buckets`, probes or not,
+  while the history projector rewrites the same rows. Under MariaDB's snapshot
+  isolation (default since 11.6) that surfaced as `Error 1020: Record has
+  changed since last read` and the scheduler dropped the heartbeat. The local
+  commit now treats 1020 like a deadlock and retries from a fresh read.
+
 - `alert_delivery: aggregate` or `both` is now refused with 400
   (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.
   Previously it was stored and reported but never paged (#119). The gate covers
