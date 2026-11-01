@@ -54,6 +54,15 @@ at the bottom.
   each one until the process exited. The loop and the stats worker now exit
   when the bus closes, without logging.
 
+- `POST /api/monitors` no longer silently drops `alert_delivery` (#158). The
+  create body now accepts it as part of the explicit initial assignment set
+  (alone it means `["local"]`/`any_down` with that mode) and validates it the
+  same way as `PUT /api/monitors/:id/probes`: an unknown value is 400
+  `invalid_alert_delivery`, `aggregate`/`both` is 400
+  `aggregate_paging_disabled` while `PROBES_AGGREGATE_PAGING_ENABLED` is off,
+  and a non-regional mode from a non-admin creator is 403. A refused create
+  writes nothing.
+
 - **Push endpoint errors are no longer silent or misreported (#164).**
   `GET/POST /api/push/:token` returned 404 for *any* monitor lookup failure
   (including database errors), ignored assignment read errors, and returned 500
