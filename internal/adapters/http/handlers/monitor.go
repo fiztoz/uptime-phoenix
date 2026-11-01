@@ -88,14 +88,18 @@ type CreateMonitorRequest struct {
 	// Weight is the manual display order (lower first). Omitted/0 on create
 	// becomes 2000 (schema default). Same meaning as MonitorGroup.Weight.
 	Weight int `json:"weight"`
-	// ProbeIDs, HealthPolicy and ProbeBindings are the optional explicit
-	// initial desired assignment set (protocol section 7.1). Omission means
-	// ["local"] and any_down. Creation plus an explicit set commits atomically;
-	// explicitly requesting remote membership requires admin (a non-admin
-	// creator retains today's local behavior and receives 403 otherwise).
+	// ProbeIDs, HealthPolicy, ProbeBindings and AlertDelivery are the
+	// optional explicit initial desired assignment set (protocol section 7.1).
+	// Omission means ["local"], any_down and regional. Creation plus an
+	// explicit set commits atomically; explicitly requesting remote membership
+	// or a non-regional alert_delivery requires admin, like the assignment PUT
+	// (a non-admin creator retains today's local behavior and receives 403
+	// otherwise). alert_delivery shares the PUT's validation, including the
+	// aggregate paging refusal (#139, #158).
 	ProbeIDs      *[]string                     `json:"probe_ids"`
 	HealthPolicy  *string                       `json:"health_policy"`
 	ProbeBindings *[]MonitorProbeBindingRequest `json:"probe_bindings"`
+	AlertDelivery *string                       `json:"alert_delivery"`
 }
 
 // UpdateMonitorRequest is the body of PUT /api/monitors/:id.
@@ -463,10 +467,12 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 	if initial != nil {
 		if err := h.svc.CreateWithAssignments(c.Request().Context(), monitor, *initial); err != nil {
 			switch {
-			case errors.Is(err, services.ErrAggregatePagingDisabled):
+			case errors.Is(err, services.ErrInvalidDelivery):
+				// Same codes as the assignment PUT: aggregate_paging_disabled
+				// (which wraps ErrInvalidDelivery) or invalid_alert_delivery.
 				return regionalWriteError(c, err)
 			case errors.Is(err, services.ErrInvalidProbeIDs), errors.Is(err, services.ErrInvalidPolicy),
-				errors.Is(err, services.ErrInvalidDelivery), errors.Is(err, services.ErrInvalidBindings):
+				errors.Is(err, services.ErrInvalidBindings):
 				return badRequest(c, err.Error())
 			case errors.Is(err, services.ErrUnknownProbe), errors.Is(err, services.ErrProbeUnavailable), errors.Is(err, services.ErrStaleRevision):
 				return c.JSON(http.StatusConflict, errorBody(err.Error()))
@@ -485,20 +491,31 @@ func (h *MonitorHandlers) Create(c echo.Context) error {
 }
 
 // initialAssignments resolves the optional explicit desired set of a create.
-// The second result reports a forbidden remote request from a non-admin; the
-// handler answers 403 rather than silently rerouting to local execution.
+// The second result reports a forbidden remote or non-regional request from a
+// non-admin; the handler answers 403 rather than silently rerouting to local
+// execution or regional delivery.
 func (h *MonitorHandlers) initialAssignments(ctx context.Context, userID int64, req CreateMonitorRequest) (*services.InitialAssignments, bool, error) {
-	if req.ProbeIDs == nil && req.ProbeBindings == nil && req.HealthPolicy == nil {
+	if req.ProbeIDs == nil && req.ProbeBindings == nil && req.HealthPolicy == nil && req.AlertDelivery == nil {
 		return nil, false, nil
 	}
 	initial := services.InitialAssignments{ProbeIDs: []string{domain.LocalProbeID}, HealthPolicy: domain.HealthPolicyAnyDown}
+	// A non-regional mode is an admin request, like remote membership. An
+	// invalid value is left for the service, which refuses it with the PUT's
+	// error before anything is written.
+	elevated := false
+	if req.AlertDelivery != nil {
+		initial.AlertDelivery = *req.AlertDelivery
+		if mode, err := services.DesiredAlertDelivery(initial.AlertDelivery, nil); err == nil && mode != domain.AlertDeliveryRegional {
+			elevated = true
+		}
+	}
 	if req.ProbeIDs != nil {
 		initial.ProbeIDs = *req.ProbeIDs
 	}
 	if req.HealthPolicy != nil {
 		initial.HealthPolicy = domain.HealthPolicy(*req.HealthPolicy)
 	}
-	remote := false
+	remote := elevated
 	if req.ProbeBindings != nil {
 		list := make([]domain.ProbeAssignmentBinding, 0, len(*req.ProbeBindings))
 		for _, binding := range *req.ProbeBindings {
@@ -506,7 +523,7 @@ func (h *MonitorHandlers) initialAssignments(ctx context.Context, userID int64, 
 				ProbeResourceBinding: domain.ProbeResourceBinding{Kind: binding.Kind, BindingKey: binding.BindingKey}})
 		}
 		initial.Bindings = &list
-		remote = len(list) > 0
+		remote = remote || len(list) > 0
 	}
 	for _, id := range initial.ProbeIDs {
 		if id != domain.LocalProbeID {
