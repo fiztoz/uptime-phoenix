@@ -89,6 +89,8 @@ var mariadbTailHeals = []struct{ migration, table, column string }{
 	{"076_assignment_alert_delivery", "monitor_probe_assignment_sets", "alert_delivery"},
 	// TestTOTPReplayContract cycles 090's down/up on the shared users table.
 	{"090_totp_replay_state", "users", "totp_last_step"},
+	// TestAlertSourceContract cycles 093's down/up on the shared alerts table.
+	{"093_alert_initial_notified", "alerts", "initial_notified_at"},
 }
 
 // healMariaDBTail re-applies idempotent tail migrations after RunMigrations.

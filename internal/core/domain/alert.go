@@ -41,8 +41,13 @@ type Alert struct {
 	// OpenMonitorID is MonitorID while the alert is open (firing/acked) and nil
 	// once resolved. See the uniqueness note above.
 	OpenMonitorID *int64
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// InitialNotifiedAt is when the step-zero DOWN notification was attempted
+	// on the legacy in-process path. Nil on an open alert means the process
+	// stopped between opening the alert and calling the providers, so the next
+	// DOWN check sends it (at-least-once). Durable outbox delivery leaves it nil.
+	InitialNotifiedAt *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // IsOpen reports whether the alert still represents an ongoing outage.

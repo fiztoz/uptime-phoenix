@@ -274,8 +274,12 @@ func testAlertSourceMigration(t *testing.T, f probeRegistryFixture) {
 			if _, err := uuid.Parse(got.SourceAlertID); err != nil || got.TransitionVersion != 1 {
 				t.Fatal("invalid backfilled source")
 			}
+			if got.InitialNotifiedAt == nil || !got.InitialNotifiedAt.Equal(pair.before.FiredAt) {
+				t.Fatalf("upgrade didn't backfill the initial notification mark: %v", got.InitialNotifiedAt)
+			}
 			before := *pair.before
 			before.SourceAlertID, before.TransitionVersion = got.SourceAlertID, 1
+			before.InitialNotifiedAt = got.InitialNotifiedAt
 			if !reflect.DeepEqual(got, &before) {
 				typ := reflect.TypeOf(before)
 				oldValue, newValue := reflect.ValueOf(before), reflect.ValueOf(*got)

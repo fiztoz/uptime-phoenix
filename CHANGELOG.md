@@ -47,6 +47,16 @@ at the bottom.
   each one until the process exited. The loop and the stats worker now exit
   when the bus closes, without logging.
 
+- **A crash no longer loses the first DOWN page on the default delivery path
+  (#179).** With probes off, the hub sent the initial DOWN notification in
+  memory after opening the alert. A crash before that send finished lost it,
+  and with `resend_interval` 0 the outage was never announced. Alerts now
+  record when their first notification was attempted (migration 093,
+  `alerts.initial_notified_at`; existing alerts are backfilled as sent). After
+  a restart, the next DOWN check sends any open, unacknowledged alert that was
+  never attempted, once. A crash after the provider accepted but before the
+  mark committed can still send a duplicate.
+
 - `alert_delivery: aggregate` or `both` is now refused with 400
   (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.
   Previously it was stored and reported but never paged (#119). The gate covers
