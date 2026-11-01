@@ -28,7 +28,8 @@ import (
 // through the production router, handlers, services, and real stores. With
 // PROBES_AGGREGATE_PAGING_ENABLED off, every write path refuses a new request
 // for aggregate or both with 400 aggregate_paging_disabled and persists
-// nothing: assignment replace, monitor create, monitor clone (a clone is a new
+// nothing: assignment replace, monitor create (alert_delivery in the body,
+// #158), monitor clone (a clone is a new
 // request for its source's mode), and config-as-code plan and apply. A legacy
 // stored aggregate set stays editable when the mode is omitted or echoed, and
 // can always move to regional. With the flag on, every path accepts the modes.
@@ -187,18 +188,76 @@ func TestAlertDeliveryGateContract(t *testing.T) {
 			}
 
 			var regionalID, legacyID int64
-			{ // CreateCannotRequestAggregate
-				// POST /api/monitors has no alert_delivery field: an explicit set
-				// is always created regional, so a sent mode cannot reach the
-				// store on either hub. Aggregate is requested only through the
-				// paths gated below (replace, clone, config).
-				for _, e := range []*echo.Echo{off, on} {
-					id := created(do(e, http.MethodPost, "/api/monitors", createBody("sent aggregate", "aggregate")), "create with a mode")
-					if got := set(id).AlertDelivery; got != domain.AlertDeliveryRegional && got != "" {
-						t.Fatalf("create stored %q from an unsupported request field", got)
+			{ // CreateAppliesAlertDelivery (#158)
+				// POST /api/monitors takes alert_delivery through the same
+				// validation as the assignment PUT: never dropped silently.
+				before := snap()
+				for _, mode := range []string{"aggregate", "both"} {
+					refused(do(off, http.MethodPost, "/api/monitors", createBody("refused "+mode, mode)), before, "create with "+mode)
+				}
+				invalid := do(off, http.MethodPost, "/api/monitors", createBody("bad mode", "hub"))
+				if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), `"code":"invalid_alert_delivery"`) {
+					t.Fatalf("create with an invalid mode: want 400 invalid_alert_delivery, got %d %s", invalid.Code, invalid.Body.String())
+				}
+				if after := snap(); after != before {
+					t.Fatalf("refused create persisted state: %+v -> %+v", before, after)
+				}
+				// Only alert_delivery, without probe_ids or health_policy, is an
+				// explicit set with the default members and policy.
+				onlyMode := created(do(on, http.MethodPost, "/api/monitors",
+					`{"name":"only mode","type":"http","config":{"url":"https://example.com"},"alert_delivery":"both"}`), "create with only a mode")
+				if got := set(onlyMode); got.AlertDelivery != domain.AlertDeliveryBoth || got.HealthPolicy != domain.HealthPolicyAnyDown ||
+					len(got.Assignments) != 1 || got.Assignments[0].ProbeID != domain.LocalProbeID {
+					t.Fatalf("create with only a mode stored %+v", got)
+				}
+				for _, mode := range []string{"aggregate", "both"} {
+					id := created(do(on, http.MethodPost, "/api/monitors", createBody("enabled "+mode, mode)), "enabled create with "+mode)
+					if got := set(id).AlertDelivery; got != domain.AlertDelivery(mode) {
+						t.Fatalf("enabled create with %s stored %q", mode, got)
 					}
 				}
+				explicit := created(do(off, http.MethodPost, "/api/monitors", createBody("explicit regional", "regional")), "explicit regional create")
+				if got := set(explicit).AlertDelivery; got != domain.AlertDeliveryRegional {
+					t.Fatalf("explicit regional create stored %q", got)
+				}
 				regionalID = created(do(off, http.MethodPost, "/api/monitors", createBody("regional", "")), "regional create")
+				if got := set(regionalID).AlertDelivery; got != domain.AlertDeliveryRegional {
+					t.Fatalf("omitted mode stored %q", got)
+				}
+				// The assignment PUT is admin-only, so a non-admin creator may
+				// not request a non-regional mode at create either.
+				creator := f.user(t)
+				creatorUser, err := repos.users.GetByID(ctx, creator)
+				if err != nil {
+					t.Fatal(err)
+				}
+				creatorUser.CanCreateMonitors, creatorUser.CanCreateTopLevelMonitors = true, true
+				if err := repos.users.Update(ctx, creatorUser); err != nil {
+					t.Fatal(err)
+				}
+				creatorToken, err := jwt.IssueSession(ctx, creator)
+				if err != nil {
+					t.Fatal(err)
+				}
+				doAs := func(e *echo.Echo, body string) *httptest.ResponseRecorder {
+					req := httptest.NewRequest(http.MethodPost, "/api/monitors", strings.NewReader(body))
+					req.Header.Set("Content-Type", "application/json")
+					req.Header.Set("Authorization", "Bearer "+creatorToken)
+					rec := httptest.NewRecorder()
+					e.ServeHTTP(rec, req)
+					return rec
+				}
+				before = snap()
+				if rec := doAs(on, createBody("non-admin aggregate", "aggregate")); rec.Code != http.StatusForbidden {
+					t.Fatalf("non-admin aggregate create: want 403, got %d %s", rec.Code, rec.Body.String())
+				}
+				if after := snap(); after != before {
+					t.Fatalf("forbidden create persisted state: %+v -> %+v", before, after)
+				}
+				nonAdmin := created(doAs(on, createBody("non-admin regional", "regional")), "non-admin regional create")
+				if got := set(nonAdmin).AlertDelivery; got != domain.AlertDeliveryRegional {
+					t.Fatalf("non-admin regional create stored %q", got)
+				}
 			}
 			{ // ReplaceRefused
 				for _, mode := range []string{"aggregate", "both"} {

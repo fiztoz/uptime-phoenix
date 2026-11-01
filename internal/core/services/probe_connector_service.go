@@ -361,7 +361,7 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 			<-renewed
 			return 0, domain.ErrValidation
 		}
-		run = func(ctx context.Context, input domain.ProbeSessionInput, established func(context.Context) error, applied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
+		run = func(ctx context.Context, input domain.ProbeSessionInput, established func(context.Context, domain.ProbeQueueReport) error, applied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
 			return aware.RunWithWatchdog(ctx, input, watchdog, established, applied, ingest)
 		}
 	}
@@ -372,7 +372,7 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 		if openErr != nil {
 			return openErr
 		}
-		return run(connectCtx, domain.ProbeSessionInput{DialFingerprint: pin, OwnerID: s.ownerID, Connection: connection.ProbeCredentialMetadata, Token: token, Generation: lease.Generation, CommittedSeq: cursor, ConfigDocument: document}, func(callbackCtx context.Context) error {
+		return run(connectCtx, domain.ProbeSessionInput{DialFingerprint: pin, OwnerID: s.ownerID, Connection: connection.ProbeCredentialMetadata, Token: token, Generation: lease.Generation, CommittedSeq: cursor, ConfigDocument: document}, func(callbackCtx context.Context, report domain.ProbeQueueReport) error {
 			if err := s.leases.SetConnectorConnected(callbackCtx, lease, true); err != nil {
 				return err
 			}
@@ -397,10 +397,11 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 			}
 			if s.contacts != nil {
 				// The transport invokes this callback for every authenticated
-				// health frame it accepted, so this is hub-observed contact.
+				// health frame it accepted, so this is hub-observed contact, and
+				// report is the queue the probe stated in that frame (#157).
 				// The record is diagnostic evidence only: its failure must not
 				// end a session whose fenced authority writes just succeeded.
-				_ = s.contacts.RecordConnectorContact(callbackCtx, lease)
+				_ = s.contacts.RecordConnectorContact(callbackCtx, lease, report)
 			}
 			if connectedAt.IsZero() {
 				connectedAt = time.Now()

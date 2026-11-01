@@ -208,7 +208,22 @@ func (s *ProbeConnectorStore) SetConnectorConnected(ctx context.Context, lease d
 // It does not require the registration to be enabled: contact is evidence, not
 // admission. Release and acquisition leave the column untouched, so the value
 // freezes while the probe is disconnected.
-func (s *ProbeConnectorStore) RecordConnectorContact(ctx context.Context, lease domain.ProbeConnectorLease) error {
+//
+// The same statement stores the queue the probe reported in that health frame
+// with the same hub clock (#157), so the reported queue shares the contact
+// fence: it is never written by a stale session and never moves backward.
+func (s *ProbeConnectorStore) RecordConnectorContact(ctx context.Context, lease domain.ProbeConnectorLease, report domain.ProbeQueueReport) error {
+	if report.QueueBytes < 0 || (report.QueueBytes == 0) != (report.OldestQueuedAt == nil) {
+		return domain.ErrValidation
+	}
+	var oldest *int64
+	if report.OldestQueuedAt != nil {
+		micros := report.OldestQueuedAt.UTC().UnixMicro()
+		if micros <= 0 {
+			return domain.ErrValidation
+		}
+		oldest = &micros
+	}
 	return s.transaction(ctx, lease.ProbeID, func(ctx context.Context, tx bun.Tx, _ bool, now int64) error {
 		row, err := readProbeSession(ctx, tx, lease.ProbeID)
 		if err != nil {
@@ -217,7 +232,7 @@ func (s *ProbeConnectorStore) RecordConnectorContact(ctx context.Context, lease 
 		if !matchesProbeSession(row, lease) || row.LeaseUntil <= now || now <= 0 {
 			return ports.ErrConflict
 		}
-		_, err = tx.ExecContext(ctx, "UPDATE probe_sessions SET last_contact_at = ? WHERE probe_id = ? AND owner_id = ? AND generation = ? AND (last_contact_at IS NULL OR last_contact_at < ?)", now, lease.ProbeID, lease.OwnerID, lease.Generation, now)
+		_, err = tx.ExecContext(ctx, "UPDATE probe_sessions SET last_contact_at = ?, reported_queue_bytes = ?, reported_oldest_queued_at = ?, queue_reported_at = ? WHERE probe_id = ? AND owner_id = ? AND generation = ? AND (last_contact_at IS NULL OR last_contact_at < ?)", now, report.QueueBytes, oldest, now, lease.ProbeID, lease.OwnerID, lease.Generation, now)
 		return err
 	})
 }

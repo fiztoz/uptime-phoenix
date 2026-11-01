@@ -89,7 +89,7 @@ func TestHubTransportRealEnrollmentRuntimeAndConfig(t *testing.T) {
 	in := domain.ProbeSessionInput{Connection: m, Token: token, Generation: 1, ConfigDocument: document}
 	wrongInput := in
 	wrongInput.Token = "phx_probe_" + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
-	if err := transport.Run(t.Context(), wrongInput, func(context.Context) error { t.Fatal("wrong token established"); return nil }, func(context.Context, domain.ProbeActiveConfig) error { t.Fatal("wrong token applied"); return nil }, nil); !errors.Is(err, domain.ErrUnauthorized) {
+	if err := transport.Run(t.Context(), wrongInput, func(context.Context, domain.ProbeQueueReport) error { t.Fatal("wrong token established"); return nil }, func(context.Context, domain.ProbeActiveConfig) error { t.Fatal("wrong token applied"); return nil }, nil); !errors.Is(err, domain.ErrUnauthorized) {
 		t.Fatal("runtime authentication failed open")
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -98,7 +98,13 @@ func TestHubTransportRealEnrollmentRuntimeAndConfig(t *testing.T) {
 	done := make(chan error, 1)
 	receipts := make(chan domain.ProbeActiveConfig, 1)
 	go func() {
-		done <- transport.Run(ctx, in, func(context.Context) error { established.Add(1); return nil }, func(_ context.Context, receipt domain.ProbeActiveConfig) error { receipts <- receipt; return nil }, nil)
+		done <- transport.Run(ctx, in, func(_ context.Context, report domain.ProbeQueueReport) error {
+			if report.QueueBytes < 0 || (report.QueueBytes == 0) != (report.OldestQueuedAt == nil) {
+				t.Errorf("incoherent reported queue: %+v", report)
+			}
+			established.Add(1)
+			return nil
+		}, func(_ context.Context, receipt domain.ProbeActiveConfig) error { receipts <- receipt; return nil }, nil)
 	}()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
@@ -149,7 +155,7 @@ func TestHubTransportRealEnrollmentRuntimeAndConfig(t *testing.T) {
 	receiptCtx, stopReceipt := context.WithTimeout(t.Context(), 5*time.Second)
 	defer stopReceipt()
 	var rejected atomic.Bool
-	err = transport.Run(receiptCtx, in, func(context.Context) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error {
+	err = transport.Run(receiptCtx, in, func(context.Context, domain.ProbeQueueReport) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error {
 		rejected.Store(true)
 		return errors.New("private receipt database failure")
 	}, nil)
@@ -163,7 +169,7 @@ func TestHubTransportRealEnrollmentRuntimeAndConfig(t *testing.T) {
 	deadlineCtx, stopDeadline := context.WithTimeout(t.Context(), 3*time.Second)
 	defer stopDeadline()
 	var entered atomic.Bool
-	err = transport.Run(deadlineCtx, in, func(context.Context) error { return nil }, func(ctx context.Context, _ domain.ProbeActiveConfig) error {
+	err = transport.Run(deadlineCtx, in, func(context.Context, domain.ProbeQueueReport) error { return nil }, func(ctx context.Context, _ domain.ProbeActiveConfig) error {
 		entered.Store(true)
 		<-ctx.Done()
 		return ctx.Err()
