@@ -66,6 +66,11 @@ at the bottom.
   each one until the process exited. The loop and the stats worker now exit
   when the bus closes, without logging.
 
+- **The probe panel names the saved alert delivery mode (#175).** It always
+  said alerts are delivered per region. It now says regional, aggregate or
+  both, and the notification channel form explains delivery scope and how to
+  tell the alerts apart (`alert.delivery_scope`, the `AGGREGATE` prefix).
+
 - **The Makefile no longer offers migrate targets that cannot run (#176).**
   `make migrate-up`, `migrate-down` and `migrate-status` called a
   `./cmd/migrate` that does not exist. They are removed; the hub applies its
