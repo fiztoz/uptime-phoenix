@@ -153,7 +153,7 @@ func (p *cutoverPair) run(t *testing.T, ctx context.Context, generation int64, p
 	p.dispatch.mu.Unlock()
 	done := make(chan error, 1)
 	go func() {
-		done <- p.transport.Run(ctx, domain.ProbeSessionInput{Connection: p.metadata, Token: p.token, Generation: generation, OwnerID: uuid.NewString(), ConfigDocument: p.document}, func(context.Context) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error) {
+		done <- p.transport.Run(ctx, domain.ProbeSessionInput{Connection: p.metadata, Token: p.token, Generation: generation, OwnerID: uuid.NewString(), ConfigDocument: p.document}, func(context.Context, domain.ProbeQueueReport) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error) {
 			return nil, errors.New("unexpected replay in control-only fixture")
 		})
 	}()

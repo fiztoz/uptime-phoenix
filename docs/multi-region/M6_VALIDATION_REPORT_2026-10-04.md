@@ -31,7 +31,9 @@ Core Go/TypeScript regression tests remain with the code.
 The owner accepts delayed or incomplete historical uptime logs. That exception
 does not waive current monitoring or alert correctness. Representative off-host
 backup/restore, the full 24-hour fault/recovery test, matched-candidate operational
-checks and the historical AWS DELETE overlap remain unverified. Canary samples
+checks and the historical AWS DELETE overlap remain unverified. A later
+[single-node v0.6.2 Compose soak](LONGRUN_SOAK_REPORT_2026-11-01.md) covered ~4 days
+of local faults and restarts; it does not satisfy the multi-region 24-hour criterion. Canary samples
 used mixed binary versions and do not establish a release load-test pass.
 
 Per the owner's repository scope, UAT/load/cloud campaign tooling and raw logs

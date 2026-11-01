@@ -53,6 +53,25 @@ type ProbeSessionFacts struct {
 	// last accepted an authenticated health frame from the probe. Nil when no
 	// contact has been recorded. It freezes while the probe is disconnected.
 	LastContactAt *time.Time
+	// ReportedQueue is the last queue the probe reported about itself in an
+	// accepted health frame. Nil when the probe has never reported one.
+	ReportedQueue *ProbeReportedQueue
+}
+
+// ProbeQueueReport is the durable replay queue a probe reports about itself in
+// an authenticated health frame: the queued bytes and the oldest queued item,
+// which is nil exactly when the queue is empty. It is self-reported display
+// evidence (#157), never hub-verified backlog, readiness or alert input.
+type ProbeQueueReport struct {
+	QueueBytes     int64
+	OldestQueuedAt *time.Time
+}
+
+// ProbeReportedQueue is the last persisted ProbeQueueReport with ReportedAt,
+// the hub DB clock (whole seconds, UTC) at which the owning hub accepted it.
+type ProbeReportedQueue struct {
+	ProbeQueueReport
+	ReportedAt time.Time
 }
 
 // ProbeRuntimeFacts is the runtime (execution) lease evidence: the durable

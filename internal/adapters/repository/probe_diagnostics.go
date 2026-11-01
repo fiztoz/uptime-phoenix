@@ -55,6 +55,10 @@ type probeDiagSessionModel struct {
 	LeaseUntil    int64  `bun:"lease_until"`
 	Connected     bool   `bun:"connected"`
 	LastContactAt *int64 `bun:"last_contact_at"`
+	// Probe-reported queue (#157); all nil until the first accepted report.
+	ReportedQueueBytes     *int64 `bun:"reported_queue_bytes"`
+	ReportedOldestQueuedAt *int64 `bun:"reported_oldest_queued_at"`
+	QueueReportedAt        *int64 `bun:"queue_reported_at"`
 }
 
 func (m probeDiagSessionModel) facts() *domain.ProbeSessionFacts {
@@ -65,6 +69,17 @@ func (m probeDiagSessionModel) facts() *domain.ProbeSessionFacts {
 	if m.LastContactAt != nil && *m.LastContactAt > 0 {
 		at := time.Unix(*m.LastContactAt, 0).UTC()
 		facts.LastContactAt = &at
+	}
+	if m.ReportedQueueBytes != nil && *m.ReportedQueueBytes >= 0 && m.QueueReportedAt != nil && *m.QueueReportedAt > 0 {
+		reported := &domain.ProbeReportedQueue{
+			ProbeQueueReport: domain.ProbeQueueReport{QueueBytes: *m.ReportedQueueBytes},
+			ReportedAt:       time.Unix(*m.QueueReportedAt, 0).UTC(),
+		}
+		if m.ReportedOldestQueuedAt != nil && *m.ReportedOldestQueuedAt > 0 {
+			oldest := time.UnixMicro(*m.ReportedOldestQueuedAt).UTC()
+			reported.OldestQueuedAt = &oldest
+		}
+		facts.ReportedQueue = reported
 	}
 	return facts
 }

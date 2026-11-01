@@ -112,20 +112,25 @@ func (connectorProtector) OpenCredential(context.Context, domain.ProbeCredential
 }
 
 type connectorTransport struct {
-	run     func(context.Context, domain.ProbeSessionInput, func(context.Context) error) error
-	applied func(context.Context, func(context.Context, domain.ProbeActiveConfig) error) error
-	enroll  func(context.Context, domain.ProbeCredentialMetadata, string, string) error
-	ingest  func(context.Context, func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error
+	run func(context.Context, domain.ProbeSessionInput, func(context.Context) error) error
+	// reported, when set, replaces run and sees the queue-carrying callback.
+	reported func(context.Context, domain.ProbeSessionInput, func(context.Context, domain.ProbeQueueReport) error) error
+	applied  func(context.Context, func(context.Context, domain.ProbeActiveConfig) error) error
+	enroll   func(context.Context, domain.ProbeCredentialMetadata, string, string) error
+	ingest   func(context.Context, func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error
 }
 
-func (f connectorTransport) Run(ctx context.Context, in domain.ProbeSessionInput, ready func(context.Context) error, applied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
+func (f connectorTransport) Run(ctx context.Context, in domain.ProbeSessionInput, ready func(context.Context, domain.ProbeQueueReport) error, applied func(context.Context, domain.ProbeActiveConfig) error, ingest func(context.Context, domain.ProbeReplayBatch) (*domain.ProbeReplayResult, error)) error {
 	if f.ingest != nil {
 		return f.ingest(ctx, ingest)
 	}
 	if f.applied != nil {
 		return f.applied(ctx, applied)
 	}
-	return f.run(ctx, in, ready)
+	if f.reported != nil {
+		return f.reported(ctx, in, ready)
+	}
+	return f.run(ctx, in, func(ctx context.Context) error { return ready(ctx, domain.ProbeQueueReport{}) })
 }
 func (f connectorTransport) Enroll(ctx context.Context, m domain.ProbeCredentialMetadata, enrollment, token string) error {
 	return f.enroll(ctx, m, enrollment, token)

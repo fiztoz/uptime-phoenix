@@ -64,9 +64,16 @@ type ProbeView struct {
 	AppliedConfigRevision string     `json:"applied_config_revision"`
 	QueueBytes            *int64     `json:"queue_bytes"`
 	OldestQueuedAt        *time.Time `json:"oldest_queued_at"`
-	Revision              int64      `json:"revision,string"`
-	CreatedAt             time.Time  `json:"created_at"`
-	UpdatedAt             time.Time  `json:"updated_at"`
+	// The probe-reported queue (#157): what the probe last said about its own
+	// durable queue, and the hub DB time the owning hub accepted that report.
+	// All three are null until the probe first reports. They are display
+	// evidence only; the hub does not verify them.
+	ReportedQueueBytes     *int64     `json:"reported_queue_bytes"`
+	ReportedOldestQueuedAt *time.Time `json:"reported_oldest_queued_at"`
+	QueueReportedAt        *time.Time `json:"queue_reported_at"`
+	Revision               int64      `json:"revision,string"`
+	CreatedAt              time.Time  `json:"created_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
 // ProbeDetailView is ProbeView plus the administrative detail fields reserved
@@ -244,9 +251,15 @@ func toProbeView(entry services.ProbeFleetEntry) ProbeView {
 	view.AppliedConfigRevision = fleetCounter(summary.AppliedConfigRevision)
 	// agent_version, protocol_version, queue_bytes and oldest_queued_at have no
 	// safe evidence source yet. They stay null; null is unreported, never an
-	// implicit healthy default. The probe does send queue_bytes in its health
-	// frame (probe.DecodeHealth), but that value is self-reported and is not
-	// persisted, so the hub does not surface it as fleet evidence (#126).
+	// implicit healthy default. queue_bytes/oldest_queued_at are reserved for a
+	// hub-verified backlog (#126); what the probe says about its own queue is
+	// exposed separately and labeled as probe-reported (#157).
+	if q := summary.ReportedQueue; q != nil {
+		bytes := q.QueueBytes
+		view.ReportedQueueBytes = &bytes
+		view.ReportedOldestQueuedAt = optionalTime(q.OldestQueuedAt)
+		view.QueueReportedAt = optionalTime(&q.ReportedAt)
+	}
 	return view
 }
 

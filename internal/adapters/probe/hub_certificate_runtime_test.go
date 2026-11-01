@@ -119,7 +119,7 @@ func TestHubCertificateRuntimeLostResultAcrossBothStoresRestartAfterRetirement(t
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
 		attempt := func(pin string) error {
-			return transport.Run(ctx, domain.ProbeSessionInput{DialFingerprint: pin, OwnerID: owner, Connection: selected.ProbeCredentialMetadata, Token: token, Generation: lease.Generation}, func(ctx context.Context) error {
+			return transport.Run(ctx, domain.ProbeSessionInput{DialFingerprint: pin, OwnerID: owner, Connection: selected.ProbeCredentialMetadata, Token: token, Generation: lease.Generation}, func(ctx context.Context, _ domain.ProbeQueueReport) error {
 				if err := connections.SetConnectorConnected(ctx, lease, true); err != nil {
 					return err
 				}

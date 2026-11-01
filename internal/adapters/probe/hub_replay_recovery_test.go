@@ -259,7 +259,7 @@ func TestHubTransport_ReplayGap_CommittedEmitsZeroCountACK(t *testing.T) {
 
 	runErrCh := make(chan error, 1)
 	go func() {
-		runErrCh <- s.transport.Run(ctx, s.input, func(context.Context) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, ingest)
+		runErrCh <- s.transport.Run(ctx, s.input, func(context.Context, domain.ProbeQueueReport) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, ingest)
 	}()
 
 	var conn *websocket.Conn
@@ -396,7 +396,7 @@ func TestHubTransport_ReplayRetry_PeerReceivesRetryAndRecoversOnSameSession(t *t
 
 	runErrCh := make(chan error, 1)
 	go func() {
-		runErrCh <- s.transport.Run(ctx, s.input, func(context.Context) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, ingest)
+		runErrCh <- s.transport.Run(ctx, s.input, func(context.Context, domain.ProbeQueueReport) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, ingest)
 	}()
 
 	var conn *websocket.Conn
@@ -507,7 +507,7 @@ func TestHubTransport_ReplayConflictAuthority_ClosesWithoutRetryOrACK(t *testing
 
 		runErrCh := make(chan error, 1)
 		go func() {
-			runErrCh <- s.transport.Run(ctx, s.input, func(context.Context) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, ingest)
+			runErrCh <- s.transport.Run(ctx, s.input, func(context.Context, domain.ProbeQueueReport) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, ingest)
 		}()
 
 		var conn *websocket.Conn
@@ -571,7 +571,7 @@ func TestHubTransport_ReplayConflictAuthority_ClosesWithoutRetryOrACK(t *testing
 
 		runErrCh := make(chan error, 1)
 		go func() {
-			runErrCh <- s.transport.Run(ctx, s.input, func(context.Context) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, ingest)
+			runErrCh <- s.transport.Run(ctx, s.input, func(context.Context, domain.ProbeQueueReport) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, ingest)
 		}()
 
 		var conn *websocket.Conn
@@ -625,7 +625,7 @@ func TestHubTransport_ReplayConflictAuthority_ClosesWithoutRetryOrACK(t *testing
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
 
-		established := func(context.Context) error {
+		established := func(context.Context, domain.ProbeQueueReport) error {
 			return errors.New("authority unavailable: DB lease expired")
 		}
 
