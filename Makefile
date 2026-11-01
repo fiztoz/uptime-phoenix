@@ -287,6 +287,7 @@ fmt-frontend: ## Format frontend code
 m6-backend-harness-gate: ## Verify actual-engine coverage and exhaustive CI shards without database access
 	python3 -B -m unittest discover -s scripts -p test_m6_dual_engine_gate.py -v
 	python3 -B -m unittest discover -s scripts -p test_repository_test_shards.py -v
+	python3 -B -m unittest discover -s scripts -p test_makefile_targets.py -v
 
 .PHONY: release-image-gate
 release-image-gate: ## Verify image/chart operations and local image correspondence controls offline
@@ -471,18 +472,8 @@ helm-test: ## Run Helm tests
 	helm test uptime-phoenix
 
 # ── Database ──────────────────────────────────────────────────────────────────
-
-.PHONY: migrate-up
-migrate-up: ## Run database migrations up
-	go run ./cmd/migrate up
-
-.PHONY: migrate-down
-migrate-down: ## Rollback last database migration
-	go run ./cmd/migrate down
-
-.PHONY: migrate-status
-migrate-status: ## Show migration status
-	go run ./cmd/migrate status
+# There are no migrate targets: the hub applies its embedded migrations on boot
+# (internal/bootstrap/run.go, repo.RunMigrations).
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 

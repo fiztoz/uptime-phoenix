@@ -228,10 +228,22 @@ func advanceExplicitLocalSequence(ctx context.Context, tx bun.Tx, obs domain.Reg
 	return nil
 }
 
-// localCommitTransient reports MariaDB deadlock (1213) and lock-wait timeout
-// (1205) failures. Both abort the attempt without changing any state, so a
-// fresh re-evaluation and retry is safe.
+// localCommitTransient reports MariaDB deadlock (1213), lock-wait timeout
+// (1205) and snapshot-isolation conflict (1020, "Record has changed since last
+// read") failures. 1020 is raised under innodb_snapshot_isolation (default
+// since MariaDB 11.6) when the commit's dirty-bucket upsert meets a
+// probe_dirty_buckets row that the history projector changed after this
+// transaction's read view (#162). Every local heartbeat marks those buckets,
+// probes or not. All three abort the attempt and RunInTx rolls it back without
+// changing any state, so a fresh re-evaluation and retry is safe.
 func localCommitTransient(err error) bool {
 	var engineErr *mysql.MySQLError
-	return errors.As(err, &engineErr) && (engineErr.Number == 1213 || engineErr.Number == 1205)
+	if !errors.As(err, &engineErr) {
+		return false
+	}
+	switch engineErr.Number {
+	case 1020, 1205, 1213:
+		return true
+	}
+	return false
 }

@@ -13,7 +13,7 @@ Durable operations, regional history and browser work remain untouched.
 | Surface | Behavior |
 |---|---|
 | `PUT /api/monitors/:id/probes` | Admin atomic complete desired-set replacement with a mandatory expected revision; 409 on stale |
-| `POST /api/monitors` (extended) | Optional `probe_ids`, `health_policy`, `probe_bindings` create the monitor and its complete desired set in **one transaction**; omission keeps `["local"]`/`any_down` |
+| `POST /api/monitors` (extended) | Optional `probe_ids`, `health_policy`, `probe_bindings`, `alert_delivery` create the monitor and its complete desired set in **one transaction**; omission keeps `["local"]`/`any_down`/`regional`. `alert_delivery` is validated like the PUT (`invalid_alert_delivery`, `aggregate_paging_disabled`) and a non-regional mode needs admin (#158) |
 | `POST /api/monitors/:id/clone` | A clone of a remotely assigned monitor is **rejected** for a non-admin (403), never silently rerouted; an admin clone reproduces the source's complete set atomically |
 
 All three run behind the existing auth middleware; the replacement route also

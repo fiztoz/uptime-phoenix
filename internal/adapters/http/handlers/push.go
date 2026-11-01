@@ -4,7 +4,9 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -56,8 +58,15 @@ func (h *PushHandler) Receive(c echo.Context) error {
 	ctx := c.Request().Context()
 
 	mon, err := h.monitors.GetByPushToken(ctx, token)
-	if err != nil {
+	if errors.Is(err, ports.ErrNotFound) {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "monitor not found"})
+	}
+	if err != nil {
+		// A DB outage is not an unknown token: answer 503 so the pusher can
+		// tell a transient failure from a revoked token (#164). The token is
+		// a credential and is never logged.
+		slog.ErrorContext(ctx, "push: monitor lookup failed", "error", err)
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "push temporarily unavailable"})
 	}
 	if !mon.Active {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "monitor is disabled"})
@@ -127,6 +136,7 @@ func (h *PushHandler) Receive(c echo.Context) error {
 		}
 		definition, err := reader.ReadAppliedLocal(ctx)
 		if err != nil {
+			slog.ErrorContext(ctx, "push: read applied configuration failed", "monitor_id", mon.ID, "error", err)
 			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "applied configuration unavailable"})
 		}
 		var selected *domain.Monitor
@@ -144,9 +154,12 @@ func (h *PushHandler) Receive(c echo.Context) error {
 	}
 	var assignmentGeneration int64
 	if h.assignments != nil {
-		if allowed, err := h.assignments.ExecutableByLocal(ctx, []int64{mon.ID}); err == nil {
-			assignmentGeneration = allowed[mon.ID]
+		allowed, err := h.assignments.ExecutableByLocal(ctx, []int64{mon.ID})
+		if err != nil {
+			slog.ErrorContext(ctx, "push: read local assignment failed", "monitor_id", mon.ID, "error", err)
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "push temporarily unavailable"})
 		}
+		assignmentGeneration = allowed[mon.ID]
 	}
 
 	result := ports.CheckResult{
@@ -158,6 +171,10 @@ func (h *PushHandler) Receive(c echo.Context) error {
 	}
 
 	if err := h.hb.Record(ctx, mon, result); err != nil {
+		slog.ErrorContext(ctx, "push: failed to record heartbeat", "monitor_id", mon.ID, "error", err)
+		if errors.Is(err, ports.ErrStaleLocalState) {
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "push temporarily unavailable"})
+		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to record heartbeat"})
 	}
 

@@ -247,7 +247,7 @@ func (h *regionalTransportHarness) run(ctx context.Context) <-chan error {
 	go func() {
 		defer close(done)
 		done <- h.transport.Run(runCtx, h.input,
-			func(context.Context) error {
+			func(context.Context, domain.ProbeQueueReport) error {
 				h.established.Add(1)
 				return nil
 			},
@@ -545,7 +545,7 @@ func TestRegionalTransportControlledProbeNegotiatesAndRejectsUnsolicitedFrames(t
 			}()
 			go func() {
 				defer close(done)
-				done <- s.transport.Run(ctx, s.input, func(context.Context) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, nil)
+				done <- s.transport.Run(ctx, s.input, func(context.Context, domain.ProbeQueueReport) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, nil)
 			}()
 			var conn *websocket.Conn
 			select {

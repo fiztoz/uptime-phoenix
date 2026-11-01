@@ -80,6 +80,17 @@ lease authority for a write.
   scheduler evidence (watchdog checkpoint or application receipt). A probe can
   be `disconnected` while `execution_status` is still `ready`: offline execution
   continues under the runtime lease, and this field does not claim otherwise.
+- **`reported_queue_bytes`, `reported_oldest_queued_at`, `queue_reported_at`**
+  — the durable queue a remote probe stated about itself in the last health
+  frame the hub accepted (#157; `probe_sessions` columns from migration 092).
+  They are written in the same fenced statement as `last_contact_at`, so they
+  share its fence (live session owner and generation only, never backward) and
+  `queue_reported_at` is that contact's hub database clock. The oldest item is
+  the probe's clock, kept at microsecond precision in UTC, and is null exactly
+  when the reported queue is empty. Disconnect and release keep the last report;
+  it survives restarts. All three are null until the first report after
+  migration 092 and always null for the local row. They are probe-reported
+  display evidence, never hub-verified backlog, and never feed any status.
 - Target availability is deliberately absent: it belongs to monitor health.
 
 A lease exactly at its deadline is expired (`After`, not `>=`). Pause is not a
@@ -94,8 +105,10 @@ with `limit` (1–100, default 50) and `cursor` (exclusive probe ID).
 `id`, `key`, `name`, `location`, `kind`, `enabled`, `enrollment_state`,
 `connection_status`, `execution_status`, `last_seen_at`, `agent_version`,
 `protocol_version`, `desired_config_revision`, `applied_config_revision`,
-`queue_bytes`, `oldest_queued_at`, `revision`, `created_at`, `updated_at`.
-Revisions are decimal strings.
+`queue_bytes`, `oldest_queued_at`, `revision`, `created_at`, `updated_at`,
+plus the probe-reported queue fields `reported_queue_bytes`,
+`reported_oldest_queued_at` and `queue_reported_at` (#157, documented in
+protocol section 7). Revisions are decimal strings.
 
 Admin detail adds the protocol-authorized fields `endpoint`, `tls_fingerprint`,
 `certificate_expires_at`, `credential_version`, `capabilities` and the
@@ -107,6 +120,8 @@ carries endpoint or pin material.
 Still null by design — there is no safe evidence source yet, and null means
 unreported: `agent_version`, `protocol_version`, `queue_bytes`,
 `oldest_queued_at`, `capabilities`. Later slices fill them only with evidence.
+`queue_bytes`/`oldest_queued_at` are reserved for a hub-verified backlog; the
+probe's own report is the separate `reported_*` fields above.
 
 Executable contract:
 
