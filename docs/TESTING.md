@@ -100,7 +100,8 @@ run the real `STAGES=images` dry-run separately.
 UAT/load/cloud campaigns are maintained outside this repository and repository CI.
 Use [the reproduction recipe below](#11-reproduce-validation-and-create-external-uatload-tests).
 See the [validation summary](multi-region/M6_VALIDATION_REPORT_2026-10-04.md)
-for the latest executed results and outstanding acceptance checks.
+for the latest executed results and outstanding acceptance checks, and the
+[single-node v0.6.2 soak](multi-region/LONGRUN_SOAK_REPORT_2026-11-01.md) for long-run evidence.
 
 `make gate-full` does **not** include the MariaDB repository contract (needs
 `TEST_MARIADB_DSN` against a real database) or external UAT/load campaigns.

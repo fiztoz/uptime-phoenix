@@ -205,11 +205,11 @@ at the [foundation](M5_FOUNDATION.md).
 
 ## 10. Follow-on M7 — optional consolidated paging
 
-- [ ] Add explicit `aggregate` and `both` delivery modes after V1 `regional` mode is stable.
-- [ ] Persist hub-owned aggregate incident identity, provider intents, deduplication, throttle, and ownership fencing.
-- [ ] Implement ANY/ALL truth-table tests with missing, stale, paused, maintenance, and recovering probes.
-- [ ] Reconcile a current fresh snapshot without replaying old aggregate incident transitions; administrative policy changes receive administrative closure reasons.
-- [ ] Explain regional versus aggregate scope in channel configuration and alert messages.
+- [x] Add explicit `aggregate` and `both` delivery modes after V1 `regional` mode is stable. Backend merged default-disabled behind `PROBES_AGGREGATE_PAGING_ENABLED` ([desired mode](M7_DESIRED_DELIVERY.md), [operative cutover](M7_OPERATIVE_CUTOVER.md)); the admin UI has no mode selector yet and live opt-in is not accepted.
+- [x] Persist hub-owned aggregate incident identity, provider intents, deduplication, throttle, and ownership fencing. See [operative cutover](M7_OPERATIVE_CUTOVER.md) and [standby planning](M7_AGGREGATE_STANDBY.md).
+- [x] Implement ANY/ALL truth-table tests with missing, stale, paused, maintenance, and recovering probes. `TestAggregatePagingTruthTable` (`internal/core/services/aggregate_paging_test.go`); evaluation reuses `EvaluateMonitorHealth` ([paging decisions](M7_PAGING_FOUNDATION.md)).
+- [x] Reconcile a current fresh snapshot without replaying old aggregate incident transitions; administrative policy changes receive administrative closure reasons. See [operative cutover](M7_OPERATIVE_CUTOVER.md).
+- [ ] Explain regional versus aggregate scope in channel configuration and alert messages. Open: see the [scope-text audit](M7_SCOPE_TEXT_AUDIT.md) (panel always says per-region, channel config has no scope text, aggregate webhook JSON lacks `delivery_scope`).
 
 **Acceptance:** an operator explicitly selects each mode and receives only the configured scopes; UNKNOWN never creates a fake recovery or satisfies ALL-DOWN quorum.
 

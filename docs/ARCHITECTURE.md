@@ -1008,7 +1008,7 @@ func init() {
 | `ping` | `prometheus-community/pro-bing` | `hostname`, `count` | Linux: `sysctl net.ipv4.ping_group_range`; macOS: unprivileged works |
 | `dns` | `miekg/dns` | `hostname`, `resolve_type`, `resolve_server`, `expected_value` | Set `Client.Dialer.Timeout` |
 | `websocket` | `coder/websocket` | `url`, `headers` | `HandshakeTimeout` critical; no default |
-| `push` | `net/http` (inbound) | `push_token` (generated) | HMAC signature verification on `X-Signature` header |
+| `push` | `net/http` (inbound) | `push_token` (generated) | HMAC signature verification on `X-Signature` header. Passive: each push is recorded by `/api/push/:token`; the scheduler records nothing while the latest push is younger than `interval`, and records DOWN (`push: no push received …`, retries apply) once it is older. A new monitor gets one interval from creation |
 | `docker` | `moby/moby/client` | `docker_daemon`, `container` | Local Unix socket or remote Docker API (`tcp://host:port`); see `docs/guides/docker-remote-setup.md` |
 | `mqtt` | `eclipse/paho.mqtt.golang` | `broker`, `topic`, `username`, `password`, `success_message` | `SetAutoReconnect(false)` for one-shot check; check tokens |
 | `rabbitmq` | `github.com/rabbitmq/amqp091-go` | `url` (aliases: `connection_string`, `dsn`), optional `queue`, `exchange`, `exchange_type` | AMQP 0-9-1 only; opens a channel; queue/exchange checks use passive declare; use least-privilege RabbitMQ user |
