@@ -40,6 +40,13 @@ at the bottom.
 
 ### Fixed
 
+- **The WebSocket hub stops cleanly on shutdown (#165).** Closing the event
+  bus closes every subscriber channel; the hub's fan-out loop kept reading
+  zero-value events from them in a hot loop and logged a
+  `ws hub: dropping event with no resolvable monitor id type=""` warning for
+  each one until the process exited. The loop and the stats worker now exit
+  when the bus closes, without logging.
+
 - `alert_delivery: aggregate` or `both` is now refused with 400
   (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.
   Previously it was stored and reported but never paged (#119). The gate covers
