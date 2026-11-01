@@ -183,6 +183,19 @@ REQUIRED |= {
 } | {"TestM8PreflightAPI/mariadb", "TestM8PreflightClockAfterAuthorityLock/mariadb"}
 
 
+# TOTP replay protection (#123) is enforced by the database: each scenario
+# must pass on real MariaDB, not only on SQLite or a skipped parent.
+REQUIRED |= {
+    f"TestTOTPReplayContract/mariadb/{case}"
+    for case in (
+        "ConcurrentHubsSameStepExactlyOneWins", "ConcurrentConsumeSameStepExactlyOneWins",
+        "ReuseAfterRestartRefusedNewStepWorks", "SkewWindowIsDeterministic",
+        "RotationFencesStaleGeneration", "ProfileUpdateCannotRewriteTOTPState",
+        "DeactivatedUserCannotConsume", "StorageFailureFailsClosed", "Migration090DownUp",
+    )
+}
+
+
 # The probe watchdog settings API (#120) must hold its auth, validation,
 # revision and no-receipt contract on real MariaDB through the production router.
 REQUIRED |= {"TestProbeWatchdogSettingsAPIContract/mariadb"}

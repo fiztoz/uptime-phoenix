@@ -113,11 +113,13 @@ type Enable2FARequest struct {
 	Token string `json:"token"`
 }
 
-// Disable2FARequest is the body of POST /api/auth/disable-2fa. The
-// current password is required as a safety measure to prevent a stolen
-// session from silently disabling 2FA.
+// Disable2FARequest is the body of POST /api/auth/disable-2fa. Both the
+// current password and a current TOTP code are required, so neither a stolen
+// session nor a stolen session plus the password can silently disable 2FA.
+// The code is consumed like a login code and cannot be replayed (#123).
 type Disable2FARequest struct {
 	Password string `json:"password"`
+	Token    string `json:"token"`
 }
 
 // UserView is the wire shape of domain.User. We project the internal
@@ -346,8 +348,9 @@ func (h *AuthHandlers) Enable2FA(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]bool{"enabled": true})
 }
 
-// Disable2FA handles POST /api/auth/disable-2fa. The current password
-// is required so a stolen session token cannot silently turn off 2FA.
+// Disable2FA handles POST /api/auth/disable-2fa. The current password and a
+// current TOTP code are both required so a stolen session token (even with
+// the password) cannot silently turn off 2FA; the code is single-use (#123).
 func (h *AuthHandlers) Disable2FA(c echo.Context) error {
 	userID, ok := userIDFromContext(c)
 	if !ok {
@@ -360,17 +363,20 @@ func (h *AuthHandlers) Disable2FA(c echo.Context) error {
 	if req.Password == "" {
 		return badRequest(c, "password is required")
 	}
+	if req.Token == "" {
+		return badRequest(c, "token is required")
+	}
 
 	user, err := h.svc.GetUser(c.Request().Context(), userID)
 	if err != nil {
 		return mapAuthError(c, err)
 	}
 
-	// Verify the supplied password. We attempt Login and treat
-	// ErrTOTPRequired as proof the password was correct — that
-	// branch happens exactly when the password check passed but
-	// TOTP is still required. This avoids forcing the user to
-	// re-enter a TOTP code just to disable 2FA.
+	// Verify the supplied password first, so a wrong password never burns
+	// the TOTP code. We attempt Login and treat ErrTOTPRequired as proof
+	// the password was correct — that branch happens exactly when the
+	// password check passed but TOTP is still required. DisableTOTP then
+	// matches and atomically consumes the code (#123).
 	if _, loginErr := h.svc.Login(loginContext(c), user.Username, req.Password); loginErr != nil {
 		switch {
 		case errors.Is(loginErr, services.ErrInvalidCredentials):
@@ -382,7 +388,7 @@ func (h *AuthHandlers) Disable2FA(c echo.Context) error {
 		}
 	}
 
-	if err := h.svc.DisableTOTP(c.Request().Context(), userID); err != nil {
+	if err := h.svc.DisableTOTP(c.Request().Context(), userID, req.Token); err != nil {
 		return mapAuthError(c, err)
 	}
 	return c.JSON(http.StatusOK, map[string]bool{"disabled": true})
@@ -636,6 +642,8 @@ func mapAuthError(c echo.Context, err error) error {
 		return c.JSON(http.StatusUnauthorized, errorBody("TOTP token required"))
 	case errors.Is(err, services.ErrTOTPInvalid):
 		return c.JSON(http.StatusUnauthorized, errorBody("invalid TOTP token"))
+	case errors.Is(err, services.ErrTOTPUnavailable):
+		return c.JSON(http.StatusServiceUnavailable, errorBody("two-factor verification is temporarily unavailable; try again"))
 	case errors.Is(err, services.ErrTicketInvalid):
 		return c.JSON(http.StatusUnauthorized, errorBody("2FA ticket is invalid or expired; sign in again"))
 	case errors.Is(err, services.ErrTooManyAttempts):

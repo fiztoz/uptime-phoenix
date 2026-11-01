@@ -66,7 +66,7 @@ type oidc2FA struct{}
 func (o *oidc2FA) GenerateSecret(string, string) (string, string, error) {
 	return "s", "u", nil
 }
-func (o *oidc2FA) VerifyToken(string, string) bool { return true }
+func (o *oidc2FA) MatchToken(string, string, time.Time) (int64, bool) { return 1, true }
 
 type clk struct{ t time.Time }
 

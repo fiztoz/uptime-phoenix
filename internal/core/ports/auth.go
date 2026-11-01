@@ -4,6 +4,7 @@ package ports
 
 import (
 	"context"
+	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
@@ -50,9 +51,14 @@ type TwoFactor interface {
 	// GenerateSecret returns a freshly generated TOTP secret and a provisioning
 	// URL (otpauth://) suitable for rendering as a QR code.
 	GenerateSecret(issuer, username string) (secret string, qrURL string, err error)
-	// VerifyToken validates a 6-digit TOTP token against the secret with a
-	// ±1 period skew (Google Authenticator-compatible).
-	VerifyToken(secret, token string) bool
+	// MatchToken validates a 6-digit TOTP token against the secret at the
+	// given instant and returns the time step (Unix seconds / period) whose
+	// code matched. The accepted window is the step containing at plus one
+	// step either side (Google Authenticator-compatible); when more than one
+	// step matches, the latest is returned. It never stores anything: the
+	// caller must consume the step atomically (see
+	// UserRepository.ConsumeTOTPStep) before treating the code as used.
+	MatchToken(secret, token string, at time.Time) (step int64, ok bool)
 }
 
 // WebAuthnUser is the minimal view of a user the WebAuthnAuthenticator needs

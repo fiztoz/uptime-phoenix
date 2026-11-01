@@ -120,29 +120,40 @@ func intToStr(i int64) string {
 	return string(buf[pos:])
 }
 
-// fakeTOTP is a deterministic TwoFactor: GenerateSecret always returns
-// a fixed secret, VerifyToken checks against a code we set via SetValidCode.
+// fakeTOTP is a deterministic TwoFactor: GenerateSecret always returns a
+// fixed secret, and MatchToken accepts only codes registered with
+// SetValidCode. Each newly registered code belongs to a later time step than
+// every earlier one, as codes from a real authenticator do.
 type fakeTOTP struct {
 	secret     string
-	validCodes map[string]bool
+	validCodes map[string]int64
+	lastStep   int64
 }
 
 func newFakeTOTP() *fakeTOTP {
-	return &fakeTOTP{secret: "TESTSECRET", validCodes: map[string]bool{}}
+	return &fakeTOTP{secret: "TESTSECRET", validCodes: map[string]int64{}}
 }
 
 func (t *fakeTOTP) GenerateSecret(issuer, username string) (string, string, error) {
 	return t.secret, "otpauth://totp/" + issuer + ":" + username + "?secret=" + t.secret, nil
 }
 
-func (t *fakeTOTP) VerifyToken(secret, token string) bool {
+func (t *fakeTOTP) MatchToken(secret, token string, _ time.Time) (int64, bool) {
 	if secret != t.secret {
-		return false
+		return 0, false
 	}
-	return t.validCodes[token]
+	step, ok := t.validCodes[token]
+	return step, ok
 }
 
-func (t *fakeTOTP) SetValidCode(code string) { t.validCodes[code] = true }
+// SetValidCode registers code in the next time step (once per code).
+func (t *fakeTOTP) SetValidCode(code string) {
+	if _, ok := t.validCodes[code]; ok {
+		return
+	}
+	t.lastStep++
+	t.validCodes[code] = t.lastStep
+}
 
 // fakeClock is a controllable clock for time-sensitive tests.
 type fakeClock struct{ now time.Time }
@@ -329,10 +340,11 @@ func TestAuthService_TOTP_FullFlow(t *testing.T) {
 		t.Errorf("EnableTOTP(bad code) = %v; want ErrTOTPInvalid", enableErr)
 	}
 	// Enable with the right code.
-	totp.SetValidCode("123456")
-	if enableErr := svc.EnableTOTP(ctx, 1, "123456"); enableErr != nil {
+	totp.SetValidCode("654321")
+	if enableErr := svc.EnableTOTP(ctx, 1, "654321"); enableErr != nil {
 		t.Fatalf("EnableTOTP(good code): %v", enableErr)
 	}
+	totp.SetValidCode("123456")
 	u, _ = svc.GetUser(ctx, 1)
 	if !u.TOTPEnabled {
 		t.Errorf("TOTPEnabled should be true after successful EnableTOTP")
@@ -373,8 +385,13 @@ func TestAuthService_TOTP_FullFlow(t *testing.T) {
 		t.Errorf("Complete2FALogin returned unexpected user: %+v", user)
 	}
 
-	// LoginWith2FA also works for the all-in-one case.
-	tok, err = svc.LoginWith2FA(ctx, "alice", "supersecret", "123456")
+	// LoginWith2FA refuses the code that just completed a login (#123)...
+	if _, err = svc.LoginWith2FA(ctx, "alice", "supersecret", "123456"); !errors.Is(err, ErrTOTPInvalid) {
+		t.Errorf("LoginWith2FA(reused code) = %v; want ErrTOTPInvalid", err)
+	}
+	// ...and works for the all-in-one case with the next step's code.
+	totp.SetValidCode("234567")
+	tok, err = svc.LoginWith2FA(ctx, "alice", "supersecret", "234567")
 	if err != nil {
 		t.Fatalf("LoginWith2FA: %v", err)
 	}
@@ -392,7 +409,7 @@ func TestAuthService_DisableTOTP(t *testing.T) {
 	auth.seedHash("alice", "bcrypt$supersecret")
 
 	// Disable on a fresh account: returns ErrTOTPNotEnabled.
-	if err := svc.DisableTOTP(ctx, 1); !errors.Is(err, ErrTOTPNotEnabled) {
+	if err := svc.DisableTOTP(ctx, 1, ""); !errors.Is(err, ErrTOTPNotEnabled) {
 		t.Errorf("DisableTOTP(no secret) = %v; want ErrTOTPNotEnabled", err)
 	}
 
@@ -404,7 +421,9 @@ func TestAuthService_DisableTOTP(t *testing.T) {
 	if err := svc.EnableTOTP(ctx, 1, "123456"); err != nil {
 		t.Fatalf("EnableTOTP: %v", err)
 	}
-	if err := svc.DisableTOTP(ctx, 1); err != nil {
+	// Disabling needs a code from a later step than the enrolment one.
+	totp.SetValidCode("222222")
+	if err := svc.DisableTOTP(ctx, 1, "222222"); err != nil {
 		t.Fatalf("DisableTOTP: %v", err)
 	}
 	u, _ := svc.GetUser(ctx, 1)
@@ -508,12 +527,17 @@ type inMemUserRepo struct {
 	byName       map[string]int64
 	next         int64
 	getByIDCalls int
+	// totpLastStep mirrors users.totp_last_step; totpErr makes every TOTP
+	// state call fail like an unavailable database.
+	totpLastStep map[int64]int64
+	totpErr      error
 }
 
 func newInMemUserRepo() *inMemUserRepo {
 	return &inMemUserRepo{
-		users:  map[int64]*domain.User{},
-		byName: map[string]int64{},
+		users:        map[int64]*domain.User{},
+		byName:       map[string]int64{},
+		totpLastStep: map[int64]int64{},
 	}
 }
 
@@ -566,8 +590,49 @@ func (r *inMemUserRepo) Update(_ context.Context, u *domain.User) error {
 		r.byName[u.Username] = u.ID
 	}
 	u.UpdatedAt = time.Now().UTC()
-	r.users[u.ID] = u
+	// Like the SQL adapters, Update never writes TOTP credential state.
+	stored := *u
+	stored.TOTPSecret = r.users[u.ID].TOTPSecret
+	stored.TOTPEnabled = r.users[u.ID].TOTPEnabled
+	stored.TOTPGeneration = r.users[u.ID].TOTPGeneration
+	r.users[u.ID] = &stored
 	return nil
+}
+
+func (r *inMemUserRepo) ReplaceTOTPCredential(_ context.Context, userID int64, secret string) error {
+	if r.totpErr != nil {
+		return r.totpErr
+	}
+	u, ok := r.users[userID]
+	if !ok {
+		return ports.ErrNotFound
+	}
+	u.TOTPSecret, u.TOTPEnabled = secret, false
+	u.TOTPGeneration++
+	r.totpLastStep[userID] = 0
+	return nil
+}
+
+func (r *inMemUserRepo) ConsumeTOTPStep(_ context.Context, userID, generation, step int64) (bool, error) {
+	return r.consumeTOTPStep(userID, generation, step, true)
+}
+
+func (r *inMemUserRepo) ConfirmTOTPCredential(_ context.Context, userID, generation, step int64) (bool, error) {
+	return r.consumeTOTPStep(userID, generation, step, false)
+}
+
+func (r *inMemUserRepo) consumeTOTPStep(userID, generation, step int64, enabled bool) (bool, error) {
+	if r.totpErr != nil {
+		return false, r.totpErr
+	}
+	u, ok := r.users[userID]
+	if !ok || step <= 0 || !u.Active || u.TOTPEnabled != enabled || u.TOTPGeneration != generation ||
+		u.TOTPSecret == "" || r.totpLastStep[userID] >= step {
+		return false, nil
+	}
+	r.totpLastStep[userID] = step
+	u.TOTPEnabled = true
+	return true, nil
 }
 
 func (r *inMemUserRepo) Delete(_ context.Context, id int64) error {
