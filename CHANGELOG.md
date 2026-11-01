@@ -40,6 +40,13 @@ at the bottom.
 
 ### Fixed
 
+- **Startup waits for MariaDB instead of exiting (#163).** When the database is
+  not accepting connections yet (for example right after a host reboot),
+  Phoenix retries the connection with backoff (500 ms doubling to 5 s) for up
+  to `DB_CONNECT_TIMEOUT_SECONDS` (default 60; 0 = one attempt), logging a
+  warning per failed attempt. Errors the server returns, such as bad
+  credentials or an unknown database, still fail immediately.
+
 - **The WebSocket hub stops cleanly on shutdown (#165).** Closing the event
   bus closes every subscriber channel; the hub's fan-out loop kept reading
   zero-value events from them in a hot loop and logged a
@@ -55,6 +62,21 @@ at the bottom.
   `aggregate_paging_disabled` while `PROBES_AGGREGATE_PAGING_ENABLED` is off,
   and a non-regional mode from a non-admin creator is 403. A refused create
   writes nothing.
+
+- **Push endpoint errors are no longer silent or misreported (#164).**
+  `GET/POST /api/push/:token` returned 404 for *any* monitor lookup failure
+  (including database errors), ignored assignment read errors, and returned 500
+  with no log line when recording the heartbeat failed. A database error now
+  returns 503 and every 5xx is logged with the monitor id (never the token); an
+  unknown token is still 404, and a transient local-state conflict is 503 so the
+  pusher can retry.
+
+- **Heartbeats are no longer dropped on MariaDB Error 1020 (#162).** Every local
+  heartbeat marks its history buckets in `probe_dirty_buckets`, probes or not,
+  while the history projector rewrites the same rows. Under MariaDB's snapshot
+  isolation (default since 11.6) that surfaced as `Error 1020: Record has
+  changed since last read` and the scheduler dropped the heartbeat. The local
+  commit now treats 1020 like a deadlock and retries from a fresh read.
 
 - `alert_delivery: aggregate` or `both` is now refused with 400
   (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.
