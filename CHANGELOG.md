@@ -66,6 +66,17 @@ at the bottom.
   each one until the process exited. The loop and the stats worker now exit
   when the bus closes, without logging.
 
+- **Push monitors go DOWN when pushes stop (#161).** The scheduler no longer
+  records the passive checker's "awaiting first push" PENDING every interval
+  (which also flipped UP/PENDING as important rows). It records nothing while
+  the latest push is younger than the monitor's interval, and a DOWN
+  ("push: no push received in the last Ns", retries apply) once it is older,
+  so a stopped pusher alerts and the next push recovers it to UP. A new push
+  monitor gets one interval from creation before it can go DOWN. The deadline
+  has a 2 s grace for second-precision heartbeat times and jitter, and it
+  counts from when the scheduler started watching the monitor, so a restart,
+  upgrade, or resume never turns into a DOWN by itself.
+
 - `POST /api/monitors` no longer silently drops `alert_delivery` (#158). The
   create body now accepts it as part of the explicit initial assignment set
   (alone it means `["local"]`/`any_down` with that mode) and validates it the
