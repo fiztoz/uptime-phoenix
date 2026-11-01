@@ -65,3 +65,52 @@ func TestLegacyInitialDownSurvivesACrash(t *testing.T) {
 		})
 	}
 }
+
+// The resend branch can open the alert itself: a monitor that went DOWN inside
+// a maintenance window has none when the window ends. Its send is the initial
+// attempt and must be recorded, or the next check pages it again as lost.
+func TestLegacyResendOpenedAlertIsMarkedInitialNotified(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mariadb"} {
+		t.Run(engine, func(t *testing.T) {
+			f := newProbeRegistryFixture(t, engine)
+			ctx := context.Background()
+			repo := alertScopeRepos(f).alerts
+			mid := localMonitor(t, f)
+			monitor := &domain.Monitor{ID: mid, Name: "maintenance target", ResendInterval: 60}
+
+			notif := &regionalAlertNotifier{}
+			maint := &throttleMaintenance{active: true}
+			d := services.NewNotificationDispatcher(notif, maint)
+			alerts := services.NewAlertService(repo)
+			d.SetAlertLifecycle(alerts)
+			down := &domain.Heartbeat{MonitorID: mid, Status: domain.StatusDown}
+			sends := func() int { return notif.notifications + len(notif.alerts) }
+
+			up := domain.StatusUp
+			d.OnHeartbeat(ctx, monitor, down, &up)
+			if sends() != 0 {
+				t.Fatalf("DOWN inside maintenance sent: sends=%d, want 0", sends())
+			}
+			maint.active = false
+			prev := domain.StatusDown
+			d.OnHeartbeat(ctx, monitor, down, &prev)
+			if sends() != 1 {
+				t.Fatalf("resend after maintenance: sends=%d, want 1", sends())
+			}
+			open, err := repo.GetOpenByMonitorID(ctx, mid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if open == nil {
+				t.Fatal("resend did not open an alert")
+			}
+			if open.InitialNotifiedAt == nil {
+				t.Fatal("resend-opened alert was not marked initial notified")
+			}
+			d.OnHeartbeat(ctx, monitor, down, &prev)
+			if sends() != 1 {
+				t.Fatalf("resend-opened alert sent again as lost initial: sends=%d, want 1", sends())
+			}
+		})
+	}
+}

@@ -74,3 +74,32 @@ func TestLegacyDispatcherDoesNotRepeatADeliveredInitialDown(t *testing.T) {
 		t.Fatalf("acknowledged alert re-sent by recovery: notifications=%d", notif.count())
 	}
 }
+
+// A monitor that went DOWN inside a maintenance window has no open alert when
+// the window ends. The next DOWN after DOWN with a resend interval opens the
+// alert and sends it from the resend branch. That send is the alert's initial
+// attempt, so the following check must not send it again as a lost initial.
+func TestLegacyDispatcherDoesNotRepeatAResendOpenedAlert(t *testing.T) {
+	ctx := context.Background()
+	notif := &fakeNotifier{}
+	alerts := NewAlertService(newFakeAlertRepo())
+	monitor := &domain.Monitor{ID: 7, ResendInterval: 60}
+	down := &domain.Heartbeat{MonitorID: 7, Status: domain.StatusDown}
+	maint := &fakeMaintenance{active: true}
+
+	d := newDispatcher(notif, maint)
+	d.SetAlertLifecycle(alerts)
+	d.OnHeartbeat(ctx, monitor, down, ptrStatus(domain.StatusUp))
+	if notif.count() != 0 {
+		t.Fatalf("DOWN inside maintenance notified: notifications=%d, want 0", notif.count())
+	}
+	maint.active = false
+	d.OnHeartbeat(ctx, monitor, down, ptrStatus(domain.StatusDown))
+	if notif.count() != 1 {
+		t.Fatalf("resend after maintenance: notifications=%d, want 1", notif.count())
+	}
+	d.OnHeartbeat(ctx, monitor, down, ptrStatus(domain.StatusDown))
+	if notif.count() != 1 {
+		t.Fatalf("resend-opened alert sent again as lost initial: notifications=%d, want 1", notif.count())
+	}
+}

@@ -313,6 +313,10 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 			if !d.outboxDelivery {
 				startedAt, duration := alertLifecycleTiming(alert, now)
 				d.dispatch(ctx, monitor, cur, prev, ackURL, checkOutput, startedAt, duration)
+				// The resend can open the alert itself (it went DOWN inside a
+				// maintenance window), so this may be its initial attempt.
+				// The mark keeps the first time, so an older alert is unchanged.
+				d.markInitialNotified(ctx, lifecycle, monitor, alert)
 			}
 		}
 	}
