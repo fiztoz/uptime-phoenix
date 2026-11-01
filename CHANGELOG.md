@@ -54,6 +54,14 @@ at the bottom.
   each one until the process exited. The loop and the stats worker now exit
   when the bus closes, without logging.
 
+- **Push endpoint errors are no longer silent or misreported (#164).**
+  `GET/POST /api/push/:token` returned 404 for *any* monitor lookup failure
+  (including database errors), ignored assignment read errors, and returned 500
+  with no log line when recording the heartbeat failed. A database error now
+  returns 503 and every 5xx is logged with the monitor id (never the token); an
+  unknown token is still 404, and a transient local-state conflict is 503 so the
+  pusher can retry.
+
 - **Heartbeats are no longer dropped on MariaDB Error 1020 (#162).** Every local
   heartbeat marks its history buckets in `probe_dirty_buckets`, probes or not,
   while the history projector rewrites the same rows. Under MariaDB's snapshot
