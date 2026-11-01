@@ -40,6 +40,13 @@ at the bottom.
 
 ### Fixed
 
+- **Startup waits for MariaDB instead of exiting (#163).** When the database is
+  not accepting connections yet (for example right after a host reboot),
+  Phoenix retries the connection with backoff (500 ms doubling to 5 s) for up
+  to `DB_CONNECT_TIMEOUT_SECONDS` (default 60; 0 = one attempt), logging a
+  warning per failed attempt. Errors the server returns, such as bad
+  credentials or an unknown database, still fail immediately.
+
 - `alert_delivery: aggregate` or `both` is now refused with 400
   (`aggregate_paging_disabled`) while `PROBES_AGGREGATE_PAGING_ENABLED` is off.
   Previously it was stored and reported but never paged (#119). The gate covers
