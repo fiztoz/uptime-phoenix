@@ -17,7 +17,10 @@ type ProbeWatchdogSettings struct {
 	NotificationIDs     []int64
 }
 
-// DefaultProbeWatchdogSettings keeps connection paging opt-in.
+// DefaultProbeWatchdogSettings keeps connection paging opt-in. It is the one
+// source of the default timings (90 s lost, 30 s recover, no resend) used by
+// phoenix-probe-admin watchdog flags and by the settings API when a timing
+// field is omitted.
 func DefaultProbeWatchdogSettings() ProbeWatchdogSettings {
 	return ProbeWatchdogSettings{LostAfterSeconds: 90, RecoverAfterSeconds: 30, NotificationIDs: []int64{}}
 }

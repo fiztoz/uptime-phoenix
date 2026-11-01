@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -127,6 +128,7 @@ func TestMonitorRegionalHTTPReplaceErrors(t *testing.T) {
 		{"invalid members", body, 1, true, &assignmentWriteFake{err: services.ErrInvalidProbeIDs}, 400, "invalid_probe_ids", false},
 		{"invalid policy", body, 1, true, &assignmentWriteFake{err: services.ErrInvalidPolicy}, 400, "invalid_health_policy", false},
 		{"invalid delivery", body, 1, true, &assignmentWriteFake{err: services.ErrInvalidDelivery}, 400, "invalid_alert_delivery", false},
+		{"aggregate paging disabled", body, 1, true, &assignmentWriteFake{err: fmt.Errorf("alert delivery \"aggregate\": %w", services.ErrAggregatePagingDisabled)}, 400, "aggregate_paging_disabled", false},
 		{"invalid bindings", body, 1, true, &assignmentWriteFake{err: services.ErrInvalidBindings}, 400, "invalid_bindings", false},
 		{"stale revision", body, 1, true, &assignmentWriteFake{err: services.ErrStaleRevision}, 409, "stale_revision", false},
 		{"unknown probe", body, 1, true, &assignmentWriteFake{err: services.ErrUnknownProbe}, 409, "unknown_probe", false},
