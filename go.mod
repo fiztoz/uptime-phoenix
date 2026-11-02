@@ -11,7 +11,7 @@ require (
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
-	github.com/gosnmp/gosnmp v1.46.0
+	github.com/gosnmp/gosnmp v1.47.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/labstack/echo/v4 v4.16.3
 	github.com/microsoft/go-mssqldb v1.11.2
