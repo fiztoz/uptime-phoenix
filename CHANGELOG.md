@@ -67,6 +67,15 @@ at the bottom.
 
 ### Fixed
 
+- **A config push no longer shows a remote probe as disconnected for seconds
+  (#128).** A new configuration revision is delivered by ending the probe's
+  session and reconnecting. That deliberate rollover was counted as a
+  connection failure: it paid the reconnect backoff, escalating to 2, 4, 8 and
+  16 s when pushes came less than 30 s apart, while the released session read
+  as `disconnected`. It was also reported as "probe connection unavailable".
+  A rollover now reconnects at once, with no backoff and no error report. Real
+  failures, such as a failed lease renewal, keep the backoff.
+
 - **An unusable probe queue report no longer freezes last seen.** A health
   frame can carry a queue the hub will not store (a negative size, a size and
   oldest time that disagree, or an oldest time that is not a positive UTC

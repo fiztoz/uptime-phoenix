@@ -6,11 +6,16 @@ import (
 	"encoding/base64"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
+
+// errProbeConfigRollover ends an established session on purpose: a newer
+// configuration revision is published and is delivered on a fresh session.
+var errProbeConfigRollover = errors.New("probe configuration rollover")
 
 // ProbeConnectorService owns hub DB leases and confidential transport inputs.
 // A network session is canceled immediately when renewal fails.
@@ -235,6 +240,13 @@ func (s *ProbeConnectorService) ownedConnectLoop(ctx context.Context, runtime do
 		if ctx.Err() != nil {
 			return
 		}
+		if errors.Is(err, errProbeConfigRollover) {
+			// A config push is not a connection failure. Reconnect now with the
+			// new revision instead of paying (and escalating) the backoff, which
+			// showed the probe as disconnected for seconds per push (#128).
+			failures = 0
+			continue
+		}
 		if err != nil && !errors.Is(err, ports.ErrConflict) && report != nil {
 			report(errors.New("probe connection unavailable"))
 		}
@@ -316,6 +328,7 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 	sessionCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	renewed := make(chan struct{})
+	var rollover atomic.Bool
 	go func() {
 		defer close(renewed)
 		ticker := time.NewTicker(s.renewInterval)
@@ -336,6 +349,7 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 				if readErr != nil && !errors.Is(readErr, ports.ErrNotFound) {
 					err = readErr
 				} else if next.Revision != metadata.Revision {
+					rollover.Store(true)
 					err = ports.ErrConflict
 				}
 			}
@@ -445,6 +459,9 @@ func (s *ProbeConnectorService) connectOnce(ctx context.Context, runtime domain.
 	<-renewed
 	if connectedAt.IsZero() {
 		return 0, err
+	}
+	if rollover.Load() {
+		return time.Since(connectedAt), errProbeConfigRollover
 	}
 	return time.Since(connectedAt), err
 }
