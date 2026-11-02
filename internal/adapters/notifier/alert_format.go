@@ -61,6 +61,10 @@ func alertTitle(alert domain.AlertContext) string {
 	return fmt.Sprintf("%s is %s%s", alert.MonitorName, alert.Status, aggregateTitleSuffix(alert))
 }
 
+// aggregateScopePrefix is the plain-text marker operators are told to trust
+// when separating a hub aggregate page from per-region pages.
+const aggregateScopePrefix = "AGGREGATE "
+
 // aggregateTitleSuffix marks a hub aggregate page so a receiver that keys on
 // the title can tell it apart from the per-region pages in `both` mode.
 func aggregateTitleSuffix(alert domain.AlertContext) string {
@@ -68,6 +72,29 @@ func aggregateTitleSuffix(alert domain.AlertContext) string {
 		return " (aggregate)"
 	}
 	return ""
+}
+
+// disarmAggregatePrefix keeps aggregateScopePrefix exclusive to hub aggregate
+// pages. Check output and push messages are caller-controlled, so a
+// non-aggregate alert must not present that prefix as the start of a line.
+func disarmAggregatePrefix(alert domain.AlertContext, text string) string {
+	if text == "" || alert.DeliveryScope == domain.IncidentScopeAggregate {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	changed := false
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t\r")
+		if strings.HasPrefix(trimmed, aggregateScopePrefix) {
+			lead := line[:len(line)-len(trimmed)]
+			lines[i] = lead + "check: " + trimmed
+			changed = true
+		}
+	}
+	if !changed {
+		return text
+	}
+	return strings.Join(lines, "\n")
 }
 
 // alertTitleWithPrefix is like alertTitle but with a leading product prefix
@@ -83,6 +110,7 @@ func alertTitleWithPrefix(prefix string, alert domain.AlertContext) string {
 // threshold, days remaining, issuer, and NotAfter when present.
 func alertBody(alert domain.AlertContext) (bodyText string) {
 	defer func() {
+		bodyText = disarmAggregatePrefix(alert, bodyText)
 		if alert.DeliveryScope == domain.IncidentScopeRegional && alert.ProbeID != "" {
 			bodyText += "\nRegion: " + probeAlertName(alert)
 			if alert.ProbeLocation != "" {

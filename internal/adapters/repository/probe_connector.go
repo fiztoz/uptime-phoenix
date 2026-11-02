@@ -209,21 +209,14 @@ func (s *ProbeConnectorStore) SetConnectorConnected(ctx context.Context, lease d
 // admission. Release and acquisition leave the column untouched, so the value
 // freezes while the probe is disconnected.
 //
-// The same statement stores the queue the probe reported in that health frame
-// with the same hub clock (#157), so the reported queue shares the contact
-// fence: it is never written by a stale session and never moves backward.
+// A usable queue report is stored in the same statement, with the same hub
+// clock (#157), so it shares the contact fence: a stale session cannot write
+// it and it never moves backward. An unusable report still stamps contact and
+// leaves the queue columns unchanged. Health validation allows an oldest time
+// whose UTC microsecond is not positive; rejecting the whole update froze last
+// seen while the probe kept sending those frames.
 func (s *ProbeConnectorStore) RecordConnectorContact(ctx context.Context, lease domain.ProbeConnectorLease, report domain.ProbeQueueReport) error {
-	if report.QueueBytes < 0 || (report.QueueBytes == 0) != (report.OldestQueuedAt == nil) {
-		return domain.ErrValidation
-	}
-	var oldest *int64
-	if report.OldestQueuedAt != nil {
-		micros := report.OldestQueuedAt.UTC().UnixMicro()
-		if micros <= 0 {
-			return domain.ErrValidation
-		}
-		oldest = &micros
-	}
+	oldest, usable := acceptedQueueReport(report)
 	return s.transaction(ctx, lease.ProbeID, func(ctx context.Context, tx bun.Tx, _ bool, now int64) error {
 		row, err := readProbeSession(ctx, tx, lease.ProbeID)
 		if err != nil {
@@ -232,7 +225,29 @@ func (s *ProbeConnectorStore) RecordConnectorContact(ctx context.Context, lease 
 		if !matchesProbeSession(row, lease) || row.LeaseUntil <= now || now <= 0 {
 			return ports.ErrConflict
 		}
+		if !usable {
+			_, err = tx.ExecContext(ctx, "UPDATE probe_sessions SET last_contact_at = ? WHERE probe_id = ? AND owner_id = ? AND generation = ? AND (last_contact_at IS NULL OR last_contact_at < ?)", now, lease.ProbeID, lease.OwnerID, lease.Generation, now)
+			return err
+		}
 		_, err = tx.ExecContext(ctx, "UPDATE probe_sessions SET last_contact_at = ?, reported_queue_bytes = ?, reported_oldest_queued_at = ?, queue_reported_at = ? WHERE probe_id = ? AND owner_id = ? AND generation = ? AND (last_contact_at IS NULL OR last_contact_at < ?)", now, report.QueueBytes, oldest, now, lease.ProbeID, lease.OwnerID, lease.Generation, now)
 		return err
 	})
+}
+
+// acceptedQueueReport reports whether the probe's queue statement can be stored.
+// An empty queue (zero bytes, no oldest time) is usable. A non-positive oldest
+// microsecond is not: diagnostics only surface an oldest time above zero, so
+// storing one would publish a queue whose bytes and oldest time disagree.
+func acceptedQueueReport(report domain.ProbeQueueReport) (oldest *int64, ok bool) {
+	if report.QueueBytes < 0 || (report.QueueBytes == 0) != (report.OldestQueuedAt == nil) {
+		return nil, false
+	}
+	if report.OldestQueuedAt == nil {
+		return nil, true
+	}
+	micros := report.OldestQueuedAt.UTC().UnixMicro()
+	if micros <= 0 {
+		return nil, false
+	}
+	return &micros, true
 }

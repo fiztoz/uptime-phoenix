@@ -554,7 +554,9 @@ func sendPreparedConfig(ctx context.Context, session *Session, generation Decima
 
 // probeQueueReport carries the queue a probe stated in a validated health frame
 // (#157). Probe health validation guarantees non-negative bytes and an oldest
-// item exactly when bytes are positive; this conversion adds no trust.
+// item exactly when bytes are positive. It does not require that oldest time
+// to be a positive UTC microsecond; the contact store stamps last seen anyway
+// and leaves the previously stored queue unchanged.
 func probeQueueReport(health Health) domain.ProbeQueueReport {
 	var report domain.ProbeQueueReport
 	if health.QueueBytes != nil {

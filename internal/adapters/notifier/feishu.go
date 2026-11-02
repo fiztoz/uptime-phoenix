@@ -70,7 +70,7 @@ func (FeishuSender) Send(ctx context.Context, config map[string]any, alert domai
 			emoji = "⏳"
 			color = "orange"
 		}
-		headerContent = fmt.Sprintf("%s %s — %s", emoji, alert.MonitorName, alert.Status)
+		headerContent = fmt.Sprintf("%s %s — %s%s", emoji, alert.MonitorName, alert.Status, aggregateTitleSuffix(alert))
 	}
 
 	// Feishu interactive card message.

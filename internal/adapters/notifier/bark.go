@@ -48,7 +48,7 @@ func (BarkSender) Send(ctx context.Context, config map[string]any, alert domain.
 		case domain.StatusPending:
 			emoji = "⏳"
 		}
-		title = fmt.Sprintf("%s %s", emoji, alert.MonitorName)
+		title = fmt.Sprintf("%s %s%s", emoji, alert.MonitorName, aggregateTitleSuffix(alert))
 		body = fmt.Sprintf("Status: %s\n%s", alert.Status, alertBody(alert))
 	}
 

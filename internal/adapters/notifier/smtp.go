@@ -86,10 +86,10 @@ func (SMTPSender) Send(ctx context.Context, config map[string]any, alert domain.
 			alert.MonitorName, alert.MonitorType, targetLine, alert.EventKind, alertBody(alert),
 			time.Now().Format(time.RFC3339))
 	} else {
-		subject = fmt.Sprintf("Phoenix Alert: %s is %s", alert.MonitorName, alert.Status)
+		subject = alertTitleWithPrefix("Phoenix Alert:", alert)
 		body = fmt.Sprintf("Monitor: %s\nType: %s\n%sStatus: %s\nMessage: %s\nTime: %s\nDuration: %s\n\n%s",
 			alert.MonitorName, alert.MonitorType, targetLine, alert.Status, alertBody(alert),
-			time.Now().Format(time.RFC3339), alert.Duration, alert.CheckOutput)
+			time.Now().Format(time.RFC3339), alert.Duration, disarmAggregatePrefix(alert, alert.CheckOutput))
 	}
 	renderedAt := time.Now().UTC()
 	customSubject, customBody, custom, err := renderCustomLayoutAt(alert, renderedAt)

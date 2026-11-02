@@ -61,7 +61,7 @@ func (MattermostSender) Send(ctx context.Context, config map[string]any, alert d
 			color = "#FFA500"
 		}
 		if !isProbeConnection(alert) && alert.CheckOutput != "" {
-			text += "\n" + alert.CheckOutput
+			text += "\n" + disarmAggregatePrefix(alert, alert.CheckOutput)
 		}
 	}
 

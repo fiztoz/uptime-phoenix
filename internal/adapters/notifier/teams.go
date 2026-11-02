@@ -78,10 +78,10 @@ func (TeamsSender) Send(ctx context.Context, config map[string]any, alert domain
 		case domain.StatusMaintenance:
 			themeColor = "808080"
 		}
-		title = fmt.Sprintf("Phoenix Alert: %s is %s", alert.MonitorName, alert.Status)
+		title = alertTitleWithPrefix("Phoenix Alert:", alert)
 		text = alertBody(alert) + targetLine
 		if alert.CheckOutput != "" {
-			text += "\n" + alert.CheckOutput
+			text += "\n" + disarmAggregatePrefix(alert, alert.CheckOutput)
 		}
 		facts = []map[string]any{
 			{"name": "Status", "value": alert.Status.String()},
