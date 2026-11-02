@@ -34,7 +34,7 @@
     "svelte-check": "^4.7.7",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.72.0",
+    "typescript-eslint": "^8.72.1",
     "vite": "^8.3.5"
   },
   "dependencies": {
@@ -45,7 +45,7 @@
     "d3-time-format": "^4.1.0",
     "isomorphic-dompurify": "^4.6.0",
     "layercake": "^11.0.0",
-    "marked": "^18.1.1",
+    "marked": "^18.1.2",
     "svelte-sonner": "^1.2.1"
   },
   "imports": {
