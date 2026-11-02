@@ -48,7 +48,10 @@ func (h *PushHandler) SetActivationRepo(repo ports.ProbeConfigActivationReposito
 //	POST /api/push/:token   with optional JSON { "status": "up|down", "msg": "...", "ping": 12 }
 //	GET  /api/push/:token?status=up&msg=...&ping=12
 //
-// Optional signature: X-Signature: sha256=<hex-hmac> using the monitor's push_token (or config["hmac_secret"]) as key.
+// Optional signature: X-Signature or X-Hub-Signature-256, sha256=<hex-hmac> of
+// token|STATUS|msg. When config hmac_secret is set, that key is required and a
+// missing or wrong signature is rejected. Without it, the push token is the
+// only credential and an omitted signature is accepted.
 func (h *PushHandler) Receive(c echo.Context) error {
 	token := strings.TrimSpace(c.Param("token"))
 	if token == "" {
@@ -111,7 +114,9 @@ func (h *PushHandler) Receive(c echo.Context) error {
 		}
 	}
 
-	// Optional HMAC verification (body or canonical string)
+	// HMAC. A configured hmac_secret is a verification key: omitting the header
+	// must not skip it. The canonical string uses the parsed status (UP/DOWN),
+	// matching what is stored, not the raw request text.
 	sig := c.Request().Header.Get("X-Signature")
 	if sig == "" {
 		sig = c.Request().Header.Get("X-Hub-Signature-256")
@@ -119,9 +124,11 @@ func (h *PushHandler) Receive(c echo.Context) error {
 	secret := token
 	if s, ok := mon.Config["hmac_secret"].(string); ok && s != "" {
 		secret = s
+		if sig == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "signature required"})
+		}
 	}
 	if secret != "" && sig != "" {
-		// For GET we sign a canonical string (token|status|msg). For POST the body can also be used.
 		toSign := fmt.Sprintf("%s|%s|%s", token, status, msg)
 		if !verifyPushHMAC([]byte(toSign), sig, secret) {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid signature"})

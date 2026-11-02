@@ -22,8 +22,12 @@ type ProbeConnectorLeaseRepository interface {
 // stale or expired sessions with ErrConflict and never move the value backward.
 // Hub-side maintenance (lease renewal, configuration refresh, the watchdog) must
 // never call it: only an authenticated frame the owning hub accepted is contact.
-// report is the queue the probe stated in that same frame (#157); it is stored
-// under the same fence and clock as the contact.
+// report is the queue the probe stated in that same frame (#157). A usable
+// report is stored under the same fence and clock as the contact. An unusable
+// report (negative bytes, bytes and oldest time that disagree, or an oldest
+// time that is not a positive UTC microsecond) still stamps contact and leaves
+// the previously stored queue unchanged. That is not a validation failure: the
+// frame was accepted, and refusing the whole write froze last seen.
 type ProbeConnectorContactRecorder interface {
 	RecordConnectorContact(ctx context.Context, lease domain.ProbeConnectorLease, report domain.ProbeQueueReport) error
 }

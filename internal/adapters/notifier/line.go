@@ -50,7 +50,7 @@ func (LineSender) Send(ctx context.Context, config map[string]any, alert domain.
 		case domain.StatusPending:
 			emoji = "⏳"
 		}
-		text = fmt.Sprintf("%s %s is %s\n%s", emoji, alert.MonitorName, alert.Status, alertBody(alert))
+		text = fmt.Sprintf("%s %s\n%s", emoji, alertTitle(alert), alertBody(alert))
 	}
 	_, customBody, custom, err := renderCustomLayout(alert)
 	if err != nil {

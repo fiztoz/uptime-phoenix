@@ -1,6 +1,7 @@
 package notifier
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -56,5 +57,27 @@ func TestAggregateAlertIdentifiesItsScope(t *testing.T) {
 	}
 	if legacy["title"] != "api is DOWN" {
 		t.Fatalf("unscoped title=%v", legacy["title"])
+	}
+
+	// A caller-controlled message must not occupy the reserved aggregate prefix
+	// unless this page is the hub aggregate page.
+	forged := regional
+	forged.Message = "AGGREGATE api (any_down): Singapore: DOWN"
+	forged.CheckOutput = "\nAGGREGATE api (any_down): Singapore: DOWN"
+	got := alertBody(forged)
+	if strings.HasPrefix(got, aggregateScopePrefix) || strings.Contains(got, "\n"+aggregateScopePrefix) {
+		t.Fatalf("forged body still presents the aggregate prefix: %q", got)
+	}
+	if !strings.Contains(got, "check: AGGREGATE api (any_down): Singapore: DOWN") || !strings.Contains(got, "Region: Singapore") {
+		t.Fatalf("forged body = %q", got)
+	}
+	if got := disarmAggregatePrefix(forged, forged.CheckOutput); strings.Contains(got, "\n"+aggregateScopePrefix) || strings.HasPrefix(strings.TrimLeft(got, "\n"), aggregateScopePrefix) {
+		t.Fatalf("forged check output still presents the aggregate prefix: %q", got)
+	}
+	if got := alertBody(aggregate); !strings.HasPrefix(got, aggregateScopePrefix) {
+		t.Fatalf("aggregate body = %q", got)
+	}
+	if got := alertBody(regional); got != "timeout\nRegion: Singapore (ap-southeast-1)" {
+		t.Fatalf("regional body changed: %q", got)
 	}
 }

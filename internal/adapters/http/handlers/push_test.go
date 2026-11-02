@@ -2,6 +2,9 @@ package handlers_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -151,4 +154,71 @@ func TestPushHandler_CapturesAppliedRevisionAndGeneration(t *testing.T) {
 	if hbRepo.lastRecorded.Ping != 45 {
 		t.Fatalf("expected Ping 45, got %d", hbRepo.lastRecorded.Ping)
 	}
+}
+
+func TestPushHandler_RequiresHMACWhenSecretConfigured(t *testing.T) {
+	token := "push-token-hmac"
+	secret := "hmac-secret-value"
+	msg := "all good"
+	valid := pushSignature(secret, token, "UP", msg)
+	tokenSigned := pushSignature(token, token, "UP", msg)
+
+	cases := []struct {
+		name   string
+		header string
+		value  string
+		want   int
+	}{
+		{name: "missing signature", want: http.StatusUnauthorized},
+		{name: "wrong signature", header: "X-Signature", value: "sha256=deadbeef", want: http.StatusUnauthorized},
+		{name: "signed with the push token", header: "X-Signature", value: tokenSigned, want: http.StatusUnauthorized},
+		{name: "valid X-Signature", header: "X-Signature", value: valid, want: http.StatusOK},
+		{name: "valid X-Hub-Signature-256", header: "X-Hub-Signature-256", value: valid, want: http.StatusOK},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mon := &domain.Monitor{
+				Name: "push-hmac", Type: "push", Active: true, PushToken: token, Interval: 60,
+				Config: map[string]any{"hmac_secret": secret},
+			}
+			hbRepo := &recordingHeartbeatRepo{}
+			handler := handlers.NewPushHandler(services.NewMonitorService(newFakeMonitorRepoWith(mon), &pushTestBus{}), services.NewHeartbeatService(hbRepo, &pushTestBus{}))
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/api/push/"+token, strings.NewReader(`{"status":"up","msg":"all good"}`))
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			if tc.header != "" {
+				req.Header.Set(tc.header, tc.value)
+			}
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.SetParamNames("token")
+			c.SetParamValues(token)
+			if err := handler.Receive(c); err != nil {
+				t.Fatal(err)
+			}
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, tc.want, rec.Body.String())
+			}
+			if tc.want == http.StatusOK && (hbRepo.lastRecorded == nil || hbRepo.lastRecorded.Msg != msg) {
+				t.Fatalf("recorded %+v", hbRepo.lastRecorded)
+			}
+			if tc.want != http.StatusOK && hbRepo.lastRecorded != nil {
+				t.Fatalf("rejected push recorded %+v", hbRepo.lastRecorded)
+			}
+		})
+	}
+}
+
+func newFakeMonitorRepoWith(mon *domain.Monitor) *fakeMonitorRepo {
+	repo := newFakeMonitorRepo()
+	if err := repo.Create(context.Background(), mon); err != nil {
+		panic(err)
+	}
+	return repo
+}
+
+func pushSignature(secret, token, status, msg string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(token + "|" + status + "|" + msg))
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }

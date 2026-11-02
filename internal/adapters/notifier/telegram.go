@@ -51,9 +51,9 @@ func (TelegramSender) Send(ctx context.Context, config map[string]any, alert dom
 		case domain.StatusPending:
 			emoji = "⏳"
 		}
-		text = fmt.Sprintf("%s *%s* is *%s*\n%s", emoji, alert.MonitorName, alert.Status, alertBody(alert))
+		text = fmt.Sprintf("%s *%s* is *%s*%s\n%s", emoji, alert.MonitorName, alert.Status, aggregateTitleSuffix(alert), alertBody(alert))
 		if alert.CheckOutput != "" {
-			text += "\n" + alert.CheckOutput
+			text += "\n" + disarmAggregatePrefix(alert, alert.CheckOutput)
 		}
 	}
 

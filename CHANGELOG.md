@@ -13,6 +13,21 @@ at the bottom.
 
 ### Security
 
+- **A configured push HMAC secret is required.** `POST`/`GET /api/push/:token`
+  used to verify `X-Signature` or `X-Hub-Signature-256` only when the header
+  was present, so a monitor with `hmac_secret` set still accepted an unsigned
+  push from anyone who knew the token. A set secret now rejects a missing or
+  wrong signature with 401. Monitors without `hmac_secret` still accept an
+  unsigned push. The signed string remains `token|STATUS|msg` using the parsed
+  status (`UP`/`DOWN`), not the raw request text.
+
+- **Non-aggregate alerts cannot wear the aggregate prefix.** Operators tell a
+  hub aggregate page from a per-region page by a message line that starts with
+  `AGGREGATE `. Push text and check output are caller-controlled and were
+  copied into that message, so a push could open with the same prefix. Default
+  notification bodies now prefix such a line with `check: ` unless
+  `delivery_scope` is `aggregate`. Aggregate pages are unchanged.
+
 - **TOTP codes are single-use, and turning 2FA off needs a current code
   (#123).** Each accepted code's time step is consumed atomically in the
   database (migration `090`), so a code that completed a sign-in, confirmed
@@ -51,6 +66,21 @@ at the bottom.
   hub answers 501, and `PROBES_ENABLED=false` answers 503.
 
 ### Fixed
+
+- **An unusable probe queue report no longer freezes last seen.** A health
+  frame can carry a queue the hub will not store (a negative size, a size and
+  oldest time that disagree, or an oldest time that is not a positive UTC
+  microsecond). Recording contact used to reject that whole write, and the
+  connector treats a record error as diagnostic, so `last_contact_at` stayed
+  put while the probe kept sending. The hub now stamps last seen for the live
+  session and leaves `reported_queue_bytes`, `reported_oldest_queued_at` and
+  `queue_reported_at` as they were. A stale owner, generation or lease still
+  changes nothing.
+
+- **Aggregate titles use the same suffix on every default channel.** Gotify,
+  Teams, email, Slack, LINE, Telegram, Bark and Feishu status titles now end
+  in ` (aggregate)` for a hub aggregate page, matching the webhook and the
+  other senders. Regional and local titles are unchanged.
 
 - **Startup waits for MariaDB instead of exiting (#163).** When the database is
   not accepting connections yet (for example right after a host reboot),

@@ -53,10 +53,10 @@ func (GotifySender) Send(ctx context.Context, config map[string]any, alert domai
 		case domain.StatusMaintenance:
 			priority = 2
 		}
-		title = fmt.Sprintf("Phoenix: %s is %s", alert.MonitorName, alert.Status)
+		title = alertTitleWithPrefix("Phoenix:", alert)
 		message = alertBody(alert)
 		if alert.CheckOutput != "" {
-			message += "\n" + alert.CheckOutput
+			message += "\n" + disarmAggregatePrefix(alert, alert.CheckOutput)
 		}
 	}
 

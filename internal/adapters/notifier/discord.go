@@ -59,7 +59,7 @@ func (DiscordSender) Send(ctx context.Context, config map[string]any, alert doma
 		}
 	}
 	if !custom && !isAuxiliaryAlert(alert) && alert.CheckOutput != "" {
-		desc += "\n" + alert.CheckOutput
+		desc += "\n" + disarmAggregatePrefix(alert, alert.CheckOutput)
 	}
 
 	embedConfig, err := domain.ParseDiscordTemplateConfig(alert.TemplateConfig)
