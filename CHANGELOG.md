@@ -76,6 +76,14 @@ at the bottom.
 
 ### Fixed
 
+- **The hub no longer crash-loops with M7 aggregate paging enabled (#189).**
+  With `PROBES_AGGREGATE_PAGING_ENABLED=true`, the aggregate delivery worker
+  panicked with `index out of range [0] with length 0` whenever it polled an
+  empty queue, which is the normal idle state. The claim read a slice query
+  and expected `sql.ErrNoRows` for "nothing due", but Bun returns an empty
+  slice instead. An idle claim now returns "not found" and `ProcessNext`
+  reports no work.
+
 - **A config push no longer shows a remote probe as disconnected for seconds
   (#128).** A new configuration revision is delivered by ending the probe's
   session and reconnecting. That deliberate rollover was counted as a

@@ -41,11 +41,13 @@ func (r *OperativeDeliveryStore) ClaimAggregateDelivery(ctx context.Context, own
 		if tx.Dialect().Name() == dialect.MySQL {
 			q = q.For("UPDATE SKIP LOCKED")
 		}
+		// Bun reports an empty slice scan as success, not sql.ErrNoRows, so
+		// an idle queue is detected by length.
 		if err := q.Scan(ctx); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil
-			}
 			return err
+		}
+		if len(rows) == 0 {
+			return nil
 		}
 		row := rows[0]
 		fence := rand.Text()
