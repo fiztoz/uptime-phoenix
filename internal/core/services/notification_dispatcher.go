@@ -67,6 +67,14 @@ type alertLifecycle interface {
 	IsOpenAcked(ctx context.Context, monitorID int64) (bool, error)
 }
 
+// alertInitialDelivery makes the legacy step-zero send survive a crash
+// between opening the alert and calling the providers. Satisfied by
+// *AlertService; lifecycles without it keep the earlier behavior.
+type alertInitialDelivery interface {
+	PendingInitialNotification(ctx context.Context, monitorID int64) (*domain.Alert, error)
+	MarkInitialNotified(ctx context.Context, a *domain.Alert, at time.Time) error
+}
+
 // alertLifecycleResolver is the richer recovery path implemented by
 // AlertService. Keeping it separate preserves the small alertLifecycle test
 // contract while allowing production recovery emails to include FiredAt.
@@ -270,6 +278,7 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 		if !d.outboxDelivery {
 			startedAt, duration := alertLifecycleTiming(alert, now)
 			d.dispatch(ctx, monitor, cur, prev, ackURL, checkOutput, startedAt, duration)
+			d.markInitialNotified(ctx, lifecycle, monitor, alert)
 		}
 		d.startEscalation(ctx, monitor, alert)
 	case cur == domain.StatusUp && prev == domain.StatusDown:
@@ -283,6 +292,9 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 		d.forget(ctx, key)
 	case cur == domain.StatusDown && prev == domain.StatusDown:
 		if d.outboxDelivery {
+			return
+		}
+		if d.sendLostInitial(ctx, lifecycle, key, monitor, checkOutput, now) {
 			return
 		}
 		// Still down — re-alert only once per ResendInterval (minutes), and never
@@ -301,6 +313,10 @@ func (d *NotificationDispatcher) OnHeartbeat(ctx context.Context, monitor *domai
 			if !d.outboxDelivery {
 				startedAt, duration := alertLifecycleTiming(alert, now)
 				d.dispatch(ctx, monitor, cur, prev, ackURL, checkOutput, startedAt, duration)
+				// The resend can open the alert itself (it went DOWN inside a
+				// maintenance window), so this may be its initial attempt.
+				// The mark keeps the first time, so an older alert is unchanged.
+				d.markInitialNotified(ctx, lifecycle, monitor, alert)
 			}
 		}
 	}
@@ -476,4 +492,49 @@ func (d *NotificationDispatcher) forget(ctx context.Context, key domain.Notifica
 	d.mu.Lock()
 	delete(d.lastNotified, key)
 	d.mu.Unlock()
+}
+
+// sendLostInitial sends a step-zero DOWN that a previous process opened but
+// never attempted: it stopped after the heartbeat and alert committed and
+// before the providers were called. The restarted process only sees DOWN
+// after DOWN, so without this the outage is never announced. The send is
+// at-least-once: a crash after the provider accepts and before the mark
+// commits sends it again on the next check.
+func (d *NotificationDispatcher) sendLostInitial(ctx context.Context, lifecycle alertLifecycle, key domain.NotificationThrottleKey, monitor *domain.Monitor, checkOutput string, now time.Time) bool {
+	initial, ok := lifecycle.(alertInitialDelivery)
+	if !ok {
+		return false
+	}
+	alert, err := initial.PendingInitialNotification(ctx, monitor.ID)
+	if err != nil {
+		slog.Error("notification dispatcher: pending initial lookup failed",
+			"monitor_id", monitor.ID, "error", err)
+		return false
+	}
+	if alert == nil {
+		return false
+	}
+	if !d.reserveAttempt(ctx, key, now, 0) {
+		return true
+	}
+	slog.Warn("notification dispatcher: sending initial DOWN alert that was never attempted",
+		"monitor_id", monitor.ID, "alert_id", alert.ID, "fired_at", alert.FiredAt)
+	startedAt, duration := alertLifecycleTiming(alert, now)
+	d.dispatch(ctx, monitor, domain.StatusDown, domain.StatusUp, d.buildAckURL(alert), checkOutput, startedAt, duration)
+	d.markInitialNotified(ctx, lifecycle, monitor, alert)
+	d.startEscalation(ctx, monitor, alert)
+	return true
+}
+
+// markInitialNotified records the step-zero attempt. A failure is logged: the
+// worst case is one repeated DOWN after a restart, never a lost one.
+func (d *NotificationDispatcher) markInitialNotified(ctx context.Context, lifecycle alertLifecycle, monitor *domain.Monitor, alert *domain.Alert) {
+	initial, ok := lifecycle.(alertInitialDelivery)
+	if !ok || alert == nil {
+		return
+	}
+	if err := initial.MarkInitialNotified(ctx, alert, d.now()); err != nil {
+		slog.Error("notification dispatcher: mark initial notified failed",
+			"monitor_id", monitor.ID, "alert_id", alert.ID, "error", err)
+	}
 }

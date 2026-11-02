@@ -263,3 +263,46 @@ func newAckToken() (string, error) {
 	}
 	return hex.EncodeToString(b[:]), nil
 }
+
+// PendingInitialNotification returns the monitor's open alert when it is
+// still firing and its step-zero notification was never attempted. That is
+// the state a process leaves when it stops between opening the alert and
+// calling the providers. It returns nil when nothing is pending, or when the
+// repository cannot record the attempt (so recovery can never repeat).
+func (s *AlertService) PendingInitialNotification(ctx context.Context, monitorID int64) (*domain.Alert, error) {
+	if s == nil || s.repo == nil {
+		return nil, nil
+	}
+	if _, ok := s.repo.(ports.AlertInitialNotificationRecorder); !ok {
+		return nil, nil
+	}
+	open, err := s.repo.GetOpenByMonitorID(ctx, monitorID)
+	if errors.Is(err, ports.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("alert service: pending initial: %w", err)
+	}
+	if open == nil || open.Status != domain.AlertStatusFiring || open.InitialNotifiedAt != nil {
+		return nil, nil
+	}
+	return open, nil
+}
+
+// MarkInitialNotified records that the step-zero notification for an alert
+// was attempted. It is a no-op when the repository cannot record it.
+func (s *AlertService) MarkInitialNotified(ctx context.Context, a *domain.Alert, at time.Time) error {
+	if s == nil || a == nil {
+		return nil
+	}
+	rec, ok := s.repo.(ports.AlertInitialNotificationRecorder)
+	if !ok {
+		return nil
+	}
+	at = at.UTC()
+	if err := rec.MarkInitialNotified(ctx, a.ID, at); err != nil {
+		return fmt.Errorf("alert service: mark initial notified: %w", err)
+	}
+	a.InitialNotifiedAt = &at
+	return nil
+}

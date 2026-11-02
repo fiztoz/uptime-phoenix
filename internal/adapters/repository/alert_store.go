@@ -28,6 +28,7 @@ func NewAlertStore(db *bun.DB, translate func(error) error) *AlertStore {
 var _ ports.AlertRepository = (*AlertStore)(nil)
 var _ ports.RegionalAlertRepository = (*AlertStore)(nil)
 var _ ports.AlertSourceRepository = (*AlertStore)(nil)
+var _ ports.AlertInitialNotificationRecorder = (*AlertStore)(nil)
 
 // ForAssignment confines reads and writes to this assignment, including historical IDs.
 func (r *AlertStore) ForAssignment(probeID string, generation int64) (ports.AlertRepository, error) {
@@ -302,4 +303,25 @@ func normalizeAlertTimes(m *AlertModel) {
 		at := m.ResolvedAt.UTC()
 		m.ResolvedAt = &at
 	}
+}
+
+// MarkInitialNotified records the first step-zero attempt for an alert in this
+// view's scope. A second mark is a no-op, so the earliest attempt is kept.
+func (r *AlertStore) MarkInitialNotified(ctx context.Context, alertID int64, at time.Time) error {
+	if alertID < 1 {
+		return domain.ErrValidation
+	}
+	q := r.db.NewUpdate().TableExpr("alerts").
+		Set("initial_notified_at = ?", at.UTC()).
+		Where("id = ?", alertID).
+		Where("initial_notified_at IS NULL")
+	if r.scope.ProbeID != "" {
+		q = q.Where("probe_id = ? AND assignment_generation = ?", r.scope.ProbeID, r.scope.Generation)
+	} else {
+		q = q.Where("probe_id = ?", domain.LocalProbeID)
+	}
+	if _, err := q.Exec(ctx); err != nil {
+		return r.translate(err)
+	}
+	return nil
 }

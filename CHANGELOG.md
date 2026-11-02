@@ -82,6 +82,16 @@ at the bottom.
   migrations on boot. `make m6-backend-harness-gate` now checks that every
   `./cmd/...` package a recipe names exists.
 
+- **A crash no longer loses the first DOWN page on the default delivery path
+  (#179).** With probes off, the hub sent the initial DOWN notification in
+  memory after opening the alert. A crash before that send finished lost it,
+  and with `resend_interval` 0 the outage was never announced. Alerts now
+  record when their first notification was attempted (migration 093,
+  `alerts.initial_notified_at`; existing alerts are backfilled as sent). After
+  a restart, the next DOWN check sends any open, unacknowledged alert that was
+  never attempted, once. A crash after the provider accepted but before the
+  mark committed can still send a duplicate.
+
 - **The runbook says what a hub database restore does to sessions (#177).**
   Sessions signed with the same `JWT_SECRET` stay valid after a restore. The
   restore section now says so and gives the rotation steps to follow after a

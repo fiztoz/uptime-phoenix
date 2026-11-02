@@ -568,6 +568,7 @@ type AlertModel struct {
 	ResolvedAt           *time.Time `bun:"resolved_at"`
 	AckToken             string     `bun:"ack_token,notnull"`
 	OpenMonitorID        *int64     `bun:"open_monitor_id"`
+	InitialNotifiedAt    *time.Time `bun:"initial_notified_at"`
 	CreatedAt            time.Time  `bun:"created_at,notnull"`
 	UpdatedAt            time.Time  `bun:"updated_at,notnull"`
 }
@@ -592,6 +593,7 @@ func (m *AlertModel) ToDomain() *domain.Alert {
 		ResolvedAt:           m.ResolvedAt,
 		AckToken:             m.AckToken,
 		OpenMonitorID:        m.OpenMonitorID,
+		InitialNotifiedAt:    m.InitialNotifiedAt,
 		CreatedAt:            m.CreatedAt,
 		UpdatedAt:            m.UpdatedAt,
 	}
@@ -614,6 +616,7 @@ func AlertModelFromDomain(a *domain.Alert) *AlertModel {
 		ResolvedAt:           a.ResolvedAt,
 		AckToken:             a.AckToken,
 		OpenMonitorID:        a.OpenMonitorID,
+		InitialNotifiedAt:    a.InitialNotifiedAt,
 		CreatedAt:            a.CreatedAt,
 		UpdatedAt:            a.UpdatedAt,
 	}
