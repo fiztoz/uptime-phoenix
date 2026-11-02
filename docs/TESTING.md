@@ -115,14 +115,14 @@ you still own the local gate for work-in-progress and offline verification.
 
 ### Echo v4 client-IP security
 
-The workarounds for [GHSA-246p-cpwv-v3jq](https://github.com/labstack/echo/security/advisories/GHSA-246p-cpwv-v3jq)
-and [GHSA-99jh-6h7p-pp36](https://github.com/labstack/echo/security/advisories/GHSA-99jh-6h7p-pp36)
-are application configuration, **not a patched Echo dependency**. Upstream retains
-the v4 defaults. The two specific OSV exceptions were owner-approved on
-2026-10-29 and expire 2026-11-28; all other findings remain blocking. Before
-expiry, reassess upstream releases and the application trust boundary; do not
-silently renew or broaden them. CI's ordinary backend tests execute these
-regressions before the OSV step:
+Echo 4.16.3 fixes [GHSA-246p-cpwv-v3jq](https://github.com/labstack/echo/security/advisories/GHSA-246p-cpwv-v3jq)
+(CVE-2026-118653) and [GHSA-99jh-6h7p-pp36](https://github.com/labstack/echo/security/advisories/GHSA-99jh-6h7p-pp36)
+(CVE-2026-118651): an unset `IPExtractor` now uses the socket peer, and the proxy
+middleware always derives `X-Real-IP` itself. Phoenix still configures an explicit
+extractor on both constructors, so these fixes are a second layer, not the
+primary control. The OSV exceptions that covered the unpatched releases were
+removed with the upgrade. CI's ordinary backend tests execute these regressions
+before the OSV step:
 
 ```bash
 go test -race -count=1 ./internal/adapters/http ./internal/adapters/probe ./internal/bootstrap \
@@ -136,8 +136,8 @@ osv-scanner scan source --config osv-scanner.toml --lockfile go.mod --lockfile w
   is not confused with a trusted proxy, and spoofed leftmost prefixes are ignored.
 - The actual Echo proxy middleware is mounted **only in a regression fixture**
   against a loopback upstream: the configured extractor replaces spoofed
-  X-Real-IP. Deliberately unset extractors reproduce both vulnerable behaviors,
-  proving the tests distinguish the workaround from the unsafe default.
+  X-Real-IP. Deliberately unset extractors (`nilExtractor=true`) must be safe
+  as well, so a downgrade below Echo 4.16.3 fails these tests.
 - The probe constructor uses direct extraction; all forwarding headers are ignored.
 - An AST-based inventory refuses additional/moved production `echo.New`
   references until they receive security review and behavioral coverage.

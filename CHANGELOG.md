@@ -13,6 +13,15 @@ at the bottom.
 
 ### Security
 
+- **Echo 4.16.3 (CVE-2026-118653, CVE-2026-118651).** Echo 4.16.1 was in the
+  affected range of both advisories (`RealIP()` trusting spoofed forwarded-IP
+  headers when no `IPExtractor` is set, and the proxy middleware forwarding a
+  client-supplied `X-Real-IP`). Neither was reachable: both Echo servers set
+  an explicit extractor, and the default rate limiter and proxy middleware are
+  not used. The upgrade clears Dependabot alerts #9 and #10, drops the two OSV
+  exceptions for them, and turns the unset-extractor test controls into
+  downgrade guards.
+
 - **A configured push HMAC secret is required.** `POST`/`GET /api/push/:token`
   used to verify `X-Signature` or `X-Hub-Signature-256` only when the header
   was present, so a monitor with `hmac_secret` set still accepted an unsigned

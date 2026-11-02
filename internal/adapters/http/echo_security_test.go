@@ -22,17 +22,19 @@ import (
 )
 
 // Exercise the real sign-in limiter, not just a non-nil configuration field.
-// The legacy control deliberately re-enables the vulnerable upstream default.
+// The nilExtractor control removes the configured extractor: since Echo 4.16.3
+// (CVE-2026-118653) the upstream default uses the socket peer too, so a
+// downgrade below that release fails here.
 func TestEchoCredentialIPWorkaround(t *testing.T) {
 	for _, peer := range []string{"198.51.100.7", "10.1.2.3", "127.0.0.1", "2001:db8::7", "fd00::7", "fe80::7"} {
 		for _, header := range []string{echo.HeaderXForwardedFor, echo.HeaderXRealIP} {
-			for _, legacy := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%s/%s/legacy=%t", peer, header, legacy), func(t *testing.T) {
+			for _, nilExtractor := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/nilExtractor=%t", peer, header, nilExtractor), func(t *testing.T) {
 					e := authRateLimitRouterWithOptions(t, httppkg.RouterOptions{})
 					if e.IPExtractor == nil {
 						t.Fatal("production hub must configure IPExtractor")
 					}
-					if legacy {
+					if nilExtractor {
 						e.IPExtractor = nil
 					}
 					for i := 0; i <= httppkg.SignInAttemptsPerMinute; i++ {
@@ -42,7 +44,7 @@ func TestEchoCredentialIPWorkaround(t *testing.T) {
 						req.RemoteAddr = net.JoinHostPort(peer, "40000")
 						rec := httptest.NewRecorder()
 						e.ServeHTTP(rec, req)
-						if i == httppkg.SignInAttemptsPerMinute && !legacy {
+						if i == httppkg.SignInAttemptsPerMinute {
 							if rec.Code != http.StatusTooManyRequests {
 								t.Fatalf("rotating %s bypassed sign-in budget: status=%d", header, rec.Code)
 							}
@@ -58,7 +60,8 @@ func TestEchoCredentialIPWorkaround(t *testing.T) {
 
 // Phoenix does not install Echo's reverse-proxy middleware in production. Mount
 // it only in this test to prove the configured extractor blocks the second
-// advisory too, including its preservation of a spoofed X-Real-IP when unset.
+// advisory too. Since Echo 4.16.3 (CVE-2026-118651) an unset extractor no
+// longer forwards a spoofed X-Real-IP either; the nilExtractor control pins that.
 func TestEchoProxyIPWorkaround(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(r.Header.Get(echo.HeaderXRealIP)))
@@ -69,13 +72,13 @@ func TestEchoProxyIPWorkaround(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, peer := range []string{"198.51.100.7", "10.1.2.3", "fd00::7"} {
-		for _, legacy := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/legacy=%t", peer, legacy), func(t *testing.T) {
+		for _, nilExtractor := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/nilExtractor=%t", peer, nilExtractor), func(t *testing.T) {
 				e := authRateLimitRouterWithOptions(t, httppkg.RouterOptions{})
 				if e.IPExtractor == nil {
 					t.Fatal("production hub must configure IPExtractor")
 				}
-				if legacy {
+				if nilExtractor {
 					e.IPExtractor = nil
 				}
 				e.Group("/_echo_security_proxy", echomiddleware.Proxy(echomiddleware.NewRoundRobinBalancer([]*echomiddleware.ProxyTarget{{URL: target}})))
@@ -85,21 +88,17 @@ func TestEchoProxyIPWorkaround(t *testing.T) {
 				req.Header.Set(echo.HeaderXRealIP, "203.0.113.100")
 				rec := httptest.NewRecorder()
 				e.ServeHTTP(rec, req)
-				want := peer
-				if legacy {
-					want = "203.0.113.100"
-				}
-				if rec.Code != http.StatusOK || rec.Body.String() != want {
-					t.Fatalf("upstream status=%d X-Real-IP=%q; want 200/%q", rec.Code, rec.Body.String(), want)
+				if rec.Code != http.StatusOK || rec.Body.String() != peer {
+					t.Fatalf("upstream status=%d X-Real-IP=%q; want 200/%q", rec.Code, rec.Body.String(), peer)
 				}
 			})
 		}
 	}
 }
 
-// The expiring scanner exceptions cover exactly these production constructors.
-// A new constructor requires an explicit security review and behavioral tests;
-// it must not silently inherit an application-wide exception for Echo defaults.
+// The reviewed client-IP configuration covers exactly these production
+// constructors. A new constructor requires an explicit security review and
+// behavioral tests; it must not rely on Echo's defaults alone.
 func TestEchoConstructorSecurityInventory(t *testing.T) {
 	root := filepath.Clean("../../..")
 	want := map[string]int{"internal/adapters/http/router.go": 1, "internal/adapters/probe/edge_server.go": 1}

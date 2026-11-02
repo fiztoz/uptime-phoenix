@@ -1686,11 +1686,11 @@ proxy-only subnet with network isolation; never allow an entire client/workload
 network merely because it uses RFC1918 addresses. The direct, pinned-TLS probe
 server always uses the socket peer and ignores forwarding headers.
 
-Echo v4 intentionally retains its insecure defaults; the application implements
-the documented workarounds for **GHSA-246p-cpwv-v3jq** and
-**GHSA-99jh-6h7p-pp36**, not an upstream dependency patch. Two owner-approved OSV
-exceptions expire **2026-11-28**. Behavioral regressions and a constructor
-inventory guard their scope; see [the testing guide](TESTING.md#echo-v4-client-ip-security).
+Echo 4.16.3 fixes **GHSA-246p-cpwv-v3jq** and **GHSA-99jh-6h7p-pp36** upstream:
+an unset `IPExtractor` uses the socket peer, and the proxy middleware derives
+`X-Real-IP` itself. Phoenix keeps the explicit extractors above as the primary
+control. Behavioral regressions (which also fail on a downgrade) and a
+constructor inventory guard their scope; see [the testing guide](TESTING.md#echo-v4-client-ip-security).
 No reverse-proxy middleware is installed by the production application.
 
 ### Libraries
@@ -2337,7 +2337,7 @@ module phoenix
 go 1.23
 
 require (
-    github.com/labstack/echo/v4 v4.13.0       // HTTP framework
+    github.com/labstack/echo/v4 v4.16.3       // HTTP framework
     github.com/coder/websocket v1.8.13         // WebSocket
     github.com/uptrace/bun v1.2.11             // SQL query builder (MariaDB + SQLite)
     github.com/go-sql-driver/mysql v1.9.0      // MariaDB driver
