@@ -407,3 +407,90 @@ func TestProbeConnectorEnrollmentRechecksPreparedAuthority(t *testing.T) {
 		t.Fatalf("enrollment ignored changed registration: %v", err)
 	}
 }
+
+// rolloverConfigRepo models a config push arriving mid-session: each session's
+// initial Read sees no prepared config, and its next renewal check sees a newer
+// revision.
+type rolloverConfigRepo struct {
+	configServiceRepo
+	hubID string
+	calls atomic.Int64
+}
+
+func (r *rolloverConfigRepo) Latest(_ context.Context, probeID string) (*domain.ProtectedProbeConfig, error) {
+	n := r.calls.Add(1)
+	if n%2 == 1 {
+		return nil, ports.ErrNotFound
+	}
+	now := time.Now().UTC()
+	return &domain.ProtectedProbeConfig{ProbeConfigMetadata: domain.ProbeConfigMetadata{
+		ProbeConfigTarget: domain.ProbeConfigTarget{HubID: r.hubID, ProbeID: probeID},
+		Revision:          n / 2, SchemaVersion: 1, SHA256: strings.Repeat("b", 64), CreatedAt: now, EffectiveAt: now,
+	}}, nil
+}
+
+// A config push ends the established session on purpose. Each push used to
+// count as a connection failure, so consecutive pushes escalated the reconnect
+// backoff (1, 2, 4, 8, 16 s) while the released session showed the probe as
+// disconnected, and each one was reported as "probe connection unavailable"
+// (#128). A rollover must reconnect at once, with no backoff and no report.
+func TestProbeConnectorConfigRolloverReconnectsWithoutBackoff(t *testing.T) {
+	hub := "11111111-1111-4111-8111-111111111111"
+	connections, leases := &connectorConnections{}, &connectorLeases{}
+	var sessions, backoffs, reports atomic.Int64
+	transport := connectorTransport{run: func(ctx context.Context, _ domain.ProbeSessionInput, ready func(context.Context) error) error {
+		sessions.Add(1)
+		if err := ready(ctx); err != nil {
+			return err
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+	configs := NewProbeConfigService(&rolloverConfigRepo{hubID: hub}, configServiceInspector{}, &configServiceProtector{})
+	svc, err := NewProbeConnectorService(connections, leases, leases, connectorProtector{}, configs, transport,
+		hub, "22222222-2222-4222-8222-222222222222", func(int, time.Duration) time.Duration {
+			backoffs.Add(1)
+			return time.Second
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.renewInterval = 20 * time.Millisecond
+	prepareConnectorTest(t, svc)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	runtime := domain.ProbeRuntimeLease{ProbeID: connections.value.ProbeID, OwnerID: "22222222-2222-4222-8222-222222222222", Epoch: 1, LeaseUntil: time.Now().UTC().Add(time.Minute)}
+	svc.ownedConnectLoop(ctx, runtime, nil, func(error) { reports.Add(1) })
+	// Each rollover takes one 20 ms renewal tick; a one-second backoff per push
+	// would allow at most one reconnect in this window.
+	if sessions.Load() < 4 || backoffs.Load() != 0 || reports.Load() != 0 {
+		t.Fatalf("config rollover paid backoff: sessions=%d backoffs=%d reports=%d", sessions.Load(), backoffs.Load(), reports.Load())
+	}
+}
+
+// Only a newer revision is a rollover. A session ended by a failed lease
+// renewal keeps the ordinary failure path: it is reported and backs off.
+func TestProbeConnectorRenewalFailureStillBacksOff(t *testing.T) {
+	connections, leases := &connectorConnections{}, &connectorLeases{renewErr: errors.New("database unavailable")}
+	var backoffs, reports atomic.Int64
+	svc := newConnectorTestService(t, connections, leases, connectorTransport{run: func(ctx context.Context, _ domain.ProbeSessionInput, ready func(context.Context) error) error {
+		if err := ready(ctx); err != nil {
+			return err
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}})
+	svc.delay = func(int, time.Duration) time.Duration {
+		backoffs.Add(1)
+		return time.Second
+	}
+	svc.renewInterval = 20 * time.Millisecond
+	prepareConnectorTest(t, svc)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	runtime := domain.ProbeRuntimeLease{ProbeID: connections.value.ProbeID, OwnerID: "22222222-2222-4222-8222-222222222222", Epoch: 1, LeaseUntil: time.Now().UTC().Add(time.Minute)}
+	svc.ownedConnectLoop(ctx, runtime, nil, func(error) { reports.Add(1) })
+	if backoffs.Load() < 1 || reports.Load() < 1 {
+		t.Fatalf("renewal failure skipped the failure path: backoffs=%d reports=%d", backoffs.Load(), reports.Load())
+	}
+}
