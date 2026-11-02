@@ -44,7 +44,25 @@ func (r *fakeAlertRepo) clone(a *domain.Alert) *domain.Alert {
 		id := *a.OpenMonitorID
 		cp.OpenMonitorID = &id
 	}
+	if a.InitialNotifiedAt != nil {
+		t := *a.InitialNotifiedAt
+		cp.InitialNotifiedAt = &t
+	}
 	return &cp
+}
+
+func (r *fakeAlertRepo) MarkInitialNotified(_ context.Context, id int64, at time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	a, ok := r.byID[id]
+	if !ok {
+		return ports.ErrNotFound
+	}
+	if a.InitialNotifiedAt == nil {
+		t := at.UTC()
+		a.InitialNotifiedAt = &t
+	}
+	return nil
 }
 
 func (r *fakeAlertRepo) Create(_ context.Context, a *domain.Alert) error {

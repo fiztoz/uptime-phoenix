@@ -393,9 +393,28 @@ func runAlertScopeMigration(t *testing.T, f probeRegistryFixture, direction stri
 	return runAlertMigration(t, f, "044_probe_alert_scope", direction)
 }
 
+// Later alerts migrations are rolled back first and re-applied last, in the
+// same order a real rollback and upgrade would run them.
 func runAlertSourceMigration(t *testing.T, f probeRegistryFixture, direction string) error {
 	t.Helper()
-	return runAlertMigration(t, f, "046_alert_source_identity", direction)
+	const later = "093_alert_initial_notified"
+	if direction == "down" {
+		if err := runAlertMigration(t, f, later, direction); err != nil {
+			return err
+		}
+		if err := runAlertMigration(t, f, "046_alert_source_identity", direction); err != nil {
+			// A refused downgrade leaves the operator on the current schema.
+			if upErr := runAlertMigration(t, f, later, "up"); upErr != nil {
+				t.Fatalf("restore %s after refused downgrade: %v", later, upErr)
+			}
+			return err
+		}
+		return nil
+	}
+	if err := runAlertMigration(t, f, "046_alert_source_identity", direction); err != nil {
+		return err
+	}
+	return runAlertMigration(t, f, later, direction)
 }
 
 func runAlertMigration(t *testing.T, f probeRegistryFixture, name, direction string) error {

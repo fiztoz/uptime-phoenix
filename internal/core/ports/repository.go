@@ -634,6 +634,12 @@ type AlertRepository interface {
 	List(ctx context.Context, filter AlertFilter) ([]*domain.Alert, error)
 }
 
+// AlertInitialNotificationRecorder records that an alert's step-zero DOWN
+// notification was attempted. Only the first mark is kept.
+type AlertInitialNotificationRecorder interface {
+	MarkInitialNotified(ctx context.Context, alertID int64, at time.Time) error
+}
+
 // TLSInfo holds cached TLS certificate information for a monitor.
 //
 // Certificate-alert state lives here (not a separate table) so a worker restart

@@ -245,6 +245,11 @@ Consequences:
 - Delivery is durable at-least-once. A crash after the provider accepts and
   before the local outcome commits can send a duplicate. That window is
   expected. Do not describe it as exactly-once.
+- Without `PROBE_SECRET_KEY_FILE`, notifications use the in-process path. Its
+  initial DOWN send is recorded on the alert (`initial_notified_at`), and a
+  restarted hub sends a never-attempted one on the next DOWN check. A crash
+  between the DOWN heartbeat commit and the alert row, or a provider failure,
+  is not retried on that path.
 - Provider I/O is outside the database transaction. Shutdown gives in-flight
   provider attempts ten seconds, then stops. It does not wait forever on a
   dead provider.
