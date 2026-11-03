@@ -162,21 +162,17 @@ func (h *HeartbeatHandlers) GetChartData(c echo.Context) error {
 			}
 		}
 	}
-	heartbeats, err := h.svc.ListByMonitor(c.Request().Context(), monitorID, from, to)
+	// The whole window is aggregated (in SQL on both engines), so the chart
+	// covers every labeled hour. The old guard kept only the newest 2000 raw
+	// beats — ~16.7 h of a 24 h range at 30 s (#195). The response is bounded
+	// instead by one row per bucket (<= 721 at 720 h) and chartIntervalMax.
+	const chartIntervalMax = 1000
+	data, err := h.svc.Chart(c.Request().Context(), monitorID, from, to,
+		services.BucketDurationForRange(hours), chartIntervalMax)
 	if err != nil {
 		return mapMonitorError(c, err)
 	}
-
-	// Cap raw samples before aggregation (same guard as list, higher ceiling for charts).
-	const chartHeartbeatMax = 2000
-	recent := limitHeartbeats(sortHeartbeats(heartbeats, "desc"), chartHeartbeatMax)
-	heartbeats = sortHeartbeats(recent, "asc")
-
-	bucketDur := services.BucketDurationForRange(hours)
-	buckets := services.BucketHeartbeats(heartbeats, bucketDur)
-	intervals := services.DetectDowntimeIntervals(heartbeats)
-
-	unknown := services.DetectUnknownIntervals(heartbeats)
+	buckets, intervals, unknown := data.Buckets, data.DowntimeIntervals, data.UnknownIntervals
 	view := chartDataView{
 		Buckets:           make([]chartBucketView, 0, len(buckets)),
 		DowntimeIntervals: make([]downtimeIntervalView, 0, len(intervals)),

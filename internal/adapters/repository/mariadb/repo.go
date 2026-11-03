@@ -796,6 +796,21 @@ func (r *HeartbeatRepo) ListRecentByMonitor(ctx context.Context, monitorID int64
 	return out, nil
 }
 
+// ListLatencyBuckets implements ports.HeartbeatChartReader. The SQL is shared
+// with the SQLite adapter; only the bucket-key expression is engine-specific
+// (TIMESTAMPDIFF, not UNIX_TIMESTAMP, so a non-UTC session time_zone cannot
+// shift the buckets).
+func (r *HeartbeatRepo) ListLatencyBuckets(ctx context.Context, monitorID int64, from, to time.Time, bucket time.Duration) ([]ports.LatencyBucket, error) {
+	out, err := repository.ListLatencyBuckets(ctx, r.db, repository.MariaDBChartBucketKey(bucket), bucket, monitorID, from, to)
+	return out, translateError(err)
+}
+
+// ListStatusRuns implements ports.HeartbeatChartReader (shared SQL).
+func (r *HeartbeatRepo) ListStatusRuns(ctx context.Context, monitorID int64, from, to time.Time, limit int) ([]ports.StatusRun, error) {
+	out, err := repository.ListStatusRuns(ctx, r.db, monitorID, from, to, limit)
+	return out, translateError(err)
+}
+
 func (r *HeartbeatRepo) DeleteByMonitor(ctx context.Context, monitorID int64) error {
 	_, err := r.db.NewDelete().Model((*repository.HeartbeatModel)(nil)).
 		Where("monitor_id = ?", monitorID).

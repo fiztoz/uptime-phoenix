@@ -232,7 +232,7 @@ func TestEdgeDeliveryCutoverOperativeLifecycle(t *testing.T) {
 	}
 	// Application never relabels the distinct source-local regional facts.
 	if n := certCount(t, h.store, "SELECT COUNT(*) FROM edge_regional_delivery_applications WHERE alert_delivery = 'regional'"); n != 1 {
-		t.Fatalf("regional facts were relabelled: %d", n)
+		t.Fatalf("regional facts were relabeled: %d", n)
 	}
 
 	requireCutover(t, h.execute(h.command(domain.DeliveryResumeKind, uuid.NewString(), barrier, preparation, domain.AlertDeliveryAggregate)), "applied", domain.DeliveryResumedCode)

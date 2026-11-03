@@ -243,6 +243,57 @@ type HeartbeatRecentReader interface {
 	ListRecentByMonitor(ctx context.Context, monitorID int64, from, to time.Time, limit int) ([]*domain.Heartbeat, error)
 }
 
+// LatencyBucket is one fixed-width latency bucket aggregated in the database.
+// Only heartbeats with ping > 0 contribute; buckets without such a beat are
+// absent. Start is the UTC bucket start (epoch-aligned to the bucket width).
+// The sum and count are returned instead of an average so both engines yield
+// the identical float64 average in Go.
+type LatencyBucket struct {
+	Start     time.Time
+	MinPing   int
+	MaxPing   int
+	PingSum   int64
+	PingCount int64
+}
+
+// StatusRunKind classifies a run of consecutive heartbeats for the charts.
+type StatusRunKind int
+
+const (
+	// StatusRunDowntime is a run of DOWN or PENDING heartbeats.
+	StatusRunDowntime StatusRunKind = 1
+	// StatusRunUnknown is a run of UNKNOWN heartbeats.
+	StatusRunUnknown StatusRunKind = 2
+)
+
+// StatusRun is a maximal run of consecutive (time, id ordered) heartbeats of
+// one kind. Start and End are the first and last heartbeat times of the run.
+type StatusRun struct {
+	Kind  StatusRunKind
+	Start time.Time
+	End   time.Time
+}
+
+// HeartbeatChartReader aggregates a chart window in the database so the
+// response-time charts cover the whole window they are labeled with while
+// only ever transferring bounded, already-aggregated rows (issue #195: the
+// charts used to keep only the newest N raw beats, so "24 h" showed ~8 h).
+//
+// OPTIONAL for the same reason as HeartbeatRecentReader; services fall back to
+// ListByMonitor and aggregate the whole window in Go.
+//
+// Implementations MUST force from/to to UTC (rule 6), compute bucket starts
+// from the stored UTC wall-clock identically on every engine (rule 12), and
+// order runs by (time, id) so second-precision ties stay deterministic (rule 8).
+type HeartbeatChartReader interface {
+	// ListLatencyBuckets returns ascending latency buckets of width bucket in
+	// [from, to]. bucket must be a positive whole number of seconds.
+	ListLatencyBuckets(ctx context.Context, monitorID int64, from, to time.Time, bucket time.Duration) ([]LatencyBucket, error)
+	// ListStatusRuns returns the newest `limit` downtime/unknown runs in
+	// [from, to], ascending by Start. limit must be positive.
+	ListStatusRuns(ctx context.Context, monitorID int64, from, to time.Time, limit int) ([]StatusRun, error)
+}
+
 // ReliabilityReader is an OPTIONAL heartbeat capability used by the reliability
 // / insights read model. It is deliberately batched: the endpoint must not issue
 // one transition query per visible monitor.

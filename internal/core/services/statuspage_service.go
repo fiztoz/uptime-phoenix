@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"math"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -33,11 +32,15 @@ const (
 	statusPageBrandAssetMaxDecoded = 256 * 1024
 )
 
-// publicChartHeartbeatMax bounds the number of raw heartbeat samples read
-// per monitor before bucketing. A public status page can list many
-// monitors in one request, so the per-monitor cap is tighter than the
-// authenticated single-monitor chart endpoint.
-const publicChartHeartbeatMax = 500
+// publicChartIntervalMax bounds the downtime + unknown intervals returned per
+// monitor on the public chart (newest kept). A public status page lists many
+// monitors in one unauthenticated request, so the per-monitor response stays
+// small: latency is at most one row per 15-minute bucket (~97 for 24 h), and a
+// flapping monitor cannot inflate the interval lists past this cap.
+//
+// It replaces publicChartHeartbeatMax, which kept only the newest 500 RAW
+// heartbeats before bucketing — ~8.3 h of a "24 h" chart at 60 s (#195).
+const publicChartIntervalMax = 250
 
 // statusPageIncidentNotifier is satisfied by SubscriptionService for email
 // fan-out on incident create/resolve. Optional — nil means no email.
@@ -679,23 +682,16 @@ func (s *StatusPageService) monitorPublicChart(ctx context.Context, monitorID in
 	now := time.Now().UTC()
 	from := now.Add(-publicChartRangeHours * time.Hour)
 
-	heartbeats, err := s.hbRepo.ListByMonitor(ctx, monitorID, from, now)
+	// The whole window is aggregated (in SQL when the repository supports it);
+	// only bucket rows and capped intervals leave the database.
+	data, err := LoadChart(ctx, s.hbRepo, monitorID, from, now,
+		BucketDurationForRange(publicChartRangeHours), publicChartIntervalMax)
 	if err != nil {
-		slog.Warn("status page service: list heartbeats failed for chart, returning empty chart", "monitor_id", monitorID, "error", err)
+		slog.Warn("status page service: load chart failed, returning empty chart", "monitor_id", monitorID, "error", err)
 		return chart
 	}
 
-	// Bound the sample count so a busy monitor can't slow down a public
-	// page that lists many monitors. Keep the most recent samples.
-	if len(heartbeats) > publicChartHeartbeatMax {
-		sort.Slice(heartbeats, func(i, j int) bool {
-			return heartbeats[i].Time.Before(heartbeats[j].Time)
-		})
-		heartbeats = heartbeats[len(heartbeats)-publicChartHeartbeatMax:]
-	}
-
-	bucketDur := BucketDurationForRange(publicChartRangeHours)
-	for _, b := range BucketHeartbeats(heartbeats, bucketDur) {
+	for _, b := range data.Buckets {
 		chart.Buckets = append(chart.Buckets, PublicChartBucket{
 			Time: b.Time.Format(time.RFC3339),
 			Min:  b.Min,
@@ -703,14 +699,13 @@ func (s *StatusPageService) monitorPublicChart(ctx context.Context, monitorID in
 			Max:  b.Max,
 		})
 	}
-
-	for _, iv := range DetectDowntimeIntervals(heartbeats) {
+	for _, iv := range data.DowntimeIntervals {
 		chart.DowntimeIntervals = append(chart.DowntimeIntervals, PublicDowntimeInterval{
 			Start: iv.Start.Format(time.RFC3339),
 			End:   iv.End.Format(time.RFC3339),
 		})
 	}
-	for _, iv := range DetectUnknownIntervals(heartbeats) {
+	for _, iv := range data.UnknownIntervals {
 		chart.UnknownIntervals = append(chart.UnknownIntervals, PublicDowntimeInterval{
 			Start: iv.Start.Format(time.RFC3339),
 			End:   iv.End.Format(time.RFC3339),
