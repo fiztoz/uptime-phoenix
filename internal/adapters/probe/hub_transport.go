@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"slices"
 	"sort"
@@ -213,6 +214,14 @@ func (t *HubTransport) RunWithWatchdog(ctx context.Context, input domain.ProbeSe
 	}
 	handshake, err := ValidateHandshake(hello, frame, HandshakeExpectation{HubID: m.HubID, ProbeID: m.ProbeID, StreamID: m.StreamID, ConnectionGeneration: Decimal(input.Generation), RequiredCapabilities: required, RequiredResourceBindings: requiredBindings})
 	if err != nil {
+		if errors.Is(err, ErrCursorAhead) {
+			// The source has created fewer sequences than the hub committed: its
+			// data directory went back in time (#192). Retrying cannot help
+			// until it numbers past the cursor, so say so on every attempt.
+			slog.Error("probe stream is behind the hub cursor; the probe data directory was likely restored from an older backup without a stream reset, connection refused",
+				"probe_id", m.ProbeID, "stream_id", m.StreamID,
+				"hub_committed_seq", input.CommittedSeq, "probe_last_created_seq", int64(advertised.LastCreatedSeq))
+		}
 		return errors.New("probe handshake rejected")
 	}
 	regionalEnabled := t.regionalApplications != nil && containsCapability(handshake.Hello.Capabilities, RegionalApplicationCapability) && handshake.Welcome.RegionalApplicationReporting

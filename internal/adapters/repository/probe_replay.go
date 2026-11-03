@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -67,7 +68,9 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 		return nil, domain.ErrValidation
 	}
 	var result *domain.ProbeReplayResult
+	unreconciledCursor := int64(-1)
 	err := runConfigAuthorityTx(ctx, s.db, func(ctx context.Context, tx bun.Tx) error {
+		unreconciledCursor = -1
 		// SERIALIZABLE prevents stale assignment snapshots. Bounded MariaDB
 		// deadlock retries reuse the existing configuration authority policy.
 		result = &domain.ProbeReplayResult{StreamID: batch.StreamID, Rejected: []domain.ProbeReplayRejection{}}
@@ -76,7 +79,11 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 			return err
 		}
 		stream, lease, now := authority.stream, authority.lease, authority.now
-		if stream.RetiredAt != nil || batch.FirstSeq > stream.CommittedSeq && batch.FirstSeq-stream.CommittedSeq != 1 {
+		if stream.RetiredAt != nil {
+			return ports.ErrConflict
+		}
+		if batch.FirstSeq > stream.CommittedSeq && batch.FirstSeq-stream.CommittedSeq != 1 {
+			unreconciledCursor = stream.CommittedSeq
 			return ports.ErrConflict
 		}
 		if batch.Gap != nil {
@@ -107,7 +114,14 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 					return err
 				}
 				if receipt.Digest != event.Digest || receipt.Kind != event.Kind {
-					return ports.ErrConflict
+					// The source reused a committed sequence for a different
+					// event (#192: data directory restored behind the hub
+					// cursor). The committed receipt and its evidence are never
+					// replaced. Failing the whole batch would wedge the stream
+					// forever, so the reused event is permanently rejected and
+					// the contiguous suffix past the cursor still commits.
+					result.Rejected = append(result.Rejected, domain.ProbeReplayRejection{Seq: event.Seq, Code: domain.ProbeReplaySequenceReused})
+					continue
 				}
 				if receipt.RejectionCode != "" {
 					result.Rejected = append(result.Rejected, domain.ProbeReplayRejection{Seq: event.Seq, Code: receipt.RejectionCode})
@@ -236,6 +250,14 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 		return nil
 	})
 	if err != nil {
+		if unreconciledCursor >= 0 && errors.Is(err, ports.ErrConflict) {
+			// Retrying cannot help: the session closes and the source reconnects
+			// into the same refusal until an operator reconciles the stream.
+			slog.Error("probe telemetry stream cannot be reconciled: the batch skips past the hub cursor, ingest refused",
+				"probe_id", session.ProbeID, "stream_id", session.StreamID,
+				"first_seq", batch.FirstSeq, "last_seq", batch.LastSeq, "hub_committed_seq", unreconciledCursor,
+				"hint", "the hub was likely restored behind the probe's acknowledged history; see the restored-hub recovery procedure")
+		}
 		return nil, remoteSyncError(ctx, err)
 	}
 	return result, nil

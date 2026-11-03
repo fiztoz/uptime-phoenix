@@ -212,6 +212,11 @@ REQUIRED |= {"TestProbeWatchdogSettingsAPIContract/mariadb"}
 # real MariaDB through the production router and stores.
 REQUIRED |= {"TestAlertDeliveryGateContract/mariadb"}
 
+# #192: a probe restored behind the hub cursor resumes storing history through
+# the production replay service, and an unreconcilable gap is refused and logged,
+# on real MariaDB.
+REQUIRED |= {"TestProbeReplayRestoredCursor/mariadb", "TestProbeReplayUnreconcilableStreamLogged/mariadb"}
+
 
 INSTALL_JOURNAL_REQUIRED = {
     f"TestM8InstallJournalStore/mariadb/{case}"

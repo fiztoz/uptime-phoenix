@@ -1057,6 +1057,7 @@
   "probes_received": "เวลารับข้อมูล",
   "probes_history": "การตรวจสอบล่าสุดรายภูมิภาค",
   "probes_no_history": "ยังไม่มีข้อมูลการตรวจสอบ",
+  "probes_history_stale": "ประวัติล้าสมัย: การตรวจสอบล่าสุดที่บันทึกไว้ {time}",
   "probes_region_label": "ภูมิภาค: {name}",
   "probes_ack_pending": "ขอรับทราบแล้ว กำลังรอภูมิภาคยืนยัน",
   "probes_ack_failed": "ยังไม่ได้รับทราบการแจ้งเตือนในภูมิภาค",

@@ -76,6 +76,20 @@ at the bottom.
 
 ### Fixed
 
+- **A probe restored from an older data-directory backup stores history again
+  (#192).** A restored probe restarts its stream from an older acknowledged
+  cursor and numbers new events with sequences the hub already committed. The
+  hub compared each one with its committed receipt, found a different digest
+  and refused the whole batch, every time, without logging anything. The probe
+  reconnected into the same refusal, showed as Disconnected, and its regional
+  history froze while the badge stayed current. A reused sequence is now
+  rejected as `sequence_reused` and is never stored over committed evidence.
+  Identical replays are still duplicates, and the stream resumes past the hub
+  cursor. The hub logs the reused range, a probe behind the hub cursor, and an
+  unreconcilable gap at error level. The Regional health bar is dimmed and
+  labelled stale when its newest beat is older than the row's freshness window.
+  The explicit stream reset in the restore runbook remains the lossless path.
+
 - **Overall health history keeps up under load (#196).** The projection that
   builds `monitor_health_history` fell hours behind on a hub with 100 monitors
   × 10 probes, and most batches hit their 10 s timeout. Each work item ranked

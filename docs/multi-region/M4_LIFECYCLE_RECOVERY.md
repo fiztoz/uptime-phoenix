@@ -164,6 +164,17 @@ See [M3 source reset acceptance](M3_SOURCE_RESET_ACCEPTANCE.md) and
    by monitor/probe/generation, not by stream).
 4. If the source's local identity or credential is missing, reenroll before
    reconnecting.
+5. **If step 2 was skipped** (the snapshot was restored and the source restarted
+   on its old stream), the hub does not reuse the old sequence space and does
+   not wedge either (#192). While the source has created fewer sequences than
+   the hub committed, the handshake is refused (`committed_cursor_ahead`) and the
+   hub logs `probe stream is behind the hub cursor` at error level. After the
+   source numbers past the cursor, events it replays with committed sequences
+   are compared by digest: identical ones are duplicates; new events under a
+   committed sequence are rejected as `sequence_reused` (logged at error level,
+   not stored) and everything past the hub cursor is stored again. The rejected
+   events, from the restore until the source passed the hub cursor, are lost.
+   Run step 2 to avoid that loss.
 
 ### 5.3 Combined hub + edge recovery order
 

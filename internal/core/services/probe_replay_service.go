@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -77,14 +78,52 @@ func (s *ProbeReplayService) ProcessBatch(ctx context.Context, session domain.Pr
 		return &domain.ProbeReplayResult{StreamID: batch.StreamID, CommittedSeq: min(cursor, batch.LastSeq)}, domain.ErrReplayRetry
 	}
 	if err != nil {
+		if errors.Is(err, ports.ErrConflict) && ctx.Err() == nil {
+			logRefusedBatch(session, batch, err)
+		}
 		return result, err
 	}
 	var rejected []domain.ProbeReplayRejection
 	if result != nil {
 		rejected = result.Rejected
 	}
+	logReusedSequences(session, batch, rejected)
 	s.notifyRegionalEvidence(ctx, batch, rejected)
 	return result, nil
+}
+
+// logReusedSequences reports events dropped because their sequence was already
+// committed for a different event. The stream keeps flowing, but those
+// observations are lost, so an operator has to hear about it (#192).
+func logReusedSequences(session domain.ProbeReplaySession, batch domain.ProbeReplayBatch, rejected []domain.ProbeReplayRejection) {
+	var count, first, last int64
+	for _, rejection := range rejected {
+		if rejection.Code != domain.ProbeReplaySequenceReused {
+			continue
+		}
+		if count == 0 {
+			first = rejection.Seq
+		}
+		last = rejection.Seq
+		count++
+	}
+	if count == 0 {
+		return
+	}
+	slog.Error("probe telemetry reused sequence numbers the hub already committed; those events were rejected and are not stored",
+		"probe_id", session.ProbeID, "stream_id", session.StreamID,
+		"batch_first_seq", batch.FirstSeq, "batch_last_seq", batch.LastSeq,
+		"reused_count", count, "first_reused_seq", first, "last_reused_seq", last,
+		"hint", "the probe data directory was likely restored from an older backup without a stream reset (prepare-reset / probe reset-stream / activate-reset)")
+}
+
+// logRefusedBatch makes a refused batch visible: the session closes and the
+// probe reconnects, which otherwise only shows up as a Disconnected probe. It
+// deliberately reads nothing more; a refused batch never earns a retry.
+func logRefusedBatch(session domain.ProbeReplaySession, batch domain.ProbeReplayBatch, err error) {
+	slog.Warn("probe telemetry batch refused; the session will close and the probe will reconnect",
+		"probe_id", session.ProbeID, "stream_id", session.StreamID,
+		"first_seq", batch.FirstSeq, "last_seq", batch.LastSeq, "error", err)
 }
 
 func (s *ProbeReplayService) notifyRegionalEvidence(ctx context.Context, batch domain.ProbeReplayBatch, rejected []domain.ProbeReplayRejection) {
