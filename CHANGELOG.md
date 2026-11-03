@@ -83,6 +83,18 @@ at the bottom.
   jumped back whenever the history was refetched. Live beats now only add a
   row when the status changes.
 
+- **The monitor detail page reports failed history, chart and stats requests
+  (#193).** Each request's failure was caught and replaced with empty data, so
+  a backend error read as "this monitor has no data": the metrics showed "—",
+  the chart said "No response-time data", and the next live heartbeat drew one
+  full-width bar captioned "1 checks". Each section now shows its own error
+  with a Retry, a failed refresh keeps the last good data, and a live beat no
+  longer seeds a stream whose load failed. A local-only monitor's history also
+  no longer fails when the overall (multi-region) reconstruction fails, since
+  it never uses it. A multi-region monitor still returns the error rather than
+  its local checks: those are one region's measurements, not the overall
+  status.
+
 - **Response-time charts now cover their whole labelled window (#195).** The
   public status page's "24 h" chart kept only the newest 500 heartbeats before
   bucketing, so a 60 s monitor showed about 8 h (~35 of 96 intervals). The

@@ -28,6 +28,7 @@
 	} from './charts/ChartTooltip.svelte';
 	import PlotClip from './charts/PlotClip.svelte';
 	import Select from '#lib/components/Select.svelte';
+	import LoadErrorNotice from '#lib/components/LoadErrorNotice.svelte';
 	import * as m from '#lib/paraglide/messages.js';
 
 	export interface ChartBucket {
@@ -59,6 +60,9 @@
 		showRangeSelector?: boolean;
 		/** Optional region picker rendered in the header (latency selection). */
 		regionPicker?: import('svelte').Snippet;
+		/** Set when the last load failed: shown with a Retry, never as "no data". */
+		loadError?: string | null;
+		onRetry?: () => void;
 	}
 
 	const RANGE_OPTIONS = [
@@ -76,6 +80,8 @@
 		loading = false,
 		showRangeSelector = true,
 		regionPicker,
+		loadError = null,
+		onRetry,
 	}: Props = $props();
 
 	/** True when the response deliberately carries no measured latency (overall). */
@@ -193,12 +199,14 @@
 				<h3 class="text-sm font-semibold tracking-tight">
 					{m.monitor_detail_chart_title()}
 				</h3>
-				<p class="text-xs tabular-nums text-muted-foreground">
-					{m.monitor_detail_chart_intervals({
-						count: chartData.length,
-						range: selectedRange,
-					})}
-				</p>
+				{#if !(loadError && chartData.length === 0)}
+					<p class="text-xs tabular-nums text-muted-foreground">
+						{m.monitor_detail_chart_intervals({
+							count: chartData.length,
+							range: selectedRange,
+						})}
+					</p>
+				{/if}
 			</div>
 			{#if chartData.length > 1}
 				<div class="mt-2 flex items-center gap-4 text-[11px] text-muted-foreground">
@@ -242,6 +250,9 @@
 		{/if}
 	</div>
 
+	{#if loadError}
+		<LoadErrorNotice message={loadError} {onRetry} class="mx-4 mt-3 sm:mx-5" />
+	{/if}
 	{#if latencyUnavailable}
 		<div class="mx-2 my-3 sm:mx-4" data-testid="overall-intervals">
 			<div class="relative h-16 w-full overflow-hidden rounded-lg border border-border bg-muted/30">
@@ -316,10 +327,12 @@
 				{m.monitor_detail_chart_insufficient()}
 			</p>
 		</div>
-	{:else}
+	{:else if !loadError}
 		<p class="mt-6 py-16 text-center text-sm text-muted-foreground">
 			{m.monitor_detail_chart_no_data()}
 		</p>
+	{:else}
+		<div class="py-12"></div>
 	{/if}
 </section>
 

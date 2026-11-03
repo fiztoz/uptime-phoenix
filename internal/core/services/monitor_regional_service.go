@@ -136,10 +136,12 @@ func (s *MonitorRegionalService) OverallHistory(ctx context.Context, userID, mon
 		return nil, domain.ErrValidation
 	}
 	from, to = from.UTC(), to.UTC()
-	history, err := s.health.History(ctx, userID, monitorID, from, to)
-	if err != nil {
+	if err := s.health.denyIfHidden(ctx, userID, monitorID); err != nil {
 		return nil, err
 	}
+	// Decide the stream before reconstructing: a local-only monitor serves its
+	// measured rows and never reads the overall history, so a reconstruction
+	// failure must not fail its history request (GitHub #193).
 	_, set, _, err := s.health.loadMonitorEvidence(ctx, monitorID)
 	if err != nil {
 		return nil, err
@@ -153,6 +155,10 @@ func (s *MonitorRegionalService) OverallHistory(ctx context.Context, userID, mon
 	}
 	if localOnly {
 		return &OverallHistoryResult{LocalOnly: true}, nil
+	}
+	history, err := s.health.reconstruct(ctx, monitorID, from, to, to)
+	if err != nil {
+		return nil, err
 	}
 	rows := make([]OverallHistoryRow, 0, len(history.Intervals))
 	for i, interval := range history.Intervals {

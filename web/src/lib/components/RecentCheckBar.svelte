@@ -8,14 +8,24 @@
   import type { Heartbeat } from "#lib/api/heartbeats.js";
   import { uniqueKeys } from "#lib/utils/chart.js";
   import * as m from "#lib/paraglide/messages.js";
+  import LoadErrorNotice from "#lib/components/LoadErrorNotice.svelte";
 
   interface Props {
     heartbeats: Heartbeat[];
     maxChecks?: number;
     overall?: boolean;
+    /** Set when the last load failed: shown with a Retry, never as "no checks". */
+    loadError?: string | null;
+    onRetry?: () => void;
   }
 
-  let { heartbeats, maxChecks = 60, overall = false }: Props = $props();
+  let {
+    heartbeats,
+    maxChecks = 60,
+    overall = false,
+    loadError = null,
+    onRetry,
+  }: Props = $props();
 
   const formatTime = timeFormat("%Y-%m-%d %H:%M:%S");
 
@@ -106,8 +116,13 @@
     </p>
   {/if}
 
+  {#if loadError}
+    <LoadErrorNotice message={loadError} {onRetry} class="mt-3" />
+  {/if}
   {#if segments.length === 0}
-    <p class="mt-4 text-sm text-muted-foreground">No checks recorded yet.</p>
+    {#if !loadError}
+      <p class="mt-4 text-sm text-muted-foreground">No checks recorded yet.</p>
+    {/if}
   {:else}
     <div class="relative mt-3">
       <div
