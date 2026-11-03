@@ -39,7 +39,7 @@ func TestProbeHistoryQueuePriorityAndOpenWindows(t *testing.T) {
 			store := repository.NewRegionalCommitStore(r.f.db)
 			projector := &historyQueueProjector{ProbeHistoryService: services.NewProbeHistoryService(store)}
 			now := r.at.Add(48 * time.Hour)
-			resolutions := []string{"1m", "overall", "1h", "1d"}
+			resolutions := []string{"1m", "1h", "1d", "overall"}
 			rows := make([]historyQueueRow, 0, 2*len(resolutions))
 			for _, resolution := range resolutions {
 				probeID := r.session.ProbeID
