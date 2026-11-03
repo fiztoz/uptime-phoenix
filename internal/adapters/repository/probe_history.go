@@ -30,7 +30,7 @@ func (r *RegionalCommitStore) ReadHistoryEvidence(ctx context.Context, monitorID
 	}
 	err := r.db.RunInTx(ctx, historyTxOptions(r.db), func(ctx context.Context, tx bun.Tx) error {
 		var err error
-		result, err = readHistoryEvidenceWindow(ctx, tx, monitorID, from.UTC(), to.UTC(), domain.DirtyResolutionOverall, projector)
+		result, err = readHistoryEvidenceWindow(ctx, tx, monitorID, "", from.UTC(), to.UTC(), domain.DirtyResolutionOverall, projector)
 		return err
 	})
 	return result, err
@@ -97,7 +97,9 @@ func (r *RegionalCommitStore) nextHistoryBucket(ctx context.Context, now time.Ti
 	// every item. Each equality/range lookup can stop at the first row in
 	// idx_probe_dirty_resolution. Transactional dependency checks still decide
 	// whether the selected work can commit when writers re-mark its children.
-	for _, resolution := range []string{domain.DirtyResolution1m, domain.DirtyResolutionOverall, domain.DirtyResolution1h, domain.DirtyResolution1d} {
+	// Overall depends on no queued resolution, so it goes last: a lagging
+	// overall backlog must not hold back the few 1h/1d rollups (#196).
+	for _, resolution := range []string{domain.DirtyResolution1m, domain.DirtyResolution1h, domain.DirtyResolution1d, domain.DirtyResolutionOverall} {
 		var row probeDirtyBucketModel
 		err := r.db.NewSelect().Model(&row).
 			Where("resolution = ? AND bucket < ?", resolution, now.Truncate(historyBucketWidth(resolution))).
@@ -261,10 +263,19 @@ func historyBucketWidth(resolution string) time.Duration {
 }
 
 func loadHistoryEvidence(ctx context.Context, tx bun.Tx, row probeDirtyBucketModel, projector ports.ProbeHistoryProjector) (domain.OverallHistoryInput, error) {
-	return readHistoryEvidenceWindow(ctx, tx, row.MonitorID, row.Bucket.UTC(), row.Bucket.UTC().Add(historyBucketWidth(row.Resolution)), row.Resolution, projector)
+	// A regional rollup is evaluated against its own probe's assignments only,
+	// and the other probes' samples and gaps cannot change it. Reading them
+	// multiplied each item's cost by the monitor's probe count (#196).
+	evidenceProbe := ""
+	if row.Resolution == domain.DirtyResolution1m {
+		evidenceProbe = row.ProbeID
+	}
+	return readHistoryEvidenceWindow(ctx, tx, row.MonitorID, evidenceProbe, row.Bucket.UTC(), row.Bucket.UTC().Add(historyBucketWidth(row.Resolution)), row.Resolution, projector)
 }
 
-func readHistoryEvidenceWindow(ctx context.Context, tx bun.Tx, monitorID int64, from, to time.Time, resolution string, projector ports.ProbeHistoryProjector) (domain.OverallHistoryInput, error) {
+// readHistoryEvidenceWindow loads assignments for the whole monitor. A non-empty
+// probeID limits observations, seeds and gaps to that probe.
+func readHistoryEvidenceWindow(ctx context.Context, tx bun.Tx, monitorID int64, probeID string, from, to time.Time, resolution string, projector ports.ProbeHistoryProjector) (domain.OverallHistoryInput, error) {
 	in := domain.OverallHistoryInput{MonitorID: monitorID, From: from, To: to}
 	var monitor MonitorModel
 	if err := tx.NewSelect().Model(&monitor).Where("id = ?", monitorID).Scan(ctx); err != nil {
@@ -298,8 +309,14 @@ func readHistoryEvidenceWindow(ctx context.Context, tx bun.Tx, monitorID int64, 
 	}
 	probeSet, generationSet := make(map[string]bool), make(map[int64]bool)
 	for _, a := range assignments {
+		if probeID != "" && a.ProbeID != probeID {
+			continue
+		}
 		probeSet[a.ProbeID] = true
 		generationSet[a.Generation] = true
+	}
+	if len(probeSet) == 0 {
+		return in, nil
 	}
 	probeIDs := make([]string, 0, len(probeSet))
 	generations := make([]int64, 0, len(generationSet))
@@ -322,12 +339,8 @@ func readHistoryEvidenceWindow(ctx context.Context, tx bun.Tx, monitorID int64, 
 	// Retain the sequence-leading old sample as a seed. After a backward clock,
 	// an older sequence with a later timestamp must not regain authority merely
 	// because the actual later sequence has become stale outside the lookback.
-	var seeds []probeObservationModel
-	query := `SELECT o.* FROM probe_observations AS o JOIN
- (SELECT id, ROW_NUMBER() OVER (PARTITION BY probe_id,assignment_generation,stream_id ORDER BY seq DESC,id DESC) AS position
- FROM probe_observations WHERE monitor_id = ? AND observed_at < ? AND probe_id IN (?) AND assignment_generation IN (?)) AS ranked ON ranked.id = o.id
- WHERE ranked.position = 1 LIMIT 10001`
-	if err := tx.NewRaw(query, monitorID, lookback, bun.List(probeIDs), bun.List(generations)).Scan(ctx, &seeds); err != nil {
+	seeds, err := readHistorySeeds(ctx, tx, monitorID, probeIDs, generations, lookback)
+	if err != nil {
 		return in, err
 	}
 	if len(seeds) > 10000 {
@@ -336,8 +349,54 @@ func readHistoryEvidenceWindow(ctx context.Context, tx bun.Tx, monitorID int64, 
 	for _, o := range append(seeds, observations...) {
 		in.Observations = append(in.Observations, o.observation())
 	}
-	in.Gaps, err = readHistoryGaps(ctx, tx, monitorID, in.To)
-	return in, err
+	gaps, err := readHistoryGaps(ctx, tx, monitorID, in.To)
+	if err != nil {
+		return in, err
+	}
+	for _, gap := range gaps {
+		if probeID == "" || gap.ProbeID == probeID {
+			in.Gaps = append(in.Gaps, gap)
+		}
+	}
+	return in, nil
+}
+
+// readHistorySeeds returns, per (probe, generation, stream), the highest-seq
+// observation before lookback. Observations are never pruned, so ranking every
+// older row (the former ROW_NUMBER() query) made each work item cost grow with
+// the monitor's whole history (#196). Here each stream costs one index seek to
+// find it and one backward seq scan that stops at the first row before
+// lookback, so the cost follows the rows newer than lookback instead.
+func readHistorySeeds(ctx context.Context, tx bun.Tx, monitorID int64, probeIDs []string, generations []int64, lookback time.Time) ([]probeObservationModel, error) {
+	var seeds []probeObservationModel
+	for _, probeID := range probeIDs {
+		for _, generation := range generations {
+			stream := ""
+			for {
+				var next []string
+				if err := tx.NewSelect().Model((*probeObservationModel)(nil)).Column("stream_id").
+					Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ? AND stream_id > ?", monitorID, probeID, generation, stream).
+					Order("stream_id ASC").Limit(1).Scan(ctx, &next); err != nil {
+					return nil, err
+				}
+				if len(next) == 0 {
+					break
+				}
+				stream = next[0]
+				var seed []probeObservationModel
+				if err := tx.NewSelect().Model(&seed).
+					Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ? AND stream_id = ? AND observed_at < ?", monitorID, probeID, generation, stream, lookback).
+					Order("seq DESC", "id DESC").Limit(1).Scan(ctx); err != nil {
+					return nil, err
+				}
+				seeds = append(seeds, seed...)
+				if len(seeds) > 10000 {
+					return nil, domain.ErrValidation
+				}
+			}
+		}
+	}
+	return seeds, nil
 }
 
 func readHistoryChildren(ctx context.Context, tx bun.Tx, row probeDirtyBucketModel) ([]domain.RegionalHistoryRollup, error) {
