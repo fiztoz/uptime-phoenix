@@ -76,6 +76,13 @@ at the bottom.
 
 ### Fixed
 
+- **Status History keeps the time the status changed (#197).** On the monitor
+  detail page, every live heartbeat with the same status overwrote the leading
+  row's time and message with the latest check, so "Up since 11:33" read as
+  the time of the last check and a Down row hid when the outage began. The row
+  jumped back whenever the history was refetched. Live beats now only add a
+  row when the status changes.
+
 - **Response-time charts now cover their whole labelled window (#195).** The
   public status page's "24 h" chart kept only the newest 500 heartbeats before
   bucketing, so a 60 s monitor showed about 8 h (~35 of 96 intervals). The

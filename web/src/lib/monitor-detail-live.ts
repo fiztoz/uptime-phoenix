@@ -10,7 +10,7 @@ const STATUS_HISTORY_MAX = 100;
 /**
  * Merge a live heartbeat into the Status History rows (newest first). The
  * table lists status *changes*: a new row is prepended only when the status
- * differs from `lastKnownStatus`.
+ * differs from `lastKnownStatus`; an empty table is seeded with the beat.
  */
 export function mergeLiveStatusHistory(
   history: Heartbeat[],
@@ -23,18 +23,10 @@ export function mergeLiveStatusHistory(
       return history;
     return [entry, ...history].slice(0, STATUS_HISTORY_MAX);
   }
-  if (history.length > 0 && history[0].status === entry.status) {
-    // Same status — refresh the leading row with the latest check.
-    return [
-      {
-        ...history[0],
-        ping: entry.ping,
-        message: entry.message || history[0].message,
-        time: entry.time,
-      },
-      ...history.slice(1),
-    ];
-  }
+  // Same status: the leading row is the transition that started this status.
+  // Its time and message describe that change, not the latest check, so a
+  // live beat leaves it as-is (GitHub #197). Overwriting it also fought the
+  // server row that refreshOverallHistory puts back.
   if (history.length === 0) return [entry];
   return history;
 }
