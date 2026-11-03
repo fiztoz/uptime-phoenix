@@ -39,10 +39,20 @@ func (o operativeRemoteFixture) gates(t *testing.T) int64 {
 	return n
 }
 
+func (o operativeRemoteFixture) openResumes(t *testing.T) int64 {
+	t.Helper()
+	n, err := o.f.f.db.NewSelect().Table("operative_cutover_commands").ColumnExpr("COUNT(*)").
+		Where("kind = ? AND outcome_status = ''", domain.DeliveryResumeKind).Count(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
 // drainToReleased issues and completes the member's resume.
 func (o operativeRemoteFixture) drainToReleased(t *testing.T) {
 	t.Helper()
-	for i := 0; i < 3 && o.remoteResumes(t) == 0; i++ {
+	for i := 0; i < 3 && o.openResumes(t) == 0; i++ {
 		o.run(t, true)
 	}
 	o.complete(t, domain.DeliveryResumeKind)
@@ -61,6 +71,7 @@ func TestOperativeCutoverDeadline(t *testing.T) {
 			t.Run("StalledQuiesceDrains", func(t *testing.T) { testCutoverDeadlineQuiescing(t, engine) })
 			t.Run("StalledApplyReleasesQuiescedMember", func(t *testing.T) { testCutoverDeadlineApplying(t, engine) })
 			t.Run("ReentryBacksOff", func(t *testing.T) { testCutoverDeadlineBackoff(t, engine) })
+			t.Run("RefusalBlockDrains", func(t *testing.T) { testCutoverDeadlineRefusalBlock(t, engine) })
 		})
 	}
 }
@@ -152,4 +163,36 @@ func testCutoverDeadlineBackoff(t *testing.T, engine string) {
 	if got := o.run(t, true); got.Phase != "preparing" {
 		t.Fatalf("doubled backoff did not end: %+v", got)
 	}
+}
+
+// reject refuses the member's one open command of kind with a non-busy code.
+func (o operativeRemoteFixture) reject(t *testing.T, kind, code string) {
+	t.Helper()
+	commands := o.f.commands(t)
+	claimed, err := commands.ClaimCommand(t.Context(), o.f.session, time.Second, domain.ProbeCommandCapabilities{DeliveryCutover: true})
+	if err != nil || claimed == nil || claimed.Kind != kind {
+		t.Fatal("cutover command not claimable", err, claimed)
+	}
+	if err := commands.CompleteCommand(t.Context(), o.f.session, domain.ProbeCommandOutcome{CommandID: claimed.CommandID, Status: "rejected", Code: code}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A permanent (non-busy) refusal blocks the barrier for review, but a blocked
+// pre-active barrier still holds every member that already quiesced, and only
+// disabling the opt-in used to drain it.
+func testCutoverDeadlineRefusalBlock(t *testing.T, engine string) {
+	o := newDeadlineFixture(t, engine)
+	o.reject(t, domain.DeliveryQuiesceKind, "delivery_document_mismatch")
+	if got := o.run(t, true); got.Phase != "blocked" || got.Reason != "quiesce_refused" {
+		t.Fatalf("permanent refusal = %+v, want blocked quiesce_refused", got)
+	}
+	if got := o.run(t, true); got.Phase != "blocked" {
+		t.Fatalf("refusal block drained before its deadline: %+v", got)
+	}
+	o.age(t, 6*time.Minute)
+	if got := o.run(t, true); got.Phase != "draining" || got.Reason != domain.CutoverReasonDeadlineExceeded {
+		t.Fatalf("refusal block past its deadline = %+v, want draining", got)
+	}
+	o.drainToReleased(t)
 }
