@@ -60,8 +60,9 @@ export function mergeLiveStatusHistory(
 
 /**
  * Merge a live heartbeat into the timeline strip (oldest first): append it
- * when it is newer than the latest segment; an empty strip is seeded with it
- * unless its load failed.
+ * when it is newer than the latest segment (for overall intervals, only when
+ * the status changes); an empty strip is seeded with it unless its load
+ * failed.
  */
 export function mergeLiveTimeline(
   timeline: Heartbeat[],
@@ -74,6 +75,15 @@ export function mergeLiveTimeline(
     return options.loadFailed ? timeline : [entry];
   }
   const latest = timeline[timeline.length - 1];
+  // Overall rows are intervals, not checks: a beat with the latest
+  // interval's status only extends it (it runs until now). Appending one row
+  // per beat split the interval and, at 60 rows, pushed the day's history
+  // off the strip (GitHub #194).
+  if (
+    (entry.scope === "overall" || latest.scope === "overall") &&
+    entry.status === latest.status
+  )
+    return timeline;
   if (Date.parse(entry.time) > Date.parse(latest.time))
     return [...timeline, entry].slice(-TIMELINE_MAX);
   return timeline;

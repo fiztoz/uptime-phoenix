@@ -142,7 +142,7 @@ func (s *MonitorRegionalService) OverallHistory(ctx context.Context, userID, mon
 	// Decide the stream before reconstructing: a local-only monitor serves its
 	// measured rows and never reads the overall history, so a reconstruction
 	// failure must not fail its history request (GitHub #193).
-	_, set, _, err := s.health.loadMonitorEvidence(ctx, monitorID)
+	monitor, set, _, err := s.health.loadMonitorEvidence(ctx, monitorID)
 	if err != nil {
 		return nil, err
 	}
@@ -155,6 +155,15 @@ func (s *MonitorRegionalService) OverallHistory(ctx context.Context, userID, mon
 	}
 	if localOnly {
 		return &OverallHistoryResult{LocalOnly: true}, nil
+	}
+	// Nothing was monitored before the monitor existed. Reconstructing that
+	// time filled it with an UNKNOWN interval that read as lost evidence, a
+	// full day of it on a new monitor's 24h strip (GitHub #194).
+	if created := monitor.CreatedAt.UTC(); created.After(from) {
+		from = created
+	}
+	if !from.Before(to) {
+		return &OverallHistoryResult{Rows: []OverallHistoryRow{}}, nil
 	}
 	history, err := s.health.reconstruct(ctx, monitorID, from, to, to)
 	if err != nil {

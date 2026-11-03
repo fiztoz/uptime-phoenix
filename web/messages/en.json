@@ -1100,6 +1100,7 @@
   "monitor_detail_health_intervals": "{count} health intervals",
   "monitor_detail_overall_timeline_help": "Overall health combines regions. Select a region to see individual checks and measured response times.",
   "monitor_detail_regional_checks_failed": "Recent checks could not be loaded for this region.",
+  "monitor_detail_not_monitored": "Not monitored (before the monitor was created)",
   "monitor_detail_timeline_load_failed": "Recent checks could not be loaded.",
   "monitor_detail_history_load_failed": "Status history could not be loaded.",
   "monitor_detail_chart_load_failed": "Response-time data could not be loaded.",

@@ -95,6 +95,16 @@ at the bottom.
   its local checks: those are one region's measurements, not the overall
   status.
 
+- **The Overall Health Timeline is drawn to time (#194).** A multi-region
+  monitor's strip drew each health interval as an equal-width pill, so a
+  10-second interval looked as long as a 10-hour one and a day of UP was one
+  full-width bar. Intervals are now as wide as they last over the 24 h window;
+  local and regional checks keep their equal widths. The overall history also
+  starts at the monitor's creation instead of 24 h back, so a new monitor no
+  longer opens with an UNKNOWN interval from before it existed; the strip
+  marks that time as not monitored. A live heartbeat with the same status now
+  extends the current interval instead of adding one per check.
+
 - **Response-time charts now cover their whole labelled window (#195).** The
   public status page's "24 h" chart kept only the newest 500 heartbeats before
   bucketing, so a 60 s monitor showed about 8 h (~35 of 96 intervals). The
