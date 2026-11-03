@@ -12,10 +12,13 @@ import (
 
 var _ ports.EdgeDeliveryRepository = (*Store)(nil)
 
+// edgeMaxProviderBudget bounds one authorization plus provider send.
+const edgeMaxProviderBudget = 30 * time.Second
+
 // AuthorizeEdgeDelivery serializes the final lifecycle read against ACK and
 // source recording. The returned item comes from storage, not the caller.
 func (s *Store) AuthorizeEdgeDelivery(ctx context.Context, claim domain.DeliveryClaim, config domain.ProbeConfigMetadata, budget time.Duration) (*domain.QueuedDelivery, error) {
-	if !domain.ValidHubID(claim.DeliveryID) || claim.Attempt < 1 || claim.LeaseToken == "" || !domain.ValidProbeConfigMetadata(config) || claim.ProbeID != config.ProbeID || budget <= 0 || budget > 30*time.Second {
+	if !domain.ValidHubID(claim.DeliveryID) || claim.Attempt < 1 || claim.LeaseToken == "" || !domain.ValidProbeConfigMetadata(config) || claim.ProbeID != config.ProbeID || budget <= 0 || budget > edgeMaxProviderBudget {
 		return nil, domain.ErrValidation
 	}
 	var out *domain.QueuedDelivery

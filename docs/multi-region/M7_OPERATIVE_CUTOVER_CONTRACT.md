@@ -32,9 +32,9 @@ or live activation is authorized. This document is a work contract, not acceptan
    availability provider starts and enqueue/escalation intents for the monitor,
    even across later config changes/reconnect/reset. BOTH retains regional work.
    Checks, certificate/capacity/probe/folder alerts remain independent.
-3. QUIESCED: only after every exact source quiesce success commits and no unresolved
-   earlier regional provider attempt remains. The source persists its hold before
-   checking attempts; busy/ambiguous refusal is not a success. Retries use new
+3. QUIESCED: only after every exact source quiesce success commits and no earlier
+   regional provider attempt may still be running. The source persists its hold
+   before checking attempts; a busy refusal is not a success. Retries use new
    immutable command IDs against the same barrier, never rewrite old outcomes.
 4. APPLYING: issue delivery.apply only after the complete quiesced barrier commits.
    Source authenticates one captured config and proves the exact quiesced gate;
@@ -66,7 +66,9 @@ configuration after replacement, but never release a replacement barrier.
   unfinished/crashed grant remains in_flight and unresolved. A genuinely pre-I/O
   refusal records not_started. No timer, lease reclaim, cancellation or restart
   proves no I/O.
-  Ambiguous grants block quiescence/drain, not ordinary regional retry/recording.
+  Only an in_flight grant still inside its budget plus settle grace blocks
+  quiescence/drain; ambiguous and expired grants never resolve, so they block
+  neither (#211), and ordinary regional retry/recording is never blocked.
 - Upgrade must conservatively capture already-attempted legacy availability work
   whose I/O completion cannot be proven. No success/backfill claim is fabricated.
 - No DB lock spans provider I/O. No exactly-once external delivery is claimed:

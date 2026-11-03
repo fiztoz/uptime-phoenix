@@ -76,6 +76,17 @@ at the bottom.
 
 ### Fixed
 
+- **One failed notification send no longer silences an aggregate-paging monitor
+  (#211).** Every provider error is recorded as `ambiguous` and a crashed send
+  stays `in_flight`; neither ever resolves. Drain waited on them across the
+  monitor's whole history, so after one transient error (a Slack 5xx, a webhook
+  timeout) a later drain held every member probe with aggregate paging stopped,
+  and nothing paged. Disabling the opt-in or setting the monitor back to
+  `regional` also drains, so there was no escape. One old failure also refused
+  every later quiesce. Cutover now waits only for sends that may still be
+  running (inside their budget plus one minute). Journal rows are kept as
+  recorded. A release with ambiguous sends under its barrier logs one warning,
+  since a regional page may duplicate one of them.
 - **A stalled aggregate cutover no longer holds its probes indefinitely (#209).**
   A probe that quiesced for an `aggregate`/`both` cutover suppresses its
   regional availability paging until the barrier activates or drains. If
@@ -85,8 +96,7 @@ at the bottom.
   within 5 minutes now drains through the normal resume path with reason
   `cutover_deadline_exceeded`, which is logged once at error level. The monitor
   then waits 15 minutes before trying a new barrier, doubling for each
-  consecutive failure up to 24 hours. Drain still waits for the hub's own
-  unresolved provider attempts, by design.
+  consecutive failure up to 24 hours.
 
 - **Status History keeps the time the status changed (#197).** On the monitor
   detail page, every live heartbeat with the same status overwrote the leading

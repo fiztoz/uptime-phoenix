@@ -17,7 +17,8 @@ var _ ports.SourceProviderAttemptJournal = (*Store)(nil)
 
 // providerAttemptRow is one admitted availability provider grant. The row is an
 // I/O fact journal: only an exact caller release may finish a grant, and no
-// timer, lease reclaim, restart or reset can clear an unresolved one.
+// timer, lease reclaim, restart or reset can clear an unresolved one. Only an
+// in_flight grant still inside its settle window blocks quiescence.
 type providerAttemptRow struct {
 	bun.BaseModel `bun:"table:edge_provider_attempts"`
 	AttemptID     string `bun:"attempt_id,pk"`
@@ -70,7 +71,7 @@ func insertProviderAttempt(ctx context.Context, tx bun.Tx, deliveryID string, at
 // FinishSourceProviderAttempt records the exact provider outcome for one grant.
 // A matching release may commit after claim or lease expiry and never affects a
 // replacement grant. Known states are immutable: a crashed, unknown or errored
-// attempt stays ambiguous or in_flight and keeps blocking quiescence and drain.
+// attempt stays ambiguous or in_flight; neither is ever rewritten.
 func (s *Store) FinishSourceProviderAttempt(ctx context.Context, attemptID string, state domain.ProviderAttemptState) error {
 	if len(attemptID) < 1 || len(attemptID) > 128 || !validProviderAttemptState(state) {
 		return domain.ErrValidation

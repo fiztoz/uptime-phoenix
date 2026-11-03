@@ -411,16 +411,34 @@ func (r *OperativeDeliveryStore) operativeApplicationTx(ctx context.Context, tx 
 	return &bound, nil
 }
 
-// operativeUnresolvedAttemptsTx reports whether any admitted provider grant for
-// this monitor is still in flight or ambiguous. Ambiguity is an I/O fact and is
-// never cleared by timers, lease expiry, cancellation or restart.
-func operativeUnresolvedAttemptsTx(ctx context.Context, tx bun.Tx, monitorID int64) (bool, error) {
+// operativeAttemptSettleGrace extends an in_flight grant's budget to cover the
+// five-second completion write after provider return and process/DB clock skew.
+const operativeAttemptSettleGrace = time.Minute
+
+// operativeUnsettledAttemptsTx reports whether an admitted provider grant for
+// this monitor may still be doing provider I/O: it is in_flight and its budget,
+// plus the settle grace, has not passed on the DB clock. Waiting only helps
+// while an attempt can still run. An ambiguous outcome has already returned,
+// and an in_flight grant past its budget crashed or lost its completion write;
+// neither ever resolves, so waiting on them held every member's regional
+// paging forever (#211). Their journal rows are never rewritten.
+func operativeUnsettledAttemptsTx(ctx context.Context, tx bun.Tx, monitorID int64, now time.Time) (bool, error) {
 	count, err := tx.NewSelect().Table("operative_provider_attempts").ColumnExpr("COUNT(*)").
-		Where("monitor_id = ?", monitorID).Where("state IN (?, ?)", domain.ProviderAttemptInFlight, domain.ProviderAttemptAmbiguous).Count(ctx)
+		Where("monitor_id = ?", monitorID).Where("state = ?", domain.ProviderAttemptInFlight).
+		Where("budget_until > ?", now.Add(-operativeAttemptSettleGrace).UTC()).Count(ctx)
 	if err != nil {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// operativeAmbiguousAttemptsSinceTx counts this monitor's ambiguous provider
+// outcomes admitted at or after since: sends whose delivery is unknown, so a
+// regional page after resume may duplicate one.
+func operativeAmbiguousAttemptsSinceTx(ctx context.Context, tx bun.Tx, monitorID int64, since time.Time) (int64, error) {
+	return tx.NewSelect().Table("operative_provider_attempts").ColumnExpr("COUNT(*)").
+		Where("monitor_id = ?", monitorID).Where("state = ?", domain.ProviderAttemptAmbiguous).
+		Where("created_at >= ?", since.UTC()).Count(ctx)
 }
 
 // operativeBlockTx persists a fail-closed phase without altering source holds.

@@ -39,7 +39,8 @@ monitor's committed work.
    generations, accepted streams, regional facts and actual strong capability.
 2. **QUIESCING:** persist a new UUID barrier and its original complete membership,
    then issue protected `delivery.quiesce` commands. A source writes its hold
-   before checking unresolved provider attempts, in the same transaction. A busy
+   before checking for provider sends still in progress, in the same
+   transaction. A busy
    refusal is not quiescence, and it does not leave the hold engaged: the
    barrier cannot activate while that source refuses, so a kept hold would leave
    the monitor with no page path at all (#191). The edge keeps the refused gate
@@ -53,9 +54,9 @@ monitor's committed work.
    operative tables and the existing pure paging/cutover evaluators.
 6. **DRAINING:** disable, membership/document/policy/generation/stream drift, or
    the activation deadline (below) stops admission and supersedes safe unstarted
-   plans. Unresolved admitted hub provider
-   work blocks resume. Only exact original-member `delivery.resume` successes
-   release the source holds.
+   plans. Admitted hub provider work that may still be running blocks resume
+   (see settled attempts below). Only exact original-member `delivery.resume`
+   successes release the source holds.
 7. **RELEASED:** a subsequent deliberate opt-in needs a new barrier. After a
    deadline drain the released state keeps `cutover_deadline_exceeded` and the
    monitor waits out the re-entry backoff before preparing one. Local
@@ -97,9 +98,35 @@ drains. A barrier therefore may not wait indefinitely for its slowest member:
 
 Disable is not regional resume. Startup refuses removal of protection/runtime
 needed by durable authority, and migration downgrade refuses unresolved authority.
-No operator or automatic ambiguous-outcome override is implemented in this slice.
-An ambiguous request can intentionally prevent drain; do not edit its journal to
-invent success or manufacture a historical completion timestamp.
+Do not edit the provider journal to invent success or manufacture a historical
+completion timestamp.
+
+### Settled provider attempts (#211)
+
+The cutover checks wait for a provider attempt only while it can still be
+doing provider I/O: `in_flight` and inside its budget plus a settle grace. On
+the hub that is `budget_until` + 1 minute on the DB clock; on a probe it is the
+grant time + the 30-second authorization/send budget cap + 1 minute. The grace
+covers the five-second completion write and clock skew.
+
+An `ambiguous` attempt (the provider returned an error) and an `in_flight`
+attempt past that window (a crash or a lost completion write) never resolve.
+They used to be counted across the monitor's whole history, so one failed send
+blocked drain forever: every member stayed held, aggregate paging was stopped,
+and the monitor paged nobody. Every escape also goes through drain. One old
+failure also refused every later quiesce, so the monitor could never cut over
+again. Now they block nothing:
+
+- barrier creation, every source's quiesce and drain's resume proceed;
+- their journal rows are kept exactly as recorded, never rewritten or marked
+  succeeded;
+- when a barrier releases with ambiguous attempts admitted since it opened, the
+  hub logs one warning with their count, because a regional page after resume
+  may duplicate one of them.
+
+A possible duplicate page is accepted in place of an unpaged monitor. A clock
+step forward can settle a live attempt early, with the same bounded duplicate
+risk; a step backward only makes the wait longer.
 
 ## Provider authority
 
@@ -267,18 +294,9 @@ It does not authorize deployment, opt-in activation or provider ambiguity cleara
 ## Remaining boundaries
 
 The activation deadline bounds how long a refusing, slow or offline member can
-hold its peers (#209). Two cases remain unbounded by design, because they need
-an ambiguity-recovery contract that does not exist yet:
-
-- Drain waits for the hub's own unresolved provider attempts before it issues
-  any resume. A remote-only barrier is not opened while that journal already
-  holds an unresolved attempt for the monitor (#191), but one that appears after
-  the barrier opened still leaves every quiesced member held.
-- Corrupt-evidence blocks keep their holds until an explicit disable/drain.
-
-The escape for both is unchanged: disable the opt-in or set the monitor back to
-`regional`. Drain still waits for the hub's unresolved attempts, so the first
-case has no escape until ambiguity recovery exists.
+hold its peers (#209), and drain waits for a provider attempt only while it can
+still run (#211). Corrupt-evidence blocks still keep their holds until an
+explicit disable or setting the monitor back to `regional`, which drains them.
 
 Backend implementation/PR acceptance is not live activation or release acceptance.
 Ongoing vulnerability monitoring, the complete section-13 scenario matrix,

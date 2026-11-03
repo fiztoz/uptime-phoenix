@@ -101,7 +101,7 @@ func TestEdgeProviderAttemptGrantLifecycle(t *testing.T) {
 
 // TestEdgeProviderAttemptBusyBlocksQuiescence proves a live grant leaves a
 // truthful quiescing hold behind a durable rejected receipt, and a later
-// immutable command finishes the same barrier once the attempt resolves.
+// immutable command finishes the same barrier once the attempt returns.
 func TestEdgeProviderAttemptBusyBlocksQuiescence(t *testing.T) {
 	h := newCutoverHarness(t, domain.AlertDeliveryAggregate)
 	if _, err := h.store.CommitEdgeCheck(t.Context(), checkRecord()); err != nil {
@@ -124,16 +124,18 @@ func TestEdgeProviderAttemptBusyBlocksQuiescence(t *testing.T) {
 		t.Fatalf("busy refusal lost the hold: %q", got)
 	}
 
-	// An ambiguous error outcome stays unresolved and keeps blocking.
+	// An ambiguous error outcome has returned: it never resolves, so it no
+	// longer blocks (#211). The outcome itself stays ambiguous.
 	if err := h.store.FinishSourceProviderAttempt(t.Context(), grant, domain.ProviderAttemptAmbiguous); err != nil {
 		t.Fatal(err)
 	}
-	out = h.execute(h.command(domain.DeliveryQuiesceKind, uuid.NewString(), barrier, preparation, domain.AlertDeliveryAggregate))
-	if out.Status != "rejected" || out.Code != "delivery_provider_busy" {
-		t.Fatalf("ambiguous attempt cleared: %+v", out)
+	requireCutover(t, h.execute(h.command(domain.DeliveryQuiesceKind, uuid.NewString(), barrier, preparation, domain.AlertDeliveryAggregate)), "applied", domain.DeliveryQuiescedCode)
+	if got := h.gateState(barrier); got != deliveryGateQuiesced {
+		t.Fatalf("quiesce after an ambiguous outcome did not quiesce: %q", got)
 	}
-	if got := h.gateState(barrier); got != deliveryGateQuiescing {
-		t.Fatalf("ambiguous attempt dropped the hold: %q", got)
+	var state string
+	if err := h.store.db.NewRaw("SELECT state FROM edge_provider_attempts WHERE attempt_id = ?", grant).Scan(t.Context(), &state); err != nil || state != string(domain.ProviderAttemptAmbiguous) {
+		t.Fatalf("ambiguous attempt was rewritten: %q %v", state, err)
 	}
 }
 

@@ -174,7 +174,8 @@ func (r *OperativeDeliveryStore) grantLocalAttemptTx(ctx context.Context, tx bun
 // replacement grant. The recorded outcome is immutable: only succeeded and
 // ambiguous (or a genuinely not-started refusal) may be journaled, an identical repeat is a no-op, and any
 // contradictory repeat is a conflict. An unfinished (crashed) grant stays
-// in_flight and blocks quiescence/drain; nothing here invents completion.
+// in_flight, blocking quiescence/drain only until its budget passes; nothing
+// here invents completion.
 func (r *OperativeDeliveryStore) FinishSourceProviderAttempt(ctx context.Context, attemptID string, state domain.ProviderAttemptState) error {
 	if r == nil || r.db == nil || !validStandbyUUID(attemptID) ||
 		(state != domain.ProviderAttemptSucceeded && state != domain.ProviderAttemptAmbiguous && state != domain.ProviderAttemptNotStarted) {
