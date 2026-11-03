@@ -9,6 +9,7 @@
   import { uniqueKeys } from "#lib/utils/chart.js";
   import * as m from "#lib/paraglide/messages.js";
   import LoadErrorNotice from "#lib/components/LoadErrorNotice.svelte";
+  import { timelineLayout } from "#lib/recent-checks.js";
 
   interface Props {
     heartbeats: Heartbeat[];
@@ -43,6 +44,18 @@
 
   const segments = $derived(isHovering ? frozenSegments : liveSegments);
   const segmentKeys = $derived(uniqueKeys(segments, (hb) => `${hb.id}-${hb.time}`));
+
+  /** Requested window of the strip (the page asks for the last 24h). */
+  const WINDOW_HOURS = 24;
+  let nowMs = $state(Date.now());
+  const layout = $derived(
+    timelineLayout(segments, {
+      overall,
+      nowMs,
+      windowHours: WINDOW_HOURS,
+      truncated: heartbeats.length >= maxChecks,
+    }),
+  );
 
   function color(status: Heartbeat["status"]): string {
     if (status === "up") return "bg-success";
@@ -138,7 +151,8 @@
         {#each segments as hb, index (segmentKeys[index])}
           <button
             type="button"
-            class="h-full min-w-0 flex-1 rounded-[2px] {color(
+            style:flex-grow={layout.weights[index]}
+            class="h-full min-w-0 shrink basis-0 rounded-[2px] {color(
               hb.status,
             )} opacity-85 outline-none transition-all hover:opacity-100 hover:brightness-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background {hoveredIndex ===
             index

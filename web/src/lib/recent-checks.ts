@@ -9,6 +9,34 @@ export function defaultCheckProbe(
     : null;
 }
 
+export interface TimelineLayoutOptions {
+  /** Segments are overall health intervals, not fixed-cadence checks. */
+  overall: boolean;
+  /** Right edge of the axis (ms): the newest interval runs until now. */
+  nowMs: number;
+  /** Requested window, in hours (the strip asks for the last 24h). */
+  windowHours: number;
+  /** The server capped the list, so older intervals were left out. */
+  truncated: boolean;
+}
+
+export interface TimelineLayout {
+  /** Fraction of the axis before the first segment (not monitored). */
+  lead: number;
+  /** Fraction of the axis each segment covers; sums to 1 with `lead`. */
+  weights: number[];
+}
+
+/** Width of each strip segment: every check gets the same share. */
+export function timelineLayout(
+  segments: Array<{ time: string }>,
+  options: TimelineLayoutOptions,
+): TimelineLayout {
+  void options;
+  const n = segments.length;
+  return { lead: 0, weights: segments.map(() => (n > 0 ? 1 / n : 0)) };
+}
+
 /** Merge checks from one source, retaining newer live rows during a snapshot. */
 export function mergeRecentChecks(
   snapshot: Heartbeat[],

@@ -218,6 +218,66 @@ func TestMonitorRegionalOverallHistory(t *testing.T) {
 	})
 }
 
+// TestMonitorRegionalOverallHistoryStartsAtMonitorCreation pins GitHub #194:
+// the 24h window used to start a day before a new monitor existed, and the
+// reconstruction back-filled that time with an UNKNOWN interval that read as
+// a real outage of knowledge. The overall stream starts at creation instead.
+func TestMonitorRegionalOverallHistoryStartsAtMonitorCreation(t *testing.T) {
+	to := time.Date(2026, 11, 2, 13, 38, 0, 0, time.UTC)
+	from := to.Add(-24 * time.Hour)
+	// Stored as UTC wall clock but handed back in a local zone: the clamp
+	// must normalize it (AGENTS.md rule 6).
+	created := time.Date(2026, 11, 2, 4, 33, 0, 0, time.UTC).In(time.FixedZone("ICT", 7*3600))
+	remote := "11111111-1111-4111-8111-111111111111"
+	service := func(created time.Time) *MonitorRegionalService {
+		assignments := healthAssignmentRepo{
+			sets: map[int64]*domain.MonitorProbeAssignments{7: {MonitorID: 7, Revision: 1, HealthPolicy: domain.HealthPolicyAnyDown, Assignments: []domain.ProbeAssignment{{ProbeID: remote, Generation: 1}}}},
+			history: map[int64][]domain.AssignmentInterval{7: {
+				{ProbeID: remote, From: created.UTC(), Policy: domain.HealthPolicyAnyDown, Revision: 1, Generation: 1},
+			}},
+		}
+		region := &healthRegionalRepo{observations: map[int64][]domain.RegionalObservation{7: {
+			{MonitorID: 7, ProbeID: remote, Status: domain.StatusUp, ObservedAt: created.UTC().Add(10 * time.Second), ReceivedAt: created.UTC().Add(10 * time.Second), AssignmentGeneration: 1, ConfigRevision: 1, Seq: 1, StreamID: "s"},
+		}}}
+		monitors := healthMonitorRepo{monitors: map[int64]*domain.Monitor{7: {ID: 7, Active: true, Interval: 60, Timeout: 5, CreatedAt: created}}}
+		health := NewMonitorHealthService(monitors, assignments, region, healthAccess{allow: map[int64]bool{7: true}})
+		return NewMonitorRegionalService(health, &regionalLabelRepo{})
+	}
+
+	got, err := service(created).OverallHistory(context.Background(), 1, 7, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LocalOnly || len(got.Rows) == 0 {
+		t.Fatalf("want overall rows, got %+v", got)
+	}
+	if !got.Rows[0].From.Equal(created) || got.Rows[0].From.Location() != time.UTC {
+		t.Fatalf("overall stream must start at creation %v (UTC), got %v", created.UTC(), got.Rows[0].From)
+	}
+	for _, iv := range got.Intervals {
+		if iv.From.Before(created) {
+			t.Fatalf("interval before the monitor existed: %+v", iv)
+		}
+		if iv.Reason == "missing_assignment_history" {
+			t.Fatalf("time before the monitor existed must not read as UNKNOWN: %+v", iv)
+		}
+	}
+
+	t.Run("OlderMonitorKeepsTheFullWindow", func(t *testing.T) {
+		got, err := service(from.Add(-time.Hour)).OverallHistory(context.Background(), 1, 7, from, to)
+		if err != nil || len(got.Rows) == 0 || !got.Rows[0].From.Equal(from) {
+			t.Fatalf("a monitor older than the window keeps its start: %+v %v", got, err)
+		}
+	})
+
+	t.Run("MonitorCreatedAfterTheWindowHasNoRows", func(t *testing.T) {
+		got, err := service(to.Add(time.Minute)).OverallHistory(context.Background(), 1, 7, from, to)
+		if err != nil || got.LocalOnly || len(got.Rows) != 0 {
+			t.Fatalf("want an empty overall stream, got %+v %v", got, err)
+		}
+	})
+}
+
 // failingHistoryAssignments makes overall reconstruction fail by failing the
 // assignment-history read it depends on.
 type failingHistoryAssignments struct{ healthAssignmentRepo }
