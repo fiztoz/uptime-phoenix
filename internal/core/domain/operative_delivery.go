@@ -53,11 +53,17 @@ const (
 	ProviderAttemptNotStarted ProviderAttemptState = "not_started"
 )
 
+// CutoverReasonDeadlineExceeded marks a barrier drained because it did not
+// reach ACTIVE in time, and the released state that is backing off after it.
+const CutoverReasonDeadlineExceeded = "cutover_deadline_exceeded"
+
 // AggregateCutoverProgress exposes bounded coordinator progress, not permission.
 type AggregateCutoverProgress struct {
 	MonitorID        int64
 	BarrierID, Phase string
-	Changed          bool
+	// Reason is the persisted cause of a drain, block or backoff, if any.
+	Reason  string
+	Changed bool
 }
 
 // AggregateSourceSummary is nonsecret current evidence rendered in aggregate pages.
