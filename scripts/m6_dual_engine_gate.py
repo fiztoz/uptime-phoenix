@@ -226,6 +226,10 @@ REQUIRED |= {"TestAlertDeliveryGateContract/mariadb"}
 # on real MariaDB.
 REQUIRED |= {"TestProbeReplayRestoredCursor/mariadb", "TestProbeReplayUnreconcilableStreamLogged/mariadb"}
 
+# The idle aggregate delivery claim must report no work, not panic, on real
+# MariaDB at both the store and the production worker entry point.
+REQUIRED |= {"TestClaimAggregateDeliveryEmptyQueue/mariadb", "TestOperativeDeliveryProcessNextIdle/mariadb"}
+
 
 INSTALL_JOURNAL_REQUIRED = {
     f"TestM8InstallJournalStore/mariadb/{case}"
@@ -838,7 +842,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-# The idle aggregate delivery claim must report no work, not panic, on real
-# MariaDB at both the store and the production worker entry point.
-REQUIRED |= {"TestClaimAggregateDeliveryEmptyQueue/mariadb", "TestOperativeDeliveryProcessNextIdle/mariadb"}
