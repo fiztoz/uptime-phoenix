@@ -1312,6 +1312,24 @@ class GoToolchainPinTest(unittest.TestCase):
             self.assert_pins("1.26.9", ["1.26.8"])
 
 
+class ScriptLayoutTest(unittest.TestCase):
+    def test_main_guard_is_the_last_statement(self):
+        # Importing the gate runs every top-level statement, but executing it
+        # runs main() at the guard and exits there. A REQUIRED addition placed
+        # after the guard is therefore visible to these tests yet never
+        # enforced by the real gate, as happened to the #190 leaves.
+        import ast
+
+        source = Path(gate.__file__).read_text(encoding="utf-8")
+        body = ast.parse(source).body
+        last = body[-1]
+        self.assertIsInstance(last, ast.If)
+        self.assertEqual(ast.unparse(last.test), "__name__ == '__main__'")
+        self.assertTrue(
+            all(not (isinstance(node, ast.If) and ast.unparse(node.test) == "__name__ == '__main__'") for node in body[:-1])
+        )
+
+
 if __name__ == "__main__":
     if "--stage-authorization-mutations" in sys.argv:
         parser = argparse.ArgumentParser(description="Fixed SQLite negative controls; not the dual-engine acceptance gate")
