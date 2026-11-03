@@ -45,7 +45,10 @@
     shouldStopPostClearPolling,
     heartbeatsAfterClear,
   } from "#lib/monitor-detail-state.js";
-  import { mergeLiveStatusHistory } from "#lib/monitor-detail-live.js";
+  import {
+    mergeLiveStatusHistory,
+    mergeLiveTimeline,
+  } from "#lib/monitor-detail-live.js";
   import { confirmAction } from "#lib/stores/confirm.svelte.js";
   import { toast } from "svelte-sonner";
   import {
@@ -343,18 +346,7 @@
       ...row,
       important: false,
     };
-    if (timelineHeartbeats.length === 0) {
-      timelineHeartbeats = [timelineEntry];
-    } else {
-      const latestTimeline = timelineHeartbeats[timelineHeartbeats.length - 1];
-      const liveTime = new Date(live.time).getTime();
-      const timelineTime = latestTimeline
-        ? new Date(latestTimeline.time).getTime()
-        : 0;
-      if (liveTime > timelineTime) {
-        timelineHeartbeats = [...timelineHeartbeats, timelineEntry].slice(-60);
-      }
-    }
+    timelineHeartbeats = mergeLiveTimeline(timelineHeartbeats, timelineEntry);
 
     if (
       historyClearedAt &&

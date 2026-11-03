@@ -217,3 +217,49 @@ func TestMonitorRegionalOverallHistory(t *testing.T) {
 		}
 	})
 }
+
+// failingHistoryAssignments makes overall reconstruction fail by failing the
+// assignment-history read it depends on.
+type failingHistoryAssignments struct{ healthAssignmentRepo }
+
+func (failingHistoryAssignments) ListHistory(context.Context, int64, time.Time, time.Time) ([]domain.AssignmentInterval, error) {
+	return nil, errors.New("context canceled")
+}
+
+// TestMonitorRegionalOverallHistoryLocalOnlySkipsReconstruction pins GitHub
+// #193: a local-only monitor serves its measured rows, so a failed overall
+// reconstruction (which it never needs) must not fail its history request.
+func TestMonitorRegionalOverallHistoryLocalOnlySkipsReconstruction(t *testing.T) {
+	from := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
+	to := from.Add(time.Hour)
+	monitors := healthMonitorRepo{monitors: map[int64]*domain.Monitor{7: {ID: 7, Active: true, Interval: 60, Timeout: 5}}}
+	set := func(probeID string) failingHistoryAssignments {
+		return failingHistoryAssignments{healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{7: {
+			MonitorID: 7, Revision: 3, HealthPolicy: domain.HealthPolicyAnyDown,
+			Assignments: []domain.ProbeAssignment{{ProbeID: probeID, Generation: 1}},
+		}}}}
+	}
+	service := func(assignments failingHistoryAssignments, allow map[int64]bool) *MonitorRegionalService {
+		health := NewMonitorHealthService(monitors, assignments, &healthRegionalRepo{}, healthAccess{allow: allow})
+		return NewMonitorRegionalService(health, &regionalLabelRepo{})
+	}
+
+	got, err := service(set(domain.LocalProbeID), map[int64]bool{7: true}).OverallHistory(context.Background(), 1, 7, from, to)
+	if err != nil || got == nil || !got.LocalOnly {
+		t.Fatalf("local-only monitor must not depend on overall reconstruction: %+v %v", got, err)
+	}
+
+	t.Run("RemoteMemberStillReportsTheFailure", func(t *testing.T) {
+		svc := service(set("11111111-1111-4111-8111-111111111111"), map[int64]bool{7: true})
+		if _, err := svc.OverallHistory(context.Background(), 1, 7, from, to); err == nil {
+			t.Fatal("an overall monitor's reconstruction failure must surface, not read as local")
+		}
+	})
+
+	t.Run("HiddenLocalMonitorStaysNotFound", func(t *testing.T) {
+		svc := service(set(domain.LocalProbeID), map[int64]bool{})
+		if _, err := svc.OverallHistory(context.Background(), 1, 7, from, to); !errors.Is(err, domain.ErrNotFound) && !errors.Is(err, ports.ErrNotFound) {
+			t.Fatalf("want ErrNotFound, got %v", err)
+		}
+	})
+}
