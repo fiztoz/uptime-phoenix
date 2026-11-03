@@ -51,11 +51,14 @@ monitor's committed work.
 5. **ACTIVE:** advance only after all exact applications commit. Genuine aggregate
    incidents, transition/recovery/repeat intents and delivery claims use separate
    operative tables and the existing pure paging/cutover evaluators.
-6. **DRAINING:** disable or membership/document/policy/generation/stream drift stops
-   admission and supersedes safe unstarted plans. Unresolved admitted hub provider
+6. **DRAINING:** disable, membership/document/policy/generation/stream drift, or
+   the activation deadline (below) stops admission and supersedes safe unstarted
+   plans. Unresolved admitted hub provider
    work blocks resume. Only exact original-member `delivery.resume` successes
    release the source holds.
-7. **RELEASED:** a subsequent deliberate opt-in needs a new barrier. Local
+7. **RELEASED:** a subsequent deliberate opt-in needs a new barrier. After a
+   deadline drain the released state keeps `cutover_deadline_exceeded` and the
+   monitor waits out the re-entry backoff before preparing one. Local
    application history includes barrier identity, so the same retained document
    can be applied in a later cycle without aliasing or rewriting the earlier fact.
 
@@ -64,6 +67,33 @@ shrink the barrier membership. Expiry, reconnect, reset and configuration
 replacement cannot erase a source hold. Resume-before-quiesce leaves an exact
 released tombstone, preventing a delayed old quiesce from reinstalling a hold.
 Blocked established barriers remain discoverable for explicit disable/drain.
+
+### Activation deadline and re-entry backoff (#209)
+
+A quiesced member suppresses its regional availability paging until its barrier
+drains. A barrier therefore may not wait indefinitely for its slowest member:
+
+- **Deadline.** A barrier that has not reached ACTIVE within
+  `operativeActivationDeadline` (5 minutes, DB clock, from the barrier's
+  creation) drains with reason `cutover_deadline_exceeded`. This covers
+  QUIESCING, QUIESCED and APPLYING, and a pre-active BLOCKED barrier whose reason
+  is a member refusal or missing evidence (`quiesce_refused`, `apply_refused`,
+  `cutover_evidence_incomplete`). Corrupt-evidence blocks
+  (`barrier_identity_conflict`, `barrier_evidence_conflict`, `missing_barrier`)
+  still wait for explicit disable/drain, because their tuples are not trusted.
+- **Drain.** The ordinary drain path runs: unstarted plans are superseded, every
+  original member is sent `delivery.resume`, and each source releases its own
+  hold when its resume commits. An offline member's resume waits for it, but it
+  no longer holds anyone else.
+- **Re-entry backoff.** A monitor released by a deadline drain does not prepare a
+  new barrier until `operativeReentryBackoff` (15 minutes) has passed since that
+  barrier's last resume. The wait doubles for each consecutive barrier of the
+  monitor that never activated (up to 8 are counted), capped at 24 hours. A
+  permanently refusing or offline member therefore costs its peers one bounded
+  window per cycle, with cycles growing further apart.
+- **Visibility.** The transition logs one error-level line with the monitor,
+  barrier, the phase it was stuck in and its age. The persisted state keeps the
+  reason through release until the next barrier starts.
 
 Disable is not regional resume. Startup refuses removal of protection/runtime
 needed by durable authority, and migration downgrade refuses unresolved authority.
@@ -236,20 +266,19 @@ It does not authorize deployment, opt-in activation or provider ambiguity cleara
 
 ## Remaining boundaries
 
-The quiescing phase still has no deadline or rollback (#191). A source that
-refuses busy keeps paging regionally, but members that did quiesce keep their
-holds until the barrier drains, and a member that never answers (disconnected
-or slow) leaves its peers held the same way. The hub re-checks its own
-provider journal after every member quiesced. A remote-only barrier is no
-longer opened while that journal already holds an unresolved attempt for the
-monitor, but one that appears after the barrier opened still leaves every
-member held. Bounding this
-needs a lifecycle contract that does not exist yet: a phase deadline, a drain
-trigger for it, a re-entry backoff, and an operator-visible failure. The
-documented escape is unchanged: disable the opt-in or set the monitor back to
-`regional`, which drains and resumes every original member. Drain itself waits
-for the hub's own unresolved attempts, so that last case has no escape until an
-ambiguity-recovery contract exists.
+The activation deadline bounds how long a refusing, slow or offline member can
+hold its peers (#209). Two cases remain unbounded by design, because they need
+an ambiguity-recovery contract that does not exist yet:
+
+- Drain waits for the hub's own unresolved provider attempts before it issues
+  any resume. A remote-only barrier is not opened while that journal already
+  holds an unresolved attempt for the monitor (#191), but one that appears after
+  the barrier opened still leaves every quiesced member held.
+- Corrupt-evidence blocks keep their holds until an explicit disable/drain.
+
+The escape for both is unchanged: disable the opt-in or set the monitor back to
+`regional`. Drain still waits for the hub's unresolved attempts, so the first
+case has no escape until ambiguity recovery exists.
 
 Backend implementation/PR acceptance is not live activation or release acceptance.
 Ongoing vulnerability monitoring, the complete section-13 scenario matrix,

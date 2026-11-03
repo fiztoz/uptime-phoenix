@@ -235,6 +235,13 @@ REQUIRED |= {"TestClaimAggregateDeliveryEmptyQueue/mariadb", "TestOperativeDeliv
 REQUIRED |= {"TestOperativeProviderLifecycle/mariadb/BusyQuiesceKeepsRegionalPaging", "TestOperativeHubUnresolvedAttemptDefersBarrier/mariadb"}
 
 
+# #209: a cutover barrier that cannot activate drains after its deadline and
+# backs off before re-entry, on real MariaDB.
+REQUIRED |= {
+    f"TestOperativeCutoverDeadline/mariadb/{case}"
+    for case in ("StalledQuiesceDrains", "StalledApplyReleasesQuiescedMember", "ReentryBacksOff", "RefusalBlockDrains")
+}
+
 INSTALL_JOURNAL_REQUIRED = {
     f"TestM8InstallJournalStore/mariadb/{case}"
     for case in (
