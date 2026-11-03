@@ -8,6 +8,7 @@
   } from "#lib/api/regional.js";
   import { errorCode, errorMessage } from "#lib/api/probes.js";
   import ProbeStatus from "./ProbeStatus.svelte";
+  import { regionalHistoryStale } from "#lib/regional-history.js";
   import * as m from "#lib/paraglide/messages.js";
   let {
     monitorId,
@@ -205,7 +206,10 @@
       </div>
       <p class="text-xs text-muted-foreground">{m.probes_unknown_help()}</p>
       <div class="divide-y divide-border border-t border-border">
-        {#each health.regions as region (region.probe_id)}<article
+        {#each health.regions as region (region.probe_id)}
+          {@const beats = histories[region.probe_id] ?? []}
+          {@const stale = regionalHistoryStale(region, beats)}
+          <article
             class="space-y-3 py-4 last:pb-0"
             data-testid="regional-health-row"
           >
@@ -230,8 +234,12 @@
                 <ProbeStatus status={region.config_sync_status} /></span
               >
             </div>
-            <div aria-label={m.probes_history()} class="flex gap-1">
-              {#each [...(histories[region.probe_id] ?? [])].reverse() as beat (beat.id)}<span
+            <div
+              aria-label={m.probes_history()}
+              class="flex gap-1 {stale ? 'opacity-40 grayscale' : ''}"
+              data-stale={stale ? "true" : undefined}
+            >
+              {#each [...beats].reverse() as beat (beat.id)}<span
                   class="h-6 min-w-1 flex-1 rounded-sm {beat.status === 'up'
                     ? 'bg-success'
                     : beat.status === 'down'
@@ -246,6 +254,12 @@
                   >{m.probes_no_history()}</span
                 >{/each}
             </div>
+            {#if stale}<p
+                class="text-xs text-warning"
+                data-testid="regional-history-stale"
+              >
+                {m.probes_history_stale({ time: time(beats[0]?.time ?? null) })}
+              </p>{/if}
             <dl class="space-y-1 text-xs text-muted-foreground">
               <div class="flex flex-wrap justify-between gap-2">
                 <dt>{m.probes_observed()}</dt>

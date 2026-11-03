@@ -1057,6 +1057,7 @@
   "probes_received": "Received",
   "probes_history": "Recent regional checks",
   "probes_no_history": "No observations yet",
+  "probes_history_stale": "History is stale: newest stored check {time}",
   "probes_region_label": "Region: {name}",
   "probes_ack_pending": "Acknowledgement requested. Waiting for the region to confirm.",
   "probes_ack_failed": "Regional acknowledgement was not applied.",
