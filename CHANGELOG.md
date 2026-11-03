@@ -76,6 +76,18 @@ at the bottom.
 
 ### Fixed
 
+- **A stalled aggregate cutover no longer holds its probes indefinitely (#209).**
+  A probe that quiesced for an `aggregate`/`both` cutover suppresses its
+  regional availability paging until the barrier activates or drains. If
+  another member never finished (offline, slow, refusing busy, or blocked by a
+  permanent refusal), the barrier waited forever, and an outage seen only from
+  the quiesced probes' regions paged nobody. A barrier that has not activated
+  within 5 minutes now drains through the normal resume path with reason
+  `cutover_deadline_exceeded`, which is logged once at error level. The monitor
+  then waits 15 minutes before trying a new barrier, doubling for each
+  consecutive failure up to 24 hours. Drain still waits for the hub's own
+  unresolved provider attempts, by design.
+
 - **Status History keeps the time the status changed (#197).** On the monitor
   detail page, every live heartbeat with the same status overwrote the leading
   row's time and message with the latest check, so "Up since 11:33" read as

@@ -461,6 +461,9 @@ func (r *OperativeDeliveryStore) progressTx(ctx context.Context, tx bun.Tx, stat
 	if drifted {
 		return r.enterDrainingTx(state, now, "configuration_changed")
 	}
+	if !now.Before(barrier.CreatedAt.Add(operativeActivationDeadline)) {
+		return r.enterDrainingTx(state, now, domain.CutoverReasonDeadlineExceeded)
+	}
 	changed := false
 	switch state.Phase {
 	case operativePhaseQuiescing:
@@ -805,8 +808,44 @@ func (r *OperativeDeliveryStore) drainingTx(ctx context.Context, tx bun.Tx, stat
 		return false, err
 	}
 	state.Phase = operativePhaseReleased
-	state.Reason = ""
+	// A deadline drain keeps its reason: it is what the re-entry backoff and an
+	// operator read from the released state (#209).
+	if state.Reason != domain.CutoverReasonDeadlineExceeded {
+		state.Reason = ""
+	}
 	return true, nil
+}
+
+// operativeReentryAllowedTx reports whether a monitor released by a deadline
+// drain may open a new barrier yet. The wait starts at the released barrier's
+// last resume and doubles for each consecutive barrier that never activated.
+func operativeReentryAllowedTx(ctx context.Context, tx bun.Tx, monitorID int64, barrierID string, now time.Time) (bool, error) {
+	var released []time.Time
+	if err := tx.NewSelect().Model((*operativeMemberModel)(nil)).ColumnExpr("resumed_at").
+		Where("barrier_id = ? AND resumed_at IS NOT NULL", barrierID).OrderExpr("resumed_at DESC").Limit(1).Scan(ctx, &released); err != nil {
+		return false, err
+	}
+	if len(released) == 0 {
+		return false, nil
+	}
+	var recent []operativeBarrierModel
+	if err := tx.NewSelect().Model(&recent).Where("monitor_id = ?", monitorID).
+		OrderExpr("created_at DESC, barrier_id DESC").Limit(8).Scan(ctx); err != nil {
+		return false, err
+	}
+	failures := 0
+	for _, b := range recent {
+		if b.ActivatedAt != nil {
+			break
+		}
+		failures++
+	}
+	wait := operativeReentryBackoff
+	for i := 1; i < failures && wait < operativeReentryBackoffMax; i++ {
+		wait *= 2
+	}
+	wait = min(wait, operativeReentryBackoffMax)
+	return !now.Before(released[0].Add(wait)), nil
 }
 
 // withdrawQueuedPhaseCommandsTx cancels one member's still-queued unconfirmed

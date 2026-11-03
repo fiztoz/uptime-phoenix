@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"math"
 	"time"
 
@@ -37,6 +38,19 @@ const (
 	// or expired cutover command may be reissued with a new immutable command ID
 	// against the same barrier. Old outcomes are never rewritten.
 	operativeRearmCooldown = time.Minute
+	// operativeActivationDeadline bounds how long a barrier may stay before
+	// ACTIVE (quiescing, quiesced, applying). A quiesced member suppresses its
+	// regional paging until the barrier drains, so a peer that never finishes
+	// would otherwise leave it unpaged indefinitely (#209). Past the deadline
+	// the barrier drains through the ordinary resume path. Measured on the DB
+	// clock from the barrier's creation.
+	operativeActivationDeadline = 5 * time.Minute
+	// operativeReentryBackoff is the wait before a monitor whose barrier hit
+	// the deadline opens a new one. It doubles for each consecutive barrier that
+	// never activated, up to operativeReentryBackoffMax, so a permanently
+	// refusing or offline member costs its peers one bounded window per cycle.
+	operativeReentryBackoff    = 15 * time.Minute
+	operativeReentryBackoffMax = 24 * time.Hour
 	// operativeRetryDelay is the coordinator's due_at backoff while work is
 	// legitimately pending. It is not an authority or lease duration.
 	operativeRetryDelay = 5 * time.Second
@@ -372,8 +386,12 @@ func (r *OperativeDeliveryStore) ReconcileCutover(ctx context.Context, f domain.
 		return result, domain.ErrValidation
 	}
 	result.MonitorID = f.MonitorID
+	var deadlineDrained bool
+	var barrierAge time.Duration
+	var stuckIn string
 	err := runConfigAuthorityTx(ctx, r.db, func(ctx context.Context, tx bun.Tx) error {
 		result = domain.AggregateCutoverProgress{MonitorID: f.MonitorID}
+		deadlineDrained, barrierAge, stuckIn = false, 0, ""
 		if _, err := tx.ExecContext(ctx, "UPDATE operative_cutover_state SET lease_epoch=lease_epoch WHERE monitor_id=?", f.MonitorID); err != nil {
 			return err
 		}
@@ -401,9 +419,17 @@ func (r *OperativeDeliveryStore) ReconcileCutover(ctx context.Context, f domain.
 		if _, err := tx.ExecContext(ctx, "UPDATE monitor_probe_assignment_sets SET revision=revision WHERE monitor_id=?", f.MonitorID); err != nil {
 			return err
 		}
+		before := state.Phase
 		changed, err := r.reconcilePhaseTx(ctx, tx, &state, hub, enabled, evaluator, now)
 		if err != nil {
 			return err
+		}
+		if before != operativePhaseDraining && state.Phase == operativePhaseDraining && state.Reason == domain.CutoverReasonDeadlineExceeded && state.BarrierID != nil {
+			var barrier operativeBarrierModel
+			if err := tx.NewSelect().Model(&barrier).Where("barrier_id = ?", *state.BarrierID).Scan(ctx); err != nil {
+				return err
+			}
+			deadlineDrained, barrierAge, stuckIn = true, now.Sub(barrier.CreatedAt), before
 		}
 		after, err := replayDatabaseTime(ctx, tx)
 		if err != nil {
@@ -419,13 +445,29 @@ func (r *OperativeDeliveryStore) ReconcileCutover(ctx context.Context, f domain.
 		if _, err := tx.NewUpdate().Model(&state).WherePK().Exec(ctx); err != nil {
 			return err
 		}
-		result = domain.AggregateCutoverProgress{MonitorID: f.MonitorID, BarrierID: barrierIDOf(state), Phase: state.Phase, Changed: changed}
+		result = domain.AggregateCutoverProgress{MonitorID: f.MonitorID, BarrierID: barrierIDOf(state), Phase: state.Phase, Reason: state.Reason, Changed: changed}
 		return nil
 	})
 	if err != nil {
 		return domain.AggregateCutoverProgress{MonitorID: f.MonitorID}, remoteSyncError(ctx, err)
 	}
+	if deadlineDrained {
+		// Logged once, after the drain committed. Until the barrier activates or
+		// drains, its quiesced members page nothing regionally (#209).
+		slog.Error("aggregate cutover did not activate before its deadline; draining back to regional paging",
+			"monitor_id", f.MonitorID, "barrier_id", result.BarrierID, "stuck_in", stuckIn,
+			"barrier_age", barrierAge.Round(time.Second).String(), "deadline", operativeActivationDeadline.String(),
+			"hint", "a member probe is offline, slow, or refusing delivery.quiesce; check probe connections and recent quiesce refusals")
+	}
 	return result, nil
+}
+
+// operativeRefusalBlocks are the pre-active block reasons a member's refusal
+// or missing evidence causes. Past the activation deadline they drain.
+var operativeRefusalBlocks = map[string]bool{
+	"quiesce_refused":             true,
+	"apply_refused":               true,
+	"cutover_evidence_incomplete": true,
 }
 
 func barrierIDOf(state operativeStateModel) string {
@@ -443,6 +485,18 @@ func (r *OperativeDeliveryStore) reconcilePhaseTx(ctx context.Context, tx bun.Tx
 		if !enabled && state.BarrierID != nil {
 			return r.enterDrainingTx(state, now, "feature_disabled")
 		}
+		// A refusal block before ACTIVE still holds every member that already
+		// quiesced, so it is bounded by the same activation deadline (#209).
+		// Corrupt-evidence blocks stay for review: their tuples are not trusted.
+		if state.BarrierID != nil && operativeRefusalBlocks[state.Reason] {
+			var barrier operativeBarrierModel
+			if err := tx.NewSelect().Model(&barrier).Where("barrier_id = ?", *state.BarrierID).Scan(ctx); err != nil {
+				return false, err
+			}
+			if barrier.ActivatedAt == nil && !now.Before(barrier.CreatedAt.Add(operativeActivationDeadline)) {
+				return r.enterDrainingTx(state, now, domain.CutoverReasonDeadlineExceeded)
+			}
+		}
 		return false, nil
 	case operativePhaseReleased:
 		// Terminal for the finished barrier. A still-desired aggregate/both set
@@ -450,6 +504,12 @@ func (r *OperativeDeliveryStore) reconcilePhaseTx(ctx context.Context, tx bun.Tx
 		// rebind or a bypass of the completed drain.
 		if !enabled {
 			return false, nil
+		}
+		if state.Reason == domain.CutoverReasonDeadlineExceeded && state.BarrierID != nil {
+			allowed, err := operativeReentryAllowedTx(ctx, tx, state.MonitorID, *state.BarrierID, now)
+			if err != nil || !allowed {
+				return false, err
+			}
 		}
 		mode, ok := domain.CanonicalAlertDelivery(state.AlertDelivery)
 		set, err := readProbeAssignments(ctx, tx, state.MonitorID)
