@@ -189,6 +189,15 @@ REQUIRED |= {"TestProbeLastContactContract/mariadb"}
 # #157: the probe-reported queue shares the contact fence and survives restart.
 REQUIRED |= {"TestProbeReportedQueueContract/mariadb"}
 
+# #195: the charts aggregate their whole window in SQL; the bucket arithmetic
+# and status runs must match the Go aggregation on InnoDB, including through a
+# non-UTC session time_zone, and both production chart entry points must span
+# the labelled window.
+REQUIRED |= {
+    "TestChartAggregateEquivalence/mariadb", "TestChartAggregateEquivalence/mariadb-session-plus7",
+    "TestPublicChartCoversFullWindow/mariadb", "TestAuthenticatedChartCoversFullWindow/mariadb",
+}
+
 
 # TOTP replay protection (#123) is enforced by the database: each scenario
 # must pass on real MariaDB, not only on SQLite or a skipped parent.

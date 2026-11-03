@@ -290,6 +290,13 @@ func (s *HeartbeatService) ListByMonitor(ctx context.Context, monitorID int64, f
 	return s.heartbeats.ListByMonitor(ctx, monitorID, from.UTC(), to.UTC())
 }
 
+// Chart aggregates the whole [from, to] window for the authenticated chart
+// endpoint into bucketDur latency buckets plus at most intervalLimit newest
+// downtime/unknown intervals. See LoadChart; bounds are normalized to UTC.
+func (s *HeartbeatService) Chart(ctx context.Context, monitorID int64, from, to time.Time, bucketDur time.Duration, intervalLimit int) (ChartData, error) {
+	return LoadChart(ctx, s.heartbeats, monitorID, from.UTC(), to.UTC(), bucketDur, intervalLimit)
+}
+
 // ListRecentByMonitor returns the newest `limit` heartbeats in [from, to].
 //
 // Prefers HeartbeatRecentReader so the database applies LIMIT. Test fakes that

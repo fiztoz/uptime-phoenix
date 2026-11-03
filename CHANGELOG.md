@@ -76,6 +76,15 @@ at the bottom.
 
 ### Fixed
 
+- **Response-time charts now cover their whole labelled window (#195).** The
+  public status page's "24 h" chart kept only the newest 500 heartbeats before
+  bucketing, so a 60 s monitor showed about 8 h (~35 of 96 intervals). The
+  authenticated monitor chart kept the newest 2000, which cut a 24 h range to
+  ~16.7 h at a 30 s interval. Both charts now aggregate the full window in the
+  database (min/avg/max per bucket and downtime/unknown runs, on SQLite and
+  MariaDB), so only bucket rows and a capped number of intervals leave the
+  database. The JSON shape is unchanged.
+
 - **A probe restored from an older data-directory backup stores history again
   (#192).** A restored probe restarts its stream from an older acknowledged
   cursor and numbers new events with sequences the hub already committed. The
