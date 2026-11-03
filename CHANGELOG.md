@@ -76,6 +76,35 @@ at the bottom.
 
 ### Fixed
 
+- **Status History keeps the time the status changed (#197).** On the monitor
+  detail page, every live heartbeat with the same status overwrote the leading
+  row's time and message with the latest check, so "Up since 11:33" read as
+  the time of the last check and a Down row hid when the outage began. The row
+  jumped back whenever the history was refetched. Live beats now only add a
+  row when the status changes.
+
+- **The monitor detail page reports failed history, chart and stats requests
+  (#193).** Each request's failure was caught and replaced with empty data, so
+  a backend error read as "this monitor has no data": the metrics showed "—",
+  the chart said "No response-time data", and the next live heartbeat drew one
+  full-width bar captioned "1 checks". Each section now shows its own error
+  with a Retry, a failed refresh keeps the last good data, and a live beat no
+  longer seeds a stream whose load failed. A local-only monitor's history also
+  no longer fails when the overall (multi-region) reconstruction fails, since
+  it never uses it. A multi-region monitor still returns the error rather than
+  its local checks: those are one region's measurements, not the overall
+  status.
+
+- **The Overall Health Timeline is drawn to time (#194).** A multi-region
+  monitor's strip drew each health interval as an equal-width pill, so a
+  10-second interval looked as long as a 10-hour one and a day of UP was one
+  full-width bar. Intervals are now as wide as they last over the 24 h window;
+  local and regional checks keep their equal widths. The overall history also
+  starts at the monitor's creation instead of 24 h back, so a new monitor no
+  longer opens with an UNKNOWN interval from before it existed; the strip
+  marks that time as not monitored. A live heartbeat with the same status now
+  extends the current interval instead of adding one per check.
+
 - **Response-time charts now cover their whole labelled window (#195).** The
   public status page's "24 h" chart kept only the newest 500 heartbeats before
   bucketing, so a 60 s monitor showed about 8 h (~35 of 96 intervals). The

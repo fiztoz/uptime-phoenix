@@ -3,8 +3,10 @@ package handlers_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,5 +184,29 @@ func TestHeartbeatLocalStreamKeepsMeasuredLatency(t *testing.T) {
 	}
 	if len(chart.Buckets) == 0 {
 		t.Fatalf("local chart keeps today's measured buckets: %s", rec.Body.String())
+	}
+}
+
+// TestHeartbeatOverallFailureIsNotServedAsLocal pins the GitHub #193 decision:
+// when the overall history of a multi-probe monitor cannot be reconstructed,
+// the endpoints fail loudly. Local rows are one member's measurements, not the
+// policy-evaluated overall status (an any_down monitor can be DOWN while its
+// local checks are UP), so serving them in its place would misreport health.
+// The detail page shows the error with a Retry instead.
+func TestHeartbeatOverallFailureIsNotServedAsLocal(t *testing.T) {
+	rows := []*domain.Heartbeat{{
+		ID: 7, MonitorID: 1, Status: domain.StatusUp, Ping: 42,
+		Time: time.Now().UTC().Add(-30 * time.Second),
+	}}
+	e := overallHarness(t, overallHistoryFake{err: errors.New("load coherent regional history: context canceled")}, rows)
+	for _, path := range []string{"/api/monitors/1/heartbeats", "/api/monitors/1/heartbeats/chart"} {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("%s: want 500, got %d %s", path, rec.Code, rec.Body.String())
+		}
+		if strings.Contains(rec.Body.String(), "context canceled") {
+			t.Fatalf("%s: internal error detail leaked: %s", path, rec.Body.String())
+		}
 	}
 }

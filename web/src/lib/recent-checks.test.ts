@@ -3,7 +3,9 @@ import {
   defaultCheckProbe,
   mergeRecentChecks,
   regionalCheckEvent,
+  timelineLayout,
 } from "./recent-checks";
+import { mergeLiveTimeline } from "./monitor-detail-live";
 import type { Heartbeat } from "./monitor-types";
 
 const beat = (id: number): Heartbeat => ({
@@ -56,5 +58,105 @@ describe("recent checks preserve source identity instead of overall interval cou
     expect(
       regionalCheckEvent({ ...payload, status: "invalid" }, 1104, "oregon"),
     ).toBeNull();
+  });
+});
+
+describe("timeline layout (GitHub #194)", () => {
+  const H = 3_600_000;
+  const now = Date.UTC(2026, 10, 2, 13, 38);
+  const at = (msBeforeNow: number) => ({
+    time: new Date(now - msBeforeNow).toISOString(),
+  });
+  const close = (got: number[], want: number[]) => {
+    expect(got).toHaveLength(want.length);
+    got.forEach((w, i) => expect(w).toBeCloseTo(want[i], 6));
+  };
+
+  test("local fixed-cadence checks keep equal widths", () => {
+    const checks = [at(90_000), at(60_000), at(30_000)];
+    const layout = timelineLayout(checks, {
+      overall: false,
+      nowMs: now,
+      windowHours: 24,
+      truncated: false,
+    });
+    expect(layout.lead).toBe(0);
+    close(layout.weights, [1 / 3, 1 / 3, 1 / 3]);
+  });
+
+  test("overall intervals are as wide as they last", () => {
+    // 24h window: up for 20h, down for 3h50m, up for the last 10 minutes.
+    const intervals = [at(24 * H), at(4 * H), at(H / 6)];
+    const layout = timelineLayout(intervals, {
+      overall: true,
+      nowMs: now,
+      windowHours: 24,
+      truncated: false,
+    });
+    expect(layout.lead).toBe(0);
+    close(layout.weights, [20 / 24, (4 - 1 / 6) / 24, 1 / 6 / 24]);
+  });
+
+  test("time before a new monitor's first interval is marked, not stretched", () => {
+    // Created 2h ago: one UP interval must cover 2/24 of the axis.
+    const layout = timelineLayout([at(2 * H)], {
+      overall: true,
+      nowMs: now,
+      windowHours: 24,
+      truncated: false,
+    });
+    expect(layout.lead).toBeCloseTo(22 / 24, 6);
+    close(layout.weights, [2 / 24]);
+  });
+
+  test("a capped list starts the axis at its oldest interval", () => {
+    // The server returned only the newest intervals: the time before them
+    // was monitored, so it must not read as a not-monitored lead.
+    const layout = timelineLayout([at(2 * H), at(H)], {
+      overall: true,
+      nowMs: now,
+      windowHours: 24,
+      truncated: true,
+    });
+    expect(layout.lead).toBe(0);
+    close(layout.weights, [0.5, 0.5]);
+  });
+
+  test("an interval older than the window is clipped to it", () => {
+    const layout = timelineLayout([at(30 * H), at(12 * H)], {
+      overall: true,
+      nowMs: now,
+      windowHours: 24,
+      truncated: false,
+    });
+    expect(layout.lead).toBe(0);
+    close(layout.weights, [0.5, 0.5]);
+  });
+});
+
+describe("live beats on an overall timeline (GitHub #194)", () => {
+  const interval = (status: Heartbeat["status"], time: string): Heartbeat => ({
+    ...beat(1),
+    id: 1,
+    status,
+    time,
+    ping: 0,
+    scope: "overall",
+    latency_available: false,
+  });
+
+  test("a same-status beat extends the current interval instead of adding one", () => {
+    const loaded = [interval("up", "2026-11-02T04:33:00Z")];
+    const live = { ...interval("up", "2026-11-02T13:38:00Z"), id: 0 };
+    expect(mergeLiveTimeline(loaded, live)).toBe(loaded);
+  });
+
+  test("a status change starts a new interval", () => {
+    const loaded = [interval("up", "2026-11-02T04:33:00Z")];
+    const live = { ...interval("down", "2026-11-02T13:38:00Z"), id: 0 };
+    expect(mergeLiveTimeline(loaded, live).map((h) => h.status)).toEqual([
+      "up",
+      "down",
+    ]);
   });
 });

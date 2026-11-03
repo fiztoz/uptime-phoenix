@@ -7,6 +7,7 @@
   import type { Heartbeat } from "#lib/api/heartbeats.js";
   import { confirmAction } from "#lib/stores/confirm.svelte.js";
   import { Trash2 } from "@lucide/svelte";
+  import LoadErrorNotice from "#lib/components/LoadErrorNotice.svelte";
 
   interface Props {
     heartbeats: Heartbeat[];
@@ -14,9 +15,19 @@
     clearing?: boolean;
     /** Used as the type-to-confirm phrase when clearing history. */
     monitorName?: string;
+    /** Set when the last load failed: shown with a Retry, never as "no changes". */
+    loadError?: string | null;
+    onRetry?: () => void;
   }
 
-  let { heartbeats, onClear, clearing = false, monitorName }: Props = $props();
+  let {
+    heartbeats,
+    onClear,
+    clearing = false,
+    monitorName,
+    loadError = null,
+    onRetry,
+  }: Props = $props();
 
   const formatDateTime = timeFormat("%Y-%m-%d %H:%M:%S");
 
@@ -91,10 +102,19 @@
     {/if}
   </div>
 
+  {#if loadError}
+    <LoadErrorNotice
+      message={loadError}
+      {onRetry}
+      class="px-5 {rows.length === 0 ? 'py-8' : 'py-3'}"
+    />
+  {/if}
   {#if rows.length === 0}
-    <p class="px-5 py-8 text-sm text-muted-foreground">
-      No status changes recorded.
-    </p>
+    {#if !loadError}
+      <p class="px-5 py-8 text-sm text-muted-foreground">
+        No status changes recorded.
+      </p>
+    {/if}
   {:else}
     <div class="max-h-96 overflow-y-auto">
       <table class="w-full text-sm">

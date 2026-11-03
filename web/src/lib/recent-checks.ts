@@ -9,6 +9,59 @@ export function defaultCheckProbe(
     : null;
 }
 
+export interface TimelineLayoutOptions {
+  /** Segments are overall health intervals, not fixed-cadence checks. */
+  overall: boolean;
+  /** Right edge of the axis (ms): the newest interval runs until now. */
+  nowMs: number;
+  /** Requested window, in hours (the strip asks for the last 24h). */
+  windowHours: number;
+  /** The server capped the list, so older intervals were left out. */
+  truncated: boolean;
+}
+
+export interface TimelineLayout {
+  /** Fraction of the axis before the first segment (not monitored). */
+  lead: number;
+  /** Fraction of the axis each segment covers; sums to 1 with `lead`. */
+  weights: number[];
+}
+
+/**
+ * Width of each strip segment (sorted oldest first). Local and regional
+ * checks run on a fixed cadence, so each gets the same share. Overall rows
+ * are policy intervals that each start at `time` and run until the next one
+ * (the newest until now), so they are laid out on a time axis over the
+ * requested window. Time before the first interval of an uncapped list was
+ * not monitored (the server starts the stream at the monitor's creation) and
+ * becomes `lead`. A capped list starts the axis at its oldest interval, since
+ * the time before it was monitored but left out (GitHub #194).
+ */
+export function timelineLayout(
+  segments: Array<{ time: string }>,
+  options: TimelineLayoutOptions,
+): TimelineLayout {
+  const n = segments.length;
+  const equal = { lead: 0, weights: segments.map(() => (n > 0 ? 1 / n : 0)) };
+  if (!options.overall || n === 0) return equal;
+  const starts = segments.map((segment) => Date.parse(segment.time));
+  if (starts.some((start) => !Number.isFinite(start))) return equal;
+  const end = Math.max(options.nowMs, starts[n - 1]);
+  const windowStart = end - options.windowHours * 3_600_000;
+  const axisStart = options.truncated
+    ? Math.max(starts[0], windowStart)
+    : windowStart;
+  const total = end - axisStart;
+  if (total <= 0) return equal;
+  const weights = starts.map((start, i) => {
+    const from = Math.max(start, axisStart);
+    const to = Math.max(i + 1 < n ? starts[i + 1] : end, axisStart);
+    return Math.max(0, to - from) / total;
+  });
+  const lead = Math.max(0, Math.min(starts[0], end) - axisStart) / total;
+  return { lead, weights };
+}
+
 /** Merge checks from one source, retaining newer live rows during a snapshot. */
 export function mergeRecentChecks(
   snapshot: Heartbeat[],

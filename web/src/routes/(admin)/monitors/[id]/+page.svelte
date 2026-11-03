@@ -31,6 +31,7 @@
   import MonitorConditions from "#lib/components/MonitorConditions.svelte";
   import MonitorForm from "#lib/components/MonitorForm.svelte";
   import EmptyState from "#lib/components/EmptyState.svelte";
+  import LoadErrorNotice from "#lib/components/LoadErrorNotice.svelte";
   import Skeleton from "#lib/components/Skeleton.svelte";
   import { monitorsApi } from "#lib/api/monitors.js";
   import type { Monitor } from "#lib/stores/ws.svelte.js";
@@ -45,6 +46,12 @@
     shouldStopPostClearPolling,
     heartbeatsAfterClear,
   } from "#lib/monitor-detail-state.js";
+  import {
+    mergeLiveStatusHistory,
+    mergeLiveTimeline,
+    settle,
+    type Settled,
+  } from "#lib/monitor-detail-live.js";
   import { confirmAction } from "#lib/stores/confirm.svelte.js";
   import { toast } from "svelte-sonner";
   import {
@@ -99,6 +106,15 @@
   let timelineHeartbeats = $state<Heartbeat[]>([]);
   let statusHistory = $state<Heartbeat[]>([]);
   let stats = $state<MonitorStats | null>(null);
+  // Per-request load errors: a failed request is shown with a Retry, never
+  // rendered as an empty stream (GitHub #193).
+  let historyError = $state(false);
+  let timelineError = $state(false);
+  let chartError = $state(false);
+  let statsError = $state(false);
+  /** Source and range of the chart on screen; a failed reload keeps it only for the same key. */
+  let chartKey: string | null = null;
+  let statsRequestGeneration = 0;
   let conditionClock = $state(Date.now());
   let chartHours = $state(24);
   let chartLoading = $state(false);
@@ -177,6 +193,12 @@
       regionProbes = [];
       chartRequestGeneration += 1;
       historyRequestGeneration += 1;
+      statsRequestGeneration += 1;
+      historyError = false;
+      timelineError = false;
+      chartError = false;
+      statsError = false;
+      chartKey = null;
       void loadDetails();
       void loadRegionProbes();
     });
@@ -329,33 +351,12 @@
     const newStatus = row.status;
     const entry = liveHistoryEntry(live);
 
-    if (lastKnownStatus !== null && lastKnownStatus !== newStatus) {
-      // Status transition — prepend a new history row.
-      if (
-        !statusHistory.some(
-          (h) => h.time === entry.time && h.status === entry.status,
-        )
-      ) {
-        statusHistory = [entry, ...statusHistory].slice(0, 100);
-      }
-    } else if (
-      statusHistory.length > 0 &&
-      statusHistory[0].status === newStatus
-    ) {
-      // Same status — refresh the leading row with the latest check.
-      statusHistory = [
-        {
-          ...statusHistory[0],
-          ping: row.ping,
-          message: row.message || statusHistory[0].message,
-          time: row.time,
-        },
-        ...statusHistory.slice(1),
-      ];
-    } else if (statusHistory.length === 0) {
-      statusHistory = [entry];
-    }
-
+    statusHistory = mergeLiveStatusHistory(
+      statusHistory,
+      entry,
+      lastKnownStatus,
+      { loadFailed: historyError },
+    );
     lastKnownStatus = newStatus;
 
     const timelineEntry: Heartbeat = {
@@ -364,18 +365,9 @@
       ...row,
       important: false,
     };
-    if (timelineHeartbeats.length === 0) {
-      timelineHeartbeats = [timelineEntry];
-    } else {
-      const latestTimeline = timelineHeartbeats[timelineHeartbeats.length - 1];
-      const liveTime = new Date(live.time).getTime();
-      const timelineTime = latestTimeline
-        ? new Date(latestTimeline.time).getTime()
-        : 0;
-      if (liveTime > timelineTime) {
-        timelineHeartbeats = [...timelineHeartbeats, timelineEntry].slice(-60);
-      }
-    }
+    timelineHeartbeats = mergeLiveTimeline(timelineHeartbeats, timelineEntry, {
+      loadFailed: timelineError,
+    });
 
     if (
       historyClearedAt &&
@@ -400,20 +392,16 @@
   async function refreshOverallHistory() {
     const id = monitorId;
     const generation = ++historyRequestGeneration;
-    const [history, timeline] = await Promise.all([
-      heartbeatsApi
-        .listOptions(id, {
-          hours: 720,
-          limit: 100,
-          order: "desc",
-          important: true,
-        })
-        .catch(() => []),
-      heartbeatsApi
-        .listOptions(id, { hours: 24, limit: 60, order: "asc" })
-        .catch(() => []),
+    const [historyResult, timelineResult] = await Promise.all([
+      settle(fetchStatusHistory(id)),
+      settle(fetchTimeline(id)),
     ]);
     if (generation !== historyRequestGeneration || id !== monitorId) return;
+    // A failed refresh keeps the last good rows and reports the error.
+    historyError = !historyResult.ok;
+    timelineError = !timelineResult.ok;
+    const history = historyResult.ok ? historyResult.value : [];
+    const timeline = timelineResult.ok ? timelineResult.value : [];
     // Same rule as refreshObservabilityAfterClear: never clobber live rows with
     // a stale empty response right after a clear.
     if (history.length > 0) {
@@ -423,21 +411,47 @@
     if (timeline.length > 0) timelineHeartbeats = timeline;
   }
 
+  function fetchStatusHistory(id: number): Promise<Heartbeat[]> {
+    return heartbeatsApi.listOptions(id, {
+      hours: 720,
+      limit: 100,
+      order: "desc",
+      important: true,
+    });
+  }
+
+  function fetchTimeline(id: number): Promise<Heartbeat[]> {
+    return heartbeatsApi.listOptions(id, { hours: 24, limit: 60, order: "asc" });
+  }
+
+  async function loadStats() {
+    const id = monitorId;
+    const generation = ++statsRequestGeneration;
+    const result = await settle(statsApi.get(id));
+    if (generation !== statsRequestGeneration || id !== monitorId) return;
+    statsError = !result.ok;
+    if (result.ok) stats = result.value;
+  }
+
+  /** Retry every observability request; each clears its own error on success. */
+  function retryObservability() {
+    void refreshOverallHistory();
+    void loadChartData(chartHours);
+    void loadStats();
+  }
+
   async function refreshObservabilityAfterClear() {
-    const [history, timeline, statsData] = await Promise.all([
-      heartbeatsApi
-        .listOptions(monitorId, {
-          hours: 720,
-          limit: 100,
-          order: "desc",
-          important: true,
-        })
-        .catch(() => []),
-      heartbeatsApi
-        .listOptions(monitorId, { hours: 24, limit: 60, order: "asc" })
-        .catch(() => []),
-      statsApi.get(monitorId).catch(() => null),
+    const [historyResult, timelineResult, statsResult] = await Promise.all([
+      settle(fetchStatusHistory(monitorId)),
+      settle(fetchTimeline(monitorId)),
+      settle(statsApi.get(monitorId)),
     ]);
+    historyError = !historyResult.ok;
+    timelineError = !timelineResult.ok;
+    statsError = !statsResult.ok;
+    const history = historyResult.ok ? historyResult.value : [];
+    const timeline = timelineResult.ok ? timelineResult.value : [];
+    const statsData = statsResult.ok ? statsResult.value : null;
     // Do not clobber WS-merged rows with stale empty API responses right after clear.
     if (history.length > 0) statusHistory = history;
     if (timeline.length > 0) timelineHeartbeats = timeline;
@@ -462,22 +476,40 @@
   async function loadChartData(hours: number) {
     chartHours = hours;
     const generation = ++chartRequestGeneration;
+    const key = `${monitorId}:${selectedProbeId ?? "overall"}:${hours}`;
     chartLoading = true;
     // Latency selection: a selected region reads its own measured regional
     // endpoint; the overall stream carries no measured latency.
-    const nextChart = await (selectedProbeId
-      ? regionalApi
-          .chart(monitorId, selectedProbeId, hours)
-          .then((c) => ({
-            ...c,
-            scope: "regional" as const,
-            latency_available: true,
-          }))
-          .catch(() => null)
-      : heartbeatsApi.chart(monitorId, hours).catch(() => null));
+    const result = await settle<ChartPayload>(
+      selectedProbeId
+        ? regionalApi
+            .chart(monitorId, selectedProbeId, hours)
+            .then((c) => ({
+              ...c,
+              scope: "regional" as const,
+              latency_available: true,
+            }))
+        : heartbeatsApi.chart(monitorId, hours),
+    );
     if (generation !== chartRequestGeneration) return;
-    chartData = nextChart;
+    applyChart(result, key);
     chartLoading = false;
+  }
+
+  /**
+   * Show a chart response. A failed reload of the chart already on screen
+   * keeps it; a failure for another range or source clears it, since the
+   * old chart would answer a different question.
+   */
+  function applyChart(result: Settled<ChartPayload>, key: string) {
+    chartError = !result.ok;
+    if (result.ok) {
+      chartData = result.value;
+      chartKey = key;
+    } else if (chartKey !== key) {
+      chartData = null;
+      chartKey = null;
+    }
   }
 
   function handleRegionChange(probeId: string) {
@@ -562,34 +594,40 @@
     loadError = null;
     try {
       const snapshotAt = realtime.beginConditionSnapshot();
-      const [monitorData, statsData, history, chart, timeline, conditions] =
-        await Promise.all([
-          monitorsApi.get(monitorId),
-          statsApi.get(monitorId).catch(() => null),
-          heartbeatsApi
-            .listOptions(monitorId, {
-              hours: 720,
-              limit: 100,
-              order: "desc",
-              important: true,
-            })
-            .catch(() => []),
-          heartbeatsApi.chart(monitorId, chartHours).catch(() => null),
-          heartbeatsApi
-            .listOptions(monitorId, { hours: 24, limit: 60, order: "asc" })
-            .catch(() => []),
-          conditionsApi.list(monitorId).catch(() => null),
-        ]);
+      const id = monitorId;
+      const hours = chartHours;
+      const [
+        monitorData,
+        statsResult,
+        historyResult,
+        chartResult,
+        timelineResult,
+        conditions,
+      ] = await Promise.all([
+        monitorsApi.get(id),
+        settle(statsApi.get(id)),
+        settle(fetchStatusHistory(id)),
+        settle(heartbeatsApi.chart(id, hours)),
+        settle(fetchTimeline(id)),
+        conditionsApi.list(id).catch(() => null),
+      ]);
       if (generation !== detailsGeneration) return;
 
+      // A failed request leaves its stream empty and flagged, so the page
+      // shows an error with a Retry instead of "no data" (GitHub #193).
+      const statsData = statsResult.ok ? statsResult.value : null;
+      const history = historyResult.ok ? historyResult.value : [];
       stats = statsData;
+      statsError = !statsResult.ok;
       statusHistory = history;
+      historyError = !historyResult.ok;
       if (
         selectedProbeId === null &&
         chartGeneration === chartRequestGeneration
       )
-        chartData = chart;
-      timelineHeartbeats = timeline;
+        applyChart(chartResult, `${id}:overall:${hours}`);
+      timelineHeartbeats = timelineResult.ok ? timelineResult.value : [];
+      timelineError = !timelineResult.ok;
       realtime.applyConditionSnapshot(conditions, snapshotAt, monitorId);
 
       const latestHistory = history[0];
@@ -1147,8 +1185,19 @@
       <RecentCheckBar
         heartbeats={selectedProbeId ? regionalChecks : timelineHeartbeats}
         overall={overallTimeline}
+        loadError={!selectedProbeId && timelineError
+          ? m.monitor_detail_timeline_load_failed()
+          : null}
+        onRetry={retryObservability}
       />
     {/key}
+
+    {#if statsError}
+      <LoadErrorNotice
+        message={m.monitor_detail_stats_load_failed()}
+        onRetry={retryObservability}
+      />
+    {/if}
 
     <!-- Metrics row (Uptime Kuma style) -->
     <div
@@ -1234,6 +1283,8 @@
       selectedHours={chartHours}
       onRangeChange={handleChartRangeChange}
       loading={chartLoading}
+      loadError={chartError ? m.monitor_detail_chart_load_failed() : null}
+      onRetry={() => void loadChartData(chartHours)}
     ></ResponseTimeChart>
 
     <!-- Status history table (clearing destroys data: admin-only, like the API) -->
@@ -1242,6 +1293,8 @@
       onClear={isAdminUser ? handleClearHistory : undefined}
       clearing={clearingHistory}
       monitorName={monitor?.name}
+      loadError={historyError ? m.monitor_detail_history_load_failed() : null}
+      onRetry={() => void refreshOverallHistory()}
     />
 
     <!-- Config + Tags/Notifications -->
