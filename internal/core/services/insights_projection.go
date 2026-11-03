@@ -44,6 +44,11 @@ func applyOverallProjection(row InsightsRow, intervals []domain.MonitorHealthInt
 	var covered time.Duration
 	var previous domain.Status
 	var havePrevious bool
+	// A failure run is a contiguous stretch of PENDING/DOWN intervals, as on
+	// the heartbeat path. The projection stores one row per minute bucket, so
+	// counting DOWN rows would count every minute of one outage.
+	var previousEnd, runStart time.Time
+	inRun, runCounted := false, false
 	outages, flaps := 0, 0
 	flapFrom := to.Add(-reliabilityFlapWindow)
 	if flapFrom.Before(from) {
@@ -74,8 +79,23 @@ func applyOverallProjection(row InsightsRow, intervals []domain.MonitorHealthInt
 				durations.Unknown += dur
 			}
 		}
-		if interval.Status == domain.StatusDown && !start.Before(from) && start.Before(to) {
-			outages++
+		if interval.Status == domain.StatusDown || interval.Status == domain.StatusPending {
+			if !inRun || start.After(previousEnd) {
+				inRun, runCounted, runStart = true, false, start
+			}
+			// Count the run once, when it first reaches DOWN, and only if it
+			// began inside the window (an open outage is not a new one).
+			if interval.Status == domain.StatusDown && !runCounted {
+				runCounted = true
+				if !runStart.Before(from) && runStart.Before(to) {
+					outages++
+				}
+			}
+		} else {
+			inRun = false
+		}
+		if end.After(previousEnd) {
+			previousEnd = end
 		}
 		if havePrevious && previous != interval.Status {
 			change := start

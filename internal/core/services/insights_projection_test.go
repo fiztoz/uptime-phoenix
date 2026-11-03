@@ -68,6 +68,57 @@ func TestApplyOverallProjection_OpenOutageIsNotNew(t *testing.T) {
 	}
 }
 
+// The projection stores one interval per minute bucket, so a long outage
+// arrives as many back-to-back DOWN rows. It is still one outage (#198).
+func TestApplyOverallProjection_MinuteBucketsAreOneOutage(t *testing.T) {
+	from := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
+	to := from.Add(24 * time.Hour)
+	start := from.Add(time.Hour)
+	intervals := []domain.MonitorHealthInterval{{From: from, To: start, Status: domain.StatusUp}}
+	for i := 0; i < 459; i++ {
+		bucket := start.Add(time.Duration(i) * time.Minute)
+		intervals = append(intervals, domain.MonitorHealthInterval{From: bucket, To: bucket.Add(time.Minute), Status: domain.StatusDown})
+	}
+	got := applyOverallProjection(InsightsRow{}, intervals, from, to)
+	if got.OutageCount != 1 {
+		t.Fatalf("outages = %d, want 1", got.OutageCount)
+	}
+	if got.DowntimeSeconds != int64(459*time.Minute/time.Second) {
+		t.Fatalf("downtime = %d", got.DowntimeSeconds)
+	}
+}
+
+// Outage runs follow the heartbeat path: PENDING joins the run it leads into,
+// while UP, UNKNOWN or a gap in the history ends it.
+func TestApplyOverallProjection_CountsOutageRuns(t *testing.T) {
+	from := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
+	at := func(m int) time.Time { return from.Add(time.Duration(m) * time.Minute) }
+	iv := func(a, b int, s domain.Status) domain.MonitorHealthInterval {
+		return domain.MonitorHealthInterval{From: at(a), To: at(b), Status: s}
+	}
+	cases := []struct {
+		name      string
+		intervals []domain.MonitorHealthInterval
+		want      int
+	}{
+		{"pending then down", []domain.MonitorHealthInterval{iv(0, 1, domain.StatusUp), iv(1, 2, domain.StatusPending), iv(2, 3, domain.StatusDown), iv(3, 4, domain.StatusDown)}, 1},
+		{"down pending down", []domain.MonitorHealthInterval{iv(0, 1, domain.StatusDown), iv(1, 2, domain.StatusPending), iv(2, 3, domain.StatusDown)}, 1},
+		{"unknown splits", []domain.MonitorHealthInterval{iv(0, 1, domain.StatusDown), iv(1, 2, domain.StatusUnknown), iv(2, 3, domain.StatusDown), iv(3, 4, domain.StatusUnknown), iv(4, 5, domain.StatusDown)}, 3},
+		{"gap splits", []domain.MonitorHealthInterval{iv(0, 1, domain.StatusDown), iv(2, 3, domain.StatusDown)}, 2},
+		{"up splits", []domain.MonitorHealthInterval{iv(0, 1, domain.StatusDown), iv(1, 2, domain.StatusUp), iv(2, 3, domain.StatusDown)}, 2},
+		{"pending only", []domain.MonitorHealthInterval{iv(0, 1, domain.StatusUp), iv(1, 2, domain.StatusPending), iv(2, 3, domain.StatusUp)}, 0},
+		{"run began before window", []domain.MonitorHealthInterval{iv(-5, 0, domain.StatusPending), iv(0, 1, domain.StatusDown), iv(1, 2, domain.StatusDown)}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := applyOverallProjection(InsightsRow{}, tc.intervals, from, at(60))
+			if got.OutageCount != tc.want {
+				t.Fatalf("outages = %d, want %d", got.OutageCount, tc.want)
+			}
+		})
+	}
+}
+
 func TestInsightsCacheMissesWhenProjectionVersionChanges(t *testing.T) {
 	s, _, _, q := newInsightsProbeService(t)
 	reader := &insightsProjectionFake{versions: map[int64]int64{1: 1}}
