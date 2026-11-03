@@ -45,6 +45,7 @@
     shouldStopPostClearPolling,
     heartbeatsAfterClear,
   } from "#lib/monitor-detail-state.js";
+  import { mergeLiveStatusHistory } from "#lib/monitor-detail-live.js";
   import { confirmAction } from "#lib/stores/confirm.svelte.js";
   import { toast } from "svelte-sonner";
   import {
@@ -329,33 +330,11 @@
     const newStatus = row.status;
     const entry = liveHistoryEntry(live);
 
-    if (lastKnownStatus !== null && lastKnownStatus !== newStatus) {
-      // Status transition — prepend a new history row.
-      if (
-        !statusHistory.some(
-          (h) => h.time === entry.time && h.status === entry.status,
-        )
-      ) {
-        statusHistory = [entry, ...statusHistory].slice(0, 100);
-      }
-    } else if (
-      statusHistory.length > 0 &&
-      statusHistory[0].status === newStatus
-    ) {
-      // Same status — refresh the leading row with the latest check.
-      statusHistory = [
-        {
-          ...statusHistory[0],
-          ping: row.ping,
-          message: row.message || statusHistory[0].message,
-          time: row.time,
-        },
-        ...statusHistory.slice(1),
-      ];
-    } else if (statusHistory.length === 0) {
-      statusHistory = [entry];
-    }
-
+    statusHistory = mergeLiveStatusHistory(
+      statusHistory,
+      entry,
+      lastKnownStatus,
+    );
     lastKnownStatus = newStatus;
 
     const timelineEntry: Heartbeat = {
