@@ -163,7 +163,7 @@ func (h *HeartbeatHandlers) GetChartData(c echo.Context) error {
 		}
 	}
 	// The whole window is aggregated (in SQL on both engines), so the chart
-	// covers every labelled hour. The old guard kept only the newest 2000 raw
+	// covers every labeled hour. The old guard kept only the newest 2000 raw
 	// beats — ~16.7 h of a 24 h range at 30 s (#195). The response is bounded
 	// instead by one row per bucket (<= 721 at 720 h) and chartIntervalMax.
 	const chartIntervalMax = 1000

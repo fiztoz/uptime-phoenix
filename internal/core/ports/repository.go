@@ -275,7 +275,7 @@ type StatusRun struct {
 }
 
 // HeartbeatChartReader aggregates a chart window in the database so the
-// response-time charts cover the whole window they are labelled with while
+// response-time charts cover the whole window they are labeled with while
 // only ever transferring bounded, already-aggregated rows (issue #195: the
 // charts used to keep only the newest N raw beats, so "24 h" showed ~8 h).
 //

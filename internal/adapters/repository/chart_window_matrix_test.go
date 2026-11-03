@@ -17,12 +17,12 @@ import (
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
 
-// Issue #195: the response-time charts are labelled with a window (the public
+// Issue #195: the response-time charts are labeled with a window (the public
 // status page says "24 h") but used to keep only the newest N raw heartbeats
 // before bucketing — 500 on the public page (about 8.3 h at a 60 s interval)
 // and 2000 on the authenticated detail chart (about 16.7 h at 30 s). These
 // contracts drive the real production entry points against each engine and
-// assert the chart spans the whole labelled window.
+// assert the chart spans the whole labeled window.
 
 // noIncidents satisfies ports.IncidentRepository for a status page with no
 // incidents. Only ListByStatusPage is reached by the public read path.

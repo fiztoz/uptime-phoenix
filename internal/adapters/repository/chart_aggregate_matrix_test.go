@@ -125,7 +125,10 @@ func head(b []services.ChartBucket) []services.ChartBucket {
 }
 
 func utcIntervals(in []services.DowntimeInterval) []services.DowntimeInterval {
-	var out []services.DowntimeInterval
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]services.DowntimeInterval, 0, len(in))
 	for _, iv := range in {
 		out = append(out, services.DowntimeInterval{Start: iv.Start.UTC(), End: iv.End.UTC()})
 	}

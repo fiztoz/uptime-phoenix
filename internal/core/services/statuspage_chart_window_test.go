@@ -9,7 +9,7 @@ import (
 )
 
 // TestMonitorPublicChart_CoversFull24hWindow pins issue #195: a 60 s monitor
-// with more than 24 h of history must chart the whole labelled 24 h window
+// with more than 24 h of history must chart the whole labeled 24 h window
 // (~96 fifteen-minute buckets), not just the newest 500 samples (~8.3 h, the
 // "35 intervals · 24h" users saw).
 func TestMonitorPublicChart_CoversFull24hWindow(t *testing.T) {

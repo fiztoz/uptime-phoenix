@@ -46,7 +46,7 @@ func TestLocalHeartbeatTransientLockErrorsAreRetryable(t *testing.T) {
 }
 
 // TestLocalHeartbeatNonTransientErrorsStayTerminal guards the other side: an
-// ordinary write failure must not be relabelled as retryable contention.
+// ordinary write failure must not be relabeled as retryable contention.
 func TestLocalHeartbeatNonTransientErrorsStayTerminal(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
