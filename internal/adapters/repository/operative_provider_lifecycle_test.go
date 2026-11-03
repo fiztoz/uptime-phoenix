@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -83,6 +84,71 @@ func TestOperativeProviderLifecycle(t *testing.T) {
 					t.Fatal("ambiguous I/O permitted regional resume", got.Phase)
 				}
 			})
+			t.Run("BusyQuiesceKeepsRegionalPaging", func(t *testing.T) { testBusyQuiesceKeepsRegionalPaging(t, engine) })
 		})
+	}
+}
+
+// testBusyQuiesceKeepsRegionalPaging reproduces issue #191 on the hub-local
+// source through the production heartbeat, outbox consumer, provider journal
+// and cutover coordinator: an earlier regional send failed (ambiguous, which
+// nothing ever clears), so the aggregate cutover's quiesce is refused busy and
+// rearmed forever. The monitor must keep its regional page path meanwhile —
+// before the fix the refusal kept the aggregate hold and the next DOWN paged
+// nobody, while aggregate paging could never start either.
+func testBusyQuiesceKeepsRegionalPaging(t *testing.T, engine string) {
+	o := newOperativeFixture(t, engine, domain.AlertDeliveryAggregate, 1, true)
+	o.p.consumer.SetProviderAuthority(o.store, o.store)
+	o.p.sender.err = errors.New("dial tcp 203.0.113.7:443: connect: connection refused")
+	o.record(t, domain.StatusDown)
+	o.p.send(t)
+	if attempts := o.attempts(t); len(attempts) != 1 || attempts[0].State != string(domain.ProviderAttemptAmbiguous) {
+		t.Fatal("failed regional send did not leave one ambiguous attempt", attempts)
+	}
+	failed := len(o.p.sender.alerts)
+
+	if got := o.run(t, true); got.Phase != "quiescing" {
+		t.Fatalf("barrier did not reach quiescing: %+v", got)
+	}
+	if log := o.quiesceLog(t); len(log) != 1 || log[0].Status != "rejected" || log[0].Code != "delivery_provider_busy" {
+		t.Fatalf("local refusal = %+v, want rejected delivery_provider_busy", log)
+	}
+	if o.suppressed(t) || o.gateCount(t, "held") != 0 {
+		t.Fatal("a refused quiesce engaged the aggregate source hold")
+	}
+
+	// The provider recovers; recovery and a fresh outage still page regionally.
+	o.p.sender.err = nil
+	o.record(t, domain.StatusUp)
+	o.p.send(t)
+	// The coordinator rearms the same barrier with a new immutable command; the
+	// permanent ambiguity refuses it again and still must not hold.
+	backdateOperativeOutcomes(t, o.p.f.db, domain.DeliveryQuiesceKind)
+	if got := o.run(t, true); got.Phase != "quiescing" || !got.Changed {
+		t.Fatalf("busy refusal did not rearm: %+v", got)
+	}
+	if log := o.quiesceLog(t); len(log) != 2 || log[1].Code != "delivery_provider_busy" {
+		t.Fatalf("rearmed quiesce = %+v, want a second busy refusal", log)
+	}
+	if o.suppressed(t) || o.gateCount(t, "held") != 0 {
+		t.Fatal("a rearmed refused quiesce engaged the aggregate source hold")
+	}
+	o.record(t, domain.StatusDown)
+	o.p.send(t)
+	sent := o.p.sender.alerts[failed:]
+	if len(sent) != 2 || sent[0].Status != domain.StatusUp || sent[1].Status != domain.StatusDown {
+		t.Fatalf("regional pages after a refused quiesce = %d, want recovery then DOWN", len(sent))
+	}
+	var ambiguous int
+	for _, attempt := range o.attempts(t) {
+		if attempt.State == string(domain.ProviderAttemptAmbiguous) {
+			ambiguous++
+		}
+	}
+	if ambiguous != 1 {
+		t.Fatal("ambiguous attempt was rewritten or duplicated", ambiguous)
+	}
+	if got := o.state(t); got.Phase != "quiescing" {
+		t.Fatal("refused barrier advanced without quiescence", got.Phase)
 	}
 }
