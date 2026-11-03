@@ -76,6 +76,19 @@ at the bottom.
 
 ### Fixed
 
+- **Overall health history keeps up under load (#196).** The projection that
+  builds `monitor_health_history` fell hours behind on a hub with 100 monitors
+  × 10 probes, and most batches hit their 10 s timeout. Each work item ranked
+  every observation the monitor had ever received to find its "seed" samples.
+  Observations are never pruned, so the cost grew with the age of the install.
+  It now finds seeds with indexed per-stream lookups that read only rows newer
+  than the freshness lookback. Per-probe minute rollups also read only their
+  own probe's evidence instead of all of the monitor's probes. On MariaDB with
+  12 h of 10-probe history, row reads per item fell from about 27,000 to about
+  650, and no longer grow with history. A batch that uses up its time after
+  finishing items no longer counts as a failure and pauses for 2 s. 1h/1d
+  rollups now run ahead of the overall backlog instead of waiting behind it.
+
 - **Insights counts one outage per outage, not one per minute (#198).** For a
   monitor with overall health history, the Outages count (and its sort and
   "most interrupted" ranking) counted every DOWN row. The projection stores one
