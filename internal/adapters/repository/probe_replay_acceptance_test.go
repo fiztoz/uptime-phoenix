@@ -145,9 +145,20 @@ func testReplayMixed(t *testing.T, r replayFixture) {
 	if err := r.f.db.NewRaw("SELECT updated_at FROM probe_incidents").Scan(t.Context(), &again); err != nil || !again.Equal(updated) {
 		t.Fatal("duplicate rewrote mirror timestamp", err)
 	}
+	// A committed sequence never changes identity. Resending it with another
+	// digest is a permanent rejection of the resent event, not a wedge of the
+	// whole stream (#192); the committed receipt and evidence stay as they were.
 	b.Events[0].Digest = strings.Repeat("b", 64)
-	if _, err := r.store.IngestReplayBatch(t.Context(), r.session, b, &services.AccessService{}); !errors.Is(err, ports.ErrConflict) {
-		t.Fatal("sequence identity changed", err)
+	reused, err := r.store.IngestReplayBatch(t.Context(), r.session, b, &services.AccessService{})
+	if err != nil || reused.AcceptedCount != 0 || reused.DuplicateCount != 6 || len(reused.Rejected) != 4 || reused.Rejected[0] != (domain.ProbeReplayRejection{Seq: 1, Code: domain.ProbeReplaySequenceReused}) {
+		t.Fatalf("sequence identity changed: %+v %v", reused, err)
+	}
+	var digest string
+	if err := r.f.db.NewRaw("SELECT digest FROM probe_telemetry_receipts WHERE seq = 1").Scan(t.Context(), &digest); err != nil || digest == b.Events[0].Digest {
+		t.Fatal("reused sequence replaced its committed receipt", err)
+	}
+	if replayCount(t, r.f, "probe_observations") != 2 {
+		t.Fatal("reused sequence stored evidence")
 	}
 	if err := runEngineMigration(t, r.f.db, r.f.engine, "054_probe_telemetry_receipts", "down"); err == nil {
 		t.Fatal("downgrade discarded receipts")

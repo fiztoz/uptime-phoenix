@@ -41,6 +41,13 @@ type ProbeReplayBatch struct {
 	Gap      *ProbeTelemetryGap
 }
 
+// ProbeReplaySequenceReused rejects an event whose sequence the hub already
+// committed for a different event (different wire digest or kind). A probe
+// restored from an older data directory without a stream reset numbers new
+// events from its older cursor (#192). The committed receipt keeps its
+// identity, so the rejection is re-derived from it on every resend.
+const ProbeReplaySequenceReused = "sequence_reused"
+
 // ProbeReplayRejection records a permanent rejection for a specific sequence.
 type ProbeReplayRejection struct {
 	Seq  int64

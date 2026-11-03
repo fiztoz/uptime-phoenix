@@ -209,6 +209,11 @@ unrecoverable. All processes of one installation must use the same key.
 3. Restart. Replay uses the new epoch. A clear-history fence still drops
    covered evidence; the fence is scoped by monitor, probe and generation, not
    by stream.
+4. If you skipped step 2, the probe stays Disconnected until it numbers past
+   the hub cursor (the hub logs `probe stream is behind the hub cursor`). After
+   that its new events under already committed sequences are rejected as
+   `sequence_reused` and logged, and history resumes past the cursor. Those
+   rejected events are lost.
 
 Restore the hub first, then each edge, then resume workers. An edge must not
 talk a restored hub into reusing retired sequence space.
