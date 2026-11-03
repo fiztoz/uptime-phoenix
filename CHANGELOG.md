@@ -76,6 +76,14 @@ at the bottom.
 
 ### Fixed
 
+- **Insights counts one outage per outage, not one per minute (#198).** For a
+  monitor with overall health history, the Outages count (and its sort and
+  "most interrupted" ranking) counted every DOWN row. The projection stores one
+  row per minute bucket, so one 7-hour outage showed as 459 outages. Outages
+  are now counted per contiguous PENDING/DOWN run that began in the window, the
+  same rule the heartbeat path uses: UP, UNKNOWN or a gap in the history ends a
+  run.
+
 - **The hub no longer crash-loops with M7 aggregate paging enabled (#189).**
   With `PROBES_AGGREGATE_PAGING_ENABLED=true`, the aggregate delivery worker
   panicked with `index out of range [0] with length 0` whenever it polled an
