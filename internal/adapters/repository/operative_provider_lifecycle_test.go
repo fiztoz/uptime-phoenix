@@ -123,7 +123,7 @@ func testBusyQuiesceKeepsRegionalPaging(t *testing.T, engine string) {
 	o.p.send(t)
 	// The coordinator rearms the same barrier with a new immutable command; the
 	// permanent ambiguity refuses it again and still must not hold.
-	backdateOperativeOutcomes(t, o.p.f.db, domain.DeliveryQuiesceKind)
+	backdateQuiesceOutcomes(t, o.p.f.db)
 	if got := o.run(t, true); got.Phase != "quiescing" || !got.Changed {
 		t.Fatalf("busy refusal did not rearm: %+v", got)
 	}

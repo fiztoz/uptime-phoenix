@@ -118,19 +118,22 @@ func (o operativeFixture) quiesceLog(t *testing.T) []struct {
 	return rows
 }
 
-func backdateOperativeOutcomes(t *testing.T, db *bun.DB, kind string) {
+// backdateQuiesceOutcomes ages every recorded delivery.quiesce outcome past
+// the re-arm cooldown.
+func backdateQuiesceOutcomes(t *testing.T, db *bun.DB) {
 	t.Helper()
 	if _, err := db.ExecContext(t.Context(),
 		"UPDATE operative_cutover_commands SET outcome_at = ? WHERE kind = ?",
-		time.Now().UTC().Add(-2*time.Minute), kind); err != nil {
+		time.Now().UTC().Add(-2*time.Minute), domain.DeliveryQuiesceKind); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func countTable(t *testing.T, db *bun.DB, table, column, value string) int64 {
+// countKind counts the rows of a command table with the given kind.
+func countKind(t *testing.T, db *bun.DB, table, kind string) int64 {
 	t.Helper()
 	count, err := db.NewSelect().Table(table).ColumnExpr("COUNT(*)").
-		Where(column+" = ?", value).Count(t.Context())
+		Where("kind = ?", kind).Count(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,14 +446,14 @@ func testDisableDrainsPhase(t *testing.T, engine string, phase string) {
 			break
 		}
 	}
-	wantApplies := countTable(t, o.p.f.db, "operative_cutover_commands", "kind", domain.DeliveryApplyKind)
+	wantApplies := countKind(t, o.p.f.db, "operative_cutover_commands", domain.DeliveryApplyKind)
 	if got := o.run(t, false); got.Phase != "draining" {
 		t.Fatalf("disabled opt-in did not drain the %s barrier: %+v", phase, got)
 	}
 	if reason := o.state(t).Reason; reason != "feature_disabled" {
 		t.Fatalf("drain reason = %q, want feature_disabled", reason)
 	}
-	if got := countTable(t, o.p.f.db, "operative_cutover_commands", "kind", domain.DeliveryApplyKind); got != wantApplies {
+	if got := countKind(t, o.p.f.db, "operative_cutover_commands", domain.DeliveryApplyKind); got != wantApplies {
 		t.Fatalf("apply commands = %d after disable, want %d (no new apply work)", got, wantApplies)
 	}
 	if phase == "applying" {
@@ -583,7 +586,7 @@ func testBusyCodeAlignsAndRearms(t *testing.T, engine string) {
 	}
 	// Rearmable, not corruption: the barrier is not blocked and the coordinator
 	// reissues with a fresh immutable command ID after the cooldown.
-	backdateOperativeOutcomes(t, o.p.f.db, domain.DeliveryQuiesceKind)
+	backdateQuiesceOutcomes(t, o.p.f.db)
 	if got := o.run(t, true); got.Phase != "quiescing" || !got.Changed {
 		t.Fatalf("busy refusal did not rearm after the cooldown: %+v", got)
 	}
@@ -593,7 +596,7 @@ func testBusyCodeAlignsAndRearms(t *testing.T, engine string) {
 	if err := o.store.FinishSourceProviderAttempt(ctx, grant.AttemptID, domain.ProviderAttemptSucceeded); err != nil {
 		t.Fatal(err)
 	}
-	backdateOperativeOutcomes(t, o.p.f.db, domain.DeliveryQuiesceKind)
+	backdateQuiesceOutcomes(t, o.p.f.db)
 	if got := o.run(t, true); got.Phase != "quiescing" || !got.Changed {
 		t.Fatalf("resolved provider work did not reissue quiesce: %+v", got)
 	}
@@ -629,11 +632,11 @@ func testRemoteBusyRearmsFromReceipt(t *testing.T, engine string) {
 	if got := o.run(t, true); got.Phase != "quiescing" || got.Changed {
 		t.Fatalf("busy refusal blocked or advanced the barrier: %+v", got)
 	}
-	backdateOperativeOutcomes(t, o.f.f.db, domain.DeliveryQuiesceKind)
+	backdateQuiesceOutcomes(t, o.f.f.db)
 	if got := o.run(t, true); !got.Changed {
 		t.Fatal("busy refusal did not rearm after the cooldown")
 	}
-	if n := countTable(t, o.f.f.db, "probe_commands", "kind", domain.DeliveryQuiesceKind); n != 2 {
+	if n := countKind(t, o.f.f.db, "probe_commands", domain.DeliveryQuiesceKind); n != 2 {
 		t.Fatalf("rearm issued %d commands, want 2 (fresh immutable ID)", n)
 	}
 }

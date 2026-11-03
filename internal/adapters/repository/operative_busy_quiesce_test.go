@@ -35,7 +35,7 @@ func TestOperativeHubUnresolvedAttemptDefersBarrier(t *testing.T) {
 					t.Fatalf("unresolvable hub attempt opened a barrier: %+v", got)
 				}
 			}
-			if n := countTable(t, o.f.f.db, "probe_commands", "kind", domain.DeliveryQuiesceKind); n != 0 {
+			if n := countKind(t, o.f.f.db, "probe_commands", domain.DeliveryQuiesceKind); n != 0 {
 				t.Fatalf("quiesce issued to %d members for a barrier that can never quiesce", n)
 			}
 			if count, err := o.f.f.db.NewSelect().Table("operative_cutover_members").ColumnExpr("COUNT(*)").Count(ctx); err != nil || count != 0 {
