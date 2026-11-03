@@ -133,9 +133,9 @@ REQUIRED = {
     },
     *{f"TestDeliveryPreparationSessionContract/mariadb/{mode}"
       for mode in ("regional", "aggregate", "both")},
-    *{f"TestOperativeCutoverContract/mariadb/{case}" for case in ("ColdMembership", "DrainAmbiguousBlocks", "DrainPendingAndStarted", "FencesAndStageOrder", "GateSuppression", "LocalProviderJournal", "MigrationConstraints", "MissingPreparation", "RemoteMembership", "aggregate", "both",)},
+    *{f"TestOperativeCutoverContract/mariadb/{case}" for case in ("ColdMembership", "DrainAmbiguousResumes", "DrainExpiredInFlightResumes", "DrainPendingAndStarted", "FencesAndStageOrder", "GateSuppression", "LocalProviderJournal", "MigrationConstraints", "MissingPreparation", "RemoteMembership", "aggregate", "both",)},
     *{f"TestOperativeRefinementContract/mariadb/{case}" for case in ("AdoptionFutureReceipt", "AdoptionObservationBoundary", "AdoptionReceiptBoundary", "BusyCodeAlignsAndRearms", "CorruptionBlocks", "DigestMismatchRefused", "DigestOnlyPlans", "DisableDrainsApplying", "DisableDrainsQuiesced", "DisableDrainsQuiescing", "RemoteBusyRearmsFromReceipt", "RepeatThrottle", "ResumeWithdrawsQueuedPhase", "StandbyNeverPreventsOperativeOpen",)},
-    *{f"TestOperativeProviderLifecycle/mariadb/{case}" for case in ("ProviderErrorBlocksDrain", "aggregate", "both",)},
+    *{f"TestOperativeProviderLifecycle/mariadb/{case}" for case in ("AmbiguousSendDoesNotRefuseQuiesce", "ProviderErrorDoesNotBlockDrain", "aggregate", "both",)},
     *{f"TestOperativeCutoverSessionContract/mariadb/{case}" for case in ("aggregate", "both",)},
     *{f"TestOperativeUpgradeContract/mariadb/{case}" for case in ("LegacyAmbiguity", "HeldRuntime",)},
     *{f"TestOperativeProviderFences/mariadb/{case}" for case in ("MissingRegionalFact", "MissingPreparation", "AvailableAt", "FinishClockRollback")},
@@ -232,7 +232,7 @@ REQUIRED |= {"TestClaimAggregateDeliveryEmptyQueue/mariadb", "TestOperativeDeliv
 
 # #191: a busy-refused cutover quiesce keeps the regional page path, and an
 # unresolvable hub attempt never opens a barrier, on real MariaDB.
-REQUIRED |= {"TestOperativeProviderLifecycle/mariadb/BusyQuiesceKeepsRegionalPaging", "TestOperativeHubUnresolvedAttemptDefersBarrier/mariadb"}
+REQUIRED |= {"TestOperativeProviderLifecycle/mariadb/BusyQuiesceKeepsRegionalPaging", "TestOperativeHubUnsettledAttemptDefersBarrier/mariadb/in_flight", "TestOperativeHubUnsettledAttemptDefersBarrier/mariadb/ambiguous"}
 
 
 # #209: a cutover barrier that cannot activate drains after its deadline and

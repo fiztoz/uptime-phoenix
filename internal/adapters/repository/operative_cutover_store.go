@@ -389,9 +389,10 @@ func (r *OperativeDeliveryStore) ReconcileCutover(ctx context.Context, f domain.
 	var deadlineDrained bool
 	var barrierAge time.Duration
 	var stuckIn string
+	var releasedAmbiguous int64
 	err := runConfigAuthorityTx(ctx, r.db, func(ctx context.Context, tx bun.Tx) error {
 		result = domain.AggregateCutoverProgress{MonitorID: f.MonitorID}
-		deadlineDrained, barrierAge, stuckIn = false, 0, ""
+		deadlineDrained, barrierAge, stuckIn, releasedAmbiguous = false, 0, "", 0
 		if _, err := tx.ExecContext(ctx, "UPDATE operative_cutover_state SET lease_epoch=lease_epoch WHERE monitor_id=?", f.MonitorID); err != nil {
 			return err
 		}
@@ -431,6 +432,15 @@ func (r *OperativeDeliveryStore) ReconcileCutover(ctx context.Context, f domain.
 			}
 			deadlineDrained, barrierAge, stuckIn = true, now.Sub(barrier.CreatedAt), before
 		}
+		if before != operativePhaseReleased && state.Phase == operativePhaseReleased && state.BarrierID != nil {
+			var barrier operativeBarrierModel
+			if err := tx.NewSelect().Model(&barrier).Where("barrier_id = ?", *state.BarrierID).Scan(ctx); err != nil {
+				return err
+			}
+			if releasedAmbiguous, err = operativeAmbiguousAttemptsSinceTx(ctx, tx, f.MonitorID, barrier.CreatedAt); err != nil {
+				return err
+			}
+		}
 		after, err := replayDatabaseTime(ctx, tx)
 		if err != nil {
 			return err
@@ -458,6 +468,12 @@ func (r *OperativeDeliveryStore) ReconcileCutover(ctx context.Context, f domain.
 			"monitor_id", f.MonitorID, "barrier_id", result.BarrierID, "stuck_in", stuckIn,
 			"barrier_age", barrierAge.Round(time.Second).String(), "deadline", operativeActivationDeadline.String(),
 			"hint", "a member probe is offline, slow, or refusing delivery.quiesce; check probe connections and recent quiesce refusals")
+	}
+	if releasedAmbiguous > 0 {
+		// Drain no longer waits on outcomes that can never resolve (#211): a
+		// possible duplicate page is accepted over an unpaged monitor.
+		slog.Warn("aggregate cutover released with ambiguous provider sends; a regional page may duplicate one",
+			"monitor_id", f.MonitorID, "barrier_id", result.BarrierID, "ambiguous_attempts", releasedAmbiguous)
 	}
 	return result, nil
 }

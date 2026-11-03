@@ -111,21 +111,20 @@ func (r *OperativeDeliveryStore) preparingTx(ctx context.Context, tx bun.Tx, sta
 		candidates = append(candidates, prepared{evidence: ev, prepID: prepID})
 	}
 	// QUIESCED re-checks this hub's own provider journal after every member
-	// quiesced, and drain waits on it too. An unresolved attempt already there
-	// (ambiguity is never cleared) means the barrier could never progress: its
-	// quiesce would hold every member's regional paging while aggregate paging
-	// never starts (issue #191). Stay pending instead. A hub-local member runs
-	// the same check in its own quiesce, which refuses without keeping a hold.
+	// quiesced. A send still inside its budget would refuse that check, so its
+	// quiesce would hold every member's regional paging meanwhile (issue #191).
+	// Stay pending until it settles instead. A hub-local member runs the same
+	// check in its own quiesce, which refuses without keeping a hold.
 	local := false
 	for _, c := range candidates {
 		local = local || c.evidence.ProbeID == domain.LocalProbeID
 	}
 	if !local {
-		unresolved, err := operativeUnresolvedAttemptsTx(ctx, tx, state.MonitorID)
+		unsettled, err := operativeUnsettledAttemptsTx(ctx, tx, state.MonitorID, now)
 		if err != nil {
 			return false, err
 		}
-		if unresolved {
+		if unsettled {
 			return false, nil
 		}
 	}
@@ -491,12 +490,12 @@ func (r *OperativeDeliveryStore) progressTx(ctx context.Context, tx bun.Tx, stat
 				return changed, nil
 			}
 		}
-		unresolved, err := operativeUnresolvedAttemptsTx(ctx, tx, state.MonitorID)
+		unsettled, err := operativeUnsettledAttemptsTx(ctx, tx, state.MonitorID, now)
 		if err != nil {
 			return false, err
 		}
-		if unresolved {
-			return changed, nil // Busy/ambiguous refusal is not a success.
+		if unsettled {
+			return changed, nil // A send still in its budget is not quiescence.
 		}
 		state.Phase = operativePhaseQuiesced
 		return true, nil
@@ -743,9 +742,11 @@ func (r *OperativeDeliveryStore) enterDrainingTx(state *operativeStateModel, _ t
 
 // drainingTx stops new aggregate admissions, supersedes unstarted plans, and
 // releases each ORIGINAL member gate only after every admitted provider attempt
-// is resolved. In-flight/ambiguous grants block resume issuance forever until
-// an explicit operator recovery; nothing here fabricates completion. Removed or
-// offline members are never dropped from drain membership.
+// has settled: no in_flight grant is still inside its budget, so no resumed
+// regional send can overlap aggregate provider I/O. An ambiguous or expired
+// grant never resolves and no longer holds resume (#211); its journal row is
+// kept as is, and nothing here fabricates completion. Removed or offline
+// members are never dropped from drain membership.
 func (r *OperativeDeliveryStore) drainingTx(ctx context.Context, tx bun.Tx, state *operativeStateModel, hub string, now time.Time) (bool, error) {
 	if state.BarrierID == nil {
 		return true, operativeBlockTx(state, now, "missing_barrier")
@@ -758,12 +759,12 @@ func (r *OperativeDeliveryStore) drainingTx(ctx context.Context, tx bun.Tx, stat
 	if err != nil {
 		return false, err
 	}
-	unresolved, err := operativeUnresolvedAttemptsTx(ctx, tx, state.MonitorID)
+	unsettled, err := operativeUnsettledAttemptsTx(ctx, tx, state.MonitorID, now)
 	if err != nil {
 		return false, err
 	}
-	if unresolved {
-		return changed, nil // No source resumes regional until these resolve.
+	if unsettled {
+		return changed, nil // No source resumes regional while a send may still run.
 	}
 	for i := range members {
 		if members[i].ResumeCommandID == nil {

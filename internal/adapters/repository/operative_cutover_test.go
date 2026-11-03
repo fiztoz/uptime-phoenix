@@ -195,7 +195,8 @@ func TestOperativeCutoverContract(t *testing.T) {
 			t.Run("MissingPreparation", func(t *testing.T) { testOperativeMissing(t, engine) })
 			t.Run("FencesAndStageOrder", func(t *testing.T) { testOperativeFences(t, engine) })
 			t.Run("DrainPendingAndStarted", func(t *testing.T) { testOperativeDrainPending(t, engine) })
-			t.Run("DrainAmbiguousBlocks", func(t *testing.T) { testOperativeDrainAmbiguous(t, engine) })
+			t.Run("DrainAmbiguousResumes", func(t *testing.T) { testOperativeDrainSettled(t, engine, true) })
+			t.Run("DrainExpiredInFlightResumes", func(t *testing.T) { testOperativeDrainSettled(t, engine, false) })
 			t.Run("MigrationConstraints", func(t *testing.T) { testOperativeMigration(t, engine) })
 			t.Run("RemoteMembership", func(t *testing.T) { testOperativeRemote(t, engine) })
 		})
@@ -512,9 +513,11 @@ func testOperativeDrainPending(t *testing.T, engine string) {
 	}
 }
 
-// testOperativeDrainAmbiguous proves an ambiguous provider outcome blocks
-// resume indefinitely rather than being fabricated into completion.
-func testOperativeDrainAmbiguous(t *testing.T, engine string) {
+// testOperativeDrainSettled proves drain resumes regional paging past a grant
+// that will never resolve (#211): an ambiguous outcome (provider error), or an
+// in_flight grant whose budget passed (crash, lost completion). The grant still
+// holds resume while it may run, and its journal row is never rewritten.
+func testOperativeDrainSettled(t *testing.T, engine string, ambiguous bool) {
 	ctx := t.Context()
 	o := newOperativeFixture(t, engine, domain.AlertDeliveryAggregate, 1, true)
 	for _, phase := range []string{"quiescing", "quiesced", "applying", "active"} {
@@ -534,14 +537,30 @@ func testOperativeDrainAmbiguous(t *testing.T, engine string) {
 	if err != nil || grant == nil {
 		t.Fatal("aggregate grant", err)
 	}
-	if err := o.store.FinishSourceProviderAttempt(ctx, grant.AttemptID, domain.ProviderAttemptAmbiguous); err != nil {
-		t.Fatal(err)
+	want := domain.ProviderAttemptInFlight
+	if ambiguous {
+		want = domain.ProviderAttemptAmbiguous
+		if err := o.store.FinishSourceProviderAttempt(ctx, grant.AttemptID, want); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if got := o.run(t, false); got.Phase != "draining" {
 		t.Fatalf("disable did not drain: %+v", got)
 	}
-	if got := o.run(t, false); got.Phase != "draining" || o.resumeIssued(t) {
-		t.Fatalf("ambiguous grant did not block resume: %+v", got)
+	if !ambiguous {
+		if got := o.run(t, false); got.Phase != "draining" || o.resumeIssued(t) {
+			t.Fatalf("resume issued while a grant may still run: %+v", got)
+		}
+		// The budget and settle grace pass with no completion: the send crashed.
+		if _, err := o.p.f.db.ExecContext(ctx, "UPDATE operative_provider_attempts SET budget_until = ?", time.Now().UTC().Add(-2*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := o.drain(t); got.Phase != "released" || o.gateCount(t, "held") != 0 {
+		t.Fatalf("a grant that can never resolve held regional paging: %+v", got)
+	}
+	if got := o.attempts(t); len(got) != 1 || got[0].State != string(want) {
+		t.Fatalf("drain rewrote the provider journal: %+v", got)
 	}
 }
 

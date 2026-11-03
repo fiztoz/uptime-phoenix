@@ -68,8 +68,8 @@ func sameCutoverTuple(row deliveryCutoverGateRow, c domain.DeliveryCutoverComman
 //
 // A refused (quiescing) gate does not suppress. Its barrier cannot activate
 // while this source refuses, so aggregate paging cannot start; suppressing
-// regional paging too would leave the monitor with no page path at all, and an
-// ambiguous attempt keeps the refusal permanent (issue #191). Duplicate-page
+// regional paging too would leave the monitor with no page path at all
+// (issue #191). Duplicate-page
 // suppression is unaffected: aggregate work needs every member applied, which
 // needs this gate to reach quiesced first.
 func aggregateSourceHoldActive(ctx context.Context, db bun.IDB, monitorID int64) (bool, error) {
@@ -83,13 +83,21 @@ func aggregateSourceHoldActive(ctx context.Context, db bun.IDB, monitorID int64)
 		Exists(ctx)
 }
 
-// unresolvedProviderAttempts counts in_flight and ambiguous grants for a
-// monitor. Only a finished, known provider outcome stops blocking; crashed,
-// unknown or errored attempts block quiescence rather than fabricate completion.
-func unresolvedProviderAttempts(ctx context.Context, db bun.IDB, monitorID int64) (int64, error) {
+// providerAttemptSettleWindow is how long after its grant an in_flight attempt
+// may still be doing provider I/O: the longest authorization+send budget plus
+// the completion write and clock slack.
+const providerAttemptSettleWindow = edgeMaxProviderBudget + time.Minute
+
+// unsettledProviderAttempts counts grants for a monitor that may still be doing
+// provider I/O: in_flight and granted inside the settle window. An ambiguous
+// outcome has already returned, and an older in_flight grant crashed or lost
+// its completion write; neither ever resolves, so they no longer refuse
+// quiescence forever (#211). Their journal rows are never rewritten.
+func unsettledProviderAttempts(ctx context.Context, db bun.IDB, monitorID int64, now time.Time) (int64, error) {
 	return db.NewSelect().Model((*providerAttemptRow)(nil)).
 		Where("monitor_id = ?", monitorID).
-		Where("state IN (?, ?)", domain.ProviderAttemptInFlight, domain.ProviderAttemptAmbiguous).
+		Where("state = ?", domain.ProviderAttemptInFlight).
+		Where("granted_at > ?", now.Add(-providerAttemptSettleWindow).UnixMicro()).
 		Count(ctx)
 }
 
@@ -284,12 +292,12 @@ func (s *Store) commitDeliveryGate(ctx context.Context, tx bun.Tx, identity doma
 		// them. A busy refusal keeps the gate as a live, non-suppressing barrier
 		// marker so later immutable commands can finish the same barrier; only
 		// the quiesced update below engages the hold.
-		unresolved, err := unresolvedProviderAttempts(ctx, tx, command.MonitorID)
+		unsettled, err := unsettledProviderAttempts(ctx, tx, command.MonitorID, now)
 		if err != nil {
 			return err
 		}
-		if unresolved > 0 {
-			return reject("delivery_provider_busy", "Unresolved provider attempts block quiescence")
+		if unsettled > 0 {
+			return reject("delivery_provider_busy", "A provider attempt still in progress blocks quiescence")
 		}
 		gate.State, gate.QuiescedAt = deliveryGateQuiesced, microFromTime(&now)
 		if _, err := tx.NewUpdate().Model(&gate).WherePK().Exec(ctx); err != nil {

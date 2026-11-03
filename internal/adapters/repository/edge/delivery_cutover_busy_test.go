@@ -1,10 +1,11 @@
 package edge
 
 // Issue #191: a quiesce the source refuses as delivery_provider_busy must never
-// leave the monitor without a page path. An ambiguous provider attempt is
-// permanent by contract (nothing clears it), so a refused barrier can never
-// complete at that source; if the refusal engaged the aggregate hold, regional
-// paging stopped while aggregate paging could never start. These tests drive
+// leave the monitor without a page path. While a send may still be in progress
+// the barrier cannot complete at that source; if the refusal engaged the
+// aggregate hold, regional paging stopped while aggregate paging could not
+// start. An ambiguous attempt is permanent by contract and so must not refuse
+// at all (#211): it would never let the barrier complete. These tests drive
 // the production lifecycle: real recording, the real outbox, the real edge
 // delivery service and provider-attempt journal, and the real cutover executor.
 
@@ -102,63 +103,61 @@ func (h *cutoverHarness) stateSeq() int64 {
 	return seq
 }
 
+// inFlightGrant journals a provider grant that never finishes: a send still in
+// progress, or one whose process crashed mid-send.
+func (h *cutoverHarness) inFlightGrant(grantedAt time.Time) {
+	h.t.Helper()
+	row := providerAttemptRow{AttemptID: uuid.NewString(), DeliveryID: uuid.NewString(), Attempt: 1, MonitorID: 17,
+		State: domain.ProviderAttemptInFlight, GrantedAt: grantedAt.UnixMicro()}
+	if _, err := h.store.db.NewInsert().Model(&row).Exec(h.t.Context()); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
 // TestEdgeBusyQuiesceRefusalKeepsRegionalPagePath reproduces #191 on one
-// source: an earlier regional send failed (ambiguous forever), the aggregate
-// cutover's quiesce is refused busy, and the target then goes down. The
-// refused barrier can never activate here, so regional paging must continue —
-// both the retry of the failed page and a fresh DOWN after the refusal.
+// source: a send is still in progress, the aggregate cutover's quiesce is
+// refused busy, and the target then goes down. The refused barrier cannot
+// activate here, so regional paging must continue — the DOWN, its recovery and
+// a fresh DOWN after a rearmed refusal. Once that send can no longer be
+// running, the same barrier quiesces (#211).
 func TestEdgeBusyQuiesceRefusalKeepsRegionalPagePath(t *testing.T) {
 	ctx := t.Context()
 	h := newCutoverHarness(t, domain.AlertDeliveryAggregate)
-	sender := &busyPageSender{err: errors.New("dial tcp 203.0.113.7:443: connect: connection refused")}
+	sender := &busyPageSender{}
 	delivery := services.NewEdgeDeliveryService(h.store, certConfigReader{busyPagingConfig(h)}, h.store, nil,
 		func(kind string) (ports.NotificationSender, bool) { return sender, kind == "webhook" })
 	probeID := testIdentity().ProbeID
+	h.inFlightGrant(time.Now())
 
-	// An ordinary regional DOWN page meets a provider that refuses connections.
+	// The hub cuts the monitor over to aggregate; the send in progress makes
+	// this source refuse the quiesce, and the refusal is not quiescence.
+	preparation := h.prepare(uuid.NewString(), domain.AlertDeliveryAggregate)
+	barrier := uuid.NewString()
+	refused := h.execute(h.command(domain.DeliveryQuiesceKind, uuid.NewString(), barrier, preparation, domain.AlertDeliveryAggregate))
+	if refused.Status != "rejected" || refused.Code != "delivery_provider_busy" || refused.AppliedAt != nil {
+		t.Fatalf("a send in progress faked quiescence: %+v", refused)
+	}
+
+	// The target goes down and recovers. Both page regionally.
 	down := checkRecord()
 	if _, err := h.store.CommitEdgeCheck(ctx, down); err != nil {
 		t.Fatal(err)
 	}
 	if worked, err := delivery.ProcessNext(ctx, probeID); err != nil || !worked {
-		t.Fatalf("first regional attempt: %v %v", worked, err)
+		t.Fatalf("DOWN page after a refused quiesce: %v %v", worked, err)
 	}
-	if n := h.attemptCount(domain.ProviderAttemptAmbiguous); n != 1 {
-		t.Fatalf("failed send did not leave one ambiguous attempt: %d", n)
-	}
-
-	// The hub cuts the monitor over to aggregate. The ambiguous attempt makes
-	// this source refuse the quiesce; the refusal is not quiescence.
-	preparation := h.prepare(uuid.NewString(), domain.AlertDeliveryAggregate)
-	barrier := uuid.NewString()
-	refused := h.execute(h.command(domain.DeliveryQuiesceKind, uuid.NewString(), barrier, preparation, domain.AlertDeliveryAggregate))
-	if refused.Status != "rejected" || refused.Code != "delivery_provider_busy" || refused.AppliedAt != nil {
-		t.Fatalf("ambiguous attempt faked quiescence: %+v", refused)
-	}
-
-	// The provider comes back. The failed page's retry still goes out.
-	sender.err = nil
-	if _, err := h.store.db.ExecContext(ctx, "UPDATE edge_delivery_outbox SET available_at = ? WHERE status = 'retrying'", time.Now().UTC().Add(-time.Hour).UnixMicro()); err != nil {
-		t.Fatal(err)
-	}
-	if worked, err := delivery.ProcessNext(ctx, probeID); err != nil || !worked {
-		t.Fatalf("regional retry after a refused quiesce: %v %v", worked, err)
-	}
-	if len(sender.alerts) != 1 || sender.alerts[0].Status != domain.StatusDown {
-		t.Fatalf("refused quiesce dropped the DOWN page retry: %+v", sender.alerts)
-	}
-
-	// Recovery and then a fresh outage. The hub rearms the same barrier with a
-	// new immutable command between them; it is refused again, forever.
 	if _, err := h.store.CommitEdgeCheck(ctx, recoveryRecord(down, h.stateSeq())); err != nil {
 		t.Fatal(err)
 	}
 	if worked, err := delivery.ProcessNext(ctx, probeID); err != nil || !worked {
 		t.Fatalf("recovery page: %v %v", worked, err)
 	}
+
+	// The hub rearms the same barrier with a new immutable command; it is
+	// refused again, and a fresh outage still pages.
 	again := h.execute(h.command(domain.DeliveryQuiesceKind, uuid.NewString(), barrier, preparation, domain.AlertDeliveryAggregate))
 	if again.Status != "rejected" || again.Code != "delivery_provider_busy" {
-		t.Fatalf("permanent ambiguity cleared or faked: %+v", again)
+		t.Fatalf("rearmed quiesce while the send may still run: %+v", again)
 	}
 	if _, err := h.store.CommitEdgeCheck(ctx, freshDownRecord(h.stateSeq())); err != nil {
 		t.Fatal(err)
@@ -169,10 +168,46 @@ func TestEdgeBusyQuiesceRefusalKeepsRegionalPagePath(t *testing.T) {
 	if worked, err := delivery.ProcessNext(ctx, probeID); err != nil || !worked {
 		t.Fatalf("fresh DOWN page: %v %v", worked, err)
 	}
-	if len(sender.alerts) != 3 || sender.alerts[1].Status != domain.StatusUp || sender.alerts[2].Status != domain.StatusDown {
-		t.Fatalf("fresh DOWN after a refused quiesce produced no page: %+v", sender.alerts)
+	if len(sender.alerts) != 3 || sender.alerts[0].Status != domain.StatusDown || sender.alerts[1].Status != domain.StatusUp || sender.alerts[2].Status != domain.StatusDown {
+		t.Fatalf("regional pages after a refused quiesce: %+v", sender.alerts)
 	}
-	// The ambiguous fact itself is untouched: nothing fabricated its outcome.
+
+	// The send never completes and its window passes: it crashed. Waiting can
+	// never resolve it, so the next immutable command quiesces the barrier.
+	if _, err := h.store.db.ExecContext(ctx, "UPDATE edge_provider_attempts SET granted_at = ? WHERE state = 'in_flight'", time.Now().Add(-providerAttemptSettleWindow-time.Second).UnixMicro()); err != nil {
+		t.Fatal(err)
+	}
+	requireCutover(t, h.execute(h.command(domain.DeliveryQuiesceKind, uuid.NewString(), barrier, preparation, domain.AlertDeliveryAggregate)), "applied", domain.DeliveryQuiescedCode)
+	if held, err := aggregateSourceHoldActive(ctx, h.store.db, 17); err != nil || !held {
+		t.Fatalf("quiesce after the send expired did not engage the hold: %v %v", held, err)
+	}
+	// The crashed send's fact is untouched: nothing fabricated its outcome.
+	if n := h.attemptCount(domain.ProviderAttemptInFlight); n != 1 {
+		t.Fatalf("in_flight attempt was rewritten: %d", n)
+	}
+}
+
+// TestEdgeAmbiguousAttemptDoesNotRefuseQuiesce: a failed regional send is
+// ambiguous forever and used to refuse every quiesce as busy, so the monitor
+// could never cut over again (#211). It has already returned, so the quiesce
+// succeeds and the ambiguous fact is kept.
+func TestEdgeAmbiguousAttemptDoesNotRefuseQuiesce(t *testing.T) {
+	ctx := t.Context()
+	h := newCutoverHarness(t, domain.AlertDeliveryAggregate)
+	sender := &busyPageSender{err: errors.New("dial tcp 203.0.113.7:443: connect: connection refused")}
+	delivery := services.NewEdgeDeliveryService(h.store, certConfigReader{busyPagingConfig(h)}, h.store, nil,
+		func(kind string) (ports.NotificationSender, bool) { return sender, kind == "webhook" })
+	if _, err := h.store.CommitEdgeCheck(ctx, checkRecord()); err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := delivery.ProcessNext(ctx, testIdentity().ProbeID); err != nil || !worked {
+		t.Fatalf("regional attempt: %v %v", worked, err)
+	}
+	if n := h.attemptCount(domain.ProviderAttemptAmbiguous); n != 1 {
+		t.Fatalf("failed send did not leave one ambiguous attempt: %d", n)
+	}
+	preparation := h.prepare(uuid.NewString(), domain.AlertDeliveryAggregate)
+	requireCutover(t, h.execute(h.command(domain.DeliveryQuiesceKind, uuid.NewString(), uuid.NewString(), preparation, domain.AlertDeliveryAggregate)), "applied", domain.DeliveryQuiescedCode)
 	if n := h.attemptCount(domain.ProviderAttemptAmbiguous); n != 1 {
 		t.Fatalf("ambiguous attempt was rewritten: %d", n)
 	}
