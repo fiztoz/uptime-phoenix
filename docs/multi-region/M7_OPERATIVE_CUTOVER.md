@@ -38,8 +38,13 @@ monitor's committed work.
    immutable membership, exact protected acknowledged documents, set bindings,
    generations, accepted streams, regional facts and actual strong capability.
 2. **QUIESCING:** persist a new UUID barrier and its original complete membership,
-   then issue protected `delivery.quiesce` commands. A source persists its hold
-   before checking unresolved provider attempts. A busy refusal is not quiescence.
+   then issue protected `delivery.quiesce` commands. A source writes its hold
+   before checking unresolved provider attempts, in the same transaction. A busy
+   refusal is not quiescence, and it does not leave the hold engaged: the
+   barrier cannot activate while that source refuses, so a kept hold would leave
+   the monitor with no page path at all (#191). The edge keeps the refused gate
+   as a non-suppressing `quiescing` marker; the hub-local source withdraws it.
+   The hold suppresses regional availability work only from a successful quiesce.
 3. **QUIESCED:** advance only after all exact quiesce successes are committed.
 4. **APPLYING:** issue `delivery.apply` against the exact quiesced gate and captured
    document. Persist source application and immutable kind-specific receipt.
@@ -230,6 +235,21 @@ the earlier Go 1.26.6 runtime acceptance checkpoint and its recorded counts.
 It does not authorize deployment, opt-in activation or provider ambiguity clearance.
 
 ## Remaining boundaries
+
+The quiescing phase still has no deadline or rollback (#191). A source that
+refuses busy keeps paging regionally, but members that did quiesce keep their
+holds until the barrier drains, and a member that never answers (disconnected
+or slow) leaves its peers held the same way. The hub re-checks its own
+provider journal after every member quiesced. A remote-only barrier is no
+longer opened while that journal already holds an unresolved attempt for the
+monitor, but one that appears after the barrier opened still leaves every
+member held. Bounding this
+needs a lifecycle contract that does not exist yet: a phase deadline, a drain
+trigger for it, a re-entry backoff, and an operator-visible failure. The
+documented escape is unchanged: disable the opt-in or set the monitor back to
+`regional`, which drains and resumes every original member. Drain itself waits
+for the hub's own unresolved attempts, so that last case has no escape until an
+ambiguity-recovery contract exists.
 
 Backend implementation/PR acceptance is not live activation or release acceptance.
 Ongoing vulnerability monitoring, the complete section-13 scenario matrix,

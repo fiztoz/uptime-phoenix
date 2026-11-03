@@ -149,6 +149,24 @@ at the bottom.
   same rule the heartbeat path uses: UP, UNKNOWN or a gap in the history ends a
   run.
 
+- **A refused aggregate cutover no longer silences a monitor's pages (#191).**
+  With `PROBES_AGGREGATE_PAGING_ENABLED=true`, moving a monitor to
+  `aggregate` sends `delivery.quiesce` to every member source. A source that
+  still has an unresolved earlier provider attempt for the monitor refuses it
+  with `delivery_provider_busy`. The refusal is correct, but it left the
+  source's aggregate hold engaged, so regional pages for that monitor stopped
+  while aggregate paging could never start. An ambiguous attempt (any failed
+  provider send) is never cleared, so the refusal and the silence were
+  permanent. A refused quiesce no longer suppresses regional paging on remote
+  probes or on the hub-local source; the hold starts only when the quiesce
+  succeeds. Gates that older probes left in `quiescing` stop suppressing as
+  soon as the probe is upgraded. The hub also no longer opens a barrier for a
+  remote-only monitor while its own journal holds an unresolved attempt for it,
+  since that barrier could never finish and would hold every probe. The
+  cutover itself still waits, as before, until every source can quiesce.
+  Operative cutover and aggregate standby errors are now logged with the error
+  and the monitor ID.
+
 - **The hub no longer crash-loops with M7 aggregate paging enabled (#189).**
   With `PROBES_AGGREGATE_PAGING_ENABLED=true`, the aggregate delivery worker
   panicked with `index out of range [0] with length 0` whenever it polled an

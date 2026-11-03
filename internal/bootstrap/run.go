@@ -545,7 +545,7 @@ func Run(cfg Config) error {
 		operativeDone := make(chan struct{})
 		go func() {
 			defer close(operativeDone)
-			operative.Run(ctx, func(error) { log.Warn("operative cutover work unavailable") })
+			operative.Run(ctx, func(err error) { log.Warn("operative cutover work unavailable", "error", err) })
 		}()
 		defer func() { cancelRuntime(); <-operativeDone }()
 		connections := repo.NewProbeConnectorStore(db)

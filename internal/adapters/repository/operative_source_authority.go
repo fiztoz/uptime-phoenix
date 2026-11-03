@@ -23,8 +23,8 @@ const operativeMaxProviderBudget = 15 * time.Minute
 
 // localCutoverEffectTx commits the hub-local source effect for one cutover
 // command in the same transaction as its immutable kind receipt. The hold is
-// persisted BEFORE the provider-attempt check: a busy/ambiguous refusal keeps
-// the hold and is never recorded as success.
+// written BEFORE the provider-attempt check; a busy/ambiguous refusal is never
+// recorded as success and withdraws that hold before the transaction commits.
 func (r *OperativeDeliveryStore) localCutoverEffectTx(ctx context.Context, tx bun.Tx, _ string, barrier operativeBarrierModel, member *operativeMemberModel, kind string, now time.Time) (string, string, error) {
 	if member.ProbeID != domain.LocalProbeID || member.MonitorID != barrier.MonitorID {
 		return "", "", ports.ErrConflict
@@ -57,6 +57,18 @@ func (r *OperativeDeliveryStore) localCutoverEffectTx(ctx context.Context, tx bu
 			return "", "", err
 		}
 		if unresolved {
+			// A refused quiesce must not keep the hold (issue #191): this barrier
+			// cannot activate while the source refuses, so a kept hold would
+			// leave the monitor with no page path, and an ambiguous attempt
+			// makes the refusal permanent. Withdrawing the hold in the same
+			// transaction that wrote it leaves no window. A held row reached
+			// here was left only by an earlier busy refusal of this barrier: a
+			// local success marks the member quiesced and is never reissued.
+			if _, err := tx.NewDelete().Model((*operativeGateModel)(nil)).
+				Where("probe_id = ? AND monitor_id = ? AND barrier_id = ? AND state = ?", domain.LocalProbeID, barrier.MonitorID, barrier.BarrierID, "held").
+				Exec(ctx); err != nil {
+				return "", "", err
+			}
 			return "rejected", operativeBusyCode, nil
 		}
 		return "applied", domain.DeliveryQuiescedCode, nil
