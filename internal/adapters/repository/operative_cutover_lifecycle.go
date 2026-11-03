@@ -110,6 +110,25 @@ func (r *OperativeDeliveryStore) preparingTx(ctx context.Context, tx bun.Tx, sta
 		}
 		candidates = append(candidates, prepared{evidence: ev, prepID: prepID})
 	}
+	// QUIESCED re-checks this hub's own provider journal after every member
+	// quiesced, and drain waits on it too. An unresolved attempt already there
+	// (ambiguity is never cleared) means the barrier could never progress: its
+	// quiesce would hold every member's regional paging while aggregate paging
+	// never starts (issue #191). Stay pending instead. A hub-local member runs
+	// the same check in its own quiesce, which refuses without keeping a hold.
+	local := false
+	for _, c := range candidates {
+		local = local || c.evidence.ProbeID == domain.LocalProbeID
+	}
+	if !local {
+		unresolved, err := operativeUnresolvedAttemptsTx(ctx, tx, state.MonitorID)
+		if err != nil {
+			return false, err
+		}
+		if unresolved {
+			return false, nil
+		}
+	}
 	id, err := uuid.NewRandom()
 	if err != nil {
 		return false, err

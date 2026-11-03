@@ -21,6 +21,10 @@ var _ ports.EdgeDeliveryCutoverRepository = (*Store)(nil)
 
 // Monitor-wide source gate states. Only delivery.resume releases a gate; no
 // timer, lease expiry, session change, configuration activation or reset may.
+// A committed quiescing gate records a quiesce this source refused busy: the
+// barrier stays live here so a later immutable command can finish it, but it
+// is not a hold (issue #191). The hold starts at quiesced, in the same
+// transaction that proved no provider attempt is unresolved.
 const (
 	deliveryGateQuiescing = "quiescing"
 	deliveryGateQuiesced  = "quiesced"
@@ -61,6 +65,13 @@ func sameCutoverTuple(row deliveryCutoverGateRow, c domain.DeliveryCutoverComman
 // monitor. A both-mode hold retains regional work and never suppresses; a
 // released gate is historical only. Certificate, capacity and probe scopes are
 // independent and are never consulted here.
+//
+// A refused (quiescing) gate does not suppress. Its barrier cannot activate
+// while this source refuses, so aggregate paging cannot start; suppressing
+// regional paging too would leave the monitor with no page path at all, and an
+// ambiguous attempt keeps the refusal permanent (issue #191). Duplicate-page
+// suppression is unaffected: aggregate work needs every member applied, which
+// needs this gate to reach quiesced first.
 func aggregateSourceHoldActive(ctx context.Context, db bun.IDB, monitorID int64) (bool, error) {
 	if monitorID <= 0 {
 		return false, domain.ErrValidation
@@ -68,7 +79,7 @@ func aggregateSourceHoldActive(ctx context.Context, db bun.IDB, monitorID int64)
 	return db.NewSelect().Model((*deliveryCutoverGateRow)(nil)).
 		Where("monitor_id = ?", monitorID).
 		Where("alert_delivery = ?", domain.AlertDeliveryAggregate).
-		Where("state IN (?, ?, ?)", deliveryGateQuiescing, deliveryGateQuiesced, deliveryGateApplied).
+		Where("state IN (?, ?)", deliveryGateQuiesced, deliveryGateApplied).
 		Exists(ctx)
 }
 
@@ -268,8 +279,11 @@ func (s *Store) commitDeliveryGate(ctx context.Context, tx bun.Tx, identity doma
 			result.AppliedAt = microFromTime(&now)
 			return nil
 		}
-		// The hold above persists first and outlives a busy refusal, so later
-		// immutable commands can finish the same barrier honestly.
+		// The gate above is written before the attempt check, in this same
+		// serialized write transaction, so no provider start can slip between
+		// them. A busy refusal keeps the gate as a live, non-suppressing barrier
+		// marker so later immutable commands can finish the same barrier; only
+		// the quiesced update below engages the hold.
 		unresolved, err := unresolvedProviderAttempts(ctx, tx, command.MonitorID)
 		if err != nil {
 			return err

@@ -230,6 +230,10 @@ REQUIRED |= {"TestProbeReplayRestoredCursor/mariadb", "TestProbeReplayUnreconcil
 # MariaDB at both the store and the production worker entry point.
 REQUIRED |= {"TestClaimAggregateDeliveryEmptyQueue/mariadb", "TestOperativeDeliveryProcessNextIdle/mariadb"}
 
+# #191: a busy-refused cutover quiesce keeps the regional page path, and an
+# unresolvable hub attempt never opens a barrier, on real MariaDB.
+REQUIRED |= {"TestOperativeProviderLifecycle/mariadb/BusyQuiesceKeepsRegionalPaging", "TestOperativeHubUnresolvedAttemptDefersBarrier/mariadb"}
+
 
 INSTALL_JOURNAL_REQUIRED = {
     f"TestM8InstallJournalStore/mariadb/{case}"

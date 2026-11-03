@@ -44,7 +44,7 @@ func (s *AggregateStandbyService) ProcessBatch(ctx context.Context) (int, error)
 			return n, errors.Join(failed, err)
 		}
 		if _, err := s.store.ReconcileStandby(ctx, lease, s); err != nil {
-			failed = errors.Join(failed, fmt.Errorf("aggregate standby reconciliation: %w", err))
+			failed = errors.Join(failed, fmt.Errorf("aggregate standby reconciliation (monitor %d): %w", lease.MonitorID, err))
 			continue
 		}
 		n++

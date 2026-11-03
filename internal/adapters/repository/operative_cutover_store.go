@@ -43,8 +43,9 @@ const (
 	// operativeCommandLifetime is the fixed lifetime of a DB-clock-created
 	// protected cutover command (bounded by ValidDeliveryCutoverCommand).
 	operativeCommandLifetime = 24 * time.Hour
-	// operativeBusyCode is the only rearmable refusal: the source persists its
-	// hold first and then refuses busy while provider work is unresolved. It is
+	// operativeBusyCode is the only rearmable refusal: the source writes its
+	// hold first and then refuses busy while provider work is unresolved; the
+	// refusal does not leave the hold engaged (issue #191). It is
 	// the exact code the real edge source emits (delivery_provider_busy); any
 	// other refusal is corruption and blocks the barrier.
 	operativeBusyCode = "delivery_provider_busy"

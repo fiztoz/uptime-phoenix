@@ -49,15 +49,20 @@ func (s *OperativeDeliveryService) EvaluateCutover(in domain.DeliveryCutoverInpu
 }
 
 // ReconcileBatch processes committed partial claims even when another failed.
+// Each failure names its stage and monitor so an operator can find the stuck
+// barrier; the wrapped repository error is already redacted.
 func (s *OperativeDeliveryService) ReconcileBatch(ctx context.Context) (int, error) {
 	leases, failed := s.cutovers.ClaimCutovers(ctx, s.owner, 30*time.Second, 20)
+	if failed != nil {
+		failed = fmt.Errorf("operative cutover claim: %w", failed)
+	}
 	n := 0
 	for _, lease := range leases {
 		if ctx.Err() != nil {
 			return n, errors.Join(failed, ctx.Err())
 		}
 		if _, err := s.cutovers.ReconcileCutover(ctx, lease, s.enabled, s); err != nil {
-			failed = errors.Join(failed, err)
+			failed = errors.Join(failed, fmt.Errorf("operative cutover reconciliation (monitor %d): %w", lease.MonitorID, err))
 			continue
 		}
 		n++
@@ -162,7 +167,7 @@ func (s *OperativeDeliveryService) Run(ctx context.Context, report func(error)) 
 			report(err)
 		}
 		if _, err := s.ProcessNext(ctx); err != nil && ctx.Err() == nil && report != nil {
-			report(err)
+			report(fmt.Errorf("aggregate delivery: %w", err))
 		}
 		select {
 		case <-ctx.Done():
