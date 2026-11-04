@@ -105,7 +105,7 @@ for the latest executed results and outstanding acceptance checks, and the
 
 `make gate-full` does **not** include the MariaDB repository contract (needs
 `TEST_MARIADB_DSN` against a real database) or external UAT/load campaigns.
-CI runs the parent repository contract through four isolated `repository-race-N`
+CI runs the parent repository contract through five isolated `repository-race-N`
 jobs (each owns a `phoenix_ci` throwaway DB). The required `mariadb-contract`
 check verifies their complete coverage. Use §1.1 for external campaigns and §2.6
 for disposable database setup.
@@ -231,6 +231,14 @@ budgets, concurrent cold consumers, unrelated channel progress and stale fences.
 The journal deliberately retains unfinished grants; `provider_outcome_unknown`
 is a terminal queue decision, not a fabricated provider completion. This is
 persistence-boundary fault injection, not the four-probe process-kill UAT run.
+
+The separate [2026-11-04 four-region AWS campaign](multi-region/M7_ISSUE213_AWS_VERIFICATION_2026-11-04.md)
+verified original-delivery terminality, no same-delivery replay, honest provider
+history and later-monitor cutover progress on merged #214. It also reproduced
+restart-driven incident closure/re-paging: the original incident drained without
+recovery, and a replacement incident sent another DOWN for the same outage.
+A green queue-regression or CI gate does not establish incident continuity
+across a restart-driven evidence drain; #216 addresses that failure below.
 
 `TestOperativeSessionLapse` (#213) runs on both engines: an ACTIVE barrier
 holds through an expired lease, a session the hub released on disconnect,
