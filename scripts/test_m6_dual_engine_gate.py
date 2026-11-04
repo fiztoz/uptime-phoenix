@@ -128,6 +128,14 @@ M7_LEAVES |= {f"TestOperativeUpgradeContract/mariadb/{case}" for case in ("Legac
 M7_LEAVES |= {f"TestOperativeProviderFences/mariadb/{case}" for case in ("MissingRegionalFact", "MissingPreparation", "AvailableAt", "FinishClockRollback")}
 M7_LEAVES |= {f"TestOperativeActivationCycle/mariadb/{case}" for case in ("aggregate", "both",)}
 M7_LEAVES |= {"TestDeliveryConfigEvidenceAPI/mariadb", "TestLocalDeliveryConfigEvidenceAPI/mariadb"}
+M7_LEAVES |= {
+    f"TestOperativeAggregateRestart/mariadb/{case}"
+    for case in ("crashed", "succeeded", "ambiguous", "not_started", "ungranted", "retry_drained", "retry_active", "retry_ungranted", "crashed_recovered", "live_budget")
+} | {
+    f"TestOperativeAggregateReceiptLoss/mariadb/{case}"
+    for case in ("before_journal_commit", "after_journal_commit")
+}
+M7_LEAVES |= {"TestOperativeAggregateBoundedRetry/mariadb"}
 M8_LEAVES = {
     f"TestM8PreflightOperationContract/mariadb/{case}"
     for case in (

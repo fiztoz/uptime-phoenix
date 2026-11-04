@@ -242,6 +242,17 @@ REQUIRED |= {
     for case in ("StalledQuiesceDrains", "StalledApplyReleasesQuiescedMember", "ReentryBacksOff", "RefusalBlockDrains")
 }
 
+# #213: restart must not replay admitted aggregate I/O or strand obsolete work.
+REQUIRED |= {
+    f"TestOperativeAggregateRestart/mariadb/{case}"
+    for case in ("crashed", "succeeded", "ambiguous", "not_started", "ungranted", "retry_drained", "retry_active", "retry_ungranted", "crashed_recovered", "live_budget")
+} | {
+    f"TestOperativeAggregateReceiptLoss/mariadb/{case}"
+    for case in ("before_journal_commit", "after_journal_commit")
+}
+
+REQUIRED |= {"TestOperativeAggregateBoundedRetry/mariadb"}
+
 INSTALL_JOURNAL_REQUIRED = {
     f"TestM8InstallJournalStore/mariadb/{case}"
     for case in (
