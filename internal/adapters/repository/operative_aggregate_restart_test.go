@@ -142,7 +142,7 @@ func TestOperativeAggregateRestart(t *testing.T) {
 					case "live_budget":
 						wantStatus = domain.DeliveryStatusLeased
 					}
-					if row.Status != string(wantStatus) {
+					if row.Status != wantStatus {
 						t.Fatalf("delivery = %+v, want %s", row, wantStatus)
 					}
 					wantAttempt := int64(1)

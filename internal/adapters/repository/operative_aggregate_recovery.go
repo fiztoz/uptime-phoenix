@@ -49,9 +49,9 @@ func reconcileAggregateDeliveryTx(ctx context.Context, tx bun.Tx, row operativeA
 	// Positive provider evidence is stronger than an absent queue receipt, even
 	// when an older version already admitted more than one attempt for this row.
 	if succeeded {
-		status = string(domain.DeliveryStatusSent)
+		status = domain.DeliveryStatusSent
 	} else if unknown {
-		status, code = string(domain.DeliveryStatusFailed), "provider_outcome_unknown"
+		status, code = domain.DeliveryStatusFailed, "provider_outcome_unknown"
 	} else {
 		var incident operativeAggregateIncidentModel
 		if err := tx.NewSelect().Model(&incident).Where("incident_id = ?", row.IncidentID).Scan(ctx); err != nil {
@@ -66,7 +66,7 @@ func reconcileAggregateDeliveryTx(ctx context.Context, tx bun.Tx, row operativeA
 			(intent.Kind == "recovery" && (incident.Status != "resolved" || incident.CloseReason != "recovered")) ||
 			(intent.Kind != "recovery" && incident.Status != "open")
 		if obsolete {
-			status = string(domain.DeliveryStatusSuperseded)
+			status = domain.DeliveryStatusSuperseded
 		} else if len(attempts) > 0 && attempts[0].State == string(domain.ProviderAttemptAmbiguous) {
 			// A committed retry remains valid if its next worker only claimed
 			// the row, then died before authorization. The old outcome receipt
@@ -76,7 +76,7 @@ func reconcileAggregateDeliveryTx(ctx context.Context, tx bun.Tx, row operativeA
 				(row.Status == domain.DeliveryStatusLeased && row.OutcomeAt != nil && latest.ClaimAttempt < row.Attempt)
 			if !explicitRetry || row.Attempt >= 5 {
 				// Losing the retry decision is not implicit retry authorization.
-				status, code = string(domain.DeliveryStatusFailed), "provider_outcome_unknown"
+				status, code = domain.DeliveryStatusFailed, "provider_outcome_unknown"
 			}
 		}
 	}
@@ -91,7 +91,7 @@ func reconcileAggregateDeliveryTx(ctx context.Context, tx bun.Tx, row operativeA
 		return false, err
 	}
 	reason := ""
-	if status == string(domain.DeliveryStatusSuperseded) {
+	if status == domain.DeliveryStatusSuperseded {
 		reason = "superseded"
 	}
 	// A drain/recovery already finalized the old intent. Never rewrite it.
