@@ -233,9 +233,10 @@ is a terminal queue decision, not a fabricated provider completion. This is
 persistence-boundary fault injection, not the four-probe process-kill UAT run.
 
 `TestOperativeSessionLapse` (#213) runs on both engines: an ACTIVE barrier
-holds through an expired lease or a not-yet-re-attested reconnect, and drains
-past `operativeSessionLapseGrace`, after a second reconnect, or on withdrawn
-capability. The dual-engine gate requires all five
+holds through an expired lease, a session the hub released on disconnect,
+failed reconnect attempts, or a not-yet-re-attested reconnect, and drains past
+`operativeSessionLapseGrace`, on a released session with no recorded contact,
+or on withdrawn capability. The dual-engine gate requires all nine
 `TestOperativeSessionLapse/mariadb/*` leaves:
 
 ```bash

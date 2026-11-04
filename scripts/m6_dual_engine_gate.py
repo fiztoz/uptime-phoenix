@@ -256,7 +256,7 @@ REQUIRED |= {"TestOperativeAggregateBoundedRetry/mariadb"}
 # #213: a session lapse on an ACTIVE barrier holds within a bounded grace.
 REQUIRED |= {
     f"TestOperativeSessionLapse/mariadb/{case}"
-    for case in ("ExpiredLeaseHoldsActive", "ReconnectBeforeAttestHoldsActive", "LapseBeyondGraceDrains", "SecondReconnectDrains", "WithdrawnCapabilityDrains")
+    for case in ("ExpiredLeaseHoldsActive", "ReconnectBeforeAttestHoldsActive", "ReleasedSessionHoldsActive", "ReleasedBeyondGraceDrains", "ReleasedWithoutContactDrains", "LapseBeyondGraceDrains", "FailedReconnectAttemptsHoldActive", "RepeatedReconnectsBeyondGraceDrain", "WithdrawnCapabilityDrains")
 }
 
 INSTALL_JOURNAL_REQUIRED = {
