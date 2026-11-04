@@ -96,6 +96,28 @@ drains. A barrier therefore may not wait indefinitely for its slowest member:
   barrier, the phase it was stuck in and its age. The persisted state keeps the
   reason through release until the next barrier starts.
 
+### Source session lapse while ACTIVE (#213)
+
+A hub restart lets a source's session lease expire, or the source reconnects at
+the next connection generation before its handshake re-attests the cutover
+capability. Neither is lost evidence: the recorded capability is intact and the
+source hold persists. An ACTIVE barrier whose evidence is incomplete *only*
+because of such a lapse stays ACTIVE for up to `operativeSessionLapseGrace`
+(3 minutes, DB clock, measured from the expired `lease_until`). While held it
+admits no aggregate paging; the open aggregate incident is kept, so the
+recovery page comes from the same incident once the source re-attests. Without
+this the barrier drained (`cutover_evidence_incomplete`), the drain closed the
+incident as `admin_closed`/`drained` with no recovery page, and the replacement
+barrier opened a new incident and paged DOWN again.
+
+The hold is bounded: a lapse older than the grace, a source two or more
+generations ahead of its attestation, a withdrawn capability, or any other
+incomplete evidence still drains as before. Trade-off: a source that truly
+died with the hub leaves the monitor without aggregate pages for at most the
+grace before the drain resumes regional paging. Activation and provider
+authorization still require a live, attested session; the hold confers no
+send authority.
+
 Disable is not regional resume. Startup refuses removal of protection/runtime
 needed by durable authority, and migration downgrade refuses unresolved authority.
 Do not edit the provider journal to invent success or manufacture a historical

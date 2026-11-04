@@ -38,6 +38,17 @@ const (
 	// or expired cutover command may be reissued with a new immutable command ID
 	// against the same barrier. Old outcomes are never rewritten.
 	operativeRearmCooldown = time.Minute
+	// operativeSessionLapseGrace bounds how long an ACTIVE barrier tolerates a
+	// source whose recorded capability is intact but whose session lapsed: the
+	// lease expired at the same attested generation, or the source reconnected
+	// (generation+1) and has not re-attested yet. A hub restart does exactly
+	// this; draining on it closed the open aggregate incident without a
+	// recovery page and re-paged the outage from a replacement barrier (#213).
+	// While held the barrier admits no aggregate paging (no provider send can
+	// pass without a live session anyway). Past the grace, on a withdrawn
+	// capability or on any other incomplete evidence it drains as before.
+	// Measured on the DB clock from the expired lease_until.
+	operativeSessionLapseGrace = 3 * time.Minute
 	// operativeActivationDeadline bounds how long a barrier may stay before
 	// ACTIVE (quiescing, quiesced, applying). A quiesced member suppresses its
 	// regional paging until the barrier drains, so a peer that never finishes

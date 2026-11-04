@@ -36,10 +36,14 @@ type operativeMemberEvidence struct {
 	StreamID           string
 	Mode               domain.AlertDelivery
 	Capable            bool
-	Acknowledged       *domain.ProbeActiveConfig
-	Assignment         *domain.AcknowledgedAssignmentDelivery
-	RegionalFact       *domain.ProbeDeliveryModeApplication
-	LocalGraph         *domain.LocalProbeConfigDefinition
+	// Lapsed marks a source whose capability is still recorded but whose
+	// session only lapsed (lease expired within operativeSessionLapseGrace) or
+	// reconnected without re-attesting yet. Never authority to send.
+	Lapsed       bool
+	Acknowledged *domain.ProbeActiveConfig
+	Assignment   *domain.AcknowledgedAssignmentDelivery
+	RegionalFact *domain.ProbeDeliveryModeApplication
+	LocalGraph   *domain.LocalProbeConfigDefinition
 }
 
 func (e operativeMemberEvidence) tuple(monitorID int64) domain.ProbeDeliveryModeApplication {
@@ -161,6 +165,7 @@ func (r *OperativeDeliveryStore) readOperativeMemberEvidenceTx(ctx context.Conte
 			return out, err
 		}
 		out.Capable = capability.ConnectionGeneration == lease.Generation && lease.LeaseUntil > now.Unix()
+		out.Lapsed = !out.Capable && operativeSessionLapsed(capability.ConnectionGeneration, lease, now)
 	}
 	out.Acknowledged = &domain.ProbeActiveConfig{ProbeConfigTarget: document.ProbeConfigTarget, Revision: active.Revision, SHA256: active.SHA256, AppliedAt: active.AppliedAt, AssignmentCount: active.AssignmentCount}
 	out.Assignment = &domain.AcknowledgedAssignmentDelivery{MonitorID: monitorID, Generation: resolved.Generation, AssignmentRevision: resolved.AssignmentRevision, AlertDelivery: resolved.DesiredAlertDelivery}
@@ -454,4 +459,15 @@ func operativeBlockTx(state *operativeStateModel, now time.Time, reason string) 
 	state.Reason = reason
 	state.UpdatedAt = now
 	return nil
+}
+
+// operativeSessionLapsed reports whether a source whose capability was attested
+// at attested is only between sessions: its lease is at the attested
+// generation or the next one (a reconnect the handshake has not re-attested
+// yet) and expired no longer than operativeSessionLapseGrace ago.
+func operativeSessionLapsed(attested int64, lease probeSessionModel, now time.Time) bool {
+	if attested <= 0 || (lease.Generation != attested && lease.Generation != attested+1) {
+		return false
+	}
+	return now.Unix()-lease.LeaseUntil <= int64(operativeSessionLapseGrace/time.Second)
 }

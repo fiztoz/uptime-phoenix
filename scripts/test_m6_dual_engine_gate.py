@@ -136,6 +136,7 @@ M7_LEAVES |= {
     for case in ("before_journal_commit", "after_journal_commit")
 }
 M7_LEAVES |= {"TestOperativeAggregateBoundedRetry/mariadb"}
+M7_LEAVES |= {f"TestOperativeSessionLapse/mariadb/{case}" for case in ("ExpiredLeaseHoldsActive", "ReconnectBeforeAttestHoldsActive", "LapseBeyondGraceDrains", "SecondReconnectDrains", "WithdrawnCapabilityDrains")}
 M8_LEAVES = {
     f"TestM8PreflightOperationContract/mariadb/{case}"
     for case in (

@@ -232,6 +232,17 @@ The journal deliberately retains unfinished grants; `provider_outcome_unknown`
 is a terminal queue decision, not a fabricated provider completion. This is
 persistence-boundary fault injection, not the four-probe process-kill UAT run.
 
+`TestOperativeSessionLapse` (#213) runs on both engines: an ACTIVE barrier
+holds through an expired lease or a not-yet-re-attested reconnect, and drains
+past `operativeSessionLapseGrace`, after a second reconnect, or on withdrawn
+capability. The dual-engine gate requires all five
+`TestOperativeSessionLapse/mariadb/*` leaves:
+
+```bash
+: "${TEST_MARIADB_DSN:?Set a disposable MariaDB test database}"
+go test -race -count=1 ./internal/adapters/repository -run 'TestOperativeSessionLapse$'
+```
+
 ### M8 Docker install (migration 089)
 
 See [Docker install](multi-region/M8_DOCKER_INSTALL.md).

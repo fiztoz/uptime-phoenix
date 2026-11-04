@@ -647,30 +647,40 @@ func (r *OperativeDeliveryStore) operativeDriftTx(ctx context.Context, tx bun.Tx
 // facts and the committed aggregate/both application receipts. The evaluator is
 // pure and confers no authority; nil means the evidence is not yet assembled.
 func (r *OperativeDeliveryStore) operativeCutoverEvidenceTx(ctx context.Context, tx bun.Tx, hub string, barrier operativeBarrierModel, members []operativeMemberModel, state *operativeStateModel, evaluator ports.AggregateCutoverEvaluator, now time.Time) (*domain.DeliveryCutoverDecision, error) {
+	decision, _, err := r.operativeCutoverEvidenceLapseTx(ctx, tx, hub, barrier, members, state, evaluator, now)
+	return decision, err
+}
+
+// operativeCutoverEvidenceLapseTx is operativeCutoverEvidenceTx that also
+// reports whether an incomplete decision is incomplete ONLY because some
+// source's session lapsed (see operativeSessionLapseGrace): the same evidence
+// with those sources counted as capable would be complete.
+func (r *OperativeDeliveryStore) operativeCutoverEvidenceLapseTx(ctx context.Context, tx bun.Tx, hub string, barrier operativeBarrierModel, members []operativeMemberModel, state *operativeStateModel, evaluator ports.AggregateCutoverEvaluator, now time.Time) (*domain.DeliveryCutoverDecision, bool, error) {
 	set, err := readProbeAssignments(ctx, tx, state.MonitorID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	mode := barrier.AlertDelivery
+	var lapsed []int
 	in := domain.DeliveryCutoverInput{Now: now, SnapshotAt: now, Current: true, HubID: hub, Assignments: *set}
 	for i := range members {
 		if i >= len(set.Assignments) {
-			return nil, ports.ErrConflict
+			return nil, false, ports.ErrConflict
 		}
 		assignment := set.Assignments[i]
 		ev, err := r.readOperativeMemberEvidenceTx(ctx, tx, hub, state.MonitorID, assignment, mode)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if ev.Evidence != operativeEvidenceComplete {
-			return nil, nil
+			return nil, false, nil
 		}
 		application, err := r.operativeApplicationTx(ctx, tx, hub, barrier.BarrierID, members[i], mode)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if application == nil {
-			return nil, nil
+			return nil, false, nil
 		}
 		in.Sources = append(in.Sources, domain.DeliveryCutoverSource{
 			ProbeID:                  members[i].ProbeID,
@@ -680,12 +690,27 @@ func (r *OperativeDeliveryStore) operativeCutoverEvidenceTx(ctx context.Context,
 			Assignment:               ev.Assignment,
 			ModeApplication:          application,
 		})
+		if ev.Lapsed {
+			lapsed = append(lapsed, len(in.Sources)-1)
+		}
 	}
 	decision, err := evaluator.EvaluateCutover(in)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return &decision, nil
+	if decision.State == domain.DeliveryCutoverEvidenceComplete || len(lapsed) == 0 {
+		return &decision, false, nil
+	}
+	// Re-evaluate a copy with only the lapsed sources counted as capable.
+	in.Sources = append([]domain.DeliveryCutoverSource(nil), in.Sources...)
+	for _, i := range lapsed {
+		in.Sources[i].ModeApplicationSupported = true
+	}
+	held, err := evaluator.EvaluateCutover(in)
+	if err != nil {
+		return nil, false, err
+	}
+	return &decision, held.State == domain.DeliveryCutoverEvidenceComplete, nil
 }
 
 // activeTx keeps one active barrier honest: any drift or opt-in disable stops
@@ -715,9 +740,15 @@ func (r *OperativeDeliveryStore) activeTx(ctx context.Context, tx bun.Tx, state 
 	if !enabled {
 		return r.enterDrainingTx(state, now, "feature_disabled")
 	}
-	decision, err := r.operativeCutoverEvidenceTx(ctx, tx, hub, barrier, members, state, evaluator, now)
+	decision, held, err := r.operativeCutoverEvidenceLapseTx(ctx, tx, hub, barrier, members, state, evaluator, now)
 	if err != nil {
 		return false, err
+	}
+	if held {
+		// A source session only lapsed (hub restart, reconnect before
+		// re-attestation): keep the barrier and its open incident, admit no
+		// paging this pass, and drain only if the lapse outlives the grace.
+		return false, nil
 	}
 	if decision == nil || decision.State != domain.DeliveryCutoverEvidenceComplete {
 		return r.enterDrainingTx(state, now, "cutover_evidence_incomplete")
