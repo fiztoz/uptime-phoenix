@@ -18,9 +18,9 @@ import (
 )
 
 // ClaimAggregateDelivery reserves one due genuine aggregate delivery under an
-// independent DB-clock lease. Expired leases are reclaimable with a new fence
-// and incremented attempt. No provider I/O occurs here; the returned work comes
-// from stored rows, never a caller snapshot.
+// independent DB-clock lease. Expired claims are reconciled against admitted
+// provider work before reclaim: expiry is not permission to repeat unknown I/O.
+// No provider I/O occurs here; returned work comes from stored rows.
 func (r *OperativeDeliveryStore) ClaimAggregateDelivery(ctx context.Context, owner string, ttl time.Duration) (*domain.QueuedDelivery, error) {
 	if r == nil || r.db == nil || !validStandbyUUID(owner) || ttl < time.Second || ttl > 15*time.Minute {
 		return nil, domain.ErrValidation
@@ -37,7 +37,10 @@ func (r *OperativeDeliveryStore) ClaimAggregateDelivery(ctx context.Context, own
 			Where("(status IN (?, ?) AND available_at <= ?) OR (status = ? AND lease_until <= ?)",
 				domain.DeliveryStatusPending, domain.DeliveryStatusRetrying, now, domain.DeliveryStatusLeased, now).
 			Where("attempt < ?", int64(math.MaxInt64)).
-			OrderExpr("available_at ASC, created_at ASC, delivery_id ASC").Limit(1)
+			Where(`NOT EXISTS (SELECT 1 FROM operative_provider_attempts AS pa
+				WHERE pa.delivery_id = ?TableAlias.delivery_id AND pa.scope = 'aggregate'
+				AND pa.state = 'in_flight' AND pa.budget_until > ?)`, now.Add(-operativeAttemptSettleGrace).UTC()).
+			OrderExpr("available_at ASC, created_at ASC, delivery_id ASC").Limit(20)
 		if tx.Dialect().Name() == dialect.MySQL {
 			q = q.For("UPDATE SKIP LOCKED")
 		}
@@ -49,25 +52,34 @@ func (r *OperativeDeliveryStore) ClaimAggregateDelivery(ctx context.Context, own
 		if len(rows) == 0 {
 			return nil
 		}
-		row := rows[0]
-		fence := rand.Text()
-		until := now.Add(ttl)
-		if _, err := tx.NewUpdate().Model((*operativeAggregateDeliveryModel)(nil)).
-			Set("status = ?", domain.DeliveryStatusLeased).
-			Set("attempt = attempt + 1").
-			Set("lease_owner = ?", owner).
-			Set("lease_epoch = lease_epoch + 1").
-			Set("lease_token = ?", fence).
-			Set("leased_at = ?", now.UTC().Truncate(time.Microsecond)).
-			Set("lease_until = ?", until.UTC().Truncate(time.Microsecond)).
-			Where("delivery_id = ? AND attempt = ?", row.DeliveryID, row.Attempt).Exec(ctx); err != nil {
-			return err
+		for _, row := range rows {
+			settled, err := reconcileAggregateDeliveryTx(ctx, tx, row, now)
+			if err != nil {
+				return err
+			}
+			if settled {
+				continue
+			}
+			fence := rand.Text()
+			until := now.Add(ttl)
+			if _, err := tx.NewUpdate().Model((*operativeAggregateDeliveryModel)(nil)).
+				Set("status = ?", domain.DeliveryStatusLeased).
+				Set("attempt = attempt + 1").
+				Set("lease_owner = ?", owner).
+				Set("lease_epoch = lease_epoch + 1").
+				Set("lease_token = ?", fence).
+				Set("leased_at = ?", now.UTC().Truncate(time.Microsecond)).
+				Set("lease_until = ?", until.UTC().Truncate(time.Microsecond)).
+				Where("delivery_id = ? AND attempt = ?", row.DeliveryID, row.Attempt).Exec(ctx); err != nil {
+				return err
+			}
+			queued, err := operativeQueuedDeliveryTx(ctx, tx, row.DeliveryID)
+			if err != nil {
+				return err
+			}
+			out = &queued
+			return nil
 		}
-		queued, err := operativeQueuedDeliveryTx(ctx, tx, row.DeliveryID)
-		if err != nil {
-			return err
-		}
-		out = &queued
 		return nil
 	})
 	if err != nil {

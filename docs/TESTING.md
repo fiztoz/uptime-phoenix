@@ -211,6 +211,27 @@ Require all **18 scenario leaves** (9 SQLite, 9 MariaDB), with no engine skips.
 The 9 MariaDB leaves are in `REQUIRED` in `scripts/m6_dual_engine_gate.py`, so the
 `mariadb-contract` CI job fails if any of them is skipped or missing.
 
+### Aggregate delivery restart recovery (#213)
+
+Use a disposable MariaDB database (repository fixtures delete data), never a
+production DSN. The same tests exercise SQLite and MariaDB:
+
+```bash
+: "${TEST_MARIADB_DSN:?Set a disposable MariaDB test database}"
+go test -race -count=1 -json ./internal/adapters/repository \
+  -run 'TestOperativeAggregate(Restart|ReceiptLoss|BoundedRetry)$'
+```
+
+Require all ten `TestOperativeAggregateRestart/mariadb/*` cases, both
+`TestOperativeAggregateReceiptLoss/mariadb/*` cases and
+`TestOperativeAggregateBoundedRetry/mariadb` to pass, with zero MariaDB skips. The dual-engine gate requires these exact leaves. They cover unknown and
+successful provider outcomes with a lost queue receipt, pre-I/O retry controls,
+explicit bounded retry, drained work, recovery after an unknown DOWN, live
+budgets, concurrent cold consumers, unrelated channel progress and stale fences.
+The journal deliberately retains unfinished grants; `provider_outcome_unknown`
+is a terminal queue decision, not a fabricated provider completion. This is
+persistence-boundary fault injection, not the four-probe process-kill UAT run.
+
 ### M8 Docker install (migration 089)
 
 See [Docker install](multi-region/M8_DOCKER_INSTALL.md).

@@ -159,6 +159,63 @@ clamped to claim time and must not be interpreted as exact external I/O timing.
 Contradictory terminal outcomes are refused. There is no exactly-once external
 notification claim: provider acceptance and local persistence are separate.
 
+### Aggregate queue recovery after lost completion (#213)
+
+An expired queue lease is not permission to repeat an admitted provider request.
+Before incrementing the claim counter, the aggregate claim transaction examines
+its durable journal and intent under the database lock:
+
+- A grant still inside its budget plus settle grace is skipped without blocking
+  other deliveries.
+- A persisted `succeeded` grant settles a lost queue receipt as `sent`, without
+  sending again.
+- An expired unfinished grant, or an `ambiguous` grant without a committed retry
+  decision, terminates the queue row as `failed / provider_outcome_unknown`.
+  This is a queue decision, not proof that the provider rejected the request.
+- Only explicit, still-current `retrying` work retains the existing five-attempt
+  bound. A claim with no grant, or a proven `not_started` grant, is reclaimable.
+- Obsolete retries (drain, recovery or a superseding transition) are retired;
+  their already-finalized intent is never rewritten. Recovery work remains a
+  separate delivery and can proceed past the retired DOWN.
+
+Recovery never rewrites a crashed journal row to `ambiguous`, invents
+`finished_at`, or fabricates success. Its `outcome_at` is the DB observation of
+queue reconciliation. Existing late exact journal completion remains valid,
+while a stale queue receipt cannot rearm the retired delivery. No schema,
+source hold, final provider authorization or regional retry contract changes.
+
+The regression tests simulate both crash/lost-write boundaries through cold
+stores and consumers, including competing consumers and another channel's work.
+They do not reproduce the original four-remote-probe SIGKILL campaign. A drain
+caused by missing session/application evidence still closes administratively;
+this fix does not turn such a drain into a health recovery or weaken its fences.
+
+**Verification, 2026-11-04.** The final
+`go test -race -count=3 -json -timeout 5m ./internal/adapters/repository -run
+'TestOperativeAggregate(Restart|ReceiptLoss|BoundedRetry)$'` run passed all 13
+required cases on each engine, three times: 99 named passes including parent
+nodes, 45 MariaDB named passes, zero failures/skips. Build, CGO-free build,
+`go vet ./internal/...`, gofmt and whitespace checks passed. `golangci-lint`
+was unavailable; vet/gofmt were the documented fallback. The dual-engine/parser
+regressions passed 46 tests and repository-shard regressions passed 17.
+
+Earlier attempts are not counted as passes: host/container clock differences
+exposed pre-activation observation and pre-lease fake-return assumptions in the
+new fixtures; the fixtures now wait for the real persisted boundaries without
+weakening production checks. One earlier repeated run also had a single
+unexplained authorization refusal; it did not recur in 20 targeted diagnostic
+runs or the final full focused run. Temporary diagnostics were removed.
+
+Broader verification is **not green**: an earlier native full race run reached
+its repository package's 40-minute timeout during unrelated migration setup
+(23 packages passed; 10,759 named passes; 598 skips, including 577 MariaDB skips).
+The broader operative dual-engine run had 12 failing MariaDB leaves; five
+`TestOperativeCutoverContract` failures were reproduced on unchanged `021f005`
+before the modified claim code is reached. The other seven were not separately
+baseline-verified. Neither partial run establishes whole-backend acceptance.
+Task-owned temporary MariaDB containers were removed. No live deployment,
+provider endpoint, source hold or original UAT campaign was changed.
+
 The local final grant also proves its stored availability deadline against the
 DB clock, so a caller clock ahead cannot authorize future queued work.
 Migration 082 conservatively observes already-attempted legacy local availability
