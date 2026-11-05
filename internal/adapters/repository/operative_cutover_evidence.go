@@ -36,10 +36,14 @@ type operativeMemberEvidence struct {
 	StreamID           string
 	Mode               domain.AlertDelivery
 	Capable            bool
-	Acknowledged       *domain.ProbeActiveConfig
-	Assignment         *domain.AcknowledgedAssignmentDelivery
-	RegionalFact       *domain.ProbeDeliveryModeApplication
-	LocalGraph         *domain.LocalProbeConfigDefinition
+	// Lapsed marks a source whose capability is still recorded but whose
+	// session only lapsed (lease expired within operativeSessionLapseGrace) or
+	// reconnected without re-attesting yet. Never authority to send.
+	Lapsed       bool
+	Acknowledged *domain.ProbeActiveConfig
+	Assignment   *domain.AcknowledgedAssignmentDelivery
+	RegionalFact *domain.ProbeDeliveryModeApplication
+	LocalGraph   *domain.LocalProbeConfigDefinition
 }
 
 func (e operativeMemberEvidence) tuple(monitorID int64) domain.ProbeDeliveryModeApplication {
@@ -161,6 +165,13 @@ func (r *OperativeDeliveryStore) readOperativeMemberEvidenceTx(ctx context.Conte
 			return out, err
 		}
 		out.Capable = capability.ConnectionGeneration == lease.Generation && lease.LeaseUntil > now.Unix()
+		if !out.Capable {
+			lastContact, err := readProbeSessionLastContact(ctx, tx, assignment.ProbeID)
+			if err != nil {
+				return out, err
+			}
+			out.Lapsed = operativeSessionLapsed(capability.ConnectionGeneration, lease, lastContact, now)
+		}
 	}
 	out.Acknowledged = &domain.ProbeActiveConfig{ProbeConfigTarget: document.ProbeConfigTarget, Revision: active.Revision, SHA256: active.SHA256, AppliedAt: active.AppliedAt, AssignmentCount: active.AssignmentCount}
 	out.Assignment = &domain.AcknowledgedAssignmentDelivery{MonitorID: monitorID, Generation: resolved.Generation, AssignmentRevision: resolved.AssignmentRevision, AlertDelivery: resolved.DesiredAlertDelivery}
@@ -454,4 +465,38 @@ func operativeBlockTx(state *operativeStateModel, now time.Time, reason string) 
 	state.Reason = reason
 	state.UpdatedAt = now
 	return nil
+}
+
+// operativeSessionLapsed reports whether a source whose capability was attested
+// at attested is only between sessions: its session is at the attested
+// generation or a later one the handshake has not re-attested yet (every
+// reconnect attempt takes a generation, including dials that fail while the
+// probe is down), and that session ended no longer than
+// operativeSessionLapseGrace ago. A session the hub released on disconnect has
+// no lease left (lease_until 0), so it ended at its last contact; one that
+// never made contact is not a lapse.
+func operativeSessionLapsed(attested int64, lease probeSessionModel, lastContact int64, now time.Time) bool {
+	if attested <= 0 || lease.Generation < attested {
+		return false
+	}
+	ended := lease.LeaseUntil
+	if ended <= 0 {
+		if lastContact <= 0 {
+			return false
+		}
+		ended = lastContact
+	}
+	return now.Unix()-ended <= int64(operativeSessionLapseGrace/time.Second)
+}
+
+// readProbeSessionLastContact reads the session's last contact (0 if none).
+func readProbeSessionLastContact(ctx context.Context, tx bun.Tx, probeID string) (int64, error) {
+	var last sql.NullInt64
+	if err := tx.NewRaw("SELECT last_contact_at FROM probe_sessions WHERE probe_id = ?", probeID).Scan(ctx, &last); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return last.Int64, nil
 }
