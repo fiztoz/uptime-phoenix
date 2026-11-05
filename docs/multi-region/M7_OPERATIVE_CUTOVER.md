@@ -232,7 +232,7 @@ weakening production checks. One earlier repeated run also had a single
 unexplained authorization refusal; it did not recur in 20 targeted diagnostic
 runs or the final full focused run. Temporary diagnostics were removed.
 
-Broader verification is **not green**: an earlier native full race run reached
+Earlier local broader verification was **not green**: the native full race run reached
 its repository package's 40-minute timeout during unrelated migration setup
 (23 packages passed; 10,759 named passes; 598 skips, including 577 MariaDB skips).
 The broader operative dual-engine run had 12 failing MariaDB leaves; five
@@ -240,7 +240,22 @@ The broader operative dual-engine run had 12 failing MariaDB leaves; five
 before the modified claim code is reached. The other seven were not separately
 baseline-verified. Neither partial run establishes whole-backend acceptance.
 Task-owned temporary MariaDB containers were removed. No live deployment,
-provider endpoint, source hold or original UAT campaign was changed.
+provider endpoint, source hold or original UAT campaign was changed by those
+local verification runs.
+
+**Subsequent hosted and cloud verification.** PR #214's final head passed all
+required hosted CI checks, including all five dual-engine repository shards and
+the aggregate MariaDB coverage gate; merged `c55190d` also passed main-branch CI.
+The separate [2026-11-04 four-region AWS campaign](M7_ISSUE213_AWS_VERIFICATION_2026-11-04.md)
+then verified original-delivery terminality/no replay, honest journal history and
+later-monitor ACTIVE/DOWN/UP progress. It reproduced a remaining incident-continuity
+failure: restart-related evidence loss administratively drained the original
+incident, and a replacement barrier opened another incident and sent a second
+DOWN for the same uninterrupted outage. The eventual UP belonged only to that
+replacement incident. #216 addresses it with the bounded
+[source session lapse hold](#source-session-lapse-while-active-213), which does
+not weaken session, source-hold or final provider fences. All task-owned cloud resources
+were removed; scope and timing limits are recorded in the linked report.
 
 The local final grant also proves its stored availability deadline against the
 DB clock, so a caller clock ahead cannot authorize future queued work.
