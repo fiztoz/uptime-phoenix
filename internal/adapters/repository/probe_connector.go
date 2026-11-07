@@ -196,8 +196,23 @@ func (s *ProbeConnectorStore) SetConnectorConnected(ctx context.Context, lease d
 			return ports.ErrConflict
 		}
 		row.Connected = connected
-		_, err = tx.NewUpdate().Model(&row).WherePK().Exec(ctx)
-		return err
+		if _, err := tx.NewUpdate().Model(&row).WherePK().Exec(ctx); err != nil {
+			return err
+		}
+		if connected {
+			at, err := replayDatabaseTime(ctx, tx)
+			if err != nil {
+				return err
+			}
+			at = at.UTC().Truncate(time.Microsecond)
+			if _, err := tx.NewUpdate().Model((*probeCommandRow)(nil)).
+				Set("next_attempt_at = ?", at).
+				Where("probe_id = ? AND remote_confirmed = ? AND status = ? AND next_attempt_at > ?", lease.ProbeID, false, "pending", at).
+				Exec(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 

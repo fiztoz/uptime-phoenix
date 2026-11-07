@@ -169,8 +169,12 @@ func TestOperativeAggregateRestart(t *testing.T) {
 						if err := o.p.f.db.NewSelect().Table("operative_provider_attempts").Column("state", "finished_at").Where("attempt_id=?", attemptID).Scan(ctx, &attempt); err != nil {
 							t.Fatal(err)
 						}
-						if attempt.State != "in_flight" || attempt.FinishedAt != nil {
-							t.Fatalf("restart fabricated provider completion: %+v", attempt)
+						if outcome == "live_budget" {
+							if attempt.State != "in_flight" || attempt.FinishedAt != nil {
+								t.Fatalf("live budget attempt prematurely settled: %+v", attempt)
+							}
+						} else if attempt.State != string(domain.ProviderAttemptAmbiguous) || attempt.FinishedAt == nil {
+							t.Fatalf("reconciled crash attempt stayed in_flight: %+v", attempt)
 						}
 					}
 					if outcome != "live_budget" {

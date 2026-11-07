@@ -116,17 +116,22 @@ you still own the local gate for work-in-progress and offline verification.
 ### Echo v4 client-IP security
 
 Echo 4.16.3 fixes [GHSA-246p-cpwv-v3jq](https://github.com/labstack/echo/security/advisories/GHSA-246p-cpwv-v3jq)
-(CVE-2026-118653) and [GHSA-99jh-6h7p-pp36](https://github.com/labstack/echo/security/advisories/GHSA-99jh-6h7p-pp36)
-(CVE-2026-118651): an unset `IPExtractor` now uses the socket peer, and the proxy
+(CVE-2026-118653, `GO-2026-6872`) and [GHSA-99jh-6h7p-pp36](https://github.com/labstack/echo/security/advisories/GHSA-99jh-6h7p-pp36)
+(CVE-2026-118651, `GO-2026-6875`): an unset `IPExtractor` now uses the socket peer, and the proxy
 middleware always derives `X-Real-IP` itself. Phoenix still configures an explicit
 extractor on both constructors, so these fixes are a second layer, not the
-primary control. The OSV exceptions that covered the unpatched releases were
-removed with the upgrade. CI's ordinary backend tests execute these regressions
-before the OSV step:
+primary control. Because `vuln.go.dev` published `GO-2026-6872` and `GO-2026-6875`
+on 2026-11-05 with `Fixed in: N/A` and no symbol list for `github.com/labstack/echo/v4`,
+`osv-scanner.toml` carries dated exceptions (until **2026-12-05**) that both
+`osv-scanner` and `scripts/govulncheck_gate.py` enforce (`govulncheck_gate.py`
+suppresses only unfixed symbol findings covered by an unexpired `osv-scanner.toml`
+entry and fails closed on any fixable or unlisted finding). CI's ordinary backend
+tests execute these regressions before the scanner steps:
 
 ```bash
 go test -race -count=1 ./internal/adapters/http ./internal/adapters/probe ./internal/bootstrap \
   -run '^(TestEcho|TestEdgeHTTPIPExtractorSecurity|TestTrustedProxy)'
+python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --govulncheck govulncheck ./...
 osv-scanner scan source --config osv-scanner.toml --lockfile go.mod --lockfile web/bun.lock
 ```
 
@@ -240,16 +245,16 @@ recovery, and a replacement incident sent another DOWN for the same outage.
 A green queue-regression or CI gate does not establish incident continuity
 across a restart-driven evidence drain; #216 addresses that failure below.
 
-`TestOperativeSessionLapse` (#213) runs on both engines: an ACTIVE barrier
+`TestOperativeSessionLapse` (#213, #221, #222) runs on both engines: an ACTIVE barrier
 holds through an expired lease, a session the hub released on disconnect,
-failed reconnect attempts, or a not-yet-re-attested reconnect, and drains past
-`operativeSessionLapseGrace`, on a released session with no recorded contact,
-or on withdrawn capability. The dual-engine gate requires all nine
-`TestOperativeSessionLapse/mariadb/*` leaves:
+failed reconnect attempts, or a not-yet-re-attested reconnect within grace, and drains past
+`operativeSessionLapseGrace` (including when a newer connected generation never re-attests capability), on a released session with no recorded contact,
+or on withdrawn capability, while reconnect resets backed-off `delivery.resume` commands so a draining barrier releases promptly. The dual-engine gate requires all eleven
+`TestOperativeSessionLapse/mariadb/*` leaves and all five `TestOperativeCutoverDeadline/mariadb/*` leaves (including `StalledPreparingDrains` for #217):
 
 ```bash
 : "${TEST_MARIADB_DSN:?Set a disposable MariaDB test database}"
-go test -race -count=1 ./internal/adapters/repository -run 'TestOperativeSessionLapse$'
+go test -race -count=1 ./internal/adapters/repository -run 'TestOperative(SessionLapse|CutoverDeadline)$'
 ```
 
 ### M8 Docker install (migration 089)
@@ -295,7 +300,7 @@ go test -race -count=1 ./internal/bootstrap -run 'HostAction|AuthorizedProbeDisp
 python3 -B -m unittest scripts/test_m8_aws_acceptance.py
 ```
 
-The full repository package now needs `-timeout 2400s` (CI already uses it).
+The full unsharded repository package now needs `-timeout 3600s` (or run sharded via `scripts/repository_test_shards.py --count 5`, as CI does with `-timeout 40m` per shard).
 
 **M8 acceptance matrix (AWS, operator-approved only).**
 - **Run.** `python3 -B scripts/m8_aws_matrix.py <run_dir> <run_id> <arm64_ip> <amd64_ip>`
@@ -1022,8 +1027,8 @@ trust refusal. No real-host installer, enrollment or config activation is proved
 The expensive `internal/adapters/repository` package exceeded the former single
 40-minute CI test-binary budget. CI now discovers its **compiled** top-level test,
 example and fuzz-seed names, sorts them, and distributes whole parents round-robin
-across four runners. Every selected parent runs **all** its subtests with `-race`,
-`-count=1` and the unchanged `-timeout 40m`. Do not split assertions or skip slow
+across five runners (`--count 5`, the script default). Every selected parent runs **all** its subtests with `-race`,
+`-count=1` and the unchanged `-timeout 40m` per shard (while unsharded full-suite runs in `make gate-full` and `scripts/m6_dual_engine_gate.py` use `-timeout 3600s`; avoid running an unsharded `Operative|Cutover|AggregateStandby|AlertDeliveryGate|Delivery|Preparation|Probe` mega-regex with `-timeout 40m`, as it selects 92 of 236 top-level parents and can hit the 40m ceiling during `TestLocalDeliveryConfigContract` (#224)). Do not split assertions or skip slow
 cases to meet the budget. The `backend` check still builds, vets, lints, scans
 vulnerabilities and runs every other Go package, including repository subpackages.
 Shard 0 also runs all current/future repository subpackages with the disposable
@@ -2652,11 +2657,25 @@ Run `python3 -B scripts/m6_dual_engine_gate.py` for MariaDB 11, or add
 `--mariadb-image mariadb:12.3` for the operator's engine. It requires a local
 Unix Docker socket, the selected cached image, Go 1.27.3 toolchain and modules. The gate
 creates and deletes **its own** localhost-bound MariaDB test container, runs
-`go test -race -count=1 -json -timeout 2400s -p 4 ./...`, and refuses missing
+`go test -race -count=1 -json -timeout 3600s -p 4 ./...`, and refuses missing
 MariaDB passes or unrecognized skips. It never uses the caller's DB DSN or
 provider credentials. See [executed evidence and limits](multi-region/M6_VALIDATION_REPORT_2026-10-04.md).
 This broad regression gate is **not** a row-by-row section-13 matrix run,
 production-sized upgrade rehearsal or canary.
+
+### External UI and schema recheck notes (#193–#198, #223)
+
+When validating #193–#198 in an external long-run stack:
+- **#194 (proportional overall timeline strip):** `RecentCheckBar.svelte` exposes `data-status`, `data-start`, `data-duration-ms` (overall mode), and `data-weight` on each segment `<button>` (and `data-duration-ms` / `data-weight` on `[data-testid="recent-check-not-monitored"]`), so browser assertions can compare DOM `data-duration-ms`, `data-weight`, and rendered bounding-box width ratios directly.
+- **#195 (full 24h status-page and monitor-detail charts):** configure a public status page (or seed 24 hours of heartbeats) when verifying the 24h public status-page chart in a shorter soak run; the SQL bucket aggregation is covered across 24h windows on both SQLite and MariaDB by `TestHeartbeatChartWindowMatrix` and `TestMonitorPublicChart_CoversFull24hWindow`.
+- **#196 (overall projection lag & dirty buckets):** `monitor_health_history` uses `started_at` and `ended_at` (`DATETIME(6)`), and `probe_dirty_buckets` uses `bucket` (`DATETIME(6)`), **not** `bucket_start`. Example lag/queue check:
+  ```sql
+  SELECT resolution, COUNT(*) AS pending_buckets, MIN(bucket) AS oldest_dirty_bucket
+  FROM probe_dirty_buckets GROUP BY resolution;
+  SELECT monitor_id, MAX(started_at) AS latest_interval_start, MAX(ended_at) AS latest_interval_end
+  FROM monitor_health_history GROUP BY monitor_id;
+  ```
+- **#198 (Insights outage count for remote-only monitors):** remote-only monitors (`m13`, `m14`) have zero rows in the local `heartbeats` table; `InsightsService` (`applyOverallProjection` in `internal/core/services/insights_projection.go`) computes their `outage_count` from `monitor_health_history` by grouping contiguous `status IN (0, 2)` (`DOWN`/`PENDING`) intervals and counting each contiguous run once when it reaches `status = 0` (`DOWN`) with run start in `[from, to)`. Query `monitor_health_history` (`started_at`, `ended_at`, `status`) rather than `heartbeats` to establish the expected baseline for remote-only monitors.
 
 ## M6 published-release to working-tree migration rehearsal
 

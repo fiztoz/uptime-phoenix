@@ -173,6 +173,8 @@
             aria-label={m.monitor_detail_not_monitored()}
             title={m.monitor_detail_not_monitored()}
             data-testid="recent-check-not-monitored"
+            data-duration-ms={layout.leadDurationMs}
+            data-weight={layout.lead}
           ></div>
         {/if}
         {#each segments as hb, index (segmentKeys[index])}
@@ -180,6 +182,10 @@
           <button
             type="button"
             style:flex-grow={layout.weights[index]}
+            data-status={hb.status}
+            data-start={hb.time}
+            data-duration-ms={overall ? layout.durationsMs[index] : undefined}
+            data-weight={layout.weights[index]}
             class="h-full {overall
               ? 'min-w-[2px]'
               : 'min-w-0'} shrink basis-0 rounded-[2px] {color(

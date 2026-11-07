@@ -259,6 +259,70 @@ func TestEdgeDeliveryCutoverOperativeLifecycle(t *testing.T) {
 	}
 }
 
+// TestEdgeDeliveryCutoverResumedHoldEnqueuesSuppressedDown verifies #220 through
+// EdgeRecordingService + Store: when an availability incident opens under an
+// aggregate hold (suppressing the initial DOWN outbox row), the first DOWN sample
+// after delivery.resume enqueues the unsent initial DOWN even when ResendInterval == 0.
+func TestEdgeDeliveryCutoverResumedHoldEnqueuesSuppressedDown(t *testing.T) {
+	h := newCutoverHarness(t, domain.AlertDeliveryAggregate)
+	preparation := h.prepare(uuid.NewString(), domain.AlertDeliveryAggregate)
+	barrier := uuid.NewString()
+
+	requireCutover(t, h.execute(h.command(domain.DeliveryQuiesceKind, uuid.NewString(), barrier, preparation, domain.AlertDeliveryAggregate)), "applied", domain.DeliveryQuiescedCode)
+	requireCutover(t, h.execute(h.command(domain.DeliveryApplyKind, uuid.NewString(), barrier, preparation, domain.AlertDeliveryAggregate)), "applied", domain.DeliveryAppliedCode)
+
+	assignment := domain.EdgeResolvedAssignment{
+		Monitor:            &domain.Monitor{ID: 17, Name: "M13 Aggregate", Type: "http", Active: true, MaxRetries: 0, ResendInterval: 0},
+		Generation:         1,
+		AssignmentRevision: h.setID,
+		NotificationLinks:  []domain.MonitorNotification{{MonitorID: 17, NotificationID: 10}},
+	}
+	cfg := &domain.EdgeResolvedConfig{
+		Metadata:    h.active.Snapshot.ProbeConfigMetadata,
+		Assignments: []domain.EdgeResolvedAssignment{assignment},
+		Channels:    map[int64]domain.EdgeResolvedChannel{10: {Notification: &domain.Notification{ID: 10, Name: "Webhook", Type: "webhook", Active: true}, Version: 1}},
+		Maintenance: map[int64]*domain.MaintenanceWindow{},
+	}
+	rec := services.NewEdgeRecordingService(h.store, h.store, nil)
+	t0 := time.Now().UTC().Truncate(time.Microsecond)
+
+	// First DOWN under aggregate hold opens the incident, but the hold filters the outbox row.
+	if _, err := rec.Record(t.Context(), cfg, assignment, ports.CheckResult{
+		Status: domain.StatusDown, Message: "down while held", ConfigRevision: cfg.Metadata.Revision, AssignmentGeneration: 1,
+	}, t0); err != nil {
+		t.Fatalf("record held DOWN: %v", err)
+	}
+	if n := h.outboxCount(domain.DeliveryEventStatusChange); n != 0 {
+		t.Fatalf("availability intent enqueued under aggregate hold: %d", n)
+	}
+	if n := certCount(t, h.store, "SELECT COUNT(*) FROM edge_alerts WHERE scope = 'regional' AND status = 'firing'"); n != 1 {
+		t.Fatalf("expected 1 firing regional incident, got %d", n)
+	}
+
+	// Drain releases the hold via delivery.resume.
+	requireCutover(t, h.execute(h.command(domain.DeliveryResumeKind, uuid.NewString(), barrier, preparation, domain.AlertDeliveryAggregate)), "applied", domain.DeliveryResumedCode)
+
+	// Next DOWN after resume must enqueue the unsent initial DOWN despite ResendInterval == 0.
+	if _, err := rec.Record(t.Context(), cfg, assignment, ports.CheckResult{
+		Status: domain.StatusDown, Message: "still down after resume", ConfigRevision: cfg.Metadata.Revision, AssignmentGeneration: 1,
+	}, t0.Add(20*time.Second)); err != nil {
+		t.Fatalf("record post-resume DOWN: %v", err)
+	}
+	if n := h.outboxCount(domain.DeliveryEventStatusChange); n != 1 {
+		t.Fatalf("expected 1 availability intent after resume, got %d", n)
+	}
+
+	// Subsequent DOWN samples on the same incident with ResendInterval == 0 must NOT re-enqueue.
+	if _, err := rec.Record(t.Context(), cfg, assignment, ports.CheckResult{
+		Status: domain.StatusDown, Message: "still down later", ConfigRevision: cfg.Metadata.Revision, AssignmentGeneration: 1,
+	}, t0.Add(40*time.Second)); err != nil {
+		t.Fatalf("record third DOWN: %v", err)
+	}
+	if n := h.outboxCount(domain.DeliveryEventStatusChange); n != 1 {
+		t.Fatalf("expected no duplicate DOWN intent with ResendInterval == 0, got %d", n)
+	}
+}
+
 // TestEdgeDeliveryCutoverDuplicateColdAndNewCommand proves exact receipt
 // recovery (including across a cold reopen) and that a new immutable command
 // reports already_applied without rewriting the original outcome.

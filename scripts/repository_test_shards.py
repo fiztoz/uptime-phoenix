@@ -177,7 +177,7 @@ def run_shard(args):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("run", "verify", "plan"))
-    parser.add_argument("--count", type=int, default=4)
+    parser.add_argument("--count", type=int, default=5)
     parser.add_argument("--index", type=int, default=0)
     parser.add_argument("--source-sha", default="")
     parser.add_argument("--report", type=Path)

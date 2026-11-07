@@ -12,9 +12,9 @@ import (
 
 // reconcileAggregateDeliveryTx runs under the claim transaction's row lock and
 // DB clock, only for due retries or expired claims with no still-running grant.
-// A lost delivery receipt is not permission to repeat provider I/O. Preserve the
-// journal (including unfinished grants) and record the queue's recovery decision
-// at the actual observation time, never a fabricated provider completion time.
+// A lost delivery receipt is not permission to repeat provider I/O. Settle
+// expired in_flight grants as ambiguous at the actual observation time, and
+// never fabricate success.
 func reconcileAggregateDeliveryTx(ctx context.Context, tx bun.Tx, row operativeAggregateDeliveryModel, now time.Time) (bool, error) {
 	var attempts []operativeAttemptModel
 	if err := tx.NewSelect().Model(&attempts).
@@ -84,6 +84,13 @@ func reconcileAggregateDeliveryTx(ctx context.Context, tx bun.Tx, row operativeA
 		return false, nil
 	}
 	at := now.UTC().Truncate(time.Microsecond)
+	if unknown {
+		if _, err := tx.NewUpdate().Model((*operativeAttemptModel)(nil)).
+			Set("state = ?", domain.ProviderAttemptAmbiguous).Set("finished_at = ?", at).
+			Where("delivery_id = ? AND scope = ? AND state = ?", row.DeliveryID, "aggregate", domain.ProviderAttemptInFlight).Exec(ctx); err != nil {
+			return false, err
+		}
+	}
 	if _, err := tx.NewUpdate().Model((*operativeAggregateDeliveryModel)(nil)).
 		Set("status = ?", status).Set("error_code = ?", code).Set("outcome_at = ?", at).
 		Set("lease_until = NULL").

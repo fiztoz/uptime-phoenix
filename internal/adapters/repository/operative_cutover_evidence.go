@@ -165,12 +165,22 @@ func (r *OperativeDeliveryStore) readOperativeMemberEvidenceTx(ctx context.Conte
 			return out, err
 		}
 		out.Capable = capability.ConnectionGeneration == lease.Generation && lease.LeaseUntil > now.Unix()
-		if !out.Capable {
+		if out.Capable {
+			if now.Sub(capability.AttestedAt) >= 30*time.Second {
+				at := now.UTC().Truncate(time.Microsecond)
+				if _, err := tx.NewUpdate().Model((*operativeCapabilityModel)(nil)).
+					Set("attested_at = ?", at).
+					Where("probe_id = ? AND capability = ? AND connection_generation = ?", assignment.ProbeID, domain.DeliveryCutoverCapability, capability.ConnectionGeneration).
+					Exec(ctx); err != nil {
+					return out, err
+				}
+			}
+		} else {
 			lastContact, err := readProbeSessionLastContact(ctx, tx, assignment.ProbeID)
 			if err != nil {
 				return out, err
 			}
-			out.Lapsed = operativeSessionLapsed(capability.ConnectionGeneration, lease, lastContact, now)
+			out.Lapsed = operativeSessionLapsed(capability, lease, lastContact, now)
 		}
 	}
 	out.Acknowledged = &domain.ProbeActiveConfig{ProbeConfigTarget: document.ProbeConfigTarget, Revision: active.Revision, SHA256: active.SHA256, AppliedAt: active.AppliedAt, AssignmentCount: active.AssignmentCount}
@@ -443,6 +453,20 @@ func operativeUnsettledAttemptsTx(ctx context.Context, tx bun.Tx, monitorID int6
 	return count > 0, nil
 }
 
+// operativeUnsettledAggregateAttemptsTx checks only aggregate-scope provider
+// grants during barrier drain (#222): retained regional sends (scope='source',
+// e.g. in both mode) must never stall aggregate barrier drain.
+func operativeUnsettledAggregateAttemptsTx(ctx context.Context, tx bun.Tx, monitorID int64, now time.Time) (bool, error) {
+	count, err := tx.NewSelect().Table("operative_provider_attempts").ColumnExpr("COUNT(*)").
+		Where("monitor_id = ? AND scope = ?", monitorID, "aggregate").
+		Where("state = ?", domain.ProviderAttemptInFlight).
+		Where("budget_until > ?", now.Add(-operativeAttemptSettleGrace).UTC()).Count(ctx)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // operativeAmbiguousAttemptsSinceTx counts this monitor's ambiguous provider
 // outcomes admitted at or after since: sends whose delivery is unknown, so a
 // regional page after resume may duplicate one.
@@ -468,15 +492,17 @@ func operativeBlockTx(state *operativeStateModel, now time.Time, reason string) 
 }
 
 // operativeSessionLapsed reports whether a source whose capability was attested
-// at attested is only between sessions: its session is at the attested
-// generation or a later one the handshake has not re-attested yet (every
-// reconnect attempt takes a generation, including dials that fail while the
-// probe is down), and that session ended no longer than
+// at capability.ConnectionGeneration is only between sessions: its session is
+// at the attested generation or a later one the handshake has not re-attested
+// yet (every reconnect attempt takes a generation, including dials that fail
+// while the probe is down), and the attested session ended no longer than
 // operativeSessionLapseGrace ago. A session the hub released on disconnect has
 // no lease left (lease_until 0), so it ended at its last contact; one that
-// never made contact is not a lapse.
-func operativeSessionLapsed(attested int64, lease probeSessionModel, lastContact int64, now time.Time) bool {
-	if attested <= 0 || lease.Generation < attested {
+// never made contact is not a lapse. A newer unattested generation's live
+// lease_until or health contact never extends the grace (#221).
+func operativeSessionLapsed(capability operativeCapabilityModel, lease probeSessionModel, lastContact int64, now time.Time) bool {
+	attested := capability.ConnectionGeneration
+	if attested <= 0 || lease.Generation < attested || capability.AttestedAt.IsZero() {
 		return false
 	}
 	ended := lease.LeaseUntil
@@ -485,6 +511,11 @@ func operativeSessionLapsed(attested int64, lease probeSessionModel, lastContact
 			return false
 		}
 		ended = lastContact
+	}
+	if lease.Generation > attested {
+		if attestedUnix := capability.AttestedAt.UTC().Unix(); ended > attestedUnix {
+			ended = attestedUnix
+		}
 	}
 	return now.Unix()-ended <= int64(operativeSessionLapseGrace/time.Second)
 }

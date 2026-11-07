@@ -212,8 +212,15 @@ func (r *OperativeDeliveryStore) SetOperativeSourceCapability(ctx context.Contex
 				Where("probe_id = ? AND capability = ?", probeID, domain.DeliveryCutoverCapability).Exec(ctx)
 			return finish(err)
 		}
+		at := now.UTC().Truncate(time.Microsecond)
+		if _, err := tx.NewUpdate().Model((*probeCommandRow)(nil)).
+			Set("next_attempt_at = ?", at).
+			Where("probe_id = ? AND remote_confirmed = ? AND status = ? AND next_attempt_at > ?", probeID, false, "pending", at).
+			Exec(ctx); err != nil {
+			return err
+		}
 		row := operativeCapabilityModel{ProbeID: probeID, Capability: domain.DeliveryCutoverCapability,
-			ConnectionGeneration: connectionGeneration, AttestedAt: now.UTC().Truncate(time.Microsecond)}
+			ConnectionGeneration: connectionGeneration, AttestedAt: at}
 		var stored operativeCapabilityModel
 		err = tx.NewSelect().Model(&stored).Where("probe_id = ?", probeID).Scan(ctx)
 		if err == nil {

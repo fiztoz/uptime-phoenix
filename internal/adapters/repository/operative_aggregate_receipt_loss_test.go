@@ -135,6 +135,13 @@ func TestOperativeAggregateReceiptLoss(t *testing.T) {
 					if statuses["sent"] != wantSent || statuses["failed"] != 2-wantSent || statuses["leased"] != 0 {
 						t.Fatalf("queue did not settle: %v", statuses)
 					}
+					inFlight, err := o.p.f.db.NewSelect().Table("operative_provider_attempts").Where("monitor_id = ? AND state = ?", o.p.monitor.ID, domain.ProviderAttemptInFlight).Count(t.Context())
+					if err != nil {
+						t.Fatal(err)
+					}
+					if inFlight != 0 {
+						t.Fatalf("reconciled crash left %d in_flight provider attempts", inFlight)
+					}
 					stale := domain.DeliveryClaim{DeliveryID: old.DeliveryID, ProbeID: old.PrimaryProbeID, Attempt: old.Attempt, LeaseToken: old.LeaseToken}
 					if grant, err := o.store.AuthorizeAggregateDelivery(t.Context(), stale, time.Second); grant != nil || !errors.Is(err, ports.ErrConflict) {
 						t.Fatal("stale authorization revived reconciled delivery", err)

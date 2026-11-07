@@ -182,6 +182,28 @@ func TestOperativeSessionLapse(t *testing.T) {
 					t.Fatalf("a source gone past the grace did not drain: %+v", got)
 				}
 			})
+			t.Run("ConnectedUnattestedBeyondGraceDrains", func(t *testing.T) {
+				// #221 (RC4-C01): a probe that reconnects on a new session
+				// generation and keeps renewing its live lease and last_contact_at
+				// without re-attesting capability must not hold the barrier past
+				// operativeSessionLapseGrace.
+				o := newOperativeRemoteFixture(t, engine)
+				o.activateRemote(t)
+				past := time.Now().UTC().Add(-10 * time.Minute)
+				if _, err := o.f.f.db.ExecContext(t.Context(), "UPDATE operative_source_capabilities SET attested_at=? WHERE probe_id=?", past, o.f.session.ProbeID); err != nil {
+					t.Fatal(err)
+				}
+				o.setSession(t, time.Now().Add(time.Minute), true)
+				if _, err := o.f.f.db.ExecContext(t.Context(), "UPDATE probe_sessions SET last_contact_at=? WHERE probe_id=?", time.Now().Unix(), o.f.session.ProbeID); err != nil {
+					t.Fatal(err)
+				}
+				if got := o.run(t, true); got.Phase != "draining" {
+					t.Fatalf("connected unattested session held barrier past grace: %+v", got)
+				}
+				if _, reason := o.phase(t); reason != "cutover_evidence_incomplete" {
+					t.Fatalf("drain reason = %q, want cutover_evidence_incomplete", reason)
+				}
+			})
 			t.Run("WithdrawnCapabilityDrains", func(t *testing.T) {
 				o := newOperativeRemoteFixture(t, engine)
 				o.activateRemote(t)
@@ -190,6 +212,46 @@ func TestOperativeSessionLapse(t *testing.T) {
 				}
 				if got := o.run(t, true); got.Phase != "draining" {
 					t.Fatalf("a withdrawn capability did not drain: %+v", got)
+				}
+			})
+			t.Run("ReconnectReleasesBackedOffDrain", func(t *testing.T) {
+				// #222: when a barrier enters draining (e.g. configuration_changed),
+				// a delivery.resume claimed on a dying connection backs off
+				// next_attempt_at, and a retained source-scope provider attempt may
+				// also be in_flight. Reconnecting and re-attesting capability must
+				// make delivery.resume claimable immediately and allow the drain to
+				// release without waiting on source-scope attempts.
+				o := newOperativeRemoteFixture(t, engine)
+				o.activateRemote(t)
+				if got := o.run(t, false); got.Phase != "draining" {
+					t.Fatalf("expected draining, got %+v", got)
+				}
+				if got := o.run(t, false); got.Phase != "draining" || o.openResumes(t) != 1 {
+					t.Fatalf("expected 1 open resume command, got %+v (%d)", got, o.openResumes(t))
+				}
+				// Claim delivery.resume on the dying session so next_attempt_at is pushed into the future.
+				commands := o.f.commands(t)
+				firstClaim, err := commands.ClaimCommand(t.Context(), o.f.session, time.Second, domain.ProbeCommandCapabilities{DeliveryCutover: true})
+				if err != nil || firstClaim == nil || firstClaim.Kind != domain.DeliveryResumeKind {
+					t.Fatalf("initial resume claim failed: %v %+v", err, firstClaim)
+				}
+				// Insert an in_flight source-scope provider attempt (as happens in both mode).
+				now := time.Now().UTC().Truncate(time.Microsecond)
+				if _, err := o.f.f.db.ExecContext(t.Context(),
+					`INSERT INTO operative_provider_attempts (attempt_id, scope, monitor_id, probe_id, delivery_id, claim_attempt, notification_id, budget_until, state, created_at) VALUES (?, 'source', 1, 'local', ?, 1, 1, ?, 'in_flight', ?)`,
+					probeRegistryID2, probeRegistryID3, now.Add(time.Minute), now); err != nil {
+					t.Fatal(err)
+				}
+				// Reconnect on a new generation and re-attest capability.
+				o.setSession(t, time.Now().Add(time.Minute), true)
+				o.f.session.ConnectionGeneration++
+				if err := o.store.SetOperativeSourceCapability(t.Context(), o.f.session, true); err != nil {
+					t.Fatal(err)
+				}
+				// Resume must be immediately claimable on the new session and release the barrier.
+				o.complete(t, domain.DeliveryResumeKind)
+				if got := o.run(t, true); got.Phase != "released" {
+					t.Fatalf("expected drain to release after reconnect (#222), got %+v", got)
 				}
 			})
 		})

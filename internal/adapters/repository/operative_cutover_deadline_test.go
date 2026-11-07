@@ -16,11 +16,12 @@ func (o operativeRemoteFixture) state(t *testing.T) operativeStateRow {
 	return row
 }
 
-// age moves the open barrier's creation and every member's resume receipt back
-// by d, as if that much DB-clock time had passed.
+// age moves the open barrier's creation, preparing start and every member's
+// resume receipt back by d, as if that much DB-clock time had passed.
 func (o operativeRemoteFixture) age(t *testing.T, d time.Duration) {
 	t.Helper()
 	for _, stmt := range []string{
+		"UPDATE operative_cutover_state SET created_at = ?",
 		"UPDATE operative_cutover_barriers SET created_at = ?",
 		"UPDATE operative_cutover_members SET resumed_at = ? WHERE resumed_at IS NOT NULL",
 	} {
@@ -68,11 +69,52 @@ func (o operativeRemoteFixture) drainToReleased(t *testing.T) {
 func TestOperativeCutoverDeadline(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
+			t.Run("StalledPreparingDrains", func(t *testing.T) { testCutoverDeadlinePreparing(t, engine) })
 			t.Run("StalledQuiesceDrains", func(t *testing.T) { testCutoverDeadlineQuiescing(t, engine) })
 			t.Run("StalledApplyReleasesQuiescedMember", func(t *testing.T) { testCutoverDeadlineApplying(t, engine) })
 			t.Run("ReentryBacksOff", func(t *testing.T) { testCutoverDeadlineBackoff(t, engine) })
 			t.Run("RefusalBlockDrains", func(t *testing.T) { testCutoverDeadlineRefusalBlock(t, engine) })
 		})
+	}
+}
+
+// A monitor stuck in preparing because a member probe never completes
+// preparation or capability attestation must also hit the activation deadline
+// and exponential re-entry backoff (#217).
+func testCutoverDeadlinePreparing(t *testing.T, engine string) {
+	o := newOperativeRemoteFixture(t, engine)
+	// Remote probe has not attested cutover capability, so preparing stays pending.
+	if got := o.run(t, true); got.Phase != "preparing" || got.Reason != "" {
+		t.Fatalf("within deadline preparing = %+v, want preparing", got)
+	}
+	if o.gates(t) != 0 {
+		t.Fatalf("expected 0 barriers before deadline, got %d", o.gates(t))
+	}
+	o.age(t, 6*time.Minute)
+	got := o.run(t, true)
+	if got.Phase != "released" || got.Reason != domain.CutoverReasonDeadlineExceeded {
+		t.Fatalf("stalled preparing past its deadline = %+v, want released %s", got, domain.CutoverReasonDeadlineExceeded)
+	}
+	// Backoff holds the monitor in released before re-entering preparing.
+	if got := o.run(t, true); got.Phase != "released" || got.Reason != domain.CutoverReasonDeadlineExceeded {
+		t.Fatalf("re-armed immediately after preparing deadline: %+v", got)
+	}
+	o.age(t, 16*time.Minute)
+	if got := o.run(t, true); got.Phase != "preparing" || got.Reason != "" {
+		t.Fatalf("first preparing backoff did not end: %+v", got)
+	}
+	// A second consecutive preparing timeout doubles the backoff to 30m.
+	o.age(t, 6*time.Minute)
+	if got := o.run(t, true); got.Phase != "released" || got.Reason != domain.CutoverReasonDeadlineExceeded {
+		t.Fatalf("second stalled preparing past deadline = %+v, want released %s", got, domain.CutoverReasonDeadlineExceeded)
+	}
+	o.age(t, 16*time.Minute)
+	if got := o.run(t, true); got.Phase != "released" {
+		t.Fatalf("second preparing failure did not double backoff: %+v", got)
+	}
+	o.age(t, 31*time.Minute)
+	if got := o.run(t, true); got.Phase != "preparing" {
+		t.Fatalf("doubled preparing backoff did not end: %+v", got)
 	}
 }
 

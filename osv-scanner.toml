@@ -2,6 +2,25 @@
 # again once ignoreUntil passes, so the exception gets re-reviewed.
 # Scan: osv-scanner scan source --config osv-scanner.toml --lockfile go.mod --lockfile web/bun.lock
 
+# Owner-reviewed Echo 4.16.3 client-IP advisories (#186, #225). Echo 4.16.3
+# fixes GHSA-246p-cpwv-v3jq (CVE-2026-118653) and GHSA-99jh-6h7p-pp36
+# (CVE-2026-118651) upstream (GHSA marks last_affected = 4.16.2), and both
+# Phoenix constructors set an explicit IPExtractor enforced by
+# TestEchoCredentialIPWorkaround, TestEchoProxyIPWorkaround,
+# TestEdgeHTTPIPExtractorSecurity, and TestEchoConstructorSecurityInventory.
+# However, vuln.go.dev published GO-2026-6872 and GO-2026-6875 on 2026-11-05
+# with Fixed in: N/A and no symbol list for github.com/labstack/echo/v4.
+# Reassess before expiry or remove once vuln.go.dev records the v4.16.3 fix.
+[[IgnoredVulns]]
+id = "GO-2026-6872"
+ignoreUntil = 2026-12-05
+reason = "Echo 4.16.3 fixes GHSA-246p-cpwv-v3jq (CVE-2026-118653) upstream and both Phoenix Echo constructors configure explicit IPExtractor (verified by TestEchoCredentialIPWorkaround and TestEchoConstructorSecurityInventory). vuln.go.dev lists Fixed in: N/A and no symbol list for echo/v4."
+
+[[IgnoredVulns]]
+id = "GO-2026-6875"
+ignoreUntil = 2026-12-05
+reason = "Echo 4.16.3 fixes GHSA-99jh-6h7p-pp36 (CVE-2026-118651) upstream, Phoenix does not install Echo proxy middleware in production, and both constructors configure explicit IPExtractor (verified by TestEchoProxyIPWorkaround and TestEdgeHTTPIPExtractorSecurity). vuln.go.dev lists Fixed in: N/A and no symbol list for echo/v4."
+
 [[IgnoredVulns]]
 id = "GO-2026-5932"
 ignoreUntil = 2027-01-31

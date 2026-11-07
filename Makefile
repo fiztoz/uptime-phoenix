@@ -218,7 +218,7 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	go build ./...
 	go vet ./internal/...
 	@out="$$(gofmt -l internal/)"; if [ -n "$$out" ]; then echo "gofmt needed on:"; echo "$$out"; exit 1; fi
-	go test -race -count=1 -timeout=2400s ./...
+	go test -race -count=1 -timeout=3600s ./...
 	@test -x '$(GOLANGCI_LINT)' || go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	$(GOLANGCI_LINT) run
 	@test -d web/node_modules || (cd web && bun install --frozen-lockfile)
@@ -233,7 +233,7 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	@$(MAKE) --no-print-directory m6-backend-harness-gate
 	@$(MAKE) --no-print-directory release-image-gate
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
-	$(GOVULNCHECK) ./...
+	python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --govulncheck '$(GOVULNCHECK)' ./...
 	git diff --check
 	@echo ""
 	@echo "gate-full does NOT include: the MariaDB repository contract (needs TEST_MARIADB_DSN;"
@@ -267,7 +267,7 @@ secrets-scan: ## Scan git history for secrets with gitleaks (allowlist in .gitle
 .PHONY: govulncheck
 govulncheck: ## Run govulncheck (installs it if missing)
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
-	$(GOVULNCHECK) ./...
+	python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --govulncheck '$(GOVULNCHECK)' ./...
 
 .PHONY: fmt
 fmt: fmt-backend fmt-frontend ## Format all code
@@ -288,6 +288,7 @@ m6-backend-harness-gate: ## Verify actual-engine coverage and exhaustive CI shar
 	python3 -B -m unittest discover -s scripts -p test_m6_dual_engine_gate.py -v
 	python3 -B -m unittest discover -s scripts -p test_repository_test_shards.py -v
 	python3 -B -m unittest discover -s scripts -p test_makefile_targets.py -v
+	python3 -B -m unittest discover -s scripts -p test_govulncheck_gate.py -v
 
 .PHONY: release-image-gate
 release-image-gate: ## Verify image/chart operations and local image correspondence controls offline

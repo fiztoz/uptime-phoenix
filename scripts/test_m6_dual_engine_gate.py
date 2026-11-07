@@ -136,7 +136,8 @@ M7_LEAVES |= {
     for case in ("before_journal_commit", "after_journal_commit")
 }
 M7_LEAVES |= {"TestOperativeAggregateBoundedRetry/mariadb"}
-M7_LEAVES |= {f"TestOperativeSessionLapse/mariadb/{case}" for case in ("ExpiredLeaseHoldsActive", "ReconnectBeforeAttestHoldsActive", "ReleasedSessionHoldsActive", "ReleasedBeyondGraceDrains", "ReleasedWithoutContactDrains", "LapseBeyondGraceDrains", "FailedReconnectAttemptsHoldActive", "RepeatedReconnectsBeyondGraceDrain", "WithdrawnCapabilityDrains")}
+M7_LEAVES |= {f"TestOperativeCutoverDeadline/mariadb/{case}" for case in ("StalledQuiesceDrains", "StalledApplyReleasesQuiescedMember", "StalledPreparingDrains", "ReentryBacksOff", "RefusalBlockDrains")}
+M7_LEAVES |= {f"TestOperativeSessionLapse/mariadb/{case}" for case in ("ExpiredLeaseHoldsActive", "ReconnectBeforeAttestHoldsActive", "ConnectedUnattestedBeyondGraceDrains", "ReconnectReleasesBackedOffDrain", "ReleasedSessionHoldsActive", "ReleasedBeyondGraceDrains", "ReleasedWithoutContactDrains", "LapseBeyondGraceDrains", "FailedReconnectAttemptsHoldActive", "RepeatedReconnectsBeyondGraceDrain", "WithdrawnCapabilityDrains")}
 M8_LEAVES = {
     f"TestM8PreflightOperationContract/mariadb/{case}"
     for case in (
@@ -591,7 +592,7 @@ class BackendGateHarness:
 
         # This is the production gate command, but Popen/run/docker above are
         # doubles: these tests create no containers and execute no Go tests.
-        expected = ["test", "-race", "-count=1", "-json", "-timeout", "2400s", "-p", "4", "./..."]
+        expected = ["test", "-race", "-count=1", "-json", "-timeout", "3600s", "-p", "4", "./..."]
         if scope == "m8-install-journal":
             expected = ["test", "-race", "-count=1", "-json", "-timeout", "300s", "-p", "4",
                         "./internal/core/domain", "./internal/core/services", "./internal/adapters/repository",

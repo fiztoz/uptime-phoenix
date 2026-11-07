@@ -436,7 +436,7 @@ func (r *OperativeDeliveryStore) ReconcileCutover(ctx context.Context, f domain.
 		if err != nil {
 			return err
 		}
-		if before != operativePhaseDraining && state.Phase == operativePhaseDraining && state.Reason == domain.CutoverReasonDeadlineExceeded && state.BarrierID != nil {
+		if before != operativePhaseDraining && (state.Phase == operativePhaseDraining || (before == operativePhasePreparing && state.Phase == operativePhaseReleased)) && state.Reason == domain.CutoverReasonDeadlineExceeded && state.BarrierID != nil {
 			var barrier operativeBarrierModel
 			if err := tx.NewSelect().Model(&barrier).Where("barrier_id = ?", *state.BarrierID).Scan(ctx); err != nil {
 				return err
@@ -533,7 +533,7 @@ func (r *OperativeDeliveryStore) reconcilePhaseTx(ctx context.Context, tx bun.Tx
 			return false, nil
 		}
 		if state.Reason == domain.CutoverReasonDeadlineExceeded && state.BarrierID != nil {
-			allowed, err := operativeReentryAllowedTx(ctx, tx, state.MonitorID, *state.BarrierID, now)
+			allowed, err := operativeReentryAllowedTx(ctx, tx, *state, *state.BarrierID, now)
 			if err != nil || !allowed {
 				return false, err
 			}
@@ -554,6 +554,8 @@ func (r *OperativeDeliveryStore) reconcilePhaseTx(ctx context.Context, tx bun.Tx
 		state.Phase = operativePhasePreparing
 		state.Reason = ""
 		state.AssignmentRevision = 0
+		state.CreatedAt = now.UTC().Truncate(time.Microsecond)
+		state.TransitionVersion++
 		return true, nil
 	case operativePhasePreparing:
 		if !enabled {
