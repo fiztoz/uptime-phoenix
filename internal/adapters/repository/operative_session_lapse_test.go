@@ -203,6 +203,38 @@ func TestOperativeSessionLapse(t *testing.T) {
 				if _, reason := o.phase(t); reason != "cutover_evidence_incomplete" {
 					t.Fatalf("drain reason = %q, want cutover_evidence_incomplete", reason)
 				}
+				// Draining alone pages nobody: the member still holds regional
+				// paging until it applies delivery.resume. The resume must reach
+				// it on the session it is actually connected on and release the
+				// barrier; the edge then enqueues the DOWN it suppressed
+				// (TestEdgeDeliveryCutoverResumedHoldEnqueuesSuppressedDown).
+				for i := 0; i < 3 && o.openResumes(t) == 0; i++ {
+					o.run(t, true)
+				}
+				if o.openResumes(t) != 1 {
+					t.Fatal("drain did not issue the member's resume")
+				}
+				session := o.f.session
+				session.ConnectionGeneration++
+				commands := o.f.commands(t)
+				claimed, err := commands.ClaimCommand(t.Context(), session, time.Second, domain.ProbeCommandCapabilities{DeliveryCutover: true})
+				if err != nil || claimed == nil || claimed.Kind != domain.DeliveryResumeKind {
+					t.Fatal("reconnected session could not claim its resume", err, claimed)
+				}
+				now := time.Now().UTC().Truncate(time.Microsecond)
+				if err := commands.CompleteCommand(t.Context(), session, domain.ProbeCommandOutcome{CommandID: claimed.CommandID, Status: "applied", AppliedAt: &now, Code: domain.DeliveryCutoverSuccessCode(domain.DeliveryResumeKind)}); err != nil {
+					t.Fatal(err)
+				}
+				if got := o.run(t, true); got.Phase != "released" {
+					t.Fatalf("applied resume did not release the barrier: %+v", got)
+				}
+				held, err := o.f.f.db.NewSelect().Table("operative_source_gates").Where("state = ?", "held").Count(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if held != 0 {
+					t.Fatalf("released barrier left %d source gates held", held)
+				}
 			})
 			t.Run("WithdrawnCapabilityDrains", func(t *testing.T) {
 				o := newOperativeRemoteFixture(t, engine)

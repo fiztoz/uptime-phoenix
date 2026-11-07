@@ -233,7 +233,7 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	@$(MAKE) --no-print-directory m6-backend-harness-gate
 	@$(MAKE) --no-print-directory release-image-gate
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
-	python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --govulncheck '$(GOVULNCHECK)' ./...
+	python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --scope govulncheck-scope.toml --govulncheck '$(GOVULNCHECK)' ./...
 	git diff --check
 	@echo ""
 	@echo "gate-full does NOT include: the MariaDB repository contract (needs TEST_MARIADB_DSN;"
@@ -267,7 +267,7 @@ secrets-scan: ## Scan git history for secrets with gitleaks (allowlist in .gitle
 .PHONY: govulncheck
 govulncheck: ## Run govulncheck (installs it if missing)
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
-	python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --govulncheck '$(GOVULNCHECK)' ./...
+	python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --scope govulncheck-scope.toml --govulncheck '$(GOVULNCHECK)' ./...
 
 .PHONY: fmt
 fmt: fmt-backend fmt-frontend ## Format all code

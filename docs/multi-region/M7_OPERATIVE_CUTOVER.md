@@ -77,12 +77,16 @@ drains. A barrier therefore may not wait indefinitely for its slowest member:
 - **Deadline.** A barrier that has not reached ACTIVE within
   `operativeActivationDeadline` (5 minutes, DB clock, from the barrier's
   creation or preparing start) drains with reason `cutover_deadline_exceeded`. This covers
-  PREPARING (recording an unactivated barrier row and releasing directly since
-  no member was quiesced, #217), QUIESCING, QUIESCED and APPLYING, and a pre-active BLOCKED barrier whose reason
+  PREPARING (recording an unactivated barrier row and releasing directly to
+  `released` since no member was quiesced, #217), QUIESCING, QUIESCED and APPLYING, and a pre-active BLOCKED barrier whose reason
   is a member refusal or missing evidence (`quiesce_refused`, `apply_refused`,
   `cutover_evidence_incomplete`). Corrupt-evidence blocks
   (`barrier_identity_conflict`, `barrier_evidence_conflict`, `missing_barrier`)
   still wait for explicit disable/drain, because their tuples are not trusted.
+  Time claimed while the opt-in is disabled is not preparation time: a disabled
+  pass marks the preparing row `feature_disabled`, and the first enabled pass
+  restarts the preparing window from that pass (#217). The mark is persisted,
+  so it survives the restart that usually toggles the opt-in.
 - **Drain.** The ordinary drain path runs: unstarted plans are superseded, every
   original member is sent `delivery.resume` once any aggregate-scope provider
   attempt settles (retained regional `source`-scope attempts never hold drain, #222),
@@ -122,6 +126,20 @@ recovery page comes from the same incident once the source re-attests. Without
 this the barrier drained (`cutover_evidence_incomplete`), the drain closed the
 incident as `admin_closed`/`drained` with no recovery page, and the replacement
 barrier opened a new incident and paged DOWN again.
+
+**Page bound for a connected source that never re-attests (#221).** The
+reconciler refreshes `attested_at` at most every 30 seconds while the source is
+capable, and passes run every `operativeRetryDelay` (5 seconds). A source that
+reconnects and keeps its lease and `last_contact_at` live without re-attesting
+therefore drains within `operativeSessionLapseGrace` + 5 s (about 3 min 5 s)
+of the reconnect, and up to 30 s sooner depending on when `attested_at` was
+last refreshed. The drain sends `delivery.resume`
+on the session the source is connected on; once the source applies it, the
+barrier releases and the edge enqueues the DOWN it suppressed (`TestOperativeSessionLapse/*/ConnectedUnattestedBeyondGraceDrains`,
+`TestEdgeDeliveryCutoverResumedHoldEnqueuesSuppressedDown`). The bound assumes
+the source still claims and applies cutover commands. A source that withholds
+attestation *and* never applies its resume keeps its own regional hold; no
+hub-side timeout clears an edge hold, by design.
 
 The hold is bounded: a lapse older than the grace, a released session with no
 recorded contact, a withdrawn capability, or any other incomplete evidence
@@ -222,6 +240,15 @@ queue reconciliation. A late exact `ambiguous` journal completion remains
 idempotent, while a stale queue receipt cannot rearm the retired delivery. No
 schema, source hold, final provider authorization or regional retry contract
 changes.
+
+The claim selector never revisits a terminal delivery, so grants that an rc.4
+hub had already reconciled stayed `in_flight` with `finished_at` NULL. Migration
+`094_settle_orphaned_aggregate_attempts` backfills them: an aggregate grant
+still `in_flight` past its budget under a `sent`/`failed`/`superseded` delivery
+becomes `ambiguous` with `finished_at` = the delivery's `outcome_at` (the
+observation time the current reconciler would have used). A grant whose budget
+is still live is untouched, and the down migration is a no-op
+(`TestOperativeAttemptBackfill`).
 
 The regression tests simulate both crash/lost-write boundaries through cold
 stores and consumers, including competing consumers and another channel's work.

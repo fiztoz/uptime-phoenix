@@ -125,13 +125,16 @@ on 2026-11-05 with `Fixed in: N/A` and no symbol list for `github.com/labstack/e
 `osv-scanner.toml` carries dated exceptions (until **2026-12-05**) that both
 `osv-scanner` and `scripts/govulncheck_gate.py` enforce (`govulncheck_gate.py`
 suppresses only unfixed symbol findings covered by an unexpired `osv-scanner.toml`
-entry and fails closed on any fixable or unlisted finding). CI's ordinary backend
+entry **and** in the exact module/version that `govulncheck-scope.toml` verified,
+`github.com/labstack/echo/v4@v4.16.3`; it fails closed on any fixable, unlisted,
+older-version or other-module finding). Bumping Echo means re-verifying and
+updating `govulncheck-scope.toml`. CI's ordinary backend
 tests execute these regressions before the scanner steps:
 
 ```bash
 go test -race -count=1 ./internal/adapters/http ./internal/adapters/probe ./internal/bootstrap \
   -run '^(TestEcho|TestEdgeHTTPIPExtractorSecurity|TestTrustedProxy)'
-python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --govulncheck govulncheck ./...
+python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --scope govulncheck-scope.toml --govulncheck govulncheck ./...
 osv-scanner scan source --config osv-scanner.toml --lockfile go.mod --lockfile web/bun.lock
 ```
 

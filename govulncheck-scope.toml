@@ -1,0 +1,17 @@
+# Module/version scope for scripts/govulncheck_gate.py suppressions (#225).
+# osv-scanner rejects unknown keys in osv-scanner.toml, so the scope lives here.
+# A dated [[IgnoredVulns]] entry in osv-scanner.toml suppresses a govulncheck
+# symbol finding ONLY when the finding's module and resolved version match a
+# [[Scope]] entry for the same id. Any other module or version (including a
+# downgrade to an older affected release) fails closed.
+
+# Echo 4.16.3 fixes both advisories upstream; vuln.go.dev has not recorded it.
+[[Scope]]
+id = "GO-2026-6872"
+module = "github.com/labstack/echo/v4"
+versions = ["v4.16.3"]
+
+[[Scope]]
+id = "GO-2026-6875"
+module = "github.com/labstack/echo/v4"
+versions = ["v4.16.3"]

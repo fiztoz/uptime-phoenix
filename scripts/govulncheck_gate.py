@@ -6,12 +6,14 @@ with no fixed version on our module major (e.g. GO-2026-6872 and GO-2026-6875
 on github.com/labstack/echo/v4, where vuln.go.dev omitted fixed=4.16.3 and
 symbol metadata so every symbol in echo/v4 matches), this wrapper consults
 osv-scanner.toml and suppresses ONLY symbol-level findings that:
-  1. have no fixed_version in govulncheck's output (Fixed in: N/A), and
-  2. match an unexpired [[IgnoredVulns]] entry with a non-empty reason.
+  1. have no fixed_version in govulncheck's output (Fixed in: N/A),
+  2. match an unexpired [[IgnoredVulns]] entry with a non-empty reason, and
+  3. are in the exact module and resolved version that govulncheck-scope.toml
+     verified for that entry.
 
 Any finding with an available fixed_version, any unlisted symbol finding, any
-expired ignoreUntil date, or any non-zero govulncheck execution error fails
-closed.
+finding in an unverified module or version, any expired ignoreUntil date, or
+any non-zero govulncheck execution error fails closed.
 """
 
 import argparse
@@ -47,6 +49,45 @@ def load_ignores(config_path: Path, today: date | None = None) -> dict[str, dict
     return ignores
 
 
+def load_scopes(scope_path: Path, ignores: dict[str, dict]) -> dict[str, dict]:
+    data = tomllib.loads(scope_path.read_text(encoding="utf-8"))
+    entries = data.get("Scope", [])
+    if not isinstance(entries, list):
+        raise ValueError("Scope must be a list of tables")
+    scopes: dict[str, dict] = {}
+    for entry in entries:
+        vuln_id = str(entry.get("id", "")).strip()
+        module = str(entry.get("module", "")).strip()
+        versions = entry.get("versions")
+        if (
+            not vuln_id
+            or not module
+            or not isinstance(versions, list)
+            or not versions
+            or not all(isinstance(v, str) and v.strip() for v in versions)
+        ):
+            raise ValueError(f"invalid Scope entry: {entry!r}")
+        if vuln_id in scopes:
+            raise ValueError(f"duplicate Scope entry {vuln_id}")
+        if vuln_id not in ignores:
+            raise ValueError(f"Scope entry {vuln_id} has no IgnoredVulns entry")
+        scopes[vuln_id] = {
+            "id": vuln_id,
+            "module": module,
+            "versions": {v.strip() for v in versions},
+        }
+    return scopes
+
+
+def in_scope(finding: dict, scope: dict | None) -> bool:
+    if scope is None:
+        return False
+    frame = (finding.get("trace") or [{}])[0]
+    module = str(frame.get("module", "")).strip()
+    version = str(frame.get("version", "")).strip()
+    return module == scope["module"] and version in scope["versions"]
+
+
 def iter_json_objects(stream: str):
     decoder = json.JSONDecoder()
     idx = 0
@@ -66,7 +107,7 @@ def is_symbol_finding(finding: dict) -> bool:
     return bool(trace and isinstance(trace[0], dict) and trace[0].get("function"))
 
 
-def evaluate_stream(stream: str, ignores: dict[str, dict]) -> tuple[list[dict], set[str]]:
+def evaluate_stream(stream: str, ignores: dict[str, dict], scopes: dict[str, dict]) -> tuple[list[dict], set[str]]:
     osv_aliases: dict[str, set[str]] = {}
     findings: list[dict] = []
     for obj in iter_json_objects(stream):
@@ -92,7 +133,11 @@ def evaluate_stream(stream: str, ignores: dict[str, dict]) -> tuple[list[dict], 
         fixed_version = str(finding.get("fixed_version", "")).strip()
         candidate_ids = osv_aliases.get(osv_id, {osv_id})
         matched_ignore = next((ignores[cid] for cid in candidate_ids if cid in ignores), None)
-        if matched_ignore is not None and not fixed_version:
+        if (
+            matched_ignore is not None
+            and not fixed_version
+            and in_scope(finding, scopes.get(matched_ignore["id"]))
+        ):
             suppressed.add(osv_id)
             continue
         if osv_id not in seen_blocked_ids:
@@ -108,6 +153,12 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=Path("osv-scanner.toml"),
         help="Path to osv-scanner.toml containing dated IgnoredVulns entries",
+    )
+    parser.add_argument(
+        "--scope",
+        type=Path,
+        default=Path("govulncheck-scope.toml"),
+        help="Path to the module/version scope required for each suppression",
     )
     parser.add_argument(
         "--govulncheck",
@@ -126,6 +177,11 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(f"govulncheck-gate: invalid config {args.config}: {exc}", file=sys.stderr)
         return 1
+    try:
+        scopes = load_scopes(args.scope, ignores)
+    except Exception as exc:
+        print(f"govulncheck-gate: invalid scope {args.scope}: {exc}", file=sys.stderr)
+        return 1
 
     cmd = [args.govulncheck, "-format", "json", *args.packages]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -136,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(proc.stdout)
         return proc.returncode
 
-    blocked, suppressed = evaluate_stream(proc.stdout, ignores)
+    blocked, suppressed = evaluate_stream(proc.stdout, ignores, scopes)
     for osv_id in sorted(suppressed):
         info = ignores.get(osv_id)
         until = info["ignoreUntil"].isoformat() if info else "alias"

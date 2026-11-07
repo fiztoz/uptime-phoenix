@@ -239,7 +239,7 @@ REQUIRED |= {"TestOperativeProviderLifecycle/mariadb/BusyQuiesceKeepsRegionalPag
 # backs off before re-entry, on real MariaDB.
 REQUIRED |= {
     f"TestOperativeCutoverDeadline/mariadb/{case}"
-    for case in ("StalledQuiesceDrains", "StalledApplyReleasesQuiescedMember", "StalledPreparingDrains", "ReentryBacksOff", "RefusalBlockDrains")
+    for case in ("StalledQuiesceDrains", "StalledApplyReleasesQuiescedMember", "StalledPreparingDrains", "DisabledPreparingArmsOnEnable", "DisabledPreparingCompletesOnEnable", "ReentryBacksOff", "RefusalBlockDrains")
 }
 
 # #213: restart must not replay admitted aggregate I/O or strand obsolete work.
@@ -252,6 +252,10 @@ REQUIRED |= {
 }
 
 REQUIRED |= {"TestOperativeAggregateBoundedRetry/mariadb"}
+
+# #219: migration 094 settles grants an rc.4 hub left in_flight under a
+# terminal delivery, on real MariaDB.
+REQUIRED |= {"TestOperativeAttemptBackfill/mariadb"}
 
 # #213: a session lapse on an ACTIVE barrier holds within a bounded grace.
 REQUIRED |= {

@@ -84,7 +84,7 @@ jobs:
         run: |
           # Pin the scanner version; bump deliberately (Dependabot tracks go.mod, not this pin).
           go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
-          python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --govulncheck govulncheck ./...
+          python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --scope govulncheck-scope.toml --govulncheck govulncheck ./...
 
       - name: osv-scanner
         env:

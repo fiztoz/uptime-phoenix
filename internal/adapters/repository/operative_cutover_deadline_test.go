@@ -70,6 +70,8 @@ func TestOperativeCutoverDeadline(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
 			t.Run("StalledPreparingDrains", func(t *testing.T) { testCutoverDeadlinePreparing(t, engine) })
+			t.Run("DisabledPreparingArmsOnEnable", func(t *testing.T) { testCutoverDeadlineDisabledPreparing(t, engine) })
+			t.Run("DisabledPreparingCompletesOnEnable", func(t *testing.T) { testCutoverDeadlineDisabledPreparingCompletes(t, engine) })
 			t.Run("StalledQuiesceDrains", func(t *testing.T) { testCutoverDeadlineQuiescing(t, engine) })
 			t.Run("StalledApplyReleasesQuiescedMember", func(t *testing.T) { testCutoverDeadlineApplying(t, engine) })
 			t.Run("ReentryBacksOff", func(t *testing.T) { testCutoverDeadlineBackoff(t, engine) })
@@ -115,6 +117,51 @@ func testCutoverDeadlinePreparing(t *testing.T, engine string) {
 	o.age(t, 31*time.Minute)
 	if got := o.run(t, true); got.Phase != "preparing" {
 		t.Fatalf("doubled preparing backoff did not end: %+v", got)
+	}
+}
+
+// Time spent claimed while the opt-in is disabled is not preparation time. A
+// monitor claimed into preparing while disabled for longer than the deadline
+// used to release with cutover_deadline_exceeded on its very first enabled
+// pass and sit out the 15-minute backoff (#217).
+func testCutoverDeadlineDisabledPreparing(t *testing.T, engine string) {
+	o := newOperativeRemoteFixture(t, engine)
+	if got := o.run(t, false); got.Phase != "preparing" || got.Reason != "feature_disabled" {
+		t.Fatalf("disabled preparing = %+v, want preparing feature_disabled", got)
+	}
+	o.age(t, 6*time.Minute)
+	if got := o.run(t, false); got.Phase != "preparing" {
+		t.Fatalf("disabled preparing hit a deadline: %+v", got)
+	}
+	o.age(t, 6*time.Minute)
+	// Enabled with capability evidence still incomplete: a fresh window opens.
+	if got := o.run(t, true); got.Phase != "preparing" || got.Reason != "" {
+		t.Fatalf("first enabled pass = %+v, want preparing with a fresh deadline", got)
+	}
+	if o.gates(t) != 0 {
+		t.Fatalf("expected 0 barriers inside the fresh window, got %d", o.gates(t))
+	}
+	if got := o.run(t, true); got.Phase != "preparing" {
+		t.Fatalf("second enabled pass inside the window = %+v", got)
+	}
+	// The re-armed window is still bounded.
+	o.age(t, 6*time.Minute)
+	if got := o.run(t, true); got.Phase != "released" || got.Reason != domain.CutoverReasonDeadlineExceeded {
+		t.Fatalf("re-armed preparing past its deadline = %+v, want released %s", got, domain.CutoverReasonDeadlineExceeded)
+	}
+}
+
+// A monitor whose evidence is complete by the first enabled pass opens its
+// barrier, however long it sat disabled.
+func testCutoverDeadlineDisabledPreparingCompletes(t *testing.T, engine string) {
+	o := newOperativeRemoteFixture(t, engine)
+	o.run(t, false)
+	o.age(t, 6*time.Minute)
+	if err := o.store.SetOperativeSourceCapability(t.Context(), o.f.session, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := o.run(t, true); got.Phase != "quiescing" {
+		t.Fatalf("prepared monitor did not open its barrier after enabling: %+v", got)
 	}
 }
 

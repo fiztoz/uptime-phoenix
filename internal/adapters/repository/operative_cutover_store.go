@@ -68,6 +68,9 @@ const (
 	// operativeCommandLifetime is the fixed lifetime of a DB-clock-created
 	// protected cutover command (bounded by ValidDeliveryCutoverCommand).
 	operativeCommandLifetime = 24 * time.Hour
+	// operativeReasonFeatureDisabled marks a drain caused by the disabled
+	// opt-in, and a preparing row whose deadline is not armed yet (#217).
+	operativeReasonFeatureDisabled = "feature_disabled"
 	// operativeBusyCode is the only rearmable refusal: the source writes its
 	// hold first and then refuses busy while provider work is unresolved; the
 	// refusal does not leave the hold engaged (issue #191). It is
@@ -510,7 +513,7 @@ func (r *OperativeDeliveryStore) reconcilePhaseTx(ctx context.Context, tx bun.Tx
 	switch state.Phase {
 	case operativePhaseBlocked:
 		if !enabled && state.BarrierID != nil {
-			return r.enterDrainingTx(state, now, "feature_disabled")
+			return r.enterDrainingTx(state, now, operativeReasonFeatureDisabled)
 		}
 		// A refusal block before ACTIVE still holds every member that already
 		// quiesced, so it is bounded by the same activation deadline (#209).
@@ -558,8 +561,18 @@ func (r *OperativeDeliveryStore) reconcilePhaseTx(ctx context.Context, tx bun.Tx
 		state.TransitionVersion++
 		return true, nil
 	case operativePhasePreparing:
+		// A disabled opt-in is not preparation time. created_at anchors the
+		// preparing deadline, so a row claimed (or left) while disabled must not
+		// spend that window: mark it, and arm a fresh deadline on the first
+		// enabled pass (#217). The mark persists across restarts, which is how
+		// the opt-in is usually toggled.
 		if !enabled {
+			state.Reason = operativeReasonFeatureDisabled
 			return false, nil
+		}
+		if state.Reason == operativeReasonFeatureDisabled {
+			state.Reason = ""
+			state.CreatedAt = now.UTC().Truncate(time.Microsecond)
 		}
 		return r.preparingTx(ctx, tx, state, hub, now)
 	case operativePhaseQuiescing, operativePhaseQuiesced, operativePhaseApplying:
@@ -568,7 +581,7 @@ func (r *OperativeDeliveryStore) reconcilePhaseTx(ctx context.Context, tx bun.Tx
 		// admission while disabled. Persisted gates stay enforced throughout the
 		// drain; regional work returns only after every member's resume commits.
 		if !enabled {
-			return r.enterDrainingTx(state, now, "feature_disabled")
+			return r.enterDrainingTx(state, now, operativeReasonFeatureDisabled)
 		}
 		return r.progressTx(ctx, tx, state, hub, evaluator, now)
 	case operativePhaseActive:

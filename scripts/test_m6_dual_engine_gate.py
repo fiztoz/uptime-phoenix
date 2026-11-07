@@ -136,7 +136,8 @@ M7_LEAVES |= {
     for case in ("before_journal_commit", "after_journal_commit")
 }
 M7_LEAVES |= {"TestOperativeAggregateBoundedRetry/mariadb"}
-M7_LEAVES |= {f"TestOperativeCutoverDeadline/mariadb/{case}" for case in ("StalledQuiesceDrains", "StalledApplyReleasesQuiescedMember", "StalledPreparingDrains", "ReentryBacksOff", "RefusalBlockDrains")}
+M7_LEAVES |= {"TestOperativeAttemptBackfill/mariadb"}
+M7_LEAVES |= {f"TestOperativeCutoverDeadline/mariadb/{case}" for case in ("StalledQuiesceDrains", "StalledApplyReleasesQuiescedMember", "StalledPreparingDrains", "DisabledPreparingArmsOnEnable", "DisabledPreparingCompletesOnEnable", "ReentryBacksOff", "RefusalBlockDrains")}
 M7_LEAVES |= {f"TestOperativeSessionLapse/mariadb/{case}" for case in ("ExpiredLeaseHoldsActive", "ReconnectBeforeAttestHoldsActive", "ConnectedUnattestedBeyondGraceDrains", "ReconnectReleasesBackedOffDrain", "ReleasedSessionHoldsActive", "ReleasedBeyondGraceDrains", "ReleasedWithoutContactDrains", "LapseBeyondGraceDrains", "FailedReconnectAttemptsHoldActive", "RepeatedReconnectsBeyondGraceDrain", "WithdrawnCapabilityDrains")}
 M8_LEAVES = {
     f"TestM8PreflightOperationContract/mariadb/{case}"

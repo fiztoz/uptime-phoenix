@@ -738,7 +738,7 @@ func (r *OperativeDeliveryStore) activeTx(ctx context.Context, tx bun.Tx, state 
 		return r.enterDrainingTx(state, now, "configuration_changed")
 	}
 	if !enabled {
-		return r.enterDrainingTx(state, now, "feature_disabled")
+		return r.enterDrainingTx(state, now, operativeReasonFeatureDisabled)
 	}
 	decision, held, err := r.operativeCutoverEvidenceLapseTx(ctx, tx, hub, barrier, members, state, evaluator, now)
 	if err != nil {
