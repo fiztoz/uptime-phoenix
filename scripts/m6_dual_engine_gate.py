@@ -239,7 +239,7 @@ REQUIRED |= {"TestOperativeProviderLifecycle/mariadb/BusyQuiesceKeepsRegionalPag
 # backs off before re-entry, on real MariaDB.
 REQUIRED |= {
     f"TestOperativeCutoverDeadline/mariadb/{case}"
-    for case in ("StalledQuiesceDrains", "StalledApplyReleasesQuiescedMember", "ReentryBacksOff", "RefusalBlockDrains")
+    for case in ("StalledQuiesceDrains", "StalledApplyReleasesQuiescedMember", "StalledPreparingDrains", "DisabledPreparingArmsOnEnable", "DisabledPreparingCompletesOnEnable", "ReentryBacksOff", "RefusalBlockDrains")
 }
 
 # #213: restart must not replay admitted aggregate I/O or strand obsolete work.
@@ -253,10 +253,14 @@ REQUIRED |= {
 
 REQUIRED |= {"TestOperativeAggregateBoundedRetry/mariadb"}
 
+# #219: migration 094 settles grants an rc.4 hub left in_flight under a
+# terminal delivery, on real MariaDB.
+REQUIRED |= {"TestOperativeAttemptBackfill/mariadb"}
+
 # #213: a session lapse on an ACTIVE barrier holds within a bounded grace.
 REQUIRED |= {
     f"TestOperativeSessionLapse/mariadb/{case}"
-    for case in ("ExpiredLeaseHoldsActive", "ReconnectBeforeAttestHoldsActive", "ReleasedSessionHoldsActive", "ReleasedBeyondGraceDrains", "ReleasedWithoutContactDrains", "LapseBeyondGraceDrains", "FailedReconnectAttemptsHoldActive", "RepeatedReconnectsBeyondGraceDrain", "WithdrawnCapabilityDrains")
+    for case in ("ExpiredLeaseHoldsActive", "ReconnectBeforeAttestHoldsActive", "ConnectedUnattestedBeyondGraceDrains", "ReconnectReleasesBackedOffDrain", "ReleasedSessionHoldsActive", "ReleasedBeyondGraceDrains", "ReleasedWithoutContactDrains", "LapseBeyondGraceDrains", "FailedReconnectAttemptsHoldActive", "RepeatedReconnectsBeyondGraceDrain", "WithdrawnCapabilityDrains")
 }
 
 INSTALL_JOURNAL_REQUIRED = {
@@ -753,7 +757,7 @@ def main():
         env.update(GOENV="off", GOTOOLCHAIN="local", GOPROXY="off", GOSUMDB="off", GOWORK="off",
                    TEST_MARIADB_DSN=f"phoenix:{db_password}@tcp(127.0.0.1:{port})/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true")
         started = time.monotonic()
-        cmd = [str(toolchains[0]), "test", "-race", "-count=1", "-json", "-timeout", "2400s",
+        cmd = [str(toolchains[0]), "test", "-race", "-count=1", "-json", "-timeout", "3600s",
                "-p", "4", "./..."]
         if args.scope == "m8-install-journal":
             cmd = [str(toolchains[0]), "test", "-race", "-count=1", "-json", "-timeout", "300s",

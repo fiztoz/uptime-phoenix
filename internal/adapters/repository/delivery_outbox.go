@@ -86,6 +86,7 @@ func generateAckToken() string {
 func commitLifecycleAndDeliveriesTx(ctx context.Context, tx bun.Tx, obs domain.RegionalObservation, commit *domain.LocalHeartbeatCommit) error {
 	// Resolve the incident identity before allocating a new UUID. Maintenance and
 	// retries do not close an outage, and an acknowledgement must survive either.
+	existingOpen := false
 	if commit.Incident != nil && commit.Incident.SourceAlertID == "" {
 		open := new(AlertModel)
 		q := tx.NewSelect().Model(open).Where("open_monitor_id = ? AND probe_id = ? AND assignment_generation = ?", obs.MonitorID, obs.ProbeID, obs.AssignmentGeneration)
@@ -97,6 +98,7 @@ func commitLifecycleAndDeliveriesTx(ctx context.Context, tx bun.Tx, obs domain.R
 			return err
 		}
 		if err == nil {
+			existingOpen = true
 			requested := commit.Incident.Status
 			inc := new(probeIncidentModel)
 			err = tx.NewSelect().Model(inc).Where("source_alert_id = ?", open.SourceAlertID).Scan(ctx)
@@ -134,7 +136,7 @@ func commitLifecycleAndDeliveriesTx(ctx context.Context, tx bun.Tx, obs domain.R
 			return nil
 		}
 	}
-	if commit.ResendInterval > 0 {
+	if commit.ResendInterval > 0 || (existingOpen && commit.Incident != nil && commit.Incident.Status == domain.AlertStatusFiring) {
 		var throttle notificationThrottleModel
 		q := tx.NewSelect().Model(&throttle).Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ?", obs.MonitorID, obs.ProbeID, obs.AssignmentGeneration)
 		if tx.Dialect().Name() == dialect.MySQL {
@@ -144,8 +146,10 @@ func commitLifecycleAndDeliveriesTx(ctx context.Context, tx bun.Tx, obs domain.R
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		if err == nil && throttle.LastAttemptAt != nil && obs.ObservedAt.Sub(*throttle.LastAttemptAt) < commit.ResendInterval {
-			return nil
+		if err == nil && throttle.LastAttemptAt != nil && (commit.Incident == nil || !throttle.LastAttemptAt.Truncate(time.Microsecond).Before(commit.Incident.StartedAt.Truncate(time.Microsecond))) {
+			if commit.ResendInterval <= 0 || obs.ObservedAt.Sub(*throttle.LastAttemptAt) < commit.ResendInterval {
+				return nil
+			}
 		}
 	}
 	if commit.Incident == nil && commit.Alert != nil {

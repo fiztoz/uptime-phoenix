@@ -209,11 +209,23 @@ unrecoverable. All processes of one installation must use the same key.
 3. Restart. Replay uses the new epoch. A clear-history fence still drops
    covered evidence; the fence is scoped by monitor, probe and generation, not
    by stream.
-4. If you skipped step 2, the probe stays Disconnected until it numbers past
-   the hub cursor (the hub logs `probe stream is behind the hub cursor`). After
-   that its new events under already committed sequences are rejected as
-   `sequence_reused` and logged, and history resumes past the cursor. Those
-   rejected events are lost.
+4. If you skipped step 2, the probe stays Disconnected until its local check
+   scheduler numbers `last_created_seq` past the hub's `committed_seq` (every
+   handshake attempt before then is refused with `ErrCursorAhead` and logs
+   `ERROR "probe stream is behind the hub cursor; the probe data directory was likely restored from an older backup without a stream reset, connection refused"`
+   with `hub_committed_seq` and `probe_last_created_seq`). Once `last_created_seq`
+   reaches `hub_committed_seq`, the handshake succeeds, events at or below the
+   hub cursor whose digest differs from the committed receipt are permanently
+   rejected as `sequence_reused` (`ERROR "probe telemetry reused sequence numbers the hub already committed; those events were rejected and are not stored"`
+   with `reused_count`, `first_reused_seq`, `last_reused_seq`), and history
+   resumes at the first sequence past the cursor (`probe_telemetry_gaps` stays `0`
+   because `sequence_reused` is per-event receipt rejection rather than a
+   `telemetry.gap` frame). Because the no-reset fallback remains Disconnected
+   for `(hub_committed_seq - restored_seq) / check_rate` and discards all
+   overlapping `reused_count` observations, any recovery rehearsal that targets
+   the `<10m` window with intact history (#192 / #218) **must** execute step 2
+   (`prepare-reset` → `probe reset-stream --plan-file` → `activate-reset`) from
+   a non-suspending host/timer rather than relying on the no-reset fallback.
 
 Restore the hub first, then each edge, then resume workers. An edge must not
 talk a restored hub into reusing retired sequence space.

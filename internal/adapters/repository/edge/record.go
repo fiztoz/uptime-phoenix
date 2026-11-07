@@ -250,7 +250,11 @@ func (s *Store) CommitEdgeCheck(ctx context.Context, record domain.EdgeCheckReco
 		if _, err := s.applyEdgeConditionWork(ctx, tx, o, before.Conditions, record.Conditions, certSeq); err != nil {
 			return err
 		}
-		state := edgeStateRow{CurrentObservation: observationBytes, MonitorID: o.MonitorID, Generation: o.AssignmentGeneration, Seq: o.Seq, ConfigRevision: o.ConfigRevision, Status: o.Status, DownCount: o.DownCount, ObservedAt: o.ObservedAt.UnixMicro(), ReceivedAt: o.ReceivedAt.UnixMicro(), LastEnqueuedAt: microFromTime(before.LastEnqueuedAt)}
+		lastEnqueued := before.LastEnqueuedAt
+		if record.Incident != nil && record.Incident.Status == domain.AlertStatusFiring && (before.Incident == nil || before.Incident.SourceAlertID != record.Incident.SourceAlertID) {
+			lastEnqueued = nil
+		}
+		state := edgeStateRow{CurrentObservation: observationBytes, MonitorID: o.MonitorID, Generation: o.AssignmentGeneration, Seq: o.Seq, ConfigRevision: o.ConfigRevision, Status: o.Status, DownCount: o.DownCount, ObservedAt: o.ObservedAt.UnixMicro(), ReceivedAt: o.ReceivedAt.UnixMicro(), LastEnqueuedAt: microFromTime(lastEnqueued)}
 		if before.State != nil {
 			state.LastSuccessAt = microFromTime(before.State.LastSuccessAt)
 		}

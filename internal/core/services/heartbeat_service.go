@@ -465,7 +465,7 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 		}
 		hb.AssignmentGeneration, hb.StreamID, hb.ConfigRevision = generation, domain.LocalStreamID, configRevision
 		commit := domain.LocalHeartbeatCommit{Heartbeat: hb, RawStatus: raw, ExpectedStateSeq: expectedSeq, LegacyConfig: expectedRevision <= 0, LeaseFence: fence}
-		if s.monitorNotifs != nil && (hb.Important || hb.Status == domain.StatusDown && monitor.ResendInterval > 0) {
+		if s.monitorNotifs != nil && (hb.Important || hb.Status == domain.StatusDown) {
 			prev := domain.StatusUp
 			if oldStatus != nil {
 				prev = *oldStatus

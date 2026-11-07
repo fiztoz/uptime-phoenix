@@ -198,7 +198,7 @@ class RepositoryShardTest(unittest.TestCase):
         spec.loader.exec_module(release)
         actual = release.ci_job_names(shards.ROOT / ".github/workflows/ci.yml")
         self.assertEqual(sorted(release.REQUIRED_JOBS), sorted(actual))
-        for index in range(4):
+        for index in range(5):
             self.assertIn(f"repository-race-{index}", actual)
 
 

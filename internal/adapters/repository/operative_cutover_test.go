@@ -368,6 +368,30 @@ func testOperativeGateSuppression(t *testing.T, engine string) {
 	if !o.suppressed(t) {
 		t.Fatal("config change erased the monitor-wide hold")
 	}
+	// #220: if a fresh outage opens while the aggregate source hold is active,
+	// its initial DOWN intent is suppressed; once the barrier drains and
+	// releases the hold, the next DOWN observation must enqueue the initial
+	// regional DOWN intent even when ResendInterval == 0.
+	o2 := newOperativeFixture(t, engine, domain.AlertDeliveryAggregate, 1, true)
+	o2.p.monitor.ResendInterval = 0
+	driveOperativeActive(t, o2)
+	o2.record(t, domain.StatusDown)
+	if remaining, err := o2.p.outbox.ClaimDeliveries(ctx, domain.LocalProbeID, time.Now().UTC(), 5*time.Minute, 10); err != nil || len(remaining) != 0 {
+		t.Fatalf("held aggregate source enqueued regional DOWN: %v %d", err, len(remaining))
+	}
+	if got := o2.drain(t); got.Phase != "released" {
+		t.Fatalf("drain did not release: %+v", got)
+	}
+	o2.record(t, domain.StatusDown)
+	resumedDown, err := o2.p.outbox.ClaimDeliveries(ctx, domain.LocalProbeID, time.Now().UTC(), 5*time.Minute, 10)
+	if err != nil || len(resumedDown) != 1 || resumedDown[0].CheckStatus != domain.StatusDown {
+		t.Fatalf("post-drain DOWN did not enqueue regional DOWN (#220): %v %+v", err, resumedDown)
+	}
+	o2.record(t, domain.StatusDown)
+	duplicateDown, err := o2.p.outbox.ClaimDeliveries(ctx, domain.LocalProbeID, time.Now().UTC(), 5*time.Minute, 10)
+	if err != nil || len(duplicateDown) != 0 {
+		t.Fatalf("subsequent DOWN with ResendInterval=0 duplicated regional DOWN: %v %+v", err, duplicateDown)
+	}
 }
 
 func testOperativeCold(t *testing.T, engine string) {

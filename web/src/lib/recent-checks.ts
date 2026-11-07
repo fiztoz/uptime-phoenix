@@ -23,8 +23,12 @@ export interface TimelineLayoutOptions {
 export interface TimelineLayout {
   /** Fraction of the axis before the first segment (not monitored). */
   lead: number;
+  /** Duration (ms) before the first segment on an overall time axis. */
+  leadDurationMs: number;
   /** Fraction of the axis each segment covers; sums to 1 with `lead`. */
   weights: number[];
+  /** Duration (ms) each segment covers on an overall time axis (0 for fixed-cadence checks). */
+  durationsMs: number[];
 }
 
 /**
@@ -42,7 +46,12 @@ export function timelineLayout(
   options: TimelineLayoutOptions,
 ): TimelineLayout {
   const n = segments.length;
-  const equal = { lead: 0, weights: segments.map(() => (n > 0 ? 1 / n : 0)) };
+  const equal: TimelineLayout = {
+    lead: 0,
+    leadDurationMs: 0,
+    weights: segments.map(() => (n > 0 ? 1 / n : 0)),
+    durationsMs: segments.map(() => 0),
+  };
   if (!options.overall || n === 0) return equal;
   const starts = segments.map((segment) => Date.parse(segment.time));
   if (starts.some((start) => !Number.isFinite(start))) return equal;
@@ -53,13 +62,15 @@ export function timelineLayout(
     : windowStart;
   const total = end - axisStart;
   if (total <= 0) return equal;
-  const weights = starts.map((start, i) => {
+  const durationsMs = starts.map((start, i) => {
     const from = Math.max(start, axisStart);
     const to = Math.max(i + 1 < n ? starts[i + 1] : end, axisStart);
-    return Math.max(0, to - from) / total;
+    return Math.max(0, to - from);
   });
-  const lead = Math.max(0, Math.min(starts[0], end) - axisStart) / total;
-  return { lead, weights };
+  const weights = durationsMs.map((duration) => duration / total);
+  const leadDurationMs = Math.max(0, Math.min(starts[0], end) - axisStart);
+  const lead = leadDurationMs / total;
+  return { lead, leadDurationMs, weights, durationsMs };
 }
 
 /** Merge checks from one source, retaining newer live rows during a snapshot. */

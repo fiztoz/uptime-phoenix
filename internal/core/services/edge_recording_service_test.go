@@ -149,3 +149,37 @@ func TestEdgeRecordingMaintenanceAndAuthority(t *testing.T) {
 		t.Fatal("missing cron evaluator silently skipped maintenance")
 	}
 }
+
+func TestEdgeRecordingEnqueuesUnsentInitialDownAfterHoldRelease(t *testing.T) {
+	f, c, a := edgeServiceFixture()
+	a.Monitor.MaxRetries = 0
+	a.Monitor.ResendInterval = 0
+	c.Assignments[0] = a
+	svc := NewEdgeRecordingService(f, f, nil)
+	at := time.Date(2026, 9, 25, 13, 0, 0, 0, time.UTC)
+
+	// Simulate first DOWN committed while aggregate source hold was active:
+	// incident opened in firing state, but LastEnqueuedAt stayed nil because the
+	// hold suppressed the initial DOWN delivery intent (#220).
+	if _, err := svc.Record(t.Context(), c, a, ports.CheckResult{Status: domain.StatusDown, Message: "down under hold"}, at); err != nil {
+		t.Fatal(err)
+	}
+	f.e.LastEnqueuedAt = nil
+
+	// Next DOWN after the hold is released must enqueue the initial DOWN intent
+	// even when ResendInterval is 0.
+	if _, err := svc.Record(t.Context(), c, a, ports.CheckResult{Status: domain.StatusDown, Message: "still down after resume"}, at.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.records[1].DeliveryIntents) != 1 || f.records[1].DeliveryIntents[0].SourceAlertID != f.e.Incident.SourceAlertID {
+		t.Fatalf("post-release DOWN did not enqueue initial intent: %+v", f.records[1].DeliveryIntents)
+	}
+
+	// Subsequent DOWN with ResendInterval == 0 must not duplicate the page.
+	if _, err := svc.Record(t.Context(), c, a, ports.CheckResult{Status: domain.StatusDown, Message: "still down"}, at.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.records[2].DeliveryIntents) != 0 {
+		t.Fatalf("subsequent DOWN with ResendInterval=0 duplicated intent: %+v", f.records[2].DeliveryIntents)
+	}
+}

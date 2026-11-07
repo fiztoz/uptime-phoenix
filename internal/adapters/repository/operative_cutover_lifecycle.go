@@ -74,7 +74,7 @@ func (r *OperativeDeliveryStore) preparingTx(ctx context.Context, tx bun.Tx, sta
 		return false, err
 	}
 	if !found {
-		return false, nil
+		return preparingDeadlineTx(ctx, tx, state, hub, set.Revision, mode, round, false, now)
 	}
 	type prepared struct {
 		evidence operativeMemberEvidence
@@ -90,13 +90,13 @@ func (r *OperativeDeliveryStore) preparingTx(ctx context.Context, tx bun.Tx, sta
 			return true, operativeBlockTx(state, now, "member_evidence_conflict")
 		}
 		if ev.Evidence != operativeEvidenceComplete || !ev.Capable {
-			return false, nil // Missing/unsupported evidence stays pending.
+			return preparingDeadlineTx(ctx, tx, state, hub, set.Revision, mode, round, true, now)
 		}
 		// Pure cutover semantics: an unbound or stale document blocks even when
 		// later application evidence would look current.
 		if ev.Assignment == nil || ev.Assignment.Generation != assignment.Generation ||
 			ev.Assignment.AssignmentRevision != set.Revision || ev.Assignment.AlertDelivery != mode {
-			return false, nil
+			return preparingDeadlineTx(ctx, tx, state, hub, set.Revision, mode, round, true, now)
 		}
 		prepID, prepState, err := operativeMemberPreparedTx(ctx, tx, ev, round)
 		if err != nil {
@@ -106,7 +106,7 @@ func (r *OperativeDeliveryStore) preparingTx(ctx context.Context, tx bun.Tx, sta
 			return true, operativeBlockTx(state, now, "preparation_evidence_conflict")
 		}
 		if prepState != operativeEvidenceComplete {
-			return false, nil
+			return preparingDeadlineTx(ctx, tx, state, hub, set.Revision, mode, round, true, now)
 		}
 		candidates = append(candidates, prepared{evidence: ev, prepID: prepID})
 	}
@@ -125,7 +125,7 @@ func (r *OperativeDeliveryStore) preparingTx(ctx context.Context, tx bun.Tx, sta
 			return false, err
 		}
 		if unsettled {
-			return false, nil
+			return preparingDeadlineTx(ctx, tx, state, hub, set.Revision, mode, round, true, now)
 		}
 	}
 	id, err := uuid.NewRandom()
@@ -738,7 +738,7 @@ func (r *OperativeDeliveryStore) activeTx(ctx context.Context, tx bun.Tx, state 
 		return r.enterDrainingTx(state, now, "configuration_changed")
 	}
 	if !enabled {
-		return r.enterDrainingTx(state, now, "feature_disabled")
+		return r.enterDrainingTx(state, now, operativeReasonFeatureDisabled)
 	}
 	decision, held, err := r.operativeCutoverEvidenceLapseTx(ctx, tx, hub, barrier, members, state, evaluator, now)
 	if err != nil {
@@ -790,12 +790,12 @@ func (r *OperativeDeliveryStore) drainingTx(ctx context.Context, tx bun.Tx, stat
 	if err != nil {
 		return false, err
 	}
-	unsettled, err := operativeUnsettledAttemptsTx(ctx, tx, state.MonitorID, now)
+	unsettled, err := operativeUnsettledAggregateAttemptsTx(ctx, tx, state.MonitorID, now)
 	if err != nil {
 		return false, err
 	}
 	if unsettled {
-		return changed, nil // No source resumes regional while a send may still run.
+		return changed, nil // No source resumes regional while an aggregate send may still run.
 	}
 	for i := range members {
 		if members[i].ResumeCommandID == nil {
@@ -808,7 +808,9 @@ func (r *OperativeDeliveryStore) drainingTx(ctx context.Context, tx bun.Tx, stat
 				return false, err
 			}
 			changed = true
-			continue
+			if len(members) == 1 || members[i].ProbeID != domain.LocalProbeID {
+				continue
+			}
 		}
 		done, again, blocked, err := r.memberCommandPassTx(ctx, tx, hub, barrier, &members[i], domain.DeliveryResumeKind, now)
 		if err != nil {
@@ -848,20 +850,78 @@ func (r *OperativeDeliveryStore) drainingTx(ctx context.Context, tx bun.Tx, stat
 	return true, nil
 }
 
+// preparingDeadlineTx bounds how long a monitor may stay in preparing when a
+// member probe cannot complete preparation or capability attestation (#217).
+// Because no member was quiesced yet, it records an unactivated barrier row
+// with 0 members and transitions directly to released with
+// cutover_deadline_exceeded, arming the standard exponential re-entry backoff.
+func preparingDeadlineTx(ctx context.Context, tx bun.Tx, state *operativeStateModel, hub string, revision int64, mode domain.AlertDelivery, round preparationRoundModel, roundFound bool, now time.Time) (bool, error) {
+	if now.Before(state.CreatedAt.Add(operativeActivationDeadline)) {
+		return false, nil
+	}
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return false, err
+	}
+	roundID := round.RoundID
+	reqRound := round.RequestRound
+	if !roundFound || !validStandbyUUID(roundID) || reqRound <= 0 {
+		rid, err := uuid.NewRandom()
+		if err != nil {
+			return false, err
+		}
+		roundID = rid.String()
+		reqRound = 1
+	}
+	barrier := operativeBarrierModel{
+		BarrierID:          id.String(),
+		MonitorID:          state.MonitorID,
+		HubID:              hub,
+		AlertDelivery:      mode,
+		AssignmentRevision: revision,
+		RoundID:            roundID,
+		RequestRound:       reqRound,
+		CreatedAt:          state.CreatedAt.UTC().Truncate(time.Microsecond),
+	}
+	if !validStandbyUUID(barrier.BarrierID) {
+		return false, ports.ErrConflict
+	}
+	if _, err := tx.NewInsert().Model(&barrier).Exec(ctx); err != nil {
+		return false, err
+	}
+	barrierID := barrier.BarrierID
+	state.BarrierID = &barrierID
+	state.Phase = operativePhaseReleased
+	state.AlertDelivery = mode
+	state.AssignmentRevision = revision
+	state.Reason = domain.CutoverReasonDeadlineExceeded
+	state.CreatedAt = now.UTC().Truncate(time.Microsecond)
+	state.TransitionVersion++
+	return true, nil
+}
+
 // operativeReentryAllowedTx reports whether a monitor released by a deadline
 // drain may open a new barrier yet. The wait starts at the released barrier's
-// last resume and doubles for each consecutive barrier that never activated.
-func operativeReentryAllowedTx(ctx context.Context, tx bun.Tx, monitorID int64, barrierID string, now time.Time) (bool, error) {
+// last resume (or the release timestamp for a pre-barrier preparing timeout)
+// and doubles for each consecutive barrier that never activated.
+func operativeReentryAllowedTx(ctx context.Context, tx bun.Tx, state operativeStateModel, barrierID string, now time.Time) (bool, error) {
 	var released []time.Time
 	if err := tx.NewSelect().Model((*operativeMemberModel)(nil)).ColumnExpr("resumed_at").
 		Where("barrier_id = ? AND resumed_at IS NOT NULL", barrierID).OrderExpr("resumed_at DESC").Limit(1).Scan(ctx, &released); err != nil {
 		return false, err
 	}
-	if len(released) == 0 {
-		return false, nil
+	var releasedAt time.Time
+	if len(released) > 0 {
+		releasedAt = released[0]
+	} else {
+		members, err := tx.NewSelect().Model((*operativeMemberModel)(nil)).Where("barrier_id = ?", barrierID).Count(ctx)
+		if err != nil || members > 0 {
+			return false, err
+		}
+		releasedAt = state.CreatedAt
 	}
 	var recent []operativeBarrierModel
-	if err := tx.NewSelect().Model(&recent).Where("monitor_id = ?", monitorID).
+	if err := tx.NewSelect().Model(&recent).Where("monitor_id = ?", state.MonitorID).
 		OrderExpr("created_at DESC, barrier_id DESC").Limit(8).Scan(ctx); err != nil {
 		return false, err
 	}
@@ -877,7 +937,7 @@ func operativeReentryAllowedTx(ctx context.Context, tx bun.Tx, monitorID int64, 
 		wait *= 2
 	}
 	wait = min(wait, operativeReentryBackoffMax)
-	return !now.Before(released[0].Add(wait)), nil
+	return !now.Before(releasedAt.Add(wait)), nil
 }
 
 // withdrawQueuedPhaseCommandsTx cancels one member's still-queued unconfirmed

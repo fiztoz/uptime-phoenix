@@ -94,7 +94,9 @@ describe("timeline layout (GitHub #194)", () => {
       truncated: false,
     });
     expect(layout.lead).toBe(0);
+    expect(layout.leadDurationMs).toBe(0);
     close(layout.weights, [20 / 24, (4 - 1 / 6) / 24, 1 / 6 / 24]);
+    expect(layout.durationsMs).toEqual([20 * H, (4 - 1 / 6) * H, (1 / 6) * H]);
   });
 
   test("time before a new monitor's first interval is marked, not stretched", () => {
@@ -106,7 +108,9 @@ describe("timeline layout (GitHub #194)", () => {
       truncated: false,
     });
     expect(layout.lead).toBeCloseTo(22 / 24, 6);
+    expect(layout.leadDurationMs).toBe(22 * H);
     close(layout.weights, [2 / 24]);
+    expect(layout.durationsMs).toEqual([2 * H]);
   });
 
   test("a capped list starts the axis at its oldest interval", () => {

@@ -183,8 +183,9 @@ func (s *EdgeRecordingService) Record(ctx context.Context, config *domain.EdgeRe
 				}
 				domain.ArmAvailabilityEscalation(incident, policy, o.ConfigRevision, at)
 				record.Incident, enqueue = incident, true
-			} else if incident.Status == domain.AlertStatusFiring && m.ResendInterval > 0 {
-				enqueue = before.LastEnqueuedAt == nil || at.Sub(*before.LastEnqueuedAt) >= time.Duration(m.ResendInterval)*time.Minute
+			} else if incident.Status == domain.AlertStatusFiring {
+				initialPending := before.LastEnqueuedAt == nil || before.LastEnqueuedAt.Before(incident.StartedAt)
+				enqueue = initialPending || (m.ResendInterval > 0 && at.Sub(*before.LastEnqueuedAt) >= time.Duration(m.ResendInterval)*time.Minute)
 			}
 		} else if o.Status == domain.StatusUp && incident != nil && (incident.Status == domain.AlertStatusFiring || incident.Status == domain.AlertStatusAcked) {
 			if incident.TransitionVersion == math.MaxInt64 {
