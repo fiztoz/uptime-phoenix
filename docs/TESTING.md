@@ -260,6 +260,22 @@ or on withdrawn capability, while reconnect resets backed-off `delivery.resume` 
 go test -race -count=1 ./internal/adapters/repository -run 'TestOperative(SessionLapse|CutoverDeadline)$'
 ```
 
+`TestOperativeStreamResetResume` (#228) drives a barrier member through the
+real hub stream reset (prepare, operator receipt, reconnect, confirmation), then
+dispatches and confirms its `delivery.resume` through the production
+`ProbeCommandService`. It covers both orderings: a resume queued before
+activation (canceled with the retired stream, then reissued at once on the new
+stream) and one issued after activation (queued on the new stream directly). In
+both, the dispatched payload must still name the stored barrier tuple, including
+the retired stream that the edge gate authenticates, and the barrier must
+release. The dual-engine gate requires both `TestOperativeStreamResetResume/mariadb/*`
+leaves:
+
+```bash
+: "${TEST_MARIADB_DSN:?Set a disposable MariaDB test database}"
+go test -race -count=1 ./internal/adapters/repository -run 'TestOperativeStreamResetResume$'
+```
+
 ### M8 Docker install (migration 089)
 
 See [Docker install](multi-region/M8_DOCKER_INSTALL.md).

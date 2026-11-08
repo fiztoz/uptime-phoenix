@@ -127,13 +127,20 @@ this the barrier drained (`cutover_evidence_incomplete`), the drain closed the
 incident as `admin_closed`/`drained` with no recovery page, and the replacement
 barrier opened a new incident and paged DOWN again.
 
-**Page bound for a connected source that never re-attests (#221).** The
-reconciler refreshes `attested_at` at most every 30 seconds while the source is
-capable, and passes run every `operativeRetryDelay` (5 seconds). A source that
-reconnects and keeps its lease and `last_contact_at` live without re-attesting
-therefore drains within `operativeSessionLapseGrace` + 5 s (about 3 min 5 s)
-of the reconnect, and up to 30 s sooner depending on when `attested_at` was
-last refreshed. The drain sends `delivery.resume`
+**Page bound for a connected source that never re-attests (#221).** A source
+that reconnects and keeps its lease and `last_contact_at` live without
+re-attesting drains on the first pass after the grace has passed since its last
+`attested_at`. The lapse check compares whole DB-clock seconds, so it first
+fails up to 181 s after that `attested_at`. Passes are due
+`operativeRetryDelay` (5 seconds) after the previous one and are claimed by a
+1-second ticker, so the nominal ceiling is about 187 s (3 min 7 s) after the
+last `attested_at`. The reconciler refreshes `attested_at` at most every 30
+seconds while the source is capable, so the same ceiling holds from the
+reconnect, and the drain comes up to 30 s sooner depending on the last refresh.
+This is a scheduling bound for an unstalled coordinator, not a guarantee:
+provider work, database latency or lease contention in the shared loop can delay
+the pass further. AWS Run D measured 186.008 s from the final `attested_at` and
+about 112.5 s from the reconnect. The drain sends `delivery.resume`
 on the session the source is connected on; once the source applies it, the
 barrier releases and the edge enqueues the DOWN it suppressed (`TestOperativeSessionLapse/*/ConnectedUnattestedBeyondGraceDrains`,
 `TestEdgeDeliveryCutoverResumedHoldEnqueuesSuppressedDown`). The bound assumes
@@ -149,6 +156,44 @@ died with the hub leaves the monitor without aggregate pages for at most the
 grace before the drain resumes regional paging. Activation and provider
 authorization still require a live, attested session; the hold confers no
 send authority.
+
+### Member stream reset during a barrier (#192, #228)
+
+A #192 stream reset of a member probe drains the barrier with
+`configuration_changed`. Preparing the reset revokes the member's session, and
+activating it retires the barrier's stream, so the member's evidence is
+incomplete either way. The edge keeps its source gate through the reset. The
+gate stays keyed to the barrier's stored tuple, including the retired stream,
+and only a `delivery.resume` naming that exact tuple releases it.
+
+The resume payload therefore still names the stored tuple, but the request is
+queued on the probe's current accepted stream. A request queued on a retired
+stream can never be claimed, and reset activation cancels any request still
+queued there. Hubs before this fix queued the resume on the barrier's stream.
+It was canceled or stranded, no receipt ever arrived, the barrier stayed
+`draining`, and the member's regional paging stayed held. In AWS Run D, m13 and
+m14 stayed draining for more than 84 minutes, and a euw1 DOWN for m13 paged
+nowhere.
+
+The coordinator re-addresses any resume that has no receipt and sits on a
+stream other than the probe's current accepted one. It withdraws the dead
+request (`cutover_resume_readdressed`) and reissues the resume at once on the
+current stream, without the rearm cooldown. Resume is idempotent at the source,
+so a copy that already ran costs nothing. While a reset is only prepared, the
+probe has no accepted stream, and the resume stays on the barrier's stream
+until activation.
+
+Bound: the resume is reissued on the first pass after activation (nominally
+`operativeRetryDelay`, 5 s) and dispatched once the probe reconnects on the new
+stream. The barrier releases on the pass after the receipt. A barrier already
+stuck this way under an older hub heals on the first pass after the upgrade.
+Quiesce and apply always name their own stream, so a reset during them drains
+the barrier first.
+
+`TestOperativeStreamResetResume` covers both orderings, a resume queued before
+activation and one issued after it, on SQLite and MariaDB.
+`TestEdgeDeliveryCutoverConfigAndResetCannotDropHold/stream_reset` covers the
+edge side.
 
 Disable is not regional resume. Startup refuses removal of protection/runtime
 needed by durable authority, and migration downgrade refuses unresolved authority.

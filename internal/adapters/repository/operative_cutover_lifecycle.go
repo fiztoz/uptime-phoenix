@@ -31,12 +31,15 @@ func operativeBarrierTx(ctx context.Context, tx bun.Tx, barrierID string) (opera
 
 // operativeCommandState classifies one issued command from its immutable
 // receipt. Rearmable covers rejected-busy and expired only; any other refusal
-// is an explicit failure and blocks the barrier.
+// is an explicit failure and blocks the barrier. Stranded is a resume with no
+// receipt queued on a stream other than the probe's current accepted one, so
+// the probe can never claim it (#228).
 type operativeCommandState struct {
 	Pending   bool
 	Success   bool
 	Rearmable bool
 	Blocked   bool
+	Stranded  bool
 }
 
 func (m operativeMemberModel) application(hub string, monitorID int64, mode domain.AlertDelivery) domain.ProbeDeliveryModeApplication {
@@ -202,7 +205,17 @@ func (r *OperativeDeliveryStore) issueCutoverCommandTx(ctx context.Context, tx b
 		at := created
 		logRow.OutcomeAt = &at
 	} else {
-		payload, meta, err := r.sealCutoverCommand(ctx, hub, barrier, member, kind, commandID, created, expires)
+		transport := member.StreamID
+		if kind == domain.DeliveryResumeKind {
+			stream, accepted, err := operativeAcceptedStreamTx(ctx, tx, member.ProbeID)
+			if err != nil {
+				return "", err
+			}
+			if accepted {
+				transport = stream
+			}
+		}
+		payload, meta, err := r.sealCutoverCommand(ctx, hub, barrier, member, kind, transport, commandID, created, expires)
 		if err != nil {
 			return "", err
 		}
@@ -236,7 +249,16 @@ func (r *OperativeDeliveryStore) issueCutoverCommandTx(ctx context.Context, tx b
 // hash exactly like delivery preparation issuance. Metadata bounds are checked
 // here directly because shared metadata validation does not yet accept the
 // three new kinds (reported contract gap; wire owns that validation edit).
-func (r *OperativeDeliveryStore) sealCutoverCommand(ctx context.Context, hub string, barrier operativeBarrierModel, member *operativeMemberModel, kind, commandID string, created, expires time.Time) ([]byte, domain.ProbeCommandMetadata, error) {
+//
+// transport is the stream the request is queued on. The payload always names
+// the member's barrier stream: that is the tuple the source gate authenticates.
+// Only a resume may ride a different stream (#228): a #192 stream reset keeps
+// the source gate but retires the barrier's stream, and a request queued on a
+// retired stream is never claimable.
+func (r *OperativeDeliveryStore) sealCutoverCommand(ctx context.Context, hub string, barrier operativeBarrierModel, member *operativeMemberModel, kind, transport, commandID string, created, expires time.Time) ([]byte, domain.ProbeCommandMetadata, error) {
+	if transport != member.StreamID && kind != domain.DeliveryResumeKind {
+		return nil, domain.ProbeCommandMetadata{}, ports.ErrConflict
+	}
 	request := domain.DeliveryCutoverCommand{
 		ProbeDeliveryModeApplication: member.application(hub, barrier.MonitorID, barrier.AlertDelivery),
 		CommandID:                    commandID,
@@ -265,7 +287,7 @@ func (r *OperativeDeliveryStore) sealCutoverCommand(ctx context.Context, hub str
 		CommandID:            commandID,
 		HubID:                hub,
 		ProbeID:              member.ProbeID,
-		StreamID:             member.StreamID,
+		StreamID:             transport,
 		Kind:                 kind,
 		SourceAlertID:        nil,
 		AssignmentGeneration: &generation,
@@ -323,11 +345,37 @@ func (r *OperativeDeliveryStore) operativeCommandOutcomeTx(ctx context.Context, 
 			}
 			return operativeCommandState{}, err
 		}
-		if command.Kind != kind || command.ProbeID != member.ProbeID || command.StreamID != member.StreamID ||
+		if command.Kind != kind || command.ProbeID != member.ProbeID ||
 			command.SourceAlertID != nil || command.AssignmentGeneration == nil || *command.AssignmentGeneration != member.Generation {
 			return operativeCommandState{}, ports.ErrConflict
 		}
+		if command.StreamID != member.StreamID {
+			// Only a resume rides another stream, and only one of this probe's.
+			if kind != domain.DeliveryResumeKind {
+				return operativeCommandState{}, ports.ErrConflict
+			}
+			known, err := tx.NewSelect().Model((*probeStreamModel)(nil)).
+				Where("probe_id = ? AND stream_id = ?", member.ProbeID, command.StreamID).Exists(ctx)
+			if err != nil {
+				return operativeCommandState{}, err
+			}
+			if !known {
+				return operativeCommandState{}, ports.ErrConflict
+			}
+		}
 		if !command.RemoteConfirmed {
+			if kind == domain.DeliveryResumeKind {
+				stream, accepted, err := operativeAcceptedStreamTx(ctx, tx, member.ProbeID)
+				if err != nil {
+					return operativeCommandState{}, err
+				}
+				if accepted && stream != command.StreamID {
+					// A stream reset moved the probe off this request's stream: it
+					// was canceled with the retired stream or queued on it after,
+					// and can never be claimed or carry a receipt (#228).
+					return operativeCommandState{Stranded: true}, nil
+				}
+			}
 			return operativeCommandState{Pending: true}, nil
 		}
 		if !operativeCutoverOutcomeShape(kind, command) {
@@ -576,6 +624,18 @@ func (r *OperativeDeliveryStore) memberCommandPassTx(ctx context.Context, tx bun
 		return true, false, false, nil
 	case outcome.Blocked:
 		return false, false, true, nil
+	case outcome.Stranded:
+		// No receipt can ever arrive, so no cooldown applies: withdraw the dead
+		// request and reissue at once on the probe's current stream. Resume is
+		// idempotent at the source, so a copy that did run first costs nothing.
+		if err := cancelQueuedCommandsTx(ctx, tx, []string{*member.ResumeCommandID}, "cutover_resume_readdressed",
+			"Stream reset moved the probe; resume reissued on its current stream", now); err != nil {
+			return false, false, false, err
+		}
+		if _, err := r.issueCutoverCommandTx(ctx, tx, hub, barrier, member, kind, now); err != nil {
+			return false, false, false, err
+		}
+		return false, true, false, nil
 	case outcome.Rearmable:
 		var log operativeCommandModel
 		var commandID *string
@@ -953,14 +1013,20 @@ func withdrawQueuedPhaseCommandsTx(ctx context.Context, tx bun.Tx, member *opera
 	if member.ApplyCommandID != nil {
 		ids = append(ids, *member.ApplyCommandID)
 	}
+	return cancelQueuedCommandsTx(ctx, tx, ids, "cutover_phase_withdrawn", "Barrier drain resume supersedes the queued phase command", now)
+}
+
+// cancelQueuedCommandsTx withdraws still-queued unconfirmed requests. Confirmed
+// receipts and already-canceled rows are left exactly as they are.
+func cancelQueuedCommandsTx(ctx context.Context, tx bun.Tx, ids []string, code, message string, now time.Time) error {
 	if len(ids) == 0 {
 		return nil
 	}
 	_, err := tx.NewUpdate().Model((*probeCommandRow)(nil)).
 		Set("status = ?", "canceled").
 		Set("next_attempt_at = NULL").
-		Set("result_code = ?", "cutover_phase_withdrawn").
-		Set("result_message = ?", "Barrier drain resume supersedes the queued phase command").
+		Set("result_code = ?", code).
+		Set("result_message = ?", message).
 		Set("updated_at = ?", now.UTC().Truncate(time.Microsecond)).
 		Where("command_id IN (?) AND remote_confirmed = ? AND status IN (?, ?)", bun.List(ids), false, "pending", "blocked").
 		Exec(ctx)

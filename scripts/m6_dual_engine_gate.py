@@ -263,6 +263,13 @@ REQUIRED |= {
     for case in ("ExpiredLeaseHoldsActive", "ReconnectBeforeAttestHoldsActive", "ConnectedUnattestedBeyondGraceDrains", "ReconnectReleasesBackedOffDrain", "ReleasedSessionHoldsActive", "ReleasedBeyondGraceDrains", "ReleasedWithoutContactDrains", "LapseBeyondGraceDrains", "FailedReconnectAttemptsHoldActive", "RepeatedReconnectsBeyondGraceDrain", "WithdrawnCapabilityDrains")
 }
 
+# #228: a member stream reset during a barrier still resumes that member on its
+# new stream, in both orderings, on real MariaDB.
+REQUIRED |= {
+    f"TestOperativeStreamResetResume/mariadb/{case}"
+    for case in ("ResumeQueuedBeforeActivation", "ResumeIssuedAfterActivation")
+}
+
 INSTALL_JOURNAL_REQUIRED = {
     f"TestM8InstallJournalStore/mariadb/{case}"
     for case in (
