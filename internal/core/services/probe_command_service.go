@@ -179,7 +179,11 @@ func (s *ProbeCommandService) NextCommand(ctx context.Context, session domain.Pr
 		}
 		var decoded domain.DeliveryCutoverCommand
 		decoded, err = s.cutoverCodec.DecodeDeliveryCutover(ctx, plain)
-		if err == nil && (decoded.CommandID != stored.CommandID || decoded.Kind != stored.Kind || decoded.HubID != stored.HubID || decoded.ProbeID != stored.ProbeID || decoded.StreamID != stored.StreamID || stored.AssignmentGeneration == nil || decoded.Generation != *stored.AssignmentGeneration || !decoded.CreatedAt.Equal(stored.CreatedAt) || !decoded.ExpiresAt.Equal(stored.ExpiresAt)) {
+		// A resume names its barrier's stream, which the source gate
+		// authenticates, but after a stream reset it is queued on the probe's
+		// current stream (#228). Every other kind names its own queue stream.
+		sameStream := decoded.StreamID == stored.StreamID || stored.Kind == domain.DeliveryResumeKind
+		if err == nil && (decoded.CommandID != stored.CommandID || decoded.Kind != stored.Kind || decoded.HubID != stored.HubID || decoded.ProbeID != stored.ProbeID || !sameStream || stored.AssignmentGeneration == nil || decoded.Generation != *stored.AssignmentGeneration || !decoded.CreatedAt.Equal(stored.CreatedAt) || !decoded.ExpiresAt.Equal(stored.ExpiresAt)) {
 			err = domain.ErrValidation
 		}
 	default:
