@@ -54,7 +54,7 @@ go test -race -count=1 ./...
 
 # 4. Go lint
 golangci-lint run
-# If not installed: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+# If not installed: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 
 # 5. Go vulnerability scan
 govulncheck ./...
@@ -1501,12 +1501,15 @@ golangci-lint run
 
 Install if missing:
 ```bash
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 ```
 
-Match CI instead of drifting: CI pins `v2.12.2`
-(`.github/workflows/ci.yml`, `golangci/lint-action`). Install that exact version
+Match CI instead of drifting: CI pins `v2.15.0`
+(`.github/workflows/ci.yml`, `golangci/golangci-lint-action`). Install that exact version
 when you want local results to agree with the PR gate.
+The `/v2` module path is required for v2 releases; the old path cannot install
+this version. `make lint-backend` and `make gate-full` use the same pinned installer
+when the binary is missing.
 
 **If it panics rather than linting.** A build of `golangci-lint` older than the Go
 stdlib it is asked to analyse crashes with a type-checker error inside the standard

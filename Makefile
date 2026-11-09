@@ -13,7 +13,7 @@ COMPOSE_DEPS := docker-compose.deps.yml
 GO_BIN := $(shell go env GOPATH)/bin
 AIR := $(GO_BIN)/air
 GOLANGCI_LINT := $(GO_BIN)/golangci-lint
-GOLANGCI_LINT_VERSION := v2.12.2
+GOLANGCI_LINT_VERSION := v2.15.0
 GOVULNCHECK := $(GO_BIN)/govulncheck
 export GOTOOLCHAIN := go1.27.3
 export PATH := $(GO_BIN):$(PATH)
@@ -219,7 +219,7 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	go vet ./internal/...
 	@out="$$(gofmt -l internal/)"; if [ -n "$$out" ]; then echo "gofmt needed on:"; echo "$$out"; exit 1; fi
 	go test -race -count=1 -timeout=3600s ./...
-	@test -x '$(GOLANGCI_LINT)' || go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	@test -x '$(GOLANGCI_LINT)' || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	$(GOLANGCI_LINT) run
 	@test -d web/node_modules || (cd web && bun install --frozen-lockfile)
 	cd web && bun run check && bun run test && bun run build && bun run lint && bun run test:e2e
@@ -248,7 +248,7 @@ lint: lint-backend lint-frontend ## Run all linters
 
 .PHONY: lint-backend
 lint-backend: ## Run golangci-lint
-	@test -x '$(GOLANGCI_LINT)' || go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	@test -x '$(GOLANGCI_LINT)' || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	$(GOLANGCI_LINT) run
 
 .PHONY: lint-frontend
