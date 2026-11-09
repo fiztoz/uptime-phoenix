@@ -1,0 +1,73 @@
+# T	verdict	package	top-level tests (| separated)	note
+T01	COVERED	./internal/adapters/repository	TestRegionalIncidentsAreIndependentPerProbe|TestRegionalCommitKeepsIndependentRetryCounters	separate counters and incident identity per probe
+T01	COVERED	./internal/core/services	TestRegionalRecoveryRequiresFreshOverallUp|TestProbeHistoryOverallKeepsIndependentRegions	one UP cannot recover another region
+T02	COVERED	./internal/adapters/repository	TestRepositoryContract_SQLite|TestRepositoryContract_MariaDB	includes TestMariaDBRegression_HeartbeatLatestTimestampTie (constructed same-second tie)
+T02	COVERED	./internal/adapters/repository/sqlite	TestHeartbeatGetLatest_BreaksTimestampTieByID|TestHeartbeatListByMonitor_BreaksTimestampTieByID	
+T02	COVERED	./internal/adapters/probe	TestStatePreservesSequencePrecisionAndSameSecondEvidence	
+T02	COVERED	./internal/adapters/http/handlers	TestMonitorRegionalHistoryTimestampTies|TestMonitorRegionalHistoryChartTimestampTieAtCap	
+T03	PARTIAL	./internal/adapters/repository	TestHeartbeatProbeIDAndRollupUniqueKey|TestProbeHistoryLegacyRollupsPreserveManagedCoverage	unique key accepts both probe rows; populated-row preservation through the real chain is M6-B
+T03	PARTIAL	./internal/core/services	TestRollup1m_KeepsProbesSeparate	
+T04	COVERED	./internal/adapters/repository	TestProbeIngestIsIdempotentAndRejectsGaps|TestProbeReplayAcceptance	repeated batch persists once
+T04	COVERED	./internal/adapters/repository/edge	TestReplayACK_FencingAndIdempotence|TestReplayACK_LateWriteRollbackCases	
+T04	COVERED	./internal/adapters/probe	TestReplayAcceptanceDuplicateACKDoesNotResendCurrent|TestEdgeReplayPump_DuplicateACK_Handling	
+T05	PARTIAL	./internal/core/services	TestLocalHeartbeatCommitFailurePublishesNothing	hub commit failure before ACK on a real engine is not a named test; M6-F hub-transaction kill covers it
+T05	PARTIAL	./internal/adapters/probe	TestEdgeReplayExplicitRetryWhileHubDegraded	
+T06	COVERED	./internal/adapters/repository/edge	TestEdgeCheckCrashAroundCommit|TestEdgeCheckAtomicRecordingAndRestart	real SIGKILL child around the edge commit
+T07	PARTIAL+LIVE	./internal/core/services	TestRegionalFreshnessWindow|TestEvaluateMonitorHealthFreshnessAndPause	ageing to UNKNOWN is unit-tested; 15 min real link loss is Run F F1
+T08	GAP+LIVE	./internal/core/services	TestDeliveryConsumer_Reconcile_OldDownAfterRecovery_DelayedSummary	no named test replays an outage+recovery recorded entirely offline and asserts real times + zero regional pages; new test needed; live in Run F F1
+T09	COVERED	./internal/adapters/probe	TestEdgeRuntimeCurrentStatePrecedesAndRefreshesDuringBacklog	
+T09	COVERED	./internal/adapters/repository	TestProbeHistoryConcurrentRemarkDoesNotPublishStaleSnapshot	
+T10	COVERED	./internal/adapters/repository/edge	TestEdgeEscalationSurvivesRestartAndRefusesDowngrade|TestReplay_ReopenPersistence|TestEdgeConfigAtomicityRestartAndGeneration|TestEdgeCertificatePagingSendsOnceAcrossRestart|TestEdgeStreamResetArchivesWALAndReopensCurrentEpoch	throttle survival not named separately
+T11	PARTIAL	./internal/adapters/probe	TestSessionHealthProgressesDuringBlockedWork|TestSessionHealthRetainsUnhealthySamplesAndReceiptTime|TestSessionHealthInternalCloseIsFailure	no-false-ACK with hub DB down on a real engine is M6-F (hub transaction boundary)
+T12	PARTIAL+LIVE	./internal/core/services	TestProbeConnectorRuntimeSurvivesReconnectBackoff|TestProbeConnectorConfigRolloverReconnectsWithoutBackoff	
+T12	PARTIAL+LIVE	./internal/adapters/probe	TestSessionHealthDuplicateRunDoesNotCloseOwner|TestReconnectDelay	
+T12	PARTIAL+LIVE	./internal/adapters/repository/edge	TestEdgeAcknowledgementReceiptRestartAndReconnect	
+T13	COVERED	./internal/adapters/probe	TestConfigTransferCommitFailuresNeverReturnSnapshot|TestConfigTransferChunkFailuresDiscardStaging|TestConfigTransferRejectsInvalidReconstructedSchema|TestConfigTransferOriginalBytesOutOfOrderAndRetries	
+T13	COVERED	./internal/adapters/scheduler	TestShardedScheduler_CapturesAppliedRevisionAndGeneration|TestLocalScheduler_CapturesAppliedRevisionAndGeneration	
+T14	COVERED	./internal/core/services	TestRecordRejectsInFlightCheckOnGenerationMismatch|TestRecordRejectsInFlightCheckOnAssignmentRemoval|TestRecordRejectsInFlightCheckOnActiveRevisionMismatch	
+T14	COVERED	./internal/adapters/repository	TestProbeHistoryAssignmentRemovalClosesRegionalDenominator	
+T15	PARTIAL	./internal/adapters/repository	TestMonitorDeleteReplayDiagnostic|TestHistoryClear_WatermarkFencesReplay	revoked-probe reconnect refusal not named; new test candidate
+T16	COVERED	./internal/adapters/probe	TestEnrollRequestRejectsLocalAndEnrollmentTokens	
+T16	COVERED	./internal/adapters/repository/edge	TestEdgeEnrollmentAtomicRestartAndReplay	
+T16	COVERED	./internal/core/services	TestValidEnrollmentToken	
+T17	COVERED	./internal/adapters/repository/edge	TestEdgeCredentialRotationRestartAndLostActivationReceipt|TestEdgeCredentialRotationAtomicFailures|TestEdgeCertificateRotationAtomicFailures	
+T18	PARTIAL	./internal/adapters/probe	TestEndpointReadinessRefusesForbiddenAndMalformedEndpoints|TestSessionHealthOverflowClosesAndJoinsWorker	frame-size / unsupported-type bound tests to be confirmed by reading probe codec tests
+T19	COVERED	./internal/adapters/repository/edge	TestRetentionAgeGapAndACKSurviveRestart|TestRetentionBytePressurePrefersOrdinaryEvidence|TestRetentionBoundsFragmentedLossMetadata	
+T19	COVERED	./internal/adapters/repository	TestProbeReplayGapAcceptance	
+T19	COVERED	./internal/core/services	TestProbeHistoryDeclaredGapReducesCoverageWithoutSamples	
+T20	FIXTURE	./internal/adapters/repository/edge	TestEdgeDiskFullCriticalCommit	skipped unless PHOENIX_EDGE_DISK_FULL_TEST=1 on an isolated tmpfs (Q-4); compiled-probe health frame still open
+T21	COVERED	./internal/core/services	TestProbeHistoryBackwardClockDoesNotResurrectEarlierSequence|TestMaxFutureClockSkewIsOperatorBound|TestProbeHistorySkewedSampleCannotRestoreDeclaredLoss	
+T21	COVERED	./internal/adapters/repository	TestProbeHistoryLateClockRegressionRepairsBeyondFreshness	
+T22	COVERED	./internal/adapters/repository	TestRegionalCommitMarksDirtyBucketsAndProjectsOverallHistory|TestLocalHeartbeatDirtyBucketConflictIsRetryable	
+T22	COVERED	./internal/core/services	TestDirtyBucketsForObservation	
+T23	PARTIAL	./internal/core/services	TestMaintenanceCreate_ValidatesTimezone|TestIsActive_LegacyEmptyTimezoneUsesUTC|TestEdgeRecordingMaintenanceAndAuthority	no named DST-crossing + offline-restart test; new test candidate
+T23	PARTIAL	./internal/adapters/probe	TestEdgeMaintenanceRecordingAfterColdConfigLoad	
+T24	COVERED	./internal/adapters/repository	TestProbeCapacityStateAcceptance|TestProbeCapacityPagingAcceptance|TestProbeCertificatePagingAcceptance	
+T25	PARTIAL	./internal/core/services	TestAccessReplayAcknowledgementRequiresIssuedOriginalIncident	UI pending-until-applied not covered by a named test
+T25	PARTIAL	./internal/adapters/repository/edge	TestEdgeAcknowledgementAtomicRollback	
+T26	COVERED+LIVE	./internal/core/services	TestDeliveryConsumer_T26_ProviderAcceptsThenProbeCrashes	live provider-attempt kill is Run F F6
+T26	COVERED+LIVE	./internal/adapters/repository/edge	TestEdgeProviderAttemptGrantLifecycle	
+T27	COVERED	./internal/core/services	TestDeliveryConsumer_Reconcile_OldDownAfterRecovery_DelayedSummary|TestDeliveryConsumer_Reconcile_AssignmentSuperseded	
+T28	COVERED+LIVE	./internal/adapters/repository	TestProbeRuntimeTakeoverFencesReplay|TestProbeRuntimeOwnership|TestClaimBatchReacquiresLeaseExpiringDuringLockWait	two-worker takeover live in Run F F6
+T29	COVERED	./internal/adapters/probe	TestRuntimeIdentity_SubprocessLockContentionAndRelease	
+T30	COVERED	./internal/adapters/http/handlers	TestRBAC_MonitorGet_HiddenMonitorIs404	
+T30	COVERED	./internal/core/services	TestMonitorRegionalServiceScopeAndFreshness	
+T30	COVERED	./internal/adapters/ws	TestRegionalCommandEventRequesterScope	
+T31	COVERED	./internal/core/services	TestAggregatePagingTruthTable	
+T32	PARTIAL	./internal/core/services	TestMonitorRegionalOverallHistory|TestProbeHistoryParentWeightsLatencyAndPreservesMissingCoverage	no named test with two probes at different intervals asserting duration-based uptime; new test candidate
+T32	PARTIAL	./internal/adapters/repository	TestProbeHistoryMultiProbeProjection	
+T33	PARTIAL	./internal/core/services	TestMonitorRegionalOverallHistoryLocalOnlySkipsReconstruction	full legacy journey is the Playwright E2E (CI)
+T33	PARTIAL	./internal/adapters/repository	TestClaimBatchSkipsRemoteOnlyAndKeepsLegacy	
+T34	COVERED	./internal/core/services	TestFleetActivationGate	
+T34	COVERED	./internal/adapters/repository	TestHubWorkerReadinessUnattestedLeaseHolderBlocks|TestHubWorkerReadinessExpiredAttestationBlocksAgain	
+T34	COVERED	./internal/adapters/scheduler	TestShardedSchedulerAttestsBeforeClaiming	
+T35	COVERED	./internal/adapters/repository	TestDeclarativeRestoreFleetAdmission|TestOperativeStreamResetResume	
+T35	COVERED	./internal/adapters/probe	TestHubTransport_RestoredProbeBehindCursorLogsLoudly	
+T36	COVERED	./internal/adapters/repository	TestHistoryClear_WatermarkFencesReplay	
+T37	PARTIAL+LIVE	./internal/adapters/probe	TestSession_FairnessAndPriority	high-volume drain is M6-E local pre-measure + Run F/G
+T37	PARTIAL+LIVE	./internal/adapters/repository	TestProbeHistoryQueuePriorityAndOpenWindows	
+T38	COVERED	./internal/core/services	TestGroupAlert_OverallPolicyGovernsRecovery	
+T38	COVERED	./internal/adapters/repository	TestRegionalRecoveryResolvesPublicIncident	
+T39	COVERED	./internal/core/services	TestEscalationResolve_DisabledPolicyDoesNotFallThrough|TestEscalationStart_DoesNotTouchStepZero	
+T40	COVERED	./internal/core/domain	TestRenderNotificationTemplate_MonitorAndGroupScopes|TestRedactSecretConfig_MasksCredentialsAtAnyDepth|TestRedactNotificationConfig_MasksDeliveryURL	
+T40	COVERED	./internal/adapters/probe	TestRegionalTransportRepositoryRefusalClosesWithRedactedError	
