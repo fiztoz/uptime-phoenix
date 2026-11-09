@@ -527,3 +527,68 @@ func TestHubWatchdogMigrationResumeBeforeRename(t *testing.T) {
 		t.Fatalf("resume changed lease: %+v %v", after, err)
 	}
 }
+
+// The fleet diagnostics `incident_open` must follow the watchdog incident's own
+// lifecycle. incident_seq counts transitions and never returns to zero, so it
+// cannot say whether the latest incident is still open (found by the M6 T12
+// local flap rig: a recovered probe kept reporting incident_open=true).
+func TestProbeDiagnosticsWatchdogIncidentOpenFollowsLifecycle(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mariadb"} {
+		t.Run(engine, func(t *testing.T) {
+			h := newHubWatchdogFixture(t, engine)
+			ctx := t.Context()
+			diagnostics := repository.NewProbeDiagnosticsStore(h.f.db)
+			open := func(step string) bool {
+				t.Helper()
+				d, err := diagnostics.GetProbeDiagnostics(ctx, h.authority.ProbeID)
+				if err != nil || d == nil {
+					t.Fatalf("%s: diagnostics %+v %v", step, d, err)
+				}
+				if d.Watchdog == nil {
+					return false
+				}
+				return d.Watchdog.IncidentOpen
+			}
+			if open("before any loss") {
+				t.Fatal("incident open before any watchdog loss")
+			}
+			r := h.opening()
+			state, err := h.store.CommitWatchdog(ctx, h.authority, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !open("lost") {
+				t.Fatal("open loss incident not reported")
+			}
+			ack := *state.Incident
+			ack.Status = domain.AlertStatusAcked
+			ack.TransitionVersion++
+			ack.AckedAt = &h.at
+			ack.AckCommandID = "c1a2b3c4-1d2e-4f50-8a6b-7c8d9e0f1a2b"
+			ack.AckActorDisplayName = "Operator"
+			r.ExpectedVersion = state.Version
+			r.Incident = &ack
+			r.DeliveryIntents = nil
+			if state, err = h.store.CommitWatchdog(ctx, h.authority, r); err != nil {
+				t.Fatal(err)
+			}
+			if !open("acknowledged") {
+				t.Fatal("acknowledged but unresolved incident reported closed")
+			}
+			resolved := *state.Incident
+			resolved.Status = domain.AlertStatusResolved
+			resolved.TransitionVersion++
+			resolved.ResolvedAt = &h.at
+			r.ExpectedVersion = state.Version
+			r.Incident = &resolved
+			r.Status = domain.ProbeWatchdogHealthy
+			r.Checkpoint = domain.ProbeWatchdogCheckpoint{Armed: true}
+			if state, err = h.store.CommitWatchdog(ctx, h.authority, r); err != nil || state.IncidentSeq != 3 {
+				t.Fatalf("resolve: %+v %v", state, err)
+			}
+			if open("resolved") {
+				t.Fatal("resolved incident still reported open (incident_seq > 0)")
+			}
+		})
+	}
+}
