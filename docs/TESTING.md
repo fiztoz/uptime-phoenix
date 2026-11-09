@@ -1451,6 +1451,44 @@ allows 40 minutes per race-test package; the former 15-minute repository limit
 could expire while ordinary migration fixtures were still making progress.
 
 
+### 2.7 External fixture tests (Redis, MongoDB, edge disk-full)
+
+These tests skip unless their fixture is supplied, so an ordinary `go test ./...`
+does not prove them. Point each one only at a scratch server or an isolated
+filesystem you own; none of them needs Docker.
+
+| Fixture | Env var | Tests | Runs |
+|---|---|---|---|
+| Redis | `PHOENIX_TEST_REDIS_URL` (for example `redis://127.0.0.1:6379/15`) | `TestCredentialRedis*` (middleware), `TestDatabaseChecker_Check_Redis_RealServer` (checker) | `go test -race ./internal/adapters/http/middleware ./internal/adapters/checker -run 'Redis'` |
+| MongoDB | `UPTIME_PHOENIX_TEST_MONGODB_URI` (for example `mongodb://127.0.0.1:27017/`) | `TestDatabaseChecker_Check_MongoDB_RealServer*` | `go test -race ./internal/adapters/checker -run 'MongoDB'` |
+| Edge disk-full (T20) | `PHOENIX_EDGE_DISK_FULL_TEST=1` with `TMPDIR=/data` on a private tmpfs | `TestEdgeDiskFullCriticalCommit` | see below |
+
+The checker cases expect `UP` plus exactly one session-pool and one storage
+observation. A Redis server with `maxmemory 0` reports the storage observation as
+an `error` condition (capacity unknown); that is the documented behavior, not a
+failure, and availability stays `UP`.
+
+The disk-full test refuses to run unless `/data` is a tmpfs and `TMPDIR=/data`.
+On Linux without Docker, give it a private mount namespace so the tmpfs is
+invisible to the host and disappears when the test exits:
+
+~~~bash
+go test -c -race -o /tmp/edge.test ./internal/adapters/repository/edge
+sudo unshare --mount --propagation private sh -c '
+  mkdir -p /data && mount -t tmpfs -o size=48m,mode=0700 tmpfs /data &&
+  chown "$SUDO_UID:$SUDO_GID" /data &&
+  cd internal/adapters/repository/edge &&
+  exec setpriv --reuid="$SUDO_UID" --regid="$SUDO_GID" --init-groups \
+    env TMPDIR=/data PHOENIX_EDGE_DISK_FULL_TEST=1 \
+    /tmp/edge.test -test.run "^TestEdgeDiskFullCriticalCommit$" -test.count=3 -test.v'
+sudo rmdir /data   # only if the mkdir above created it
+~~~
+
+The OpenSSH sandbox tests (`PHOENIX_M8_SSH_SANDBOX`) are different: they need
+the pinned fixture image and the Docker runner in
+`scripts/m8_binary_stage_ssh_sandbox.py`, as described in the M8 sections above.
+
+
 ## 3. Frontend Checks (Svelte)
 
 ### 3.1 Build
