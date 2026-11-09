@@ -113,32 +113,41 @@ func (b *RedisBus) listen(eventType string, ps *redis.PubSub) {
 
 	ch := ps.Channel()
 	for msg := range ch {
-		if b.closed {
-			return
-		}
-
 		var event ports.Event
 		if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
 			b.log.Warn("redis event unmarshal failed", "type", eventType, "error", err)
 			continue
 		}
+		if !b.fanOut(eventType, event) {
+			return
+		}
+	}
+}
 
-		b.mu.RLock()
-		chs := b.subscribers[eventType]
-		m := b.metrics
-		b.mu.RUnlock()
-
-		for _, subCh := range chs {
-			select {
-			case subCh <- event:
-			default:
-				// Slow consumer: drop, but count it. Same policy as MemoryBus.
-				if m != nil {
-					m.IncBusEventDropped(eventType)
-				}
+// fanOut delivers one decoded event to every local subscriber of its type and
+// reports false once the bus is closed.
+//
+// The read lock is held across the sends, as in MemoryBus.Publish. Close takes
+// the write lock before it closes the subscriber channels, so it cannot close a
+// channel this loop is sending on, and the closed flag is never read unlocked.
+// Sends are non-blocking, so holding the lock cannot stall Close for long.
+func (b *RedisBus) fanOut(eventType string, event ports.Event) bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.closed {
+		return false
+	}
+	for _, subCh := range b.subscribers[eventType] {
+		select {
+		case subCh <- event:
+		default:
+			// Slow consumer: drop, but count it. Same policy as MemoryBus.
+			if b.metrics != nil {
+				b.metrics.IncBusEventDropped(eventType)
 			}
 		}
 	}
+	return true
 }
 
 // Close shuts down the Redis client and all subscriber channels.
