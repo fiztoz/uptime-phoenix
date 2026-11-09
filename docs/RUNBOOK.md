@@ -204,6 +204,31 @@ curl --fail-with-body --silent --show-error "$PHOENIX_URL/api/health/live" | pyt
 4. In split mode, verify MariaDB and Redis are healthy. Keep one migration-owning API pod
    during the schema transition; the migration runner is not concurrency-safe. Workers must
    remain behind the API readiness gate.
+5. **Stop every old pod before an upgrade that alters a large table** (any release whose
+   migrations `ALTER TABLE heartbeats` or another large table, such as `037`). An `ALTER TABLE`
+   must wait until no other session holds the table's metadata lock. While it waits, MariaDB
+   queues **every new reader and writer** of that table behind it. One long-running dashboard
+   query or open transaction in an old pod therefore stalls all heartbeat reads and writes. In
+   the local rehearsal, a 30 s held read stalled every heartbeat writer and reader for about 20 s.
+   The chart's `RollingUpdate` (`maxUnavailable: 0`) keeps old pods serving during the new
+   pod's migration, so scale them to 0 first:
+
+```bash
+kubectl scale deployment --selector=app.kubernetes.io/instance=phoenix --replicas=0
+kubectl wait pod --selector=app.kubernetes.io/instance=phoenix --for=delete --timeout=5m
+# then run the helm upgrade in 2.2, and check the replica counts after the rollout
+```
+
+   With Compose, `docker compose stop phoenix` (and any worker) before `up -d`. Expect downtime
+   for the length of the migration. Monitoring pauses while the pods are down.
+
+   As a safety net, the runner caps each lock wait at `DB_MIGRATION_LOCK_WAIT_SECONDS` (default
+   10 s) and retries the statement up to `DB_MIGRATION_LOCK_ATTEMPTS` times (default 6, backoff
+   2 s → 30 s). Other sessions then queue for at most one cap at a time, not for as long as the
+   blocker runs. If every attempt times out, startup fails with `migration lock wait exhausted`
+   and the pod restarts. The cap does not replace this step. An online `ALTER` that has done
+   its work still needs the lock at the end. If it times out there, MariaDB rolls the `ALTER`
+   back and the retry repeats the whole table rebuild or index build.
 
 ### 2.2 Pull and deploy
 
@@ -407,6 +432,8 @@ The following defaults are the `internal/bootstrap/config.go` struct-tag default
 | `LOG_LEVEL` | `info` | Application log level. |
 | `DB_ENGINE` | `sqlite` | `sqlite` or `mariadb`. Split mode requires MariaDB. |
 | `DB_DSN` | `file:phoenix.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)` | Engine-specific DSN. MariaDB migrations require `multiStatements=true`; use `parseTime=true&loc=UTC`. |
+| `DB_MIGRATION_LOCK_WAIT_SECONDS` | `10` | Startup migrations: cap on one lock wait. On MariaDB it sets the migration session's `lock_wait_timeout` and `innodb_lock_wait_timeout`. The session goes back to the server defaults afterwards. SQLite waits for the `busy_timeout` in `DB_DSN` instead. Minimum 1. |
+| `DB_MIGRATION_LOCK_ATTEMPTS` | `6` | Startup migrations: how many times a statement (MariaDB) or migration transaction (SQLite) is tried after a lock timeout (MariaDB 1205/1213, SQLite BUSY), with 2 s → 30 s backoff, before startup fails with `migration lock wait exhausted`. Minimum 1. |
 | `JWT_SECRET` | — | Session-signing secret, **required, no default** (≥32 bytes; the server refuses to start without it). Generate with `openssl rand -base64 48`. Keep it stable across restarts. Changing it ends every session; see [user sessions after a restore](#1-configuration-backup-and-restore-drill). |
 | `JWT_EXPIRE_HOURS` | `24` | Session JWT lifetime in hours. Must be `> 0`; non-positive values refuse to boot (they would mint an already-expired token). |
 | `OUTBOUND_ALLOWED_CIDRS` | empty | Comma-separated CIDRs or IPs that monitors and notifications owned by **non-admin** users may reach although they are internal (loopback, RFC 1918, CGNAT, IPv6 ULA). Admin-owned monitors and notifications do not need it. The always-blocked floor (link-local, cloud metadata, multicast, unspecified) cannot be allowlisted. Write IPv4 ranges as IPv4 (`::ffff:10.0.0.0/104` is converted to `10.0.0.0/8`). Helm: `outbound.allowedCIDRs`. An invalid value refuses to boot. See [Outbound guard](#outbound-guard-for-monitors-and-notifications-88). |

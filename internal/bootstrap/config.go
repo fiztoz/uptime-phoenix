@@ -28,12 +28,17 @@ type Config struct {
 	DBConnMaxLifetimeSeconds int `env:"DB_CONN_MAX_LIFETIME_SECONDS" envDefault:"300"`
 	// How long startup keeps retrying an unreachable MariaDB (refused or
 	// timed-out connection) with backoff before exiting. 0 = one attempt.
-	DBConnectTimeoutSeconds int    `env:"DB_CONNECT_TIMEOUT_SECONDS" envDefault:"60"`
-	JWTSecret               string `env:"JWT_SECRET"` // required; see validateJWTSecret
-	JWTExpireH              int    `env:"JWT_EXPIRE_HOURS" envDefault:"24"`
-	TOTPIssuer              string `env:"TOTP_ISSUER" envDefault:"Phoenix"`
-	Production              bool   `env:"PRODUCTION" envDefault:"false"`
-	RedisURL                string `env:"REDIS_URL" envDefault:""`
+	DBConnectTimeoutSeconds int `env:"DB_CONNECT_TIMEOUT_SECONDS" envDefault:"60"`
+	// Startup migrations: cap each lock wait (MariaDB lock_wait_timeout and
+	// innodb_lock_wait_timeout on the migration session) and retry a statement
+	// that lost its wait, with 2 s → 30 s backoff, before startup fails.
+	DBMigrationLockWaitSeconds int    `env:"DB_MIGRATION_LOCK_WAIT_SECONDS" envDefault:"10"`
+	DBMigrationLockAttempts    int    `env:"DB_MIGRATION_LOCK_ATTEMPTS" envDefault:"6"`
+	JWTSecret                  string `env:"JWT_SECRET"` // required; see validateJWTSecret
+	JWTExpireH                 int    `env:"JWT_EXPIRE_HOURS" envDefault:"24"`
+	TOTPIssuer                 string `env:"TOTP_ISSUER" envDefault:"Phoenix"`
+	Production                 bool   `env:"PRODUCTION" envDefault:"false"`
+	RedisURL                   string `env:"REDIS_URL" envDefault:""`
 
 	// PublicURL is the absolute public origin (http/https) used in status-page
 	// subscription emails (confirmation / unsubscribe links). Empty disables
@@ -179,6 +184,12 @@ func LoadConfig() (Config, error) {
 	}
 	if _, err := parseTrustedProxyCIDRs(cfg.TrustedProxyCIDRs); err != nil {
 		return Config{}, err
+	}
+	if cfg.DBMigrationLockWaitSeconds < 1 {
+		return Config{}, fmt.Errorf("DB_MIGRATION_LOCK_WAIT_SECONDS must be at least 1, got %d", cfg.DBMigrationLockWaitSeconds)
+	}
+	if cfg.DBMigrationLockAttempts < 1 {
+		return Config{}, fmt.Errorf("DB_MIGRATION_LOCK_ATTEMPTS must be at least 1, got %d", cfg.DBMigrationLockAttempts)
 	}
 	if cfg.ProbeHubID != "" && !domain.ValidHubID(cfg.ProbeHubID) {
 		return Config{}, fmt.Errorf("PROBE_HUB_ID must be a valid canonical UUID, got %q", cfg.ProbeHubID)
