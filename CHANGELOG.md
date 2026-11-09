@@ -76,6 +76,12 @@ at the bottom.
 
 ### Fixed
 
+- **Slack names the aggregate page in its header.** The Slack header block used
+  only the monitor name, so in `both` delivery mode the regional page and the hub
+  aggregate page for the same monitor looked the same at a glance. The header
+  now ends in ` (aggregate)` for the aggregate page, as every other provider's
+  title already did.
+
 - **One failed notification send no longer silences an aggregate-paging monitor
   (#211).** Every provider error is recorded as `ambiguous` and a crashed send
   stays `in_flight`; neither ever resolves. Drain waited on them across the
