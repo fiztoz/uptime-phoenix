@@ -32,9 +32,23 @@ stub_pid=$!
 
 # M5 regional/latency-selection coverage needs the probe surface enabled; the
 # key file is exactly 32 raw bytes read once at startup.
-probe_key="$e2e_tmp_dir/probe-secret.key"
-dd if=/dev/urandom of="$probe_key" bs=32 count=1 2>/dev/null
-chmod 600 "$probe_key"
+# PHOENIX_E2E_PROBES=false starts a legacy local-only install instead (M6
+# matrix T33): no probe flag and no probe key, exactly as before multi-region.
+case "${PHOENIX_E2E_PROBES:-true}" in
+true)
+	probe_key="$e2e_tmp_dir/probe-secret.key"
+	dd if=/dev/urandom of="$probe_key" bs=32 count=1 2>/dev/null
+	chmod 600 "$probe_key"
+	export PROBES_ENABLED=true PROBE_SECRET_KEY_FILE="$probe_key"
+	;;
+false)
+	unset PROBES_ENABLED PROBE_SECRET_KEY_FILE
+	;;
+*)
+	echo "PHOENIX_E2E_PROBES must be true or false" >&2
+	exit 2
+	;;
+esac
 
 DB_ENGINE=sqlite \
 	DB_DSN="file:$e2e_tmp_dir/uptime-phoenix.db?cache=shared" \
@@ -44,8 +58,6 @@ DB_ENGINE=sqlite \
 	PRODUCTION=true \
 	PUBLIC_URL='http://127.0.0.1:3100' \
 	PORT=3100 \
-	PROBES_ENABLED=true \
-	PROBE_SECRET_KEY_FILE="$probe_key" \
 	ESCALATION_POLL_SECONDS=1 \
 	OUTBOUND_ALLOWED_CIDRS='127.0.0.0/8,::1/128' \
 	"$e2e_tmp_dir/uptime-phoenix" &
