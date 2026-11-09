@@ -190,7 +190,7 @@ func resetMariaDB(t *testing.T, db *sql.DB) {
 	// contains the local registration and sequence allocator; truncation must
 	// restore them before any legacy matrix creates a monitor.
 	for _, name := range []string{"035_probe_registry", "042_local_stream_sequence"} {
-		data, err := os.ReadFile(filepath.Join("mariadb", "migrations", name+".up.sql"))
+		data, err := repository.ReadMigrationFile(filepath.Join("mariadb", "migrations", name+".up.sql"))
 		if err != nil {
 			t.Fatal(err)
 		}

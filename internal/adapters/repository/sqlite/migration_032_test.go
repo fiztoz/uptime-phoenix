@@ -2,8 +2,9 @@ package sqlite
 
 import (
 	"database/sql"
-	"os"
 	"testing"
+
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 )
 
 // Migration 032 adds a new privilege. Existing users must stay least-privileged
@@ -29,7 +30,7 @@ func TestMigration032_DefaultsExistingAndNewUsersOff(t *testing.T) {
 		t.Fatalf("seed pre-032 users: %v", err)
 	}
 
-	up, err := os.ReadFile("migrations/032_user_view_all_monitors.up.sql")
+	up, err := repository.ReadMigrationFile("migrations/032_user_view_all_monitors.up.sql")
 	if err != nil {
 		t.Fatalf("read up migration: %v", err)
 	}

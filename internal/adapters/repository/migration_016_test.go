@@ -80,11 +80,11 @@ func TestMigration016_UpDownUp_MariaDB(t *testing.T) {
 	assertEscalationTables(t, db.DB, "mariadb", true)
 }
 
-// execMigrationFile reads a migration from the repo tree (not the embedded FS,
-// which only exposes .up.sql through RunMigrations) and runs its statements.
+// execMigrationFile reads a migration file (using ReadMigrationFile so compiled
+// test binaries run outside the repo tree) and runs its statements.
 func execMigrationFile(t *testing.T, db *sql.DB, relPath string) {
 	t.Helper()
-	body, err := os.ReadFile(filepath.FromSlash(relPath))
+	body, err := repository.ReadMigrationFile(relPath)
 	if err != nil {
 		t.Fatalf("read %s: %v", relPath, err)
 	}

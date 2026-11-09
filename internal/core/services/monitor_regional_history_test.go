@@ -156,6 +156,26 @@ func TestMonitorRegionalOverallHistory(t *testing.T) {
 		}
 	})
 
+	t.Run("LocalOnlySkipsFreshnessWindowValidation", func(t *testing.T) {
+		monitors := healthMonitorRepo{monitors: map[int64]*domain.Monitor{
+			7: {ID: 7, Active: true, Interval: 0, RetryInterval: -1, Timeout: 5},
+		}}
+		assignments := healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{
+			7: {MonitorID: 7, Revision: 1, HealthPolicy: domain.HealthPolicyAnyDown, Assignments: []domain.ProbeAssignment{{ProbeID: domain.LocalProbeID, Generation: 1}}},
+		}}
+		health := NewMonitorHealthService(monitors, assignments, &healthRegionalRepo{}, healthAccess{allow: map[int64]bool{7: true}})
+		svc := NewMonitorRegionalService(health, &regionalLabelRepo{})
+		svc.SetHistory(&regionalHistoryObsFake{}, assignments)
+
+		got, err := svc.OverallHistory(context.Background(), 1, 7, from, to)
+		if err != nil {
+			t.Fatalf("local-only with invalid timing must not fail: %v", err)
+		}
+		if !got.LocalOnly {
+			t.Fatalf("expected LocalOnly: true, got: %+v", got)
+		}
+	})
+
 	t.Run("LegacyMonitorReadsAsLocal", func(t *testing.T) {
 		svc := regionalHistoryService(&regionalHistoryObsFake{}, healthAssignmentRepo{sets: map[int64]*domain.MonitorProbeAssignments{7: {MonitorID: 7}}}, map[int64]bool{7: true})
 		got, err := svc.OverallHistory(context.Background(), 1, 7, from, to)

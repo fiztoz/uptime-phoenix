@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -18,6 +20,68 @@ var mariadbMigrations embed.FS
 
 //go:embed sqlite/migrations/*.sql
 var sqliteMigrations embed.FS
+
+// ReadMigrationFile reads a migration SQL file by relative path from embedded filesystems,
+// falling back to the local operating system filesystem when available.
+func ReadMigrationFile(relPath string) ([]byte, error) {
+	slashPath := filepath.ToSlash(relPath)
+	for strings.HasPrefix(slashPath, "./") {
+		slashPath = strings.TrimPrefix(slashPath, "./")
+	}
+	slashPath = strings.TrimPrefix(slashPath, "/")
+
+	var data []byte
+	var err error
+	switch {
+	case strings.HasPrefix(slashPath, "mariadb/migrations/"):
+		data, err = fs.ReadFile(mariadbMigrations, slashPath)
+	case strings.HasPrefix(slashPath, "sqlite/migrations/"):
+		data, err = fs.ReadFile(sqliteMigrations, slashPath)
+	case strings.HasPrefix(slashPath, "migrations/"):
+		data, err = fs.ReadFile(sqliteMigrations, "sqlite/"+slashPath)
+		if err != nil {
+			data, err = fs.ReadFile(mariadbMigrations, "mariadb/"+slashPath)
+		}
+	default:
+		err = fs.ErrNotExist
+	}
+	if err == nil {
+		return data, nil
+	}
+
+	diskData, diskErr := os.ReadFile(filepath.FromSlash(relPath))
+	if diskErr == nil {
+		return diskData, nil
+	}
+	return nil, fmt.Errorf("read migration file %s: %w", relPath, diskErr)
+}
+
+// ReadMigrationDir reads directory entries for the specified database engine's migrations,
+// using embedded migration filesystems and falling back to the local filesystem.
+func ReadMigrationDir(engine string) ([]fs.DirEntry, error) {
+	var entries []fs.DirEntry
+	var err error
+	switch engine {
+	case "mariadb":
+		entries, err = fs.ReadDir(mariadbMigrations, "mariadb/migrations")
+	case "sqlite":
+		entries, err = fs.ReadDir(sqliteMigrations, "sqlite/migrations")
+	default:
+		return nil, fmt.Errorf("unknown migration engine: %s", engine)
+	}
+	if err == nil && len(entries) > 0 {
+		return entries, nil
+	}
+
+	diskEntries, diskErr := os.ReadDir(filepath.Join(engine, "migrations"))
+	if diskErr == nil {
+		return diskEntries, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read embedded migrations dir for %s: %w", engine, err)
+	}
+	return nil, fmt.Errorf("read migrations directory for %s: %w", engine, diskErr)
+}
 
 // RunMigrations executes all pending migrations for the specified engine.
 func RunMigrations(db *sql.DB, engine string) error {

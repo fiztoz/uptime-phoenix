@@ -5,6 +5,7 @@
 <script lang="ts">
   import { getLayerCakeContext } from "layercake";
   import type { ScaleLinear } from "d3-scale";
+  import { uniqueKeys } from "#lib/utils/chart.js";
 
   interface Props {
     format?: (d: number) => string;
@@ -21,18 +22,22 @@
   }: Props = $props();
 
   const tickVals = $derived.by(() => {
-    if (Array.isArray(ticks)) return ticks;
-    if (typeof ticks === "function") return ticks(k.yScale.ticks());
-    return k.yScale.ticks(ticks);
+    let raw: number[];
+    if (Array.isArray(ticks)) raw = ticks;
+    else if (typeof ticks === "function") raw = ticks(k.yScale.ticks());
+    else raw = k.yScale.ticks(ticks);
+    return (raw ?? []).filter((d): d is number => Number.isFinite(d));
   });
+
+  const tickKeys = $derived(uniqueKeys(tickVals, (tick) => tick));
 </script>
 
 <g class="axis y-axis">
-  {#each tickVals as tick (tick)}
+  {#each tickVals as tick, i (tickKeys[i])}
     {@const tickValPx = k.yScale(tick)}
     <g
       class="tick tick-{tick}"
-      transform="translate({k.xRange[0]}, {tickValPx})"
+      transform="translate({k.xRange?.[0] ?? 0}, {tickValPx})"
     >
       {#if gridlines}
         <line class="gridline" x1="0" x2={k.width} y1="0" y2="0" />

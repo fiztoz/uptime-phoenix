@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -448,7 +447,7 @@ func TestHubWatchdogMigrationPreservesLegacyLeases(t *testing.T) {
 				t.Fatal(err)
 			}
 			if engine == "sqlite" {
-				data, err := os.ReadFile(filepath.Join(engine, "migrations", "059_probe_watchdog_source.up.sql"))
+				data, err := repository.ReadMigrationFile(filepath.Join(engine, "migrations", "059_probe_watchdog_source.up.sql"))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -506,7 +505,7 @@ func TestHubWatchdogMigrationResumeBeforeRename(t *testing.T) {
 	if err := runEngineMigration(t, f.db, f.engine, "059_probe_watchdog_source", "down"); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join("mariadb", "migrations", "059_probe_watchdog_source.up.sql"))
+	data, err := repository.ReadMigrationFile(filepath.Join("mariadb", "migrations", "059_probe_watchdog_source.up.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
