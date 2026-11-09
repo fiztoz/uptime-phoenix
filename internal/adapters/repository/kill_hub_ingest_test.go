@@ -46,12 +46,9 @@ func killIngestBatchFrom(monitorID int64, probeID string, from int64) domain.Pro
 	return domain.ProbeIngestBatch{ProbeID: probeID, StreamID: remoteStreamID, FromSeq: from, ThroughSeq: from + killIngestBatch - 1, Events: events}
 }
 
-// TestKillHubIngestChild is the child half: ingest from the durable cursor on,
+// runKillHubIngestChild is the child half: ingest from the durable cursor on,
 // print "C <seq>" after each acknowledged commit.
-func TestKillHubIngestChild(t *testing.T) {
-	if os.Getenv(killChildEnv) == "" {
-		t.Skip("child process of TestKillHubIngest")
-	}
+func runKillHubIngestChild(t *testing.T) {
 	f := reopenKillFixture(t)
 	monitorID, _ := strconv.ParseInt(os.Getenv("PHOENIX_KILL_MONITOR"), 10, 64)
 	probeID := os.Getenv("PHOENIX_KILL_PROBE")
@@ -123,7 +120,8 @@ func checkKillIngest(t *testing.T, label string, c killIngestCounts) {
 
 func TestKillHubIngest(t *testing.T) {
 	if os.Getenv(killChildEnv) != "" {
-		t.Skip("parent only")
+		runKillHubIngestChild(t)
+		return
 	}
 	if testing.Short() {
 		t.Skip("spawns child processes")
@@ -152,7 +150,7 @@ func TestKillHubIngest(t *testing.T) {
 			for i := 0; i < iterations; i++ {
 				before := readKillIngest(t, f, remote.ID)
 				delay := time.Duration(rng.Int63n(int64(150 * time.Millisecond)))
-				res := spawnKilledChild(t, "TestKillHubIngestChild", f, "random", delay, env)
+				res := spawnKilledChild(t, "TestKillHubIngest", f, "random", delay, env)
 				acked := lastAcked(res.lines)
 				if acked < 0 {
 					t.Fatalf("iter %d: child ingest failed: %v", i, res.lines)

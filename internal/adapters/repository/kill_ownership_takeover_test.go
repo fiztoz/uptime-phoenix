@@ -28,10 +28,7 @@ const (
 	killOwnerB = probeRegistryID3
 )
 
-func TestKillOwnershipTakeoverChild(t *testing.T) {
-	if os.Getenv(killChildEnv) == "" {
-		t.Skip("child process of TestKillOwnershipTakeover")
-	}
+func runKillOwnershipTakeoverChild(t *testing.T) {
 	f := reopenKillFixture(t)
 	store := repository.NewProbeConnectorStore(f.db)
 	ctx := t.Context()
@@ -57,7 +54,8 @@ func TestKillOwnershipTakeoverChild(t *testing.T) {
 
 func TestKillOwnershipTakeover(t *testing.T) {
 	if os.Getenv(killChildEnv) != "" {
-		t.Skip("parent only")
+		runKillOwnershipTakeoverChild(t)
+		return
 	}
 	if testing.Short() {
 		t.Skip("spawns child processes")
@@ -79,7 +77,7 @@ func TestKillOwnershipTakeover(t *testing.T) {
 			var highest int64
 			for i := 0; i < iterations; i++ {
 				delay := time.Duration(rng.Int63n(int64(30 * time.Millisecond)))
-				res := spawnKilledChild(t, "TestKillOwnershipTakeoverChild", f, "random", delay, nil)
+				res := spawnKilledChild(t, "TestKillOwnershipTakeover", f, "random", delay, nil)
 				var handed int64
 				for _, l := range res.lines {
 					if v, ok := strings.CutPrefix(l, "L "); ok {

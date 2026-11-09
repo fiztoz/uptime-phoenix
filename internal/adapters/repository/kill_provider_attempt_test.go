@@ -58,13 +58,10 @@ func (s markerSender) Send(ctx context.Context, _ map[string]any, _ domain.Alert
 	return nil
 }
 
-// TestKillProviderAttemptChild is the child half. It does nothing unless the
-// parent started it.
-func TestKillProviderAttemptChild(t *testing.T) {
+// runKillProviderAttemptChild is the child half. TestKillProviderAttempt runs
+// it in the child process it started, so the shard gate sees no skipped test.
+func runKillProviderAttemptChild(t *testing.T) {
 	mode := os.Getenv(killChildEnv)
-	if mode == "" {
-		t.Skip("child process of TestKillProviderAttempt")
-	}
 	f := reopenKillFixture(t)
 	store := newOperativeStore(t, f)
 	sender := markerSender{block: mode == "in-send"}
@@ -111,15 +108,15 @@ type killResult struct {
 // it printed before it died.
 func runKilledChild(t *testing.T, o operativeFixture, mode string, delay time.Duration) killResult {
 	t.Helper()
-	return spawnKilledChild(t, "TestKillProviderAttemptChild", o.p.f, mode, delay, nil)
+	return spawnKilledChild(t, "TestKillProviderAttempt", o.p.f, mode, delay, nil)
 }
 
-// spawnKilledChild runs one child test against the fixture's database and
+// spawnKilledChild reruns parent as a child process against the fixture's database and
 // SIGKILLs it: after the marker for mode "in-send"/"calibrate", otherwise after
 // delay from READY. Lines the child wrote before it died are returned.
-func spawnKilledChild(t *testing.T, child string, f probeRegistryFixture, mode string, delay time.Duration, env []string) killResult {
+func spawnKilledChild(t *testing.T, parent string, f probeRegistryFixture, mode string, delay time.Duration, env []string) killResult {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^"+child+"$", "-test.count=1")
+	cmd := exec.Command(os.Args[0], "-test.run=^"+parent+"$", "-test.count=1")
 	cmd.Env = append(append(os.Environ(), killChildEnv+"="+mode, "PHOENIX_KILL_ENGINE="+f.engine, "PHOENIX_KILL_DSN="+f.dsn), env...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -278,7 +275,8 @@ func newKillDeliveryFixture(t *testing.T, engine string) operativeFixture {
 // at random points of a delivery pass, on both hub engines.
 func TestKillProviderAttempt(t *testing.T) {
 	if os.Getenv(killChildEnv) != "" {
-		t.Skip("parent only")
+		runKillProviderAttemptChild(t)
+		return
 	}
 	if testing.Short() {
 		t.Skip("spawns child processes")
