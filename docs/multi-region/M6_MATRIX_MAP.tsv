@@ -13,7 +13,7 @@ T04	COVERED	./internal/adapters/probe	TestReplayAcceptanceDuplicateACKDoesNotRes
 T05	PARTIAL	./internal/core/services	TestLocalHeartbeatCommitFailurePublishesNothing	hub commit failure before ACK on a real engine: TestKillHubIngest in #241 (open) SIGKILLs inside the ingest transaction on SQLite and MariaDB
 T05	PARTIAL	./internal/adapters/probe	TestEdgeReplayExplicitRetryWhileHubDegraded	
 T06	COVERED	./internal/adapters/repository/edge	TestEdgeCheckCrashAroundCommit|TestEdgeCheckAtomicRecordingAndRestart	real SIGKILL child around the edge commit
-T07	PARTIAL+LIVE	./internal/core/services	TestRegionalFreshnessWindow|TestEvaluateMonitorHealthFreshnessAndPause	ageing to UNKNOWN is unit-tested; 15 min real link loss is Run F F1
+T07	PARTIAL+LIVE	./internal/core/services	TestRegionalFreshnessWindow|TestEvaluateMonitorHealthFreshnessAndPause	ageing to UNKNOWN is unit-tested; a ~50 min loopback partition of 10 compiled probes showed every probe disconnected, stale_evidence, monitor UNKNOWN (M6-E local pre-measure, #250); 15 min real link loss is Run F F1
 T08	GAP+LIVE	./internal/core/services	TestDeliveryConsumer_Reconcile_OldDownAfterRecovery_DelayedSummary	offline outage+recovery replay with real times and zero hub pages: TestProbeReplayOfflineOutageAndRecovery in #244 (open); live in Run F F1
 T09	COVERED	./internal/adapters/probe	TestEdgeRuntimeCurrentStatePrecedesAndRefreshesDuringBacklog	
 T09	COVERED	./internal/adapters/repository	TestProbeHistoryConcurrentRemarkDoesNotPublishStaleSnapshot	
@@ -35,7 +35,7 @@ T18	COVERED	./internal/adapters/probe	TestEndpointReadinessRefusesForbiddenAndMa
 T19	COVERED	./internal/adapters/repository/edge	TestRetentionAgeGapAndACKSurviveRestart|TestRetentionBytePressurePrefersOrdinaryEvidence|TestRetentionBoundsFragmentedLossMetadata	
 T19	COVERED	./internal/adapters/repository	TestProbeReplayGapAcceptance	
 T19	COVERED	./internal/core/services	TestProbeHistoryDeclaredGapReducesCoverageWithoutSamples	
-T20	FIXTURE	./internal/adapters/repository/edge	TestEdgeDiskFullCriticalCommit	skipped unless PHOENIX_EDGE_DISK_FULL_TEST=1 on an isolated tmpfs (Q-4); compiled-probe health frame still open
+T20	FIXTURE	./internal/adapters/repository/edge	TestEdgeDiskFullCriticalCommit	skipped unless PHOENIX_EDGE_DISK_FULL_TEST=1 on an isolated tmpfs (Q-4); compiled-probe health frame: TestProbeHealthFrameReportsDiskFull in #249 (open)
 T21	COVERED	./internal/core/services	TestProbeHistoryBackwardClockDoesNotResurrectEarlierSequence|TestMaxFutureClockSkewIsOperatorBound|TestProbeHistorySkewedSampleCannotRestoreDeclaredLoss	
 T21	COVERED	./internal/adapters/repository	TestProbeHistoryLateClockRegressionRepairsBeyondFreshness	
 T22	COVERED	./internal/adapters/repository	TestRegionalCommitMarksDirtyBucketsAndProjectsOverallHistory|TestLocalHeartbeatDirtyBucketConflictIsRetryable	
@@ -64,7 +64,7 @@ T34	COVERED	./internal/adapters/scheduler	TestShardedSchedulerAttestsBeforeClaim
 T35	COVERED	./internal/adapters/repository	TestDeclarativeRestoreFleetAdmission|TestOperativeStreamResetResume	
 T35	COVERED	./internal/adapters/probe	TestHubTransport_RestoredProbeBehindCursorLogsLoudly	
 T36	COVERED	./internal/adapters/repository	TestHistoryClear_WatermarkFencesReplay	
-T37	PARTIAL+LIVE	./internal/adapters/probe	TestSession_FairnessAndPriority	high-volume drain is the M6-E local pre-measure (in progress) + Run F/G
+T37	PARTIAL+LIVE	./internal/adapters/probe	TestSession_FairnessAndPriority	high-volume drain: M6-E local pre-measure (#250) committed a 53,794-event backlog from 10 probes/1,000 assignments in ~76 s with no loss or duplicates while new checks kept arriving; supported-baseline drain is Run F/G
 T37	PARTIAL+LIVE	./internal/adapters/repository	TestProbeHistoryQueuePriorityAndOpenWindows	
 T38	COVERED	./internal/core/services	TestGroupAlert_OverallPolicyGovernsRecovery	
 T38	COVERED	./internal/adapters/repository	TestRegionalRecoveryResolvesPublicIncident	
