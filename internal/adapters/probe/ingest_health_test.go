@@ -29,9 +29,25 @@ func TestHubTransportPeerHealthCannotMaskIngestFailure(t *testing.T) {
 		}
 		return &domain.ProbeReplayResult{StreamID: b.StreamID, CommittedSeq: b.LastSeq}, nil
 	}
+	healthReceived := make(chan struct{}, 1)
+	awaitHealthReceipt := func() {
+		t.Helper()
+		select {
+		case <-healthReceived:
+		case <-ctx.Done():
+			t.Fatal("waiting for peer health receipt:", ctx.Err())
+		}
+	}
 	done := make(chan error, 1)
 	go func() {
-		done <- s.transport.Run(ctx, s.input, func(context.Context, domain.ProbeQueueReport) error { return nil }, func(context.Context, domain.ProbeActiveConfig) error { return nil }, ingest)
+		done <- s.transport.Run(ctx, s.input, func(ctx context.Context, _ domain.ProbeQueueReport) error {
+			select {
+			case healthReceived <- struct{}{}:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}, func(context.Context, domain.ProbeActiveConfig) error { return nil }, ingest)
 	}()
 	var conn *websocket.Conn
 	select {
@@ -43,6 +59,9 @@ func TestHubTransportPeerHealthCannotMaskIngestFailure(t *testing.T) {
 	}
 	defer func() { _ = conn.CloseNow() }()
 	performHandshakeAndConfig(ctx, t, conn, s)
+	// The handshake helper sends one health frame. Consume its receipt before
+	// using the same signal to acknowledge the later peer-health frames.
+	awaitHealthReceipt()
 	read := func() (Envelope, []byte) {
 		t.Helper()
 		_, data, err := conn.Read(ctx)
@@ -106,6 +125,9 @@ func TestHubTransportPeerHealthCannotMaskIngestFailure(t *testing.T) {
 		if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
 			t.Fatal(err)
 		}
+		// Await the callback so this readiness test cannot overflow the
+		// intentionally bounded health queue when its worker is scheduled late.
+		awaitHealthReceipt()
 	}
 	env, data := read() // healthy peer traffic must not turn hub ingest health green
 	if env.Type != "health" {
