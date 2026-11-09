@@ -9,8 +9,9 @@
     "preview": "vite preview",
     "lint": "prettier --check . && eslint .",
     "format": "prettier --write .",
-    "check": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "bun test src/lib",
+    "i18n": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
+    "check": "bun run i18n && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "bun run i18n && bun test src/lib",
     "test:e2e": "playwright test --config=tests/e2e.config.ts"
   },
   "devDependencies": {

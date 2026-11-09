@@ -30,6 +30,20 @@ export default [
       "@typescript-eslint/no-empty-object-type": "off",
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-vars": "off",
+      // An absolute filesystem import resolves only in the checkout that
+      // wrote it (#226). Use a relative path or the #lib alias.
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^(?:/|[A-Za-z]:[\\\\/]|file:)",
+              message:
+                "Import through a relative path or the #lib alias, not an absolute filesystem path.",
+            },
+          ],
+        },
+      ],
       "no-undef": "off",
       "no-useless-assignment": "off",
       "prefer-const": "off",
