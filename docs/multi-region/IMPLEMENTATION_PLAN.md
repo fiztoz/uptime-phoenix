@@ -209,7 +209,7 @@ at the [foundation](M5_FOUNDATION.md).
 - [x] Persist hub-owned aggregate incident identity, provider intents, deduplication, throttle, and ownership fencing. See [operative cutover](M7_OPERATIVE_CUTOVER.md) and [standby planning](M7_AGGREGATE_STANDBY.md).
 - [x] Implement ANY/ALL truth-table tests with missing, stale, paused, maintenance, and recovering probes. `TestAggregatePagingTruthTable` (`internal/core/services/aggregate_paging_test.go`); evaluation reuses `EvaluateMonitorHealth` ([paging decisions](M7_PAGING_FOUNDATION.md)).
 - [x] Reconcile a current fresh snapshot without replaying old aggregate incident transitions; administrative policy changes receive administrative closure reasons. See [operative cutover](M7_OPERATIVE_CUTOVER.md).
-- [ ] Explain regional versus aggregate scope in channel configuration and alert messages. Open: see the [scope-text audit](M7_SCOPE_TEXT_AUDIT.md) (panel always says per-region, channel config has no scope text, aggregate webhook JSON lacks `delivery_scope`).
+- [ ] Explain regional versus aggregate scope in channel configuration and alert messages. Code-level gaps closed by #178, #181 and the Slack header fix; see the [scope-text audit](M7_SCOPE_TEXT_AUDIT.md). Left unticked until live opt-in acceptance shows an operator the configured scopes on a real channel.
 
 **Acceptance:** an operator explicitly selects each mode and receives only the configured scopes; UNKNOWN never creates a fake recovery or satisfies ALL-DOWN quorum.
 
