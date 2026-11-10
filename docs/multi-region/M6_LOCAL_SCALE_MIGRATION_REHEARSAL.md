@@ -1,8 +1,8 @@
-# M6: local-scale migration rehearsal, v0.4.5 → main (20M and 50M heartbeats)
+# M6: local-scale migration rehearsal, v0.4.5 → main (20M, 50M and 259M heartbeats)
 
 Status: **local-scale engineering evidence, not the production-sized gate.** These runs used a box's local disk, not storage comparable to a deployment, and synthetic rows. The production size and storage are owner decisions that are still open. The M6 checkbox in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) §9 stays unticked.
 
-Run 2026-11-09, 22:29–23:02 ICT, at main `8e14335`. No cloud resources were used.
+Runs r1–r3: 2026-11-09, 22:29–23:02 ICT, at main `8e14335`. The 259M runs are in their own section below. No cloud resources were used.
 
 ## Setup
 
@@ -45,6 +45,51 @@ Every other migration took under 0.3 s.
 
 Scaling from 20M to 50M is close to linear: about 2.3 s per million heartbeats for the whole upgrade, and about 32 MiB per million of disk growth. That is an extrapolation, not a measurement. Storage comparable to a deployment (network block storage) can be much slower.
 
+## 259M heartbeats (D3 row count), MariaDB and SQLite
+
+Run 2026-11-10, 06:26–10:49 ICT, on the same box, with the same seed shape (500 monitors, 150 days, same rollups) and the same load (writer + reader at 5 Hz each, upgrade starts at t = 10 s). The upgrade runner is main `8e14335`. No migration file or migration runner code changed between `8e14335` and main `3759028`. The DB work was pinned to 4 of the 8 vCPUs.
+
+| Engine | Seeded size | Upgrade (60 migrations) | `037` | `042` | Writer ok / attempts | Writer p95 / max | Reader ok / attempts | Reader p95 / max | Size after |
+|---|---:|---:|---:|---:|---:|---|---:|---|---:|
+| MariaDB 11.8.3 | 30.8 GB data dir | 601.6 s | 479.5 s | 120.6 s | 3,101 / 3,101 | 17 / 1,008 ms | 3,102 / 3,102 | 53 / 874 ms | 46.3 GB (peak 53.8 GB) |
+| SQLite (WAL, `busy_timeout` 10 s) | 36.0 GB file | 521.3 s | 487.0 s | 23.0 s | **265 / 313** | 29 / 4,266 ms | 2,704 / 2,704 | 6 / 114 ms | 49.0 GB (peak 42.0 GB file + 13.4 GB WAL) |
+
+Every other migration took under 1.1 s on MariaDB. On SQLite, `057` took 10.2 s and the rest under 1 s. Both upgrades exited 0.
+
+**MariaDB validity: pass.**
+- Seeded `COUNT(*)` and `SUM(id)` are identical before and after: 259,000,000 / 33540500129500000.
+- June to October are identical per month. November differs only by the writer's 3,101 rows.
+- Every row has `probe_id='local'` and `stream_id IS NULL`. The table keeps 14 partitions, `RANGE unix_timestamp(time)`.
+- `idx_hb_monitor_probe_time` exists. Each rollup has `uq_monitor_probe_bucket` and no `uq_monitor_bucket`.
+- `CHECK TABLE heartbeats` (default mode) returns OK in 687 s. `CHECK TABLE … EXTENDED` returns OK on the three rollups in 16 s. On `heartbeats`, `EXTENDED` was stopped after 105 min, partway through the second of six populated partitions. Its only error is 188 (`HA_ERR_ABORTED_BY_USER`) from that stop. It would need more than 5 h on this box.
+- Rollback refusal: pass. The `037` down fails with `ERROR 4025 … probe_heartbeat_down_guard.state_count` after 183.3 s. The remote rows, the six columns and the new indexes are all still there.
+- Disk: 30.8 → 53.8 GB at peak (+23 GB transient, `tmpdir` still 0) → 46.3 GB. Minimum free space on the host was 32 GB. Minimum `MemAvailable` was 2.3 GiB.
+
+**SQLite validity: pass on every check below that completed.**
+- Seeded `COUNT(*)` and `SUM(id)` are identical before and after: 259,000,000 / 33540500129500000.
+- All six months are identical per month for seeded ids. There are 265 extra rows, equal to the writer's committed rows.
+- The rollup counts and `SUM(id)` are identical: 1,440,000 / 1,800,000 / 75,000.
+- All six new `heartbeats` columns exist with their defaults. `idx_hb_monitor_probe_time` and `idx_*_monitor_probe_bucket` exist on all three rollups. `_migrations` holds 94 rows, the last being `094_settle_orphaned_aggregate_attempts`.
+- `PRAGMA quick_check` was still running when this section was written (I/O-bound, about 4–5 MiB/s on this box). Its result is recorded in the PR #240 description.
+- Disk: the file went from 36.0 GB to 49.0 GB. At peak, the file was 42.0 GB plus a 13.4 GB WAL; the WAL was checkpointed to 0 at the end. Minimum `MemAvailable` was 2.4 GiB.
+
+**SQLite: heartbeat writes stop for most of the upgrade (finding 3).**
+
+At 259M rows, no write committed from t = 0 to t = 451 s after the runner started, and again for 30 s around `042`. In total, 48 of 313 writer attempts failed with `database is locked`. Each of those waited the full 10 s `busy_timeout`. WAL readers were not affected.
+
+The cause is in the runner:
+- `applyMigrationWithExecutor` wraps each SQLite migration file in one transaction.
+- `037` runs `CREATE INDEX idx_hb_monitor_probe_time` over all 259M rows inside that transaction, which holds SQLite's single write lock for the whole build (about 451 s).
+- The `COMMIT` then checkpoints the 13 GB WAL (about 36 s). Writers can commit again during that checkpoint.
+- `042` holds the write lock while it scans all of `heartbeats` for `MAX(source_seq) WHERE stream_id = …`, which has no usable index (30 s).
+
+MariaDB did not stop writes at this size, because its `037` `ALTER` is online.
+
+Suggested fixes (owner decision, not done here):
+1. **Runbook (smallest).** Treat a SQLite upgrade as planned downtime that scales with the size of `heartbeats`: about 2 s per million rows on this box. Stop the old process before starting the new binary, as in the scale-to-0 step that PR #254 adds to RUNBOOK §2.1. With a single SQLite process there is no separate writer anyway; the real effect is that the new binary does not serve or record checks until migrations finish. The runbook should state that duration so operators expect it.
+2. **Cheaper `042` on SQLite.** On a database upgraded from before `037`, every `source_seq` is `NULL`. The scan could use the new `idx_hb_monitor_probe_time` (or a guard such as `EXISTS … WHERE probe_id <> 'local'`) and avoid touching all rows. That removes the 30 s stall.
+3. **Index build.** SQLite has no online `CREATE INDEX`, so `037` always holds the write lock while it builds. It could be moved out of the upgrade path, for example built in the background after startup. That only helps if queries can tolerate the index being missing during the build.
+
 ## Findings
 
 1. **A long transaction on `heartbeats` stalls every heartbeat read and write during `037`.** In r2, the `ALTER TABLE heartbeats` waited for the metadata lock behind the held reader, from t ≈ 10 s to t = 30 s. While it waited, every new writer and reader queued behind the `ALTER`, and both maxed out at 19.9 s. That's standard MariaDB metadata-lock behaviour.
@@ -55,11 +100,14 @@ Scaling from 20M to 50M is close to linear: about 2.3 s per million heartbeats f
    Without a long transaction (r1, r3), the worst stall was 0.5 s.
 2. **An older binary does not refuse a newer schema.** The v0.4.5 runner against the upgraded `094` schema exits 0 and applies nothing. The RUNBOOK says never to mix an old binary with a partially upgraded schema, but nothing enforces that at startup.
 
-Neither finding is fixed here. Each needs an owner decision: a runbook step, a runner `lock_wait_timeout` with retry, and/or a startup guard.
+3. **On SQLite at 259M rows, heartbeat writes stop for about 451 s during `037` and 30 s during `042`.** See the SQLite part of the 259M section for the cause and the options.
+
+None of these is fixed by this document. Finding 1 is addressed by draft PR #254 (runbook scale-to-0, plus a capped migration lock wait with retry). Finding 2 is addressed by draft PR #255 (startup refusal of a newer schema). Finding 3 needs an owner decision.
 
 ## Not covered
 
-- Storage comparable to a deployment, a production-shaped data distribution, payload sizes, retention, or production size (owner decision D3).
+- Storage comparable to a deployment, a production-shaped data distribution, payload sizes or retention. The 259M runs match the D3 row count, but only on local disk.
+- A completed `CHECK TABLE heartbeats EXTENDED` at 259M (stopped after 105 min, see above), and SQLite `PRAGMA integrity_check` (only `quick_check` ran).
 - Real application traffic. The load was one synthetic writer and one reader.
 - A mixed-version rollout with real old pods.
 - Down migrations other than `037`.
