@@ -68,6 +68,8 @@ cd web && bun run lint
 
 # 8. Playwright E2E (spins up its own server; no external instance needed)
 cd web && bun run test:e2e
+# 8b. Legacy local-only journey (specs 00-08) on a hub started without probes
+cd web && bun run test:e2e:legacy
 
 # 9. Helm lint + template
 helm lint charts/uptime-phoenix

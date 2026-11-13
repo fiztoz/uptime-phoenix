@@ -160,6 +160,15 @@ jobs:
         # start-e2e-server.sh builds web + Go binary and serves on :3100
         run: bun run test:e2e
 
+      # M6 matrix T33: the legacy local-only journey on a hub started without
+      # PROBES_ENABLED (multi-region off), guarded by 00-legacy-mode.spec.ts.
+      - name: Playwright e2e (legacy, probes disabled)
+        working-directory: web
+        env:
+          CI: true
+          GOTOOLCHAIN: go1.27.4
+        run: bun run test:e2e:legacy
+
   repository-race:
     name: repository-race-${{ matrix.shard }}
     runs-on: ubuntu-latest

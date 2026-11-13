@@ -12,7 +12,8 @@
     "i18n": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide",
     "check": "bun run i18n && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "bun run i18n && bun test src/lib",
-    "test:e2e": "playwright test --config=tests/e2e.config.ts"
+    "test:e2e": "playwright test --config=tests/e2e.config.ts",
+    "test:e2e:legacy": "PHOENIX_E2E_PROBES=false playwright test --config=tests/e2e.config.ts e2e/00-legacy-mode.spec.ts e2e/01- e2e/02- e2e/03- e2e/04- e2e/05- e2e/06- e2e/07- e2e/08-"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
