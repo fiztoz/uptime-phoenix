@@ -3,7 +3,6 @@ package repository_test
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -224,7 +223,7 @@ func testThrottleDispatcher(t *testing.T, f probeRegistryFixture) {
 
 func runThrottleMigration(t *testing.T, f probeRegistryFixture, direction string) error {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(f.engine, "migrations", "043_notification_throttles."+direction+".sql"))
+	data, err := repository.ReadMigrationFile(filepath.Join(f.engine, "migrations", "043_notification_throttles."+direction+".sql"))
 	if err != nil {
 		return err
 	}

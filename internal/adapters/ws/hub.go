@@ -631,6 +631,11 @@ func monitorIDForEvent(event ports.Event) (int64, bool) {
 			return p.Heartbeat.MonitorID, p.Heartbeat.MonitorID > 0
 		}
 		return 0, false
+	case *domain.HeartbeatPublication:
+		if p != nil && p.Heartbeat != nil {
+			return p.Heartbeat.MonitorID, p.Heartbeat.MonitorID > 0
+		}
+		return 0, false
 	case *domain.Heartbeat:
 		return p.MonitorID, p.MonitorID > 0
 	case *domain.Monitor:
@@ -656,6 +661,14 @@ func monitorIDForEvent(event ports.Event) (int64, bool) {
 		// heartbeat / status.change maps, and Redis-decoded monitors.
 		for _, key := range []string{"monitor_id", "MonitorID", "id", "ID"} {
 			if id := extractInt64(p, key); id > 0 {
+				return id, true
+			}
+		}
+		// A Redis-decoded HeartbeatPublication nests the heartbeat one level
+		// down; transformPayload already unwraps it for the wire, so resolve
+		// the id the same way instead of dropping the event.
+		if inner, ok := p["Heartbeat"].(map[string]any); ok {
+			if id := extractInt64(inner, "MonitorID"); id > 0 {
 				return id, true
 			}
 		}

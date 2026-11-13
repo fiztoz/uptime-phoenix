@@ -88,3 +88,36 @@ func TestSlackSender_Send_EmptyTargetOmitted(t *testing.T) {
 		t.Errorf("empty target must not render a Target line, got %q", text)
 	}
 }
+
+// M7 scope text: in `both` mode a channel gets a regional page and a hub
+// aggregate page for the same monitor. The Slack header block is what people
+// read first, so it must tell the two apart.
+func TestSlackSender_Send_AggregateHeaderNamesScope(t *testing.T) {
+	headerFor := func(alert domain.AlertContext) string {
+		t.Helper()
+		var received map[string]any
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&received)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer srv.Close()
+		if err := (SlackSender{}).Send(context.Background(), map[string]any{"webhook_url": srv.URL}, alert); err != nil {
+			t.Fatalf("send err: %v", err)
+		}
+		return received["blocks"].([]any)[0].(map[string]any)["text"].(map[string]any)["text"].(string)
+	}
+	regional := domain.AlertContext{MonitorName: "api", Status: domain.StatusDown, Message: "fail",
+		AlertScope: domain.AlertScopeMonitor, DeliveryScope: domain.IncidentScopeRegional, ProbeID: "p1"}
+	aggregate := domain.AlertContext{MonitorName: "api", Status: domain.StatusDown, Message: "fail",
+		AlertScope: domain.AlertScopeMonitor, DeliveryScope: domain.IncidentScopeAggregate, SourceAlertID: "aggregate-1"}
+	reg, agg := headerFor(regional), headerFor(aggregate)
+	if reg == agg {
+		t.Fatalf("regional and aggregate Slack headers must differ, both %q", reg)
+	}
+	if !strings.HasSuffix(agg, "(aggregate)") {
+		t.Fatalf("aggregate Slack header = %q, want the (aggregate) suffix", agg)
+	}
+	if strings.Contains(reg, "(aggregate)") {
+		t.Fatalf("regional Slack header = %q must not claim aggregate scope", reg)
+	}
+}

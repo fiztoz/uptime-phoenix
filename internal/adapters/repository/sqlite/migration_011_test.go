@@ -19,7 +19,6 @@ package sqlite
 
 import (
 	"database/sql"
-	"os"
 	"testing"
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
@@ -118,7 +117,7 @@ func TestMigration011_DownRebuildsWithoutLosingData(t *testing.T) {
 		t.Fatalf("seed grant: %v", err)
 	}
 
-	down, err := os.ReadFile("migrations/011_create_capabilities.down.sql")
+	down, err := repository.ReadMigrationFile("migrations/011_create_capabilities.down.sql")
 	if err != nil {
 		t.Fatalf("read down migration: %v", err)
 	}

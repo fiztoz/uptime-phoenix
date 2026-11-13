@@ -153,3 +153,136 @@ func TestDirtyBucketsForObservation(t *testing.T) {
 		}
 	}
 }
+
+func TestCoalesceOverallHealthIntervals_FullWindowEquivalence(t *testing.T) {
+	t0 := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	t1 := t0.Add(time.Minute)
+	t2 := t0.Add(2 * time.Minute)
+	t3 := t0.Add(3 * time.Minute)
+	t4 := t0.Add(4 * time.Minute)
+	fresh := 10 * time.Minute
+
+	testCases := []struct {
+		name         string
+		policy       domain.HealthPolicy
+		observations []domain.RegionalObservation
+	}{
+		{
+			name:   "AnyDown_ExactBoundaryTransitionAndCountChange",
+			policy: domain.HealthPolicyAnyDown,
+			observations: []domain.RegionalObservation{
+				{ID: 1, ProbeID: "local", AssignmentGeneration: 1, Status: domain.StatusUp, ObservedAt: t0},
+				{ID: 2, ProbeID: "remote", AssignmentGeneration: 1, Status: domain.StatusUp, ObservedAt: t0},
+				// Exactly on the minute boundary (t2 = 12:02:00.000000): local goes DOWN.
+				// Causes genuine UP -> DOWN transition on the minute boundary.
+				{ID: 3, ProbeID: "local", AssignmentGeneration: 1, Status: domain.StatusDown, ObservedAt: t2},
+				// At 12:02:30: remote also goes DOWN.
+				// Status stays DOWN, but Counts changes from {Up: 1, Down: 1} to {Up: 0, Down: 2}.
+				{ID: 4, ProbeID: "remote", AssignmentGeneration: 1, Status: domain.StatusDown, ObservedAt: t2.Add(30 * time.Second)},
+			},
+		},
+		{
+			name:   "AllDown_StatusPreservedWithCountChangeAndBoundaryTransition",
+			policy: domain.HealthPolicyAllDown,
+			observations: []domain.RegionalObservation{
+				{ID: 1, ProbeID: "local", AssignmentGeneration: 1, Status: domain.StatusUp, ObservedAt: t0},
+				{ID: 2, ProbeID: "remote", AssignmentGeneration: 1, Status: domain.StatusUp, ObservedAt: t0},
+				// At 12:01:30: local goes DOWN.
+				// Under all_down, overall Status stays UP, but Counts changes to {Up: 1, Down: 1}.
+				{ID: 3, ProbeID: "local", AssignmentGeneration: 1, Status: domain.StatusDown, ObservedAt: t1.Add(30 * time.Second)},
+				// Exactly on the minute boundary (t2 = 12:02:00.000000): remote also goes DOWN.
+				// Under all_down, all probes are now DOWN -> genuine UP -> DOWN transition on minute boundary.
+				{ID: 4, ProbeID: "remote", AssignmentGeneration: 1, Status: domain.StatusDown, ObservedAt: t2},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assignments := []domain.AssignmentInterval{
+				{ProbeID: "local", Generation: 1, Revision: 1, Policy: tc.policy, From: t0},
+				{ProbeID: "remote", Generation: 1, Revision: 1, Policy: tc.policy, From: t0},
+			}
+
+			// 1. Reconstruct full window [t0, t4)
+			full, err := ReconstructOverallHistory(domain.OverallHistoryInput{
+				MonitorID: 14, From: t0, To: t4, FreshFor: fresh,
+				Assignments:  assignments,
+				Observations: tc.observations,
+			})
+			if err != nil {
+				t.Fatalf("reconstruct full window: %v", err)
+			}
+
+			// 2. Reconstruct minute-by-minute simulating 1-minute dirty buckets
+			var minuteRows []domain.MonitorHealthInterval
+			bounds := []time.Time{t0, t1, t2, t3, t4}
+			for i := 0; i < len(bounds)-1; i++ {
+				mStart, mEnd := bounds[i], bounds[i+1]
+				part, err := ReconstructOverallHistory(domain.OverallHistoryInput{
+					MonitorID: 14, From: mStart, To: mEnd, FreshFor: fresh,
+					Assignments:  assignments,
+					Observations: tc.observations,
+				})
+				if err != nil {
+					t.Fatalf("reconstruct bucket [%v, %v): %v", mStart, mEnd, err)
+				}
+				minuteRows = append(minuteRows, part.Intervals...)
+			}
+
+			// 3. Coalesce the concatenated minute rows
+			coalesced := CoalesceOverallHealthIntervals(minuteRows)
+
+			// 4. Assert full-window equivalence
+			if len(coalesced) != len(full.Intervals) {
+				t.Fatalf("length mismatch: got %d coalesced intervals, want %d full intervals\ncoalesced: %+v\nfull:      %+v",
+					len(coalesced), len(full.Intervals), coalesced, full.Intervals)
+			}
+			for i := range full.Intervals {
+				got := coalesced[i]
+				want := full.Intervals[i]
+				if !got.From.Equal(want.From) || !got.To.Equal(want.To) ||
+					got.Status != want.Status || got.Reason != want.Reason ||
+					got.Policy != want.Policy || got.PolicyRevision != want.PolicyRevision ||
+					got.Counts != want.Counts || got.Cause != want.Cause {
+					t.Fatalf("interval %d mismatch:\ngot:  %+v\nwant: %+v", i, got, want)
+				}
+			}
+
+			// Also verify SameOverallHealthSegment matches definition
+			if len(coalesced) >= 2 {
+				for i := 0; i < len(coalesced)-1; i++ {
+					if SameOverallHealthSegment(coalesced[i], coalesced[i+1]) && coalesced[i].To.Equal(coalesced[i+1].From) {
+						t.Fatalf("adjacent intervals %d and %d should have been coalesced: %+v vs %+v",
+							i, i+1, coalesced[i], coalesced[i+1])
+					}
+				}
+			}
+		})
+	}
+
+	// 5. Verify edge cases: empty input and non-positive intervals
+	t.Run("EmptyAndInvalidIntervalsSkipped", func(t *testing.T) {
+		if got := CoalesceOverallHealthIntervals(nil); got != nil {
+			t.Fatalf("expected nil for nil input, got: %+v", got)
+		}
+		if got := CoalesceOverallHealthIntervals([]domain.MonitorHealthInterval{}); len(got) != 0 {
+			t.Fatalf("expected empty for empty input, got: %+v", got)
+		}
+
+		valid := domain.MonitorHealthInterval{
+			From: t0, To: t1, Status: domain.StatusUp, Policy: domain.HealthPolicyAnyDown, PolicyRevision: 1,
+		}
+		inverted := domain.MonitorHealthInterval{
+			From: t1, To: t0, Status: domain.StatusUp, Policy: domain.HealthPolicyAnyDown, PolicyRevision: 1,
+		}
+		zero := domain.MonitorHealthInterval{
+			From: t1, To: t1, Status: domain.StatusUp, Policy: domain.HealthPolicyAnyDown, PolicyRevision: 1,
+		}
+
+		coalesced := CoalesceOverallHealthIntervals([]domain.MonitorHealthInterval{inverted, valid, zero})
+		if len(coalesced) != 1 || !coalesced[0].From.Equal(t0) || !coalesced[0].To.Equal(t1) {
+			t.Fatalf("expected only the valid interval to survive, got: %+v", coalesced)
+		}
+	})
+}

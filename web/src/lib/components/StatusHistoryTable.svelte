@@ -8,9 +8,10 @@
   import { confirmAction } from "#lib/stores/confirm.svelte.js";
   import { Trash2 } from "@lucide/svelte";
   import LoadErrorNotice from "#lib/components/LoadErrorNotice.svelte";
+  import { uniqueKeys } from "#lib/utils/chart.js";
 
   interface Props {
-    heartbeats: Heartbeat[];
+    heartbeats?: Heartbeat[];
     onClear?: () => void | Promise<void>;
     clearing?: boolean;
     /** Used as the type-to-confirm phrase when clearing history. */
@@ -21,7 +22,7 @@
   }
 
   let {
-    heartbeats,
+    heartbeats = [],
     onClear,
     clearing = false,
     monitorName,
@@ -31,7 +32,8 @@
 
   const formatDateTime = timeFormat("%Y-%m-%d %H:%M:%S");
 
-  const rows = $derived(heartbeats.slice(0, 100));
+  const rows = $derived((heartbeats ?? []).slice(0, 100));
+  const rowKeys = $derived(uniqueKeys(rows, (hb) => `${hb.id}:${hb.time}`));
 
   const statusConfig: Record<
     Heartbeat["status"],
@@ -126,7 +128,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each rows as hb (hb.id)}
+          {#each rows as hb, i (rowKeys[i])}
             {@const config = statusConfig[hb.status] ?? statusConfig.pending}
             <tr
               class="border-b border-border last:border-0 transition-colors hover:bg-accent/30"

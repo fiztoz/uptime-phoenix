@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/sqlite"
@@ -318,7 +319,7 @@ func testAuxiliaryViews(t *testing.T, f probeRegistryFixture) {
 
 func runAuxiliaryMigration(t *testing.T, f probeRegistryFixture, direction string) error {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(f.engine, "migrations", "041_probe_auxiliary_state."+direction+".sql"))
+	data, err := repository.ReadMigrationFile(filepath.Join(f.engine, "migrations", "041_probe_auxiliary_state."+direction+".sql"))
 	if err != nil {
 		return err
 	}

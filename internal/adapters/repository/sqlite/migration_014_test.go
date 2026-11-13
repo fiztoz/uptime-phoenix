@@ -10,7 +10,6 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -98,7 +97,7 @@ func TestMigration014_PreservesLegacyWebhookAndCreatesEmailTables(t *testing.T) 
 
 	// Down path: drop email tables, restore webhook table name, keep legacy rows.
 	// Note: email subscriber rows created after 014 are intentionally discarded.
-	down, err := os.ReadFile("migrations/014_status_page_email_subscriptions.down.sql")
+	down, err := repository.ReadMigrationFile("migrations/014_status_page_email_subscriptions.down.sql")
 	if err != nil {
 		t.Fatalf("read down: %v", err)
 	}

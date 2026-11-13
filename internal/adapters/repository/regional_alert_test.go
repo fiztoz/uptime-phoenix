@@ -3,7 +3,6 @@ package repository_test
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -419,7 +418,7 @@ func runAlertSourceMigration(t *testing.T, f probeRegistryFixture, direction str
 
 func runAlertMigration(t *testing.T, f probeRegistryFixture, name, direction string) error {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(f.engine, "migrations", name+"."+direction+".sql"))
+	data, err := repository.ReadMigrationFile(filepath.Join(f.engine, "migrations", name+"."+direction+".sql"))
 	if err != nil {
 		return err
 	}

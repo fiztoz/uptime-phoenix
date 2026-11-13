@@ -6,6 +6,7 @@
   import { getLayerCakeContext } from "layercake";
   import type { ScaleTime } from "d3-scale";
   import { timeFormat } from "d3-time-format";
+  import { uniqueKeys } from "#lib/utils/chart.js";
 
   interface Props {
     format?: (d: Date) => string;
@@ -32,18 +33,27 @@
   }
 
   const tickVals = $derived.by(() => {
-    if (Array.isArray(ticks)) return ticks;
-    if (typeof ticks === "function") return ticks(k.xScale.ticks());
-    if (typeof ticks === "number") return k.xScale.ticks(ticks);
-    return k.xScale.ticks();
+    let raw: Date[];
+    if (Array.isArray(ticks)) raw = ticks;
+    else if (typeof ticks === "function") raw = ticks(k.xScale.ticks());
+    else if (typeof ticks === "number") raw = k.xScale.ticks(ticks);
+    else raw = k.xScale.ticks();
+    return (raw ?? []).filter(
+      (d): d is Date => d instanceof Date && Number.isFinite(d.getTime()),
+    );
   });
+
+  const tickKeys = $derived(uniqueKeys(tickVals, (tick) => tick.getTime()));
+  const yMax = $derived(
+    Array.isArray(k.yRange) && k.yRange.length > 0 ? Math.max(...k.yRange) : 0,
+  );
 </script>
 
 <g class="axis x-axis" class:snapLabels>
-  {#each tickVals as tick, i (tick.getTime())}
+  {#each tickVals as tick, i (tickKeys[i])}
     <g
       class="tick tick-{i}"
-      transform="translate({k.xScale(tick)},{Math.max(...k.yRange)})"
+      transform="translate({k.xScale(tick)},{yMax})"
     >
       {#if gridlines}
         <line class="gridline" x1="0" x2="0" y1={-k.height} y2="0" />

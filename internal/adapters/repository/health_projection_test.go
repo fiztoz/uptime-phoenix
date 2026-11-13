@@ -2,12 +2,12 @@ package repository_test
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/services"
 )
@@ -114,7 +114,7 @@ func TestRegionalCommitMarksDirtyBucketsAndProjectsOverallHistory(t *testing.T) 
 
 func runNamedMigration(t *testing.T, f probeRegistryFixture, name, direction string) error {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(f.engine, "migrations", name+"."+direction+".sql"))
+	data, err := repository.ReadMigrationFile(filepath.Join(f.engine, "migrations", name+"."+direction+".sql"))
 	if err != nil {
 		return err
 	}

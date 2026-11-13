@@ -104,18 +104,22 @@
 
 	const downtimeIntervals = $derived.by((): DowntimeInterval[] => {
 		if (!chart?.downtime_intervals?.length) return [];
-		return chart.downtime_intervals.map((iv) => ({
-			start: new Date(iv.start),
-			end: new Date(iv.end),
-		}));
+		return chart.downtime_intervals
+			.map((iv) => ({
+				start: new Date(iv.start),
+				end: new Date(iv.end),
+			}))
+			.filter((iv) => Number.isFinite(iv.start.getTime()) && Number.isFinite(iv.end.getTime()));
 	});
 
 	const unknownIntervals = $derived.by((): DowntimeInterval[] => {
 		if (!chart?.unknown_intervals?.length) return [];
-		return chart.unknown_intervals.map((iv) => ({
-			start: new Date(iv.start),
-			end: new Date(iv.end),
-		}));
+		return chart.unknown_intervals
+			.map((iv) => ({
+				start: new Date(iv.start),
+				end: new Date(iv.end),
+			}))
+			.filter((iv) => Number.isFinite(iv.start.getTime()) && Number.isFinite(iv.end.getTime()));
 	});
 
 	/**
@@ -125,15 +129,21 @@
 	 * UNKNOWN intervals outside the domain on long-open pages (GitHub #62).
 	 */
 	let windowEndMs = $state<number | null>(null);
-	// Plain mirror of the state above: the effect must not read the $state it
-	// writes, or every advance would reschedule itself.
+	// Plain mirror of the state above. The effect compares against this mirror
+	// and only writes windowEndMs; it must never read windowEndMs. Reading it made
+	// the write a dependency, so each write re-ran the effect with a later
+	// Date.now() and wrote again. On a page where one pass took over 1 ms (a day
+	// of heartbeats), that never settled and Svelte aborted the page with
+	// effect_update_depth_exceeded, which rendered as the "500 Unexpected error"
+	// page (#195).
 	let lastWindowEndMs: number | null = null;
 	$effect(() => {
 		const payload = chart;
 		if (!payload) return;
 		const next = advanceChartWindowEnd(lastWindowEndMs, Date.now(), payload);
+		if (next === lastWindowEndMs) return;
 		lastWindowEndMs = next;
-		if (next !== windowEndMs) windowEndMs = next;
+		windowEndMs = next;
 	});
 
 	// The range control is a promise: "24h" always means a 24-hour axis. A young

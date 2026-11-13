@@ -420,7 +420,7 @@ python3 -B scripts/m6_dual_engine_gate.py --scope m8-stage-authorization \
   --go-json tmp/m8-stage-authorization-NEW-events.jsonl
 ```
 
-The image and exact Go 1.27.3 compiler/modules must already be cached. The gate
+The image and exact Go 1.27.4 compiler/modules must already be cached. The gate
 refuses remote Docker endpoints and pulls, generates its own database credentials,
 binds only a random loopback port, and verifies the container ID and per-run
 ownership label before removal. No existing DSN is accepted. The event path must
@@ -999,7 +999,7 @@ keys, execute the fixed discovery script with controlled shell fixtures, and
 exercise the actual operator CLI before hub configuration loading:
 
 ```bash
-GOTOOLCHAIN=go1.27.3 go test -race -count=1 \
+GOTOOLCHAIN=go1.27.4 go test -race -count=1 \
   ./cmd/phoenix-probe-admin ./internal/bootstrap \
   ./internal/adapters/provisioning ./internal/core/domain ./internal/core/services \
   -run 'Test(ProbeAdminSSHPreflight|ProbeSSHPreflight|SSHPreflight|ProbeHostPreflight|ProbeSSHHost)'
@@ -1023,7 +1023,7 @@ The [async preflight contract](multi-region/M8_ASYNC_PREFLIGHT.md) adds migratio
 # Set TEST_MARIADB_DSN only to a newly created disposable test database;
 # repository fixtures modify/delete its data. Never print or reuse a live DSN.
 : "${TEST_MARIADB_DSN:?Set an owned disposable MariaDB test database}"
-GOTOOLCHAIN=go1.27.3 go test -race -count=1 -json \
+GOTOOLCHAIN=go1.27.4 go test -race -count=1 -json \
   ./internal/core/domain ./internal/core/services ./internal/bootstrap \
   ./internal/adapters/provisioning ./internal/adapters/http/handlers \
   ./internal/adapters/repository \
@@ -1114,7 +1114,7 @@ local Unix socket; Colima is optional. Select your disposable local Docker conte
 and inspect its endpoint before running a database or disk-full harness. Cache
 Go modules/toolchain and the required images first; the strict database harness
 refuses downloads during execution. The strict runner currently expects cached
-Go 1.27.3. The disk-full recipe in the final section uses the installed Go toolchain.
+Go 1.27.4. The disk-full recipe in the final section uses the installed Go toolchain.
 
 Run the following from the repository root in **Bash**. The output directory is
 outside the repository; keep this shell open for the subsequent commands.
@@ -1419,7 +1419,7 @@ GRANT ALL PRIVILEGES ON `phoenix_migration_%`.* TO 'phoenix'@'%';
 GRANT PROCESS ON *.* TO 'phoenix'@'%';
 SQL
 
-GOTOOLCHAIN=go1.27.3 TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43306)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
+GOTOOLCHAIN=go1.27.4 TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43306)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
   go test -race -count=1 -timeout 40m ./internal/adapters/repository/...
 
 # Remove only this disposable test container.
@@ -1517,10 +1517,10 @@ library (e.g. `could not import math/rand/v2 ... method must have no type
 parameters`) followed by a `go/types` stack dump and exit 2. That is a toolchain
 mismatch, not a code defect, and it is easy to misread as "the linter is broken
 here, use the `go vet` fallback". Align the toolchain with `go.mod` (currently
-`go 1.27.3`) instead:
+`go 1.27.4`) instead:
 
 ```bash
-GOTOOLCHAIN=go1.27.3 golangci-lint run
+GOTOOLCHAIN=go1.27.4 golangci-lint run
 ```
 
 The same pin the MariaDB contract suites in §2 use. `go vet` and `gofmt -l`
@@ -2602,23 +2602,23 @@ acceptance are in
 
 ```sh
 # Service gate, scheduler attestation ordering, and the store on SQLite.
-GOTOOLCHAIN=go1.27.3 go test -race -count=1 \
+GOTOOLCHAIN=go1.27.4 go test -race -count=1 \
   -run 'TestFleetActivationGate|TestProbeAssignmentServiceReplaceFleetGate|TestMonitorServiceCreateWithAssignmentsFleetGate' \
   ./internal/core/services/
-GOTOOLCHAIN=go1.27.3 go test -race -count=1 -run 'TestShardedScheduler' ./internal/adapters/scheduler/
-GOTOOLCHAIN=go1.27.3 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
+GOTOOLCHAIN=go1.27.4 go test -race -count=1 -run 'TestShardedScheduler' ./internal/adapters/scheduler/
+GOTOOLCHAIN=go1.27.4 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
 
 # The same store cases against real MariaDB. REQUIRED: without the DSN every
 # mariadb subtest silently SKIPS and the run still prints "ok".
 TEST_MARIADB_DSN='phoenix:phoenix@tcp(127.0.0.1:43316)/phoenix_ci?parseTime=true&loc=UTC&multiStatements=true' \
-  GOTOOLCHAIN=go1.27.3 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
+  GOTOOLCHAIN=go1.27.4 go test -count=1 -run 'TestHubWorkerReadiness' ./internal/adapters/repository/
 ```
 
 Confirm the MariaDB legs actually ran before trusting the result — count named
 passes with `go test -json` and require `skips=0`:
 
 ```sh
-TEST_MARIADB_DSN=... GOTOOLCHAIN=go1.27.3 go test -count=1 -json \
+TEST_MARIADB_DSN=... GOTOOLCHAIN=go1.27.4 go test -count=1 -json \
   -run 'TestHubWorkerReadiness' ./internal/adapters/repository/ \
   | python3 -c 'import sys,json;p=s=f=0
 for l in sys.stdin:
@@ -2652,7 +2652,7 @@ The admission numbers it cites are frozen by
 `TestOperatorStorageBudgetsMatchDocumentedContract`:
 
 ```sh
-GOTOOLCHAIN=go1.27.3 go test -count=1 -run 'TestOperatorStorageBudgetsMatchDocumentedContract' \
+GOTOOLCHAIN=go1.27.4 go test -count=1 -run 'TestOperatorStorageBudgetsMatchDocumentedContract' \
   ./internal/adapters/repository/edge/
 ```
 
@@ -2677,7 +2677,7 @@ retired scripts and their limitations; they are not current runnable commands.
 
 Run `python3 -B scripts/m6_dual_engine_gate.py` for MariaDB 11, or add
 `--mariadb-image mariadb:12.3` for the operator's engine. It requires a local
-Unix Docker socket, the selected cached image, Go 1.27.3 toolchain and modules. The gate
+Unix Docker socket, the selected cached image, Go 1.27.4 toolchain and modules. The gate
 creates and deletes **its own** localhost-bound MariaDB test container, runs
 `go test -race -count=1 -json -timeout 3600s -p 4 ./...`, and refuses missing
 MariaDB passes or unrecognized skips. It never uses the caller's DB DSN or
@@ -2688,16 +2688,178 @@ production-sized upgrade rehearsal or canary.
 ### External UI and schema recheck notes (#193–#198, #223)
 
 When validating #193–#198 in an external long-run stack:
-- **#194 (proportional overall timeline strip):** `RecentCheckBar.svelte` exposes `data-status`, `data-start`, `data-duration-ms` (overall mode), and `data-weight` on each segment `<button>` (and `data-duration-ms` / `data-weight` on `[data-testid="recent-check-not-monitored"]`), so browser assertions can compare DOM `data-duration-ms`, `data-weight`, and rendered bounding-box width ratios directly.
-- **#195 (full 24h status-page and monitor-detail charts):** configure a public status page (or seed 24 hours of heartbeats) when verifying the 24h public status-page chart in a shorter soak run; the SQL bucket aggregation is covered across 24h windows on both SQLite and MariaDB by `TestHeartbeatChartWindowMatrix` and `TestMonitorPublicChart_CoversFull24hWindow`.
-- **#196 (overall projection lag & dirty buckets):** `monitor_health_history` uses `started_at` and `ended_at` (`DATETIME(6)`), and `probe_dirty_buckets` uses `bucket` (`DATETIME(6)`), **not** `bucket_start`. Example lag/queue check:
+- **#194 (proportional overall timeline strip & full-window API coalescing rule):**
+  - **DOM attributes:** `RecentCheckBar.svelte` exposes `data-status`, `data-start`, `data-duration-ms` (overall mode), and `data-weight` on each segment `<button>` (and `data-duration-ms` / `data-weight` on `[data-testid="recent-check-not-monitored"]`), so browser assertions can compare DOM `data-start`, `data-duration-ms`, `data-weight`, and rendered bounding-box width ratios directly.
+  - **API and projection coalescing contract (`ReconstructOverallHistory` / `CoalesceOverallHealthIntervals` in `internal/core/services/overall_history.go` and `OverallHistory` in `internal/core/services/monitor_regional_service.go`):**
+    - The 24h reconstruction window `[from, to)` is clamped at monitor creation: `effective_from = GREATEST(from, monitor.created_at)` in UTC; time in `[from, effective_from)` renders as the not-monitored lead (`data-testid="recent-check-not-monitored"`, `leadDurationMs`).
+    - Because `monitor_health_history` is written per 1-minute dirty bucket (`probe_history.go`), raw rows are split on minute boundaries. Do **not** compare raw `LIMIT 60` rows directly, and do **not** merge by `status` alone (which discards genuine minute-boundary transitions or merges same-status intervals where regional probe counts changed, as on `m14`).
+    - Two adjacent intervals coalesce **if and only if** they are contiguous (`prev.ended_at = curr.started_at`) and share the full projection tuple: `(status, reason, health_policy, policy_revision, assigned_count, up_count, down_count, pending_count, unknown_count, maintenance_count, paused_count)`.
+    - After coalescing over `[effective_from, to)`, the API retains the newest 60 segments (`ORDER BY started_at DESC LIMIT 60`, then ascending `started_at ASC`).
+  - **MariaDB 11 verification query:** Use `LAG(...) OVER (PARTITION BY monitor_id ORDER BY started_at, id)` to identify new coalesced segments across `[effective_from, to)` by comparing contiguous endpoints and the full projection tuple, compute `duration_ms` via `TIMESTAMPDIFF(MICROSECOND, segment_start, segment_end) / 1000.0`, and select the newest 60 segments for exact comparison against DOM attributes:
+    ```sql
+    WITH flagged AS (
+      SELECT
+        id,
+        monitor_id,
+        started_at,
+        ended_at,
+        status,
+        reason,
+        health_policy,
+        policy_revision,
+        assigned_count,
+        up_count,
+        down_count,
+        pending_count,
+        unknown_count,
+        maintenance_count,
+        paused_count,
+        CASE
+          WHEN LAG(ended_at) OVER w = started_at
+           AND LAG(status) OVER w = status
+           AND LAG(reason) OVER w = reason
+           AND LAG(health_policy) OVER w = health_policy
+           AND LAG(policy_revision) OVER w = policy_revision
+           AND LAG(assigned_count) OVER w = assigned_count
+           AND LAG(up_count) OVER w = up_count
+           AND LAG(down_count) OVER w = down_count
+           AND LAG(pending_count) OVER w = pending_count
+           AND LAG(unknown_count) OVER w = unknown_count
+           AND LAG(maintenance_count) OVER w = maintenance_count
+           AND LAG(paused_count) OVER w = paused_count
+          THEN 0
+          ELSE 1
+        END AS is_new_segment
+      FROM monitor_health_history
+      WHERE monitor_id = :monitor_id
+        AND started_at >= :effective_from
+        AND started_at < :to
+      WINDOW w AS (PARTITION BY monitor_id ORDER BY started_at, id)
+    ),
+    grouped AS (
+      SELECT
+        *,
+        SUM(is_new_segment) OVER (PARTITION BY monitor_id ORDER BY started_at, id) AS segment_group
+      FROM flagged
+    ),
+    coalesced AS (
+      SELECT
+        monitor_id,
+        segment_group,
+        status,
+        reason,
+        health_policy,
+        policy_revision,
+        assigned_count,
+        up_count,
+        down_count,
+        pending_count,
+        unknown_count,
+        maintenance_count,
+        paused_count,
+        MIN(started_at) AS segment_start,
+        MAX(ended_at) AS segment_end,
+        TIMESTAMPDIFF(MICROSECOND, MIN(started_at), MAX(ended_at)) / 1000.0 AS duration_ms
+      FROM grouped
+      GROUP BY
+        monitor_id,
+        segment_group,
+        status,
+        reason,
+        health_policy,
+        policy_revision,
+        assigned_count,
+        up_count,
+        down_count,
+        pending_count,
+        unknown_count,
+        maintenance_count,
+        paused_count
+    ),
+    newest60 AS (
+      SELECT *
+      FROM coalesced
+      ORDER BY segment_start DESC
+      LIMIT 60
+    )
+    SELECT *
+    FROM newest60
+    ORDER BY segment_start ASC;
+    ```
+- **#195 (full 24h status-page and monitor-detail charts & valid push fixture):**
+  - Configure a public status page (or seed 24 hours of heartbeats) when verifying the 24h public status-page chart in a shorter soak run; the SQL bucket aggregation is covered across 24h windows on both SQLite and MariaDB by `TestHeartbeatChartWindowMatrix` and `TestMonitorPublicChart_CoversFull24hWindow`.
+  - When testing a paused `push` monitor on a public status page (`/status/<slug>`, `/status/<slug>/history`) and monitor detail page (`/monitors/<id>`), heartbeats **must** be ingested through the product API (`POST /api/monitors`, `GET /api/push/:token?status=up|down&ping=...&msg=...`, `POST /api/status-pages`, `PUT /api/monitors/:id {"active":false}`), never seeded via raw SQL inserts into `heartbeats` that bypass ingestion and rollups.
+  - Browser verification must record HTTP status codes, all network responses `>= 400` (or HAR), browser console errors, and the full hub log alongside screenshots.
+- **#196 (overall projection lag & dirty buckets across the planned observation window):**
+  - `monitor_health_history` uses `started_at` and `ended_at` (`DATETIME(6)`), and `probe_dirty_buckets` uses `bucket` (`DATETIME(6)`), **not** `bucket_start`.
+  - Verification must sample these queries at multiple points across the planned active load observation window (rather than a single post-run point) to prove queue drain trend and bounded projection lag, and check the full hub log for `"probe history recomputation failed"` / `"context deadline exceeded"`:
   ```sql
   SELECT resolution, COUNT(*) AS pending_buckets, MIN(bucket) AS oldest_dirty_bucket
   FROM probe_dirty_buckets GROUP BY resolution;
   SELECT monitor_id, MAX(started_at) AS latest_interval_start, MAX(ended_at) AS latest_interval_end
   FROM monitor_health_history GROUP BY monitor_id;
   ```
-- **#198 (Insights outage count for remote-only monitors):** remote-only monitors (`m13`, `m14`) have zero rows in the local `heartbeats` table; `InsightsService` (`applyOverallProjection` in `internal/core/services/insights_projection.go`) computes their `outage_count` from `monitor_health_history` by grouping contiguous `status IN (0, 2)` (`DOWN`/`PENDING`) intervals and counting each contiguous run once when it reaches `status = 0` (`DOWN`) with run start in `[from, to)`. Query `monitor_health_history` (`started_at`, `ended_at`, `status`) rather than `heartbeats` to establish the expected baseline for remote-only monitors.
+- **#198 (Insights outage count baseline over the exact `[from, to)` observation window):**
+  - Remote-only monitors (`m13`, `m14`) have zero rows in the local `heartbeats` table; `InsightsService` (`applyOverallProjection` in `internal/core/services/insights_projection.go`) computes their `outage_count` from `monitor_health_history` by grouping contiguous `status IN (0, 2)` (`DOWN`/`PENDING`) intervals and counting each contiguous run once when it reaches `status = 0` (`DOWN`) with run start in `[from, to)`. Query `monitor_health_history` (`started_at`, `ended_at`, `status`) rather than `heartbeats` to establish the expected baseline for remote-only monitors.
+  - The SQL baseline query must use the exact UTC `[from, to)` window requested from `GET /api/insights?range=24h` (or `7d`): contiguous `status IN (0, 2)` (`DOWN`/`PENDING`) intervals (`curr.started_at <= prev_max_ended_at`) form a single failure run, and a run counts toward `outage_count` once when it reaches `status = 0` (`DOWN`) **and** its `run_start` falls inside `[from, to)` (`run_start >= from AND run_start < to`; an outage already open before `from` is not counted as a new outage). Concrete MariaDB 11 SQL query:
+  ```sql
+  WITH step1 AS (
+    SELECT
+      monitor_id,
+      started_at,
+      ended_at,
+      status,
+      CASE WHEN status IN (0, 2) THEN 1 ELSE 0 END AS is_failure,
+      LAG(status) OVER (PARTITION BY monitor_id ORDER BY started_at, id) AS prev_status,
+      LAG(ended_at) OVER (PARTITION BY monitor_id ORDER BY started_at, id) AS prev_ended_at
+    FROM monitor_health_history
+    WHERE monitor_id = :monitor_id
+      AND ended_at >= :from_with_lookback
+      AND started_at < :to
+  ),
+  step2 AS (
+    SELECT
+      *,
+      CASE
+        WHEN is_failure = 0 THEN 0
+        WHEN prev_status IS NULL OR prev_status NOT IN (0, 2) OR started_at > prev_ended_at THEN 1
+        ELSE 0
+      END AS is_new_run
+    FROM step1
+  ),
+  step3 AS (
+    SELECT
+      *,
+      SUM(CASE WHEN is_failure = 0 THEN 0 ELSE is_new_run END) OVER (
+        PARTITION BY monitor_id ORDER BY started_at, id
+      ) AS failure_run_id
+    FROM step2
+  ),
+  runs AS (
+    SELECT
+      monitor_id,
+      failure_run_id,
+      MIN(started_at) AS run_start,
+      MAX(ended_at) AS run_end,
+      MAX(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS reached_down
+    FROM step3
+    WHERE is_failure = 1
+    GROUP BY monitor_id, failure_run_id
+  )
+  SELECT
+    monitor_id,
+    COUNT(*) AS outage_count
+  FROM runs
+  WHERE reached_down = 1
+    AND run_start >= :from
+    AND run_start < :to
+  GROUP BY monitor_id;
+  ```
+- **Campaign rig and snapshot rules (#223):**
+  - **Compiled repository test binary migrations:** `internal/adapters/repository` embeds `mariadb/migrations/*.sql` and `sqlite/migrations/*.sql` (both `.up.sql` and `.down.sql`) via `ReadMigrationFile` / `ReadMigrationDir`; if an external runner stages raw files alongside a precompiled `go test -c` binary, stage `internal/adapters/repository/{mariadb,sqlite}/migrations`.
+  - **Migrations ledger query:** Phoenix records applied migrations in `_migrations` (`SELECT id, filename, applied_at FROM _migrations ORDER BY id` or `SELECT filename FROM _migrations ORDER BY filename`), **not** `migrations`, `bun_migrations`, or `schema_migrations`.
+  - **Snapshot completeness:** At every campaign snapshot, export the **full** hub log (not a truncated tail), the operative cutover and probe command tables (`operative_cutover_state`, `operative_cutover_barriers`, `operative_cutover_members`, `operative_cutover_commands`, `operative_source_gates`, `operative_local_applications`, `operative_source_capabilities`, `operative_provider_attempts`, `operative_aggregate_incidents`, `operative_aggregate_intents`, `operative_aggregate_deliveries`, `probe_commands`), and the edge SQLite database (`edge.db` + WAL).
+  - **Stream-reset baseline ordering:** During stopped-source stream reset rehearsals (`#192` / `#218` / `#228`), capture pre-reset baseline counts **after** stopping the probe service (before `prepare-reset` / `probe reset-stream` / `activate-reset`) so in-flight checks from a running probe do not skew the baseline.
 
 ## M6 published-release to working-tree migration rehearsal
 
@@ -2744,10 +2906,10 @@ The disk-full test verifies the isolated mount before filling it, checks actual
 kernel ENOSPC, rollback and exact-once retry. The crash test checks all-or-nothing
 state on reopen. The image supplies Linux userspace only; no database server runs.
 
-Also run `GOTOOLCHAIN=go1.27.3 go test -count=1 -run '^TestEdgeHealthStorageUnavailable$' ./cmd/probe`
+Also run `GOTOOLCHAIN=go1.27.4 go test -count=1 -run '^TestEdgeHealthStorageUnavailable$' ./cmd/probe`
 for the production health mapping (`ready=false`, `db_writable=false`,
 `storage_unavailable`). See [the evidence and limits](multi-region/M6_VALIDATION_REPORT_2026-10-04.md).
-Also run `GOTOOLCHAIN=go1.27.3 go test -race -count=1 -run '^TestEdgeCheckCrashAroundCommit$' ./internal/adapters/repository/edge`
+Also run `GOTOOLCHAIN=go1.27.4 go test -race -count=1 -run '^TestEdgeCheckCrashAroundCommit$' ./internal/adapters/repository/edge`
 for a race-instrumented local-host T06 run. See the [crash evidence and limits](multi-region/M6_VALIDATION_REPORT_2026-10-04.md).
 A normal `go test ./...` SKIPS the disk-full test outside its guarded container;
 a package PASS therefore does not establish T20. Neither slice exercises the

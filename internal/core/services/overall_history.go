@@ -151,8 +151,7 @@ func ReconstructOverallHistory(in domain.OverallHistoryInput) (domain.MonitorHea
 			Cause:  historyCause(start, active, prevIDs, prevRev, revision, observationTimes, freshnessTimes, havePrev),
 			Policy: policy, PolicyRevision: revision, Counts: health.Counts,
 		}
-		if havePrev && prev.Status == interval.Status && prev.Reason == interval.Reason &&
-			prev.Policy == interval.Policy && prev.PolicyRevision == interval.PolicyRevision && prev.Counts == interval.Counts {
+		if havePrev && SameOverallHealthSegment(prev, interval) {
 			prev.To = end
 			prevIDs, prevRev = ids, revision
 			continue
@@ -168,6 +167,36 @@ func ReconstructOverallHistory(in domain.OverallHistoryInput) (domain.MonitorHea
 		addIntervalDuration(&out.Durations, prev)
 	}
 	return out, nil
+}
+
+// SameOverallHealthSegment reports whether two health intervals represent the same
+// continuous overall state (matching status, reason, policy, revision, and probe counts).
+func SameOverallHealthSegment(a, b domain.MonitorHealthInterval) bool {
+	return a.Status == b.Status &&
+		a.Reason == b.Reason &&
+		a.Policy == b.Policy &&
+		a.PolicyRevision == b.PolicyRevision &&
+		a.Counts == b.Counts
+}
+
+// CoalesceOverallHealthIntervals merges adjacent contiguous intervals that share the
+// same overall health segment attributes. Non-positive intervals (!From.Before(To)) are skipped.
+func CoalesceOverallHealthIntervals(intervals []domain.MonitorHealthInterval) []domain.MonitorHealthInterval {
+	if len(intervals) == 0 {
+		return nil
+	}
+	out := make([]domain.MonitorHealthInterval, 0, len(intervals))
+	for _, iv := range intervals {
+		if !iv.From.Before(iv.To) {
+			continue
+		}
+		if len(out) > 0 && out[len(out)-1].To.Equal(iv.From) && SameOverallHealthSegment(out[len(out)-1], iv) {
+			out[len(out)-1].To = iv.To
+			continue
+		}
+		out = append(out, iv)
+	}
+	return out
 }
 
 type observationKey struct {
