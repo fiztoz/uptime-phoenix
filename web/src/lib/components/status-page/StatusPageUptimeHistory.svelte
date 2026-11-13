@@ -3,6 +3,7 @@
     PublicStatusResponse,
     UptimeHistoryPeriod,
   } from "#lib/api/statuspages.js";
+  import { uniqueKeys } from "#lib/utils/chart.js";
 
   type PublicMonitor = PublicStatusResponse["monitors"][number];
   type Granularity = "monthly" | "quarterly";
@@ -15,6 +16,7 @@
   let { monitors, slaTarget = null }: Props = $props();
   let granularity = $state<Granularity>("monthly");
   let headers = $derived(monitors[0]?.uptime_history?.[granularity] ?? []);
+  let headerKeys = $derived(uniqueKeys(headers, (period) => period.start_date));
 
   function periodsFor(monitor: PublicMonitor): UptimeHistoryPeriod[] {
     return monitor.uptime_history?.[granularity] ?? [];
@@ -117,7 +119,7 @@
             >
               Component
             </th>
-            {#each headers as period (period.start_date)}
+            {#each headers as period, i (headerKeys[i])}
               <th class="min-w-36 px-4 py-3 font-medium text-foreground">
                 <span class="block whitespace-nowrap">{period.label}</span>
                 {#if !period.complete}
@@ -142,7 +144,7 @@
                   >{monitor.type}</span
                 >
               </th>
-              {#each periodsFor(monitor) as period (period.start_date)}
+              {#each periodsFor(monitor) as period, i (`${period.start_date}:${i}`)}
                 <td class="px-4 py-4 align-top">
                   <span
                     class="block whitespace-nowrap font-mono font-medium {resultClass(

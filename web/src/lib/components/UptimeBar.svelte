@@ -7,7 +7,7 @@
 
 	// Show last 90 days, pad if needed
 	const displayData = $derived.by(() => {
-		const sorted = [...data].sort((a, b) => a.date.localeCompare(b.date));
+		const sorted = [...(data ?? [])].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
 		if (sorted.length >= 90) return sorted.slice(-90);
 		// pad with none
 		const pad = Array.from({ length: 90 - sorted.length }, (_, i) => ({

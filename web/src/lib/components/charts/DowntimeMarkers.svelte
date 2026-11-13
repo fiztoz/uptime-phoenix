@@ -29,7 +29,7 @@
   {#each intervals as interval, i (keys[i])}
     {@const x0 = k.xScale(interval.start)}
     {@const x1 = k.xScale(interval.end)}
-    {#if x0 != null && x1 != null}
+    {#if typeof x0 === "number" && typeof x1 === "number" && Number.isFinite(x0) && Number.isFinite(x1)}
       {@const rawWidth = Math.abs(x1 - x0)}
       {@const width = Math.max(rawWidth, 8)}
       {@const x = rawWidth < 8 ? (x0 + x1) / 2 - width / 2 : Math.min(x0, x1)}

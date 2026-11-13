@@ -142,7 +142,7 @@ func (s *MonitorRegionalService) OverallHistory(ctx context.Context, userID, mon
 	// Decide the stream before reconstructing: a local-only monitor serves its
 	// measured rows and never reads the overall history, so a reconstruction
 	// failure must not fail its history request (GitHub #193).
-	monitor, set, _, err := s.health.loadMonitorEvidence(ctx, monitorID)
+	monitor, set, err := s.health.loadMonitorAssignments(ctx, monitorID)
 	if err != nil {
 		return nil, err
 	}
@@ -155,6 +155,9 @@ func (s *MonitorRegionalService) OverallHistory(ctx context.Context, userID, mon
 	}
 	if localOnly {
 		return &OverallHistoryResult{LocalOnly: true}, nil
+	}
+	if _, err := RegionalFreshnessWindow(monitor.Interval, monitor.RetryInterval, monitor.Timeout); err != nil {
+		return nil, err
 	}
 	// Nothing was monitored before the monitor existed. Reconstructing that
 	// time filled it with an UNKNOWN interval that read as lost evidence, a
@@ -334,4 +337,28 @@ func RegionalDisplayHealth(at time.Time, e domain.RegionalHealthEvidence) (domai
 		return h.Status, "stale_evidence", nil
 	}
 	return h.Status, "incomplete_evidence", nil
+}
+
+// loadMonitorAssignments retrieves the monitor record and its desired probe assignments
+// without validating the regional freshness window. This allows local-only monitors
+// with unmonitored or non-positive intervals to short-circuit before freshness validation (#193, #195).
+func (s *MonitorHealthService) loadMonitorAssignments(ctx context.Context, monitorID int64) (*domain.Monitor, *domain.MonitorProbeAssignments, error) {
+	monitor, err := s.monitors.GetByID(ctx, monitorID)
+	if err != nil {
+		if errors.Is(err, ports.ErrNotFound) {
+			return nil, nil, ports.ErrNotFound
+		}
+		return nil, nil, fmt.Errorf("load monitor: %w", err)
+	}
+	set, err := s.assignments.GetByMonitorID(ctx, monitorID)
+	if errors.Is(err, ports.ErrNotFound) {
+		set = &domain.MonitorProbeAssignments{
+			MonitorID:    monitorID,
+			HealthPolicy: domain.HealthPolicyAnyDown,
+			Assignments:  []domain.ProbeAssignment{{MonitorID: monitorID, ProbeID: domain.LocalProbeID, Generation: 1}},
+		}
+	} else if err != nil {
+		return nil, nil, fmt.Errorf("load assignments: %w", err)
+	}
+	return monitor, set, nil
 }

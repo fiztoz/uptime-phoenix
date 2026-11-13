@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -51,7 +50,7 @@ func localMonitor(t *testing.T, f probeRegistryFixture) int64 {
 
 func runLocalSequenceMigration(t *testing.T, f probeRegistryFixture, direction string) error {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(f.engine, "migrations", "042_local_stream_sequence."+direction+".sql"))
+	data, err := repository.ReadMigrationFile(filepath.Join(f.engine, "migrations", "042_local_stream_sequence."+direction+".sql"))
 	if err != nil {
 		return err
 	}

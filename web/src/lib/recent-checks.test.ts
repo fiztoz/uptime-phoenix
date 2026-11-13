@@ -136,6 +136,50 @@ describe("timeline layout (GitHub #194)", () => {
     expect(layout.lead).toBe(0);
     close(layout.weights, [0.5, 0.5]);
   });
+
+  test("full 24h window with monitor created inside window and probe count transitions (#194, #223)", () => {
+    const windowNow = Date.parse("2026-11-09T02:00:00.000Z");
+    // Monitor created at 01:00:00Z inside 24h window.
+    // Adjacent segments keep same status ("up") but differ in probe counts (e.g. m14 in Run D).
+    // Minute boundary transition from 01:53:00.000Z to 01:58:32.750Z gives 332,750 ms.
+    const segments = [
+      {
+        time: "2026-11-09T01:00:00.000Z",
+        status: "up" as const,
+        message: "2/2 probes reporting",
+      },
+      {
+        time: "2026-11-09T01:53:00.000Z",
+        status: "up" as const,
+        message: "1/2 probes reporting",
+      },
+      {
+        time: "2026-11-09T01:58:32.750Z",
+        status: "up" as const,
+        message: "2/2 probes reporting",
+      },
+    ];
+
+    const layout = timelineLayout(segments, {
+      overall: true,
+      nowMs: windowNow,
+      windowHours: 24,
+      truncated: false,
+    });
+
+    const sumDurations = layout.durationsMs.reduce((a, b) => a + b, 0);
+    const sumWeights = layout.weights.reduce((a, b) => a + b, 0);
+
+    expect(layout.leadDurationMs).toBeGreaterThan(0);
+    expect(layout.lead).toBeGreaterThan(0);
+    expect(layout.leadDurationMs).toBe(23 * 3_600_000);
+    expect(layout.lead).toBeCloseTo(23 / 24, 6);
+
+    expect(layout.durationsMs).toEqual([3_180_000, 332_750, 87_250]);
+    expect(layout.durationsMs[1]).toBe(332_750);
+    expect(layout.leadDurationMs + sumDurations).toBe(24 * 3_600_000);
+    expect(layout.lead + sumWeights).toBeCloseTo(1, 10);
+  });
 });
 
 describe("live beats on an overall timeline (GitHub #194)", () => {

@@ -88,7 +88,7 @@ func newProbeRegistryFixture(t *testing.T, engine string) probeRegistryFixture {
 
 func runProbeRegistryMigration(t *testing.T, db *bun.DB, engine, direction string) error {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(engine, "migrations", "035_probe_registry."+direction+".sql"))
+	data, err := repository.ReadMigrationFile(filepath.Join(engine, "migrations", "035_probe_registry."+direction+".sql"))
 	if err != nil {
 		return err
 	}
@@ -414,7 +414,7 @@ func testProbeRegistryMigration(t *testing.T, f probeRegistryFixture) {
 	// Restore the latest schema for the shared MariaDB test database afterward.
 	// Discover the complete migration suffix; a hand-maintained list silently
 	// omitted 061 and left the reusable MariaDB database at an older shape.
-	entries, err := os.ReadDir(filepath.Join(f.engine, "migrations"))
+	entries, err := repository.ReadMigrationDir(f.engine)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func testProbeRegistryMigration(t *testing.T, f probeRegistryFixture) {
 			continue
 		}
 		name = strings.TrimSuffix(name, ".up.sql")
-		if _, err := os.Stat(filepath.Join(f.engine, "migrations", name+".down.sql")); err != nil {
+		if _, err := repository.ReadMigrationFile(filepath.Join(f.engine, "migrations", name+".down.sql")); err != nil {
 			t.Fatal(err)
 		}
 		later = append(later, name)
