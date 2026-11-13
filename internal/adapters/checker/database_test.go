@@ -3,8 +3,11 @@ package checker
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
 func TestDatabaseChecker_Type(t *testing.T) {
@@ -379,6 +382,79 @@ func TestDatabaseChecker_Check_MongoDB_RealServer(t *testing.T) {
 	}
 	if result.Message != "connected, ping ok" {
 		t.Errorf("Check() message = %q, want %q", result.Message, "connected, ping ok")
+	}
+}
+
+// The real-server cases below are the Q-4 fixtures from the M6/M7 acceptance
+// plan: they run only when a scratch server is supplied, and assert the effect
+// (UP plus one observation per requested capacity kind), not a status code.
+
+func TestDatabaseChecker_Check_Redis_RealServer(t *testing.T) {
+	url := os.Getenv("PHOENIX_TEST_REDIS_URL")
+	if url == "" {
+		t.Skip("set PHOENIX_TEST_REDIS_URL to run against a real Redis server")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := DatabaseChecker{}.Check(ctx, map[string]any{
+		"engine":             "redis",
+		"connection_string":  url,
+		"health_check":       "select_1",
+		"timeout":            10.0,
+		"check_session_pool": true,
+		"check_storage":      true,
+	})
+	if err != nil {
+		t.Fatalf("Check() returned unexpected error: %v", err)
+	}
+	if result.Status != domain.StatusUp {
+		t.Fatalf("Check() status = %v, want UP (message: %s)", result.Status, result.Message)
+	}
+	// Capacity observations are appended to the primary message.
+	if !strings.HasPrefix(result.Message, "connected, PING ok") {
+		t.Errorf("Check() message = %q, want prefix %q", result.Message, "connected, PING ok")
+	}
+	assertOneConditionPerKind(t, result.Conditions)
+}
+
+func TestDatabaseChecker_Check_MongoDB_RealServerCapacity(t *testing.T) {
+	uri := os.Getenv("UPTIME_PHOENIX_TEST_MONGODB_URI")
+	if uri == "" {
+		t.Skip("set UPTIME_PHOENIX_TEST_MONGODB_URI to run against a real MongoDB server")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := DatabaseChecker{}.Check(ctx, map[string]any{
+		"engine":             "mongodb",
+		"connection_string":  uri,
+		"health_check":       "ping",
+		"timeout":            10.0,
+		"check_session_pool": true,
+		"check_storage":      true,
+	})
+	if err != nil {
+		t.Fatalf("Check() returned unexpected error: %v", err)
+	}
+	if result.Status != domain.StatusUp {
+		t.Fatalf("Check() status = %v, want UP (message: %s)", result.Status, result.Message)
+	}
+	assertOneConditionPerKind(t, result.Conditions)
+}
+
+// assertOneConditionPerKind checks that both requested capacity kinds were
+// observed exactly once. Capacity never changes availability, so a missing
+// privilege or limit shows up as a condition state, never as a skipped check.
+func assertOneConditionPerKind(t *testing.T, conditions []domain.ConditionObservation) {
+	t.Helper()
+	kinds := map[string]int{}
+	for _, c := range conditions {
+		kinds[c.Kind]++
+		t.Logf("condition kind=%s state=%s resource=%q message=%q", c.Kind, c.State, c.Resource, c.Message)
+	}
+	if len(conditions) != 2 || len(kinds) != 2 {
+		t.Fatalf("conditions = %d across kinds %v, want one session-pool and one storage observation", len(conditions), kinds)
 	}
 }
 
