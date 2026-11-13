@@ -166,7 +166,7 @@ jobs:
         working-directory: web
         env:
           CI: true
-          GOTOOLCHAIN: go1.27.3
+          GOTOOLCHAIN: go1.27.4
         run: bun run test:e2e:legacy
 
   repository-race:
