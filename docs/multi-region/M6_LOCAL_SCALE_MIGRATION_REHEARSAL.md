@@ -70,7 +70,7 @@ Every other migration took under 1.1 s on MariaDB. On SQLite, `057` took 10.2 s 
 - All six months are identical per month for seeded ids. There are 265 extra rows, equal to the writer's committed rows.
 - The rollup counts and `SUM(id)` are identical: 1,440,000 / 1,800,000 / 75,000.
 - All six new `heartbeats` columns exist with their defaults. `idx_hb_monitor_probe_time` and `idx_*_monitor_probe_bucket` exist on all three rollups. `_migrations` holds 94 rows, the last being `094_settle_orphaned_aggregate_attempts`.
-- `PRAGMA quick_check` was still running when this section was written (I/O-bound, about 4–5 MiB/s on this box). Its result is recorded in the PR #240 description.
+- `PRAGMA quick_check` returned `ok` at 13:41 ICT on 2026-11-10.
 - Disk: the file went from 36.0 GB to 49.0 GB. At peak, the file was 42.0 GB plus a 13.4 GB WAL; the WAL was checkpointed to 0 at the end. Minimum `MemAvailable` was 2.4 GiB.
 
 **SQLite: heartbeat writes stop for most of the upgrade (finding 3).**
@@ -85,10 +85,7 @@ The cause is in the runner:
 
 MariaDB did not stop writes at this size, because its `037` `ALTER` is online.
 
-Suggested fixes (owner decision, not done here):
-1. **Runbook (smallest).** Treat a SQLite upgrade as planned downtime that scales with the size of `heartbeats`: about 2 s per million rows on this box. Stop the old process before starting the new binary, as in the scale-to-0 step that PR #254 adds to RUNBOOK §2.1. With a single SQLite process there is no separate writer anyway; the real effect is that the new binary does not serve or record checks until migrations finish. The runbook should state that duration so operators expect it.
-2. **Cheaper `042` on SQLite.** On a database upgraded from before `037`, every `source_seq` is `NULL`. The scan could use the new `idx_hb_monitor_probe_time` (or a guard such as `EXISTS … WHERE probe_id <> 'local'`) and avoid touching all rows. That removes the 30 s stall.
-3. **Index build.** SQLite has no online `CREATE INDEX`, so `037` always holds the write lock while it builds. It could be moved out of the upgrade path, for example built in the background after startup. That only helps if queries can tolerate the index being missing during the build.
+The owner chose to treat this as a **known limitation**: document downtime, and stop the process before a SQLite upgrade. That is now in [RUNBOOK](../RUNBOOK.md) §2.4. With a single SQLite process there is no separate writer anyway; the real effect is that the new binary does not serve or record checks until migrations finish. Plan for about 2 s of write downtime per million `heartbeats` rows on hardware like this box. Two other options were considered and not taken: a cheaper `042` (the `MAX(source_seq)` scan could skip the full table when every `source_seq` is still `NULL`), and moving the index build out of the upgrade path (SQLite has no online `CREATE INDEX`).
 
 ## Findings
 
@@ -100,9 +97,13 @@ Suggested fixes (owner decision, not done here):
    Without a long transaction (r1, r3), the worst stall was 0.5 s.
 2. **An older binary does not refuse a newer schema.** The v0.4.5 runner against the upgraded `094` schema exits 0 and applies nothing. The RUNBOOK says never to mix an old binary with a partially upgraded schema, but nothing enforces that at startup.
 
-3. **On SQLite at 259M rows, heartbeat writes stop for about 451 s during `037` and 30 s during `042`.** See the SQLite part of the 259M section for the cause and the options.
+3. **On SQLite at 259M rows, heartbeat writes stop for about 451 s during `037` and 30 s during `042`.** See the SQLite part of the 259M section for the cause. The owner chose to document this as a known limitation (downtime during the upgrade) rather than change `042` or move the index build.
 
-None of these is fixed by this document. Finding 1 is addressed by draft PR #254 (runbook scale-to-0, plus a capped migration lock wait with retry). Finding 2 is addressed by draft PR #255 (startup refusal of a newer schema). Finding 3 needs an owner decision.
+Finding 1 is addressed by draft PR #254 (runbook scale-to-0, plus a capped migration lock wait with retry). Finding 2 is addressed by draft PR #255 (startup refusal of a newer schema). Finding 3 is recorded as a known limitation in [RUNBOOK](../RUNBOOK.md) §2.4 and in the section below.
+
+## Known limitations
+
+**SQLite upgrades need downtime.** Scale to 0 or stop the process before starting the new binary. At 259 million heartbeat rows, writes were refused for about 451 s during the `037` index rebuild and for another 30 s during `042`. Reads stayed fine. MariaDB was not affected. See [RUNBOOK](../RUNBOOK.md) §2.4.
 
 ## Not covered
 

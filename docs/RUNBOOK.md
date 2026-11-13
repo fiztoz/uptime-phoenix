@@ -301,6 +301,23 @@ An unstamped local build reports `"version": "dev"`; release images must be buil
 version ldflag. After the health checks, log in, verify the dashboard receives new
 heartbeats over WebSocket, and run one known-good monitor and notification test-send.
 
+### 2.4 Known limitations
+
+**SQLite upgrades need downtime.** Stop the process before starting the new binary
+(`kubectl scale` the deployment to 0, `docker compose stop`, or stop the single
+binary). SQLite has no online `CREATE INDEX`, and the runner applies each
+migration in one transaction, so a migration that builds an index on `heartbeats`
+holds the single write lock for the whole build. Heartbeat writes are refused
+until that finishes; reads stay available.
+
+In a local rehearsal at 259 million heartbeat rows, writes were refused for
+about 451 s during the `037` index rebuild and for another 30 s during `042`.
+MariaDB was not affected: its `037` `ALTER` is online, and every write
+succeeded. On comparable hardware, plan for a few seconds of write downtime per
+million `heartbeats` rows. Monitoring does not record checks until migrations
+finish and the process is ready. The evidence is in
+[the local-scale migration rehearsal](multi-region/M6_LOCAL_SCALE_MIGRATION_REHEARSAL.md).
+
 ## 3. Migration rollback policy
 
 Uptime Phoenix's runtime migration runner reads and applies sorted `*.up.sql` files and records
