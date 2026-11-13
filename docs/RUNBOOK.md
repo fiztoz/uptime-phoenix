@@ -322,6 +322,24 @@ Never run a `.down.sql` file manually against production, delete a row from `_mi
 or mix an old binary with a partially upgraded schema. A forward repair migration may be
 chosen after incident review, but restore-from-backup is the supported rollback.
 
+**Startup enforces the version order.** Before it applies anything, the runner compares the
+numbers of the migrations recorded in `_migrations` with the newest migration built into the
+binary. If the database holds a higher-numbered migration, the process logs the error below
+and exits with status 1. It changes nothing, so a redeployed older image cannot silently run
+against a newer schema:
+
+```text
+database schema is newer than this binary: the database has migration 095_example.up.sql
+applied, but this binary only knows migrations up to 094_example.up.sql. Refusing to start. ...
+```
+
+The fix is step 3 and 4 above (restore the backup, then redeploy), or deploy the release that
+applied the migration, or a newer one. Do not delete the `_migrations` row to get past it. An
+unknown migration name whose number is not higher than the binary's newest is not treated as a
+downgrade. The check exists from the release that adds it onward. A binary built before it
+(for example v0.4.5) still starts against a newer schema without complaint, and the M6
+rehearsal showed exactly that.
+
 ## 4. Split-mode scaling
 
 | Concern | Operating rule |

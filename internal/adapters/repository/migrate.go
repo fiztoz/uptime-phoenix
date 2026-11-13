@@ -118,6 +118,11 @@ func runMigrationsWithExecutor(ctx context.Context, db *sql.DB, exec migrationEx
 	}
 	sort.Strings(migrations)
 
+	// Never run an older binary against a schema a newer release migrated.
+	if err := checkSchemaNotNewer(applied, migrations); err != nil {
+		return err
+	}
+
 	// Apply pending migrations.
 	for _, filename := range migrations {
 		// Skip if already applied.
