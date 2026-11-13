@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 // lockedBuffer is a goroutine-safe log sink for the migration logger.
@@ -285,4 +287,129 @@ func TestSQLiteMigrationBusyRetriesAreBounded(t *testing.T) {
 	if err := RunMigrationsWithPolicy(db, "sqlite", testLockPolicy(3, 100*time.Millisecond, sink)); err != nil {
 		t.Fatalf("restart after the writer released the lock: %v", err)
 	}
+}
+
+// countingLockCatalog records ExecContext calls and always returns err.
+type countingLockCatalog struct {
+	execs int
+	err   error
+}
+
+func (c *countingLockCatalog) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	c.execs++
+	return nil, c.err
+}
+
+func (c *countingLockCatalog) QueryRowContext(context.Context, string, ...any) *sql.Row {
+	panic("unexpected QueryRowContext")
+}
+
+func (c *countingLockCatalog) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
+	panic("unexpected QueryContext")
+}
+
+// TestMariaDBLedgerCreateRetryIsNotNested proves CREATE _migrations is wrapped
+// once: a lockRetryExecutor already retries, and createMigrationsLedger must
+// not wrap that again (which would allow up to Attempts² statement tries).
+func TestMariaDBLedgerCreateRetryIsNotNested(t *testing.T) {
+	sink := &lockedBuffer{}
+	policy := testLockPolicy(3, time.Millisecond, sink)
+	stub := &countingLockCatalog{err: &mysql.MySQLError{Number: 1205, Message: "Lock wait timeout exceeded; try restarting transaction"}}
+	exec := &lockRetryExecutor{mariaDBMigrationCatalog: stub, policy: policy}
+	err := createMigrationsLedger(context.Background(), exec, policy, "CREATE TABLE IF NOT EXISTS _migrations (id INT)")
+	if !errors.Is(err, ErrMigrationLockWaitExhausted) {
+		t.Fatalf("err = %v, want ErrMigrationLockWaitExhausted", err)
+	}
+	if stub.execs != 3 {
+		t.Fatalf("ExecContext called %d times, want 3 (configured attempts, not attempts×attempts)", stub.execs)
+	}
+	if got := strings.Count(sink.String(), "migration lock wait exceeded; retrying"); got != 2 {
+		t.Fatalf("logged %d retries, want 2:\n%s", got, sink.String())
+	}
+}
+
+func TestMigrationNonLockSQLErrorIsNotRetried(t *testing.T) {
+	t.Run("mariadb syntax via lockRetryExecutor", func(t *testing.T) {
+		sink := &lockedBuffer{}
+		policy := testLockPolicy(6, time.Millisecond, sink)
+		want := &mysql.MySQLError{Number: 1064, Message: "You have an error in your SQL syntax"}
+		stub := &countingLockCatalog{err: want}
+		exec := &lockRetryExecutor{mariaDBMigrationCatalog: stub, policy: policy, migration: "037_probe_heartbeat.up.sql"}
+		_, err := exec.ExecContext(context.Background(), "ALTER TABLE heartbeats ADD INDEX idx_bad (")
+		if !errors.As(err, new(*mysql.MySQLError)) || err.Error() != want.Error() {
+			t.Fatalf("err = %v, want the syntax error", err)
+		}
+		if errors.Is(err, ErrMigrationLockWaitExhausted) {
+			t.Fatalf("syntax error was wrapped as exhausted: %v", err)
+		}
+		if stub.execs != 1 {
+			t.Fatalf("ExecContext called %d times, want 1", stub.execs)
+		}
+		if strings.Contains(sink.String(), "migration lock wait exceeded; retrying") {
+			t.Fatalf("logged a lock-wait retry for a syntax error:\n%s", sink.String())
+		}
+	})
+
+	t.Run("sqlite syntax via migration transaction", func(t *testing.T) {
+		dsn := "file:" + filepath.Join(t.TempDir(), "bad.db") + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(200)"
+		db, err := sql.Open("sqlite", dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		if _, err := db.Exec(`CREATE TABLE _migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`); err != nil {
+			t.Fatal(err)
+		}
+		sink := &lockedBuffer{}
+		policy := testLockPolicy(6, time.Millisecond, sink)
+		ctx := context.Background()
+		attempts := 0
+		err = withMigrationLockRetry(ctx, policy, "999_bad.up.sql", "transaction", func() error {
+			attempts++
+			return applyMigrationWithExecutor(ctx, db, db, "sqlite", "999_bad.up.sql", "CREATE TABLE foo (;")
+		})
+		if err == nil {
+			t.Fatal("expected a SQLite syntax error")
+		}
+		if errors.Is(err, ErrMigrationLockWaitExhausted) {
+			t.Fatalf("syntax error was wrapped as exhausted: %v", err)
+		}
+		if attempts != 1 {
+			t.Fatalf("transaction attempted %d times, want 1", attempts)
+		}
+		if strings.Contains(sink.String(), "migration lock wait exceeded; retrying") {
+			t.Fatalf("logged a lock-wait retry for a syntax error:\n%s", sink.String())
+		}
+	})
+
+	t.Run("mariadb live syntax", func(t *testing.T) {
+		db := openReadinessMariaDB(t)
+		ctx := context.Background()
+		conn, err := db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = conn.Close() })
+		sink := &lockedBuffer{}
+		policy := testLockPolicy(6, time.Millisecond, sink)
+		exec := &lockRetryExecutor{mariaDBMigrationCatalog: conn, policy: policy, migration: "999_bad.up.sql"}
+		start := time.Now()
+		_, err = exec.ExecContext(ctx, "CREATE TABLE foo (;")
+		if err == nil {
+			t.Fatal("expected a MariaDB syntax error")
+		}
+		var my *mysql.MySQLError
+		if !errors.As(err, &my) || my.Number == 1205 || my.Number == 1213 {
+			t.Fatalf("err = %v, want a non-lock MySQL error", err)
+		}
+		if errors.Is(err, ErrMigrationLockWaitExhausted) {
+			t.Fatalf("syntax error was wrapped as exhausted: %v", err)
+		}
+		if elapsed := time.Since(start); elapsed > 2*time.Second {
+			t.Fatalf("non-lock error took %s, suggesting retries", elapsed)
+		}
+		if strings.Contains(sink.String(), "migration lock wait exceeded; retrying") {
+			t.Fatalf("logged a lock-wait retry for a syntax error:\n%s", sink.String())
+		}
+	})
 }

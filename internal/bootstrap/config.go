@@ -32,6 +32,7 @@ type Config struct {
 	// Startup migrations: cap each lock wait (MariaDB lock_wait_timeout and
 	// innodb_lock_wait_timeout on the migration session) and retry a statement
 	// that lost its wait, with 2 s → 30 s backoff, before startup fails.
+	// Both must be at least 1; wait seconds at most 300, attempts at most 30.
 	DBMigrationLockWaitSeconds int    `env:"DB_MIGRATION_LOCK_WAIT_SECONDS" envDefault:"10"`
 	DBMigrationLockAttempts    int    `env:"DB_MIGRATION_LOCK_ATTEMPTS" envDefault:"6"`
 	JWTSecret                  string `env:"JWT_SECRET"` // required; see validateJWTSecret
@@ -170,6 +171,14 @@ type Config struct {
 	ProbeInstallArtifactDir string `env:"PROBE_INSTALL_ARTIFACT_DIR" envDefault:""`
 }
 
+// Bounds for the startup migration lock-wait env vars. The 30-minute
+// migration startup context is the hard ceiling; these reject typo-scale
+// values (a day-long wait, a million attempts) before a run starts.
+const (
+	maxMigrationLockWaitSeconds = 300
+	maxMigrationLockAttempts    = 30
+)
+
 // LoadConfig parses environment into Config.
 func LoadConfig() (Config, error) {
 	cfg := Config{}
@@ -185,11 +194,11 @@ func LoadConfig() (Config, error) {
 	if _, err := parseTrustedProxyCIDRs(cfg.TrustedProxyCIDRs); err != nil {
 		return Config{}, err
 	}
-	if cfg.DBMigrationLockWaitSeconds < 1 {
-		return Config{}, fmt.Errorf("DB_MIGRATION_LOCK_WAIT_SECONDS must be at least 1, got %d", cfg.DBMigrationLockWaitSeconds)
+	if cfg.DBMigrationLockWaitSeconds < 1 || cfg.DBMigrationLockWaitSeconds > maxMigrationLockWaitSeconds {
+		return Config{}, fmt.Errorf("DB_MIGRATION_LOCK_WAIT_SECONDS must be between 1 and %d, got %d", maxMigrationLockWaitSeconds, cfg.DBMigrationLockWaitSeconds)
 	}
-	if cfg.DBMigrationLockAttempts < 1 {
-		return Config{}, fmt.Errorf("DB_MIGRATION_LOCK_ATTEMPTS must be at least 1, got %d", cfg.DBMigrationLockAttempts)
+	if cfg.DBMigrationLockAttempts < 1 || cfg.DBMigrationLockAttempts > maxMigrationLockAttempts {
+		return Config{}, fmt.Errorf("DB_MIGRATION_LOCK_ATTEMPTS must be between 1 and %d, got %d", maxMigrationLockAttempts, cfg.DBMigrationLockAttempts)
 	}
 	if cfg.ProbeHubID != "" && !domain.ValidHubID(cfg.ProbeHubID) {
 		return Config{}, fmt.Errorf("PROBE_HUB_ID must be a valid canonical UUID, got %q", cfg.ProbeHubID)

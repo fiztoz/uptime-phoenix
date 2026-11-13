@@ -64,13 +64,7 @@ func runMigrationsWithExecutor(ctx context.Context, db *sql.DB, exec migrationEx
 	default:
 		return fmt.Errorf("unknown engine: %s", engine)
 	}
-	if retrying != nil {
-		retrying.migration = "_migrations"
-	}
-	if err := withMigrationLockRetry(ctx, policy, "_migrations", "create ledger", func() error {
-		_, err := exec.ExecContext(ctx, createTableSQL)
-		return err
-	}); err != nil {
+	if err := createMigrationsLedger(ctx, exec, policy, createTableSQL); err != nil {
 		return fmt.Errorf("create _migrations table: %w", err)
 	}
 
@@ -164,6 +158,21 @@ func runMigrationsWithExecutor(ctx context.Context, db *sql.DB, exec migrationEx
 	}
 
 	return nil
+}
+
+// createMigrationsLedger creates the _migrations table, retrying lock waits.
+// When exec is already a lockRetryExecutor, each statement is retried there;
+// wrapping again would multiply the attempt budget (up to Attempts²).
+func createMigrationsLedger(ctx context.Context, exec migrationExecutor, policy MigrationLockPolicy, stmt string) error {
+	if retrying, ok := exec.(*lockRetryExecutor); ok {
+		retrying.migration = "_migrations"
+		_, err := exec.ExecContext(ctx, stmt)
+		return err
+	}
+	return withMigrationLockRetry(ctx, policy, "_migrations", "create ledger", func() error {
+		_, err := exec.ExecContext(ctx, stmt)
+		return err
+	})
 }
 
 func queryMigrationRows(ctx context.Context, db *sql.DB, exec migrationExecutor) (*sql.Rows, error) {
