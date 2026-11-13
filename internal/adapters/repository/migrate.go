@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -19,26 +21,90 @@ var mariadbMigrations embed.FS
 //go:embed sqlite/migrations/*.sql
 var sqliteMigrations embed.FS
 
-// RunMigrations executes all pending migrations for the specified engine.
-func RunMigrations(db *sql.DB, engine string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), migrationStartupTimeout)
-	defer cancel()
-	return runMigrations(ctx, db, engine)
+// ReadMigrationFile reads a migration SQL file by relative path from embedded filesystems,
+// falling back to the local operating system filesystem when available.
+func ReadMigrationFile(relPath string) ([]byte, error) {
+	slashPath := filepath.ToSlash(relPath)
+	for strings.HasPrefix(slashPath, "./") {
+		slashPath = strings.TrimPrefix(slashPath, "./")
+	}
+	slashPath = strings.TrimPrefix(slashPath, "/")
+
+	var data []byte
+	var err error
+	switch {
+	case strings.HasPrefix(slashPath, "mariadb/migrations/"):
+		data, err = fs.ReadFile(mariadbMigrations, slashPath)
+	case strings.HasPrefix(slashPath, "sqlite/migrations/"):
+		data, err = fs.ReadFile(sqliteMigrations, slashPath)
+	case strings.HasPrefix(slashPath, "migrations/"):
+		data, err = fs.ReadFile(sqliteMigrations, "sqlite/"+slashPath)
+		if err != nil {
+			data, err = fs.ReadFile(mariadbMigrations, "mariadb/"+slashPath)
+		}
+	default:
+		err = fs.ErrNotExist
+	}
+	if err == nil {
+		return data, nil
+	}
+
+	diskData, diskErr := os.ReadFile(filepath.FromSlash(relPath))
+	if diskErr == nil {
+		return diskData, nil
+	}
+	return nil, fmt.Errorf("read migration file %s: %w", relPath, diskErr)
 }
 
-func runMigrations(ctx context.Context, db *sql.DB, engine string) error {
+// ReadMigrationDir reads directory entries for the specified database engine's migrations,
+// using embedded migration filesystems and falling back to the local filesystem.
+func ReadMigrationDir(engine string) ([]fs.DirEntry, error) {
+	var entries []fs.DirEntry
+	var err error
+	switch engine {
+	case "mariadb":
+		entries, err = fs.ReadDir(mariadbMigrations, "mariadb/migrations")
+	case "sqlite":
+		entries, err = fs.ReadDir(sqliteMigrations, "sqlite/migrations")
+	default:
+		return nil, fmt.Errorf("unknown migration engine: %s", engine)
+	}
+	if err == nil && len(entries) > 0 {
+		return entries, nil
+	}
+
+	diskEntries, diskErr := os.ReadDir(filepath.Join(engine, "migrations"))
+	if diskErr == nil {
+		return diskEntries, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read embedded migrations dir for %s: %w", engine, err)
+	}
+	return nil, fmt.Errorf("read migrations directory for %s: %w", engine, diskErr)
+}
+
+// RunMigrations executes all pending migrations for the specified engine with
+// DefaultMigrationLockPolicy.
+func RunMigrations(db *sql.DB, engine string) error {
+	return RunMigrationsWithPolicy(db, engine, DefaultMigrationLockPolicy())
+}
+
+func runMigrations(ctx context.Context, db *sql.DB, engine string, policy MigrationLockPolicy) error {
 	var exec migrationExecutor = db
 	if engine == "mariadb" {
 		conn, err := db.Conn(ctx)
 		if err != nil {
 			return fmt.Errorf("acquire MariaDB migration connection: %w", err)
 		}
-		return runMariaDBMigrations(ctx, db, conn)
+		return runMariaDBMigrations(ctx, db, conn, policy)
 	}
-	return runMigrationsWithExecutor(ctx, db, exec, engine)
+	return runMigrationsWithExecutor(ctx, db, exec, engine, policy)
 }
 
-func runMigrationsWithExecutor(ctx context.Context, db *sql.DB, exec migrationExecutor, engine string) error {
+func runMigrationsWithExecutor(ctx context.Context, db *sql.DB, exec migrationExecutor, engine string, policy MigrationLockPolicy) error {
+	// MariaDB retries per statement through the executor; SQLite retries the
+	// whole migration transaction (see the apply loop below).
+	retrying, _ := exec.(*lockRetryExecutor)
 	// Create migrations tracking table if not exists.
 	// Use engine-specific syntax for the auto-increment column.
 	var createTableSQL string
@@ -62,7 +128,7 @@ func runMigrationsWithExecutor(ctx context.Context, db *sql.DB, exec migrationEx
 	default:
 		return fmt.Errorf("unknown engine: %s", engine)
 	}
-	if _, err := exec.ExecContext(ctx, createTableSQL); err != nil {
+	if err := createMigrationsLedger(ctx, exec, policy, createTableSQL); err != nil {
 		return fmt.Errorf("create _migrations table: %w", err)
 	}
 
@@ -116,6 +182,11 @@ func runMigrationsWithExecutor(ctx context.Context, db *sql.DB, exec migrationEx
 	}
 	sort.Strings(migrations)
 
+	// Never run an older binary against a schema a newer release migrated.
+	if err := checkSchemaNotNewer(applied, migrations); err != nil {
+		return err
+	}
+
 	// Apply pending migrations.
 	for _, filename := range migrations {
 		// Skip if already applied.
@@ -133,18 +204,44 @@ func runMigrationsWithExecutor(ctx context.Context, db *sql.DB, exec migrationEx
 		// SQLite table rebuilds and their tracking record must commit together.
 		// In particular, rebuilding a parent must not strand its copied children.
 		slog.Info("Applying database migration", "migration", filename)
+		if retrying != nil {
+			retrying.migration = filename
+		}
 		if engine == "mariadb" && filename == "037_probe_heartbeat.up.sql" {
 			if err := applyMariaDB037AndRecord(ctx, exec, filename, string(sqlBytes)); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := applyMigrationWithExecutor(ctx, db, exec, engine, filename, string(sqlBytes)); err != nil {
+		apply := func() error { return applyMigrationWithExecutor(ctx, db, exec, engine, filename, string(sqlBytes)) }
+		if engine == "sqlite" {
+			// A busy SQLite migration rolled its transaction back; run it again.
+			if err := withMigrationLockRetry(ctx, policy, filename, "transaction", apply); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := apply(); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// createMigrationsLedger creates the _migrations table, retrying lock waits.
+// When exec is already a lockRetryExecutor, each statement is retried there;
+// wrapping again would multiply the attempt budget (up to Attempts²).
+func createMigrationsLedger(ctx context.Context, exec migrationExecutor, policy MigrationLockPolicy, stmt string) error {
+	if retrying, ok := exec.(*lockRetryExecutor); ok {
+		retrying.migration = "_migrations"
+		_, err := exec.ExecContext(ctx, stmt)
+		return err
+	}
+	return withMigrationLockRetry(ctx, policy, "_migrations", "create ledger", func() error {
+		_, err := exec.ExecContext(ctx, stmt)
+		return err
+	})
 }
 
 func queryMigrationRows(ctx context.Context, db *sql.DB, exec migrationExecutor) (*sql.Rows, error) {

@@ -2,7 +2,6 @@ package repository_test
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/uptrace/bun"
 
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/mariadb"
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository/sqlite"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
@@ -187,7 +187,7 @@ func newEngineHeartbeatRepo(f probeRegistryFixture) ports.HeartbeatRepository {
 
 func runEngineMigration(t *testing.T, db *bun.DB, engine, name, direction string) error {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(engine, "migrations", name+"."+direction+".sql"))
+	data, err := repository.ReadMigrationFile(filepath.Join(engine, "migrations", name+"."+direction+".sql"))
 	if err != nil {
 		return err
 	}

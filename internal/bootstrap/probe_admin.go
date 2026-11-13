@@ -149,7 +149,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 		return fail("Hub database is unavailable")
 	}
 	defer func() { _ = db.Close() }()
-	if repository.RunMigrations(db.DB, cfg.DBEngine) != nil {
+	if repository.RunMigrationsWithPolicy(db.DB, cfg.DBEngine, migrationLockPolicy(cfg)) != nil {
 		return fail("Hub migrations failed")
 	}
 	repos := wireRepositories(cfg.DBEngine, db)

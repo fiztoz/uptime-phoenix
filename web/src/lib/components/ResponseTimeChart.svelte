@@ -104,18 +104,22 @@
 
 	const downtimeIntervals = $derived.by((): DowntimeInterval[] => {
 		if (!chart?.downtime_intervals?.length) return [];
-		return chart.downtime_intervals.map((iv) => ({
-			start: new Date(iv.start),
-			end: new Date(iv.end),
-		}));
+		return chart.downtime_intervals
+			.map((iv) => ({
+				start: new Date(iv.start),
+				end: new Date(iv.end),
+			}))
+			.filter((iv) => Number.isFinite(iv.start.getTime()) && Number.isFinite(iv.end.getTime()));
 	});
 
 	const unknownIntervals = $derived.by((): DowntimeInterval[] => {
 		if (!chart?.unknown_intervals?.length) return [];
-		return chart.unknown_intervals.map((iv) => ({
-			start: new Date(iv.start),
-			end: new Date(iv.end),
-		}));
+		return chart.unknown_intervals
+			.map((iv) => ({
+				start: new Date(iv.start),
+				end: new Date(iv.end),
+			}))
+			.filter((iv) => Number.isFinite(iv.start.getTime()) && Number.isFinite(iv.end.getTime()));
 	});
 
 	/**

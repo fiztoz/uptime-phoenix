@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -545,7 +544,7 @@ func testProbeActivationDowngradeGuards(t *testing.T, f probeRegistryFixture) {
 
 func runProbeActivationMigration(t *testing.T, db *bun.DB, engine, direction string) error {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(engine, "migrations", "049_probe_activation."+direction+".sql"))
+	data, err := repository.ReadMigrationFile(filepath.Join(engine, "migrations", "049_probe_activation."+direction+".sql"))
 	if err != nil {
 		return err
 	}

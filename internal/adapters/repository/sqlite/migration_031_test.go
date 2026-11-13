@@ -2,8 +2,9 @@ package sqlite
 
 import (
 	"database/sql"
-	"os"
 	"testing"
+
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 )
 
 // Migration 031 changes an existing behavior, not just a schema shape: users
@@ -29,7 +30,7 @@ func TestMigration031_BackfillsExistingMembersAndDefaultsNewUsersOff(t *testing.
 		t.Fatalf("seed pre-031 users: %v", err)
 	}
 
-	up, err := os.ReadFile("migrations/031_user_extension_visibility.up.sql")
+	up, err := repository.ReadMigrationFile("migrations/031_user_extension_visibility.up.sql")
 	if err != nil {
 		t.Fatalf("read up migration: %v", err)
 	}

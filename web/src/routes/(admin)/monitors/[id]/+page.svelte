@@ -932,6 +932,7 @@
   const certExpiry = $derived(() => {
     if (!stats?.cert_expiry_date) return null;
     const date = new Date(stats.cert_expiry_date);
+    if (Number.isNaN(date.getTime())) return null;
     const days = stats.cert_days_left ?? 0;
     return {
       date: date.toISOString().slice(0, 10),
@@ -940,7 +941,9 @@
   });
 
   const showCert = $derived(
-    stats?.cert_expiry_date != null && stats?.cert_days_left != null,
+    stats?.cert_expiry_date != null &&
+      stats?.cert_days_left != null &&
+      certExpiry() !== null,
   );
 
   // --- Status badge (embeddable shields.io-style SVGs, public endpoints) ---
@@ -1437,7 +1440,7 @@
       </div>
 
       <div class="mt-4 space-y-2">
-        {#each [{ label: m.monitor_detail_page_badge_status(), url: statusBadgeUrl }, { label: m.monitor_detail_page_badge_uptime_24h(), url: uptimeBadgeUrl }, { label: m.monitor_detail_page_badge_ping(), url: pingBadgeUrl }] as badge (badge.label)}
+        {#each [{ id: 'status', label: m.monitor_detail_page_badge_status(), url: statusBadgeUrl }, { id: 'uptime', label: m.monitor_detail_page_badge_uptime_24h(), url: uptimeBadgeUrl }, { id: 'ping', label: m.monitor_detail_page_badge_ping(), url: pingBadgeUrl }] as badge (badge.id)}
           <div class="flex items-center gap-2">
             <span class="w-24 shrink-0 text-xs text-muted-foreground"
               >{badge.label}</span

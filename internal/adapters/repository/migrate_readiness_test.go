@@ -146,7 +146,7 @@ func TestMariaDBMigrationDiscardsConnectionWhenLockReleaseFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = runMariaDBMigrations(context.Background(), db, conn)
+	err = runMariaDBMigrations(context.Background(), db, conn, DefaultMigrationLockPolicy().normalized())
 	if err == nil || !strings.Contains(err.Error(), "release MariaDB migration lock") {
 		t.Fatalf("expected lock release failure, got %v", err)
 	}
@@ -309,4 +309,44 @@ func (r *releaseFailRows) Next(dest []driver.Value) error {
 	copy(dest, r.values[r.index])
 	r.index++
 	return nil
+}
+
+func TestReadMigrationHelpersWorkOutsideRepoTree(t *testing.T) {
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	tempDir := t.TempDir()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir tempdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(origWd)
+	})
+
+	for _, engine := range []string{"mariadb", "sqlite"} {
+		entries, err := ReadMigrationDir(engine)
+		if err != nil {
+			t.Fatalf("ReadMigrationDir(%q) failed: %v", engine, err)
+		}
+		if len(entries) == 0 {
+			t.Fatalf("ReadMigrationDir(%q) returned empty entries", engine)
+		}
+	}
+
+	testFiles := []string{
+		"mariadb/migrations/016_escalation_policies.up.sql",
+		"mariadb/migrations/035_probe_registry.down.sql",
+		"sqlite/migrations/035_probe_registry.down.sql",
+		"migrations/011_create_capabilities.down.sql",
+	}
+	for _, relPath := range testFiles {
+		data, err := ReadMigrationFile(relPath)
+		if err != nil {
+			t.Fatalf("ReadMigrationFile(%q) failed: %v", relPath, err)
+		}
+		if len(data) == 0 {
+			t.Fatalf("ReadMigrationFile(%q) returned empty content", relPath)
+		}
+	}
 }
