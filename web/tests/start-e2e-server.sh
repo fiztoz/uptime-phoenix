@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-export GOTOOLCHAIN=${GOTOOLCHAIN:-go1.27.3}
+export GOTOOLCHAIN=${GOTOOLCHAIN:-go1.27.4}
 
 e2e_tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/phoenix-e2e.XXXXXX")
 app_pid=''

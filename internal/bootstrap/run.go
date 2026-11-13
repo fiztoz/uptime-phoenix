@@ -81,7 +81,7 @@ func Run(cfg Config) error {
 	}
 	defer func() { _ = db.Close() }()
 
-	if err := repo.RunMigrations(db.DB, cfg.DBEngine); err != nil {
+	if err := repo.RunMigrationsWithPolicy(db.DB, cfg.DBEngine, migrationLockPolicy(cfg)); err != nil {
 		log.Error("failed to run migrations", "error", err)
 		return err
 	}

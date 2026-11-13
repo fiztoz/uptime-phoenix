@@ -121,15 +121,19 @@ type probeDiagWatchdogModel struct {
 	LossElapsedNS  int64     `bun:"loss_elapsed_ns"`
 	PendingLoss    bool      `bun:"pending_loss"`
 	Status         string    `bun:"status"`
-	IncidentSeq    int64     `bun:"incident_seq"`
+	SourceAlertID  *string   `bun:"source_alert_id"`
 	UpdatedAt      time.Time `bun:"updated_at"`
 }
 
-func (m probeDiagWatchdogModel) facts() *domain.ProbeWatchdogFacts {
+// facts discloses IncidentOpen from the latest source incident's own status.
+// incident_seq only counts transitions and never returns to zero, so a probe
+// that recovered once would otherwise report an open incident forever.
+func (m probeDiagWatchdogModel) facts(incidentStatus string) *domain.ProbeWatchdogFacts {
 	return &domain.ProbeWatchdogFacts{
 		Status: m.Status, Version: m.Version, ConfigRevision: m.ConfigRevision,
-		Armed: m.Armed, PendingLoss: m.PendingLoss, IncidentOpen: m.IncidentSeq > 0,
-		UpdatedAt: m.UpdatedAt.UTC(),
+		Armed: m.Armed, PendingLoss: m.PendingLoss,
+		IncidentOpen: incidentStatus != "" && incidentStatus != string(domain.AlertStatusResolved),
+		UpdatedAt:    m.UpdatedAt.UTC(),
 	}
 }
 
@@ -288,13 +292,21 @@ func readProbeDiagnostics(ctx context.Context, tx bun.Tx, registration probeRegi
 
 	watchdog := new(probeDiagWatchdogModel)
 	err = tx.NewSelect().Model(watchdog).
-		Column("probe_id", "version", "config_revision", "armed", "loss_elapsed_ns", "pending_loss", "status", "incident_seq", "updated_at").
+		Column("probe_id", "version", "config_revision", "armed", "loss_elapsed_ns", "pending_loss", "status", "source_alert_id", "updated_at").
 		Where("probe_id = ?", probeID).Scan(ctx)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("read probe watchdog: %w", err)
 	}
 	if err == nil {
-		diagnostics.Watchdog = watchdog.facts()
+		incidentStatus := ""
+		if watchdog.SourceAlertID != nil {
+			err = tx.NewSelect().Table("probe_incidents").Column("status").
+				Where("source_alert_id = ?", *watchdog.SourceAlertID).Scan(ctx, &incidentStatus)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("read probe watchdog incident: %w", err)
+			}
+		}
+		diagnostics.Watchdog = watchdog.facts(incidentStatus)
 	}
 
 	publication := new(probeDiagSnapshotModel)

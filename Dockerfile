@@ -26,7 +26,7 @@ FROM web-builder-${USE_PREBUILT_WEB} AS web-builder
 # heavy stages in parallel (peak RAM spike → BuildKit EOF on Colima/low-memory hosts).
 # Run the compiler natively to avoid QEMU failures during module loading and
 # compilation; GOOS/GOARCH below still produce the requested target binary.
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS go-builder
 
 # Multi-arch: inherit BuildKit's automatic TARGETOS/TARGETARCH. Never give
 # them defaults here: a default replaces the --platform value, so every

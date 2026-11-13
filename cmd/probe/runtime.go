@@ -56,13 +56,8 @@ func serveEdge(ctx context.Context, cfg edgeOptions, identity *probe.RuntimeIden
 	}
 	delivery.SetWatchdog(watchdogDelivery)
 	diagnostic := func(ctx context.Context) (probe.Health, error) {
-		state, err := store.ReadDiagnostics(ctx)
-		if err != nil {
-			return probe.Health{}, err
-		}
-		writable := store.CheckWritable(ctx) == nil
 		healthy, revision := schedule.Diagnostics()
-		return edgeHealth(state, writable, healthy, revision, stopping.Load()), nil
+		return readEdgeHealth(ctx, store, healthy, revision, stopping.Load())
 	}
 	state := func(ctx context.Context) (domain.EdgeIdentity, int64, error) {
 		d, err := store.ReadDiagnostics(ctx)

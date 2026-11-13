@@ -56,7 +56,7 @@ func (SlackSender) Send(ctx context.Context, config map[string]any, alert domain
 		sectionText = fmt.Sprintf("*Status:* %s\n*Message:* %s%s", alert.Status, alertBody(alert), targetLine)
 	}
 
-	header := fmt.Sprintf("%s %s", emoji, alert.MonitorName)
+	header := fmt.Sprintf("%s %s%s", emoji, alert.MonitorName, aggregateTitleSuffix(alert))
 	contextText := fmt.Sprintf("Monitor type: %s | %s", alert.MonitorType, time.Now().Format(time.RFC3339))
 	if isProbeConnection(alert) {
 		header = fmt.Sprintf("%s %s", emoji, alertTitle(alert))
