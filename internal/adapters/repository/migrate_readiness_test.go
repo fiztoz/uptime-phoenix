@@ -146,7 +146,7 @@ func TestMariaDBMigrationDiscardsConnectionWhenLockReleaseFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = runMariaDBMigrations(context.Background(), db, conn)
+	err = runMariaDBMigrations(context.Background(), db, conn, DefaultMigrationLockPolicy().normalized())
 	if err == nil || !strings.Contains(err.Error(), "release MariaDB migration lock") {
 		t.Fatalf("expected lock release failure, got %v", err)
 	}
