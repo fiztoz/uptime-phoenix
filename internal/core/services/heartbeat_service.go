@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"math/rand/v2"
 	"sort"
 	"strconv"
 	"time"
@@ -413,6 +414,9 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 		}
 	}
 	for attempt := 0; attempt < 16; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		state, generation, err := s.localRegionalState(ctx, monitor.ID)
 		if err != nil {
 			return nil, nil, err
@@ -585,6 +589,11 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 		}
 		saved, err := s.regional.CommitLocalHeartbeat(ctx, commit)
 		if errors.Is(err, ports.ErrStaleLocalState) {
+			if attempt < 15 {
+				if err := waitLocalHeartbeatRetry(ctx, attempt); err != nil {
+					return nil, nil, err
+				}
+			}
 			continue
 		}
 		if err != nil {
@@ -593,6 +602,23 @@ func (s *HeartbeatService) persistCheck(ctx context.Context, monitor *domain.Mon
 		return saved, oldStatus, nil
 	}
 	return nil, nil, fmt.Errorf("local recording contention: %w", ports.ErrStaleLocalState)
+}
+
+// waitLocalHeartbeatRetry gives concurrent state writers time to finish instead
+// of burning the complete-attempt budget in a tight loop. The 15 configured
+// delays total at most 575ms (excluding DB work and scheduling) and honor
+// caller cancellation.
+// Every retry still re-reads state and commits with the original authority.
+func waitLocalHeartbeatRetry(ctx context.Context, attempt int) error {
+	delay := time.Duration((5<<min(attempt, 3))+rand.IntN(5)) * time.Millisecond
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (s *HeartbeatService) persistTLSInfo(ctx context.Context, repo ports.TLSInfoRepository, monitorID int64, metadata map[string]string) {
