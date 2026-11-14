@@ -58,7 +58,7 @@ func TestStandbyCandidateSnapshotDoesNotLockAndRechecksEligibility(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer tx.Rollback() // release the owned lock even when the regression fails
+			defer func() { _ = tx.Rollback() }() // release the owned lock even when the regression fails
 			mode := domain.AlertDeliveryAggregate
 			if revoke {
 				mode = domain.AlertDeliveryRegional

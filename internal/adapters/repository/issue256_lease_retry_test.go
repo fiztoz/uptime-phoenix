@@ -346,7 +346,7 @@ func TestIssue256LeaseRetryFailureContract(t *testing.T) {
 				{"lock_timeout", &mysql.MySQLError{Number: 1205}, 1, false},
 				{"record_changed", &mysql.MySQLError{Number: 1020}, 1, false},
 				{"domain_error", ports.ErrNotFound, 1, false},
-				{"cancelled", &mysql.MySQLError{Number: 1213}, 1, true},
+				{"canceled", &mysql.MySQLError{Number: 1213}, 1, true},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
 					f := newProbeRegistryFixture(t, "sqlite")

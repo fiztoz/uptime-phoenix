@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 )
 
@@ -29,7 +30,7 @@ func TestIssue257DegradedHealthEstablishesTransport(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("peer did not connect")
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	hello := Hello{SessionIdentity: SessionIdentity{HubID: s.input.Connection.HubID, ProbeID: s.input.Connection.ProbeID, StreamID: s.input.Connection.StreamID}, AgentVersion: "test", ProtocolMin: 1, ProtocolMax: 1, ConfigRevision: s.snapshot.Revision, FirstRetainedSeq: 1, LastCreatedSeq: 100, Capabilities: []string{"snapshot.v1", "checker.http.v1", "notifier.webhook.v1", "proxy.socks5.v1"}, ResourceBindings: []ResourceBinding{}}
 	frame, err := encodeFrame("hello", 0, hello)
 	if err != nil {
@@ -80,7 +81,7 @@ func TestIssue257DegradedHealthEstablishesTransport(t *testing.T) {
 	}
 	cancel()
 	select {
-	case <-done:
+	case _ = <-done:
 	case <-time.After(time.Second):
 		t.Fatal("transport did not stop")
 	}
