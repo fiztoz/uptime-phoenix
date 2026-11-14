@@ -116,10 +116,17 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		}
 		var activeConfig probeActiveConfigModel
 		activeConfigQuery := tx.NewSelect().Model(&activeConfig).Column("revision", "hub_id", "sha256").Where("probe_id = ?", hb.ProbeID)
+		var activeConfigErr error
 		if tx.Dialect().Name() == dialect.MySQL {
-			activeConfigQuery = activeConfigQuery.For("UPDATE")
+			// Recording reads but never updates this pointer. A shared current
+			// read still fences replacement (and insertion of an absent pointer),
+			// while remaining compatible with serializable source readers that
+			// already hold the pointer before reading our assignment rows.
+			activeConfigErr = tx.NewRaw("SELECT revision, hub_id, sha256 FROM probe_active_configs WHERE probe_id = ? LOCK IN SHARE MODE", hb.ProbeID).Scan(ctx, &activeConfig)
+		} else {
+			activeConfigErr = activeConfigQuery.Scan(ctx)
 		}
-		if err := activeConfigQuery.Scan(ctx); err == nil {
+		if err := activeConfigErr; err == nil {
 			if !commit.LegacyConfig && activeConfig.Revision > 0 {
 				if hb.ConfigRevision != activeConfig.Revision {
 					return ports.ErrConflict
