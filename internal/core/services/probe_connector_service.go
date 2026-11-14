@@ -251,7 +251,13 @@ func (s *ProbeConnectorService) ownedConnectLoop(ctx context.Context, runtime do
 			report(errors.New("probe connection unavailable"))
 		}
 		failures++
-		if healthy >= 30*time.Second {
+		// healthy starts only after a validated health frame has passed the
+		// fenced authority callback. Degraded frames qualify too: this measures
+		// connection stability, not watchdog recovery. One second of operation avoids
+		// treating an immediate close as stability without requiring two 15s
+		// heartbeat periods, which amplifies short recurring network drops.
+		// Keep this threshold aligned with probe.ReconnectDelay.
+		if healthy >= time.Second {
 			failures = 1
 		}
 		if failures > 6 {

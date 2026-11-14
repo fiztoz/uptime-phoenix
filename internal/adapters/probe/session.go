@@ -553,9 +553,11 @@ func isHandshakeOrEnrollment(kind string) bool {
 // ReconnectDelay calculates the bounded backoff delay before reconnecting.
 // Base exponential: 1, 2, 4, 8, 16, 30 seconds for failures 1 onward.
 // Jitter: within 75%–125%, clamped to [1s, 30s].
-// Reset: resets to the first base (1s) only after at least 30 seconds of healthy operation.
+// Reset after one second since a validated health frame, including a degraded
+// frame: this is session stability, not watchdog recovery. A handshake alone does
+// not qualify. Keep this threshold aligned with the connector loop.
 func ReconnectDelay(failures int, healthyFor time.Duration, random float64) time.Duration {
-	if healthyFor >= 30*time.Second {
+	if healthyFor >= time.Second {
 		failures = 1
 	}
 	if failures < 1 {

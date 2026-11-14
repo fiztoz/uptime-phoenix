@@ -1947,6 +1947,15 @@ incident and delivery writes and is not retried as an evaluation-state race.
 Local scheduler and push ingestion deliberately carry no worker fence. A
 fenced result on the legacy non-transactional save path fails closed.
 
+MariaDB lease claim, refresh and release retry only typed InnoDB deadlock
+victims (1213), with at most four whole-operation attempts and short,
+cancellation-aware jitter. Claim/refresh rebuild their transactions and resample
+clocks after acquiring locks; aborted candidates and affected-row counts are
+never reused. Release retries its one atomic autocommit statement. Ambiguous
+commit errors and other engine errors are not replayed. This handles a lease
+operation chosen as the deadlock victim; it does not eliminate contention or
+establish that all replay/configuration-refresh deadlocks are resolved.
+
 Do not rely on this fencing during a mixed-version rollout while old sharded
 workers can still write unfenced results; drain/stop those workers first.
 

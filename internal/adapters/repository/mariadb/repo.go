@@ -364,46 +364,48 @@ func (r *MonitorRepo) Delete(ctx context.Context, id int64) error {
 // its epoch, and silently re-authorize work queued under the previous lease
 // instance.
 func (r *MonitorRepo) ClaimBatch(ctx context.Context, workerID string, batchSize int, leaseTTL time.Duration) ([]*domain.Monitor, error) {
-	// Admission window only — which rows are claim candidates. The
-	// authoritative expiry verdict happens under the row locks below.
-	admissionCutoff := time.Now().UTC().Add(-leaseTTL)
-
 	// leased_at is a second-precision TIMESTAMP. It cannot identify a batch:
 	// fractional equality loses rows, while truncating it can return an earlier
 	// batch from the same worker. Lock the selected rows and return those exact
 	// IDs only after their leases commit. Concurrent owners serialize here.
 	var models []*repository.MonitorModel
-	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if err := tx.NewRaw(
-			"SELECT * FROM monitors WHERE active = TRUE AND (worker_id IS NULL OR leased_at < ? OR worker_id = ?) AND "+repository.LocalHubExecutionSQL("monitors.id")+" ORDER BY id LIMIT ? FOR UPDATE",
-			admissionCutoff, workerID, batchSize,
-		).Scan(ctx, &models); err != nil {
-			return fmt.Errorf("select claim candidates: %w", err)
-		}
-		if len(models) == 0 {
-			return nil
-		}
-		// The row locks are held: this clock is fresh at decision time.
-		now := time.Now().UTC()
-		leaseExpiry := now.Add(-leaseTTL)
-		ids := make([]int64, len(models))
-		// Renewal of a lease this worker still validly holds keeps the lease
-		// instance; every other acquisition creates one.
-		reacquired := make([]int64, 0, len(models))
-		for i, model := range models {
-			ids[i] = model.ID
-			if model.WorkerID != nil && *model.WorkerID == workerID && model.LeasedAt != nil && !model.LeasedAt.UTC().Before(leaseExpiry) {
-				continue
+	err := retryLeaseDeadlock(ctx, func() error {
+		// A victim transaction contributes neither candidates nor authority to
+		// its replacement. Rebuild the batch and admission window each time.
+		models = nil
+		admissionCutoff := time.Now().UTC().Add(-leaseTTL)
+		return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+			if err := tx.NewRaw(
+				"SELECT * FROM monitors WHERE active = TRUE AND (worker_id IS NULL OR leased_at < ? OR worker_id = ?) AND "+repository.LocalHubExecutionSQL("monitors.id")+" ORDER BY id LIMIT ? FOR UPDATE",
+				admissionCutoff, workerID, batchSize,
+			).Scan(ctx, &models); err != nil {
+				return fmt.Errorf("select claim candidates: %w", err)
 			}
-			reacquired = append(reacquired, model.ID)
-		}
-		update := tx.NewUpdate().Table("monitors").
-			Set("worker_id = ?", workerID).Set("leased_at = ?", now)
-		if len(reacquired) > 0 {
-			update = update.Set("lease_epoch = lease_epoch + CASE WHEN id IN (?) THEN 1 ELSE 0 END", bun.List(reacquired))
-		}
-		_, err := update.Where("id IN (?)", bun.List(ids)).Exec(ctx)
-		return err
+			if len(models) == 0 {
+				return nil
+			}
+			// The row locks are held: this clock is fresh at decision time.
+			now := time.Now().UTC()
+			leaseExpiry := now.Add(-leaseTTL)
+			ids := make([]int64, len(models))
+			// Renewal of a lease this worker still validly holds keeps the lease
+			// instance; every other acquisition creates one.
+			reacquired := make([]int64, 0, len(models))
+			for i, model := range models {
+				ids[i] = model.ID
+				if model.WorkerID != nil && *model.WorkerID == workerID && model.LeasedAt != nil && !model.LeasedAt.UTC().Before(leaseExpiry) {
+					continue
+				}
+				reacquired = append(reacquired, model.ID)
+			}
+			update := tx.NewUpdate().Table("monitors").
+				Set("worker_id = ?", workerID).Set("leased_at = ?", now)
+			if len(reacquired) > 0 {
+				update = update.Set("lease_epoch = lease_epoch + CASE WHEN id IN (?) THEN 1 ELSE 0 END", bun.List(reacquired))
+			}
+			_, err := update.Where("id IN (?)", bun.List(ids)).Exec(ctx)
+			return err
+		})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("claim monitors: %w", err)
@@ -427,27 +429,30 @@ func (r *MonitorRepo) RefreshLease(ctx context.Context, workerID string, leaseTT
 		return 0, fmt.Errorf("refresh lease: non-positive lease TTL %v: %w", leaseTTL, domain.ErrValidation)
 	}
 	var extended int64
-	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		// Lock this worker's lease rows before the validity window is
-		// evaluated: a lease that expires while we wait must not be extended
-		// as a renewal (that would revive it without an epoch bump).
-		var locked []struct {
-			ID int64 `bun:"id"`
-		}
-		if err := tx.NewRaw("SELECT id FROM monitors WHERE worker_id = ? FOR UPDATE", workerID).Scan(ctx, &locked); err != nil {
-			return fmt.Errorf("lock lease rows: %w", err)
-		}
-		now := time.Now().UTC()
-		res, err := tx.NewRaw(
-			"UPDATE monitors SET leased_at = ? WHERE worker_id = ? AND leased_at >= ?",
-			now, workerID, now.Add(-leaseTTL),
-		).Exec(ctx)
-		if err != nil {
-			return fmt.Errorf("extend lease: %w", err)
-		}
-		n, err := res.RowsAffected()
-		extended = n
-		return err
+	err := retryLeaseDeadlock(ctx, func() error {
+		extended = 0
+		return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+			// Lock this worker's lease rows before the validity window is
+			// evaluated: a lease that expires while we wait must not be extended
+			// as a renewal (that would revive it without an epoch bump).
+			var locked []struct {
+				ID int64 `bun:"id"`
+			}
+			if err := tx.NewRaw("SELECT id FROM monitors WHERE worker_id = ? FOR UPDATE", workerID).Scan(ctx, &locked); err != nil {
+				return fmt.Errorf("lock lease rows: %w", err)
+			}
+			now := time.Now().UTC()
+			res, err := tx.NewRaw(
+				"UPDATE monitors SET leased_at = ? WHERE worker_id = ? AND leased_at >= ?",
+				now, workerID, now.Add(-leaseTTL),
+			).Exec(ctx)
+			if err != nil {
+				return fmt.Errorf("extend lease: %w", err)
+			}
+			n, err := res.RowsAffected()
+			extended = n
+			return err
+		})
 	})
 	if err != nil {
 		return 0, err
@@ -457,14 +462,24 @@ func (r *MonitorRepo) RefreshLease(ctx context.Context, workerID string, leaseTT
 
 // ReleaseLeases releases all monitors claimed by workerID.
 func (r *MonitorRepo) ReleaseLeases(ctx context.Context, workerID string) (int64, error) {
-	res, err := r.db.NewRaw(
-		"UPDATE monitors SET worker_id = NULL, leased_at = NULL WHERE worker_id = ?",
-		workerID,
-	).Exec(ctx)
+	var released int64
+	err := retryLeaseDeadlock(ctx, func() error {
+		// This is one atomic autocommit statement, not part of a larger
+		// transaction: a deadlock victim has no partial effects to preserve.
+		res, err := r.db.NewRaw(
+			"UPDATE monitors SET worker_id = NULL, leased_at = NULL WHERE worker_id = ?",
+			workerID,
+		).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		released, err = res.RowsAffected()
+		return err
+	})
 	if err != nil {
 		return 0, fmt.Errorf("release leases: %w", err)
 	}
-	return res.RowsAffected()
+	return released, nil
 }
 
 // ---------------------------------------------------------------------------

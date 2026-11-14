@@ -42,7 +42,7 @@ flowchart TB
 - A VM needs one inbound runtime listener. Optional SSH installation additionally needs temporary or managed inbound SSH access; it is not covered by the runtime port.
 - The V1 listener serves the probe protocol and minimal health routes. It exposes no admin dashboard, registration API, configuration export, or arbitrary command runner.
 - WebSocket ping/pong detects transport liveness. Application health messages additionally report scheduler health, durable-ingest readiness, and progress. A responsive socket does not prove the hub can save data.
-- Reconnect uses exponential backoff with full jitter, from 1 second to a 30-second cap. Reset backoff after 30 seconds of healthy operation. All loops stop on context cancellation.
+- Reconnect uses exponential backoff (1, 2, 4, 8, 16, 30 seconds), with ±25% jitter clamped to 1–30 seconds. Reset to the first step after a validated, authenticated application-health frame and at least one subsequent second of session operation. This proves connection stability, not healthy execution: degraded frames also qualify, while handshake-only or immediate post-health failures retain the escalating backoff. Watchdog recovery remains independent. All loops stop on context cancellation.
 
 ### 2.2 Process modes and packaging
 

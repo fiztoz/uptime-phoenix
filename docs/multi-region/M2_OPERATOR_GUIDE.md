@@ -243,6 +243,32 @@ templates remain in the complete dependency graph, even with zero assigned
 monitors. Settings revisions are separate from complete config revisions and
 applied receipts. Do not infer one from the other.
 
+`lost_after_seconds` (CLI `--lost-after-seconds`) counts from the **last valid,
+healthy application-health frame**, not from the socket disconnect or network cut.
+V1 sends health every 15 seconds; the runtime's idle watchdog evaluation interval
+is 5 seconds. With a previously healthy, armed connection and normal scheduling,
+a cut is therefore detected approximately `lost_after_seconds − 15` to
+`lost_after_seconds + 5` seconds later: about **75–95 seconds** at the default 90.
+For example, a frame 13 seconds before the cut leaves 77 seconds until the loss
+deadline. Disconnect, degraded health and handshake-only reconnects do not extend
+that deadline. This is not a hard latency bound: scheduling delays, database
+contention, owner recovery and notification delivery can add time. Before the
+first healthy frame, the armed timer uses its startup/restore baseline instead.
+Choose a loss interval comfortably above the 15-second frame cadence plus the
+5-second evaluation interval; smaller positive values remain accepted for
+compatibility but can report loss between normal frames.
+
+Reconnect backoff is separate from watchdog loss/recovery. Dial/handshake failures
+back off exponentially (1, 2, 4, 8, 16, 30 seconds, with jitter capped at 30).
+After an authenticated, validated application-health frame and at least one
+subsequent second of session operation, a disconnect resets the next delay to the
+first step (about 1–1.25 seconds). This is **connection stability**, not proof of
+healthy execution: even a degraded health frame qualifies for this reconnect
+reset. A handshake alone or an immediate post-health close does not reset it.
+This faster retry does not renew the watchdog's health deadline or mark it
+recovered: degraded health and repeated drops can still cause loss or interrupt
+recovery.
+
 Each side pages after sustained loss of valid application health, and recovery
 requires continuous healthy frames for the configured interval. A handshake alone
 does not recover the incident. Disable closes an open source incident
