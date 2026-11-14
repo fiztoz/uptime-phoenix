@@ -54,7 +54,16 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		if n != 1 {
 			return fmt.Errorf("local sequence missing or exhausted: %w", ports.ErrConflict)
 		}
-		if err := tx.NewSelect().TableExpr("probe_local_sequence").Column("last_seq").Where("id = 1").Scan(ctx, &hb.SourceSeq); err != nil {
+		// Read the allocator with the write lock already held, without creating
+		// a MariaDB repeatable-read snapshot before potentially waiting on the
+		// authority locks below. An early snapshot can make later dirty-bucket
+		// upserts fail after a projector changes those rows during the wait.
+		// Later snapshot conflicts still roll back and retry the whole commit.
+		sequence := tx.NewSelect().TableExpr("probe_local_sequence").Column("last_seq").Where("id = 1")
+		if tx.Dialect().Name() == dialect.MySQL {
+			sequence = sequence.For("UPDATE")
+		}
+		if err := sequence.Scan(ctx, &hb.SourceSeq); err != nil {
 			return err
 		}
 
