@@ -9,11 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
+	"github.com/uptrace/bun"
+
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
-	"github.com/go-sql-driver/mysql"
-	"github.com/uptrace/bun"
 )
 
 // runtimeInsertBarrier holds actual repository transactions after their missing-row
