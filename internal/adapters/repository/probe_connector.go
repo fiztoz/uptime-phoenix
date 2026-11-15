@@ -41,40 +41,42 @@ func (s *ProbeConnectorStore) transaction(ctx context.Context, probeID string, a
 	if !validRemoteProbeID(probeID) {
 		return domain.ErrValidation
 	}
-	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		// Same probe-before-dependent-rows lock order as registry/configuration.
-		if _, err := tx.ExecContext(ctx, "UPDATE probes SET id = id WHERE id = ?", probeID); err != nil {
-			return err
-		}
-		var probe probeRegistrationModel
-		q := tx.NewSelect().Model(&probe).Where("id = ?", probeID)
-		if tx.Dialect().Name() == dialect.MySQL {
-			q = q.For("UPDATE")
-		}
-		if err := q.Scan(ctx); err != nil {
-			return err
-		}
-		if probe.Kind != domain.ProbeKindRemote {
-			return domain.ErrValidation
-		}
-		query := "SELECT unixepoch()"
-		if tx.Dialect().Name() == dialect.MySQL {
-			query = "SELECT UNIX_TIMESTAMP()"
-		}
-		var now int64
-		if err := tx.NewRaw(query).Scan(ctx, &now); err != nil {
-			return err
-		}
-		// Reset preparation revokes effective admission without changing the
-		// operator's enabled preference. Release callbacks can still clean up.
-		enabled := probe.Enabled && probe.RevokedAt == nil && probe.DeletedAt == nil
-		if err := requireNoStreamReset(ctx, tx, probeID, false); err != nil {
-			if !errors.Is(err, ports.ErrConflict) {
+	err := retryConnectorDeadlock(ctx, func() error {
+		return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+			// Same probe-before-dependent-rows lock order as registry/configuration.
+			if _, err := tx.ExecContext(ctx, "UPDATE probes SET id = id WHERE id = ?", probeID); err != nil {
 				return err
 			}
-			enabled = false
-		}
-		return action(ctx, tx, enabled, now)
+			var probe probeRegistrationModel
+			q := tx.NewSelect().Model(&probe).Where("id = ?", probeID)
+			if tx.Dialect().Name() == dialect.MySQL {
+				q = q.For("UPDATE")
+			}
+			if err := q.Scan(ctx); err != nil {
+				return err
+			}
+			if probe.Kind != domain.ProbeKindRemote {
+				return domain.ErrValidation
+			}
+			query := "SELECT unixepoch()"
+			if tx.Dialect().Name() == dialect.MySQL {
+				query = "SELECT UNIX_TIMESTAMP()"
+			}
+			var now int64
+			if err := tx.NewRaw(query).Scan(ctx, &now); err != nil {
+				return err
+			}
+			// Reset preparation revokes effective admission without changing the
+			// operator's enabled preference. Release callbacks can still clean up.
+			enabled := probe.Enabled && probe.RevokedAt == nil && probe.DeletedAt == nil
+			if err := requireNoStreamReset(ctx, tx, probeID, false); err != nil {
+				if !errors.Is(err, ports.ErrConflict) {
+					return err
+				}
+				enabled = false
+			}
+			return action(ctx, tx, enabled, now)
+		})
 	})
 	if err != nil {
 		return fmt.Errorf("probe connector transaction: %w", probeRegistryError(err))
