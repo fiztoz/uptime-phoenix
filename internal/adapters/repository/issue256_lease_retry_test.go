@@ -27,6 +27,7 @@ type issue256Connector struct {
 	fault          func(string) error
 	stripForUpdate bool
 	wrapTx         func(driver.Tx) driver.Tx
+	observeRows    func(string, driver.Rows) driver.Rows
 }
 
 func (c *issue256Connector) Connect(ctx context.Context) (driver.Conn, error) {
@@ -49,6 +50,11 @@ func issue256LeaseDB(t *testing.T, f probeRegistryFixture, fault func(string) er
 	if len(wrapTx) > 0 {
 		connector.wrapTx = wrapTx[0]
 	}
+	return issue256LeaseDBConnector(t, f, connector)
+}
+
+func issue256LeaseDBConnector(t *testing.T, f probeRegistryFixture, connector *issue256Connector) *bun.DB {
+	t.Helper()
 	if f.engine == "sqlite" {
 		connector.open = func(context.Context) (driver.Conn, error) { return (&sqlitedriver.Driver{}).Open(f.dsn) }
 	} else {
@@ -104,7 +110,11 @@ func (c *issue256Conn) QueryContext(ctx context.Context, query string, args []dr
 	if err != nil {
 		return nil, err
 	}
-	return c.Conn.(driver.QueryerContext).QueryContext(ctx, query, args)
+	rows, err := c.Conn.(driver.QueryerContext).QueryContext(ctx, query, args)
+	if err == nil && c.connector.observeRows != nil {
+		rows = c.connector.observeRows(query, rows)
+	}
+	return rows, err
 }
 
 // issue256CommitFailureTx ends the genuine transaction without committing any
