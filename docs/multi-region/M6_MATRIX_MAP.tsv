@@ -5,37 +5,42 @@ T02	COVERED	./internal/adapters/repository	TestRepositoryContract_SQLite|TestRep
 T02	COVERED	./internal/adapters/repository/sqlite	TestHeartbeatGetLatest_BreaksTimestampTieByID|TestHeartbeatListByMonitor_BreaksTimestampTieByID	
 T02	COVERED	./internal/adapters/probe	TestStatePreservesSequencePrecisionAndSameSecondEvidence	
 T02	COVERED	./internal/adapters/http/handlers	TestMonitorRegionalHistoryTimestampTies|TestMonitorRegionalHistoryChartTimestampTieAtCap	
-T03	PARTIAL	./internal/adapters/repository	TestHeartbeatProbeIDAndRollupUniqueKey|TestProbeHistoryLegacyRollupsPreserveManagedCoverage	unique key accepts both probe rows; populated-row preservation through the real chain: M6-B local rehearsal in #240 (open)
+T03	PARTIAL	./internal/adapters/repository	TestHeartbeatProbeIDAndRollupUniqueKey|TestProbeHistoryLegacyRollupsPreserveManagedCoverage	Populated-row migration rehearsal exists; representative storage/traffic acceptance remains separate
 T03	PARTIAL	./internal/core/services	TestRollup1m_KeepsProbesSeparate	
 T04	COVERED	./internal/adapters/repository	TestProbeIngestIsIdempotentAndRejectsGaps|TestProbeReplayAcceptance	repeated batch persists once
-T04	COVERED	./internal/adapters/repository/edge	TestReplayACK_FencingAndIdempotence|TestReplayACK_LateWriteRollbackCases	
+T04	COVERED	./internal/adapters/repository/edge	TestReplayACK_FencingAndIdempotence|TestReplayACK_LateWriteRollbackCases|TestEdgeKillReplayACK	Includes landed regression; execution evidence must be recorded separately
 T04	COVERED	./internal/adapters/probe	TestReplayAcceptanceDuplicateACKDoesNotResendCurrent|TestEdgeReplayPump_DuplicateACK_Handling	
-T05	PARTIAL	./internal/core/services	TestLocalHeartbeatCommitFailurePublishesNothing	hub commit failure before ACK on a real engine: TestKillHubIngest in #241 (open) SIGKILLs inside the ingest transaction on SQLite and MariaDB
+T05	PARTIAL	./internal/core/services	TestLocalHeartbeatCommitFailurePublishesNothing	Real-engine process-kill coverage is mapped below; no full operational acceptance implied
+T05	PARTIAL	./internal/adapters/repository	TestKillHubIngest	Real-process atomicity/ACK boundary; not sustained alive-socket DB outage
 T05	PARTIAL	./internal/adapters/probe	TestEdgeReplayExplicitRetryWhileHubDegraded	
 T06	COVERED	./internal/adapters/repository/edge	TestEdgeCheckCrashAroundCommit|TestEdgeCheckAtomicRecordingAndRestart	real SIGKILL child around the edge commit
 T07	PARTIAL+LIVE	./internal/core/services	TestRegionalFreshnessWindow|TestEvaluateMonitorHealthFreshnessAndPause	ageing to UNKNOWN is unit-tested; a ~50 min loopback partition of 10 compiled probes showed every probe disconnected, stale_evidence, monitor UNKNOWN (M6-E local pre-measure, #250); 15 min real link loss is Run F F1
-T08	GAP+LIVE	./internal/core/services	TestDeliveryConsumer_Reconcile_OldDownAfterRecovery_DelayedSummary	offline outage+recovery replay with real times and zero hub pages: TestProbeReplayOfflineOutageAndRecovery in #244 (open); live in Run F F1
+T08	PARTIAL+LIVE	./internal/core/services	TestDeliveryConsumer_Reconcile_OldDownAfterRecovery_DelayedSummary	Repository coverage mapped below; bounded cross-AZ target DOWN/UP passed on 15 November, see M6_FOLLOWUP_2026-11-15.md
+T08	PARTIAL+LIVE	./internal/adapters/repository	TestProbeReplayOfflineOutageAndRecovery	Offline history/duplicate replay assertion; bounded live DOWN/UP evidence documented separately, not full operational acceptance
 T09	COVERED	./internal/adapters/probe	TestEdgeRuntimeCurrentStatePrecedesAndRefreshesDuringBacklog	
 T09	COVERED	./internal/adapters/repository	TestProbeHistoryConcurrentRemarkDoesNotPublishStaleSnapshot	
 T10	COVERED	./internal/adapters/repository/edge	TestEdgeEscalationSurvivesRestartAndRefusesDowngrade|TestReplay_ReopenPersistence|TestEdgeConfigAtomicityRestartAndGeneration|TestEdgeCertificatePagingSendsOnceAcrossRestart|TestEdgeStreamResetArchivesWALAndReopensCurrentEpoch	throttle survival not named separately
-T11	PARTIAL	./internal/adapters/probe	TestSessionHealthProgressesDuringBlockedWork|TestSessionHealthRetainsUnhealthySamplesAndReceiptTime|TestSessionHealthInternalCloseIsFailure	no false ACK when the hub transaction dies on a real engine: TestKillHubIngest in #241 (open)
+T11	PARTIAL	./internal/adapters/probe	TestSessionHealthProgressesDuringBlockedWork|TestSessionHealthRetainsUnhealthySamplesAndReceiptTime|TestSessionHealthInternalCloseIsFailure	No false ACK and independent watchdog under sustained ingest unavailability; global lease failure may correctly close transport
+T11	PARTIAL	./internal/adapters/repository	TestKillHubIngest	Transaction death does not prove sustained ingest failure with viable connector authority
 T12	PARTIAL+LIVE	./internal/core/services	TestProbeConnectorRuntimeSurvivesReconnectBackoff|TestProbeConnectorConfigRolloverReconnectsWithoutBackoff	
 T12	PARTIAL+LIVE	./internal/adapters/probe	TestSessionHealthDuplicateRunDoesNotCloseOwner|TestReconnectDelay	
 T12	PARTIAL+LIVE	./internal/adapters/repository/edge	TestEdgeAcknowledgementReceiptRestartAndReconnect	
 T13	COVERED	./internal/adapters/probe	TestConfigTransferCommitFailuresNeverReturnSnapshot|TestConfigTransferChunkFailuresDiscardStaging|TestConfigTransferRejectsInvalidReconstructedSchema|TestConfigTransferOriginalBytesOutOfOrderAndRetries	
+T13	COVERED	./internal/adapters/repository/edge	TestEdgeKillConfigActivation	Real-process config activation boundary
 T13	COVERED	./internal/adapters/scheduler	TestShardedScheduler_CapturesAppliedRevisionAndGeneration|TestLocalScheduler_CapturesAppliedRevisionAndGeneration	
 T14	COVERED	./internal/core/services	TestRecordRejectsInFlightCheckOnGenerationMismatch|TestRecordRejectsInFlightCheckOnAssignmentRemoval|TestRecordRejectsInFlightCheckOnActiveRevisionMismatch	
 T14	COVERED	./internal/adapters/repository	TestProbeHistoryAssignmentRemovalClosesRegionalDenominator	
-T15	PARTIAL	./internal/adapters/repository	TestMonitorDeleteReplayDiagnostic|TestHistoryClear_WatermarkFencesReplay	revoked-probe reconnect refusal: TestProbeRevokedReconnectIsRefused in #246 (open)
+T15	PARTIAL	./internal/adapters/repository	TestMonitorDeleteReplayDiagnostic|TestHistoryClear_WatermarkFencesReplay|TestProbeRevokedReconnectIsRefused	Revoked reconnect regression is now mapped; preserve real-engine execution evidence
 T16	COVERED	./internal/adapters/probe	TestEnrollRequestRejectsLocalAndEnrollmentTokens	
 T16	COVERED	./internal/adapters/repository/edge	TestEdgeEnrollmentAtomicRestartAndReplay	
 T16	COVERED	./internal/core/services	TestValidEnrollmentToken	
-T17	COVERED	./internal/adapters/repository/edge	TestEdgeCredentialRotationRestartAndLostActivationReceipt|TestEdgeCredentialRotationAtomicFailures|TestEdgeCertificateRotationAtomicFailures	
+T17	COVERED	./internal/adapters/repository/edge	TestEdgeCredentialRotationRestartAndLostActivationReceipt|TestEdgeCredentialRotationAtomicFailures|TestEdgeCertificateRotationAtomicFailures|TestEdgeKillCredentialActivation	Includes landed regression; execution evidence must be recorded separately
 T18	COVERED	./internal/adapters/probe	TestEndpointReadinessRefusesForbiddenAndMalformedEndpoints|TestSessionHealthOverflowClosesAndJoinsWorker|TestSession_IncomingFrameRejections|TestUnsupportedPayloadsFailExplicitly|TestMalformedSuffixRejectsWholeMixedBatch	oversized inbound frame ends the reader at MaxFrameBytes; unsupported payloads fail with ErrUnsupportedPayload; a malformed suffix rejects the whole batch; overflow closes and joins the worker
 T19	COVERED	./internal/adapters/repository/edge	TestRetentionAgeGapAndACKSurviveRestart|TestRetentionBytePressurePrefersOrdinaryEvidence|TestRetentionBoundsFragmentedLossMetadata	
 T19	COVERED	./internal/adapters/repository	TestProbeReplayGapAcceptance	
 T19	COVERED	./internal/core/services	TestProbeHistoryDeclaredGapReducesCoverageWithoutSamples	
-T20	FIXTURE	./internal/adapters/repository/edge	TestEdgeDiskFullCriticalCommit	skipped unless PHOENIX_EDGE_DISK_FULL_TEST=1 on an isolated tmpfs (Q-4); compiled-probe health frame: TestProbeHealthFrameReportsDiskFull in #249 (open)
+T20	FIXTURE	./internal/adapters/repository/edge	TestEdgeDiskFullCriticalCommit	Requires isolated /data tmpfs and PHOENIX_EDGE_DISK_FULL_TEST=1; health-frame assertion also mapped
+T20	FIXTURE	./cmd/probe	TestProbeHealthFrameReportsDiskFull	Requires isolated /data tmpfs and PHOENIX_EDGE_DISK_FULL_TEST=1
 T21	COVERED	./internal/core/services	TestProbeHistoryBackwardClockDoesNotResurrectEarlierSequence|TestMaxFutureClockSkewIsOperatorBound|TestProbeHistorySkewedSampleCannotRestoreDeclaredLoss	
 T21	COVERED	./internal/adapters/repository	TestProbeHistoryLateClockRegressionRepairsBeyondFreshness	
 T22	COVERED	./internal/adapters/repository	TestRegionalCommitMarksDirtyBucketsAndProjectsOverallHistory|TestLocalHeartbeatDirtyBucketConflictIsRetryable	
@@ -46,16 +51,17 @@ T24	COVERED	./internal/adapters/repository	TestProbeCapacityStateAcceptance|Test
 T25	COVERED	./internal/core/services	TestAccessReplayAcknowledgementRequiresIssuedOriginalIncident	UI pending-until-applied: Playwright web/tests/e2e/10-probe-fleet.spec.ts "regional acknowledgement stays pending until its durable receipt confirms application" (CI e2e job)
 T25	COVERED	./internal/adapters/repository/edge	TestEdgeAcknowledgementAtomicRollback	
 T26	COVERED+LIVE	./internal/core/services	TestDeliveryConsumer_T26_ProviderAcceptsThenProbeCrashes	live provider-attempt kill is Run F F6
+T26	COVERED+LIVE	./internal/adapters/repository	TestKillProviderAttempt	Real-process provider-attempt crash boundary; retain live-provider ambiguity gate
 T26	COVERED+LIVE	./internal/adapters/repository/edge	TestEdgeProviderAttemptGrantLifecycle	
 T27	COVERED	./internal/core/services	TestDeliveryConsumer_Reconcile_OldDownAfterRecovery_DelayedSummary|TestDeliveryConsumer_Reconcile_AssignmentSuperseded	
-T28	COVERED+LIVE	./internal/adapters/repository	TestProbeRuntimeTakeoverFencesReplay|TestProbeRuntimeOwnership|TestClaimBatchReacquiresLeaseExpiringDuringLockWait	two-worker takeover live in Run F F6
+T28	COVERED+LIVE	./internal/adapters/repository	TestProbeRuntimeTakeoverFencesReplay|TestProbeRuntimeOwnership|TestClaimBatchReacquiresLeaseExpiringDuringLockWait|TestKillOwnershipTakeover	two-worker takeover live in Run F F6
 T29	COVERED	./internal/adapters/probe	TestRuntimeIdentity_SubprocessLockContentionAndRelease	
 T30	COVERED	./internal/adapters/http/handlers	TestRBAC_MonitorGet_HiddenMonitorIs404	
 T30	COVERED	./internal/core/services	TestMonitorRegionalServiceScopeAndFreshness	
 T30	COVERED	./internal/adapters/ws	TestRegionalCommandEventRequesterScope	
 T31	COVERED	./internal/core/services	TestAggregatePagingTruthTable	
-T32	PARTIAL	./internal/core/services	TestMonitorRegionalOverallHistory|TestProbeHistoryParentWeightsLatencyAndPreservesMissingCoverage	two probes at different sample rates, duration-based overall uptime: TestProbeHistoryUnevenProbeSamplesAreDurationWeighted in #245 (open)
-T32	PARTIAL	./internal/adapters/repository	TestProbeHistoryMultiProbeProjection	
+T32	PARTIAL	./internal/core/services	TestMonitorRegionalOverallHistory|TestProbeHistoryParentWeightsLatencyAndPreservesMissingCoverage	Uneven sample-rate regression is now mapped; source presence does not assert this run passed
+T32	PARTIAL	./internal/adapters/repository	TestProbeHistoryMultiProbeProjection|TestProbeHistoryUnevenProbeSamplesAreDurationWeighted	Includes landed regression; execution evidence must be recorded separately
 T33	PARTIAL	./internal/core/services	TestMonitorRegionalOverallHistoryLocalOnlySkipsReconstruction	full legacy journey is the Playwright E2E (CI)
 T33	PARTIAL	./internal/adapters/repository	TestClaimBatchSkipsRemoteOnlyAndKeepsLegacy	
 T34	COVERED	./internal/core/services	TestFleetActivationGate	
