@@ -292,7 +292,7 @@ func TestEdgeRuntimeFencingConfigReceiptAndShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer inspect.Close()
+	defer func() { _ = inspect.Close() }()
 	receiptCount := func() int {
 		t.Helper()
 		var count int
