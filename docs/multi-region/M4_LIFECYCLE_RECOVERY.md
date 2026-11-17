@@ -158,13 +158,20 @@ See [M3 source reset acceptance](M3_SOURCE_RESET_ACCEPTANCE.md) and
    … --stream-id …`, then `probe reset-stream --plan-file` on the stopped
    source, then `activate-reset` with the receipt. Old sequence space is
    retired; nothing may reuse it.
-3. Restart the source. It replays retained telemetry under the new epoch; the
-   hub accepts it as new sequence space, and any evidence covered by a
-   clear-history fence is still dropped and acknowledged (the fence is scoped
-   by monitor/probe/generation, not by stream).
-4. If the source's local identity or credential is missing, reenroll before
+3. Preserve and verify the reset archive before restarting. Reset archives the
+   old SQLite state under its original epoch, clears the active telemetry queue,
+   alerts, regional state, delivery outbox, watchdog state and gaps, and starts
+   the new stream at sequence zero. It does **not** automatically replay the
+   archived telemetry into the new epoch. Uncommitted old-epoch observations
+   remain archive evidence, not recovered hub history. New checks produce new
+   telemetry after restart. Validate pending-history recovery separately before
+   resetting a current, intact source when that recovery is possible.
+4. Retain the hub's clear-history fences. They continue to reject covered
+   evidence; a stream reset must not be treated as permission to restore cleared
+   history. This is distinct from replaying an old queue, which reset removes.
+5. If the source's local identity or credential is missing, reenroll before
    reconnecting.
-5. **If step 2 was skipped** (the snapshot was restored and the source restarted
+6. **If step 2 was skipped** (the snapshot was restored and the source restarted
    on its old stream), the hub does not reuse the old sequence space and does
    not wedge either (#192). While the source has created fewer sequences than
    the hub committed, the handshake is refused (`committed_cursor_ahead`) and the
