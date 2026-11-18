@@ -291,6 +291,10 @@ m6-backend-harness-gate: ## Verify actual-engine coverage and exhaustive CI shar
 	python3 -B -m unittest discover -s scripts -p test_govulncheck_gate.py -v
 	python3 -B -m unittest discover -s scripts -p test_ui_recheck.py -v
 
+.PHONY: bounded-load-driver-test
+bounded-load-driver-test: ## Offline tests for the bounded single-probe-N load driver (#270)
+	python3 -B -m unittest discover -s scripts -p test_bounded_load_driver.py -v
+
 .PHONY: release-image-gate
 release-image-gate: ## Verify image/chart operations and local image correspondence controls offline
 	python3 -B -m unittest discover -s scripts -p test_m8_image_correspondence_gate.py -v
