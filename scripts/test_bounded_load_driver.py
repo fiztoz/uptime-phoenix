@@ -8,7 +8,9 @@ import datetime
 import io
 import json
 import os
+import signal
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -256,6 +258,16 @@ class RecordAllowlistTest(unittest.TestCase):
         self.assertEqual(set(driver.RECORD_FIELDS),
                          {f.name for f in driver.dataclasses.fields(driver.RequestRecord)})
 
+    def test_record_fields_match_the_hard_coded_allowlist(self):
+        # Hard-coded on purpose: comparing against driver.RECORD_FIELDS would
+        # let a field silently drop out of (or join) the allowlist.
+        expected = {"seq", "method", "endpoint_class", "status", "ts_utc", "rate_rps"}
+        self.assertEqual(set(driver.RECORD_FIELDS), expected)
+        self.assertEqual({f.name for f in driver.dataclasses.fields(driver.RequestRecord)}, expected)
+        rec = driver.RequestRecord(seq=1, method="GET", endpoint_class="probe.snapshot", status=200,
+                                   ts_utc="2026-11-18T00:00:00.000Z", rate_rps=1.0)
+        self.assertEqual(set(rec.to_dict()), expected)
+
     def test_record_rejects_unlisted_values(self):
         good = {"seq": 1, "method": "GET", "endpoint_class": "probe.snapshot", "status": 200,
                 "ts_utc": "t", "rate_rps": 1.0}
@@ -412,6 +424,49 @@ class PacedModeTest(DriverTestCase):
         self.assertNotIn(str(port), text.replace('"seq": ', ""))
         self.assertNotIn("refused", text.lower())
         self.assert_clean(hub, out, Path(self.evidence_path).read_text())
+
+
+@unittest.skipUnless(hasattr(signal, "SIGINT") and os.name == "posix", "needs POSIX SIGINT")
+class InterruptTest(unittest.TestCase):
+    """Ctrl-C mid-request still writes evidence and exits non-zero."""
+
+    def test_sigint_during_request_writes_interrupted_evidence(self):
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(4)
+        listener.settimeout(20)
+        port = listener.getsockname()[1]
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.addCleanup(listener.close)
+        evidence_path = os.path.join(tmp.name, "evidence.json")
+        env = {"PATH": os.environ.get("PATH", ""), "LOAD_HUB_URL": f"http://127.0.0.1:{port}",
+               "BOOTSTRAP_USERNAME": USERNAME, "BOOTSTRAP_PASSWORD": PASSWORD,
+               "LOAD_PROBE_ID": PROBE_ID, "LOAD_TARGET_URL": TARGET_URL}
+        script = str(Path(__file__).resolve().parent / "bounded_load_driver.py")
+        proc = subprocess.Popen([sys.executable, "-B", script, "--evidence", evidence_path,
+                                 "--mode", "paced", "--phase", "single-probe-1", "--monitors", "1"],
+                                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+        # The hub accepts the login connection and never answers, so the
+        # driver is blocked inside a request when the signal lands.
+        conn, _ = listener.accept()
+        self.addCleanup(conn.close)
+        proc.send_signal(signal.SIGINT)
+        out, err = proc.communicate(timeout=20)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertGreater(proc.returncode, 0, "must exit with a status, not die on the signal")
+        self.assertTrue(os.path.exists(evidence_path), "interrupted run must still write evidence")
+        with open(evidence_path) as handle:
+            ev = json.load(handle)
+        self.assertEqual(ev["result"], "interrupted")
+        self.assertEqual(ev["failure"]["category"], "interrupted")
+        self.assertEqual(ev["monitors_assigned"], 0)
+        self.assertEqual(json.loads(out.strip().splitlines()[-1])["summary"]["failure"], "interrupted")
+        self.assertNotIn("Traceback", err)
+        text = out + err + Path(evidence_path).read_text()
+        for needle in (PASSWORD, USERNAME, PROBE_ID, TARGET_URL, "127.0.0.1", ":" + str(port)):
+            self.assertNotIn(needle, text)
 
 
 class UnpacedControlTest(DriverTestCase):

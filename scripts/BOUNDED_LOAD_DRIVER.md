@@ -38,7 +38,7 @@ non-convergence stops the run. Nothing is retried. The evidence file is still wr
 5xx because a snapshot path can collapse several internal errors into a 500),
 `http_5xx_other`, `http_4xx_client_error`, `http_other_non_2xx`, `transport_timeout`,
 `transport_connection`, `transport_other`, `invalid_response`, `not_converged`,
-`control_no_429`.
+`control_no_429`, `interrupted`.
 
 ## Evidence (allowlisted fields only)
 
@@ -101,7 +101,8 @@ python3 -B ../driver/scripts/bounded_load_driver.py --mode unpaced-control --pha
 ```
 
 Exit status: 0 for a passed paced run or a control that got its 429, 1 for a failed run, 2 for
-a usage error (nothing sent). For larger phases, raise `--monitors` (up to 2000) and give the
+a usage error (nothing sent), and 130 for a run stopped with Ctrl-C (SIGINT). An interrupted run
+still writes its evidence file, with `result` and `failure.category` set to `interrupted`. For larger phases, raise `--monitors` (up to 2000) and give the
 phase a matching `--phase` label.
 
 ## Tests

@@ -78,7 +78,9 @@ CATEGORIES = frozenset({
     "invalid_response",
     "not_converged",
     "control_no_429",
+    "interrupted",
 })
+EXIT_INTERRUPTED = 130  # conventional 128 + SIGINT
 
 PHASE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -519,6 +521,14 @@ def run(argv, env=None, clock=None, out=None, err=None):
         if args.mode == "unpaced-control":
             control = {"expected": "http_429_rate_limited", "observed": exc.category,
                        "first_429_seq": None, "endpoint_class": failure["endpoint_class"]}
+    except KeyboardInterrupt:
+        # Ctrl-C mid-run: keep the records gathered so far and still write
+        # evidence. The in-flight request has no record, so seq stays null.
+        result = "interrupted"
+        failure = failure_view(client, DriverFailure("interrupted"))
+        if args.mode == "unpaced-control":
+            control = {"expected": "http_429_rate_limited", "observed": "interrupted",
+                       "first_429_seq": None, "endpoint_class": None}
     counts = collections.Counter(f"{r.endpoint_class} {r.status}" for r in client.records)
     evidence.update({
         "finished_utc": _iso(clock.utc_now()),
@@ -536,6 +546,8 @@ def run(argv, env=None, clock=None, out=None, err=None):
     summary = {"result": result, "requests": len(client.records),
                "failure": failure["category"] if failure else None}
     out.write(json.dumps({"summary": summary}, sort_keys=True) + "\n")
+    if result == "interrupted":
+        return EXIT_INTERRUPTED
     return 0 if result in ("passed", "control_passed") else 1
 
 
