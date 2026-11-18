@@ -428,9 +428,9 @@ class PacedModeTest(DriverTestCase):
 
 @unittest.skipUnless(hasattr(signal, "SIGINT") and os.name == "posix", "needs POSIX SIGINT")
 class InterruptTest(unittest.TestCase):
-    """Ctrl-C mid-request still writes evidence and exits non-zero."""
+    """SIGINT/SIGTERM mid-request still write evidence and exit 130/143."""
 
-    def test_sigint_during_request_writes_interrupted_evidence(self):
+    def interrupt_mid_request(self, sig):
         listener = socket.socket()
         listener.bind(("127.0.0.1", 0))
         listener.listen(4)
@@ -452,21 +452,31 @@ class InterruptTest(unittest.TestCase):
         # driver is blocked inside a request when the signal lands.
         conn, _ = listener.accept()
         self.addCleanup(conn.close)
-        proc.send_signal(signal.SIGINT)
+        proc.send_signal(sig)
         out, err = proc.communicate(timeout=20)
-        self.assertNotEqual(proc.returncode, 0)
-        self.assertGreater(proc.returncode, 0, "must exit with a status, not die on the signal")
-        self.assertTrue(os.path.exists(evidence_path), "interrupted run must still write evidence")
+        self.assertTrue(os.path.exists(evidence_path), "a stopped run must still write evidence")
         with open(evidence_path) as handle:
             ev = json.load(handle)
-        self.assertEqual(ev["result"], "interrupted")
-        self.assertEqual(ev["failure"]["category"], "interrupted")
         self.assertEqual(ev["monitors_assigned"], 0)
-        self.assertEqual(json.loads(out.strip().splitlines()[-1])["summary"]["failure"], "interrupted")
         self.assertNotIn("Traceback", err)
         text = out + err + Path(evidence_path).read_text()
         for needle in (PASSWORD, USERNAME, PROBE_ID, TARGET_URL, "127.0.0.1", ":" + str(port)):
             self.assertNotIn(needle, text)
+        return proc.returncode, ev, json.loads(out.strip().splitlines()[-1])["summary"]
+
+    def test_sigint_during_request_writes_interrupted_evidence(self):
+        code, ev, summary = self.interrupt_mid_request(signal.SIGINT)
+        self.assertEqual(code, 130)
+        self.assertEqual(ev["result"], "interrupted")
+        self.assertEqual(ev["failure"]["category"], "interrupted")
+        self.assertEqual(summary["failure"], "interrupted")
+
+    def test_sigterm_during_request_writes_terminated_evidence(self):
+        code, ev, summary = self.interrupt_mid_request(signal.SIGTERM)
+        self.assertEqual(code, 143)
+        self.assertEqual(ev["result"], "terminated")
+        self.assertEqual(ev["failure"]["category"], "terminated")
+        self.assertEqual(summary["failure"], "terminated")
 
 
 class UnpacedControlTest(DriverTestCase):

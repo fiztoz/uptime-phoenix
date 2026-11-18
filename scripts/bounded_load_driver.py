@@ -29,6 +29,7 @@ import datetime
 import json
 import os
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -79,8 +80,18 @@ CATEGORIES = frozenset({
     "not_converged",
     "control_no_429",
     "interrupted",
+    "terminated",
 })
 EXIT_INTERRUPTED = 130  # conventional 128 + SIGINT
+EXIT_TERMINATED = 143  # conventional 128 + SIGTERM
+
+
+class Terminated(BaseException):
+    """Raised from the SIGTERM handler so the run unwinds like Ctrl-C."""
+
+
+def _raise_terminated(signum, frame):
+    raise Terminated()
 
 PHASE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -499,6 +510,10 @@ def run(argv, env=None, clock=None, out=None, err=None):
     }
     result, failure, convergence, monitors_done, control = "failed", None, None, 0, None
     try:
+        previous_sigterm = signal.signal(signal.SIGTERM, _raise_terminated)
+    except ValueError:  # not the main thread (embedded use); leave SIGTERM alone
+        previous_sigterm = None
+    try:
         login(client, env["BOOTSTRAP_USERNAME"], env["BOOTSTRAP_PASSWORD"])
         if args.mode == "paced":
             baseline = snapshot_config(client, env["LOAD_PROBE_ID"])[3]
@@ -521,14 +536,18 @@ def run(argv, env=None, clock=None, out=None, err=None):
         if args.mode == "unpaced-control":
             control = {"expected": "http_429_rate_limited", "observed": exc.category,
                        "first_429_seq": None, "endpoint_class": failure["endpoint_class"]}
-    except KeyboardInterrupt:
-        # Ctrl-C mid-run: keep the records gathered so far and still write
-        # evidence. The in-flight request has no record, so seq stays null.
-        result = "interrupted"
-        failure = failure_view(client, DriverFailure("interrupted"))
+    except (KeyboardInterrupt, Terminated) as exc:
+        # Ctrl-C or SIGTERM mid-run: keep the records gathered so far and
+        # still write evidence. The in-flight request has no record, so seq
+        # stays null.
+        result = "terminated" if isinstance(exc, Terminated) else "interrupted"
+        failure = failure_view(client, DriverFailure(result))
         if args.mode == "unpaced-control":
-            control = {"expected": "http_429_rate_limited", "observed": "interrupted",
+            control = {"expected": "http_429_rate_limited", "observed": result,
                        "first_429_seq": None, "endpoint_class": None}
+    finally:
+        if previous_sigterm is not None:
+            signal.signal(signal.SIGTERM, previous_sigterm)
     counts = collections.Counter(f"{r.endpoint_class} {r.status}" for r in client.records)
     evidence.update({
         "finished_utc": _iso(clock.utc_now()),
@@ -548,6 +567,8 @@ def run(argv, env=None, clock=None, out=None, err=None):
     out.write(json.dumps({"summary": summary}, sort_keys=True) + "\n")
     if result == "interrupted":
         return EXIT_INTERRUPTED
+    if result == "terminated":
+        return EXIT_TERMINATED
     return 0 if result in ("passed", "control_passed") else 1
 
 
