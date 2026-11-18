@@ -323,6 +323,11 @@ python3 -B -m unittest scripts/test_m8_aws_acceptance.py
 
 The full unsharded repository package now needs `-timeout 3600s` (or run sharded via `scripts/repository_test_shards.py --count 5`, as CI does with `-timeout 40m` per shard).
 
+**Bounded load driver (`single-probe-N`, #270).** `scripts/bounded_load_driver.py` is a paced,
+fail-fast driver with allowlisted per-request evidence and an unpaced 429 control. See
+[scripts/BOUNDED_LOAD_DRIVER.md](../scripts/BOUNDED_LOAD_DRIVER.md). Its offline tests use a
+loopback fake hub: `make bounded-load-driver-test`.
+
 **M8 acceptance matrix (AWS, operator-approved only).**
 - **Run.** `python3 -B scripts/m8_aws_matrix.py <run_dir> <run_id> <arm64_ip> <amd64_ip>`
   drives every §11 case through a locally running hub's REST API.
