@@ -14,11 +14,15 @@ at the bottom.
 ### Security
 
 - **osv-scanner exception for picomatch GHSA-fc5q-39xc-vjpf (#273).** Added a
-  dated ignore (until 2026-12-18, owner Hanafee) for picomatch 4.0.7, which has
-  no fixed release. It is used only by build/lint tooling (vite, tinyglobby/fdir,
-  unplugin, typescript-eslint) and is not in `web/dist`, the Go binary or the
-  images. Removed the deepmerge GHSA-gcqx-w48m-w2h4 ignore: the advisory was
-  withdrawn on 2026-11-16 and osv-scanner reports the entry as unused.
+  dated ignore for picomatch 4.0.7, which has no fixed release (owner Hanafee,
+  `ignoreUntil = 2026-12-18`: valid through 2026-12-17, CI fails again from
+  2026-12-18). It is build-time only: dev tools (vite, tinyglobby/fdir,
+  typescript-eslint) and the production dependency `@inlang/paraglide-js`
+  (through its Vite plugin, unplugin) use it while building, and it is not in
+  `web/dist`, the Go binary or the images. Removed the deepmerge
+  GHSA-gcqx-w48m-w2h4 ignore: the advisory was withdrawn on 2026-11-16, so
+  osv-scanner reports the ignore as unused. deepmerge 4.3.1 is still in
+  `web/bun.lock`.
 
 - **Echo 4.16.3 (CVE-2026-118653, CVE-2026-118651).** Echo 4.16.1 was in the
   affected range of both advisories (`RealIP()` trusting spoofed forwarded-IP

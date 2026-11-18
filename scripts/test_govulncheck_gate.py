@@ -168,6 +168,28 @@ reason = "Expired exception must fail closed."
         with self.assertRaisesRegex(ValueError, "expired"):
             gate.load_ignores(cfg, today=date(2026, 11, 7))
 
+    def test_rejects_exception_with_empty_or_missing_reason(self):
+        # Every exception must explain itself. Owner and tracking issue live in
+        # the reason/comments as documentation; the gate enforces only a
+        # non-empty reason and a valid, unexpired ignoreUntil.
+        for reason_line in ('reason = ""\n', 'reason = "   "\n', ""):
+            with self.subTest(reason_line=reason_line):
+                cfg = self.write_config(
+                    '[[IgnoredVulns]]\nid = "GHSA-fc5q-39xc-vjpf"\nignoreUntil = 2026-12-18\n' + reason_line
+                )
+                with self.assertRaisesRegex(ValueError, "invalid IgnoredVulns entry"):
+                    gate.load_ignores(cfg, today=date(2026, 11, 18))
+
+    def test_exception_is_still_valid_on_its_ignore_until_date(self):
+        # The gate accepts the ignoreUntil date itself; osv-scanner treats that
+        # date as already expired, so CI goes red on ignoreUntil, not the day after.
+        cfg = self.write_config(
+            '[[IgnoredVulns]]\nid = "GHSA-fc5q-39xc-vjpf"\nignoreUntil = 2026-12-18\nreason = "Build-time only."\n'
+        )
+        self.assertIn("GHSA-fc5q-39xc-vjpf", gate.load_ignores(cfg, today=date(2026, 12, 18)))
+        with self.assertRaisesRegex(ValueError, "expired"):
+            gate.load_ignores(cfg, today=date(2026, 12, 19))
+
     def test_rejects_symbol_finding_with_available_fixed_version_even_if_listed(self):
         cfg = self.write_config(
             """

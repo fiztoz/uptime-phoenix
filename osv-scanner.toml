@@ -29,14 +29,17 @@ reason = "x/crypto/openpgp is unmaintained and has no fixed release. We never im
 # picomatch 4.0.7 ReDoS via single-branch repeated extglobs (GHSA-fc5q-39xc-vjpf,
 # CVE-2026-112366). No fixed release: GHSA marks last_affected = 4.0.7 and npm
 # latest is 4.0.7 (upstream fix micromatch/picomatch#194 is still open).
-# Build-time only: it reaches web/bun.lock through vite, tinyglobby/fdir,
-# unplugin (@inlang/paraglide-js's Vite plugin) and typescript-eslint, all run at
-# build/lint time with globs from our own config. A sourcemap build of the SPA
-# bundles no picomatch/tinyglobby/fdir/unplugin module, web/dist and the Go
-# binary contain none of its strings, and the images ship only the Go binary
-# (distroless) or web/dist (nginx). Owner: Hanafee. Tracking: #273.
-# Remove when picomatch > 4.0.7 with the fix is released and vite picks it up.
+# Build-time only, though not devDependency-only: dev tools pull it in (vite,
+# tinyglobby/fdir, typescript-eslint), and so does the production dependency
+# @inlang/paraglide-js through unplugin, its Vite plugin, which runs only
+# during the build. All of them match globs from our own config. A sourcemap
+# build of the SPA bundles no picomatch/tinyglobby/fdir/unplugin module,
+# web/dist and the Go binary contain none of its strings, and the images ship
+# only the Go binary (distroless) or web/dist (nginx).
+# Owner: Hanafee. Tracking: #273. Valid through 2026-12-17: osv-scanner treats
+# ignoreUntil itself as expired, so CI fails again from 2026-12-18. Remove
+# sooner if a patched picomatch ships and the lockfile picks it up.
 [[IgnoredVulns]]
 id = "GHSA-fc5q-39xc-vjpf"
 ignoreUntil = 2026-12-18
-reason = "picomatch 4.0.7 has no fixed release. It reaches us only through vite, tinyglobby/fdir, unplugin and typescript-eslint at build/lint time, matching globs from our own config; no picomatch code is in web/dist, the Go binary or the images, and it never sees untrusted patterns. Owner: Hanafee. Tracking: #273. Remove when a fixed picomatch lands."
+reason = "picomatch 4.0.7 has no fixed release. It is build-time only: vite, tinyglobby/fdir and typescript-eslint, plus unplugin via the production dependency @inlang/paraglide-js (its Vite plugin), use it at build/lint time on globs from our own config; no picomatch code is in web/dist, the Go binary or the images. Owner: Hanafee. Tracking: #273. Valid through 2026-12-17 (CI red from 2026-12-18) unless a fixed picomatch lands first."
