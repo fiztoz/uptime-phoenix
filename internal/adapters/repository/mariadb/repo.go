@@ -486,8 +486,12 @@ func (r *MonitorRepo) ReleaseLeases(ctx context.Context, workerID string) (int64
 // (and other workers' lease writes) can meet in opposite order (#256).
 // InnoDB has rolled the whole transaction back, the operations are
 // idempotent, and nothing outside the database has happened yet, so the
-// attempt is re-run from scratch. Lock-wait timeouts and every other error
-// are returned unchanged.
+// attempt is re-run from scratch. A call makes at most four attempts (the
+// first try plus three retries) with no backoff, the same bound and shape as
+// mutateWithLocalSourceLock: the deadlock is already resolved when the error
+// returns, so an immediate retry simply queues behind the surviving
+// transaction's row locks instead of spinning. Lock-wait timeouts and every
+// other error are returned unchanged.
 func retryLeaseDeadlock(ctx context.Context, attempt func() error) error {
 	for try := 0; ; try++ {
 		err := attempt()
