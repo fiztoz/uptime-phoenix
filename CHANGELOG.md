@@ -87,6 +87,14 @@ at the bottom.
 
 ### Fixed
 
+- **Worker lease refresh and release survive a MariaDB deadlock (#256).** The
+  refresh's locking read walks `idx_monitors_lease` and then the primary key,
+  while the release `UPDATE` walks the primary key and then rewrites the
+  `idx_monitors_lease` entries it moves. The two could deadlock (1213), and the
+  victim surfaced as a refresh or release error. Both now retry a 1213 up to
+  three times, as monitor delete already did. Lock-wait timeouts and all other
+  errors are still returned.
+
 - **Slack names the aggregate page in its header.** The Slack header block used
   only the monitor name, so in `both` delivery mode the regional page and the hub
   aggregate page for the same monitor looked the same at a glance. The header

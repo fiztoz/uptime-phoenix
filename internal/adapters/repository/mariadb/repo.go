@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/uptrace/bun"
 
 	"github.com/fiztoz/uptime-phoenix/internal/adapters/repository"
@@ -427,27 +428,29 @@ func (r *MonitorRepo) RefreshLease(ctx context.Context, workerID string, leaseTT
 		return 0, fmt.Errorf("refresh lease: non-positive lease TTL %v: %w", leaseTTL, domain.ErrValidation)
 	}
 	var extended int64
-	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		// Lock this worker's lease rows before the validity window is
-		// evaluated: a lease that expires while we wait must not be extended
-		// as a renewal (that would revive it without an epoch bump).
-		var locked []struct {
-			ID int64 `bun:"id"`
-		}
-		if err := tx.NewRaw("SELECT id FROM monitors WHERE worker_id = ? FOR UPDATE", workerID).Scan(ctx, &locked); err != nil {
-			return fmt.Errorf("lock lease rows: %w", err)
-		}
-		now := time.Now().UTC()
-		res, err := tx.NewRaw(
-			"UPDATE monitors SET leased_at = ? WHERE worker_id = ? AND leased_at >= ?",
-			now, workerID, now.Add(-leaseTTL),
-		).Exec(ctx)
-		if err != nil {
-			return fmt.Errorf("extend lease: %w", err)
-		}
-		n, err := res.RowsAffected()
-		extended = n
-		return err
+	err := retryLeaseDeadlock(ctx, func() error {
+		return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+			// Lock this worker's lease rows before the validity window is
+			// evaluated: a lease that expires while we wait must not be extended
+			// as a renewal (that would revive it without an epoch bump).
+			var locked []struct {
+				ID int64 `bun:"id"`
+			}
+			if err := tx.NewRaw("SELECT id FROM monitors WHERE worker_id = ? FOR UPDATE", workerID).Scan(ctx, &locked); err != nil {
+				return fmt.Errorf("lock lease rows: %w", err)
+			}
+			now := time.Now().UTC()
+			res, err := tx.NewRaw(
+				"UPDATE monitors SET leased_at = ? WHERE worker_id = ? AND leased_at >= ?",
+				now, workerID, now.Add(-leaseTTL),
+			).Exec(ctx)
+			if err != nil {
+				return fmt.Errorf("extend lease: %w", err)
+			}
+			n, err := res.RowsAffected()
+			extended = n
+			return err
+		})
 	})
 	if err != nil {
 		return 0, err
@@ -457,14 +460,42 @@ func (r *MonitorRepo) RefreshLease(ctx context.Context, workerID string, leaseTT
 
 // ReleaseLeases releases all monitors claimed by workerID.
 func (r *MonitorRepo) ReleaseLeases(ctx context.Context, workerID string) (int64, error) {
-	res, err := r.db.NewRaw(
-		"UPDATE monitors SET worker_id = NULL, leased_at = NULL WHERE worker_id = ?",
-		workerID,
-	).Exec(ctx)
+	var released int64
+	err := retryLeaseDeadlock(ctx, func() error {
+		res, err := r.db.NewRaw(
+			"UPDATE monitors SET worker_id = NULL, leased_at = NULL WHERE worker_id = ?",
+			workerID,
+		).Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("release leases: %w", err)
+		}
+		released, err = res.RowsAffected()
+		return err
+	})
 	if err != nil {
-		return 0, fmt.Errorf("release leases: %w", err)
+		return 0, err
 	}
-	return res.RowsAffected()
+	return released, nil
+}
+
+// retryLeaseDeadlock retries a lease refresh or release that InnoDB chose as
+// a deadlock victim (1213). The refresh's locking read walks
+// idx_monitors_lease and then the primary key; the release UPDATE walks the
+// primary key and then rewrites the idx_monitors_lease entries it moves. Both
+// are full scans that lock every monitor row under REPEATABLE READ, so they
+// (and other workers' lease writes) can meet in opposite order (#256).
+// InnoDB has rolled the whole transaction back, the operations are
+// idempotent, and nothing outside the database has happened yet, so the
+// attempt is re-run from scratch. Lock-wait timeouts and every other error
+// are returned unchanged.
+func retryLeaseDeadlock(ctx context.Context, attempt func() error) error {
+	for try := 0; ; try++ {
+		err := attempt()
+		var conflict *mysql.MySQLError
+		if try >= 3 || ctx.Err() != nil || !errors.As(err, &conflict) || conflict.Number != 1213 {
+			return err
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
