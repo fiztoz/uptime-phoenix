@@ -11,7 +11,7 @@ import (
 
 // DB-free contract for retryLeaseDeadlock (#256): only a 1213 deadlock is
 // retried, also when wrapped; 1205 and 1020 are returned at once; a run makes
-// at most four attempts (the first try plus three retries); and a cancelled
+// at most four attempts (the first try plus three retries); and a canceled
 // context stops the loop.
 func TestRetryLeaseDeadlock(t *testing.T) {
 	wrapped := func(n uint16) error { return fmt.Errorf("lock lease rows: %w", &mysql.MySQLError{Number: n}) }
@@ -55,7 +55,7 @@ func TestRetryLeaseDeadlock(t *testing.T) {
 			t.Fatalf("attempts=%d err=%v, want 4 attempts returning 1213", attempts, err)
 		}
 	})
-	t.Run("cancelled context stops retrying", func(t *testing.T) {
+	t.Run("canceled context stops retrying", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		attempts := 0
 		err := retryLeaseDeadlock(ctx, func() error {
