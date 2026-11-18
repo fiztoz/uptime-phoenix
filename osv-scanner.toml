@@ -26,7 +26,17 @@ id = "GO-2026-5932"
 ignoreUntil = 2027-01-31
 reason = "x/crypto/openpgp is unmaintained and has no fixed release. We never import openpgp (govulncheck reports it unreachable)."
 
+# picomatch 4.0.7 ReDoS via single-branch repeated extglobs (GHSA-fc5q-39xc-vjpf,
+# CVE-2026-112366). No fixed release: GHSA marks last_affected = 4.0.7 and npm
+# latest is 4.0.7 (upstream fix micromatch/picomatch#194 is still open).
+# Build-time only: it reaches web/bun.lock through vite, tinyglobby/fdir,
+# unplugin (@inlang/paraglide-js's Vite plugin) and typescript-eslint, all run at
+# build/lint time with globs from our own config. A sourcemap build of the SPA
+# bundles no picomatch/tinyglobby/fdir/unplugin module, web/dist and the Go
+# binary contain none of its strings, and the images ship only the Go binary
+# (distroless) or web/dist (nginx). Owner: Hanafee. Tracking: #273.
+# Remove when picomatch > 4.0.7 with the fix is released and vite picks it up.
 [[IgnoredVulns]]
-id = "GHSA-gcqx-w48m-w2h4"
-ignoreUntil = 2026-12-15
-reason = "deepmerge 4.3.1 has no fixed release. It reaches us only through @sveltejs/vite-plugin-svelte at build time to merge our own Vite/Svelte config; it is not in the shipped static bundle and never merges untrusted input. Remove when a fixed deepmerge or a plugin release without it lands."
+id = "GHSA-fc5q-39xc-vjpf"
+ignoreUntil = 2026-12-18
+reason = "picomatch 4.0.7 has no fixed release. It reaches us only through vite, tinyglobby/fdir, unplugin and typescript-eslint at build/lint time, matching globs from our own config; no picomatch code is in web/dist, the Go binary or the images, and it never sees untrusted patterns. Owner: Hanafee. Tracking: #273. Remove when a fixed picomatch lands."
