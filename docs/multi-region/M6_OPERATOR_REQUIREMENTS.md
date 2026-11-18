@@ -206,9 +206,12 @@ unrecoverable. All processes of one installation must use the same key.
 2. An old snapshot carries old sequence numbers. Open a new stream epoch with
    `prepare-reset`, `probe reset-stream --plan-file`, then `activate-reset`.
    Do not copy a live database onto a second VM and start it.
-3. Restart. Replay uses the new epoch. A clear-history fence still drops
-   covered evidence; the fence is scoped by monitor, probe and generation, not
-   by stream.
+3. Preserve and verify the reset archive. Reset retains the old SQLite history
+   in that archive, but clears the active telemetry queue, alerts, regional
+   state, delivery outbox, watchdog state and gaps and starts the new stream at
+   sequence zero. It does **not** replay archived observations automatically.
+   Restart produces fresh telemetry. Keep the hub's clear-history fences; a
+   reset is not permission to resurrect cleared history.
 4. If you skipped step 2, the probe stays Disconnected until its local check
    scheduler numbers `last_created_seq` past the hub's `committed_seq` (every
    handshake attempt before then is refused with `ErrCursorAhead` and logs
@@ -222,10 +225,13 @@ unrecoverable. All processes of one installation must use the same key.
    because `sequence_reused` is per-event receipt rejection rather than a
    `telemetry.gap` frame). Because the no-reset fallback remains Disconnected
    for `(hub_committed_seq - restored_seq) / check_rate` and discards all
-   overlapping `reused_count` observations, any recovery rehearsal that targets
-   the `<10m` window with intact history (#192 / #218) **must** execute step 2
+   overlapping `reused_count` observations, use the explicit step 2 protocol
    (`prepare-reset` → `probe reset-stream --plan-file` → `activate-reset`) from
-   a non-suspending host/timer rather than relying on the no-reset fallback.
+   a non-suspending host/timer to establish fresh sequence authority rather than
+   relying on that fallback. A successful reset alone does not prove intact
+   pending-history recovery or the `<10m` recovery gate (#192 / #218): it archives
+   rather than replays the old queue. Measure recovery time and reconcile any
+   missing history separately; never count archived rows as hub-ingested rows.
 
 Restore the hub first, then each edge, then resume workers. An edge must not
 talk a restored hub into reusing retired sequence space.

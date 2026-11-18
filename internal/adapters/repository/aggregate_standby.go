@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -82,7 +83,15 @@ func (r *AggregateStandbyStore) ClaimStandby(ctx context.Context, owner string, 
 	// monitor acquires independently so one corrupt/exhausted lease cannot roll
 	// back healthy claims or strand a fleet batch.
 	var ids []int64
-	err := runConfigAuthorityTx(ctx, r.db, func(ctx context.Context, tx bun.Tx) error {
+	// Discovery needs a committed snapshot, not the shared predicate locks of
+	// a SERIALIZABLE authority transaction. Those locks contend with source
+	// activation even when no monitor uses aggregate delivery. Eligibility and
+	// all lease authority are rechecked below in independent authority transactions.
+	var discoveryOptions *sql.TxOptions
+	if r.db.Dialect().Name() == dialect.MySQL {
+		discoveryOptions = &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true}
+	}
+	err := r.db.RunInTx(ctx, discoveryOptions, func(ctx context.Context, tx bun.Tx) error {
 		now, err := replayDatabaseTime(ctx, tx)
 		if err != nil {
 			return err

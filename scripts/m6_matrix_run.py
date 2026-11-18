@@ -39,6 +39,7 @@ def main():
     bypkg = collections.defaultdict(set)
     for r in rows:
         bypkg[r["pkg"]].update(r["tests"])
+    bad = False
     leaves = collections.defaultdict(dict)  # (pkg, top) -> {leaf: action}
     for pkg, names in sorted(bypkg.items()):
         log = os.path.join(out, pkg.strip("./").replace("/", "_") + ".jsonl")
@@ -49,11 +50,17 @@ def main():
                  "-run", "^(" + "|".join(sorted(names)) + ")$", pkg],
                 cwd=ROOT, stdout=f, stderr=subprocess.STDOUT, check=False).returncode
         print(f"{pkg}: exit {code} in {time.time() - start:.0f}s", flush=True)
+        if code != 0:
+            bad = True
+            print("FAIL", pkg, "go test exit", code)
         for line in open(log, encoding="utf-8"):
             try:
                 e = json.loads(line)
             except ValueError:
                 continue
+            if not e.get("Test") and e.get("Action") == "fail":
+                bad = True
+                print("FAIL", pkg, "package failure event")
             if e.get("Test") and e.get("Action") in ("pass", "fail", "skip"):
                 leaves[(pkg, e["Test"].split("/")[0])][e["Test"]] = e["Action"]
     summary, unique = [], {}
@@ -78,7 +85,6 @@ def main():
           "skip", sum(e["leaves_skip"] for e in u), "| mariadb leaves: pass",
           sum(e["mariadb_pass"] for e in u), "skip", sum(e["mariadb_skip"] for e in u),
           "fail", sum(e["mariadb_fail"] for e in u))
-    bad = False
     for e in u:
         if e["top"] in ("fail", "NOT-RUN") or e["leaves_fail"]:
             bad = True

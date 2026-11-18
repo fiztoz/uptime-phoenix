@@ -54,7 +54,16 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		if n != 1 {
 			return fmt.Errorf("local sequence missing or exhausted: %w", ports.ErrConflict)
 		}
-		if err := tx.NewSelect().TableExpr("probe_local_sequence").Column("last_seq").Where("id = 1").Scan(ctx, &hb.SourceSeq); err != nil {
+		// Read the allocator with the write lock already held, without creating
+		// a MariaDB repeatable-read snapshot before potentially waiting on the
+		// authority locks below. An early snapshot can make later dirty-bucket
+		// upserts fail after a projector changes those rows during the wait.
+		// Later snapshot conflicts still roll back and retry the whole commit.
+		sequence := tx.NewSelect().TableExpr("probe_local_sequence").Column("last_seq").Where("id = 1")
+		if tx.Dialect().Name() == dialect.MySQL {
+			sequence = sequence.For("UPDATE")
+		}
+		if err := sequence.Scan(ctx, &hb.SourceSeq); err != nil {
 			return err
 		}
 
@@ -107,10 +116,17 @@ func (r *RegionalCommitStore) CommitLocalHeartbeat(ctx context.Context, commit d
 		}
 		var activeConfig probeActiveConfigModel
 		activeConfigQuery := tx.NewSelect().Model(&activeConfig).Column("revision", "hub_id", "sha256").Where("probe_id = ?", hb.ProbeID)
+		var activeConfigErr error
 		if tx.Dialect().Name() == dialect.MySQL {
-			activeConfigQuery = activeConfigQuery.For("UPDATE")
+			// Recording reads but never updates this pointer. A shared current
+			// read still fences replacement (and insertion of an absent pointer),
+			// while remaining compatible with serializable source readers that
+			// already hold the pointer before reading our assignment rows.
+			activeConfigErr = tx.NewRaw("SELECT revision, hub_id, sha256 FROM probe_active_configs WHERE probe_id = ? LOCK IN SHARE MODE", hb.ProbeID).Scan(ctx, &activeConfig)
+		} else {
+			activeConfigErr = activeConfigQuery.Scan(ctx)
 		}
-		if err := activeConfigQuery.Scan(ctx); err == nil {
+		if err := activeConfigErr; err == nil {
 			if !commit.LegacyConfig && activeConfig.Revision > 0 {
 				if hb.ConfigRevision != activeConfig.Revision {
 					return ports.ErrConflict

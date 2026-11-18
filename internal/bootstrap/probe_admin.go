@@ -54,6 +54,7 @@ Token and complete snapshot files must be private regular files. Commands print 
 Registration persists the recoverable protected runtime credential before enrollment.
 register reenrolls a restored identity: a disabled registration with the same key, name and location is re-enabled before its credential is prepared.
 Watchdog replaces saved settings; expected-revision is the settings revision reported by status, initially zero. Saving is not an applied-config receipt.
+--lost-after-seconds counts from the last healthy application-health frame, not disconnect. Frames arrive every 15s; idle evaluation is every 5s. Default 90s typically means 75-95s after a network cut, with later detection possible under load. Use a value comfortably above 20s.
 ACK retries must reuse the command ID and all original options. Pending means remote alerts may continue until the probe confirms. ACK targets only the named incident, including after reassignment.
 Run compatible hub workers with PROBES_ENABLED=true after enrollment. Workers synchronize supported configurations and replay retained telemetry.
 Fleet UI remains a later milestone.
@@ -106,7 +107,7 @@ func RunProbeAdmin(ctx context.Context, cfg Config, args []string, out, stderr i
 	f.StringVar(&channelIDs, "notifications", "", "complete watchdog channel set")
 	f.BoolVar(&enabled, "enabled", false, "enable connection watchdog")
 	watchdogDefaults := domain.DefaultProbeWatchdogSettings() // shared with the settings API
-	f.Int64Var(&lostSeconds, "lost-after-seconds", int64(watchdogDefaults.LostAfterSeconds), "application health loss interval")
+	f.Int64Var(&lostSeconds, "lost-after-seconds", int64(watchdogDefaults.LostAfterSeconds), "seconds since the last healthy application-health frame, not disconnect")
 	f.Int64Var(&recoverSeconds, "recover-after-seconds", int64(watchdogDefaults.RecoverAfterSeconds), "stable recovery interval")
 	f.Int64Var(&resendMinutes, "resend-interval", int64(watchdogDefaults.ResendInterval), "reminder interval in minutes")
 	f.StringVar(&endpoint, "endpoint", "", "pinned runtime endpoint")

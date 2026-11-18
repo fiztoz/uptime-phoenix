@@ -250,7 +250,7 @@ func renewReplayDiagnosticLease(t *testing.T, ctx context.Context, r replayFixtu
 		t.Fatalf("renew existing connector authority failed (%s)", safeDiagnosticErrorType(err))
 	}
 	var dbNow int64
-	if err := r.f.db.NewRaw("SELECT UNIX_TIMESTAMP(UTC_TIMESTAMP())").Scan(ctx, &dbNow); err != nil {
+	if err := r.f.db.NewRaw("SELECT UNIX_TIMESTAMP()").Scan(ctx, &dbNow); err != nil {
 		t.Fatalf("read database clock failed (%s)", safeDiagnosticErrorType(err))
 	}
 	remaining := lease.LeaseUntil.Unix() - dbNow
@@ -578,7 +578,7 @@ func assertReplayDeleteRowsUnchanged(t *testing.T, ctx context.Context, db *bun.
 func assertReplayAuthorityAndSentinel(t *testing.T, ctx context.Context, r replayFixture, sentinelID int64) {
 	t.Helper()
 	if diagnosticCount(t, ctx, r.f.db, "probes", "id = ?", r.session.ProbeID) != 1 ||
-		diagnosticCount(t, ctx, r.f.db, "probe_sessions", "probe_id = ? AND owner_id = ? AND generation = ? AND lease_until > UNIX_TIMESTAMP(UTC_TIMESTAMP())",
+		diagnosticCount(t, ctx, r.f.db, "probe_sessions", "probe_id = ? AND owner_id = ? AND generation = ? AND lease_until > UNIX_TIMESTAMP()",
 			r.session.ProbeID, r.session.OwnerID, r.session.ConnectionGeneration) != 1 ||
 		diagnosticCount(t, ctx, r.f.db, "probe_connections", "probe_id = ? AND stream_id = ?", r.session.ProbeID, r.session.StreamID) != 1 ||
 		diagnosticCount(t, ctx, r.f.db, "probe_streams", "probe_id = ? AND stream_id = ?", r.session.ProbeID, r.session.StreamID) != 1 {

@@ -91,6 +91,19 @@ For `probe`, `scheduler_healthy` is a boolean and `queue_bytes` is a nonnegative
 
 Estimate clock offset from bounded request/response timing, not a one-way arrival timestamp. Default skew diagnostic threshold is 30 seconds. Use monotonic elapsed time for watchdogs. Skewed evidence does not become fresh simply because a frame arrived recently.
 
+The watchdog's `lost_after_seconds` measures elapsed time since the last
+session-generation-validated **healthy application-health frame**, not since
+transport disconnect. Disconnect, degraded health and handshake success do not
+renew this deadline. Before any healthy sample, the armed startup/restore baseline
+applies. V1 health frames are sent every 15 seconds and the runtime evaluates an
+idle watchdog every 5 seconds. For an already healthy connection under normal
+scheduling, detection after a network cut is therefore approximately
+`lost_after_seconds − 15` through `lost_after_seconds + 5` seconds (75–95 seconds
+with the 90-second default), not a guaranteed minimum of 90 seconds after the cut.
+Owner recovery, scheduling/storage delays and delivery latency can make detection
+or paging later. Recovery still requires healthy samples spanning
+`recover_after_seconds`; reconnect alone supplies no health proof.
+
 ## 3. Configuration snapshots
 
 ### 3.1 Transfer and activation

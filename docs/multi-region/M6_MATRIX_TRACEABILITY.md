@@ -6,7 +6,7 @@ This maps every row of the [required verification matrix](IMPLEMENTATION_PLAN.md
 - **Runner:** `scripts/m6_matrix_run.py <outdir>` runs each package once with `go test -race -count=1 -json` and an exact `-run` list, then tallies by T row. Set `TEST_MARIADB_DSN` to an owned disposable database to include the MariaDB leaves. It exits 1 if a mapped test fails or does not run.
 - **Basis:** tests were matched by name, doc comment and package, then confirmed to run. Assertions were not re-reviewed line by line against each "required assertion". A reviewer should check the PARTIAL rows first.
 
-## Verdicts
+## Historical verdicts (9 November run)
 
 | Verdict | Meaning | Rows |
 |---|---|---|
@@ -26,7 +26,7 @@ Run on 9 Nov 2026 on a Linux box with a user-space MariaDB 11.8.3 on loopback, p
 - Added after review (T18): `TestSession_IncomingFrameRejections`, `TestUnsupportedPayloadsFailExplicitly` and `TestMalformedSuffixRejectsWholeMixedBatch`, run the same way: 3/3 pass, 8 leaves. That makes 120 tests, 119 pass, 527 leaves. **71 MariaDB leaves passed with 0 MariaDB skips.**
 - The one skip is T20 `TestEdgeDiskFullCriticalCommit`, which needs a private tmpfs. Run separately on a 48 MiB tmpfs in a private mount namespace (the command is in TESTING.md §2.7, added by #236), it passed 3/3.
 
-## Rows
+## Historical rows (9 November run)
 
 | T | Scenario | Verdict | Tests (package; engine; result) | Missing / notes |
 |---|---|---|---|---|
@@ -71,9 +71,9 @@ Run on 9 Nov 2026 on a Linux box with a user-space MariaDB 11.8.3 on loopback, p
 | T39 | Disabled inherited escalation policy | COVERED | `TestEscalationResolve_DisabledPolicyDoesNotFallThrough` (core/services; unit/fake; pass)<br>`TestEscalationStart_DoesNotTouchStepZero` (core/services; unit/fake; pass) |  |
 | T40 | Scope/template redaction | COVERED | `TestRenderNotificationTemplate_MonitorAndGroupScopes` (core/domain; unit/fake; pass)<br>`TestRedactSecretConfig_MasksCredentialsAtAnyDepth` (core/domain; unit/fake; pass)<br>`TestRedactNotificationConfig_MasksDeliveryURL` (core/domain; unit/fake; pass)<br>`TestRegionalTransportRepositoryRefusalClosesWithRedactedError` (adapters/probe; unit/fake; pass) |  |
 
-## New tests these rows still need
+## Historical follow-up list (9 November)
 
-Open draft PRs add them. Each row flips when its PR merges.
+The following list records the original gaps, not current PR state. The named tests are now present and mapped as described below; the live and deployment-shaped gates remain separate.
 
 - **T08:** `TestProbeReplayOfflineOutageAndRecovery` (#244). An outage and recovery recorded entirely offline are replayed once, then again after a lost ACK. History keeps the real check times, and there are zero hub-side pages or intents. The live part is Run F F1.
 - **T05 and T11:** `TestKillHubIngest` (#241) SIGKILLs a real process inside the hub ingest transaction on SQLite and MariaDB. Each batch is all present or all absent, and no ACK precedes its commit.
@@ -83,3 +83,21 @@ Open draft PRs add them. Each row flips when its PR merges.
 - **T33 and T37:** T33's full legacy journey is the Playwright E2E. T37's high-volume drain has a local pre-measure in #250; the supported-baseline drain is Run F/G.
 
 T18, T23 and T25 were PARTIAL in the first version of this map. Reading their tests showed that they already cover the row, so they are COVERED now (see the notes).
+
+## Mapping reconciliation, 15 November 2026
+
+The TSV now includes landed tests omitted by the original map:
+
+- T04/T13/T17: `TestEdgeKillReplayACK`, `TestEdgeKillConfigActivation`, and `TestEdgeKillCredentialActivation`.
+- T05/T11: `TestKillHubIngest`. This proves a transaction/process-death boundary, not sustained database failure while a transport remains viable. Global DB write stalls can correctly revoke connector authority and close the socket.
+- T08: `TestProbeReplayOfflineOutageAndRecovery`; its code gap is now PARTIAL+LIVE, not GAP+LIVE. Actual offline target outage/recovery has separate bounded live evidence in [the 15 November follow-up](M6_FOLLOWUP_2026-11-15.md); it is not inferred from this repository test.
+- T15: `TestProbeRevokedReconnectIsRefused`.
+- T20: `TestProbeHealthFrameReportsDiskFull` in `cmd/probe`, requiring the same isolated Linux `/data` tmpfs discipline as the critical-commit fixture.
+- T26/T28: `TestKillProviderAttempt` and `TestKillOwnershipTakeover`; retain the additional live-provider/two-worker acceptance boundary.
+- T32: `TestProbeHistoryUnevenProbeSamplesAreDurationWeighted`.
+
+These are test-selection corrections, not a new execution record or M6 sign-off. The historical counts and results above describe the old selection and must not be applied to this expanded map. Run the expanded selection against both SQLite and an owned MariaDB database and report fixture/engine skips explicitly. The runner reports skips without failing; its successful exit alone cannot establish mandatory fixture or real-engine acceptance. The legacy probes-disabled Playwright journey remains a separate CI/E2E gate.
+
+The live rows T07/T08/T12/T26/T28/T37, T11's sustained ingest-unavailable condition, supported-load/long-duration evidence, representative migration/restore and approved canary remain operational gates. Basic healthy-target replay does not prove offline DOWN/UP notification behavior. Do not compute a release percentage from mapped row verdicts.
+
+For dated cross-AZ offline lifecycle, global DB-stall and native connector-retry evidence, see [15 November follow-up](M6_FOLLOWUP_2026-11-15.md). Those scoped results do not replace remaining operational gates or constitute a rerun of the expanded map.

@@ -1451,6 +1451,49 @@ allows 40 minutes per race-test package; the former 15-minute repository limit
 could expire while ordinary migration fixtures were still making progress.
 
 
+### Lease deadlock, reconnect and watchdog regressions (#256–#258)
+
+Run the connection/watchdog tests without a database:
+
+```sh
+go test -race -count=1 ./internal/core/services ./internal/adapters/probe ./internal/bootstrap \
+  -run 'Issue257|Issue258|ReconnectDelay|ProbeWatchdog|ProbeConnector'
+```
+
+The connector lifecycle regression must show failures `[1, 1, 2, 3]`: a
+short, post-health session resets the counter, but the next failed dial and an
+immediate post-health close escalate it again. The separate real TLS/WebSocket
+test proves that validated degraded health supplies contact while a handshake
+alone does not. These are not a measured rerun of the 15-minute T12 flap campaign.
+The watchdog test retains the existing last-healthy-frame deadline (13 seconds
+of frame age leaves 77 seconds at a 90-second loss threshold).
+
+Lease tests require an **owned disposable MariaDB** for acceptance (see the
+setup above), including `PROCESS` for native lock-wait observation. Use UTC test
+sessions; `loc=UTC` alone only selects the driver's timestamp location, not the
+server session timezone. Do not print the DSN.
+
+```sh
+: "${TEST_MARIADB_DSN:?Set an owned disposable MariaDB test database}"
+go test -race -count=1 -timeout 15m -json ./internal/adapters/repository \
+  -run '^TestIssue256|^TestMonitorDeleteConcurrencyDiagnostic$'
+```
+
+Inspect JSON pass events and require **zero selected skips**. In particular,
+require `TestIssue256NativeClaimDeadlock`, `TestIssue256NativeSnapshotConflict`,
+`TestMonitorDeleteConcurrencyDiagnostic/DeleteVersusWorkerLeaseLifecycle`, and
+both `/mariadb/claim` and `/mariadb/refresh` leaves of
+`TestIssue256LeaseAmbiguousCommitDoesNotReplay` to pass. Native claim coverage
+must observe an actual InnoDB wait and exactly one 1213 victim, then prove both
+leases committed with epoch 1. The 1020 test demonstrates engine behavior only;
+it does not prove a scheduler lease can reach that conflict or authorize retrying
+it. Driver-injection tests cover claim/refresh/release victims, fresh authority
+reads, exhaustion, cancellation and non-deadlock/ambiguous-commit errors.
+
+The wider #256 replay-drain campaign and the one-off #259 CI validation loop
+remain separate acceptance questions. Passing these focused tests or a fresh
+E2E run must not be reported as reproducing either original incident.
+
 ### 2.7 External fixture tests (Redis, MongoDB, edge disk-full)
 
 These tests skip unless their fixture is supplied, so an ordinary `go test ./...`
