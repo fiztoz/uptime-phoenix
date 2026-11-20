@@ -38,13 +38,19 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-DRIVER_VERSION = "1"
+DRIVER_VERSION = "2"
 EVIDENCE_SCHEMA = "uptime-phoenix.bounded-load-evidence/v1"
 
 DEFAULT_HUB_RPS = 50.0
 DEFAULT_HUB_BURST = 100
 DEFAULT_TARGET_RPS = 25.0
 MAX_MONITORS = 2000
+# F2 / M6 plan check interval. The hub's Create handler (monitor.go) silently
+# defaults interval <= 0 to 60, requires timeout < interval, and has no maximum
+# on create; the probe config encoder then needs a non-negative int32.
+DEFAULT_INTERVAL = 20
+MONITOR_TIMEOUT = 4
+MAX_INTERVAL = 2**31 - 1
 RATE_WINDOW_SECONDS = 5.0  # failure context: requests in the preceding 5 s
 CURRENT_RATE_WINDOW_SECONDS = 1.0  # per-record rate: requests started in the last second
 SNAPSHOT_POLL_SECONDS = 2.0
@@ -287,10 +293,11 @@ def login(client, username, password):
     client.set_token(_require(token, str, client.records[-1]))
 
 
-def create_and_assign(client, phase, index, probe_id, target_url):
+def create_and_assign(client, phase, index, probe_id, target_url, interval, retry_interval):
     created = client.call("POST", "monitor.create", "/api/monitors", {
-        "name": f"bl-{phase}-{index:04d}", "type": "http", "interval": 5, "timeout": 4,
-        "retry_interval": 5, "config": {"url": target_url, "method": "GET"},
+        "name": f"bl-{phase}-{index:04d}", "type": "http",
+        "interval": interval, "timeout": MONITOR_TIMEOUT,
+        "retry_interval": retry_interval, "config": {"url": target_url, "method": "GET"},
     })
     created = _require(created, dict, client.records[-1])
     monitor_id = created.get("id")
@@ -429,6 +436,8 @@ def parse_args(argv):
                    help="the hub's RATE_LIMIT_BURST (default: $RATE_LIMIT_BURST, else 100)")
     p.add_argument("--control-max-requests", type=int, default=None,
                    help="unpaced-control request cap (default 3 x burst)")
+    p.add_argument("--interval", type=int, default=DEFAULT_INTERVAL,
+                   help="monitor check interval in seconds (default 20; retry_interval uses the same value)")
     p.add_argument("--converge-timeout", type=float, default=DEFAULT_CONVERGE_TIMEOUT)
     p.add_argument("--hub-commit", default=None, help="40-hex commit the hub was built from (recorded)")
     p.add_argument("--evidence", required=True, help="evidence JSON path (written 0600)")
@@ -442,6 +451,16 @@ def build_config(args, env):
         raise UsageError("--phase must be lowercase letters, digits and dashes (max 40)")
     if args.hub_commit is not None and not COMMIT_RE.match(args.hub_commit):
         raise UsageError("--hub-commit must be a full 40-hex commit")
+    # argparse already rejects non-integers. The hub would default interval <= 0
+    # to 60 and reject a timeout that is not below the interval, so fail here
+    # instead of sending a request that would be rewritten or 400.
+    if not isinstance(args.interval, int) or isinstance(args.interval, bool) or args.interval <= 0:
+        raise UsageError("--interval must be a positive integer")
+    if args.interval > MAX_INTERVAL:
+        raise UsageError(f"--interval must be at most {MAX_INTERVAL}")
+    if args.interval <= MONITOR_TIMEOUT:
+        raise UsageError(
+            f"--interval must be greater than the monitor timeout ({MONITOR_TIMEOUT:g} s)")
     hub_rps, hub_burst, sources = resolve_limits(args, env)
     for name in ("LOAD_HUB_URL", "BOOTSTRAP_USERNAME", "BOOTSTRAP_PASSWORD"):
         if not env.get(name):
@@ -461,6 +480,8 @@ def build_config(args, env):
         if args.converge_timeout <= 0:
             raise UsageError("--converge-timeout must be positive")
         config["target_rps"] = float(target)
+        config["interval"] = args.interval
+        config["retry_interval"] = args.interval
     else:
         if args.target_rps is not None:
             raise UsageError("unpaced-control does not pace; omit --target-rps")
@@ -469,6 +490,8 @@ def build_config(args, env):
             raise UsageError("--control-max-requests must exceed the hub burst")
         config["target_rps"] = None
         config["control_max_requests"] = cap
+        config["interval"] = args.interval
+        config["retry_interval"] = args.interval
     return config
 
 
@@ -506,6 +529,11 @@ def run(argv, env=None, clock=None, out=None, err=None):
             "concurrency": 1,
             "control_max_requests": config.get("control_max_requests"),
         },
+        "monitor_timing": {
+            "interval": config["interval"],
+            "retry_interval": config["retry_interval"],
+            "timeout": MONITOR_TIMEOUT,
+        },
         "started_utc": _iso(clock.utc_now()),
     }
     result, failure, convergence, monitors_done, control = "failed", None, None, 0, None
@@ -518,7 +546,8 @@ def run(argv, env=None, clock=None, out=None, err=None):
         if args.mode == "paced":
             baseline = snapshot_config(client, env["LOAD_PROBE_ID"])[3]
             for index in range(1, args.monitors + 1):
-                create_and_assign(client, args.phase, index, env["LOAD_PROBE_ID"], env["LOAD_TARGET_URL"])
+                create_and_assign(client, args.phase, index, env["LOAD_PROBE_ID"], env["LOAD_TARGET_URL"],
+                                  config["interval"], config["retry_interval"])
                 monitors_done = index
             convergence = poll_until_converged(client, env["LOAD_PROBE_ID"],
                                                env.get("LOAD_PEER_SNAPSHOT_URL") or None,
