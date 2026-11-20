@@ -449,6 +449,33 @@ class PacedModeTest(DriverTestCase):
             self.assertNotIn("retry_interval", record)
         self.assert_clean(hub, out, Path(self.evidence_path).read_text())
 
+    def test_interval_min_5_is_accepted_and_recorded(self):
+        hub = self.hub()
+        code, out, ev = self.run_driver(hub, "--mode", "paced", "--phase", "single-probe-1",
+                                        "--monitors", "1", "--interval", "5")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(ev["monitor_timing"], {"interval": 5, "retry_interval": 5, "timeout": 4})
+        self.assertEqual(len(hub.create_bodies), 1)
+        self.assertEqual(hub.create_bodies[0]["interval"], 5)
+        self.assertEqual(hub.create_bodies[0]["retry_interval"], 5)
+        self.assertEqual(hub.create_bodies[0]["timeout"], 4)
+
+    def test_interval_max_2147483647_is_accepted_and_recorded(self):
+        # The inclusive max is 2**31-1 (MariaDB INT / int32). A mutant that
+        # changes "> MAX_INTERVAL" to ">=" would reject this value.
+        self.assertEqual(driver.MAX_INTERVAL, 2147483647)
+        hub = self.hub()
+        code, out, ev = self.run_driver(hub, "--mode", "paced", "--phase", "single-probe-1",
+                                        "--monitors", "1", "--interval", "2147483647")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(ev["monitor_timing"], {
+            "interval": 2147483647, "retry_interval": 2147483647, "timeout": 4,
+        })
+        self.assertEqual(len(hub.create_bodies), 1)
+        self.assertEqual(hub.create_bodies[0]["interval"], 2147483647)
+        self.assertEqual(hub.create_bodies[0]["retry_interval"], 2147483647)
+        self.assertEqual(hub.create_bodies[0]["timeout"], 4)
+
 
 @unittest.skipUnless(hasattr(signal, "SIGINT") and os.name == "posix", "needs POSIX SIGINT")
 class InterruptTest(unittest.TestCase):
