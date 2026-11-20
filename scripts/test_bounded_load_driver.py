@@ -66,6 +66,7 @@ class FakeHub:
         self.converge_after_polls = converge_after_polls
         self.per_request_seconds = per_request_seconds
         self.monitors = {}
+        self.create_bodies = []
         self.calls = []  # (method, class)
         self.faults = {}  # (class, nth) -> status
         self.redirect_class = None
@@ -171,6 +172,7 @@ class FakeHub:
                 assert body["timeout"] < body["interval"]
                 mid = len(self.monitors) + 1
                 self.monitors[mid] = {"revision": 1, "probes": []}
+                self.create_bodies.append(body)
                 return self.reply(handler, 201, {"id": mid, "name": body["name"], "x": BODY_MARKER})
             if cls == "monitor.list":
                 return self.reply(handler, 200, [{"id": i} for i in self.monitors])
@@ -295,6 +297,10 @@ class PacedModeTest(DriverTestCase):
         self.assertEqual(ev["result"], "passed")
         self.assertIsNone(ev["failure"])
         self.assertEqual(ev["monitors_assigned"], 100)
+        self.assertEqual(ev["monitor_timing"], {"interval": 20, "retry_interval": 20, "timeout": 4})
+        self.assertEqual(len(hub.create_bodies), 100)
+        self.assertEqual({(b["interval"], b["retry_interval"], b["timeout"]) for b in hub.create_bodies},
+                         {(20, 20, 4)})
         self.assertEqual(ev["pacing"]["target_rps"], 25.0)
         self.assertEqual(ev["pacing"]["hub_rate_limit_rps"], 50.0)
         self.assertEqual(ev["pacing"]["hub_rate_limit_burst"], 100)
@@ -426,6 +432,24 @@ class PacedModeTest(DriverTestCase):
         self.assert_clean(hub, out, Path(self.evidence_path).read_text())
 
 
+    def test_explicit_interval_is_sent_and_recorded_in_evidence_only(self):
+        hub = self.hub()
+        code, out, ev = self.run_driver(hub, "--mode", "paced", "--phase", "single-probe-2",
+                                        "--monitors", "2", "--interval", "15")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(ev["monitor_timing"], {"interval": 15, "retry_interval": 15, "timeout": 4})
+        self.assertEqual(len(hub.create_bodies), 2)
+        for body in hub.create_bodies:
+            self.assertEqual(body["interval"], 15)
+            self.assertEqual(body["retry_interval"], 15)
+            self.assertEqual(body["timeout"], 4)
+        for record in ev["requests"]:
+            self.assertEqual(set(record), {"seq", "method", "endpoint_class", "status", "ts_utc", "rate_rps"})
+            self.assertNotIn("interval", record)
+            self.assertNotIn("retry_interval", record)
+        self.assert_clean(hub, out, Path(self.evidence_path).read_text())
+
+
 @unittest.skipUnless(hasattr(signal, "SIGINT") and os.name == "posix", "needs POSIX SIGINT")
 class InterruptTest(unittest.TestCase):
     """SIGINT/SIGTERM mid-request still write evidence and exit 130/143."""
@@ -542,6 +566,21 @@ class ConfigValidationTest(DriverTestCase):
         self.expect_usage("--mode", "paced", "--phase", "p", "--monitors", str(driver.MAX_MONITORS + 1))
         self.expect_usage("--mode", "unpaced-control", "--phase", "c", "--target-rps", "5")
         self.expect_usage("--mode", "unpaced-control", "--phase", "c", "--control-max-requests", "100")
+
+    def test_rejects_invalid_interval(self):
+        self.expect_usage("--mode", "paced", "--phase", "p", "--interval", "0")
+        self.expect_usage("--mode", "paced", "--phase", "p", "--interval", "-1")
+        # timeout is 4 s; hub validateMonitorTiming requires timeout < interval
+        self.expect_usage("--mode", "paced", "--phase", "p", "--interval", "4")
+        self.expect_usage("--mode", "paced", "--phase", "p", "--interval", "3")
+        self.expect_usage("--mode", "paced", "--phase", "p", "--interval", str(driver.MAX_INTERVAL + 1))
+        # A usage error must not write evidence or send a request.
+        hub = self.hub()
+        code, _, ev = self.run_driver(hub, "--mode", "paced", "--phase", "p", "--interval", "0")
+        self.assertEqual(code, 2)
+        self.assertIn("usage error: --interval must be a positive integer", self.err.getvalue())
+        self.assertIsNone(ev)
+        self.assertEqual(hub.calls, [])
 
 
 class PacerTest(unittest.TestCase):

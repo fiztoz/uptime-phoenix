@@ -10,7 +10,8 @@ Nothing needs to be uploaded to the test hosts.
 ## What it does
 
 - **`--mode paced`**: logs in, reads a baseline config snapshot for the probe, then for each of
-  N monitors does `monitor.create` (HTTP, interval 5 s, timeout 4 s), `assignment.read` and
+  N monitors does `monitor.create` (HTTP, `--interval` seconds, default 20, timeout 4 s,
+  `retry_interval` equal to the interval), `assignment.read` and
   `assignment.replace` onto the probe. It then polls the probe config snapshot
   (`GET /api/probes/{id}`, class `probe.snapshot`) every 2 s, plus an optional operator-side
   peer snapshot (class `peer.snapshot`). It stops polling when the snapshot reports
@@ -31,6 +32,15 @@ The default is `min(25, RATE_LIMIT_RPS / 2)`, and the driver refuses a rate at o
 `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` environment variables). The evidence records the values
 and whether each came from a flag, the environment or the default.
 
+**Check interval.** `--interval` is the monitor check interval in seconds (integer, default
+20, which is the F2 / M6 plan value). It must be greater than 0, at most 2^31-1 (the probe
+config int32 bound; the hub create handler has no maximum of its own), and greater than the
+fixed 4 s timeout so the request passes `validateMonitorTiming`. `retry_interval` is set to
+the same value: the M6 plan v2 does not name a separate retry interval, and the hub uses
+`retry_interval` only after a pending observation (`RetryInterval > 0`); equal values keep
+retry spacing on the same cadence as the regular check. The 4 s timeout is still valid at
+the default 20 s (4 < 20).
+
 **Fail fast.** The first non-2xx, redirect, transport error, malformed response or
 non-convergence stops the run. Nothing is retried. The evidence file is still written.
 
@@ -49,9 +59,11 @@ The record type rejects any other field, method or endpoint class, and the tests
 no URL, host, port, ID, credential, token, header or body text reaches stdout or the file.
 
 The evidence file (written with mode 0600) also holds the driver version and commit, the hub
-commit if given, the pacing settings, the result, counts by `endpoint_class status`, the
-convergence summary, and for a failure its category, sequence number, method, endpoint class,
-status and the request count and rate over the preceding 5 s.
+commit if given, the pacing settings, the effective `monitor_timing` (`interval`,
+`retry_interval`, and the 4 s `timeout`) in the file header, the result, counts by
+`endpoint_class status`, the convergence summary, and for a failure its category, sequence
+number, method, endpoint class, status and the request count and rate over the preceding 5 s.
+Interval values are not written on per-request records.
 
 Keep evidence files private. They contain no addresses or IDs, but they are run artifacts and
 do not belong in the repository.
@@ -92,7 +104,7 @@ export LOAD_TARGET_URL=...       # URL the monitors check (allowed by the probe 
 # export LOAD_PEER_SNAPSHOT_URL=...  # optional operator-side snapshot endpoint, polled with no credentials
 
 python3 -B ../driver/scripts/bounded_load_driver.py --mode paced --phase single-probe-100 \
-  --monitors 100 --hub-rate-limit-rps 50 --hub-rate-limit-burst 100 \
+  --monitors 100 --interval 20 --hub-rate-limit-rps 50 --hub-rate-limit-burst 100 \
   --hub-commit "$HUB_COMMIT" --evidence single-probe-100.json
 
 # Failing control, after the paced phase and the hold:
