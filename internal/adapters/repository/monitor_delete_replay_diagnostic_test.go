@@ -154,8 +154,14 @@ func directDiagnosticTable(operation string, fields []string) string {
 	}
 }
 
+// Delete starts with the local registration lock. Replay holds that row
+// shared from its session fence, so delete may queue there before any
+// monitor statement runs; that is the source-blocked wait being diagnosed.
 func isMonitorDeleteStartQuery(query string) bool {
 	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "update `probes` set revision = revision where (id = 'local')" {
+		return true
+	}
 	if strings.HasPrefix(q, "delete from ") {
 		fields := strings.Fields(q)
 		return len(fields) > 2 && strings.Trim(fields[2], "`\";,()") == "monitors"
@@ -278,7 +284,7 @@ type diagnosticTransactionState struct {
 }
 
 var replayDeleteWaitTables = map[string]struct{}{
-	"monitors": {}, "monitor_notification": {}, "status_page_monitors": {}, "monitor_tags": {},
+	"probes": {}, "monitors": {}, "monitor_notification": {}, "status_page_monitors": {}, "monitor_tags": {},
 	"maintenance_window_monitors": {}, "tls_info": {}, "monitor_conditions": {},
 	"monitor_probe_assignment_sets": {}, "monitor_probe_assignments": {},
 	"monitor_probe_assignment_history": {}, "probe_observations": {},
@@ -975,6 +981,8 @@ func TestClassifyReplayDeleteDiagnosticQueryUsesDirectTable(t *testing.T) {
 	}
 	for query, want := range map[string]bool{
 		"SELECT `id` FROM `monitors` WHERE `id` = ? FOR UPDATE":                               true,
+		"UPDATE `probes` SET revision = revision WHERE (id = 'local')":                        true,
+		"UPDATE `probes` SET revision = revision WHERE (id = 'remote')":                       false,
 		"DELETE FROM `monitors` WHERE `id` = ?":                                               true,
 		"SELECT `id` FROM `probe_streams` WHERE EXISTS (SELECT 1 FROM `monitors` FOR UPDATE)": false,
 		"SELECT `id` FROM `monitors` WHERE `id` = ?":                                          false,
@@ -993,7 +1001,8 @@ func TestReplayDeleteWaitRequiresCascadeTableAndSafeIndex(t *testing.T) {
 	}{
 		{diagnosticInnoDBWait{Table: "monitors", Index: "PRIMARY"}, true},
 		{diagnosticInnoDBWait{Table: "probe_observations", Index: "fk_observation_monitor"}, true},
-		{diagnosticInnoDBWait{Table: "probes", Index: "PRIMARY"}, false},
+		{diagnosticInnoDBWait{Table: "probes", Index: "PRIMARY"}, true},
+		{diagnosticInnoDBWait{Table: "probe_streams", Index: "PRIMARY"}, false},
 		{diagnosticInnoDBWait{Table: "other_table", Index: "PRIMARY"}, false},
 		{diagnosticInnoDBWait{Table: "probe_observations", Index: "PRIMARY;select"}, false},
 		{diagnosticInnoDBWait{Table: "probe_observations", Index: ""}, false},
