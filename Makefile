@@ -231,6 +231,8 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	@$(MAKE) --no-print-directory helm-validate
 	@$(MAKE) --no-print-directory action-pins
 	@$(MAKE) --no-print-directory m6-backend-harness-gate
+	@$(MAKE) --no-print-directory bounded-load-driver-test
+	@$(MAKE) --no-print-directory m6-load-analyzer-test
 	@$(MAKE) --no-print-directory release-image-gate
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
 	python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --scope govulncheck-scope.toml --govulncheck '$(GOVULNCHECK)' ./...
@@ -294,6 +296,10 @@ m6-backend-harness-gate: ## Verify actual-engine coverage and exhaustive CI shar
 .PHONY: bounded-load-driver-test
 bounded-load-driver-test: ## Offline tests for the bounded single-probe-N load driver (#270)
 	python3 -B -m unittest discover -s scripts -p test_bounded_load_driver.py -v
+
+.PHONY: m6-load-analyzer-test
+m6-load-analyzer-test: ## Offline tests for the M6 load-window analyzer (observed-cadence completeness)
+	python3 -B -m unittest discover -s scripts -p test_m6_load_analyzer.py -v
 
 .PHONY: release-image-gate
 release-image-gate: ## Verify image/chart operations and local image correspondence controls offline

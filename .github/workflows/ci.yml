@@ -49,6 +49,11 @@ jobs:
       - name: Release and backend harness regressions
         run: make release-image-gate m6-backend-harness-gate
 
+      # Standard-library Python only (python3 is preinstalled on ubuntu-latest,
+      # as for the step above); the driver test uses a loopback fake hub.
+      - name: Offline script tests
+        run: make bounded-load-driver-test m6-load-analyzer-test
+
       - name: Vet
         run: go vet ./internal/...
 
