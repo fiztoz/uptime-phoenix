@@ -42,6 +42,7 @@ type ProbeReplayStore struct {
 	protector        ports.ProbeConfigProtector
 	commandProtector ports.ProbeCommandProtector
 	commandCodec     ports.ProbeAcknowledgementCodec
+	configFacts      replayConfigCache
 }
 
 var _ ports.ProbeReplayRepository = (*ProbeReplayStore)(nil)
@@ -95,8 +96,8 @@ func (s *ProbeReplayStore) IngestReplayBatch(ctx context.Context, session domain
 		if err != nil {
 			return err
 		}
-		// Decode each retained revision at most once in this bounded transaction.
-		configs := make(map[int64]*domain.EdgeResolvedConfig)
+		// Resolve each retained revision at most once in this bounded transaction.
+		configs := make(map[int64]*replayConfigFacts)
 		for _, event := range batch.Events {
 			if event.Seq <= stream.CommittedSeq {
 				var receipt replayReceiptModel
@@ -322,7 +323,7 @@ func replayDatabaseTime(ctx context.Context, tx bun.Tx) (time.Time, error) {
 	return time.ParseInLocation("2006-01-02 15:04:05.999999", value, time.UTC)
 }
 
-func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session domain.ProbeReplaySession, event domain.ProbeReplayEvent, configs map[int64]*domain.EdgeResolvedConfig, monitors map[int64]bool) (domain.ProbeReplayAuthorityFacts, error) {
+func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session domain.ProbeReplaySession, event domain.ProbeReplayEvent, configs map[int64]*replayConfigFacts, monitors map[int64]bool) (domain.ProbeReplayAuthorityFacts, error) {
 	f := domain.ProbeReplayAuthorityFacts{ProbeID: session.ProbeID, StreamID: session.StreamID, Channels: map[int64]int64{}}
 	switch {
 	case event.Observation != nil:
@@ -463,8 +464,6 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 	}
 	resolved, found := configs[f.ConfigRevision]
 	if !found {
-		// Keep one decoded revision, not 256 potentially large secret graphs.
-		clear(configs)
 		var snapshot probeConfigModel
 		err := tx.NewSelect().Model(&snapshot).Where("probe_id = ? AND revision = ?", session.ProbeID, f.ConfigRevision).Scan(ctx)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -477,12 +476,7 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 		if snapshot.HubID != session.HubID {
 			return f, ports.ErrConflict
 		}
-		plain, err := s.protector.Open(ctx, snapshot.domain().ProbeConfigMetadata, snapshot.ProtectedPayload)
-		if err != nil {
-			return f, err
-		}
-		value, err := s.decoder.DecodeEdge(ctx, plain, domain.ProbeConfigTarget{HubID: session.HubID, ProbeID: session.ProbeID})
-		clear(plain)
+		value, err := s.configFactsFor(ctx, &snapshot, session)
 		if err != nil {
 			return f, err
 		}
@@ -493,28 +487,43 @@ func (s *ProbeReplayStore) replayFacts(ctx context.Context, tx bun.Tx, session d
 		return f, nil
 	}
 	f.ConfigFound = true
-	f.ConfigEffectiveAt = resolved.Metadata.EffectiveAt.UTC()
+	f.ConfigEffectiveAt = resolved.effectiveAt
 	if f.MonitorID == 0 {
-		f.WatchdogEnabled = resolved.Watchdog.Enabled
-		for _, id := range resolved.Watchdog.NotificationIDs {
-			if channel, ok := resolved.Channels[id]; ok && channel.Notification != nil && channel.Notification.Active {
-				f.Channels[id] = channel.Version
-			}
+		f.WatchdogEnabled = resolved.watchdogEnabled
+		for id, version := range resolved.watchdogChannels {
+			f.Channels[id] = version
 		}
 		return f, nil
 	}
-	for _, a := range resolved.Assignments {
-		if a.Monitor != nil && a.Monitor.ID == f.MonitorID {
-			f.ConfigAssignment = &domain.EdgeAssignmentIdentity{MonitorID: a.Monitor.ID, Generation: a.Generation, Active: a.Monitor.Active}
-			for _, link := range a.NotificationLinks {
-				if channel, ok := resolved.Channels[link.NotificationID]; ok && channel.Notification != nil && channel.Notification.Active {
-					f.Channels[link.NotificationID] = channel.Version
-				}
-			}
-			break
+	if i, ok := resolved.byMonitor[f.MonitorID]; ok {
+		a := resolved.assignments[i]
+		f.ConfigAssignment = &domain.EdgeAssignmentIdentity{MonitorID: a.monitorID, Generation: a.generation, Active: a.active}
+		for id, version := range a.channels {
+			f.Channels[id] = version
 		}
 	}
 	return f, nil
+}
+
+// configFactsFor returns the authorization facts of one stored snapshot,
+// decrypting and decoding it only the first time this exact ciphertext is seen.
+func (s *ProbeReplayStore) configFactsFor(ctx context.Context, snapshot *probeConfigModel, session domain.ProbeReplaySession) (*replayConfigFacts, error) {
+	key := newReplayConfigKey(snapshot)
+	if facts, ok := s.configFacts.get(key); ok {
+		return facts, nil
+	}
+	plain, err := s.protector.Open(ctx, snapshot.domain().ProbeConfigMetadata, snapshot.ProtectedPayload)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := s.decoder.DecodeEdge(ctx, plain, domain.ProbeConfigTarget{HubID: session.HubID, ProbeID: session.ProbeID})
+	clear(plain)
+	if err != nil {
+		return nil, err
+	}
+	facts := deriveReplayConfigFacts(resolved)
+	s.configFacts.put(key, facts)
+	return facts, nil
 }
 
 func updateReplayState(ctx context.Context, tx bun.Tx, obs domain.RegionalObservation, now time.Time) error {

@@ -23,6 +23,7 @@ type replayFixture struct {
 	f                probeRegistryFixture
 	store            *repository.ProbeReplayStore
 	syncer           *repository.RemoteProbeConfigSyncStore
+	protector        ports.ProbeConfigProtector
 	session          domain.ProbeReplaySession
 	monitor, channel int64
 	at               time.Time
@@ -52,7 +53,7 @@ func newReplayFixtureAt(t *testing.T, engine string, at time.Time) replayFixture
 	if err != nil {
 		t.Fatal(err)
 	}
-	return replayFixture{f: f, store: repository.NewProbeReplayStore(f.db, probe.NewEdgeConfigDecoder(checker.Get, notifier.Get), protector), syncer: syncer, monitor: monitor, channel: channel, at: at, session: domain.ProbeReplaySession{HubID: metadata.HubID, ProbeID: metadata.ProbeID, StreamID: metadata.StreamID, OwnerID: lease.OwnerID, ConnectionGeneration: lease.Generation}}
+	return replayFixture{f: f, store: repository.NewProbeReplayStore(f.db, probe.NewEdgeConfigDecoder(checker.Get, notifier.Get), protector), syncer: syncer, protector: protector, monitor: monitor, channel: channel, at: at, session: domain.ProbeReplaySession{HubID: metadata.HubID, ProbeID: metadata.ProbeID, StreamID: metadata.StreamID, OwnerID: lease.OwnerID, ConnectionGeneration: lease.Generation}}
 }
 func (r replayFixture) observation(seq int64) domain.ProbeReplayEvent {
 	o := domain.RegionalObservation{MonitorID: r.monitor, ProbeID: r.session.ProbeID, StreamID: r.session.StreamID, Seq: seq, AssignmentGeneration: 1, ConfigRevision: 1, Status: domain.StatusUp, RawStatus: domain.StatusUp, ObservedAt: r.at}
@@ -104,7 +105,7 @@ func replayCount(t *testing.T, f probeRegistryFixture, table string) int {
 func TestProbeReplayAcceptance(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
-			for name, test := range map[string]func(*testing.T, replayFixture){"MixedDurableOutcomes": testReplayMixed, "LateRollback": testReplayRollback, "LeaseAndStreamFences": testReplayFences, "HistoricalAuthority": testReplayHistory, "ExactConfigAndParent": testReplayAuthority, "TimestampPrecision": testReplayPrecision, "ConcurrentDuplicate": testReplayConcurrent, "LeaseExpiresDuringBatch": testReplayExpiry} {
+			for name, test := range map[string]func(*testing.T, replayFixture){"MixedDurableOutcomes": testReplayMixed, "LateRollback": testReplayRollback, "LeaseAndStreamFences": testReplayFences, "HistoricalAuthority": testReplayHistory, "ExactConfigAndParent": testReplayAuthority, "TimestampPrecision": testReplayPrecision, "ConcurrentDuplicate": testReplayConcurrent, "ConfigDecodedOncePerSnapshot": testReplayConfigDecodedOnce, "LeaseExpiresDuringBatch": testReplayExpiry} {
 				t.Run(name, func(t *testing.T) { test(t, newReplayFixture(t, engine)) })
 			}
 		})
@@ -353,5 +354,37 @@ func testReplayExpiry(t *testing.T, r replayFixture) {
 	}
 	if replayCount(t, r.f, "probe_telemetry_receipts") != 0 || replayCount(t, r.f, "probe_observations") != 0 {
 		t.Fatal("expiry rollback lost atomicity")
+	}
+}
+
+type countingEdgeDecoder struct {
+	ports.EdgeConfigDecoder
+	calls int
+}
+
+func (d *countingEdgeDecoder) DecodeEdge(ctx context.Context, document []byte, target domain.ProbeConfigTarget) (*domain.EdgeResolvedConfig, error) {
+	d.calls++
+	return d.EdgeConfigDecoder.DecodeEdge(ctx, document, target)
+}
+
+// Every batch used to decrypt and decode the probe's whole snapshot to read
+// one assignment. The facts of one stored snapshot are now derived once, and a
+// rewritten payload is never served from the earlier decode.
+func testReplayConfigDecodedOnce(t *testing.T, r replayFixture) {
+	decoder := &countingEdgeDecoder{EdgeConfigDecoder: probe.NewEdgeConfigDecoder(checker.Get, notifier.Get)}
+	r.store = repository.NewProbeReplayStore(r.f.db, decoder, r.protector)
+	for seq := int64(1); seq <= 3; seq++ {
+		if result := r.ingest(t, r.batch(r.observation(seq))); result.AcceptedCount != 1 {
+			t.Fatalf("batch %d: %+v", seq, result)
+		}
+	}
+	if decoder.calls != 1 {
+		t.Fatalf("decoded %d times for 3 batches of one snapshot", decoder.calls)
+	}
+	if _, err := r.f.db.ExecContext(t.Context(), "UPDATE probe_config_snapshots SET protected_payload = ? WHERE probe_id = ? AND revision = 1", append([]byte{1}, make([]byte, 40)...), r.session.ProbeID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.store.IngestReplayBatch(t.Context(), r.session, r.batch(r.observation(4)), &services.AccessService{}); err == nil {
+		t.Fatal("rewritten snapshot payload was served from the earlier decode")
 	}
 }
