@@ -181,21 +181,16 @@ func (s *ProbeReplayStore) currentSnapshotAssignments(ctx context.Context, tx bu
 	if snapshot.HubID != session.HubID || snapshot.SHA256 != active.SHA256 {
 		return nil, ports.ErrConflict
 	}
-	plain, err := s.protector.Open(ctx, snapshot.domain().ProbeConfigMetadata, snapshot.ProtectedPayload)
+	facts, err := s.configFactsFor(ctx, &snapshot, session)
 	if err != nil {
 		return nil, err
 	}
-	defer clear(plain)
-	resolved, err := s.decoder.DecodeEdge(ctx, plain, domain.ProbeConfigTarget{HubID: session.HubID, ProbeID: session.ProbeID})
-	if err != nil {
-		return nil, err
+	if facts.missingMonitor {
+		return nil, domain.ErrInternal
 	}
-	out := make([]domain.EdgeAssignmentIdentity, 0, len(resolved.Assignments))
-	for _, a := range resolved.Assignments {
-		if a.Monitor == nil {
-			return nil, domain.ErrInternal
-		}
-		out = append(out, domain.EdgeAssignmentIdentity{MonitorID: a.Monitor.ID, Generation: a.Generation, Active: a.Monitor.Active})
+	out := make([]domain.EdgeAssignmentIdentity, 0, len(facts.assignments))
+	for _, a := range facts.assignments {
+		out = append(out, domain.EdgeAssignmentIdentity{MonitorID: a.monitorID, Generation: a.generation, Active: a.active})
 	}
 	return out, nil
 }
