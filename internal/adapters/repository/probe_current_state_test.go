@@ -94,6 +94,55 @@ func TestProbeCurrentStateAcceptance(t *testing.T) {
 					t.Fatalf("first observation failed to clear empty-source marker: %+v %v", state, err)
 				}
 			})
+			t.Run("RepeatedSnapshotReportsOnlyChangedEvidence", func(t *testing.T) {
+				// Probes resend complete current state every few seconds. Only an
+				// entry that moves the projection may re-run browser publication,
+				// folder paging and recovery; a repeat of committed evidence must not.
+				r := newReplayFixture(t, engine)
+				activateReplayConfig(t, r)
+				apply := func(s domain.ProbeCurrentSnapshot) []int64 {
+					t.Helper()
+					receipt, err := r.store.ApplyCurrentSnapshot(t.Context(), r.session, s, &services.AccessService{})
+					if err != nil {
+						t.Fatal(err)
+					}
+					return receipt.MonitorIDs
+				}
+				reported := func(ids []int64) bool { return len(ids) == 1 && ids[0] == r.monitor }
+
+				r.ingest(t, r.batch(r.observation(1)))
+				committed, err := r.f.commits.GetState(t.Context(), r.monitor, r.session.ProbeID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				repeat := domain.ProbeCurrentState{MonitorID: r.monitor, AssignmentGeneration: 1, Seq: 1, ObservedAt: committed.ObservedAt, Status: committed.Status, DownCount: committed.DownCount, Ping: committed.Ping, Message: committed.Message}
+				if ids := apply(currentSnapshot(r, 1, repeat)); len(ids) != 0 {
+					t.Fatalf("snapshot repeating the replayed observation was reported: %v", ids)
+				}
+				if ids := apply(currentSnapshot(r, 1, repeat)); len(ids) != 0 {
+					t.Fatalf("second repeat was reported: %v", ids)
+				}
+				incidentID := uuid.NewString()
+				withIncident := repeat
+				withIncident.ActiveSourceAlertID = &incidentID
+				if ids := apply(currentSnapshot(r, 1, withIncident)); !reported(ids) {
+					t.Fatalf("new incident reference was not reported: %v", ids)
+				}
+				newer := currentEntry(r, 2, domain.StatusDown)
+				if ids := apply(currentSnapshot(r, 2, newer)); !reported(ids) {
+					t.Fatalf("newer observation was not reported: %v", ids)
+				}
+				if ids := apply(currentSnapshot(r, 3)); !reported(ids) {
+					t.Fatalf("new omission was not reported: %v", ids)
+				}
+				if ids := apply(currentSnapshot(r, 4)); len(ids) != 0 {
+					t.Fatalf("repeated omission was reported: %v", ids)
+				}
+				state, err := r.f.commits.GetState(t.Context(), r.monitor, r.session.ProbeID)
+				if err != nil || state.Status != domain.StatusUnknown || state.UnknownReason != "missing_snapshot_state" {
+					t.Fatalf("omission marker lost: %+v %v", state, err)
+				}
+			})
 			t.Run("SameObservationAllowsIncidentMetadataOnly", func(t *testing.T) {
 				r := newReplayFixture(t, engine)
 				activateReplayConfig(t, r)

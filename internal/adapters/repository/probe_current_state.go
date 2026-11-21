@@ -106,6 +106,12 @@ func (s *ProbeReplayStore) ApplyCurrentSnapshot(ctx context.Context, session dom
 			}
 			return 0
 		})
+		// changed collects the monitors whose current evidence this snapshot
+		// actually moved. Probes resend their complete current state every few
+		// seconds, so in steady state almost every entry repeats evidence the
+		// replay stream already committed. Re-running browser publication,
+		// folder paging and recovery for all of them doubled that work.
+		changed := make([]int64, 0, len(assignments))
 		for _, assignment := range assignments {
 			if !assignment.Active {
 				continue
@@ -121,13 +127,17 @@ func (s *ProbeReplayStore) ApplyCurrentSnapshot(ctx context.Context, session dom
 				}
 				return err
 			}
+			moved := false
 			if state, ok := byMonitor[assignment.MonitorID]; ok {
 				candidate := domain.RegionalState{TLS: state.TLS, Conditions: state.Conditions, MonitorID: state.MonitorID, ProbeID: session.ProbeID, AssignmentGeneration: state.AssignmentGeneration, StreamID: session.StreamID, Seq: state.Seq, ConfigRevision: snapshot.ConfigRevision, Status: state.Status, DownCount: state.DownCount, Ping: state.Ping, Message: state.Message, ActiveSourceAlertID: state.ActiveSourceAlertID, ObservedAt: state.ObservedAt.UTC(), ReceivedAt: authority.now}
-				if err := updateCurrentProbeState(ctx, tx, candidate, authority.now, true); err != nil {
+				if moved, err = updateCurrentProbeState(ctx, tx, candidate, authority.now, true); err != nil {
 					return err
 				}
-			} else if err := applyMissingState(ctx, tx, session, snapshot, assignment, authority.now); err != nil {
+			} else if moved, err = applyMissingState(ctx, tx, session, snapshot, assignment, authority.now); err != nil {
 				return err
+			}
+			if moved {
+				changed = append(changed, assignment.MonitorID)
 			}
 		}
 		row := probeStateReceiptModel{ProbeID: session.ProbeID, StreamID: session.StreamID, SnapshotID: snapshot.SnapshotID, SHA256: snapshot.SHA256, ConfigRevision: snapshot.ConfigRevision, LastCreatedSeq: snapshot.LastCreatedSeq, CreatedAt: snapshot.CreatedAt.UTC(), AppliedAt: authority.now, StateCount: len(snapshot.States)}
@@ -147,7 +157,7 @@ func (s *ProbeReplayStore) ApplyCurrentSnapshot(ctx context.Context, session dom
 			return ports.ErrConflict
 		}
 		result = row.receipt()
-		result.MonitorIDs = activeAssignmentIDs(assignments)
+		result.MonitorIDs = changed
 		return nil
 	})
 	if err != nil {
@@ -190,46 +200,38 @@ func (s *ProbeReplayStore) currentSnapshotAssignments(ctx context.Context, tx bu
 	return out, nil
 }
 
-func activeAssignmentIDs(assignments []domain.EdgeAssignmentIdentity) []int64 {
-	ids := make([]int64, 0, len(assignments))
-	seen := make(map[int64]bool, len(assignments))
-	for _, assignment := range assignments {
-		if !assignment.Active || assignment.MonitorID <= 0 || seen[assignment.MonitorID] {
-			continue
-		}
-		seen[assignment.MonitorID] = true
-		ids = append(ids, assignment.MonitorID)
-	}
-	slices.Sort(ids)
-	return ids
-}
-
-func applyMissingState(ctx context.Context, tx bun.Tx, session domain.ProbeReplaySession, snapshot domain.ProbeCurrentSnapshot, assignment domain.EdgeAssignmentIdentity, now time.Time) error {
+// applyMissingState records that the snapshot omitted an active assignment. It
+// reports whether the omission changed the evidence readers derive health
+// from: refreshing an existing marker for the same assignment and stream, with
+// no current state to clear, leaves the projection exactly as it was.
+func applyMissingState(ctx context.Context, tx bun.Tx, session domain.ProbeReplaySession, snapshot domain.ProbeCurrentSnapshot, assignment domain.EdgeAssignmentIdentity, now time.Time) (bool, error) {
 	var current monitorProbeStateModel
 	err := tx.NewSelect().Model(&current).Where("monitor_id = ? AND probe_id = ?", assignment.MonitorID, session.ProbeID).Scan(ctx)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return false, err
 	}
-	if err == nil && (current.AssignmentGeneration > assignment.Generation || current.StreamID == session.StreamID && current.Seq > snapshot.LastCreatedSeq) {
-		return nil
+	hadState := err == nil
+	if hadState && (current.AssignmentGeneration > assignment.Generation || current.StreamID == session.StreamID && current.Seq > snapshot.LastCreatedSeq) {
+		return false, nil
 	}
 	var previous probeMissingStateModel
 	err = tx.NewSelect().Model(&previous).Where("monitor_id = ? AND probe_id = ?", assignment.MonitorID, session.ProbeID).Scan(ctx)
 	exists := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return false, err
 	}
 	if exists && (previous.AssignmentGeneration > assignment.Generation || previous.StreamID == session.StreamID && previous.SnapshotSeq > snapshot.LastCreatedSeq) {
-		return nil
+		return false, nil
 	}
+	moved := hadState || !exists || previous.AssignmentGeneration != assignment.Generation || previous.StreamID != session.StreamID
 	if _, err := tx.NewDelete().Model((*monitorProbeStateModel)(nil)).Where("monitor_id = ? AND probe_id = ?", assignment.MonitorID, session.ProbeID).Exec(ctx); err != nil {
-		return err
+		return false, err
 	}
 	if err := replaceRemoteTLSInfo(ctx, tx, domain.RegionalState{MonitorID: assignment.MonitorID, ProbeID: session.ProbeID, AssignmentGeneration: assignment.Generation}); err != nil {
-		return err
+		return false, err
 	}
 	if err := clearRemoteConditions(ctx, tx, assignment.MonitorID, session.ProbeID, assignment.Generation); err != nil {
-		return err
+		return false, err
 	}
 	row := probeMissingStateModel{MonitorID: assignment.MonitorID, ProbeID: session.ProbeID, StreamID: session.StreamID, AssignmentGeneration: assignment.Generation, ConfigRevision: snapshot.ConfigRevision, SnapshotSeq: snapshot.LastCreatedSeq, CreatedAt: snapshot.CreatedAt.UTC(), AppliedAt: now, Reason: "missing_snapshot_state"}
 	if exists {
@@ -237,7 +239,7 @@ func applyMissingState(ctx context.Context, tx bun.Tx, session domain.ProbeRepla
 	} else {
 		_, err = tx.NewInsert().Model(&row).Exec(ctx)
 	}
-	return err
+	return moved && err == nil, err
 }
 
 // readCurrentStates keeps the one-query read budget of the existing repository
@@ -270,4 +272,12 @@ func (r *RegionalCommitStore) readCurrentStates(ctx context.Context, monitorID i
 		out = append(out, state)
 	}
 	return out, nil
+}
+
+// sameSourceAlert compares two optional incident references by value.
+func sameSourceAlert(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
