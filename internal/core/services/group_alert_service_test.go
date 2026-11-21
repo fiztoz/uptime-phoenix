@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
+	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
 // --- fakes ----------------------------------------------------------------
@@ -554,4 +555,91 @@ func TestGroupCreate_DefaultNotificationNeverAutoAttaches(t *testing.T) {
 		t.Errorf("creating a monitor attached %d default notifications, want 1 — "+
 			"the monitor auto-attach must keep working", len(monLinks))
 	}
+}
+
+// scopedMonitorRepo honours MonitorFilter.RestrictToIDs like the real
+// repositories and counts how many monitor rows each List call returned.
+type scopedMonitorRepo struct {
+	fakeMonitorRepo
+	filters  []ports.MonitorFilter
+	returned int
+}
+
+func (r *scopedMonitorRepo) List(_ context.Context, filter ports.MonitorFilter) ([]*domain.Monitor, error) {
+	r.filters = append(r.filters, filter)
+	out := r.monitors
+	if filter.RestrictToIDs {
+		allowed := make(map[int64]bool, len(filter.MonitorIDs))
+		for _, id := range filter.MonitorIDs {
+			allowed[id] = true
+		}
+		out = nil
+		for _, m := range r.monitors {
+			if allowed[m.ID] {
+				out = append(out, m)
+			}
+		}
+	}
+	r.returned += len(out)
+	return out, nil
+}
+
+// Remote evidence arrives for every committed replay batch, so it must load
+// only the monitors it names. Reading the whole inventory per batch made each
+// observation O(all monitors) and dominated database reads at 1000 monitors.
+// (A folder that has providers still reads its children for the rollup; that
+// is covered by TestGroupAlert_RegionalEvidencePagesGroupChannelOnly.)
+func TestGroupAlert_RegionalEvidenceLoadsOnlyAffectedMonitors(t *testing.T) {
+	h := newGalertHarness(t)
+	repo := &scopedMonitorRepo{}
+	h.svc = NewGroupAlertService(h.groups, h.groupNotif, repo, h.heartbeats, h.notifSvc)
+	g := h.addGroup(t, "quiet", domain.GroupConditionWorstOfChildren, nil)
+	for id := int64(1); id <= 1000; id++ {
+		groupID := g.ID
+		repo.monitors = append(repo.monitors, &domain.Monitor{ID: id, UserID: 1, Name: "m", GroupID: &groupID})
+	}
+	h.svc.SetAggregateStatus(staticAggregate{7: domain.StatusDown})
+
+	h.svc.OnRegionalEvidence(context.Background(), []int64{7, 7, 0, -3})
+
+	if len(repo.filters) != 1 {
+		t.Fatalf("List calls = %d, want 1", len(repo.filters))
+	}
+	f := repo.filters[0]
+	if !f.RestrictToIDs || len(f.MonitorIDs) != 1 || f.MonitorIDs[0] != 7 {
+		t.Fatalf("filter = %+v, want RestrictToIDs with exactly [7]", f)
+	}
+	if repo.returned != 1 {
+		t.Fatalf("monitor rows loaded = %d, want 1 (not the whole inventory)", repo.returned)
+	}
+	if got := h.sender.count(); got != 0 {
+		t.Fatalf("folder without providers paged %d times, want 0", got)
+	}
+}
+
+// Evidence for monitors in no folder must not even load the folder tree.
+func TestGroupAlert_RegionalEvidenceForUnfiledMonitorsSkipsFolderTree(t *testing.T) {
+	h := newGalertHarness(t)
+	groups := &countingGroupRepo{grpFakeGroupRepo: h.groups}
+	h.svc = NewGroupAlertService(groups, h.groupNotif, h.monitors, h.heartbeats, h.notifSvc)
+	h.monitors.monitors = append(h.monitors.monitors, &domain.Monitor{ID: 9, UserID: 1, Name: "loose"})
+
+	h.svc.OnRegionalEvidence(context.Background(), []int64{9})
+
+	if groups.listAll != 0 {
+		t.Fatalf("folder tree loaded %d times for an unfiled monitor, want 0", groups.listAll)
+	}
+	if got := h.sender.count(); got != 0 {
+		t.Fatalf("unfiled monitor produced %d folder alerts, want 0", got)
+	}
+}
+
+type countingGroupRepo struct {
+	*grpFakeGroupRepo
+	listAll int
+}
+
+func (r *countingGroupRepo) ListAll(ctx context.Context) ([]*domain.MonitorGroup, error) {
+	r.listAll++
+	return r.grpFakeGroupRepo.ListAll(ctx)
 }
