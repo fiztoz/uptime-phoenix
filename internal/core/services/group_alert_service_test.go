@@ -557,7 +557,7 @@ func TestGroupCreate_DefaultNotificationNeverAutoAttaches(t *testing.T) {
 	}
 }
 
-// scopedMonitorRepo honours MonitorFilter.RestrictToIDs like the real
+// scopedMonitorRepo honors MonitorFilter.RestrictToIDs like the real
 // repositories and counts how many monitor rows each List call returned.
 type scopedMonitorRepo struct {
 	fakeMonitorRepo
