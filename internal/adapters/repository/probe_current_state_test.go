@@ -94,6 +94,144 @@ func TestProbeCurrentStateAcceptance(t *testing.T) {
 					t.Fatalf("first observation failed to clear empty-source marker: %+v %v", state, err)
 				}
 			})
+			t.Run("RepeatedSnapshotReportsOnlyChangedEvidence", func(t *testing.T) {
+				// Probes resend complete current state every few seconds. Only an
+				// entry that moves the projection may re-run browser publication,
+				// folder paging and recovery; a repeat of committed evidence must not.
+				r := newReplayFixture(t, engine)
+				activateReplayConfig(t, r)
+				apply := func(s domain.ProbeCurrentSnapshot) []int64 {
+					t.Helper()
+					receipt, err := r.store.ApplyCurrentSnapshot(t.Context(), r.session, s, &services.AccessService{})
+					if err != nil {
+						t.Fatal(err)
+					}
+					return receipt.MonitorIDs
+				}
+				reported := func(ids []int64) bool { return len(ids) == 1 && ids[0] == r.monitor }
+
+				r.ingest(t, r.batch(r.observation(1)))
+				committed, err := r.f.commits.GetState(t.Context(), r.monitor, r.session.ProbeID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				repeat := domain.ProbeCurrentState{MonitorID: r.monitor, AssignmentGeneration: 1, Seq: 1, ObservedAt: committed.ObservedAt, Status: committed.Status, DownCount: committed.DownCount, Ping: committed.Ping, Message: committed.Message}
+				if ids := apply(currentSnapshot(r, 1, repeat)); len(ids) != 0 {
+					t.Fatalf("snapshot repeating the replayed observation was reported: %v", ids)
+				}
+				if ids := apply(currentSnapshot(r, 1, repeat)); len(ids) != 0 {
+					t.Fatalf("second repeat was reported: %v", ids)
+				}
+				incidentID := uuid.NewString()
+				withIncident := repeat
+				withIncident.ActiveSourceAlertID = &incidentID
+				if ids := apply(currentSnapshot(r, 1, withIncident)); !reported(ids) {
+					t.Fatalf("new incident reference was not reported: %v", ids)
+				}
+				newer := currentEntry(r, 2, domain.StatusDown)
+				if ids := apply(currentSnapshot(r, 2, newer)); !reported(ids) {
+					t.Fatalf("newer observation was not reported: %v", ids)
+				}
+				if ids := apply(currentSnapshot(r, 3)); !reported(ids) {
+					t.Fatalf("new omission was not reported: %v", ids)
+				}
+				if ids := apply(currentSnapshot(r, 4)); len(ids) != 0 {
+					t.Fatalf("repeated omission was reported: %v", ids)
+				}
+				state, err := r.f.commits.GetState(t.Context(), r.monitor, r.session.ProbeID)
+				if err != nil || state.Status != domain.StatusUnknown || state.UnknownReason != "missing_snapshot_state" {
+					t.Fatalf("omission marker lost: %+v %v", state, err)
+				}
+			})
+			t.Run("ConcurrentSnapshotsDropNoTransition", func(t *testing.T) {
+				// Two snapshot deliveries for one stream can race (a resend on a
+				// reconnect, or two hub replicas). The changed set is computed
+				// inside the snapshot transaction, so whichever commits first must
+				// report the transition it applied and the other must see that
+				// committed state: no transition is lost and the final projection
+				// is the newest evidence.
+				r := newReplayFixture(t, engine)
+				activateReplayConfig(t, r)
+				r.ingest(t, r.batch(r.observation(1)))
+				type outcome struct {
+					name string
+					ids  []int64
+					err  error
+				}
+				race := func(snapshots map[string]domain.ProbeCurrentSnapshot) map[string]outcome {
+					t.Helper()
+					start := make(chan struct{})
+					results := make(chan outcome, len(snapshots))
+					for name, s := range snapshots {
+						go func() {
+							<-start
+							receipt, err := r.store.ApplyCurrentSnapshot(t.Context(), r.session, s, &services.AccessService{})
+							o := outcome{name: name, err: err}
+							if receipt != nil {
+								o.ids = receipt.MonitorIDs
+							}
+							results <- o
+						}()
+					}
+					close(start)
+					out := make(map[string]outcome, len(snapshots))
+					for range snapshots {
+						o := <-results
+						out[o.name] = o
+					}
+					return out
+				}
+				reported := func(ids []int64) bool { return len(ids) == 1 && ids[0] == r.monitor }
+				statuses := [2]domain.Status{domain.StatusDown, domain.StatusUp}
+				stale := 0
+				for round := int64(1); round <= 6; round++ {
+					// Same new evidence in two distinct snapshots: exactly one
+					// reports it, and the loser sees it as already committed.
+					same := 3 * round
+					want := statuses[round%2]
+					got := race(map[string]domain.ProbeCurrentSnapshot{
+						"a": currentSnapshot(r, same, currentEntry(r, same, want)),
+						"b": currentSnapshot(r, same, currentEntry(r, same, want)),
+					})
+					reports := 0
+					for _, o := range got {
+						if o.err != nil {
+							t.Fatalf("round %d same-evidence snapshot %s failed: %v", round, o.name, o.err)
+						}
+						if reported(o.ids) {
+							reports++
+						} else if len(o.ids) != 0 {
+							t.Fatalf("round %d snapshot %s reported %v", round, o.name, o.ids)
+						}
+					}
+					if reports != 1 {
+						t.Fatalf("round %d: transition to %v at seq %d reported %d times by racing snapshots, want exactly once", round, want, same, reports)
+					}
+
+					// An older and a newer transition race. The newer always
+					// applies and reports. The older either commits first and
+					// reports its own transition, or is rejected as stale; it
+					// never succeeds silently.
+					older, newer := same+1, same+2
+					got = race(map[string]domain.ProbeCurrentSnapshot{
+						"older": currentSnapshot(r, older, currentEntry(r, older, statuses[(round+1)%2])),
+						"newer": currentSnapshot(r, newer, currentEntry(r, newer, want)),
+					})
+					if o := got["newer"]; o.err != nil || !reported(o.ids) {
+						t.Fatalf("round %d newer transition: ids %v err %v, want reported", round, o.ids, o.err)
+					}
+					if o := got["older"]; !(o.err == nil && reported(o.ids) || errors.Is(o.err, ports.ErrConflict) && len(o.ids) == 0) {
+						t.Fatalf("round %d older transition: ids %v err %v, want reported or stale conflict", round, o.ids, o.err)
+					} else if o.err != nil {
+						stale++
+					}
+					state, err := r.f.commits.GetState(t.Context(), r.monitor, r.session.ProbeID)
+					if err != nil || state.Seq != newer || state.Status != want {
+						t.Fatalf("round %d final state %+v %v, want seq %d status %v", round, state, err, newer, want)
+					}
+				}
+				t.Logf("older snapshot lost the race (stale conflict) in %d of 6 rounds", stale)
+			})
 			t.Run("SameObservationAllowsIncidentMetadataOnly", func(t *testing.T) {
 				r := newReplayFixture(t, engine)
 				activateReplayConfig(t, r)
