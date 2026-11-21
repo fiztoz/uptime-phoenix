@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"time"
 
@@ -13,6 +14,14 @@ import (
 // RegionalBrowserPublisher coalesces committed invalidations into explicit
 // browser Views. Each API replica emits only to its own hub. No full monitor
 // inventory query runs for a heartbeat, and all queued work is bounded.
+//
+// Work runs on two lanes. The heartbeat lane reads only the latest persisted
+// samples and emits monitor.probe.heartbeat; it drains completely every tick.
+// The health lane rebuilds monitor.health (current health, 24 h coverage and
+// probe diagnostics), which costs several queries per monitor, so it keeps a
+// per-tick budget. Both lanes are FIFO, so the oldest invalidation goes first.
+// The heartbeat lane used to wait behind the health rebuild of every queued
+// monitor, which made heartbeat fan-out latency equal the health backlog.
 type RegionalBrowserPublisher struct {
 	regional     *services.MonitorRegionalService
 	fleet        *services.ProbeFleetService
@@ -20,11 +29,62 @@ type RegionalBrowserPublisher struct {
 	bus          ports.EventBus
 	emit         func(ports.Event)
 	active       func() int
+
+	// Lane work. Tests replace these to observe ordering and lane independence.
+	publishHealthFn func(ctx context.Context, id int64, last map[string]string) time.Time
+	publishBeatsFn  func(ctx context.Context, id int64, last map[string]string)
 }
+
+// browserQueueLimit bounds each lane's pending monitors.
+const browserQueueLimit = 10000
+
+// browserHealthBudget is the number of monitor.health rebuilds per tick.
+const browserHealthBudget = 32
 
 // NewRegionalBrowserPublisher uses the same view mappers as HTTP reads.
 func NewRegionalBrowserPublisher(regional *services.MonitorRegionalService, fleet *services.ProbeFleetService, observations ports.RegionalBrowserRepository, bus ports.EventBus, emit func(ports.Event), active func() int) *RegionalBrowserPublisher {
-	return &RegionalBrowserPublisher{regional: regional, fleet: fleet, observations: observations, bus: bus, emit: emit, active: active}
+	p := &RegionalBrowserPublisher{regional: regional, fleet: fleet, observations: observations, bus: bus, emit: emit, active: active}
+	p.publishHealthFn = p.publishHealth
+	p.publishBeatsFn = p.publishBeats
+	return p
+}
+
+// monitorQueue is a FIFO set of monitor IDs: a monitor queued again before it
+// is processed keeps its original place.
+type monitorQueue struct {
+	order  []int64
+	queued map[int64]bool
+}
+
+func newMonitorQueue() *monitorQueue { return &monitorQueue{queued: make(map[int64]bool)} }
+
+func (q *monitorQueue) push(id int64) {
+	if id <= 0 || q.queued[id] || len(q.order) >= browserQueueLimit {
+		return
+	}
+	q.queued[id] = true
+	q.order = append(q.order, id)
+}
+
+func (q *monitorQueue) pop() (int64, bool) {
+	if len(q.order) == 0 {
+		return 0, false
+	}
+	id := q.order[0]
+	q.order[0] = 0
+	q.order = q.order[1:]
+	delete(q.queued, id)
+	if len(q.order) == 0 {
+		q.order = nil // release the backing array once drained
+	}
+	return id, true
+}
+
+func (q *monitorQueue) len() int { return len(q.order) }
+
+func (q *monitorQueue) reset() {
+	q.order = nil
+	clear(q.queued)
 }
 
 // OnRegionalEvidence publishes only identities after commit, safe across Redis.
@@ -45,14 +105,14 @@ func (p *RegionalBrowserPublisher) Run(ctx context.Context) {
 	defer tick.Stop()
 	fleetTick := time.NewTicker(5 * time.Second)
 	defer fleetTick.Stop()
-	pending := make(map[int64]bool)
+	beatsQ := newMonitorQueue()
+	healthQ := newMonitorQueue()
 	next := make(map[int64]time.Time)
 	last := make(map[string]string)
 	queue := func(event ports.Event) {
 		id := browserMonitorID(event.Payload)
-		if id > 0 && len(pending) < 10000 {
-			pending[id] = true
-		}
+		beatsQ.push(id)
+		healthQ.push(id)
 	}
 	for {
 		select {
@@ -83,31 +143,13 @@ func (p *RegionalBrowserPublisher) Run(ctx context.Context) {
 			queue(event)
 		case now := <-tick.C:
 			if p.active() == 0 {
-				clear(pending)
+				beatsQ.reset()
+				healthQ.reset()
 				clear(next)
 				clear(last)
 				continue
 			}
-			for id, due := range next {
-				if !now.Before(due) {
-					pending[id] = true
-					delete(next, id)
-				}
-			}
-			processed := 0
-			for id := range pending {
-				delete(pending, id)
-				readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-				due := p.publishMonitor(readCtx, id, last)
-				cancel()
-				if !due.IsZero() && len(next) < 10000 {
-					next[id] = due
-				}
-				processed++
-				if processed >= 32 {
-					break
-				}
-			}
+			p.drain(ctx, now, beatsQ, healthQ, next, last)
 			if len(last) > 50000 {
 				clear(last)
 			}
@@ -117,6 +159,43 @@ func (p *RegionalBrowserPublisher) Run(ctx context.Context) {
 				p.publishFleet(readCtx, last)
 				cancel()
 			}
+		}
+	}
+}
+
+// drain runs one tick. Expired freshness deadlines only re-run the health
+// lane: a heartbeat row cannot change without new evidence, which arrives as an
+// invalidation. The heartbeat lane drains first and completely; the health
+// lane then spends at most browserHealthBudget rebuilds.
+func (p *RegionalBrowserPublisher) drain(ctx context.Context, now time.Time, beatsQ, healthQ *monitorQueue, next map[int64]time.Time, last map[string]string) {
+	due := make([]int64, 0)
+	for id, at := range next {
+		if !now.Before(at) {
+			due = append(due, id)
+		}
+	}
+	// Oldest deadline first, so refreshes are as fair as invalidations.
+	slices.SortFunc(due, func(a, b int64) int { return next[a].Compare(next[b]) })
+	for _, id := range due {
+		delete(next, id)
+		healthQ.push(id)
+	}
+	for beatsQ.len() > 0 {
+		id, _ := beatsQ.pop()
+		readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		p.publishBeatsFn(readCtx, id, last)
+		cancel()
+	}
+	for processed := 0; processed < browserHealthBudget; processed++ {
+		id, ok := healthQ.pop()
+		if !ok {
+			break
+		}
+		readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		at := p.publishHealthFn(readCtx, id, last)
+		cancel()
+		if !at.IsZero() && len(next) < browserQueueLimit {
+			next[id] = at
 		}
 	}
 }
@@ -147,7 +226,9 @@ func browserMonitorID(payload any) int64 {
 	return row.ID
 }
 
-func (p *RegionalBrowserPublisher) publishMonitor(ctx context.Context, id int64, last map[string]string) time.Time {
+// publishHealth emits monitor.health and monitor.probe.status for one monitor
+// and returns when its freshness next needs re-evaluating.
+func (p *RegionalBrowserPublisher) publishHealth(ctx context.Context, id int64, _ map[string]string) time.Time {
 	now := time.Now().UTC()
 	result, err := p.regional.HealthForPublication(ctx, id, 24, now)
 	if err != nil {
@@ -169,14 +250,19 @@ func (p *RegionalBrowserPublisher) publishMonitor(ctx context.Context, id int64,
 			"received_at": region.ReceivedAt, "fresh_until": region.FreshUntil, "reason": region.Reason,
 		}})
 	}
-	rows, err := p.observations.LatestObservations(ctx, id)
-	if err == nil {
-		for _, row := range rows {
-			view := toRegionalHeartbeatView(&row)
-			p.emitChanged("monitor.probe.heartbeat", row.ProbeID+"/"+strconv.FormatInt(id, 10), view, last)
-		}
-	}
 	return next
+}
+
+// publishBeats emits monitor.probe.heartbeat for samples not yet sent.
+func (p *RegionalBrowserPublisher) publishBeats(ctx context.Context, id int64, last map[string]string) {
+	rows, err := p.observations.LatestObservations(ctx, id)
+	if err != nil {
+		return
+	}
+	for _, row := range rows {
+		view := toRegionalHeartbeatView(&row)
+		p.emitChanged("monitor.probe.heartbeat", row.ProbeID+"/"+strconv.FormatInt(id, 10), view, last)
+	}
 }
 
 func (p *RegionalBrowserPublisher) publishFleet(ctx context.Context, last map[string]string) {
