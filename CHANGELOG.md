@@ -13,6 +13,13 @@ at the bottom.
 
 ### Security
 
+- **Removed the picomatch GHSA-fc5q-39xc-vjpf osv-scanner exception (#273).**
+  GitHub withdrew the advisory on 2026-11-18 (OSV `withdrawn`
+  2026-11-18T15:38:56Z), so osv-scanner v2.7.0 reports the ignore added in
+  #274 as unused, and an OSV query for npm picomatch 4.0.7 returns no
+  advisories. The scan stays green without it. picomatch 4.0.7 is still in
+  `web/bun.lock`; #273 is left open for its owner to close.
+
 - **osv-scanner exception for picomatch GHSA-fc5q-39xc-vjpf (#273).** Added a
   dated ignore for picomatch 4.0.7, which has no fixed release (owner Hanafee,
   `ignoreUntil = 2026-12-18`: valid through 2026-12-17, CI fails again from
