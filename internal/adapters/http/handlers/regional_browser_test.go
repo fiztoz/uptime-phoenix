@@ -112,3 +112,62 @@ func TestMonitorQueue_BoundedAndDeduplicated(t *testing.T) {
 		t.Fatal("reset left work queued")
 	}
 }
+
+// A slow health rebuild (several queries per monitor under load) must not hold
+// back a heartbeat queued in the same tick. Every queued heartbeat is published
+// before the first health rebuild starts, so heartbeat latency does not include
+// any health cost.
+func TestRegionalBrowser_HeartbeatsPublishBeforeSlowHealth(t *testing.T) {
+	const slowHealth = 25 * time.Millisecond
+	const monitors = 40
+	type step struct {
+		lane string
+		id   int64
+		at   time.Duration
+	}
+	var log []step
+	start := time.Now()
+	p := NewRegionalBrowserPublisher(nil, nil, nil, nil, nil, func() int { return 1 })
+	p.publishHealthFn = func(_ context.Context, id int64, _ map[string]string) time.Time {
+		log = append(log, step{"health", id, time.Since(start)})
+		time.Sleep(slowHealth)
+		return time.Time{}
+	}
+	p.publishBeatsFn = func(_ context.Context, id int64, _ map[string]string) {
+		log = append(log, step{"beat", id, time.Since(start)})
+	}
+	beatsQ, healthQ := newMonitorQueue(), newMonitorQueue()
+	for _, id := range idsUpTo(monitors) {
+		// Invalidations feed both lanes (Run's queue), health first here so
+		// arrival order cannot explain the result.
+		healthQ.push(id)
+		beatsQ.push(id)
+	}
+
+	p.drain(context.Background(), time.Now(), beatsQ, healthQ, map[int64]time.Time{}, map[string]string{})
+
+	var beats []int64
+	firstHealth := -1
+	for i, s := range log {
+		switch s.lane {
+		case "beat":
+			if firstHealth >= 0 {
+				t.Fatalf("heartbeat for monitor %d published after %d slow health rebuild(s) at %v; want every heartbeat before health", s.id, i-firstHealth, s.at)
+			}
+			beats = append(beats, s.id)
+			if s.at >= slowHealth {
+				t.Fatalf("heartbeat for monitor %d published at %v, after one health rebuild's cost %v", s.id, s.at, slowHealth)
+			}
+		case "health":
+			if firstHealth < 0 {
+				firstHealth = i
+			}
+		}
+	}
+	if !slices.Equal(beats, idsUpTo(monitors)) {
+		t.Fatalf("published heartbeats %v, want 1..%d in order", beats, monitors)
+	}
+	if got := len(log) - len(beats); got != browserHealthBudget {
+		t.Fatalf("health rebuilt %d monitors, want budget %d", got, browserHealthBudget)
+	}
+}
