@@ -154,8 +154,14 @@ func directDiagnosticTable(operation string, fields []string) string {
 	}
 }
 
+// Delete starts with the local registration lock. Replay holds that row
+// shared from its session fence, so delete may queue there before any
+// monitor statement runs; that is the source-blocked wait being diagnosed.
 func isMonitorDeleteStartQuery(query string) bool {
 	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "update `probes` set revision = revision where (id = 'local')" {
+		return true
+	}
 	if strings.HasPrefix(q, "delete from ") {
 		fields := strings.Fields(q)
 		return len(fields) > 2 && strings.Trim(fields[2], "`\";,()") == "monitors"
@@ -270,6 +276,9 @@ type diagnosticInnoDBWait struct {
 	Table              string `bun:"table_name"`
 	Index              string `bun:"index_name"`
 	BlockingConnection int64  `bun:"blocking_connection_id"`
+	// LockData is InnoDB's rendering of the locked record's key, for example
+	// 'local' for the probes primary key. Only the probes rule reads it.
+	LockData string `bun:"lock_data"`
 }
 
 type diagnosticTransactionState struct {
@@ -278,7 +287,7 @@ type diagnosticTransactionState struct {
 }
 
 var replayDeleteWaitTables = map[string]struct{}{
-	"monitors": {}, "monitor_notification": {}, "status_page_monitors": {}, "monitor_tags": {},
+	"probes": {}, "monitors": {}, "monitor_notification": {}, "status_page_monitors": {}, "monitor_tags": {},
 	"maintenance_window_monitors": {}, "tls_info": {}, "monitor_conditions": {},
 	"monitor_probe_assignment_sets": {}, "monitor_probe_assignments": {},
 	"monitor_probe_assignment_history": {}, "probe_observations": {},
@@ -301,8 +310,18 @@ func safeDiagnosticIdentifier(value string) bool {
 	return true
 }
 
+// localRegistrationLockData is how InnoDB renders the local registration's
+// probes primary key in INNODB_LOCKS.lock_data.
+const localRegistrationLockData = "'local'"
+
 func allowedReplayDeleteWait(wait diagnosticInnoDBWait) bool {
 	if _, ok := replayDeleteWaitTables[wait.Table]; !ok || wait.Index == "" {
+		return false
+	}
+	// Delete takes the local registration lock first, and replay holds that
+	// row shared. Any other probes wait (a remote registration, another index,
+	// or a gap/unknown record) is not the wait this diagnostic expects.
+	if wait.Table == "probes" && (wait.Index != "PRIMARY" || wait.LockData != localRegistrationLockData) {
 		return false
 	}
 	return safeDiagnosticIdentifier(wait.Index)
@@ -353,7 +372,8 @@ func waitForDeleteBlockedBySource(ctx context.Context, observer *bun.DB, deleteC
 			return observer.NewRaw(`SELECT
 			SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(requested.lock_table, CHAR(96), ''), '"', ''), '.', -1), '/', -1) AS table_name,
 			COALESCE(requested.lock_index, '') AS index_name,
-			blocking.trx_mysql_thread_id AS blocking_connection_id
+			blocking.trx_mysql_thread_id AS blocking_connection_id,
+			COALESCE(requested.lock_data, '') AS lock_data
 			FROM information_schema.INNODB_LOCK_WAITS w
 			JOIN information_schema.INNODB_TRX requesting ON requesting.trx_id = w.requesting_trx_id
 			JOIN information_schema.INNODB_TRX blocking ON blocking.trx_id = w.blocking_trx_id
@@ -975,6 +995,8 @@ func TestClassifyReplayDeleteDiagnosticQueryUsesDirectTable(t *testing.T) {
 	}
 	for query, want := range map[string]bool{
 		"SELECT `id` FROM `monitors` WHERE `id` = ? FOR UPDATE":                               true,
+		"UPDATE `probes` SET revision = revision WHERE (id = 'local')":                        true,
+		"UPDATE `probes` SET revision = revision WHERE (id = 'remote')":                       false,
 		"DELETE FROM `monitors` WHERE `id` = ?":                                               true,
 		"SELECT `id` FROM `probe_streams` WHERE EXISTS (SELECT 1 FROM `monitors` FOR UPDATE)": false,
 		"SELECT `id` FROM `monitors` WHERE `id` = ?":                                          false,
@@ -993,7 +1015,12 @@ func TestReplayDeleteWaitRequiresCascadeTableAndSafeIndex(t *testing.T) {
 	}{
 		{diagnosticInnoDBWait{Table: "monitors", Index: "PRIMARY"}, true},
 		{diagnosticInnoDBWait{Table: "probe_observations", Index: "fk_observation_monitor"}, true},
+		{diagnosticInnoDBWait{Table: "probes", Index: "PRIMARY", LockData: "'local'"}, true},
 		{diagnosticInnoDBWait{Table: "probes", Index: "PRIMARY"}, false},
+		{diagnosticInnoDBWait{Table: "probes", Index: "PRIMARY", LockData: "'0b6e3c1e-5a8d-4c1f-9f57-2d1f4f3c8a10'"}, false},
+		{diagnosticInnoDBWait{Table: "probes", Index: "PRIMARY", LockData: "supremum pseudo-record"}, false},
+		{diagnosticInnoDBWait{Table: "probes", Index: "idx_probes_key", LockData: "'local'"}, false},
+		{diagnosticInnoDBWait{Table: "probe_streams", Index: "PRIMARY"}, false},
 		{diagnosticInnoDBWait{Table: "other_table", Index: "PRIMARY"}, false},
 		{diagnosticInnoDBWait{Table: "probe_observations", Index: "PRIMARY;select"}, false},
 		{diagnosticInnoDBWait{Table: "probe_observations", Index: ""}, false},
