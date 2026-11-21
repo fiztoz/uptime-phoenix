@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/domain"
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -18,7 +19,24 @@ type replaySessionAuthority struct {
 
 // lockReplaySession shares the exact DB-clock authority fence with current-state
 // application. Its caller holds a serializable transaction through final commit.
+//
+// Overall dirty buckets reference the local registration, so marking one
+// takes that row's shared lock through the FK check. Requested there, after
+// the installation, assignment and history locks, it inverts the order of
+// monitor create, local configuration activation and every other writer that
+// locks the local registration first, and InnoDB kills one side with 1213.
+// Take it up front instead, in probe-id order after this remote probe's row
+// (canonical UUIDs sort before "local"), as assignment replacement does.
 func (s *ProbeReplayStore) lockReplaySession(ctx context.Context, tx bun.Tx, session domain.ProbeReplaySession) (replaySessionAuthority, error) {
+	if tx.Dialect().Name() == dialect.MySQL {
+		if _, err := tx.ExecContext(ctx, "UPDATE probes SET id = id WHERE id = ?", session.ProbeID); err != nil {
+			return replaySessionAuthority{}, err
+		}
+		var local string
+		if err := tx.NewRaw("SELECT id FROM probes WHERE id = ? LOCK IN SHARE MODE", domain.LocalProbeID).Scan(ctx, &local); err != nil {
+			return replaySessionAuthority{}, err
+		}
+	}
 	return lockProbeSession(ctx, tx, session, s.protector.KeyHash(session.HubID))
 }
 

@@ -531,48 +531,57 @@ func updateReplayState(ctx context.Context, tx bun.Tx, obs domain.RegionalObserv
 		return err
 	}
 	state := domain.RegionalState{TLS: obs.TLS, MonitorID: obs.MonitorID, ProbeID: obs.ProbeID, AssignmentGeneration: obs.AssignmentGeneration, StreamID: obs.StreamID, Seq: obs.Seq, ConfigRevision: obs.ConfigRevision, Status: obs.Status, DownCount: obs.DownCount, Ping: obs.Ping, Message: obs.Message, ObservedAt: obs.ObservedAt.UTC(), ReceivedAt: now}
-	return updateCurrentProbeState(ctx, tx, state, now, false)
+	_, err := updateCurrentProbeState(ctx, tx, state, now, false)
+	return err
 }
 
-func updateCurrentProbeState(ctx context.Context, tx bun.Tx, state domain.RegionalState, now time.Time, snapshot bool) error {
+func updateCurrentProbeState(ctx context.Context, tx bun.Tx, state domain.RegionalState, now time.Time, snapshot bool) (bool, error) {
 	if state.ObservedAt.After(now) {
-		return nil
+		return false, nil
 	}
 	var assignment probeAssignmentModel
 	err := tx.NewSelect().Model(&assignment).Where("monitor_id = ? AND probe_id = ? AND active = ?", state.MonitorID, state.ProbeID, true).Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if assignment.Generation != state.AssignmentGeneration {
-		return nil
+		return false, nil
 	}
 	var missing probeMissingStateModel
 	err = tx.NewSelect().Model(&missing).Where("monitor_id = ? AND probe_id = ?", state.MonitorID, state.ProbeID).Scan(ctx)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return false, err
 	}
-	if err == nil && missing.AssignmentGeneration == state.AssignmentGeneration && missing.StreamID == state.StreamID && missing.SnapshotSeq >= state.Seq {
-		return nil
+	missingFound := err == nil
+	if missingFound && missing.AssignmentGeneration == state.AssignmentGeneration && missing.StreamID == state.StreamID && missing.SnapshotSeq >= state.Seq {
+		return false, nil
 	}
 	var existing monitorProbeStateModel
 	err = tx.NewSelect().Model(&existing).Where("monitor_id = ? AND probe_id = ?", state.MonitorID, state.ProbeID).Scan(ctx)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return false, err
 	}
+	found := err == nil
 	// The source sequence is the ordering clock, including after an NTP step.
 	if err == nil && (existing.AssignmentGeneration > state.AssignmentGeneration || existing.StreamID == state.StreamID && (existing.Seq > state.Seq || existing.Seq == state.Seq && !snapshot)) {
-		return nil
+		return false, nil
 	}
 	if err == nil && existing.StreamID == state.StreamID && existing.Seq == state.Seq {
 		// Snapshot-only incident references may advance without a new check,
 		// but the immutable availability observation cannot change identity.
 		if !domain.SameTLSObservation(existing.TLSJSON.evidence(), state.TLS) || snapshot && !sameConditionEvidence(existing.ConditionsJSON, state.Conditions) || existing.Status != int(state.Status) || existing.DownCount != state.DownCount || existing.Ping != state.Ping || existing.Message != state.Message || !existing.ObservedAt.UTC().Truncate(time.Microsecond).Equal(state.ObservedAt.UTC().Truncate(time.Microsecond)) {
-			return ports.ErrConflict
+			return false, ports.ErrConflict
 		}
 	}
+	// A snapshot that repeats the committed observation, with the same
+	// evaluated conditions and incident reference and no omission marker to
+	// clear, rewrites the row but leaves everything health is derived from as
+	// it was. Freshness follows observed_at, not received_at.
+	moved := !(found && !missingFound && existing.AssignmentGeneration == state.AssignmentGeneration && existing.StreamID == state.StreamID && existing.Seq == state.Seq &&
+		sameConditionEvidence(existing.ConditionsJSON, state.Conditions) && sameSourceAlert(existing.ActiveSourceAlertID, state.ActiveSourceAlertID))
 	if existing.AssignmentGeneration == state.AssignmentGeneration {
 		state.LastSuccessAt = utcTimePtr(existing.LastSuccessAt)
 		if !snapshot {
@@ -587,17 +596,17 @@ func updateCurrentProbeState(ctx context.Context, tx bun.Tx, state domain.Region
 		state.LastSuccessAt = &at
 	}
 	if _, err := tx.NewDelete().Model((*probeMissingStateModel)(nil)).Where("monitor_id = ? AND probe_id = ?", state.MonitorID, state.ProbeID).Exec(ctx); err != nil {
-		return err
+		return false, err
 	}
 	if err := upsertRegionalState(ctx, tx, state); err != nil {
-		return err
+		return false, err
 	}
 	if snapshot {
 		// A complete snapshot replaces the evaluated condition projection and
 		// clears omitted kinds while retaining their historical samples.
 		if err := replaceRemoteConditions(ctx, tx, state); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return replaceRemoteTLSInfo(ctx, tx, state)
+	return moved, replaceRemoteTLSInfo(ctx, tx, state)
 }
