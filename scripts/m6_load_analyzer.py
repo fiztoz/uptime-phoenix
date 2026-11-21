@@ -8,14 +8,22 @@ monitor/probe pair; the configured interval is recorded alongside, together
 with the legacy ratio (window / configured interval) for comparison.
 
 Cadence rule, per (monitor, probe) pair inside [start, end):
+- duplicate observed_at rows are counted once (and reported per pair), so a
+  repeated row can never raise completeness.
 - cadence = median of the gaps that look like one interval
-  (0 < gap <= SINGLE_INTERVAL_MAX x configured). Gaps caused by missed checks
+  (gap <= SINGLE_INTERVAL_MAX x configured). Gaps caused by missed checks
   or outages are left out, so they cannot stretch the cadence however many
   there are. With fewer than MIN_CADENCE_GAPS such gaps the configured
   interval is used and the pair is marked cadence_fallback=true.
-- missing slots: an interior gap g misses round(g / cadence) - 1 slots; the
-  window edges (start -> first row, last row -> end) miss
-  floor(edge / (cadence x (1 + EDGE_JITTER))) slots.
+- the cadence is capped at CADENCE_CAP x configured (cadence_capped=true);
+  a capped pair is also charged for the time it lost, i.e. interior missing
+  is at least round((last - first) / cadence) - gaps. A probe more than 10 %
+  slower than configured therefore cannot score 100 %.
+- missing slots: an interior gap g misses round(g / cadence) - 1 slots, and
+  at least one when it was too long to feed the cadence
+  (g > SINGLE_INTERVAL_MAX x configured), so every gap either sets the
+  cadence or is counted against it; the window edges (start -> first row,
+  last row -> end) miss floor(edge / (cadence x (1 + EDGE_JITTER))) slots.
 - expected = seen + missing; completeness = seen / expected.
 A single missed heartbeat always counts as missing, and a perfect cadence
 scores 100 % wherever the window happens to start.
@@ -30,10 +38,11 @@ import statistics
 import sys
 
 SINGLE_INTERVAL_MAX = 1.5
+CADENCE_CAP = 1.1
 EDGE_JITTER = 0.05
 MIN_CADENCE_GAPS = 3
 COMPLETENESS_THRESHOLD = 0.995
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def pct(values, p):
@@ -46,16 +55,29 @@ def pct(values, p):
     return round(v[f] + (v[c] - v[f]) * (k - f), 3)
 
 
+def gap_missing(g, cadence, configured):
+    """Slots missed inside one interior gap; a gap too long to feed the cadence misses at least one."""
+    slots = max(0, round(g / cadence) - 1)
+    if g > SINGLE_INTERVAL_MAX * configured:
+        slots = max(1, slots)
+    return slots
+
+
 def pair_completeness(times, start, end, configured):
     """Completeness of one monitor/probe pair; times are epoch seconds inside [start, end)."""
-    ts = sorted(times)
+    ts = sorted(set(times))
+    duplicates = len(times) - len(ts)
     gaps = [b - a for a, b in zip(ts, ts[1:])]
-    single = [g for g in gaps if 0 < g <= SINGLE_INTERVAL_MAX * configured]
+    single = [g for g in gaps if g <= SINGLE_INTERVAL_MAX * configured]
     fallback = len(single) < MIN_CADENCE_GAPS
-    cadence = float(configured) if fallback else statistics.median(single)
+    median = None if fallback else statistics.median(single)
+    capped = median is not None and median > CADENCE_CAP * configured
+    cadence = float(configured) if fallback else min(median, CADENCE_CAP * configured)
     edge_slot = cadence * (1 + EDGE_JITTER)
     if ts:
-        missing = sum(max(0, round(g / cadence) - 1) for g in gaps)
+        missing = sum(gap_missing(g, cadence, configured) for g in gaps)
+        if capped:
+            missing = max(missing, round((ts[-1] - ts[0]) / cadence) - len(gaps))
         for edge in (ts[0] - start, end - ts[-1]):
             missing += int(max(0.0, edge) // edge_slot)
     else:
@@ -64,9 +86,12 @@ def pair_completeness(times, start, end, configured):
     return {
         "configured_interval_s": configured,
         "observed_cadence_s": round(cadence, 3),
+        "median_gap_s": None if median is None else round(median, 3),
         "cadence_gaps_used": 0 if fallback else len(single),
         "cadence_fallback": fallback,
+        "cadence_capped": capped,
         "seen": len(ts),
+        "duplicates": duplicates,
         "missing": missing,
         "expected": expected,
         "completeness": round(len(ts) / expected, 6) if expected else 1.0,
@@ -82,10 +107,11 @@ def completeness_summary(pairs, start, end, configured, threshold=COMPLETENESS_T
         row.update(pair_completeness(times, start, end, configured))
         per_pair.append(row)
     out = {
-        "basis": "expected interval = observed per-pair cadence (median single-interval gap); configured interval recorded alongside",
+        "basis": "expected interval = observed per-pair cadence (median single-interval gap, capped at cadence_cap x configured); duplicate rows counted once; configured interval recorded alongside",
         "configured_interval_s": configured,
         "threshold": threshold,
-        "rule": {"single_interval_max": SINGLE_INTERVAL_MAX, "edge_jitter": EDGE_JITTER, "min_cadence_gaps": MIN_CADENCE_GAPS},
+        "rule": {"single_interval_max": SINGLE_INTERVAL_MAX, "cadence_cap": CADENCE_CAP, "edge_jitter": EDGE_JITTER,
+                 "min_cadence_gaps": MIN_CADENCE_GAPS},
         "pairs": len(per_pair),
     }
     if not per_pair:
@@ -98,7 +124,9 @@ def completeness_summary(pairs, start, end, configured, threshold=COMPLETENESS_T
     out.update({
         "observed_cadence_s": {"median": round(statistics.median(cadences), 3), "min": min(cadences), "max": max(cadences)},
         "pairs_cadence_fallback": sum(1 for p in per_pair if p["cadence_fallback"]),
+        "pairs_cadence_capped": sum(1 for p in per_pair if p["cadence_capped"]),
         "seen": sum(p["seen"] for p in per_pair),
+        "duplicates": sum(p["duplicates"] for p in per_pair),
         "missing": sum(p["missing"] for p in per_pair),
         "min_completeness": min(ratios),
         "mean_completeness": round(statistics.mean(ratios), 6),

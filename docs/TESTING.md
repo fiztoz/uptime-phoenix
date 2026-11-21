@@ -328,6 +328,12 @@ fail-fast driver with allowlisted per-request evidence and an unpaced 429 contro
 [scripts/BOUNDED_LOAD_DRIVER.md](../scripts/BOUNDED_LOAD_DRIVER.md). Its offline tests use a
 loopback fake hub: `make bounded-load-driver-test`.
 
+**M6 load-window analyzer.** `scripts/m6_load_analyzer.py` scores heartbeat completeness
+against the observed per-pair cadence (capped at 1.1 × configured, duplicates counted once).
+See [scripts/M6_LOAD_ANALYZER.md](../scripts/M6_LOAD_ANALYZER.md). Offline tests:
+`make m6-load-analyzer-test`. CI's `backend` job and `make gate-full` run both this and
+`make bounded-load-driver-test`.
+
 **M8 acceptance matrix (AWS, operator-approved only).**
 - **Run.** `python3 -B scripts/m8_aws_matrix.py <run_dir> <run_id> <arm64_ip> <amd64_ip>`
   drives every §11 case through a locally running hub's REST API.

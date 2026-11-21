@@ -231,6 +231,8 @@ gate-full: ## The complete local pre-merge gate (CI also runs this surface on PR
 	@$(MAKE) --no-print-directory helm-validate
 	@$(MAKE) --no-print-directory action-pins
 	@$(MAKE) --no-print-directory m6-backend-harness-gate
+	@$(MAKE) --no-print-directory bounded-load-driver-test
+	@$(MAKE) --no-print-directory m6-load-analyzer-test
 	@$(MAKE) --no-print-directory release-image-gate
 	@test -x '$(GOVULNCHECK)' || go install golang.org/x/vuln/cmd/govulncheck@latest
 	python3 -B scripts/govulncheck_gate.py --config osv-scanner.toml --scope govulncheck-scope.toml --govulncheck '$(GOVULNCHECK)' ./...
