@@ -93,20 +93,26 @@ func (s *GroupAlertService) OnRegionalEvidence(ctx context.Context, monitorIDs [
 		return
 	}
 	wanted := make(map[int64]struct{}, len(monitorIDs))
+	ids := make([]int64, 0, len(monitorIDs))
 	for _, id := range monitorIDs {
-		if id > 0 {
+		if _, dup := wanted[id]; id > 0 && !dup {
 			wanted[id] = struct{}{}
+			ids = append(ids, id)
 		}
 	}
-	if len(wanted) == 0 {
+	if len(ids) == 0 {
 		return
 	}
-	monitors, err := s.monitors.List(ctx, ports.MonitorFilter{})
+	// Load only the monitors this evidence touched. Every committed replay batch
+	// lands here, so listing the whole inventory made each remote observation
+	// cost O(all monitors): at 1000 monitors that was ~7 full-table reads a
+	// second and about half of all rows the database examined in steady state.
+	monitors, err := s.monitors.List(ctx, ports.MonitorFilter{RestrictToIDs: true, MonitorIDs: ids})
 	if err != nil {
 		slog.Error("group alert: list monitors failed", "error", err)
 		return
 	}
-	matched := make([]*domain.Monitor, 0, len(wanted))
+	matched := make([]*domain.Monitor, 0, len(ids))
 	for _, monitor := range monitors {
 		if monitor == nil {
 			continue
@@ -118,10 +124,21 @@ func (s *GroupAlertService) OnRegionalEvidence(ctx context.Context, monitorIDs [
 	s.evaluateMonitors(ctx, matched)
 }
 
+// anyFiled reports whether at least one monitor sits in a folder. Monitors in
+// no folder can never move one, so the folder tree is not worth loading.
+func anyFiled(monitors []*domain.Monitor) bool {
+	for _, monitor := range monitors {
+		if monitor != nil && monitor.GroupID != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // evaluateMonitors pages each affected folder once. Rollup reads every child,
 // so a second monitor in the same folder cannot change the result of this call.
 func (s *GroupAlertService) evaluateMonitors(ctx context.Context, monitors []*domain.Monitor) {
-	if s == nil || s.groups == nil || len(monitors) == 0 {
+	if s == nil || s.groups == nil || !anyFiled(monitors) {
 		return
 	}
 	all, err := s.groups.ListAll(ctx)
