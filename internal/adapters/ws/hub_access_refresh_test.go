@@ -43,6 +43,7 @@ type accessRefreshHarness struct {
 	bus      *eventbus.MemoryBus
 	repo     *gatedListRepo
 	access   *services.AccessService
+	users    *memory.UserRepo
 	adminID  int64
 	memberID int64
 	granted  int64
@@ -75,7 +76,7 @@ func newAccessRefreshHarness(t *testing.T, gate chan struct{}) *accessRefreshHar
 	if !h.waitReady(2 * time.Second) {
 		t.Fatal("hub never subscribed to the event bus")
 	}
-	return &accessRefreshHarness{hub: h, bus: bus, repo: repo, access: access, adminID: admin.ID, memberID: member.ID, granted: granted.ID}
+	return &accessRefreshHarness{hub: h, bus: bus, repo: repo, access: access, users: users, adminID: admin.ID, memberID: member.ID, granted: granted.ID}
 }
 
 func (a *accessRefreshHarness) connect(t *testing.T, userID int64) *Client {
@@ -213,4 +214,100 @@ func TestAccessInvalidationBurstCoalesces(t *testing.T) {
 	if got[len(got)-1] != EventMonitorList || got[0] != "access.changed" {
 		t.Fatalf("refresh must announce access.changed before its snapshot: %v", got)
 	}
+}
+
+// The skip is only for a client whose scope is still "all monitors". A user
+// who loses all-monitor visibility (admin removed, or CanViewAllMonitors
+// cleared) must get access.changed and a snapshot narrowed to their grants,
+// even though their previous snapshot was all-scope.
+func TestAccessInvalidationAfterLosingAllScopeSendsNarrowedSnapshot(t *testing.T) {
+	for name, demote := range map[string]struct {
+		grant  func(*domain.User)
+		revoke func(*domain.User)
+	}{
+		"admin":              {func(u *domain.User) { u.IsAdmin = true }, func(u *domain.User) { u.IsAdmin = false }},
+		"CanViewAllMonitors": {func(u *domain.User) { u.CanViewAllMonitors = true }, func(u *domain.User) { u.CanViewAllMonitors = false }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			a := newAccessRefreshHarness(t, nil)
+			other := &domain.Monitor{UserID: 1, Name: "not granted", Type: "http", Active: true, Interval: 60}
+			if err := a.repo.Create(ctx, other); err != nil {
+				t.Fatal(err)
+			}
+			user, err := a.users.GetByID(ctx, a.memberID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			demote.grant(user)
+			if err := a.users.Update(ctx, user); err != nil {
+				t.Fatal(err)
+			}
+			c := a.connect(t, a.memberID)
+			a.hub.sendMonitorList(ctx, c)
+			if got := snapshotSizes(t, c, 100*time.Millisecond); len(got) != 1 || got[0] != 2 {
+				t.Fatalf("all-scope connect snapshot sizes = %v, want [2]", got)
+			}
+
+			demote.revoke(user)
+			if err := a.users.Update(ctx, user); err != nil {
+				t.Fatal(err)
+			}
+			a.invalidate(t, a.memberID, 1)
+
+			raw := collectRaw(t, c, 500*time.Millisecond)
+			if len(raw) == 0 || raw[0].Type != "access.changed" {
+				t.Fatalf("losing all-monitor scope sent no access.changed first: %v", raw)
+			}
+			last := raw[len(raw)-1]
+			if last.Type != EventMonitorList || len(last.Monitors) != 1 || last.Monitors[0].ID != a.granted {
+				t.Fatalf("snapshot after losing all-monitor scope = %+v, want only the granted monitor %d", last, a.granted)
+			}
+		})
+	}
+}
+
+type rawFrame struct {
+	Type     string
+	Monitors []struct {
+		ID int64 `json:"id"`
+	}
+}
+
+// collectRaw reads frames (type plus monitor.list members) until quiet passes.
+func collectRaw(t *testing.T, c *Client, quiet time.Duration) []rawFrame {
+	t.Helper()
+	var out []rawFrame
+	for {
+		select {
+		case raw := <-c.Outbound():
+			var frame struct {
+				Type    string          `json:"type"`
+				Payload json.RawMessage `json:"payload"`
+			}
+			if err := json.Unmarshal(raw, &frame); err != nil {
+				t.Fatal(err)
+			}
+			f := rawFrame{Type: frame.Type}
+			if frame.Type == EventMonitorList {
+				if err := json.Unmarshal(frame.Payload, &f.Monitors); err != nil {
+					t.Fatal(err)
+				}
+			}
+			out = append(out, f)
+		case <-time.After(quiet):
+			return out
+		}
+	}
+}
+
+func snapshotSizes(t *testing.T, c *Client, quiet time.Duration) []int {
+	t.Helper()
+	var sizes []int
+	for _, f := range collectRaw(t, c, quiet) {
+		if f.Type == EventMonitorList {
+			sizes = append(sizes, len(f.Monitors))
+		}
+	}
+	return sizes
 }
