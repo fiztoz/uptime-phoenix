@@ -107,7 +107,7 @@ for the latest executed results and outstanding acceptance checks, and the
 
 `make gate-full` does **not** include the MariaDB repository contract (needs
 `TEST_MARIADB_DSN` against a real database) or external UAT/load campaigns.
-CI runs the parent repository contract through five isolated `repository-race-N`
+CI runs the parent repository contract through six isolated `repository-race-N`
 jobs (each owns a `phoenix_ci` throwaway DB). The required `mariadb-contract`
 check verifies their complete coverage. Use §1.1 for external campaigns and §2.6
 for disposable database setup.
@@ -321,7 +321,7 @@ go test -race -count=1 ./internal/bootstrap -run 'HostAction|AuthorizedProbeDisp
 python3 -B -m unittest scripts/test_m8_aws_acceptance.py
 ```
 
-The full unsharded repository package now needs `-timeout 3600s` (or run sharded via `scripts/repository_test_shards.py --count 5`, as CI does with `-timeout 40m` per shard).
+The full unsharded repository package now needs `-timeout 3600s` (or run sharded via `scripts/repository_test_shards.py --count 6`, as CI does with `-timeout 40m` per shard).
 
 **Bounded load driver (`single-probe-N`, #270).** `scripts/bounded_load_driver.py` is a paced,
 fail-fast driver with allowlisted per-request evidence and an unpaced 429 control. See
@@ -1053,7 +1053,7 @@ trust refusal. No real-host installer, enrollment or config activation is proved
 The expensive `internal/adapters/repository` package exceeded the former single
 40-minute CI test-binary budget. CI now discovers its **compiled** top-level test,
 example and fuzz-seed names, sorts them, and distributes whole parents round-robin
-across five runners (`--count 5`, the script default). Every selected parent runs **all** its subtests with `-race`,
+across six runners (`--count 6`, the script default; five until shard 0 reached the 50-minute job limit). Every selected parent runs **all** its subtests with `-race`,
 `-count=1` and the unchanged `-timeout 40m` per shard (while unsharded full-suite runs in `make gate-full` and `scripts/m6_dual_engine_gate.py` use `-timeout 3600s`; avoid running an unsharded `Operative|Cutover|AggregateStandby|AlertDeliveryGate|Delivery|Preparation|Probe` mega-regex with `-timeout 40m`, as it selects 92 of 236 top-level parents and can hit the 40m ceiling during `TestLocalDeliveryConfigContract` (#224)). Do not split assertions or skip slow
 cases to meet the budget. The `backend` check still builds, vets, lints, scans
 vulnerabilities and runs every other Go package, including repository subpackages.
@@ -1066,20 +1066,20 @@ extra, duplicate or wrong-commit reports, incomplete parent execution, malformed
 Go events, unrecognized skips, any MariaDB skip and missing exact real-engine
 leaves from the strict gate. It compares reports to a freshly compiled inventory.
 Coverage artifacts contain only names, timings and commit provenance—not test
-output, settings or DSNs. Release gating requires all five expanded matrix check
+output, settings or DSNs. Release gating requires all six expanded matrix check
 names **as well as** the stable aggregate and other required checks.
 
 ```bash
 # Inspect the exhaustive plan without connecting to a database:
-python3 -B scripts/repository_test_shards.py plan --count 5
+python3 -B scripts/repository_test_shards.py plan --count 6
 # Offline parser, shard coverage and release-gate regressions:
 make m6-backend-harness-gate release-image-gate
 # Execute one shard ONLY against a disposable DB (never print its DSN):
 : "${TEST_MARIADB_DSN:?Set a dedicated disposable MariaDB test database}"
-python3 -B scripts/repository_test_shards.py run --index 0 --count 5 \
+python3 -B scripts/repository_test_shards.py run --index 0 --count 6 \
   --source-sha "$(git rev-parse HEAD)" --report tmp/repository-shard-0.json
-# After all five reports from this exact commit:
-python3 -B scripts/repository_test_shards.py verify --count 5 \
+# After all six reports from this exact commit:
+python3 -B scripts/repository_test_shards.py verify --count 6 \
   --source-sha "$(git rev-parse HEAD)" --reports tmp/repository-coverage
 ```
 
