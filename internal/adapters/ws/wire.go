@@ -584,6 +584,7 @@ func (h *Hub) sendMonitorList(ctx context.Context, client *Client) {
 		return
 	}
 	all, visible := h.visibilityFor(ctx, client)
+	client.snapshotAll.Store(all)
 	if !all && len(visible) == 0 {
 		// Nothing to show. Still send an explicit empty list so the dashboard
 		// leaves its loading state instead of hanging on "connecting".

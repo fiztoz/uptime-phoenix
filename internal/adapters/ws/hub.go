@@ -140,6 +140,16 @@ type Hub struct {
 	// which happens once the bus closes its subscriber channels on shutdown.
 	listenDone chan struct{}
 	statsDone  chan struct{}
+
+	// accessTrigger, accessPending and accessDone run access refreshes (an
+	// access.changed frame plus a fresh monitor.list) on accessWorker instead
+	// of the fan-out loop. accessPending holds the user ids whose grants
+	// changed since the worker last ran, so a burst of invalidations for one
+	// user costs one snapshot rebuild, not one per invalidation.
+	accessTrigger chan struct{}
+	accessMu      sync.Mutex
+	accessPending map[int64]struct{}
+	accessDone    chan struct{}
 	// statsDebounce is settable so tests do not have to sleep out the production
 	// window. Zero means "use statsDebounce".
 	statsWindow time.Duration
@@ -160,6 +170,12 @@ type Client struct {
 	// is in send() is a data race (and used to panic the process). send()
 	// still recover()s if a test closes the channel.
 	closed atomic.Bool
+
+	// snapshotAll records whether the last monitor.list sent to this client was
+	// built from an all-monitors scope (admin or can_view_all_monitors). Such a
+	// scope does not depend on grants, so a grant change that leaves the client
+	// with an all-monitors scope does not need a new snapshot.
+	snapshotAll atomic.Bool
 
 	visMu      sync.Mutex
 	visAll     bool           // true for admins / can_view_all_monitors: every monitor, no id set needed
@@ -191,6 +207,9 @@ func NewHub(
 		statsTrigger:  make(chan struct{}, 1),
 		listenDone:    make(chan struct{}),
 		statsDone:     make(chan struct{}),
+		accessTrigger: make(chan struct{}, 1),
+		accessPending: make(map[int64]struct{}),
+		accessDone:    make(chan struct{}),
 	}
 	// Prefer the batched lookup when the repository offers it. Both production
 	// adapters do (they carry compile-time assertions); the fallback exists for
@@ -200,6 +219,7 @@ func NewHub(
 	}
 	go h.listen()
 	go h.statsWorker()
+	go h.accessWorker()
 	return h
 }
 
@@ -272,6 +292,7 @@ func (h *Hub) listen() {
 	// sender on statsTrigger, so closing it here is safe.
 	defer close(h.listenDone)
 	defer close(h.statsTrigger)
+	defer close(h.accessTrigger)
 
 	for {
 		var (
@@ -285,16 +306,14 @@ func (h *Hub) listen() {
 			}
 			if fields, ok := ev.Payload.(map[string]any); ok && h.access != nil {
 				userID := extractInt64(fields, "user_id")
+				// Dropping the cached scope stays inline, so the very next
+				// event is already filtered against the new grants. The
+				// snapshot rebuild does not: it reads the whole visible
+				// inventory, and running it here once per invalidation held
+				// up every heartbeat behind it (see accessWorker).
 				h.access.ClearCachedPermissions(userID)
 				h.invalidateVisibility()
-				for _, client := range h.snapshotClients() {
-					if client.UserID == userID {
-						h.send(client, []byte(`{"type":"access.changed","payload":{}}`))
-						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-						h.sendMonitorList(ctx, client)
-						cancel()
-					}
-				}
+				h.requestAccessRefresh(userID)
 			}
 		case ev, ok = <-commandCh:
 			if !ok {
@@ -386,6 +405,76 @@ func (h *Hub) statsWorker() {
 
 		h.emitStatsUpdate()
 	}
+}
+
+// requestAccessRefresh queues a snapshot refresh for userID's clients without
+// waiting for it. Like requestStatsUpdate it never blocks the fan-out loop.
+func (h *Hub) requestAccessRefresh(userID int64) {
+	h.accessMu.Lock()
+	h.accessPending[userID] = struct{}{}
+	h.accessMu.Unlock()
+	select {
+	case h.accessTrigger <- struct{}{}:
+	default:
+	}
+}
+
+// accessWorker sends access.changed and a fresh monitor.list to the clients of
+// every user whose grants changed, off the fan-out loop.
+//
+// Each monitor create writes a creator grant, and each grant publishes
+// access.invalidate. The fan-out loop used to rebuild and send the full
+// monitor.list inline for every one of them: during the M6 F2 run, 1,000
+// creates queued 1,000 rebuilds of a 1,000-monitor snapshot, which kept the hub
+// CPU near 100 % for about ten minutes after the creates finished and held
+// WebSocket fan-out behind each rebuild. Now the loop only records the user id;
+// this worker waits one debounce window, takes every pending user at once and
+// refreshes each user's clients a single time.
+func (h *Hub) accessWorker() {
+	defer close(h.accessDone)
+	for range h.accessTrigger {
+		window := h.statsWindow
+		if window <= 0 {
+			window = statsDebounce
+		}
+		timer := time.NewTimer(window)
+		<-timer.C
+		timer.Stop()
+
+		h.accessMu.Lock()
+		pending := h.accessPending
+		h.accessPending = make(map[int64]struct{})
+		h.accessMu.Unlock()
+		// A trigger that arrived during the window is covered by this pass.
+		select {
+		case <-h.accessTrigger:
+		default:
+		}
+
+		for _, client := range h.snapshotClients() {
+			if _, ok := pending[client.UserID]; ok {
+				h.refreshAccess(client)
+			}
+		}
+	}
+}
+
+// refreshAccess tells one client its access changed and resends its snapshot.
+//
+// A client whose last snapshot came from an all-monitors scope, and whose scope
+// is still all-monitors, is skipped: grants do not change what such a user can
+// see, so the refresh would only wipe the dashboard and resend the same list.
+// That is the common case, because an admin's own creates publish the
+// invalidations. Any other client, including one that lost or gained the
+// all-monitors scope, gets the refresh.
+func (h *Hub) refreshAccess(client *Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if all, _ := h.visibilityFor(ctx, client); all && client.snapshotAll.Load() {
+		return
+	}
+	h.send(client, []byte(`{"type":"access.changed","payload":{}}`))
+	h.sendMonitorList(ctx, client)
 }
 
 // broadcastMonitorUpdate resolves the real status for a monitor.update event

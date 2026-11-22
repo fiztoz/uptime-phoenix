@@ -54,7 +54,7 @@ func TestHubStopsQuietlyWhenBusCloses(t *testing.T) {
 	}
 }
 
-// The fan-out goroutine and the stats worker must both exit once the bus is
+// The fan-out goroutine, the stats worker and the access worker must all exit once the bus is
 // closed, instead of spinning (listen) or leaking (statsWorker).
 func TestHubGoroutinesExitWhenBusCloses(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&syncBuffer{}, nil))
@@ -66,7 +66,7 @@ func TestHubGoroutinesExitWhenBusCloses(t *testing.T) {
 
 	bus.Close()
 
-	for name, done := range map[string]<-chan struct{}{"listen": h.listenDone, "statsWorker": h.statsDone} {
+	for name, done := range map[string]<-chan struct{}{"listen": h.listenDone, "statsWorker": h.statsDone, "accessWorker": h.accessDone} {
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
