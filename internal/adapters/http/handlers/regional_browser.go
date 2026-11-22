@@ -138,6 +138,12 @@ func (l *healthLane) reset() {
 // health budget. Under load the budget took seconds, and that wait became the
 // WebSocket fan-out latency. Now the heartbeat lane drains every tick no matter
 // how long health takes.
+//
+// The two lanes are independent, so for one monitor a monitor.probe.heartbeat
+// frame and a monitor.health frame can reach a client in either order. The
+// browser does not rely on that order: monitor.health is accepted only by
+// projection_version and as_of, and heartbeat rows are merged by observation
+// time (see docs/multi-region/PROTOCOL.md section 8).
 func (p *RegionalBrowserPublisher) Run(ctx context.Context) {
 	beats := p.bus.Subscribe("heartbeat")
 	changes := p.bus.Subscribe("monitor.update")
