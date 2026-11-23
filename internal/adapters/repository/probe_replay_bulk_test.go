@@ -217,6 +217,12 @@ func runMixedObservationReplay(t *testing.T, engine string, at time.Time, perEve
 	repository.SetReplayPerEventForTest(r.store, perEvent)
 	monitors, revision := bulkReplayMonitors(t, r, 3)
 	a, b, c := monitors[0], monitors[1], monitors[2]
+	// Assignment setup marks dirty buckets at the wall-clock minute it runs.
+	// The two compared runs are set up at different moments and can straddle
+	// a minute, so only the buckets the batches mark are compared.
+	if _, err := r.f.db.ExecContext(t.Context(), "DELETE FROM probe_dirty_buckets"); err != nil {
+		t.Fatal(err)
+	}
 	tls := func(e domain.ProbeReplayEvent, days int) domain.ProbeReplayEvent {
 		e.Observation.TLS = &domain.TLSObservation{NotAfter: at.Add(time.Duration(days) * 24 * time.Hour).Truncate(time.Second), DaysRemaining: int64(days), Issuer: "Fixture CA"}
 		return e
