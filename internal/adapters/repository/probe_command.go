@@ -235,6 +235,16 @@ func (s *ProbeCommandStore) ClaimCommand(ctx context.Context, session domain.Pro
 		// the kind filter below keeps it out of this claim entirely.
 		kinds = append(kinds, deliveryPrepareKind)
 	}
+	// Each live session polls here four times a second and nearly every poll
+	// finds nothing. Skip the serializable session lock when this probe has no
+	// unsent command at all: replay ingest holds the probe row lock for its whole
+	// transaction, and an idle poll parked behind it would keep a pooled
+	// connection that control-plane requests need. This read is only a hint; a
+	// command issued after it is claimed on the next poll, and any pending row
+	// takes the full locked path below.
+	if pending, err := s.hasUnsentCommand(ctx, session.ProbeID); err != nil || !pending {
+		return nil, probeCommandError(ctx, err)
+	}
 	var out *domain.ProtectedProbeCommand
 	err := runConfigAuthorityTx(ctx, s.db, func(ctx context.Context, tx bun.Tx) error {
 		out = nil
@@ -279,6 +289,12 @@ func (s *ProbeCommandStore) ClaimCommand(ctx context.Context, session domain.Pro
 		return nil, probeCommandError(ctx, err)
 	}
 	return out, nil
+}
+
+// hasUnsentCommand is a lock-free read over idx_probe_commands_due. It ignores
+// kind, stream and due time so it can only over-report work, never hide it.
+func (s *ProbeCommandStore) hasUnsentCommand(ctx context.Context, probeID string) (bool, error) {
+	return s.db.NewSelect().Table("probe_commands").Where("probe_id = ? AND remote_confirmed = ? AND status = ? AND protected_payload IS NOT NULL", probeID, false, "pending").Exists(ctx)
 }
 
 // CompleteCommand records only a durable source result received on current
