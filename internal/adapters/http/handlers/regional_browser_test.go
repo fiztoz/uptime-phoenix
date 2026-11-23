@@ -3,8 +3,12 @@ package handlers
 import (
 	"context"
 	"slices"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/fiztoz/uptime-phoenix/internal/adapters/eventbus"
+	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
 )
 
 type laneRecorder struct {
@@ -33,24 +37,96 @@ func idsUpTo(n int64) []int64 {
 }
 
 // A burst of invalidations (a probe's whole assignment set) must not delay
-// heartbeat fan-out behind the expensive health rebuilds. Every queued
-// monitor's heartbeat goes out on the first tick; health keeps its budget.
+// heartbeat fan-out behind the expensive health rebuilds. This drives Run, so
+// it fails if health is drained on the heartbeat goroutine again: new
+// invalidations that arrive just as a health tick starts must still go out
+// within one heartbeat tick, while the health backlog is far from done.
 func TestRegionalBrowser_HeartbeatLaneDoesNotWaitForHealthBacklog(t *testing.T) {
-	rec := &laneRecorder{}
-	p := newLanePublisher(rec, time.Time{})
-	beatsQ, healthQ := newMonitorQueue(), newMonitorQueue()
-	for _, id := range idsUpTo(200) {
-		beatsQ.push(id)
-		healthQ.push(id)
+	const slowHealth = 25 * time.Millisecond // one health tick = 32 x 25 ms = 800 ms
+	bus := eventbus.NewMemoryBus()
+	t.Cleanup(bus.Close)
+	p := NewRegionalBrowserPublisher(nil, nil, nil, bus, nil, func() int { return 1 })
+	var mu sync.Mutex
+	healthCalls := 0
+	beatAt := make(map[int64]time.Time)
+	p.publishHealthFn = func(_ context.Context, _ int64, _ map[string]string) time.Time {
+		mu.Lock()
+		healthCalls++
+		mu.Unlock()
+		time.Sleep(slowHealth)
+		return time.Time{}
 	}
-
-	p.drain(context.Background(), time.Now(), beatsQ, healthQ, map[int64]time.Time{}, map[string]string{})
-
-	if !slices.Equal(rec.beats, idsUpTo(200)) {
-		t.Fatalf("heartbeat lane published %d monitors on the first tick, want all 200 in order", len(rec.beats))
+	p.publishBeatsFn = func(_ context.Context, id int64, _ map[string]string) {
+		mu.Lock()
+		if _, seen := beatAt[id]; !seen {
+			beatAt[id] = time.Now()
+		}
+		mu.Unlock()
 	}
-	if len(rec.health) != browserHealthBudget || healthQ.len() != 200-browserHealthBudget {
-		t.Fatalf("health lane ran %d (left %d), want budget %d", len(rec.health), healthQ.len(), browserHealthBudget)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); p.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	invalidate := func(id int64) {
+		_ = bus.Publish(context.Background(), ports.Event{Type: "monitor.regional.invalidate", Payload: map[string]any{"monitor_id": id}})
+	}
+	calls := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return healthCalls
+	}
+	beatSeen := func(id int64) (time.Time, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		at, ok := beatAt[id]
+		return at, ok
+	}
+	waitFor := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s", what)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	waitFor("publisher to subscribe", func() bool {
+		invalidate(1)
+		_, ok := beatSeen(1)
+		return ok
+	})
+	// 200 monitors of health backlog: about seven health ticks.
+	for id := int64(2); id <= 200; id++ {
+		invalidate(id)
+	}
+	// Publish the next burst right as a later health tick starts its first
+	// rebuild, so a heartbeat lane that waited for health would wait ~775 ms.
+	waitFor("a health tick to start", func() bool {
+		n := calls()
+		return n > 32 && n%browserHealthBudget == 1
+	})
+	sent := time.Now()
+	for id := int64(1001); id <= 1050; id++ {
+		invalidate(id)
+	}
+	waitFor("heartbeats for the second burst", func() bool {
+		_, ok := beatSeen(1050)
+		return ok
+	})
+	remaining := 200 - calls()
+	for id := int64(1001); id <= 1050; id++ {
+		at, ok := beatSeen(id)
+		if !ok {
+			t.Fatalf("heartbeat for monitor %d never published", id)
+		}
+		if waited := at.Sub(sent); waited > 500*time.Millisecond {
+			t.Fatalf("heartbeat for monitor %d published %v after its invalidation behind the health backlog; want under 500 ms", id, waited)
+		}
+	}
+	if remaining <= 0 {
+		t.Fatalf("health backlog already drained; the test no longer overlaps the lanes")
 	}
 }
 
@@ -59,13 +135,13 @@ func TestRegionalBrowser_HeartbeatLaneDoesNotWaitForHealthBacklog(t *testing.T) 
 func TestRegionalBrowser_HealthLaneIsFIFOAcrossTicks(t *testing.T) {
 	rec := &laneRecorder{}
 	p := newLanePublisher(rec, time.Time{})
-	beatsQ, healthQ := newMonitorQueue(), newMonitorQueue()
+	health := newHealthLane()
 	for _, id := range idsUpTo(100) {
-		healthQ.push(id)
+		health.push(id)
 	}
-	healthQ.push(5) // already queued: keeps its original place
+	health.push(5) // already queued: keeps its original place
 	for tick := 0; tick < 4; tick++ {
-		p.drain(context.Background(), time.Now(), beatsQ, healthQ, map[int64]time.Time{}, map[string]string{})
+		p.drainHealth(context.Background(), time.Now(), health)
 	}
 	if !slices.Equal(rec.health, idsUpTo(100)) {
 		t.Fatalf("health order = %v, want 1..100 once each", rec.health)
@@ -79,10 +155,11 @@ func TestRegionalBrowser_FreshnessRefreshOnlyRunsHealthLane(t *testing.T) {
 	rec := &laneRecorder{}
 	now := time.Now()
 	p := newLanePublisher(rec, now.Add(time.Minute))
-	beatsQ, healthQ := newMonitorQueue(), newMonitorQueue()
-	next := map[int64]time.Time{7: now.Add(-time.Second), 3: now.Add(-2 * time.Second), 9: now.Add(time.Hour)}
+	health := newHealthLane()
+	health.next = map[int64]time.Time{7: now.Add(-time.Second), 3: now.Add(-2 * time.Second), 9: now.Add(time.Hour)}
+	next := health.next
 
-	p.drain(context.Background(), now, beatsQ, healthQ, next, map[string]string{})
+	p.drainHealth(context.Background(), now, health)
 
 	if !slices.Equal(rec.health, []int64{3, 7}) {
 		t.Fatalf("refreshed %v, want the two expired deadlines oldest first [3 7]", rec.health)
@@ -113,61 +190,89 @@ func TestMonitorQueue_BoundedAndDeduplicated(t *testing.T) {
 	}
 }
 
-// A slow health rebuild (several queries per monitor under load) must not hold
-// back a heartbeat queued in the same tick. Every queued heartbeat is published
-// before the first health rebuild starts, so heartbeat latency does not include
-// any health cost.
-func TestRegionalBrowser_HeartbeatsPublishBeforeSlowHealth(t *testing.T) {
-	const slowHealth = 25 * time.Millisecond
-	const monitors = 40
-	type step struct {
-		lane string
-		id   int64
-		at   time.Duration
-	}
-	var log []step
-	start := time.Now()
-	p := NewRegionalBrowserPublisher(nil, nil, nil, nil, nil, func() int { return 1 })
-	p.publishHealthFn = func(_ context.Context, id int64, _ map[string]string) time.Time {
-		log = append(log, step{"health", id, time.Since(start)})
+// The heartbeat lane must not wait for a health lane that is already running.
+// drain used to run both lanes on Run's goroutine, so an invalidation that
+// arrived while a tick was rebuilding health waited for the rest of that
+// tick's budget (32 rebuilds of several queries each) before its heartbeat
+// went out. On the M6 F2 hub that wait was the WebSocket fan-out p95: 2.9 s in
+// F4b after warm-up and 1.97 s in F4c.
+func TestRegionalBrowser_HeartbeatDoesNotWaitForRunningHealthLane(t *testing.T) {
+	const slowHealth = 40 * time.Millisecond
+	bus := eventbus.NewMemoryBus()
+	t.Cleanup(bus.Close)
+	p := NewRegionalBrowserPublisher(nil, nil, nil, bus, nil, func() int { return 1 })
+	var mu sync.Mutex
+	healthCalls := 0
+	beatAt := make(map[int64]time.Time)
+	p.publishHealthFn = func(_ context.Context, _ int64, _ map[string]string) time.Time {
+		mu.Lock()
+		healthCalls++
+		mu.Unlock()
 		time.Sleep(slowHealth)
 		return time.Time{}
 	}
 	p.publishBeatsFn = func(_ context.Context, id int64, _ map[string]string) {
-		log = append(log, step{"beat", id, time.Since(start)})
+		mu.Lock()
+		if _, seen := beatAt[id]; !seen {
+			beatAt[id] = time.Now()
+		}
+		mu.Unlock()
 	}
-	beatsQ, healthQ := newMonitorQueue(), newMonitorQueue()
-	for _, id := range idsUpTo(monitors) {
-		// Invalidations feed both lanes (Run's queue), health first here so
-		// arrival order cannot explain the result.
-		healthQ.push(id)
-		beatsQ.push(id)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); p.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	invalidate := func(id int64) {
+		_ = bus.Publish(context.Background(), ports.Event{Type: "monitor.regional.invalidate", Payload: map[string]any{"monitor_id": id}})
 	}
-
-	p.drain(context.Background(), time.Now(), beatsQ, healthQ, map[int64]time.Time{}, map[string]string{})
-
-	var beats []int64
-	firstHealth := -1
-	for i, s := range log {
-		switch s.lane {
-		case "beat":
-			if firstHealth >= 0 {
-				t.Fatalf("heartbeat for monitor %d published after %d slow health rebuild(s) at %v; want every heartbeat before health", s.id, i-firstHealth, s.at)
+	beatSeen := func(id int64) (time.Time, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		at, ok := beatAt[id]
+		return at, ok
+	}
+	waitFor := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s", what)
 			}
-			beats = append(beats, s.id)
-			if s.at >= slowHealth {
-				t.Fatalf("heartbeat for monitor %d published at %v, after one health rebuild's cost %v", s.id, s.at, slowHealth)
-			}
-		case "health":
-			if firstHealth < 0 {
-				firstHealth = i
-			}
+			time.Sleep(2 * time.Millisecond)
 		}
 	}
-	if !slices.Equal(beats, idsUpTo(monitors)) {
-		t.Fatalf("published heartbeats %v, want 1..%d in order", beats, monitors)
+	// Run subscribes asynchronously; repeat the first invalidation until the
+	// publisher has seen it.
+	waitFor("publisher to subscribe", func() bool {
+		invalidate(1)
+		_, ok := beatSeen(1)
+		return ok
+	})
+	waitFor("first health rebuild to finish", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return healthCalls >= 1
+	})
+
+	// Two ticks' worth of health work (64 monitors at 40 ms each).
+	for id := int64(2); id <= 65; id++ {
+		invalidate(id)
 	}
-	if got := len(log) - len(beats); got != browserHealthBudget {
-		t.Fatalf("health rebuilt %d monitors, want budget %d", got, browserHealthBudget)
+	waitFor("health lane to start on the burst", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return healthCalls >= 3
+	})
+
+	sent := time.Now()
+	invalidate(1000)
+	waitFor("heartbeat for monitor 1000", func() bool {
+		_, ok := beatSeen(1000)
+		return ok
+	})
+	at, _ := beatSeen(1000)
+	if waited := at.Sub(sent); waited > 500*time.Millisecond {
+		t.Fatalf("heartbeat published %v after its invalidation while the health lane was busy; want under 500 ms (one tick plus slack)", waited)
 	}
 }

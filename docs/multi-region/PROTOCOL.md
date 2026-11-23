@@ -680,6 +680,13 @@ Every payload containing a monitor ID is filtered through the existing AccessSer
 
 Use monotonically increasing `projection_version` to invalidate existing dashboard/Insights/navigation caches. The browser ignores older versions and resynchronizes after reconnect/gap. Batch regional updates per animation frame or bounded interval; never introduce a full-monitor-list query for every regional heartbeat. Tests must retain baseline query-count budgets.
 
+There is no ordering guarantee between different event types for the same
+monitor. In particular `monitor.probe.heartbeat` and `monitor.health` come from
+separate publisher lanes and can arrive in either order (a health rebuild can
+lag the heartbeat that caused it by one or more health ticks). Clients must
+order `monitor.health` by `projection_version`/`as_of` and heartbeat rows by
+their observation `time`, never by arrival.
+
 Decimal versions are compared as integers without Number precision loss; equal
 versions use `as_of` to reject older freshness snapshots. API replicas publish
 from bounded queues after committed ingestion, with freshness expiry refreshes.

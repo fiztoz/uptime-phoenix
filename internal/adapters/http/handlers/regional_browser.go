@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/fiztoz/uptime-phoenix/internal/core/ports"
@@ -15,13 +16,14 @@ import (
 // browser Views. Each API replica emits only to its own hub. No full monitor
 // inventory query runs for a heartbeat, and all queued work is bounded.
 //
-// Work runs on two lanes. The heartbeat lane reads only the latest persisted
-// samples and emits monitor.probe.heartbeat; it drains completely every tick.
-// The health lane rebuilds monitor.health (current health, 24 h coverage and
-// probe diagnostics), which costs several queries per monitor, so it keeps a
-// per-tick budget. Both lanes are FIFO, so the oldest invalidation goes first.
-// The heartbeat lane used to wait behind the health rebuild of every queued
-// monitor, which made heartbeat fan-out latency equal the health backlog.
+// Work runs on two lanes, each on its own goroutine. The heartbeat lane reads
+// only the latest persisted samples and emits monitor.probe.heartbeat; it
+// drains completely every tick. The health lane rebuilds monitor.health
+// (current health, 24 h coverage and probe diagnostics), which costs several
+// queries per monitor, so it keeps a per-tick budget. Both lanes are FIFO, so
+// the oldest invalidation goes first. The heartbeat lane used to wait behind
+// health rebuilds, which made heartbeat fan-out latency equal the health
+// backlog.
 type RegionalBrowserPublisher struct {
 	regional     *services.MonitorRegionalService
 	fleet        *services.ProbeFleetService
@@ -94,8 +96,54 @@ func (p *RegionalBrowserPublisher) OnRegionalEvidence(ctx context.Context, ids [
 	}
 }
 
-// Run owns one bounded queue until the application context closes. Expiry
-// refreshes allow UNKNOWN to arrive even when a disconnected source is silent.
+// healthLane is the health lane's queue and freshness deadlines. Run adds
+// work to it; runHealth is the only goroutine that rebuilds health.
+type healthLane struct {
+	mu    sync.Mutex
+	queue *monitorQueue
+	next  map[int64]time.Time
+}
+
+func newHealthLane() *healthLane {
+	return &healthLane{queue: newMonitorQueue(), next: make(map[int64]time.Time)}
+}
+
+func (l *healthLane) push(id int64) {
+	l.mu.Lock()
+	l.queue.push(id)
+	l.mu.Unlock()
+}
+
+// tracked reports whether id already has a freshness deadline.
+func (l *healthLane) tracked(id int64) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_, ok := l.next[id]
+	return ok
+}
+
+func (l *healthLane) reset() {
+	l.mu.Lock()
+	l.queue.reset()
+	clear(l.next)
+	l.mu.Unlock()
+}
+
+// Run owns the heartbeat lane until the application context closes, and
+// starts the health lane on its own goroutine. Expiry refreshes allow UNKNOWN
+// to arrive even when a disconnected source is silent.
+//
+// The lanes used to share this goroutine, so a heartbeat whose invalidation
+// arrived while a tick was rebuilding health waited for the rest of that tick's
+// health budget. Under load the budget took seconds, and that wait became the
+// WebSocket fan-out latency. Now the heartbeat lane drains every tick no matter
+// how long health takes.
+//
+// The two lanes are independent, so for one monitor a monitor.probe.heartbeat
+// frame and a monitor.health frame can reach a client in either order. The
+// browser does not rely on that order: monitor.health is accepted only by
+// projection_version and as_of, and heartbeat rows are merged by observation
+// time (see docs/multi-region/PROTOCOL.md section 8).
 func (p *RegionalBrowserPublisher) Run(ctx context.Context) {
 	beats := p.bus.Subscribe("heartbeat")
 	changes := p.bus.Subscribe("monitor.update")
@@ -106,13 +154,18 @@ func (p *RegionalBrowserPublisher) Run(ctx context.Context) {
 	fleetTick := time.NewTicker(5 * time.Second)
 	defer fleetTick.Stop()
 	beatsQ := newMonitorQueue()
-	healthQ := newMonitorQueue()
-	next := make(map[int64]time.Time)
+	health := newHealthLane()
 	last := make(map[string]string)
+	healthDone := make(chan struct{})
+	go func() {
+		defer close(healthDone)
+		p.runHealth(ctx, health)
+	}()
+	defer func() { <-healthDone }()
 	queue := func(event ports.Event) {
 		id := browserMonitorID(event.Payload)
 		beatsQ.push(id)
-		healthQ.push(id)
+		health.push(id)
 	}
 	for {
 		select {
@@ -133,7 +186,7 @@ func (p *RegionalBrowserPublisher) Run(ctx context.Context) {
 				return
 			}
 			id := browserMonitorID(event.Payload)
-			if _, tracked := next[id]; !tracked {
+			if !health.tracked(id) {
 				queue(event)
 			}
 		case event, ok := <-invalidations:
@@ -141,15 +194,13 @@ func (p *RegionalBrowserPublisher) Run(ctx context.Context) {
 				return
 			}
 			queue(event)
-		case now := <-tick.C:
+		case <-tick.C:
 			if p.active() == 0 {
 				beatsQ.reset()
-				healthQ.reset()
-				clear(next)
 				clear(last)
 				continue
 			}
-			p.drain(ctx, now, beatsQ, healthQ, next, last)
+			p.drainBeats(ctx, beatsQ, last)
 			if len(last) > 50000 {
 				clear(last)
 			}
@@ -163,40 +214,71 @@ func (p *RegionalBrowserPublisher) Run(ctx context.Context) {
 	}
 }
 
-// drain runs one tick. Expired freshness deadlines only re-run the health
-// lane: a heartbeat row cannot change without new evidence, which arrives as an
-// invalidation. The heartbeat lane drains first and completely; the health
-// lane then spends at most browserHealthBudget rebuilds.
-func (p *RegionalBrowserPublisher) drain(ctx context.Context, now time.Time, beatsQ, healthQ *monitorQueue, next map[int64]time.Time, last map[string]string) {
-	due := make([]int64, 0)
-	for id, at := range next {
-		if !now.Before(at) {
-			due = append(due, id)
+// runHealth rebuilds health on its own ticker until ctx closes.
+func (p *RegionalBrowserPublisher) runHealth(ctx context.Context, lane *healthLane) {
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-tick.C:
+			if p.active() == 0 {
+				lane.reset()
+				continue
+			}
+			p.drainHealth(ctx, now, lane)
 		}
 	}
-	// Oldest deadline first, so refreshes are as fair as invalidations.
-	slices.SortFunc(due, func(a, b int64) int { return next[a].Compare(next[b]) })
-	for _, id := range due {
-		delete(next, id)
-		healthQ.push(id)
-	}
+}
+
+// drainBeats publishes every queued heartbeat. A heartbeat row cannot change
+// without new evidence, which arrives as an invalidation, so this lane has no
+// deadlines and no budget.
+func (p *RegionalBrowserPublisher) drainBeats(ctx context.Context, beatsQ *monitorQueue, last map[string]string) {
 	for beatsQ.len() > 0 {
 		id, _ := beatsQ.pop()
 		readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		p.publishBeatsFn(readCtx, id, last)
 		cancel()
 	}
+}
+
+// drainHealth runs one health tick: expired freshness deadlines join the
+// queue, oldest first, then at most browserHealthBudget monitors are rebuilt.
+func (p *RegionalBrowserPublisher) drainHealth(ctx context.Context, now time.Time, lane *healthLane) {
+	lane.mu.Lock()
+	due := make([]int64, 0)
+	for id, at := range lane.next {
+		if !now.Before(at) {
+			due = append(due, id)
+		}
+	}
+	// Oldest deadline first, so refreshes are as fair as invalidations.
+	slices.SortFunc(due, func(a, b int64) int { return lane.next[a].Compare(lane.next[b]) })
+	for _, id := range due {
+		delete(lane.next, id)
+		lane.queue.push(id)
+	}
+	lane.mu.Unlock()
 	for processed := 0; processed < browserHealthBudget; processed++ {
-		id, ok := healthQ.pop()
+		lane.mu.Lock()
+		id, ok := lane.queue.pop()
+		lane.mu.Unlock()
 		if !ok {
 			break
 		}
 		readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		at := p.publishHealthFn(readCtx, id, last)
+		at := p.publishHealthFn(readCtx, id, nil)
 		cancel()
-		if !at.IsZero() && len(next) < browserQueueLimit {
-			next[id] = at
+		if at.IsZero() {
+			continue
 		}
+		lane.mu.Lock()
+		if len(lane.next) < browserQueueLimit {
+			lane.next[id] = at
+		}
+		lane.mu.Unlock()
 	}
 }
 
