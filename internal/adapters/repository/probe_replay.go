@@ -44,7 +44,8 @@ type ProbeReplayStore struct {
 	commandCodec     ports.ProbeAcknowledgementCodec
 	configFacts      replayConfigCache
 	// perEventReplay forces observation batches through the per-event path
-	// mixed batches use. Tests set it to compare both paths.
+	// mixed batches use. Tests set it to compare both paths; it is not the
+	// pre-change baseline (assignment locks and dirty marking stay bulk).
 	perEventReplay bool
 }
 

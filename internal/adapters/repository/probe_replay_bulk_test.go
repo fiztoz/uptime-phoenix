@@ -268,7 +268,11 @@ func runMixedObservationReplay(t *testing.T, engine string, at time.Time, perEve
 
 // TestObservationReplayBatchedMatchesPerEvent applies the same mixed batches
 // through the per-event path and the batched path and requires identical
-// outcomes and stored rows.
+// outcomes and stored rows. The per-event path here is not the pre-change
+// baseline: it still takes the bulk assignment lock and marks dirty buckets
+// with one multi-row statement per event (639 statements for the 48-event
+// shape, where main sent 793). It isolates the deferred current-state and
+// dirty-bucket writes, which is what this test compares.
 func TestObservationReplayBatchedMatchesPerEvent(t *testing.T) {
 	for _, engine := range []string{"sqlite", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
