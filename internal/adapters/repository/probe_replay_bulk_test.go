@@ -34,10 +34,18 @@ func (c *replayStatementCounter) BeforeQuery(ctx context.Context, _ *bun.QueryEv
 	return ctx
 }
 
-func (c *replayStatementCounter) AfterQuery(_ context.Context, e *bun.QueryEvent) {
+// replaySnapshotConflicts, set on a query context, counts MariaDB 1020
+// snapshot-isolation conflicts raised by that caller's statements.
+type replaySnapshotConflicts struct{}
+
+func (c *replayStatementCounter) AfterQuery(ctx context.Context, e *bun.QueryEvent) {
 	var err *mysql.MySQLError
 	if errors.As(e.Err, &err) {
 		switch err.Number {
+		case 1020:
+			if n, ok := ctx.Value(replaySnapshotConflicts{}).(*atomic.Int64); ok {
+				n.Add(1)
+			}
 		case 1213:
 			c.deadlocks.Add(1)
 		case 1205:
@@ -385,6 +393,199 @@ func TestObservationReplayConcurrentWithAssignmentReplace(t *testing.T) {
 				}
 			}
 			t.Logf("batches=%d events=%d replaces=%d deadlocks=0 lock_wait_timeouts=0", batches, seq, replaces.Load())
+		})
+	}
+}
+
+// secondReplayProbe assigns monitors to a second remote probe alongside the
+// fixture probe and opens a replay session for it. It returns the fixture for
+// that probe, each monitor's assignment generation for it, its config
+// revision, the fixture probe's new config revision, and each monitor's
+// assignment set revision.
+func secondReplayProbe(t *testing.T, r replayFixture, monitors []int64) (replayFixture, map[int64]int64, int64, int64, map[int64]int64) {
+	t.Helper()
+	ctx := t.Context()
+	const probeID = "99999999-9999-4999-8999-999999999999"
+	r.f.remote(t, probeID, "edge-2")
+	setRevisions := map[int64]int64{}
+	for _, m := range monitors {
+		set, err := r.f.assignments.Replace(ctx, m, 2, []string{r.session.ProbeID, probeID}, domain.HealthPolicyAnyDown)
+		if err != nil {
+			t.Fatalf("add second probe to monitor %d: %v", m, err)
+		}
+		setRevisions[m] = set.Revision
+	}
+	generations := map[int64]int64{}
+	for _, m := range monitors {
+		var gen int64
+		if err := r.f.db.NewRaw("SELECT generation FROM monitor_probe_assignments WHERE monitor_id = ? AND probe_id = ?", m, probeID).Scan(ctx, &gen); err != nil {
+			t.Fatal(err)
+		}
+		generations[m] = gen
+	}
+	if _, err := r.f.db.ExecContext(ctx, "UPDATE monitor_probe_assignment_history SET started_at = ?", r.at.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	first, err := r.syncer.RefreshRemote(ctx, syncTarget(), r.at.Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := r.syncer.RefreshRemote(ctx, domain.ProbeConfigTarget{HubID: probeRegistryID2, ProbeID: probeID}, r.at.Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	connections := repository.NewProbeConnectorStore(r.f.db)
+	metadata := domain.ProbeCredentialMetadata{HubID: probeRegistryID2, ProbeID: probeID, StreamID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", EnrollmentID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", CredentialVersion: 1, Endpoint: "wss://edge-2.example/ws/probe/v1", Fingerprint: strings.Repeat("b", 64)}
+	if _, err := connections.PrepareConnection(ctx, domain.ProbeConnection{ProbeCredentialMetadata: metadata, ProtectedCredential: make([]byte, 40), State: "prepared", PreparedAt: r.at}); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := connections.AcquireConnector(ctx, probeID, probeRegistryID3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := r
+	other.session = domain.ProbeReplaySession{HubID: metadata.HubID, ProbeID: probeID, StreamID: metadata.StreamID, OwnerID: lease.OwnerID, ConnectionGeneration: lease.Generation}
+	return other, generations, second.Revision, first.Revision, setRevisions
+}
+
+// TestObservationReplayTwoProbesConcurrentWithAssignmentReplace has two probes
+// ingest observation batches for the same monitors and minute buckets, in
+// opposite monitor orders, while assignment.replace rewrites every monitor's
+// set. On MariaDB this is the shape that could deadlock (1213) if the replay
+// locks (remote probe, local probe, sorted assignment sets, sorted dirty
+// buckets) and replace's sorted probe locks disagreed on order. A batch that
+// loses a snapshot-isolation race on the shared buckets (1020) is resent, as a
+// probe does; deadlocks, lock-wait timeouts and other errors fail the test.
+func TestObservationReplayTwoProbesConcurrentWithAssignmentReplace(t *testing.T) {
+	for _, engine := range []string{"sqlite", "mariadb"} {
+		t.Run(engine, func(t *testing.T) {
+			r := newReplayFixture(t, engine)
+			monitors, _ := bulkReplayMonitors(t, r, 6)
+			r2, generations2, revision2, revision1, setRevisions := secondReplayProbe(t, r, monitors)
+			if _, err := r.f.db.ExecContext(t.Context(), "DELETE FROM probe_dirty_buckets"); err != nil {
+				t.Fatal(err)
+			}
+			counter := &replayStatementCounter{}
+			attachInPlaceQueryHook(r.f.db, counter)
+			ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+			defer cancel()
+			const batches, perBatch = 12, 32
+			stop := make(chan struct{})
+			var replaces atomic.Int64
+			errs := make(chan error, len(monitors)+2)
+			var replacers sync.WaitGroup
+			for _, m := range monitors {
+				replacers.Add(1)
+				go func(m int64) {
+					defer replacers.Done()
+					expected := setRevisions[m]
+					for {
+						select {
+						case <-stop:
+							return
+						default:
+						}
+						got, err := r.f.assignments.Replace(ctx, m, expected, []string{r.session.ProbeID, r2.session.ProbeID}, domain.HealthPolicyAnyDown)
+						if err != nil {
+							errs <- fmt.Errorf("replace monitor %d at revision %d: %w", m, expected, err)
+							return
+						}
+						expected = got.Revision
+						replaces.Add(1)
+					}
+				}(m)
+			}
+			type probeRun struct {
+				r           replayFixture
+				revision    int64
+				generations map[int64]int64
+				descending  bool
+				last        map[int64]int64
+				conflicts   atomic.Int64
+				resends     int
+			}
+			runs := []*probeRun{{r: r, revision: revision1, descending: false, last: map[int64]int64{}}, {r: r2, revision: revision2, generations: generations2, descending: true, last: map[int64]int64{}}}
+			var ingesters sync.WaitGroup
+			for _, run := range runs {
+				ingesters.Add(1)
+				go func(run *probeRun) {
+					defer ingesters.Done()
+					seq := int64(0)
+					for i := 0; i < batches; i++ {
+						events := make([]domain.ProbeReplayEvent, 0, perBatch)
+						for j := 0; j < perBatch; j++ {
+							seq++
+							k := (i*7 + j*5) % len(monitors)
+							if run.descending {
+								k = len(monitors) - 1 - (j % len(monitors))
+							}
+							m := monitors[k]
+							// Both probes report the same instants, so they mark the same minute buckets.
+							e := run.r.observationAt(seq, m, run.revision, r.at.Add(-time.Duration(batches*perBatch-int(seq))*10*time.Millisecond))
+							if run.generations != nil {
+								e.Observation.AssignmentGeneration = run.generations[m]
+							}
+							events = append(events, e)
+							run.last[m] = seq
+						}
+						batch := run.r.batch(events...)
+						var result *domain.ProbeReplayResult
+						for {
+							before := run.conflicts.Load()
+							var err error
+							result, err = run.r.store.IngestReplayBatch(context.WithValue(ctx, replaySnapshotConflicts{}, &run.conflicts), run.r.session, batch, &services.AccessService{})
+							if err == nil {
+								break
+							}
+							// Both probes upsert the same local overall buckets. Under
+							// MariaDB snapshot isolation the loser of that race gets
+							// 1020 and, once the bounded transaction retries are spent,
+							// the batch fails whole; a probe resends it. Anything else
+							// is a failure.
+							if run.conflicts.Load() == before || run.resends >= 200 {
+								errs <- fmt.Errorf("probe %s batch %d after %d resends: %w", run.r.session.ProbeID, i, run.resends, err)
+								return
+							}
+							run.resends++
+							time.Sleep(time.Duration(1+run.resends%5) * time.Millisecond)
+						}
+						if result.AcceptedCount != perBatch || len(result.Rejected) != 0 {
+							errs <- fmt.Errorf("probe %s batch %d: %+v", run.r.session.ProbeID, i, result)
+							return
+						}
+					}
+				}(run)
+			}
+			ingesters.Wait()
+			close(stop)
+			replacers.Wait()
+			close(errs)
+			for err := range errs {
+				t.Errorf("%v (deadlocks=%d lock_wait_timeouts=%d)", err, counter.deadlocks.Load(), counter.waits.Load())
+			}
+			if t.Failed() {
+				return
+			}
+			if counter.deadlocks.Load() != 0 || counter.waits.Load() != 0 {
+				t.Fatalf("deadlocks=%d lock_wait_timeouts=%d", counter.deadlocks.Load(), counter.waits.Load())
+			}
+			for _, run := range runs {
+				for m, want := range run.last {
+					var got int64
+					if err := r.f.db.NewRaw("SELECT seq FROM monitor_probe_state WHERE monitor_id = ? AND probe_id = ?", m, run.r.session.ProbeID).Scan(ctx, &got); err != nil || got != want {
+						t.Fatalf("monitor %d probe %s state seq=%d want %d (%v)", m, run.r.session.ProbeID, got, want, err)
+					}
+				}
+			}
+			for _, m := range monitors {
+				for _, probeID := range []string{r.session.ProbeID, r2.session.ProbeID, domain.LocalProbeID} {
+					var n int
+					if err := r.f.db.NewRaw("SELECT COUNT(*) FROM probe_dirty_buckets WHERE monitor_id = ? AND probe_id = ?", m, probeID).Scan(ctx, &n); err != nil || n == 0 {
+						t.Fatalf("monitor %d probe %s dirty buckets=%d (%v)", m, probeID, n, err)
+					}
+				}
+			}
+			t.Logf("probes=2 batches=%d events=%d replaces=%d deadlocks=0 lock_wait_timeouts=0 snapshot_conflicts=%d resends=%d", 2*batches, 2*batches*perBatch, replaces.Load(), runs[0].conflicts.Load()+runs[1].conflicts.Load(), runs[0].resends+runs[1].resends)
 		})
 	}
 }
