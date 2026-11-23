@@ -305,13 +305,7 @@ func observationModel(obs domain.RegionalObservation) probeObservationModel {
 }
 
 func upsertRegionalState(ctx context.Context, tx bun.Tx, state domain.RegionalState) error {
-	row := monitorProbeStateModel{
-		TLSJSON: tlsModel(state.TLS), ConditionsJSON: conditionEvidenceListFromDomain(state.Conditions),
-		MonitorID: state.MonitorID, ProbeID: state.ProbeID, AssignmentGeneration: state.AssignmentGeneration,
-		StreamID: state.StreamID, Seq: state.Seq, ConfigRevision: state.ConfigRevision,
-		Status: int(state.Status), DownCount: state.DownCount, Ping: state.Ping, Message: state.Message, ActiveSourceAlertID: state.ActiveSourceAlertID,
-		ObservedAt: state.ObservedAt.UTC(), ReceivedAt: state.ReceivedAt.UTC(), LastSuccessAt: state.LastSuccessAt,
-	}
+	row := regionalStateRow(state)
 	existing := new(monitorProbeStateModel)
 	err := tx.NewSelect().Model(existing).Where("monitor_id = ? AND probe_id = ?", state.MonitorID, state.ProbeID).Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -323,6 +317,16 @@ func upsertRegionalState(ctx context.Context, tx bun.Tx, state domain.RegionalSt
 	}
 	_, err = tx.NewUpdate().Model(&row).Where("monitor_id = ? AND probe_id = ?", state.MonitorID, state.ProbeID).Exec(ctx)
 	return err
+}
+
+func regionalStateRow(state domain.RegionalState) monitorProbeStateModel {
+	return monitorProbeStateModel{
+		TLSJSON: tlsModel(state.TLS), ConditionsJSON: conditionEvidenceListFromDomain(state.Conditions),
+		MonitorID: state.MonitorID, ProbeID: state.ProbeID, AssignmentGeneration: state.AssignmentGeneration,
+		StreamID: state.StreamID, Seq: state.Seq, ConfigRevision: state.ConfigRevision,
+		Status: int(state.Status), DownCount: state.DownCount, Ping: state.Ping, Message: state.Message, ActiveSourceAlertID: state.ActiveSourceAlertID,
+		ObservedAt: state.ObservedAt.UTC(), ReceivedAt: state.ReceivedAt.UTC(), LastSuccessAt: state.LastSuccessAt,
+	}
 }
 
 func requireActiveAssignment(ctx context.Context, tx bun.Tx, monitorID int64, probeID string, generation int64) error {
