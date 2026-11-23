@@ -1,10 +1,13 @@
 package repository
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -329,7 +332,12 @@ func (r *RegionalCommitStore) ClearDirty(ctx context.Context, buckets []domain.D
 	return nil
 }
 
+// markDirtyTx marks every bucket in one statement. Each key is written once,
+// in primary-key order, so concurrent writers lock shared buckets (overall
+// buckets belong to the local registration) in the same order.
 func markDirtyTx(ctx context.Context, tx bun.Tx, buckets []domain.DirtyBucket) error {
+	rows := make([]probeDirtyBucketModel, 0, len(buckets))
+	seen := make(map[probeDirtyBucketModel]bool, len(buckets))
 	for _, bucket := range buckets {
 		if bucket.MonitorID <= 0 || bucket.ProbeID == "" || bucket.Resolution == "" || bucket.Bucket.IsZero() {
 			return fmt.Errorf("dirty bucket: %w", domain.ErrValidation)
@@ -337,25 +345,30 @@ func markDirtyTx(ctx context.Context, tx bun.Tx, buckets []domain.DirtyBucket) e
 		if bucket.Resolution == domain.DirtyResolutionOverall {
 			bucket.ProbeID = domain.LocalProbeID
 		}
+		key := probeDirtyBucketModel{MonitorID: bucket.MonitorID, ProbeID: bucket.ProbeID, Resolution: bucket.Resolution, Bucket: bucket.Bucket.UTC()}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		token, err := uuid.NewRandom()
 		if err != nil {
 			return err
 		}
-		revision := token.String()
-		row := probeDirtyBucketModel{
-			Revision:  revision,
-			MonitorID: bucket.MonitorID, ProbeID: bucket.ProbeID,
-			Resolution: bucket.Resolution, Bucket: bucket.Bucket.UTC(),
-		}
-		query := tx.NewInsert().Model(&row)
-		if tx.Dialect().Name() == dialect.MySQL {
-			query = query.On("DUPLICATE KEY UPDATE").Set("revision = VALUES(revision)")
-		} else {
-			query = query.On("CONFLICT(monitor_id,probe_id,resolution,bucket) DO UPDATE").Set("revision = EXCLUDED.revision")
-		}
-		if _, err := query.Exec(ctx); err != nil {
-			return err
-		}
+		key.Revision = token.String()
+		rows = append(rows, key)
 	}
-	return nil
+	if len(rows) == 0 {
+		return nil
+	}
+	slices.SortFunc(rows, func(a, b probeDirtyBucketModel) int {
+		return cmp.Or(cmp.Compare(a.MonitorID, b.MonitorID), strings.Compare(a.ProbeID, b.ProbeID), strings.Compare(a.Resolution, b.Resolution), a.Bucket.Compare(b.Bucket))
+	})
+	query := tx.NewInsert().Model(&rows)
+	if tx.Dialect().Name() == dialect.MySQL {
+		query = query.On("DUPLICATE KEY UPDATE").Set("revision = VALUES(revision)")
+	} else {
+		query = query.On("CONFLICT(monitor_id,probe_id,resolution,bucket) DO UPDATE").Set("revision = EXCLUDED.revision")
+	}
+	_, err := query.Exec(ctx)
+	return err
 }

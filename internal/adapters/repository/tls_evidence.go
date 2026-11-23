@@ -41,9 +41,8 @@ func replaceRemoteTLSInfo(ctx context.Context, tx bun.Tx, state domain.RegionalS
 		_, err := tx.NewDelete().Model((*TLSInfoModel)(nil)).Where("monitor_id = ? AND probe_id = ? AND assignment_generation = ?", state.MonitorID, state.ProbeID, state.AssignmentGeneration).Exec(ctx)
 		return err
 	}
-	tls := state.TLS
-	row := &TLSInfoModel{MonitorID: state.MonitorID, ProbeID: state.ProbeID, AssignmentGeneration: state.AssignmentGeneration, CheckedAt: state.ObservedAt.UTC(), InfoJSON: JSONField{"not_after": tls.NotAfter.UTC().Format(time.RFC3339Nano), "days_remaining": tls.DaysRemaining, "issuer": tls.Issuer}}
-	q := tx.NewInsert().Model(row)
+	row := remoteTLSInfoRow(state)
+	q := tx.NewInsert().Model(&row)
 	if tx.Dialect().Name() == dialect.MySQL {
 		q = q.On("DUPLICATE KEY UPDATE").Set("info_json = VALUES(info_json)").Set("checked_at = VALUES(checked_at)")
 	} else {
@@ -51,4 +50,9 @@ func replaceRemoteTLSInfo(ctx context.Context, tx bun.Tx, state domain.RegionalS
 	}
 	_, err := q.Exec(ctx)
 	return err
+}
+
+func remoteTLSInfoRow(state domain.RegionalState) TLSInfoModel {
+	tls := state.TLS
+	return TLSInfoModel{MonitorID: state.MonitorID, ProbeID: state.ProbeID, AssignmentGeneration: state.AssignmentGeneration, CheckedAt: state.ObservedAt.UTC(), InfoJSON: JSONField{"not_after": tls.NotAfter.UTC().Format(time.RFC3339Nano), "days_remaining": tls.DaysRemaining, "issuer": tls.Issuer}}
 }

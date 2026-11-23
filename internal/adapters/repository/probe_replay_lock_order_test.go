@@ -92,7 +92,7 @@ func TestObservationReplayLockOrderWithAppliedSourceReader(t *testing.T) {
 			unblock := func() { releaseOnce.Do(func() { close(release) }) }
 			defer unblock()
 			writerHook := &replayAssignmentLockHook{after: func(ctx context.Context, e *bun.QueryEvent) {
-				if e.Err == nil && e.Query == fmt.Sprintf("UPDATE monitor_probe_assignment_sets SET revision = revision WHERE monitor_id = %d", first) {
+				if e.Err == nil && strings.HasPrefix(e.Query, "UPDATE monitor_probe_assignment_sets SET revision = revision WHERE monitor_id IN (") {
 					once.Do(func() {
 						close(reached)
 						select {

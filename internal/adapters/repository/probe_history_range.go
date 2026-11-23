@@ -25,6 +25,15 @@ type probeHistoryRangeModel struct {
 // future samples. Persist the whole affected range with the source commit;
 // marking only the new sample's freshness window would miss those old buckets.
 func markObservationHistoryTx(ctx context.Context, tx bun.Tx, obs domain.RegionalObservation) error {
+	if err := markObservationHistoryRangeTx(ctx, tx, obs); err != nil {
+		return err
+	}
+	return markDirtyTx(ctx, tx, domain.DirtyBucketsForObservation(obs))
+}
+
+// markObservationHistoryRangeTx persists the already projected range a sample
+// with an earlier wall clock than its stream predecessors invalidates.
+func markObservationHistoryRangeTx(ctx context.Context, tx bun.Tx, obs domain.RegionalObservation) error {
 	if obs.StreamID != "" && obs.Seq > 0 {
 		var through time.Time
 		err := tx.NewSelect().Model((*probeObservationModel)(nil)).Column("observed_at").
@@ -46,7 +55,7 @@ func markObservationHistoryTx(ctx context.Context, tx bun.Tx, obs domain.Regiona
 			}
 		}
 	}
-	return markDirtyTx(ctx, tx, domain.DirtyBucketsForObservation(obs))
+	return nil
 }
 
 func (r *RegionalCommitStore) expandHistoryRange(ctx context.Context, now time.Time, projector ports.ProbeHistoryProjector) (bool, error) {
